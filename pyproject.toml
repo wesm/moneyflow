@@ -1,6 +1,6 @@
 [project]
 name = "moneyflow"
-version = "0.1.2"
+version = "0.2.0"
 description = "Track your moneyflow - A powerful terminal UI for personal finance management"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
