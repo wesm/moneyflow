@@ -1,0 +1,49 @@
+name: Nix Flake
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  nix-flake:
+    name: Verify Nix Flake
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Check flake
+        run: |
+          nix flake check --show-trace
+
+      - name: Build package
+        run: |
+          nix build --print-build-logs
+
+      - name: Test package runs
+        run: |
+          # Run in demo mode to verify the package works
+          ./result/bin/moneyflow --help
+          echo "✅ Package built and runs successfully"
+
+      - name: Check development shell
+        run: |
+          # Verify dev shell loads
+          nix develop --command echo "✅ Development shell works"
+
+      - name: Summary
+        run: |
+          echo "✅ Nix flake is valid and working" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Flake check passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Package builds successfully" >> $GITHUB_STEP_SUMMARY
+          echo "- Binary executes correctly" >> $GITHUB_STEP_SUMMARY
+          echo "- Development shell loads" >> $GITHUB_STEP_SUMMARY

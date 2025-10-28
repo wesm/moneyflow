@@ -17,7 +17,7 @@
         packages = {
           default = pythonPackages.buildPythonApplication {
             pname = "moneyflow";
-            version = "0.5.2";
+            version = "0.5.3";
             format = "pyproject";
 
             src = ./.;
