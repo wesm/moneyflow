@@ -12,7 +12,7 @@ class TestYNABBackend:
 
     @pytest.fixture
     def mock_ynab_api(self):
-        with patch("moneyflow.backends.ynab.ynab") as mock:
+        with patch("moneyflow.ynab_client.ynab") as mock:
             yield mock
 
     @pytest.mark.asyncio
@@ -31,8 +31,8 @@ class TestYNABBackend:
 
         await backend.login(password="test-access-token")
 
-        assert backend.access_token == "test-access-token"
-        assert backend.budget_id == "test-budget-id"
+        assert backend.client.access_token == "test-access-token"
+        assert backend.client.budget_id == "test-budget-id"
 
     @pytest.mark.asyncio
     async def test_login_no_password(self, backend):
@@ -49,14 +49,14 @@ class TestYNABBackend:
 
         mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
 
-        with pytest.raises(RuntimeError, match="No budgets found"):
+        with pytest.raises(ValueError, match="No budgets found"):
             await backend.login(password="test-access-token")
 
     @pytest.mark.asyncio
     async def test_get_transactions(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.access_token = "test-token"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
 
         mock_txn = MagicMock()
         mock_txn.id = "txn-1"
@@ -70,6 +70,7 @@ class TestYNABBackend:
         mock_txn.account_name = "Checking"
         mock_txn.memo = "Morning coffee"
         mock_txn.deleted = False
+        mock_txn.transfer_account_id = None
         mock_txn.cleared = "cleared"
 
         mock_response = MagicMock()
@@ -92,8 +93,8 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_get_transaction_categories(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
 
         mock_category = MagicMock()
         mock_category.id = "cat-1"
@@ -121,8 +122,8 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_update_transaction(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
 
         mock_existing_txn = MagicMock()
         mock_existing_txn.account_id = "acc-1"
@@ -161,8 +162,8 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_delete_transaction_success(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
 
         mock_transactions_api = MagicMock()
         mock_transactions_api.delete_transaction.return_value = None
@@ -175,8 +176,8 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_get_all_merchants(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
 
         mock_payee1 = MagicMock()
         mock_payee1.name = "Starbucks"
@@ -198,9 +199,9 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_get_transactions_hides_transfers(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.access_token = "test-token"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
 
         mock_transfer_txn = MagicMock()
         mock_transfer_txn.id = "txn-transfer"
@@ -232,9 +233,9 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_get_transactions_caches_results(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.access_token = "test-token"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
 
         mock_txn = MagicMock()
         mock_txn.id = "txn-1"
@@ -267,9 +268,9 @@ class TestYNABBackend:
 
     @pytest.mark.asyncio
     async def test_get_transactions_filters_by_hidden_from_reports(self, backend, mock_ynab_api):
-        backend.budget_id = "test-budget-id"
-        backend.access_token = "test-token"
-        backend.api_client = MagicMock()
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
 
         mock_visible_txn = MagicMock()
         mock_visible_txn.id = "txn-visible"
@@ -321,10 +322,10 @@ class TestYNABBackend:
         assert len(result_all["allTransactions"]["results"]) == 2
 
     def test_clear_auth(self, backend):
-        backend.api_client = MagicMock()
-        backend.access_token = "test-token"
+        backend.client.api_client = MagicMock()
+        backend.client.access_token = "test-token"
 
         backend.clear_auth()
 
-        assert backend.api_client is None
-        assert backend.access_token is None
+        assert backend.client.api_client is None
+        assert backend.client.access_token is None
