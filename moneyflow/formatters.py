@@ -22,9 +22,11 @@ ColumnKey = Literal["name", "count", "total"]
 class ColumnSpec(TypedDict):
     """Specification for a table column."""
 
-    label: Union[str, Text]  # Display label (may include sort arrow, can be Rich Text for alignment)
+    label: Union[
+        str, Text
+    ]  # Display label (may include sort arrow, can be Rich Text for alignment)
     key: str  # Data key
-    width: int  # Column width
+    width: Optional[int]  # Column width (None = auto-fit to content)
 
 
 class PreparedView(TypedDict):
@@ -218,7 +220,7 @@ class ViewPresenter:
                 "width": name_width,
             },
             {"label": f"Count {count_arrow}".strip(), "key": "count", "width": 10},
-            {"label": total_label_text, "key": "total", "width": 12},
+            {"label": total_label_text, "key": "total", "width": None},  # Auto-size to content
         ]
 
         # Add top category column for merchant view
@@ -435,7 +437,7 @@ class ViewPresenter:
                 "key": "account",
                 "width": account_width,
             },
-            {"label": amount_label_text, "key": "amount", "width": 12},
+            {"label": amount_label_text, "key": "amount", "width": None},  # Auto-size to content
             {"label": "", "key": "flags", "width": 3},  # Flags column (✓ H *)
         ]
 
