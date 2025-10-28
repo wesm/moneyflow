@@ -49,19 +49,24 @@
                 build-system = [ setuptools setuptools-scm ];
                 dependencies = [ autocommand path ];
               })
-              # ynab - YNAB API client (not in nixpkgs)
+              # ynab - YNAB API client (not in nixpkgs) - using pre-built wheel
               (buildPythonPackage rec {
                 pname = "ynab";
                 version = "1.9.0";
-                pyproject = true;
+                format = "wheel";
 
-                src = fetchPypi {
-                  inherit pname version;
-                  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+                src = pkgs.fetchurl {
+                  url = "https://files.pythonhosted.org/packages/b2/9c/0ccd11bcdf7522fcb2823fcd7ffbb48e3164d72caaf3f920c7b068347175/ynab-1.9.0-py3-none-any.whl";
+                  hash = "sha256-cqwCGWBbQoAUloTs0P7DvXXZOHctZc3uqbPmahsvRw0=";
                 };
 
-                build-system = [ hatchling ];
-                dependencies = [ requests ];
+                dependencies = [
+                  urllib3
+                  python-dateutil
+                  pydantic
+                  typing-extensions
+                  certifi
+                ];
               })
             ];
 
