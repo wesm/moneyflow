@@ -11,6 +11,7 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Label, Static
 
 from ..duplicate_detector import DuplicateDetector
+from ..formatters import ViewPresenter
 from ..logging_config import get_logger
 from ..state import TransactionEdit
 from .edit_screens import DeleteConfirmationScreen
@@ -60,6 +61,11 @@ class DuplicatesScreen(Screen):
     #duplicates-table {
         height: 1fr;
         border: solid $warning;
+    }
+
+    /* Right-align amount column for proper decimal alignment */
+    #duplicates-table > .datatable--cell-key-amount {
+        text-align: right;
     }
 
     #duplicates-footer {
@@ -134,7 +140,7 @@ class DuplicatesScreen(Screen):
                         f"#{group_num}",
                         str(txn["date"]),
                         txn["merchant"],
-                        f"${txn['amount']:,.2f}",
+                        ViewPresenter.format_amount(txn["amount"], for_table=True),
                         txn["account"],
                     )
 
@@ -240,7 +246,7 @@ class DuplicatesScreen(Screen):
                         f"#{group_num}",
                         str(txn["date"]),
                         txn["merchant"],
-                        f"${txn['amount']:,.2f}",
+                        ViewPresenter.format_amount(txn["amount"], for_table=True),
                         txn["account"],
                     )
 

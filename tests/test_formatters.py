@@ -8,9 +8,15 @@ and produces correct output for all view types.
 from datetime import date
 
 import polars as pl
+from rich.text import Text
 
 from moneyflow.formatters import ViewPresenter
 from moneyflow.state import SortDirection, SortMode
+
+
+def normalize_row(row: tuple) -> tuple:
+    """Convert Text objects in row to plain strings for comparison."""
+    return tuple(item.plain if isinstance(item, Text) else item for item in row)
 
 
 class TestSortArrow:
@@ -215,8 +221,8 @@ class TestFormatAggregationRows:
         rows = ViewPresenter.format_aggregation_rows(df)
 
         assert len(rows) == 2
-        assert rows[0] == ("Amazon", "50", "$-1,234.56", "")
-        assert rows[1] == ("Starbucks", "30", "$-89.70", "")
+        assert normalize_row(rows[0]) == ("Amazon", "50", "-$1,234.56", "")
+        assert normalize_row(rows[1]) == ("Starbucks", "30", "-$89.70", "")
 
     def test_formats_merchant_rows_with_top_category(self):
         """Should format merchant rows with top category column."""
@@ -233,8 +239,8 @@ class TestFormatAggregationRows:
         rows = ViewPresenter.format_aggregation_rows(df, group_by_field="merchant")
 
         assert len(rows) == 2
-        assert rows[0] == ("Whole Foods", "10", "$-150.00", "Groceries 100%", "")
-        assert rows[1] == ("Starbucks", "20", "$-80.00", "Coffee Shops 85%", "")
+        assert normalize_row(rows[0]) == ("Whole Foods", "10", "-$150.00", "Groceries 100%", "")
+        assert normalize_row(rows[1]) == ("Starbucks", "20", "-$80.00", "Coffee Shops 85%", "")
 
     def test_formats_category_rows(self):
         """Should format category aggregation rows correctly."""
@@ -244,8 +250,8 @@ class TestFormatAggregationRows:
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
-        assert rows[0] == ("Groceries", "100", "$-2,500.00", "")
-        assert rows[1] == ("Dining", "45", "$-567.89", "")
+        assert normalize_row(rows[0]) == ("Groceries", "100", "-$2,500.00", "")
+        assert normalize_row(rows[1]) == ("Dining", "45", "-$567.89", "")
 
     def test_handles_null_names(self):
         """Should handle null merchant/category names."""
@@ -275,7 +281,7 @@ class TestFormatAggregationRows:
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
-        assert rows[0] == ("BigCorp", "1000", "$-123,456.78", "")
+        assert normalize_row(rows[0]) == ("BigCorp", "1000", "-$123,456.78", "")
 
     def test_formats_positive_amounts(self):
         """Should format positive amounts (income) correctly."""
@@ -283,7 +289,7 @@ class TestFormatAggregationRows:
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
-        assert rows[0] == ("Employer", "2", "$5,000.00", "")
+        assert normalize_row(rows[0]) == ("Employer", "2", "+$5,000.00", "")
 
     def test_shows_pending_edit_indicator(self):
         """Should show * for groups with pending edits."""
@@ -317,15 +323,27 @@ class TestFormatAggregationRows:
             pending_edit_ids=pending_edit_ids,
         )
 
-        assert rows[0] == ("Amazon", "50", "$-1,234.56", "Shopping 80%", "*")  # Has pending edits
-        assert rows[1] == (
+        assert normalize_row(rows[0]) == (
+            "Amazon",
+            "50",
+            "-$1,234.56",
+            "Shopping 80%",
+            "*",
+        )  # Has pending edits
+        assert normalize_row(rows[1]) == (
             "Starbucks",
             "30",
-            "$-89.70",
+            "-$89.70",
             "Coffee Shops 100%",
             "",
         )  # No pending edits
-        assert rows[2] == ("Target", "20", "$-456.78", "Shopping 90%", "")  # No pending edits
+        assert normalize_row(rows[2]) == (
+            "Target",
+            "20",
+            "-$456.78",
+            "Shopping 90%",
+            "",
+        )  # No pending edits
 
     def test_no_pending_edits_shows_empty_flag(self):
         """Should show empty flags when no pending edits."""
@@ -351,8 +369,8 @@ class TestFormatAggregationRows:
             pending_edit_ids=pending_edit_ids,
         )
 
-        assert rows[0] == ("Groceries", "100", "$-2,500.00", "")
-        assert rows[1] == ("Dining", "45", "$-567.89", "")
+        assert normalize_row(rows[0]) == ("Groceries", "100", "-$2,500.00", "")
+        assert normalize_row(rows[1]) == ("Dining", "45", "-$567.89", "")
 
     def test_pending_edits_without_detail_df(self):
         """Should handle missing detail_df gracefully."""
@@ -371,10 +389,10 @@ class TestFormatAggregationRows:
             agg_df, detail_df=None, group_by_field="merchant", pending_edit_ids={"txn1"}
         )
 
-        assert rows[0] == (
+        assert normalize_row(rows[0]) == (
             "Amazon",
             "50",
-            "$-1,234.56",
+            "-$1,234.56",
             "Shopping 85%",
             "",
         )  # No pending indicator without detail_df
@@ -403,7 +421,7 @@ class TestPrepareAggregationView:
         assert len(view["columns"]) == 5  # merchant, count, total, top_category_display, flags
         assert len(view["rows"]) == 2
         assert view["columns"][0]["label"] == "Merchant"
-        assert view["rows"][0] == ("Amazon", "50", "$-1,234.56", "Shopping 90%", "")
+        assert normalize_row(view["rows"][0]) == ("Amazon", "50", "-$1,234.56", "Shopping 90%", "")
 
     def test_empty_dataframe_view(self):
         """Should handle empty DataFrame gracefully."""
@@ -532,7 +550,14 @@ class TestFormatTransactionRows:
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
         assert len(rows) == 1
-        assert rows[0] == ("2025-01-15", "Amazon", "Shopping", "Chase", "$-99.99", "")
+        assert normalize_row(rows[0]) == (
+            "2025-01-15",
+            "Amazon",
+            "Shopping",
+            "Chase",
+            "-$99.99",
+            "",
+        )
 
     def test_formats_multiple_transactions(self):
         """Should format multiple transactions."""
@@ -551,7 +576,7 @@ class TestFormatTransactionRows:
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
         assert len(rows) == 2
-        assert rows[1] == ("2025-01-16", "Starbucks", "Dining", "Amex", "$-5.50", "")
+        assert normalize_row(rows[1]) == ("2025-01-16", "Starbucks", "Dining", "Amex", "-$5.50", "")
 
     def test_includes_selected_flag(self):
         """Should include ✓ flag for selected transactions."""
@@ -677,7 +702,7 @@ class TestFormatTransactionRows:
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][4] == "$-12,345.67"
+        assert rows[0][4].plain == "-$12,345.67"
 
     def test_formats_positive_amount(self):
         """Should format positive amounts (income)."""
@@ -695,7 +720,7 @@ class TestFormatTransactionRows:
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][4] == "$5,000.00"
+        assert rows[0][4].plain == "+$5,000.00"
 
 
 class TestPrepareTransactionView:
@@ -777,6 +802,55 @@ class TestPrepareTransactionView:
         # Find amount column and check for arrow
         amount_col = [c for c in view["columns"] if c["key"] == "amount"][0]
         assert "↑" in amount_col["label"]
+
+
+class TestFormatAmount:
+    """Tests for format_amount static method."""
+
+    def test_formats_negative_amount_with_sign_outside(self):
+        """Should format negative amount with - sign outside dollar sign."""
+        result = ViewPresenter.format_amount(-1234.56)
+        assert result == "-$1,234.56"
+
+    def test_formats_positive_amount_with_plus_sign(self):
+        """Should format positive amount with + sign outside dollar sign."""
+        result = ViewPresenter.format_amount(5000.00)
+        assert result == "+$5,000.00"
+
+    def test_formats_zero_with_plus_sign(self):
+        """Should format zero with + sign."""
+        result = ViewPresenter.format_amount(0.00)
+        assert result == "+$0.00"
+
+    def test_formats_small_negative_amount(self):
+        """Should format small negative amounts correctly."""
+        result = ViewPresenter.format_amount(-5.50)
+        assert result == "-$5.50"
+
+    def test_formats_large_negative_with_commas(self):
+        """Should format large negative amounts with commas."""
+        result = ViewPresenter.format_amount(-123456.78)
+        assert result == "-$123,456.78"
+
+    def test_formats_large_positive_with_commas(self):
+        """Should format large positive amounts with commas."""
+        result = ViewPresenter.format_amount(99999.99)
+        assert result == "+$99,999.99"
+
+    def test_formats_with_two_decimal_places(self):
+        """Should always format with exactly 2 decimal places."""
+        result = ViewPresenter.format_amount(-99.9)
+        assert result == "-$99.90"
+
+    def test_handles_very_small_negative(self):
+        """Should handle amounts less than a dollar."""
+        result = ViewPresenter.format_amount(-0.99)
+        assert result == "-$0.99"
+
+    def test_handles_very_small_positive(self):
+        """Should handle small positive amounts."""
+        result = ViewPresenter.format_amount(0.01)
+        assert result == "+$0.01"
 
 
 class TestViewPresenterIntegration:

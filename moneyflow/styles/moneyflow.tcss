@@ -71,6 +71,15 @@ DataTable > .datatable--odd-row {
     background: $panel;
 }
 
+/* Right-align amount and total columns for proper decimal alignment */
+DataTable > .datatable--cell-key-amount {
+    text-align: right;
+}
+
+DataTable > .datatable--cell-key-total {
+    text-align: right;
+}
+
 #action-bar {
     height: 1;
     background: $panel;

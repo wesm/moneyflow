@@ -9,6 +9,8 @@ from pathlib import Path
 
 import click
 
+from .formatters import ViewPresenter
+
 
 @click.group(invoke_without_command=True)
 @click.option(
@@ -147,7 +149,7 @@ def amazon_import(ctx, orders_dir, force):
         click.echo("\nDatabase summary:")
         click.echo(f"  Total transactions: {db_stats['total_transactions']:,}")
         click.echo(f"  Date range: {db_stats['earliest_date']} → {db_stats['latest_date']}")
-        click.echo(f"  Total spent: ${abs(db_stats['total_amount']):,.2f}")
+        click.echo(f"  Total amount: {ViewPresenter.format_amount(db_stats['total_amount'])}")
         click.echo(f"  Unique items: {db_stats['item_count']:,}")
 
         click.echo("\n✓ Ready! Launch moneyflow:")
@@ -193,7 +195,7 @@ def amazon_status(ctx):
     click.echo("\nStatistics:")
     click.echo(f"  Total transactions: {db_stats['total_transactions']}")
     click.echo(f"  Date range: {db_stats['earliest_date']} to {db_stats['latest_date']}")
-    click.echo(f"  Total spent: ${abs(db_stats['total_amount']):,.2f}")
+    click.echo(f"  Total amount: {ViewPresenter.format_amount(db_stats['total_amount'])}")
     click.echo(f"  Unique items: {db_stats['item_count']}")
     click.echo(f"  Categories: {db_stats['category_count']}")
 

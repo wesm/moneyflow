@@ -20,6 +20,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from ..formatters import ViewPresenter
+
 
 class EditMerchantScreen(ModalScreen):
     """
@@ -125,7 +127,9 @@ class EditMerchantScreen(ModalScreen):
                 if self.transaction_count == 1:
                     # Single transaction details
                     amount = self.transaction_details.get("amount")
-                    amount_str = f"${amount:,.2f}" if amount is not None else "N/A"
+                    amount_str = (
+                        ViewPresenter.format_amount(amount) if amount is not None else "N/A"
+                    )
                     details_text = (
                         f"Transaction: {self.transaction_details.get('date', 'N/A')} | "
                         f"{amount_str} | "
@@ -135,7 +139,7 @@ class EditMerchantScreen(ModalScreen):
                 else:
                     # Bulk edit summary
                     total = self.transaction_details.get("total_amount", 0)
-                    total_str = f"${total:,.2f}" if total is not None else "N/A"
+                    total_str = ViewPresenter.format_amount(total) if total is not None else "N/A"
                     details_text = (
                         f"Editing {self.transaction_count} transactions | Total: {total_str}"
                     )
@@ -400,7 +404,7 @@ class SelectCategoryScreen(ModalScreen):
             # Show transaction details if available
             if self.transaction_details:
                 amount = self.transaction_details.get("amount")
-                amount_str = f"${amount:,.2f}" if amount is not None else "N/A"
+                amount_str = ViewPresenter.format_amount(amount) if amount is not None else "N/A"
                 details_text = (
                     f"Transaction: {self.transaction_details.get('date', 'N/A')} | "
                     f"{amount_str} | "

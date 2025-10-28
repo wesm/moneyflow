@@ -317,9 +317,9 @@ class AppController:
 
             stats_text = (
                 f"{len(filtered_df):,} txns | "
-                f"Income: ${total_income:,.2f} | "
-                f"Expenses: ${total_expenses:,.2f} | "
-                f"Savings: ${net_savings:,.2f}"
+                f"Income: {ViewPresenter.format_amount(total_income)} | "
+                f"Expenses: {ViewPresenter.format_amount(total_expenses)} | "
+                f"Savings: {ViewPresenter.format_amount(net_savings)}"
             )
             self.view.update_stats(stats_text)
         else:

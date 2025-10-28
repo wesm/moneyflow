@@ -12,6 +12,8 @@ from typing import List
 
 import polars as pl
 
+from .formatters import ViewPresenter
+
 
 class DuplicateDetector:
     """Detect potential duplicate transactions."""
@@ -210,7 +212,7 @@ class DuplicateDetector:
                     lines.append(
                         f"  ID: {txn_id[:12]}... | "
                         f"Date: {txn['date']} | "
-                        f"Amount: ${txn['amount']:,.2f} | "
+                        f"Amount: {ViewPresenter.format_amount(txn['amount'])} | "
                         f"Merchant: {txn['merchant']} | "
                         f"Account: {txn['account']}"
                     )

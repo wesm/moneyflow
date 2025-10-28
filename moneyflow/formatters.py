@@ -7,9 +7,10 @@ fully typed and testable.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional, TypedDict
+from typing import Any, Dict, Literal, Optional, TypedDict, Union
 
 import polars as pl
+from rich.text import Text
 
 from .state import SortDirection, SortMode
 
@@ -50,6 +51,35 @@ class ViewPresenter:
     This class is stateless and thread-safe. All methods are static
     to emphasize the pure function nature.
     """
+
+    @staticmethod
+    def format_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
+        """
+        Format dollar amount with sign outside dollar sign.
+
+        Args:
+            amount: The dollar amount to format
+            for_table: If True, return Rich Text with right justification for tables
+
+        Returns:
+            Formatted string like "-$1,234.56" or "+$5,000.00"
+            If for_table=True, returns Rich Text object with right justification
+
+        Examples:
+            >>> ViewPresenter.format_amount(-1234.56)
+            '-$1,234.56'
+            >>> ViewPresenter.format_amount(5000.00)
+            '+$5,000.00'
+            >>> ViewPresenter.format_amount(0.00)
+            '+$0.00'
+        """
+        sign = "-" if amount < 0 else "+"
+        abs_amount = abs(amount)
+        formatted = f"{sign}${abs_amount:,.2f}"
+
+        if for_table:
+            return Text(formatted, justify="right")
+        return formatted
 
     @staticmethod
     def get_sort_arrow(sort_by: SortMode, sort_direction: SortDirection, field: SortMode) -> str:
@@ -184,7 +214,7 @@ class ViewPresenter:
                 "width": name_width,
             },
             {"label": f"Count {count_arrow}".strip(), "key": "count", "width": 10},
-            {"label": f"Total {amount_arrow}".strip(), "key": "total", "width": 15},
+            {"label": f"Total {amount_arrow}".strip(), "key": "total", "width": 12},
         ]
 
         # Add top category column for merchant view
@@ -263,9 +293,19 @@ class ViewPresenter:
                 top_category = row_dict.get("top_category", "")
                 top_category_pct = row_dict.get("top_category_pct", 0)
                 top_category_display = f"{top_category} {top_category_pct}%" if top_category else ""
-                rows.append((name, str(count), f"${total:,.2f}", top_category_display, flags))
+                rows.append(
+                    (
+                        name,
+                        str(count),
+                        ViewPresenter.format_amount(total, for_table=True),
+                        top_category_display,
+                        flags,
+                    )
+                )
             else:
-                rows.append((name, str(count), f"${total:,.2f}", flags))
+                rows.append(
+                    (name, str(count), ViewPresenter.format_amount(total, for_table=True), flags)
+                )
 
         return rows
 
@@ -478,7 +518,16 @@ class ViewPresenter:
                 txn_id, selected_ids, hide_from_reports, pending_edit_ids
             )
 
-            rows.append((date, merchant, category, account, f"${amount:,.2f}", flags))
+            rows.append(
+                (
+                    date,
+                    merchant,
+                    category,
+                    account,
+                    ViewPresenter.format_amount(amount, for_table=True),
+                    flags,
+                )
+            )
 
         return rows
 

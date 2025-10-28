@@ -6,6 +6,8 @@ from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Label, Static
 
+from ..formatters import ViewPresenter
+
 
 class TransactionDetailScreen(ModalScreen):
     """Modal showing all transaction fields from the API."""
@@ -76,7 +78,7 @@ class TransactionDetailScreen(ModalScreen):
 
                 yield Label("Amount:", classes="field-label")
                 amount = self.transaction_data.get("amount", 0)
-                yield Static(f"${amount:,.2f}", classes="field-value")
+                yield Static(ViewPresenter.format_amount(amount), classes="field-value")
 
                 yield Label("Merchant:", classes="field-label")
                 yield Static(
