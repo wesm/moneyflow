@@ -49,6 +49,20 @@
                 build-system = [ setuptools setuptools-scm ];
                 dependencies = [ autocommand path ];
               })
+              # ynab - YNAB API client (not in nixpkgs)
+              (buildPythonPackage rec {
+                pname = "ynab";
+                version = "1.9.0";
+                pyproject = true;
+
+                src = fetchPypi {
+                  inherit pname version;
+                  hash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+                };
+
+                build-system = [ hatchling ];
+                dependencies = [ requests ];
+              })
             ];
 
             # Skip tests during build (can be run separately)
