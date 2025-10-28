@@ -292,6 +292,51 @@ uv lock --upgrade
 uv sync
 ```
 
+## Security Review Bot
+
+This repository uses an automated security review bot powered by Claude 4.5 Sonnet to review all PRs from external contributors.
+
+**For full documentation, see:** [.github/SECURITY_BOT.md](.github/SECURITY_BOT.md)
+
+### Quick Overview
+
+- **What it does:** Automatically reviews PRs for security issues (secrets, injection vulns, crypto weaknesses)
+- **Who it reviews:** External contributors only (not trusted maintainers)
+- **Cost:** ~$1-2/month for typical usage
+- **Setup required:** `ANTHROPIC_API_KEY` in GitHub Secrets
+
+### Maintaining Trusted Contributors
+
+Edit `.github/trusted-contributors.json` to add/remove maintainers who bypass the review:
+
+```json
+{
+  "trusted_github_usernames": [
+    "wesm",
+    "another-maintainer"
+  ]
+}
+```
+
+### Handling Security Review Results
+
+When the bot flags issues on a PR:
+
+1. **Review each issue** - false positives are possible, use judgment
+2. **Assess severity** - high/medium/low (high must be addressed)
+3. **Discuss with contributor** - help them understand the concern
+4. **Request fixes** or document why risk is acceptable
+5. **Never merge high-severity issues** without resolution
+
+### Improving the Bot
+
+If you need to adjust the bot's behavior:
+
+- **Prompt tuning:** Edit `.github/scripts/security_review.py`
+- **Context:** Bot reads `SECURITY.md`, `CLAUDE.md`, `README.md`
+- **Test changes:** Create a PR from a test account to trigger the bot
+- **Monitor costs:** Check https://console.anthropic.com/
+
 ## Git Workflow
 
 **CRITICAL**: Never commit without running all code quality checks first!

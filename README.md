@@ -199,6 +199,9 @@ uv run ruff format moneyflow/ tests/      # Formatting
 uv run ruff check moneyflow/ tests/       # Linting
 ```
 
+**Security reviews:**
+All PRs from external contributors are automatically reviewed by Claude for security issues. See [Security Bot Documentation](.github/SECURITY_BOT.md) for details.
+
 See [Developing moneyflow](https://moneyflow.dev/development/developing) for details.
 
 ---

@@ -1,0 +1,62 @@
+name: Security Review Bot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for proper diff
+
+      - name: Check if contributor is trusted
+        id: check-trusted
+        run: |
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          TRUSTED_USERS=$(jq -r '.trusted_github_usernames[]' .github/trusted-contributors.json)
+
+          if echo "$TRUSTED_USERS" | grep -qx "$PR_AUTHOR"; then
+            echo "is_trusted=true" >> $GITHUB_OUTPUT
+            echo "✅ $PR_AUTHOR is a trusted contributor - skipping security review"
+          else
+            echo "is_trusted=false" >> $GITHUB_OUTPUT
+            echo "🔍 $PR_AUTHOR is an external contributor - running security review"
+          fi
+
+      - name: Checkout PR branch
+        if: steps.check-trusted.outputs.is_trusted != 'true'
+        run: |
+          git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
+          git checkout pr-branch
+
+      - name: Set up Python
+        if: steps.check-trusted.outputs.is_trusted != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        if: steps.check-trusted.outputs.is_trusted != 'true'
+        run: |
+          pip install anthropic PyGithub
+
+      - name: Run security review
+        if: steps.check-trusted.outputs.is_trusted != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO_NAME: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python .github/scripts/security_review.py
