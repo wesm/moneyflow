@@ -2,7 +2,7 @@
   description = "moneyflow - A powerful terminal UI for personal finance management";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -30,12 +30,25 @@
               aiohttp
               click
               gql
-              oathtool
               polars
               pyyaml
               textual
               cryptography
               python-dateutil
+              # oathtool - pure Python TOTP generator (not in nixpkgs)
+              (buildPythonPackage rec {
+                pname = "oathtool";
+                version = "2.3.1";
+                pyproject = true;
+
+                src = fetchPypi {
+                  inherit pname version;
+                  hash = "sha256-DfP22b9/cShz/fFETzPNWKa9W2h+0Eolar14OTrPLCU=";
+                };
+
+                build-system = [ setuptools setuptools-scm ];
+                dependencies = [ autocommand path ];
+              })
             ];
 
             # Skip tests during build (can be run separately)
@@ -68,7 +81,6 @@
             pythonPackages.aiohttp
             pythonPackages.click
             pythonPackages.gql
-            pythonPackages.oathtool
             pythonPackages.polars
             pythonPackages.pyyaml
             pythonPackages.textual
@@ -87,9 +99,18 @@
 
           shellHook = ''
             echo "moneyflow development environment"
-            echo "Run 'uv sync' to set up the project"
-            echo "Run 'uv run moneyflow' to start the application"
-            echo "Run 'uv run pytest' to run tests"
+
+            # Install package in editable mode if not already installed
+            if ! python -c "import moneyflow" 2>/dev/null; then
+              echo "Installing moneyflow in editable mode..."
+              uv pip install -e . --quiet
+            fi
+
+            # Add uv-managed venv bin to PATH
+            export PATH="$PWD/.venv/bin:$PATH"
+
+            echo "Ready! Try: moneyflow --demo"
+            echo "Run tests: pytest -v"
           '';
         };
 
