@@ -80,7 +80,7 @@
             pythonPackages.pytest-cov
             pythonPackages.pytest-mock
             pythonPackages.ruff
-            pythonPackages.pyright
+            pkgs.pyright
             # uv for development workflow
             pkgs.uv
           ];
