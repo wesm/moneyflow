@@ -47,3 +47,7 @@ htmlcov/
 # macOS
 .DS_Store
 site/
+
+# Nix
+result
+result-*
