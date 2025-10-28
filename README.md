@@ -13,6 +13,7 @@ A keyboard-driven terminal UI for managing personal finance transactions. Built 
 
 **Supported Platforms:**
 - ✅ **Monarch Money** - Full integration with editing and sync
+- ✅ **YNAB** - Full integration with editing and sync
 - ✅ **Amazon Purchases** - Import and analyze purchase history
 - ✅ **Demo Mode** - Try it without an account
 
@@ -54,6 +55,8 @@ moneyflow --year 2025
 
 **First-time Monarch Money setup:** You'll need your 2FA secret key. See the [Monarch Money setup guide](https://moneyflow.dev/guide/monarch).
 
+**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings.
+
 ---
 
 ## Key Features
@@ -93,6 +96,23 @@ Learn more: [Navigation & Search Guide](https://moneyflow.dev/guide/navigation)
 
 ---
 
+## YNAB Mode
+
+Connect to your YNAB (You Need A Budget) account:
+
+1. Sign in to the YNAB web app
+2. Go to Account Settings → Developer Settings
+3. Click "New Token" under Personal Access Tokens
+4. Enter your password and click "Generate"
+5. Copy the access token (you won't be able to see it again)
+6. Run: `moneyflow`
+7. Select YNAB as your backend
+8. Paste your access token when prompted
+
+**Note:** Your access token will be encrypted and stored locally for future use.
+
+---
+
 ## Amazon Mode
 
 Import and analyze your Amazon purchase history:
@@ -115,6 +135,12 @@ See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
 **2FA not working**
 → Copy the BASE32 secret (long string), not the QR code
 → Get fresh secret: Disable and re-enable 2FA in Monarch Money
+
+**YNAB connection fails**
+→ Verify your Personal Access Token is correct
+→ Token may have expired - generate a new one from Account Settings → Developer Settings
+→ Make sure you copied the entire token (no spaces before/after)
+→ Token is only shown once - if lost, generate a new one
 
 **Terminal displays weird characters**
 → Use a modern terminal with Unicode support (iTerm2, GNOME Terminal, Windows Terminal)

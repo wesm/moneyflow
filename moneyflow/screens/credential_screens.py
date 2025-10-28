@@ -71,11 +71,7 @@ class BackendSelectionScreen(Screen):
                 "🏦 Monarch Money", variant="primary", id="monarch-button", classes="backend-option"
             )
 
-            yield Static(
-                "Currently only Monarch Money is supported.\n"
-                "More backends (YNAB, Lunch Money) coming soon!",
-                classes="backend-help",
-            )
+            yield Button("💰 YNAB", variant="primary", id="ynab-button", classes="backend-option")
 
             with Container(id="button-container"):
                 yield Button("Exit", variant="default", id="exit-button")
@@ -86,8 +82,10 @@ class BackendSelectionScreen(Screen):
             return
 
         if event.button.id == "monarch-button":
-            # Return 'monarch' as the selected backend
             self.dismiss("monarch")
+
+        if event.button.id == "ynab-button":
+            self.dismiss("ynab")
 
 
 class CredentialSetupScreen(Screen):
@@ -155,32 +153,56 @@ class CredentialSetupScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Container(id="setup-container"):
-            yield Label("🔐 Monarch Money Credential Setup", id="setup-title")
+            if self.backend_type == "ynab":
+                yield Label("🔐 YNAB Credential Setup", id="setup-title")
 
-            yield Static(
-                "This will securely store your Monarch Money credentials\n"
-                "encrypted with a password of your choice.",
-                classes="setup-help",
-            )
+                yield Static(
+                    "This will securely store your YNAB Personal Access Token\n"
+                    "encrypted with a password of your choice.",
+                    classes="setup-help",
+                )
 
-            yield Label("Monarch Money Email:", classes="setup-label")
-            yield Input(placeholder="your@email.com", id="email-input", classes="setup-input")
+                yield Label("YNAB Personal Access Token:", classes="setup-label")
+                yield Static(
+                    "Get this from: Account Settings → Developer Settings → New Token",
+                    classes="setup-help",
+                )
+                yield Input(
+                    placeholder="your access token",
+                    password=True,
+                    id="password-input",
+                    classes="setup-input",
+                )
+            else:
+                yield Label("🔐 Monarch Money Credential Setup", id="setup-title")
 
-            yield Label("Monarch Money Password:", classes="setup-label")
-            yield Input(
-                placeholder="password", password=True, id="password-input", classes="setup-input"
-            )
+                yield Static(
+                    "This will securely store your Monarch Money credentials\n"
+                    "encrypted with a password of your choice.",
+                    classes="setup-help",
+                )
 
-            yield Label("2FA/TOTP Secret Key:", classes="setup-label")
-            yield Static(
-                "Get this from: Settings → Security → Re-enable 2FA → 'Can't scan?'",
-                classes="setup-help",
-            )
-            yield Input(
-                placeholder="JBSWY3DPEHPK3PXP (base32 string)",
-                id="mfa-input",
-                classes="setup-input",
-            )
+                yield Label("Monarch Money Email:", classes="setup-label")
+                yield Input(placeholder="your@email.com", id="email-input", classes="setup-input")
+
+                yield Label("Monarch Money Password:", classes="setup-label")
+                yield Input(
+                    placeholder="password",
+                    password=True,
+                    id="password-input",
+                    classes="setup-input",
+                )
+
+                yield Label("2FA/TOTP Secret Key:", classes="setup-label")
+                yield Static(
+                    "Get this from: Settings → Security → Re-enable 2FA → 'Can't scan?'",
+                    classes="setup-help",
+                )
+                yield Input(
+                    placeholder="JBSWY3DPEHPK3PXP (base32 string)",
+                    id="mfa-input",
+                    classes="setup-input",
+                )
 
             yield Label("Encryption Password (for moneyflow):", classes="setup-label")
             yield Static(
@@ -219,25 +241,34 @@ class CredentialSetupScreen(Screen):
         """Validate and save credentials."""
         error_label = self.query_one("#error-label", Label)
 
-        # Get all inputs
-        email = self.query_one("#email-input", Input).value.strip()
-        password = self.query_one("#password-input", Input).value
-        mfa_secret = self.query_one("#mfa-input", Input).value.strip().replace(" ", "").upper()
         encrypt_pass = self.query_one("#encrypt-pass-input", Input).value
         confirm_pass = self.query_one("#confirm-pass-input", Input).value
-
-        # Validation
-        if not email or not password or not mfa_secret or not encrypt_pass:
-            error_label.update("❌ Please fill in all fields")
-            return
 
         if encrypt_pass != confirm_pass:
             error_label.update("❌ Encryption passwords do not match!")
             return
 
-        if "@" not in email:
-            error_label.update("❌ Invalid email address")
-            return
+        if self.backend_type == "ynab":
+            password = self.query_one("#password-input", Input).value.strip()
+
+            if not password or not encrypt_pass:
+                error_label.update("❌ Please fill in all fields")
+                return
+
+            email = ""
+            mfa_secret = ""
+        else:
+            email = self.query_one("#email-input", Input).value.strip()
+            password = self.query_one("#password-input", Input).value
+            mfa_secret = self.query_one("#mfa-input", Input).value.strip().replace(" ", "").upper()
+
+            if not email or not password or not mfa_secret or not encrypt_pass:
+                error_label.update("❌ Please fill in all fields")
+                return
+
+            if "@" not in email:
+                error_label.update("❌ Invalid email address")
+                return
 
         # Save credentials
         try:

@@ -699,6 +699,17 @@ class MoneyflowApp(App):
                 loading_status.update(f"🔄 Initializing {backend_type} backend...")
                 self.backend = get_backend(backend_type)
 
+                from moneyflow.backend_config import BackendConfig
+
+                if backend_type == "ynab":
+                    self.backend_config = BackendConfig.for_ynab()
+                elif backend_type == "monarch":
+                    self.backend_config = BackendConfig.for_monarch()
+                elif backend_type == "amazon":
+                    self.backend_config = BackendConfig.for_amazon()
+                elif backend_type == "demo":
+                    self.backend_config = BackendConfig.for_demo()
+
                 # Step 2: Login with retry logic
                 login_success = await self._login_with_retry(creds, loading_status)
                 if not login_success:

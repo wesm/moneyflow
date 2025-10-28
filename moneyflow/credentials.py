@@ -215,45 +215,72 @@ def setup_credentials_interactive() -> None:
 
     # Backend selection
     print("Select your finance backend:")
-    print("  1. Monarch Money (currently supported)")
-    print()
-    print("More backends (YNAB, Lunch Money) coming soon!")
+    print("  1. Monarch Money")
+    print("  2. YNAB")
     print()
 
     backend_choice = input("Enter choice [1]: ").strip() or "1"
-    if backend_choice != "1":
-        print("❌ Invalid choice. Only Monarch Money is currently supported.")
+
+    if backend_choice == "1":
+        backend_type = "monarch"
+    elif backend_choice == "2":
+        backend_type = "ynab"
+    else:
+        print("❌ Invalid choice. Please select 1 or 2.")
         return
 
-    backend_type = "monarch"
-    print()
-    print("=" * 70)
-    print("Monarch Money Credential Setup")
-    print("=" * 70)
-    print()
-    print("This will securely store your Monarch Money credentials")
-    print("encrypted with a password of your choice.")
-    print()
-    print("IMPORTANT: You'll need your 2FA/OTP secret key for automatic login.")
-    print("This is the BASE32 secret shown when you first set up 2FA")
-    print("(usually a long string like: JBSWY3DPEHPK3PXP)")
-    print()
-    print("How to find your OTP secret:")
-    print("  1. Log into Monarch Money on the web")
-    print("  2. Go to Settings -> Security")
-    print("  3. Disable 2FA, then re-enable it")
-    print("  4. When shown the QR code, click 'Can't scan?' or 'Manual entry'")
-    print("  5. Copy the secret key (base32 string)")
-    print()
-    print("=" * 70)
-    print()
+    if backend_type == "monarch":
+        print()
+        print("=" * 70)
+        print("Monarch Money Credential Setup")
+        print("=" * 70)
+        print()
+        print("This will securely store your Monarch Money credentials")
+        print("encrypted with a password of your choice.")
+        print()
+        print("IMPORTANT: You'll need your 2FA/OTP secret key for automatic login.")
+        print("This is the BASE32 secret shown when you first set up 2FA")
+        print("(usually a long string like: JBSWY3DPEHPK3PXP)")
+        print()
+        print("How to find your OTP secret:")
+        print("  1. Log into Monarch Money on the web")
+        print("  2. Go to Settings -> Security")
+        print("  3. Disable 2FA, then re-enable it")
+        print("  4. When shown the QR code, click 'Can't scan?' or 'Manual entry'")
+        print("  5. Copy the secret key (base32 string)")
+        print()
+        print("=" * 70)
+        print()
 
-    # Get credentials
-    email = input("Monarch Money email: ")
-    password = getpass("Monarch Money password: ")
+        email = input("Monarch Money email: ")
+        password = getpass("Monarch Money password: ")
 
-    print()
-    mfa_secret = getpass("2FA/TOTP Secret Key: ").strip().replace(" ", "").upper()
+        print()
+        mfa_secret = getpass("2FA/TOTP Secret Key: ").strip().replace(" ", "").upper()
+
+    elif backend_type == "ynab":
+        print()
+        print("=" * 70)
+        print("YNAB Credential Setup")
+        print("=" * 70)
+        print()
+        print("This will securely store your YNAB Personal Access Token")
+        print("encrypted with a password of your choice.")
+        print()
+        print("How to get your YNAB Personal Access Token:")
+        print("  1. Sign in to the YNAB web app")
+        print("  2. Go to Account Settings → Developer Settings")
+        print("  3. Click 'New Token' under Personal Access Tokens")
+        print("  4. Enter your password and click 'Generate'")
+        print("  5. Copy the generated token (you won't be able to see it again)")
+        print()
+        print("=" * 70)
+        print()
+
+        access_token = getpass("YNAB Personal Access Token: ").strip()
+        email = ""
+        password = access_token
+        mfa_secret = ""
 
     # Save credentials with backend type
     manager = CredentialManager()
