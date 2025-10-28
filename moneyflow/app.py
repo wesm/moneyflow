@@ -761,11 +761,16 @@ class MoneyflowApp(App):
 
         finally:
             self.loading = False
-            self.query_one("#loading", LoadingIndicator).display = False
-            # DON'T hide loading-status if we had an error
-            if not has_error:
-                self.query_one("#loading-status", Static).display = False
-            # If there was an error, keep the error message visible
+            # Safely hide loading UI (may fail if app is shutting down)
+            try:
+                self.query_one("#loading", LoadingIndicator).display = False
+                # DON'T hide loading-status if we had an error
+                if not has_error:
+                    self.query_one("#loading-status", Static).display = False
+                # If there was an error, keep the error message visible
+            except Exception:
+                # DOM already torn down during shutdown - this is fine
+                pass
 
     def update_loading_progress(self, current: int, total: int, message: str) -> None:
         """Update loading progress message."""
