@@ -14,6 +14,13 @@ from moneyflow.formatters import ViewPresenter
 from moneyflow.state import SortDirection, SortMode
 
 
+def normalize_label(label):
+    """Convert Text label to plain string for comparison."""
+    from rich.text import Text
+
+    return label.plain if isinstance(label, Text) else label
+
+
 def normalize_row(row: tuple) -> tuple:
     """Convert Text objects in row to plain strings for comparison."""
     return tuple(item.plain if isinstance(item, Text) else item for item in row)
@@ -107,7 +114,7 @@ class TestPrepareAggregationColumns:
         assert cols[1]["label"] == "Count ↓"
         assert cols[1]["key"] == "count"
 
-        assert cols[2]["label"] == "Total"
+        assert normalize_label(cols[2]["label"]) == "Total"
         assert cols[2]["key"] == "total"
 
         assert cols[3]["label"] == "Top Category"
@@ -124,7 +131,7 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Category"
         assert cols[1]["label"] == "Count"
-        assert cols[2]["label"] == "Total ↑"
+        assert normalize_label(cols[2]["label"]) == "Total ↑"
 
     def test_group_columns(self):
         """Should create correct columns for group view."""
@@ -140,7 +147,7 @@ class TestPrepareAggregationColumns:
         )
 
         assert cols[0]["label"] == "Account"
-        assert cols[2]["label"] == "Total ↓"
+        assert normalize_label(cols[2]["label"]) == "Total ↓"
 
     def test_merchant_sorted_by_merchant_desc(self):
         """Should show arrow in merchant column when sorted by merchant descending."""
@@ -150,7 +157,7 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Merchant ↓"
         assert cols[1]["label"] == "Count"
-        assert cols[2]["label"] == "Total"
+        assert normalize_label(cols[2]["label"]) == "Total"
 
     def test_merchant_sorted_by_merchant_asc(self):
         """Should show arrow in merchant column when sorted by merchant ascending."""
@@ -168,7 +175,7 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Category ↓"
         assert cols[1]["label"] == "Count"
-        assert cols[2]["label"] == "Total"
+        assert normalize_label(cols[2]["label"]) == "Total"
 
     def test_category_sorted_by_category_asc(self):
         """Should show arrow in category column when sorted by category ascending."""
