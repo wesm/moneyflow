@@ -1,5 +1,14 @@
 name: Security Review Bot
 
+# SECURITY MODEL:
+# This workflow handles untrusted code from external contributors and has access to secrets.
+# To prevent secret exfiltration:
+# 1. We checkout the BASE branch (trusted code), never the PR branch
+# 2. We only FETCH the PR branch to get the diff (never execute it)
+# 3. The security_review.py script runs from the trusted base branch
+# 4. We verify we're on the base branch before running with secrets
+# 5. Minimal permissions: only read contents + write PR comments
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -9,14 +18,15 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      pull-requests: write
-      contents: read
+      pull-requests: write  # Post review comments
+      contents: read        # Read repository code
 
     steps:
-      - name: Checkout code
+      - name: Checkout base branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for proper diff
+          ref: ${{ github.base_ref }}  # Checkout base branch (trusted code)
+          fetch-depth: 0
 
       - name: Check if contributor is trusted
         id: check-trusted
@@ -32,11 +42,11 @@ jobs:
             echo "🔍 $PR_AUTHOR is an external contributor - running security review"
           fi
 
-      - name: Checkout PR branch
+      - name: Fetch PR for diff (without checking out)
         if: steps.check-trusted.outputs.is_trusted != 'true'
         run: |
+          # Fetch PR branch but DON'T check it out (security: don't run untrusted code)
           git fetch origin pull/${{ github.event.pull_request.number }}/head:pr-branch
-          git checkout pr-branch
 
       - name: Set up Python
         if: steps.check-trusted.outputs.is_trusted != 'true'
@@ -49,6 +59,19 @@ jobs:
         run: |
           pip install anthropic PyGithub
 
+      - name: Verify running from base branch
+        if: steps.check-trusted.outputs.is_trusted != 'true'
+        run: |
+          # Security check: Ensure we're on base branch (not PR branch)
+          # This prevents malicious PRs from modifying the review script
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          echo "Current branch: $CURRENT_BRANCH"
+          if [ "$CURRENT_BRANCH" != "${{ github.base_ref }}" ]; then
+            echo "❌ ERROR: Not on base branch! Security risk detected."
+            exit 1
+          fi
+          echo "✅ Verified: Running security review script from trusted base branch"
+
       - name: Run security review
         if: steps.check-trusted.outputs.is_trusted != 'true'
         env:
@@ -59,4 +82,5 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Run from base branch (trusted code) - PR branch is only fetched for diff
           python .github/scripts/security_review.py

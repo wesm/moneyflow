@@ -201,21 +201,119 @@ The bot posts inline comments on specific files/lines.
 
 ## 🔒 Security of the Bot Itself
 
-**The bot has access to:**
-- PR contents (code being reviewed)
-- GitHub API (read PRs, write comments)
-- Anthropic API (send code for review)
+### Threat Model: Preventing Secret Exfiltration
 
-**Security measures:**
-- API key stored in GitHub Secrets (encrypted)
-- Minimal GitHub permissions (pull-requests: write, contents: read)
-- No persistent storage of PR contents
-- Anthropic doesn't train on API data (per their policy)
+**Critical concern:** A malicious PR could try to steal the `ANTHROPIC_API_KEY` or other secrets.
 
-**Risks to consider:**
-- PR contents sent to Anthropic's API (third party)
-- If API key leaks, attacker could incur API costs
-- Bot could post spam comments (if compromised)
+**Attack vector:**
+1. Malicious contributor creates a PR
+2. PR modifies `.github/scripts/security_review.py` to exfiltrate secrets
+3. If workflow runs the malicious script, attacker gets the API key
+4. Attacker can incur costs or abuse your Anthropic account
+
+### How We Prevent This
+
+**Defense in depth:**
+
+1. **Never execute untrusted code with secrets**
+   - Workflow checks out the **base branch** (your trusted code)
+   - PR branch is only **fetched** for the diff, never checked out
+   - Security review script runs from base branch, not PR branch
+
+2. **Branch verification check**
+   - Before running with secrets, we verify we're on the base branch
+   - If check fails, workflow aborts immediately
+
+3. **Minimal permissions**
+   - Workflow has only: `contents: read`, `pull-requests: write`
+   - Cannot modify code or access other secrets
+
+4. **Trusted contributor bypass**
+   - Trusted maintainers don't trigger the workflow
+   - Reduces attack surface (fewer workflow runs)
+
+5. **First-time contributor approval**
+   - GitHub requires manual approval for first-time contributors
+   - Gives you a chance to review before Actions run
+
+### What Could Still Go Wrong
+
+**Remaining risks (low probability):**
+
+| Risk | Impact | Mitigation |
+|------|--------|-----------|
+| Compromised dependency (anthropic, PyGithub) | High - could exfiltrate secrets | Pin dependency versions, review updates |
+| GitHub Actions vulnerability | High - could bypass protections | Keep actions/checkout up to date |
+| Compromised base branch | High - trusted code is compromised | Require PR reviews for base branch |
+| API key leaked elsewhere | Medium - attacker uses your key | Rotate keys regularly, monitor usage |
+| Race condition in workflow | Low - code executed from PR | Workflow logic carefully ordered |
+
+### Best Practices
+
+**Do this:**
+- ✅ Rotate API keys every 90 days
+- ✅ Monitor Anthropic usage dashboard for anomalies
+- ✅ Set spending limits in Anthropic console
+- ✅ Require PR reviews for changes to `.github/` directory
+- ✅ Use branch protection on your main branch
+- ✅ Review workflow runs in Actions tab periodically
+
+**Don't do this:**
+- ❌ Don't check out PR branch before running scripts with secrets
+- ❌ Don't use `pull_request_target` without understanding the risks
+- ❌ Don't disable branch verification checks
+- ❌ Don't add untrusted users to the trusted contributors list
+- ❌ Don't ignore suspicious workflow runs
+
+### If You Suspect Compromise
+
+**If you think your API key was stolen:**
+
+1. **Immediately revoke** the key in Anthropic console
+2. **Generate new key** and update GitHub secret
+3. **Check usage** in Anthropic dashboard for unauthorized calls
+4. **Review workflow runs** in Actions tab for suspicious activity
+5. **Check git history** for unauthorized changes to workflow files
+6. **Report to Anthropic** if you see fraudulent usage
+
+### Additional Protections You Can Add
+
+**Optional hardening:**
+
+1. **Pin dependency versions** in workflow:
+   ```yaml
+   pip install anthropic==0.25.0 PyGithub==2.1.1
+   ```
+
+2. **Require codeowner approval** for `.github/` changes:
+   ```
+   # .github/CODEOWNERS
+   .github/** @wesm
+   ```
+
+3. **Add checksums** for critical files:
+   ```bash
+   # Verify script hasn't been tampered with
+   echo "expected-sha256  .github/scripts/security_review.py" | sha256sum -c
+   ```
+
+4. **Use environment protection**:
+   - Create "security-review" environment in GitHub
+   - Require manual approval for secrets access
+   - Only works with `pull_request_target` (has tradeoffs)
+
+### The Bottom Line
+
+**This workflow is designed with security in mind:**
+- ✅ Follows GitHub Actions security best practices
+- ✅ Never executes untrusted code with secrets
+- ✅ Minimal permissions principle
+- ✅ Defense in depth with multiple safeguards
+
+**No security is perfect, but this is significantly safer than:**
+- Running `pull_request_target` without careful review
+- Checking out PR code before running scripts
+- Blindly executing code from external contributors
 
 ## 📚 Further Reading
 

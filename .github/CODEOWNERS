@@ -1,0 +1,18 @@
+# CODEOWNERS - Require approval from repo owners for critical files
+#
+# This is a security measure to prevent unauthorized changes to:
+# - GitHub Actions workflows (could steal secrets)
+# - Security review bot scripts
+# - Trusted contributors configuration
+
+# All GitHub Actions workflows and scripts require owner approval
+.github/workflows/** @wesm
+.github/scripts/** @wesm
+
+# Security-critical configuration
+.github/trusted-contributors.json @wesm
+.github/CODEOWNERS @wesm
+
+# Security documentation (good to review, not critical)
+.github/SECURITY_BOT.md @wesm
+SECURITY.md @wesm
