@@ -69,7 +69,7 @@ class YNABBackend(FinanceBackend):
             **kwargs: Additional parameters (e.g., hidden_from_reports)
 
         Returns:
-            Dictionary containing transaction data in Monarch-compatible format
+            Dictionary containing transaction data in moneyflow-compatible format
         """
         return self.client.get_transactions(
             limit=limit,
@@ -83,7 +83,7 @@ class YNABBackend(FinanceBackend):
         Fetch all available transaction categories from YNAB.
 
         Returns:
-            Dictionary containing categories in Monarch-compatible format
+            Dictionary containing categories in moneyflow-compatible format
         """
         return self.client.get_transaction_categories()
 
@@ -92,7 +92,7 @@ class YNABBackend(FinanceBackend):
         Fetch all category groups from YNAB.
 
         Returns:
-            Dictionary containing category groups in Monarch-compatible format
+            Dictionary containing category groups in moneyflow-compatible format
         """
         return self.client.get_transaction_category_groups()
 

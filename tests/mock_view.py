@@ -5,7 +5,7 @@ This mock records all view operations so tests can verify that the
 controller calls the right view methods with the right arguments.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from moneyflow.view_interface import IViewPresenter, NotificationSeverity
 
@@ -65,11 +65,11 @@ class MockViewPresenter(IViewPresenter):
 
     # Helper methods for test assertions
 
-    def get_last_table_update(self) -> Dict[str, Any]:
+    def get_last_table_update(self) -> Optional[Dict[str, Any]]:
         """Get the most recent table update."""
         return self.table_updates[-1] if self.table_updates else None
 
-    def get_last_notification(self) -> Dict[str, Any]:
+    def get_last_notification(self) -> Optional[Dict[str, Any]]:
         """Get the most recent notification."""
         return self.notifications[-1] if self.notifications else None
 
@@ -77,6 +77,7 @@ class MockViewPresenter(IViewPresenter):
         """Assert that table was updated."""
         assert len(self.table_updates) > 0, "Table was never updated"
         last = self.get_last_table_update()
+        assert last is not None, "No table updates found"
         if expected_columns is not None:
             assert last["column_count"] == expected_columns, (
                 f"Expected {expected_columns} columns, got {last['column_count']}"

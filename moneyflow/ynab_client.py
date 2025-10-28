@@ -73,7 +73,7 @@ class YNABClient:
             **kwargs: Additional parameters (ignored)
 
         Returns:
-            Dictionary in Monarch-compatible format with allTransactions structure
+            Dictionary in moneyflow-compatible format with allTransactions structure
         """
         self._ensure_authenticated()
 
@@ -110,7 +110,7 @@ class YNABClient:
         Fetch all transaction categories from YNAB.
 
         Returns:
-            Dictionary with categories list in Monarch-compatible format
+            Dictionary with categories list in moneyflow-compatible format
         """
         self._ensure_authenticated()
 
@@ -139,7 +139,7 @@ class YNABClient:
         Fetch all category groups from YNAB.
 
         Returns:
-            Dictionary with categoryGroups list in Monarch-compatible format
+            Dictionary with categoryGroups list in moneyflow-compatible format
         """
         self._ensure_authenticated()
 
@@ -203,8 +203,9 @@ class YNABClient:
         if category_id is not None:
             update_data.category_id = category_id
 
-        if hide_from_reports is not None:
-            update_data.deleted = hide_from_reports
+        # Note: YNAB API doesn't support setting deleted via update
+        # The deleted field is read-only. To "hide" transactions,
+        # we would need to actually delete them, which we avoid here.
 
         updated = transactions_api.update_transaction(
             budget_id=self.budget_id,
@@ -254,8 +255,8 @@ class YNABClient:
 
     def close(self) -> None:
         """Close the API client and clear all state."""
-        if self.api_client:
-            self.api_client.close()
+        # Note: ynab.ApiClient doesn't have a close() method
+        # Just clear the references
         self.api_client = None
         self.access_token = None
         self.budget_id = None
@@ -273,13 +274,13 @@ class YNABClient:
 
     def _convert_transaction(self, txn: Any) -> Dict[str, Any]:
         """
-        Convert a YNAB transaction to Monarch-compatible format.
+        Convert a YNAB transaction to moneyflow-compatible format.
 
         Args:
             txn: YNAB TransactionDetail object
 
         Returns:
-            Dictionary in Monarch format
+            Dictionary in moneyflow format
         """
         return {
             "id": txn.id,

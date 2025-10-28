@@ -295,6 +295,7 @@ class TestCacheInfo:
         )
 
         info = cache_mgr.get_cache_info()
+        assert info is not None
         assert "Since 2024-06-01" in info["filter"]
 
     def test_get_cache_info_formats_all_transactions(
@@ -305,6 +306,7 @@ class TestCacheInfo:
         cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups)
 
         info = cache_mgr.get_cache_info()
+        assert info is not None
         assert "All transactions" in info["filter"]
 
 
