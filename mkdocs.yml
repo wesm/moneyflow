@@ -59,7 +59,7 @@ extra_javascript:
   - javascripts/lightbox.js
 
 extra:
-  version: "0.5.2"
+  version: "0.5.3"
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/wesm/moneyflow
@@ -107,6 +107,7 @@ nav:
   - Home:
     - Overview: index.md
     - Quick Start: getting-started/quickstart.md
+    - Changelog: reference/changelog.md
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md

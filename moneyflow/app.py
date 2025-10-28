@@ -882,6 +882,11 @@ class MoneyflowApp(App):
         """Find and display duplicate transactions."""
         if self.data_manager is None or self.data_manager.df is None:
             return
+        # Run in worker to support async operations
+        self.run_worker(self._find_duplicates_async(), exclusive=False)
+
+    async def _find_duplicates_async(self) -> None:
+        """Find duplicates and show duplicates screen."""
         # Find duplicates in current filtered view
         filtered_df = self.state.get_filtered_df()
         if filtered_df is None or filtered_df.is_empty():
@@ -895,8 +900,9 @@ class MoneyflowApp(App):
             self.notify("✅ No duplicates found!", severity="information", timeout=3)
         else:
             groups = DuplicateDetector.get_duplicate_groups(filtered_df, duplicates)
-            # Show duplicates screen
-            self.push_screen(DuplicatesScreen(duplicates, groups, filtered_df))
+            # Show duplicates screen (user can delete multiple times before closing)
+            # Pass reference to main app so screen can call delete methods
+            self.push_screen(DuplicatesScreen(duplicates, groups, filtered_df, self))
 
     def action_undo_pending_edits(self) -> None:
         """Undo the most recent pending edit or bulk edit batch."""
@@ -1072,8 +1078,8 @@ class MoneyflowApp(App):
         # Use controller to handle the selection logic
         count, item_type = self.controller.toggle_selection_at_row(table.cursor_row)
 
-        # Refresh view to show checkmark
-        self.refresh_view()
+        # Refresh view to show checkmark (smooth update - don't rebuild columns)
+        self.refresh_view(force_rebuild=False)
 
         # Restore cursor and scroll position
         self._restore_table_position(saved_position)
@@ -1093,8 +1099,8 @@ class MoneyflowApp(App):
         # Use controller to handle the select all logic
         count, all_selected, item_type = self.controller.toggle_select_all_visible()
 
-        # Refresh view to show/hide checkmarks
-        self.refresh_view()
+        # Refresh view to show/hide checkmarks (smooth update - don't rebuild columns)
+        self.refresh_view(force_rebuild=False)
 
         # Restore cursor position
         if saved_cursor_row < table.row_count:
@@ -1362,6 +1368,10 @@ class MoneyflowApp(App):
             # Save position for refresh
             saved_position = self._save_table_position()
 
+            from .logging_config import get_logger
+
+            logger = get_logger(__name__)
+
             success_count = 0
             failure_count = 0
 
@@ -1372,7 +1382,6 @@ class MoneyflowApp(App):
                         await self._delete_with_retry(txn_id)
                         success_count += 1
                     except Exception as e:
-                        logger = get_logger(__name__)
                         logger.error(f"Failed to delete transaction {txn_id}: {e}")
                         failure_count += 1
 
@@ -1384,6 +1393,20 @@ class MoneyflowApp(App):
                         ~pl.col("id").is_in(deleted_ids)
                     )
                     self.state.transactions_df = self.data_manager.df
+
+                    # Update cache to reflect deletions
+                    if self.cache_manager:
+                        try:
+                            self.cache_manager.save_cache(
+                                transactions_df=self.data_manager.df,
+                                categories=self.data_manager.categories,
+                                category_groups=self.data_manager.category_groups,
+                                year=self.cache_year_filter,
+                                since=self.cache_since_filter,
+                            )
+                        except Exception as e:
+                            # Cache update failed - not critical, just log
+                            logger.warning(f"Cache update after delete failed: {e}")
 
                 # Clear selection
                 self.state.clear_selection()

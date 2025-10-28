@@ -44,6 +44,13 @@ def setup_logging(console_output: bool = False):
 
     logger = logging.getLogger("moneyflow")
 
+    # Reduce verbosity for libraries that log too much sensitive data
+    # GQL library logs full HTTP request/response bodies which contains transaction data
+    logging.getLogger("gql.transport.aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("gql").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+
     # Print ONCE to console to tell user where logs are
     # This is okay because it happens before Textual starts
     print(f"Logging to: {log_file}", file=sys.stderr)
