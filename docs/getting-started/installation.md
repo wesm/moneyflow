@@ -36,6 +36,29 @@ moneyflow can be installed in multiple ways depending on your preference.
     moneyflow
     ```
 
+=== "Nix"
+
+    Run without installing:
+
+    ```bash
+    nix run github:wesm/moneyflow
+    ```
+
+    Or install to your profile:
+
+    ```bash
+    nix profile install github:wesm/moneyflow
+    moneyflow
+    ```
+
+    Or from a local clone:
+
+    ```bash
+    git clone https://github.com/wesm/moneyflow.git
+    cd moneyflow
+    nix run .#
+    ```
+
 ---
 
 ## From Source

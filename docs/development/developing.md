@@ -27,12 +27,59 @@ uv run pyright moneyflow/
 
 ## Development Environment
 
+### Standard Environment (uv)
+
 **Required:**
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) - Package manager
 
 **Optional:**
 - VS Code or PyCharm with Python extension
+
+### Nix Environment (Alternative)
+
+If you use Nix, you can set up a complete development environment with one command:
+
+```bash
+# Clone repository
+git clone https://github.com/wesm/moneyflow.git
+cd moneyflow
+
+# Enter Nix development shell (includes Python, uv, and all dependencies)
+nix develop
+
+# Inside the Nix shell, use uv as normal
+uv sync
+uv run moneyflow --demo
+uv run pytest -v
+```
+
+The Nix flake provides:
+
+- Python 3.11 with all runtime dependencies
+- Development tools: pytest, ruff, pyright
+- uv for package management
+- All dependencies pinned for reproducibility
+
+**Benefits:**
+
+- No need to install Python or uv separately
+- Reproducible environment across machines
+- Automatic cleanup when exiting the shell
+
+**Run without entering shell:**
+
+```bash
+# Run tests directly
+nix develop -c uv run pytest -v
+
+# Run the app
+nix develop -c uv run moneyflow --demo
+
+# Or build and run the package
+nix build
+./result/bin/moneyflow --demo
+```
 
 ## Development Workflow
 
