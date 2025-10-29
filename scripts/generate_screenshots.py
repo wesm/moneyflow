@@ -11,7 +11,10 @@ Usage:
 """
 
 import asyncio
+import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -35,13 +38,38 @@ class ScreenshotGenerator:
         self.font_name = font_name
         self.generated = []
 
+        # Create isolated config directory for screenshot generation
+        # This ensures we capture first-time setup screens
+        self.temp_config_dir = tempfile.mkdtemp(prefix="moneyflow_screenshots_")
+        self.original_home = None
+
+    def __enter__(self):
+        """Set up isolated config directory."""
+        # Temporarily override HOME to use our isolated config dir
+        # CredentialManager uses ~/.moneyflow which expands to $HOME/.moneyflow
+        self.original_home = os.environ.get('HOME')
+        os.environ['HOME'] = self.temp_config_dir
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Restore original HOME and cleanup."""
+        if self.original_home:
+            os.environ['HOME'] = self.original_home
+        else:
+            os.environ.pop('HOME', None)
+
+        # Cleanup temp directory
+        shutil.rmtree(self.temp_config_dir, ignore_errors=True)
+
     async def generate_all(self):
         """Generate all documentation screenshots."""
         print("🎬 Generating moneyflow documentation screenshots...")
         print(f"📁 Output directory: {self.output_dir}")
+        print(f"🔒 Using isolated config: {self.temp_config_dir}")
         print()
 
         # Credential setup screens (no backend needed)
+        # These require a fresh config directory (no existing credentials)
         await self.screenshot_backend_select()
         await self.screenshot_monarch_credentials()
 
@@ -487,8 +515,9 @@ async def main():
         print("   git clone git@github.com:wesm/moneyflow-assets.git ../moneyflow-assets")
         return 1
 
-    generator = ScreenshotGenerator(output_dir, convert_to_png=args.png, font_name=args.font)
-    await generator.generate_all()
+    # Use context manager to ensure isolated config directory
+    with ScreenshotGenerator(output_dir, convert_to_png=args.png, font_name=args.font) as generator:
+        await generator.generate_all()
 
     print()
     print("📝 Next steps:")
