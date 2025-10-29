@@ -170,15 +170,13 @@ Press `Escape` to navigate backwards through your drill-down path, removing one 
 
 **Single-level drill-down with sub-grouping:**
 
-- From `Merchants > Amazon (by Category)` → press `Escape` → returns to `Merchants > Amazon` (clears the
-  sub-grouping, shows detail view)
-- From `Merchants > Amazon` → press `Escape` → returns to `Merchants` (clears the merchant filter)
+- From `Merchants > Amazon (by Category)`, press `Escape` to return to `Merchants > Amazon` (clears sub-grouping)
+- From `Merchants > Amazon`, press `Escape` to return to `Merchants` (clears merchant filter)
 
 **Multi-level drill-down:**
 
-- From `Merchants > Amazon > Groceries` → press `Escape` → returns to `Merchants > Amazon` (removes the category
-  filter)
-- From `Merchants > Amazon` → press `Escape` → returns to `Merchants` (removes the merchant filter)
+- From `Merchants > Amazon > Groceries`, press `Escape` to return to `Merchants > Amazon` (removes category filter)
+- From `Merchants > Amazon`, press `Escape` to return to `Merchants` (removes merchant filter)
 
 **With search active:**
 
