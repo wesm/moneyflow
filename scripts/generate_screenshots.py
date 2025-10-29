@@ -46,16 +46,16 @@ class ScreenshotGenerator:
         """Set up isolated config directory."""
         # Temporarily override HOME to use our isolated config dir
         # CredentialManager uses ~/.moneyflow which expands to $HOME/.moneyflow
-        self.original_home = os.environ.get('HOME')
-        os.environ['HOME'] = self.temp_config_dir
+        self.original_home = os.environ.get("HOME")
+        os.environ["HOME"] = self.temp_config_dir
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Restore original HOME and cleanup."""
         if self.original_home:
-            os.environ['HOME'] = self.original_home
+            os.environ["HOME"] = self.original_home
         else:
-            os.environ.pop('HOME', None)
+            os.environ.pop("HOME", None)
 
         # Cleanup temp directory
         shutil.rmtree(self.temp_config_dir, ignore_errors=True)
@@ -99,13 +99,25 @@ class ScreenshotGenerator:
             ("merchants-view", "Merchants view with Amazon", self.screenshot_merchants_with_amazon),
             ("drill-down-detail", "Drilled into merchant detail", self.screenshot_drill_down),
             ("detail-view-flags", "Detail view with flags", self.screenshot_detail_flags),
-            ("merchants-drill-by-category", "Drill grouped by category", self.screenshot_drill_by_category),
-            ("drill-down-group-by-account", "Drill grouped by account", self.screenshot_drill_by_account),
+            (
+                "merchants-drill-by-category",
+                "Drill grouped by category",
+                self.screenshot_drill_by_category,
+            ),
+            (
+                "drill-down-group-by-account",
+                "Drill grouped by account",
+                self.screenshot_drill_by_account,
+            ),
             ("drill-down-multi-level", "Multi-level drill-down", self.screenshot_multi_level_drill),
             ("search-modal", "Search modal", self.screenshot_search_modal),
             ("merchants-search", "Search results", self.screenshot_search_results),
             ("drill-down-detail-multi-select", "Multi-select mode", self.screenshot_multi_select),
-            ("drill-down-bulk-edit-merchant", "Bulk edit merchant", self.screenshot_bulk_edit_merchant),
+            (
+                "drill-down-bulk-edit-merchant",
+                "Bulk edit merchant",
+                self.screenshot_bulk_edit_merchant,
+            ),
             ("drill-down-edit-category", "Edit category", self.screenshot_edit_category),
         ]
 
@@ -564,14 +576,10 @@ class ScreenshotGenerator:
 
             # Add width and height attributes to svg tag
             content = re.sub(
-                r'<svg ([^>]*?)>',
-                f'<svg \\1 width="{width}" height="{height}">',
-                content,
-                count=1
+                r"<svg ([^>]*?)>", f'<svg \\1 width="{width}" height="{height}">', content, count=1
             )
 
             svg_path.write_text(content)
-
 
     def convert_svgs_to_png(self):
         """Convert all SVG screenshots to PNG using cairosvg."""
