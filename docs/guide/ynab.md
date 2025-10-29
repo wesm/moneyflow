@@ -85,11 +85,9 @@ moneyflow will ask you to create a **NEW password** to encrypt your stored crede
 
     Only you can decrypt it with your encryption password.
 
-### 4. Select Budget
+### 4. Initial Data Load
 
-If you have multiple YNAB budgets, you'll be prompted to select which one to use.
-
-### 5. Initial Data Load
+**Note:** If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection UI is not yet implemented.
 
 moneyflow will:
 
