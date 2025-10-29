@@ -210,8 +210,8 @@
 
 /* Lightbox image container */
 #lightbox-image-container {
-  max-width: 75vw;
-  max-height: 70vh;
+  max-width: 60vw;
+  max-height: 56vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -267,8 +267,8 @@
   }
 
   #lightbox-image-container {
-    max-width: 85vw;
-    max-height: 70vh;
+    max-width: 68vw;
+    max-height: 56vh;
   }
 
   #lightbox-close {
