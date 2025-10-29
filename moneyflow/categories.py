@@ -327,6 +327,108 @@ def merge_category_groups(
     return merged
 
 
+def convert_api_categories_to_groups(
+    categories_data: Dict[str, Any], groups_data: Dict[str, Any]
+) -> Dict[str, List[str]]:
+    """
+    Convert API category format to simple group → [categories] mapping.
+
+    Takes the raw API response format from Monarch/YNAB and converts it
+    to the simple Dict[str, List[str]] format used internally.
+
+    Args:
+        categories_data: Dict with 'categories' list from API
+        groups_data: Dict with 'categoryGroups' list from API
+
+    Returns:
+        Dict mapping group_name → [category_names]
+
+    Example:
+        >>> categories = {"categories": [
+        ...     {"id": "1", "name": "Groceries", "group": {"id": "g1", "name": "Food"}},
+        ...     {"id": "2", "name": "Restaurants", "group": {"id": "g1", "name": "Food"}}
+        ... ]}
+        >>> groups = {"categoryGroups": [{"id": "g1", "name": "Food"}]}
+        >>> convert_api_categories_to_groups(categories, groups)
+        {'Food': ['Groceries', 'Restaurants']}
+    """
+    result: Dict[str, List[str]] = {}
+
+    # Build mapping from group_id → group_name
+    group_id_to_name = {}
+    for group in groups_data.get("categoryGroups", []):
+        group_id_to_name[group["id"]] = group["name"]
+
+    # Group categories by their group name
+    for cat in categories_data.get("categories", []):
+        group_data = cat.get("group") or {}
+        group_id = group_data.get("id")
+
+        if group_id and group_id in group_id_to_name:
+            group_name = group_id_to_name[group_id]
+            category_name = cat["name"]
+
+            if group_name not in result:
+                result[group_name] = []
+            result[group_name].append(category_name)
+
+    return result
+
+
+def save_categories_to_config(category_groups: Dict[str, List[str]], config_dir: Optional[str] = None) -> None:
+    """
+    Save fetched category structure to config.yaml.
+
+    Stores the backend's actual categories in config.yaml so they persist
+    and can be used by Amazon mode or other backends.
+
+    Args:
+        category_groups: Dict mapping group_name → [category_names]
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+
+    Example config.yaml structure:
+        version: 1
+        fetched_categories:
+          Food & Dining:
+            - Groceries
+            - Restaurants
+          Shopping:
+            - Clothing
+            - Electronics
+    """
+    if config_dir is None:
+        config_dir = str(Path.home() / ".moneyflow")
+
+    config_path = Path(config_dir) / "config.yaml"
+
+    # Load existing config or create new
+    if config_path.exists():
+        try:
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            logger.error(f"Failed to parse {config_path}: {e}, creating new")
+            config = {}
+    else:
+        config = {}
+
+    # Ensure version is set
+    config["version"] = 1
+
+    # Store fetched categories
+    config["fetched_categories"] = category_groups
+
+    # Write back to file
+    Path(config_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
+    with open(config_path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+
+    logger.info(
+        f"Saved {len(category_groups)} category groups "
+        f"({sum(len(cats) for cats in category_groups.values())} categories) to {config_path}"
+    )
+
+
 def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Dict[str, str]:
     """
     Build reverse mapping from category name to group name.
@@ -346,17 +448,40 @@ def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Di
 
 def get_effective_category_groups(config_dir: Optional[str] = None) -> Dict[str, List[str]]:
     """
-    Get effective category groups (defaults merged with custom config).
+    Get effective category groups with priority order:
+    1. Fetched categories from backend API (stored in config.yaml)
+    2. Built-in defaults from categories.py
 
-    This is the main entry point for getting category groups.
-    It loads custom categories from ~/.moneyflow/config.yaml (or legacy
-    categories.yaml) and merges them with built-in defaults.
+    For Monarch/YNAB: Uses fetched_categories from config.yaml (populated on every startup)
+    For Demo/Amazon: Uses fetched_categories if available, otherwise built-in defaults
 
     Args:
         config_dir: Optional custom config directory (default: ~/.moneyflow)
 
     Returns:
-        Merged category groups dict
+        Final category groups dict
     """
-    custom_config = load_custom_categories(config_dir)
-    return merge_category_groups(DEFAULT_CATEGORY_GROUPS, custom_config)
+    if config_dir is None:
+        config_dir = str(Path.home() / ".moneyflow")
+
+    config_path = Path(config_dir) / "config.yaml"
+
+    # Try to load fetched categories first
+    if config_path.exists():
+        try:
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+
+            if config and "fetched_categories" in config:
+                fetched = config["fetched_categories"]
+                logger.info(
+                    f"Using fetched categories from config.yaml: {len(fetched)} groups, "
+                    f"{sum(len(cats) for cats in fetched.values())} categories"
+                )
+                return fetched
+        except Exception as e:
+            logger.warning(f"Failed to load fetched categories from config.yaml: {e}")
+
+    # Fall back to built-in defaults
+    logger.info("Using built-in default categories")
+    return DEFAULT_CATEGORY_GROUPS

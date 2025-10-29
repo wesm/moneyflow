@@ -263,6 +263,19 @@ class DataManager:
                 "type": group["type"],
             }
 
+        # Convert and save categories to config.yaml for Monarch/YNAB backends
+        # This allows Amazon mode and other backends to use the same category structure
+        # Skip for demo mode (uses built-in defaults)
+        backend_type = getattr(self.mm, '__class__', None).__name__ if hasattr(self.mm, '__class__') else None
+        if backend_type and backend_type not in ['DemoBackend', 'AmazonBackend']:
+            from .categories import convert_api_categories_to_groups, save_categories_to_config
+
+            try:
+                simple_groups = convert_api_categories_to_groups(categories_data, groups_data)
+                save_categories_to_config(simple_groups, config_dir=self.config_dir)
+            except Exception as e:
+                logger.warning(f"Failed to save categories to config.yaml: {e}")
+
         # Fetch transactions in batches
         if progress_callback:
             progress_callback("Fetching transactions...")
