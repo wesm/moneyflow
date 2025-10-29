@@ -330,8 +330,12 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
+
+            # Scroll down to Amazon
+            await pilot.press(*(["down"] * 10))
             await pilot.press("enter")
             await pilot.pause(0.3)
+
             # Change grouping with 'g' (cycles through group modes)
             await pilot.press("g")
             await pilot.pause(0.3)
@@ -348,6 +352,9 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
+            # Scroll down to Amazon
+            await pilot.press(*(["down"] * 10))
+
             await pilot.press("enter")
             await pilot.pause(0.3)
             # Cycle grouping to account: MERCHANT → CATEGORY → GROUP → ACCOUNT
@@ -366,12 +373,18 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view
+
+            # Scroll down to Amazon
+            await pilot.press(*(["down"] * 10))
+
             # Drill into merchant
             await pilot.press("enter")
             await pilot.pause(0.3)
+
             # Change to category grouping
             await pilot.press("g")
             await pilot.pause(0.3)
+
             # Drill into a category
             await pilot.press("enter")
             await pilot.pause(0.3)
@@ -492,7 +505,7 @@ class ScreenshotGenerator:
             await pilot.press("c")
             await pilot.pause(0.3)
 
-            await pilot.press("C", "l")
+            await pilot.press("B", "u")
             await self._save_screenshot(pilot, filename)
 
     async def _save_screenshot(self, pilot: Pilot, filename: str):
