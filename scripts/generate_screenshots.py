@@ -142,14 +142,17 @@ class ScreenshotGenerator:
         print(f"  📸 {filename}.svg - Monarch credential setup")
 
         class CredentialSetupApp(MoneyflowApp):
-            """Minimal app that shows credential setup."""
+            """Minimal app that shows backend selection then credential setup."""
 
             async def on_mount(self):
-                """Show credential setup on mount."""
-                await self.push_screen(CredentialSetupScreen(backend_type="monarch"))
+                """Show backend selection on mount."""
+                await self.push_screen(BackendSelectionScreen())
 
         app = CredentialSetupApp()
         async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.3)
+            # Click the Monarch Money button to navigate to credential setup
+            await pilot.click("#monarch-button")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
