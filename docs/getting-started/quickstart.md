@@ -140,12 +140,14 @@ On first run, you'll be prompted for:
 1. **Backend selection** - Choose **YNAB**
 2. **Personal Access Token** - Paste the token from Step 1
 3. **Encryption password** - Create a NEW password to encrypt your stored credentials
-4. **Budget selection** - Choose which YNAB budget to use (if you have multiple)
 
 !!! tip "Encryption Password"
     This is a **new password** just for moneyflow, not your YNAB password.
 
     Choose something you'll remember - you'll need it each time you launch moneyflow.
+
+!!! info "Multiple Budgets"
+    If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection UI is not yet implemented.
 
 ### Step 3: Wait for Initial Data Load
 
