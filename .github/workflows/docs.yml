@@ -3,7 +3,7 @@ name: Deploy Documentation
 on:
   push:
     branches:
-      - main
+      - stable  # Deploy from stable branch (updated on releases only)
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -37,5 +37,6 @@ jobs:
 
       - name: Summary
         run: |
-          echo "📚 Documentation deployed to GitHub Pages" >> $GITHUB_STEP_SUMMARY
+          echo "📚 Documentation deployed to GitHub Pages from stable branch" >> $GITHUB_STEP_SUMMARY
           echo "🌐 Site will be available at: https://moneyflow.dev" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️  Only released features (from stable branch) are published" >> $GITHUB_STEP_SUMMARY
