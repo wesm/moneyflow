@@ -164,7 +164,7 @@ First run downloads all your transactions:
 
 You're in! Here's what to try:
 
-- Press ++g++ to cycle through Merchants → Categories → Groups
+- Press ++g++ to cycle through Merchants → Categories → Groups → Accounts
 - Press ++enter++ on any row to drill down
 - Press ++escape++ to go back
 - Press ++question++ for help
