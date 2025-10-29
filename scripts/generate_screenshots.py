@@ -544,7 +544,33 @@ class ScreenshotGenerator:
         )
 
         svg_path = self.output_dir / svg_filename
+
+        # Add explicit width/height attributes to SVG for proper lightbox scaling
+        self._add_svg_dimensions(svg_path)
+
         self.generated.append(svg_path)
+
+    def _add_svg_dimensions(self, svg_path: Path):
+        """Add explicit width and height attributes to SVG based on viewBox."""
+        import re
+
+        content = svg_path.read_text()
+
+        # Extract viewBox dimensions
+        viewbox_match = re.search(r'viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"', content)
+        if viewbox_match:
+            width = viewbox_match.group(1)
+            height = viewbox_match.group(2)
+
+            # Add width and height attributes to svg tag
+            content = re.sub(
+                r'<svg ([^>]*?)>',
+                f'<svg \\1 width="{width}" height="{height}">',
+                content,
+                count=1
+            )
+
+            svg_path.write_text(content)
 
 
     def convert_svgs_to_png(self):

@@ -208,10 +208,19 @@
   align-items: center;
 }
 
+/* Lightbox image container */
+#lightbox-image-container {
+  max-width: 95vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Lightbox image */
 #lightbox-image {
-  max-width: 95vw;
-  max-height: 95vh;
+  max-width: 100%;
+  max-height: 100%;
   width: auto;
   height: auto;
   object-fit: contain;
@@ -257,9 +266,9 @@
     background-color: rgba(0, 0, 0, 0.98);
   }
 
-  #lightbox-image {
+  #lightbox-image-container {
     max-width: 98vw;
-    max-height: 90vh;
+    max-height: 85vh;
   }
 
   #lightbox-close {

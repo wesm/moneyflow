@@ -12,7 +12,7 @@
     overlay.id = 'lightbox-overlay';
     overlay.innerHTML = `
       <div class="lightbox-content">
-        <img id="lightbox-image" src="" alt="">
+        <div id="lightbox-image-container"></div>
         <button id="lightbox-close" aria-label="Close lightbox">&times;</button>
         <div class="lightbox-caption"></div>
       </div>
@@ -55,11 +55,33 @@
   // Open lightbox with image
   function openLightbox(imgSrc, altText) {
     const overlay = document.getElementById('lightbox-overlay') || createLightbox();
-    const lightboxImg = document.getElementById('lightbox-image');
+    const container = document.getElementById('lightbox-image-container');
     const caption = overlay.querySelector('.lightbox-caption');
 
-    lightboxImg.src = imgSrc;
-    lightboxImg.alt = altText;
+    // Clear previous content
+    container.innerHTML = '';
+
+    // Check if it's an SVG
+    if (imgSrc.endsWith('.svg')) {
+      // For SVG, create an img element with specific sizing
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.alt = altText;
+      img.id = 'lightbox-image';
+      img.style.width = 'auto';
+      img.style.height = 'auto';
+      img.style.maxWidth = '100%';
+      img.style.maxHeight = '100%';
+      container.appendChild(img);
+    } else {
+      // For PNG/JPG, use regular img tag
+      const img = document.createElement('img');
+      img.src = imgSrc;
+      img.alt = altText;
+      img.id = 'lightbox-image';
+      container.appendChild(img);
+    }
+
     caption.textContent = altText;
 
     overlay.classList.add('active');
