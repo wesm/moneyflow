@@ -61,17 +61,32 @@ class ScreenshotGenerator:
         # Cleanup temp directory
         shutil.rmtree(self.temp_config_dir, ignore_errors=True)
 
-    async def generate_all(self):
-        """Generate all documentation screenshots."""
+    async def generate_all(self, filter_pattern: Optional[str] = None):
+        """Generate all documentation screenshots.
+
+        Args:
+            filter_pattern: Optional pattern to match screenshot filenames.
+                          Only screenshots matching this pattern will be generated.
+        """
         print("🎬 Generating moneyflow documentation screenshots...")
         print(f"📁 Output directory: {self.output_dir}")
         print(f"🔒 Using isolated config: {self.temp_config_dir}")
+        if filter_pattern:
+            print(f"🔍 Filter: Only generating screenshots matching '{filter_pattern}'")
         print()
+
+        # Helper function to check if filename matches filter
+        def matches_filter(filename: str) -> bool:
+            if not filter_pattern:
+                return True
+            return filter_pattern.lower() in filename.lower()
 
         # Credential setup screens (no backend needed)
         # These require a fresh config directory (no existing credentials)
-        await self.screenshot_backend_select()
-        await self.screenshot_monarch_credentials()
+        if matches_filter("backend-select"):
+            await self.screenshot_backend_select()
+        if matches_filter("monarch-credentials"):
+            await self.screenshot_monarch_credentials()
 
         # Demo mode screens (uses DemoBackend)
         demo_screenshots = [
@@ -94,7 +109,8 @@ class ScreenshotGenerator:
         ]
 
         for filename, description, generator in demo_screenshots:
-            await generator(filename, description)
+            if matches_filter(filename):
+                await generator(filename, description)
 
         print()
         print(f"✅ Generated {len(self.generated)} screenshots")
@@ -567,6 +583,12 @@ async def main():
         default="MesloLGS NF",
         help="Font to use in screenshots (default: MesloLGS NF)",
     )
+    parser.add_argument(
+        "--filter",
+        type=str,
+        default=None,
+        help="Only generate screenshots whose filenames contain this string (case-insensitive)",
+    )
 
     args = parser.parse_args()
 
@@ -582,7 +604,7 @@ async def main():
 
     # Use context manager to ensure isolated config directory
     with ScreenshotGenerator(output_dir, convert_to_png=args.png, font_name=args.font) as generator:
-        await generator.generate_all()
+        await generator.generate_all(filter_pattern=args.filter)
 
     print()
     print("📝 Next steps:")
