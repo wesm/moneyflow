@@ -36,6 +36,11 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install --system mkdocs-material mkdocs-material-extensions
+          npm install -g markdownlint-cli
+
+      - name: Lint markdown
+        run: |
+          markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
 
       - name: Build documentation (no deploy)
         run: |
