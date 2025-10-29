@@ -1134,7 +1134,7 @@ class MonarchMoney(object):
         :param use_legacy_goals:
             Inoperative (plan to remove)
         :param use_v2_goals:
-            Inoperative (paln to remove)
+            Inoperative (plan to remove)
         """
         query = gql(
             """
