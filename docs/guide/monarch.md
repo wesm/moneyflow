@@ -121,34 +121,7 @@ moneyflow will:
 
 ## Editing Transactions
 
-All edits are queued locally and committed in batches. See the [Editing Guide](editing.md) for details on:
-
-- Editing merchant names
-- Changing categories
-- Hiding/unhiding transactions
-- Bulk edits with multi-select
-- Reviewing and committing changes
-
-Changes sync back to Monarch Money immediately after commit.
-
----
-
-## Filtering by Time Period
-
-By default, moneyflow loads **all transactions**. You can filter to recent data for faster startup:
-
-```bash
-# Load only 2025 transactions
-moneyflow --year 2025
-
-# Load last 90 days
-moneyflow --days 90
-
-# Load specific month
-moneyflow --month 2025-03
-```
-
-See [Time Navigation](navigation.md#time-navigation) for more options.
+All edits sync back to Monarch Money immediately after commit. See the [Editing Guide](editing.md) for full details.
 
 ---
 
@@ -201,42 +174,21 @@ issue](https://github.com/wesm/moneyflow/issues).
 
 ### Slow startup
 
-If startup is slow (>60 seconds), try filtering to recent data:
-
-```bash
-moneyflow --year 2025
-```
-
-You can also enable caching:
-
-```bash
-moneyflow --cache
-```
-
-See [Caching](../config/caching.md) for details.
+Try filtering to recent data (`--year 2025`) or enable caching (`--cache`). See [CLI Options](../reference/cli.md) and [Caching](../config/caching.md) for details.
 
 ---
 
 ## Data Privacy & Security
 
-moneyflow takes security seriously:
-
-- **Encrypted credentials**: AES-128 with PBKDF2 key derivation
-- **No cloud storage**: All data stored locally
-- **Read/write access**: moneyflow can view and edit your Monarch Money data
-- **No data collection**: moneyflow doesn't send data anywhere except Monarch Money
-
-See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for details.
+Your Monarch Money credentials are encrypted locally. moneyflow doesn't send data anywhere except Monarch Money. See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
 
 ---
 
 ## Next Steps
 
-- [Quick Start Tutorial](../getting-started/quickstart.md) - Learn the basics
+- [Editing Guide](editing.md) - Learn bulk operations and workflow
+- [Navigation & Search](navigation.md) - Master the interface
 - [Keyboard Shortcuts](keyboard-shortcuts.md) - Essential keybindings
-- [Navigation & Search](navigation.md) - Understanding how to navigate the interface
-- [Editing Transactions](editing.md) - Making changes
-- [Time Navigation](navigation.md#time-navigation) - Filtering by date
 
 ---
 
