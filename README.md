@@ -42,7 +42,7 @@ pipx install moneyflow
 # Try demo mode first (no account needed)
 moneyflow --demo
 
-# Connect to Monarch Money
+# Connect to Monarch Money or YNAB
 moneyflow
 
 # Analyze Amazon purchase history
@@ -55,7 +55,7 @@ moneyflow --year 2025
 
 **First-time Monarch Money setup:** You'll need your 2FA secret key. See the [Monarch Money setup guide](https://moneyflow.dev/guide/monarch).
 
-**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings.
+**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings. See the [YNAB setup guide](https://moneyflow.dev/guide/ynab).
 
 ---
 
@@ -166,6 +166,7 @@ More help: [Troubleshooting Guide](https://moneyflow.dev/reference/troubleshooti
 - [Editing Transactions](https://moneyflow.dev/guide/editing)
 - [Keyboard Shortcuts](https://moneyflow.dev/guide/keyboard-shortcuts)
 - [Monarch Money Setup](https://moneyflow.dev/guide/monarch)
+- [YNAB Setup](https://moneyflow.dev/guide/ynab)
 - [Amazon Mode](https://moneyflow.dev/guide/amazon-mode)
 
 ---
@@ -219,4 +220,4 @@ Monarch Money® is a trademark of Monarch Money, Inc. This project is independen
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-**Disclaimer:** Independent open-source project. Not affiliated with or endorsed by Monarch Money, Inc.
+**Disclaimer:** Independent open-source project. Not affiliated with or endorsed by Monarch Money, Inc. or YNAB LLC.

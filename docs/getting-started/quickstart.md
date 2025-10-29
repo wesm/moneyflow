@@ -24,7 +24,16 @@ Press ++g++ to cycle through views, ++slash++ to search, ++q++ to quit.
 
 ---
 
-## With Your Monarch Money Account
+## With Your Finance Platform
+
+Choose your platform:
+
+- [Monarch Money Setup](#with-monarch-money)
+- [YNAB Setup](#with-ynab)
+
+---
+
+## With Monarch Money
 
 ### Step 1: Get Your 2FA Secret
 
@@ -99,9 +108,64 @@ Let's rename a merchant:
 4. Press ++m++ to edit merchant name
 5. Type the new name, press ++enter++
 6. Press ++w++ to review changes
-7. Press ++enter++ to commit to Monarch Money
+7. Press ++enter++ to commit to your backend (Monarch/YNAB)
 
 Done! The change is now saved.
+
+---
+
+---
+
+## With YNAB
+
+### Step 1: Get Your Personal Access Token
+
+!!! warning "Important: Generate token BEFORE running moneyflow"
+    You'll need a Personal Access Token from YNAB:
+
+    1. Log into [YNAB](https://app.ynab.com/)
+    2. Go to **Account Settings** → **Developer Settings**
+    3. Click **"New Token"** under Personal Access Tokens
+    4. Enter your YNAB password and click **"Generate"**
+    5. **Copy the token immediately** - you won't see it again
+
+### Step 2: Launch moneyflow
+
+```bash
+moneyflow
+```
+
+On first run, you'll be prompted for:
+
+1. **Backend selection** - Choose **YNAB**
+2. **Personal Access Token** - Paste the token from Step 1
+3. **Encryption password** - Create a NEW password to encrypt your stored credentials
+4. **Budget selection** - Choose which YNAB budget to use (if you have multiple)
+
+!!! tip "Encryption Password"
+    This is a **new password** just for moneyflow, not your YNAB password.
+
+    Choose something you'll remember - you'll need it each time you launch moneyflow.
+
+### Step 3: Wait for Initial Data Load
+
+First run downloads all your transactions:
+
+- **Small budgets** (<1k transactions): ~5 seconds
+- **Medium budgets** (1k-10k): ~15 seconds
+- **Large budgets** (10k+): ~30-60 seconds
+
+!!! success "One-Time Download"
+    After the first load, all operations are instant! moneyflow works offline with your data cached locally.
+
+### Step 4: Explore
+
+You're in! Here's what to try:
+
+- Press ++g++ to cycle through Merchants → Categories → Groups
+- Press ++enter++ on any row to drill down
+- Press ++escape++ to go back
+- Press ++question++ for help
 
 ---
 
@@ -110,6 +174,8 @@ Done! The change is now saved.
 - [Keyboard Shortcuts](../guide/keyboard-shortcuts.md) - Learn all the keybindings
 - [Navigation & Search](../guide/navigation.md) - Understand the different views
 - [Editing Transactions](../guide/editing.md) - Master bulk operations
+- [Monarch Money Guide](../guide/monarch.md) - Detailed Monarch-specific documentation
+- [YNAB Guide](../guide/ynab.md) - Detailed YNAB-specific documentation
 
 ---
 

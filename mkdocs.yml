@@ -117,6 +117,7 @@ nav:
     - Filters: guide/filters.md
     - Keyboard Shortcuts: guide/keyboard-shortcuts.md
     - Monarch Money: guide/monarch.md
+    - YNAB: guide/ynab.md
     - Amazon Mode: guide/amazon-mode.md
   - Configuration:
     - Categories: categories.md

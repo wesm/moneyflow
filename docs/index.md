@@ -110,13 +110,14 @@ See exactly what changes you're making before saving. All edits are queued and r
 **Currently supported:**
 
 - **[Monarch Money](https://www.monarchmoney.com/)** - Full-featured integration with real-time sync
+- **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
 - **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official data exports
 - **Demo Mode** - Synthetic data for testing features
 
 **Future:**
 
-- YNAB (You Need A Budget)
 - Lunch Money
+- Actual Budget
 - Generic CSV import for any platform
 
 The backend system is pluggable—adding new platforms is straightforward. See [Contributing](development/contributing.md) if you want to add support for your platform.
@@ -146,7 +147,7 @@ uvx moneyflow --demo
 ## Independent Open Source Project 
 
 !!! info ""
-    moneyflow is an independent open-source project. It is not affiliated with, endorsed by, or officially connected to Monarch Money, Inc. or any other finance platform.
+    moneyflow is an independent open-source project. It is not affiliated with, endorsed by, or officially connected to Monarch Money, Inc., YNAB LLC, or any other finance platform.
 
 ---
 

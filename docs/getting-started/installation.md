@@ -84,7 +84,7 @@ uv run moneyflow
 
 - **Python 3.11+** (automatically handled by pip/uvx/pipx)
 - **Terminal**: Any modern terminal with Unicode support
-- **Account**: Monarch Money or Amazon account (or use `--demo` mode)
+- **Account**: Monarch Money, YNAB, or Amazon account (or use `--demo` mode)
 
 ---
 
@@ -106,6 +106,7 @@ If you see the demo data load successfully, you're all set!
 
 - [Quick Start Guide](quickstart.md) - Get up and running in 5 minutes
 - [Monarch Money Setup](../guide/monarch.md) - Detailed guide for Monarch Money users
+- [YNAB Setup](../guide/ynab.md) - Detailed guide for YNAB users
 - [Amazon Mode](../guide/amazon-mode.md) - Import and analyze Amazon purchase history
 - [Keyboard Shortcuts](../guide/keyboard-shortcuts.md) - Learn the keybindings
 
