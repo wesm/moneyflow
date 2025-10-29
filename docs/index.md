@@ -139,7 +139,7 @@ uvx moneyflow --demo
 
 1. [Full installation guide](getting-started/installation.md) - Detailed setup instructions
 2. [Quick start guide](getting-started/quickstart.md) - Get up and running in 2 minutes
-3. [ Keyboard shortcuts](guide/keyboard-shortcuts.md) - Master the interface
+3. [Keyboard shortcuts](guide/keyboard-shortcuts.md) - Master the interface
 
 ---
 
