@@ -375,7 +375,9 @@ def convert_api_categories_to_groups(
     return result
 
 
-def save_categories_to_config(category_groups: Dict[str, List[str]], config_dir: Optional[str] = None) -> None:
+def save_categories_to_config(
+    category_groups: Dict[str, List[str]], config_dir: Optional[str] = None
+) -> None:
     """
     Save fetched category structure to config.yaml.
 

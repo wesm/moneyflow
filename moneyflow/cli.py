@@ -355,7 +355,7 @@ def categories_audit(config_dir, cache_dir):
         known_categories.update(categories)
 
     click.echo(f"Loaded {len(known_categories)} categories from config")
-    click.echo(f"Checking cached transaction data...\n")
+    click.echo("Checking cached transaction data...\n")
 
     # Try to load cached data
     cache_manager = CacheManager(cache_dir=cache_dir)
@@ -379,7 +379,7 @@ def categories_audit(config_dir, cache_dir):
     unused_categories = known_categories - transaction_categories
 
     # Results
-    click.echo(f"📊 Audit Results\n")
+    click.echo("📊 Audit Results\n")
     click.echo(f"Total transactions: {len(df):,}")
     click.echo(f"Unique categories in data: {len(transaction_categories)}")
     click.echo(f"Known categories in config: {len(known_categories)}\n")

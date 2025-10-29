@@ -289,29 +289,31 @@ class TestGetEffectiveCategoryGroups:
         assert "Food & Dining" in groups
         assert "Travel & Lifestyle" in groups
 
-    def test_merges_with_custom_config(self, tmp_path):
-        """Should merge custom config when it exists."""
+    def test_uses_fetched_categories_when_present(self, tmp_path):
+        """Should use fetched_categories from config when present (new behavior)."""
         config_file = tmp_path / "config.yaml"
         config_file.write_text(
             """
 version: 1
-categories:
-  rename_groups:
-    "Travel & Lifestyle": Travel
-  add_to_groups:
-    Business:
-      - Accounting
+fetched_categories:
+  Travel:
+    - Airfare
+    - Hotel
+  Business:
+    - Accounting
+    - Consulting
 """
         )
 
         groups = get_effective_category_groups(str(tmp_path))
 
-        # Group renamed
+        # Should use fetched categories (not defaults)
         assert "Travel" in groups
-        assert "Travel & Lifestyle" not in groups
-
-        # Category added
+        assert "Business" in groups
+        assert "Airfare" in groups["Travel"]
         assert "Accounting" in groups["Business"]
+        # Should NOT have default groups when fetched_categories exists
+        assert "Food & Dining" not in groups
 
 
 class TestEdgeCases:

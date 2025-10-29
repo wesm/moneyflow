@@ -66,17 +66,19 @@ def mock_mm():
 
 
 @pytest.fixture
-async def data_manager(mock_mm):
-    """Provide a DataManager with mock backend."""
+async def data_manager(mock_mm, tmp_path):
+    """Provide a DataManager with mock backend and isolated config."""
     await mock_mm.login()
-    return DataManager(mock_mm)
+    # Use tmp_path as config_dir to avoid using ~/.moneyflow/config.yaml
+    return DataManager(mock_mm, config_dir=str(tmp_path))
 
 
 @pytest.fixture
-async def loaded_data_manager(mock_mm):
-    """Provide a DataManager with data already loaded."""
+async def loaded_data_manager(mock_mm, tmp_path):
+    """Provide a DataManager with data already loaded and isolated config."""
     await mock_mm.login()
-    dm = DataManager(mock_mm)
+    # Use tmp_path as config_dir to avoid using ~/.moneyflow/config.yaml
+    dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
     # Load all data
     df, categories, category_groups = await dm.fetch_all_data()

@@ -61,7 +61,7 @@ class MockMonarchMoney(FinanceBackend):
         # Category groups
         self.category_groups = [
             {"id": "grp_food", "name": "Food & Dining", "type": "expense"},
-            {"id": "grp_transport", "name": "Transportation", "type": "expense"},
+            {"id": "grp_transport", "name": "Auto & Transport", "type": "expense"},
             {"id": "grp_shopping", "name": "Shopping", "type": "expense"},
         ]
 

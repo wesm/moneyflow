@@ -498,9 +498,13 @@ class TestEndToEndDataFetch:
         # Import data
         import_amazon_orders(str(sample_orders_csv), backend)
 
-        # Create DataManager and fetch
-        data_manager = DataManager(backend)
-        df, categories, category_groups = await data_manager.fetch_all_data()
+        # Create DataManager and fetch with isolated config directory
+        # Use a temp directory to avoid using ~/.moneyflow/config.yaml
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp_config:
+            data_manager = DataManager(backend, config_dir=tmp_config)
+            df, categories, category_groups = await data_manager.fetch_all_data()
 
         # Verify data loaded correctly
         assert df is not None
@@ -510,7 +514,7 @@ class TestEndToEndDataFetch:
         assert "cat_uncategorized" in categories
 
         # Verify group was derived from category
-        # "Uncategorized" category is in "Uncategorized" group
+        # "Uncategorized" category is in "Uncategorized" group (from built-in defaults)
         assert all(df["group"] == "Uncategorized")  # All initially in Uncategorized group
 
     @pytest.mark.asyncio
