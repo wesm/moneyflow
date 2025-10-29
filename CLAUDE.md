@@ -64,9 +64,13 @@ uv run pyright moneyflow/
 
 # Check coverage
 uv run pytest --cov --cov-report=term-missing
+
+# Check markdown formatting (if docs changed)
+markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
+.github/scripts/check-arrow-lists.sh
 ```
 
-**All tests must pass and type checking must be clean before committing.** No exceptions.
+**All tests must pass, type checking must be clean, and markdown must be properly formatted before committing.** No exceptions.
 
 ### Project Structure
 
@@ -206,9 +210,15 @@ uv run ruff format --check moneyflow/ tests/
 
 # 4. Linting (ruff check)
 uv run ruff check moneyflow/ tests/
+
+# 5. Markdown formatting (if docs changed)
+markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
+.github/scripts/check-arrow-lists.sh
 ```
 
-**All four checks must pass with zero errors** before creating a commit or release.
+**All checks must pass with zero errors** before creating a commit or release.
+
+**Note:** Markdown checks (5) only need to run if you've modified documentation files (README.md or docs/).
 
 ### Auto-Fixing Issues
 
@@ -373,6 +383,9 @@ git commit -m "Descriptive commit message"
 - [ ] Type checking passes (`uv run pyright moneyflow/`)
 - [ ] Code formatting passes (`uv run ruff format --check moneyflow/ tests/`)
 - [ ] Linting passes (`uv run ruff check moneyflow/ tests/`)
+- [ ] Markdown formatting passes (if docs changed):
+  - `markdownlint --config .markdownlint.json README.md 'docs/**/*.md'`
+  - `.github/scripts/check-arrow-lists.sh`
 - [ ] Coverage hasn't decreased
 - [ ] No debug print statements left in code
 - [ ] Updated tests for any changed behavior
