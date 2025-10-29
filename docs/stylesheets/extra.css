@@ -206,6 +206,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 1.5rem;
+  padding-top: 3rem;
+  padding-bottom: 2rem;
 }
 
 /* Lightbox image container */
@@ -255,7 +258,7 @@
 .lightbox-caption {
   color: white;
   text-align: center;
-  margin-top: 2rem;
+  margin-top: 0;
   font-size: 0.9rem;
   max-width: 90%;
 }
