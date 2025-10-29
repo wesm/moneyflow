@@ -23,9 +23,11 @@ On every startup, moneyflow:
 2. **Saves them to `~/.moneyflow/config.yaml`** under `fetched_categories`
 3. **Uses them throughout the session** for grouping and filtering
 
-Your categories are always up-to-date with your finance platform. If you add or rename categories in Monarch or YNAB, they'll automatically appear in moneyflow on next launch.
+Your categories are always up-to-date with your finance platform. If you add or rename categories in
+Monarch or YNAB, they'll automatically appear in moneyflow on next launch.
 
 **Example config.yaml (auto-generated):**
+
 ```yaml
 version: 1
 fetched_categories:
@@ -62,7 +64,9 @@ Demo mode always uses the built-in default categories (~60 categories in 15 grou
 
 If no `fetched_categories` exist in config.yaml, moneyflow uses built-in defaults:
 
-- **15 groups**: Income, Food & Dining, Shopping, Auto & Transport, Housing, Bills & Utilities, Travel & Lifestyle, Health & Wellness, Children, Education, Gifts & Donations, Financial, Business, Uncategorized, Transfers
+- **15 groups**: Income, Food & Dining, Shopping, Auto & Transport, Housing, Bills & Utilities,
+  Travel & Lifestyle, Health & Wellness, Children, Education, Gifts & Donations, Financial,
+  Business, Uncategorized, Transfers
 - **~60 categories**: Groceries, Restaurants, Gas, Shopping, Medical, etc.
 
 These defaults are based on Monarch Money's category structure and work well for most personal finance scenarios.
@@ -85,11 +89,14 @@ This shows the actual categories being used (fetched from backend or defaults).
 ## Advanced: Manual Category Customization (Legacy)
 
 !!! warning "Not recommended for Monarch/YNAB users"
-    For Monarch and YNAB users, we recommend using your backend's categories directly. They're automatically fetched and synced on every startup.
+    For Monarch and YNAB users, we recommend using your backend's categories directly.
+    They're automatically fetched and synced on every startup.
 
-    Manual customization is primarily useful for Amazon mode users who want to define their own category structure.
+    Manual customization is primarily useful for Amazon mode users who want to define their
+    own category structure.
 
-If you need to manually define categories (e.g., for Amazon-only usage without Monarch/YNAB), you can create a custom category structure in `config.yaml`:
+If you need to manually define categories (e.g., for Amazon-only usage without Monarch/YNAB),
+you can create a custom category structure in `config.yaml`:
 
 ```yaml
 version: 1
@@ -116,11 +123,13 @@ custom_categories:
 
 ### I want to use Monarch categories in Amazon mode
 
-**Solution:** Run moneyflow with Monarch at least once. The categories will be saved to `config.yaml` and automatically used by Amazon mode.
+**Solution:** Run moneyflow with Monarch at least once. The categories will be saved to
+`config.yaml` and automatically used by Amazon mode.
 
 ### I see "Using built-in default categories" in logs
 
 This is normal for:
+
 - First run before connecting to Monarch/YNAB
 - Demo mode
 - Amazon mode without previous Monarch/YNAB setup
@@ -148,6 +157,7 @@ rm ~/.moneyflow/config.yaml
 **Update frequency:** On every Monarch/YNAB startup (keeps categories in sync)
 
 **Format:**
+
 ```yaml
 version: 1
 fetched_categories:
@@ -157,5 +167,6 @@ fetched_categories:
 ```
 
 **Fallback order:**
+
 1. `fetched_categories` from config.yaml
 2. Built-in `DEFAULT_CATEGORY_GROUPS` from `categories.py`
