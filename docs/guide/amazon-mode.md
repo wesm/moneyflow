@@ -148,7 +148,8 @@ moneyflow amazon --db-path ~/custom.db status
 
 ## UI Navigation
 
-Amazon mode uses the same keyboard shortcuts as the main application. See [Keyboard Shortcuts](keyboard-shortcuts.md) for the complete reference.
+Amazon mode uses the same keyboard shortcuts as the main application.
+See [Keyboard Shortcuts](keyboard-shortcuts.md) for the complete reference.
 
 **View name mappings:**
 

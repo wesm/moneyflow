@@ -201,7 +201,8 @@ Made a mistake while queueing edits? Press `u` to undo the most recent pending e
 
 **When to use:**
 
-This is useful when you've queued multiple edits and realize one was a mistake, without having to discard all your pending changes.
+This is useful when you've queued multiple edits and realize one was a mistake,
+without having to discard all your pending changes.
 
 ## Review Before Commit
 
@@ -214,7 +215,8 @@ All edits are queued locally until you commit:
 
 <!-- TODO: Add screenshot of review changes screen -->
 
-The `*` indicator shows which transactions/groups have pending edits before you commit. If you need to remove edits before reviewing, use `u` to undo them one by one.
+The `*` indicator shows which transactions/groups have pending edits before you commit.
+If you need to remove edits before reviewing, use `u` to undo them one by one.
 
 ## Tips
 

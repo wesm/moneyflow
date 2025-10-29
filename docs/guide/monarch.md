@@ -41,7 +41,8 @@ Before setting up moneyflow with Monarch Money, you'll need:
     7. Save this somewhere secure (password manager recommended)
 
 !!! info "Why do I need this?"
-    moneyflow requires your 2FA secret to automatically generate 6-digit codes for login. This allows unattended operation and avoids manual code entry on every startup.
+    moneyflow requires your 2FA secret to automatically generate 6-digit codes for login.
+    This allows unattended operation and avoids manual code entry on every startup.
 
 ---
 
@@ -80,7 +81,8 @@ moneyflow will ask you to create a **NEW password** to encrypt your stored crede
 - Minimum 8 characters recommended
 
 !!! info "How Credentials Are Stored"
-    Your Monarch Money credentials are encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations) and stored at:
+    Your Monarch Money credentials are encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations)
+    and stored at:
 
     ```
     ~/.moneyflow/credentials.enc
@@ -174,13 +176,15 @@ issue](https://github.com/wesm/moneyflow/issues).
 
 ### Slow startup
 
-Try filtering to recent data (`--year 2025`) or enable caching (`--cache`). See [CLI Options](../reference/cli.md) and [Caching](../config/caching.md) for details.
+Try filtering to recent data (`--year 2025`) or enable caching (`--cache`).
+See [CLI Options](../reference/cli.md) and [Caching](../config/caching.md) for details.
 
 ---
 
 ## Data Privacy & Security
 
-Your Monarch Money credentials are encrypted locally. moneyflow doesn't send data anywhere except Monarch Money. See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
+Your Monarch Money credentials are encrypted locally. moneyflow doesn't send data anywhere except Monarch Money.
+See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
 
 ---
 

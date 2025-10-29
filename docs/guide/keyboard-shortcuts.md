@@ -96,7 +96,8 @@ moneyflow is designed to be used entirely with the keyboard. Here's your complet
 |-----|--------|
 | ++u++ | Undo most recent pending edit |
 
-Removes the most recent edit from the pending changes queue. Press multiple times to undo edits in reverse order. Shows notification with field type and remaining edit count.
+Removes the most recent edit from the pending changes queue. Press multiple times to undo edits in reverse order.
+Shows notification with field type and remaining edit count.
 
 ---
 
@@ -255,7 +256,7 @@ When in a modal dialog (edit merchant, select category, etc.):
 
 Print this for reference:
 
-```
+```text
 Views:       g (cycle)  d (detail)  D (duplicates)
 Time:        y (year)   t (month)  a (all)  ←/→ (navigate)
 Edit:        m (merchant)  c (category)  h (hide)  x (delete)  u (undo)

@@ -8,7 +8,8 @@ Press `f` to open the filter settings modal.
 
 **Default**: Off (transfers excluded)
 
-Transfer transactions (e.g., "Transfer to Savings") are typically internal movements between your accounts, not income or expenses. By default, moneyflow excludes them from all views.
+Transfer transactions (e.g., "Transfer to Savings") are typically internal movements between your accounts,
+not income or expenses. By default, moneyflow excludes them from all views.
 
 Toggle this filter to:
 
@@ -48,6 +49,8 @@ The status bar shows your current filter settings:
 
 ## Advanced Filtering
 
-More advanced filtering capabilities (by amount range, date range, merchant patterns, etc.) are planned for future releases.
+More advanced filtering capabilities (by amount range, date range, merchant patterns, etc.)
+are planned for future releases.
 
-For now, use [Search](navigation.md#search) to filter by text matching, and [Time Navigation](navigation.md#time-navigation) to filter by date.
+For now, use [Search](navigation.md#search) to filter by text matching,
+and [Time Navigation](navigation.md#time-navigation) to filter by date.

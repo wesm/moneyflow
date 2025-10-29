@@ -17,21 +17,23 @@ amount spent.
 <tr>
 <td width="50%">
 <strong>Merchant View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-1-merchants.svg" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-1-merchants.svg" width="100%"
+alt="Merchants view">
 </td>
 <td width="50%">
 <strong>Category View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-2-categories.svg" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-2-categories.svg" width="100%"
+alt="Categories view">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>Group View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-3-groups.svg" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-3-groups.svg" width="100%" alt="Groups view">
 </td>
 <td width="50%">
 <strong>Account View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.svg" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.svg" width="100%" alt="Accounts view">
 </td>
 </tr>
 </table>
@@ -69,7 +71,8 @@ amount spent.
 
 ### Detail View
 
-Press `d` to view all transactions ungrouped in chronological order, or press `Enter` from any aggregate row to see the transactions for that specific item.
+Press `d` to view all transactions ungrouped in chronological order,
+or press `Enter` from any aggregate row to see the transactions for that specific item.
 
 **Columns displayed:**
 
@@ -117,7 +120,8 @@ Press `Escape` to return to Merchant view with your cursor position and scroll r
 
 ## Sub-Grouping
 
-Once you've drilled down into a specific item, press `g` to sub-group the filtered data by a different field. This allows you to analyze the same transactions from multiple perspectives without losing your filter context.
+Once you've drilled down into a specific item, press `g` to sub-group the filtered data by a different field.
+This allows you to analyze the same transactions from multiple perspectives without losing your filter context.
 
 **Example - Analyzing Amazon purchases:**
 
