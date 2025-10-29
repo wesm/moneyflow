@@ -308,5 +308,114 @@ def categories_dump(config_dir, format):
         raise click.Abort()
 
 
+@categories.command(name="audit")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="Config directory (default: ~/.moneyflow)",
+)
+@click.option(
+    "--cache-dir",
+    type=click.Path(),
+    default=None,
+    help="Cache directory (default: ~/.moneyflow/cache)",
+)
+def categories_audit(config_dir, cache_dir):
+    """Audit transactions for categories not in config.yaml.
+
+    Compares transaction categories in cached data against the
+    category structure in config.yaml to find:
+    - Categories that exist in transactions but not in config
+    - Potential data quality issues
+    - Unmapped or orphaned categories
+
+    Useful for identifying category mismatches after backend changes
+    or for validating Amazon mode category mappings.
+    """
+    from pathlib import Path
+
+    import polars as pl
+
+    from .cache_manager import CacheManager
+    from .categories import get_effective_category_groups
+
+    if config_dir is None:
+        config_dir = str(Path.home() / ".moneyflow")
+
+    if cache_dir is None:
+        cache_dir = str(Path.home() / ".moneyflow" / "cache")
+
+    # Load category structure from config
+    category_groups = get_effective_category_groups(config_dir)
+
+    # Build set of all known categories
+    known_categories = set()
+    for group_name, categories in category_groups.items():
+        known_categories.update(categories)
+
+    click.echo(f"Loaded {len(known_categories)} categories from config")
+    click.echo(f"Checking cached transaction data...\n")
+
+    # Try to load cached data
+    cache_manager = CacheManager(cache_dir=cache_dir)
+    cached_data = cache_manager.load_cache()
+
+    if not cached_data:
+        click.echo("❌ No cached data found.")
+        click.echo("\nRun moneyflow with --cache flag first to create cache:")
+        click.echo("  $ moneyflow --cache")
+        return
+
+    df, _, _, _ = cached_data
+
+    # Find unique categories in transactions
+    transaction_categories = set(df["category"].unique().to_list())
+
+    # Find categories in transactions but not in config
+    unknown_categories = transaction_categories - known_categories
+
+    # Find categories in config but not in transactions
+    unused_categories = known_categories - transaction_categories
+
+    # Results
+    click.echo(f"📊 Audit Results\n")
+    click.echo(f"Total transactions: {len(df):,}")
+    click.echo(f"Unique categories in data: {len(transaction_categories)}")
+    click.echo(f"Known categories in config: {len(known_categories)}\n")
+
+    if unknown_categories:
+        click.echo(
+            f"⚠️  Found {len(unknown_categories)} categories in transactions NOT in config.yaml:\n"
+        )
+        for cat in sorted(unknown_categories):
+            # Count how many transactions have this category
+            count = df.filter(pl.col("category") == cat).shape[0]
+            click.echo(f"  • {cat} ({count:,} transactions)")
+        click.echo()
+    else:
+        click.echo("✅ All transaction categories are defined in config.yaml\n")
+
+    if unused_categories:
+        click.echo(
+            f"ℹ️  Found {len(unused_categories)} categories in config NOT used in transactions:\n"
+        )
+        for cat in sorted(list(unused_categories)[:10]):  # Show first 10
+            click.echo(f"  • {cat}")
+        if len(unused_categories) > 10:
+            click.echo(f"  ... and {len(unused_categories) - 10} more")
+        click.echo()
+
+    # Summary
+    if unknown_categories:
+        click.echo("💡 Action: Unknown categories may indicate:")
+        click.echo("   - New categories added to your backend that haven't synced")
+        click.echo("   - Data quality issues")
+        click.echo("   - Categories that need to be added to config.yaml")
+        click.echo("\n   Restart moneyflow to refresh categories from backend")
+    else:
+        click.echo("✅ Category audit passed - all categories accounted for!")
+
+
 if __name__ == "__main__":
     cli()
