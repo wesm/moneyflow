@@ -87,6 +87,8 @@ class ScreenshotGenerator:
             await self.screenshot_backend_select()
         if matches_filter("monarch-credentials"):
             await self.screenshot_monarch_credentials()
+        if matches_filter("ynab-credentials"):
+            await self.screenshot_ynab_credentials()
 
         # Demo mode screens (uses DemoBackend)
         demo_screenshots = [
@@ -153,6 +155,26 @@ class ScreenshotGenerator:
             await pilot.pause(0.3)
             # Click the Monarch Money button to navigate to credential setup
             await pilot.click("#monarch-button")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_ynab_credentials(self):
+        """Screenshot: YNAB credential setup screen."""
+        filename = "ynab-credentials"
+        print(f"  📸 {filename}.svg - YNAB credential setup")
+
+        class CredentialSetupApp(MoneyflowApp):
+            """Minimal app that shows backend selection then credential setup."""
+
+            async def on_mount(self):
+                """Show backend selection on mount."""
+                await self.push_screen(BackendSelectionScreen())
+
+        app = CredentialSetupApp()
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.3)
+            # Click the YNAB button to navigate to credential setup
+            await pilot.click("#ynab-button")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
