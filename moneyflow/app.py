@@ -174,6 +174,7 @@ class MoneyflowApp(App):
         force_refresh: bool = False,
         backend: Optional[Any] = None,
         config: Optional[Any] = None,
+        config_dir: Optional[str] = None,
     ):
         super().__init__()
         self.demo_mode = demo_mode
@@ -208,6 +209,7 @@ class MoneyflowApp(App):
         self.cache_manager = None  # Will be set if caching is enabled
         self.cache_year_filter = None  # Track what filters the cache uses
         self.cache_since_filter = None
+        self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
 
@@ -271,7 +273,10 @@ class MoneyflowApp(App):
         """Initialize data manager, cache manager, and controller."""
         # In demo mode, use a temp directory for merchant cache (don't pollute ~/.moneyflow)
         merchant_cache_dir = "" if not self.demo_mode else "/tmp/moneyflow_demo"
-        self.data_manager = DataManager(self.backend, merchant_cache_dir=merchant_cache_dir)
+        # config_dir is already a string (or None), DataManager accepts Optional[str]
+        self.data_manager = DataManager(
+            self.backend, merchant_cache_dir=merchant_cache_dir, config_dir=self.config_dir
+        )
 
         # Initialize cache manager only if user requested caching
         if self.cache_path is not None:
@@ -330,7 +335,9 @@ class MoneyflowApp(App):
             dict: Credentials dict or None if user exits
         """
 
-        cred_manager = CredentialManager()
+        # Convert config_dir string to Path if provided
+        config_path = Path(self.config_dir) if self.config_dir else None
+        cred_manager = CredentialManager(config_dir=config_path)
 
         logger = get_logger(__name__)
         logger.debug(f"Credentials exist: {cred_manager.credentials_exist()}")
@@ -1842,6 +1849,7 @@ def launch_monarch_mode(
     cache: Optional[str] = None,
     refresh: bool = False,
     demo: bool = False,
+    config_dir: Optional[str] = None,
 ) -> None:
     """
     Launch moneyflow with default backend (Monarch Money).
@@ -1853,12 +1861,15 @@ def launch_monarch_mode(
         cache: Cache directory path (enables caching if provided, None to disable)
         refresh: Force refresh from API, skip cache
         demo: Run in demo mode with sample data
+        config_dir: Config directory (None = ~/.moneyflow)
     """
     from datetime import date as date_type
 
     # Initialize logging
     logger = setup_logging(console_output=False)
     logger.info("Starting moneyflow with Monarch Money backend")
+    if config_dir:
+        logger.info(f"Using custom config directory: {config_dir}")
 
     # Determine start year or date range
     start_year = None
@@ -1880,6 +1891,7 @@ def launch_monarch_mode(
             demo_mode=demo,
             cache_path=cache,
             force_refresh=refresh,
+            config_dir=config_dir,
         )
         app.run()
     except Exception:
