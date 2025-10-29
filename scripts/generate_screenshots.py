@@ -151,7 +151,7 @@ class ScreenshotGenerator:
                 await self.push_screen(BackendSelectionScreen())
 
         app = CredentialSetupApp()
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(0.3)
             # Click the Monarch Money button to navigate to credential setup
             await pilot.click("#monarch-button")
@@ -171,7 +171,7 @@ class ScreenshotGenerator:
                 await self.push_screen(BackendSelectionScreen())
 
         app = CredentialSetupApp()
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(0.3)
             # Click the YNAB button to navigate to credential setup
             await pilot.click("#ynab-button")
@@ -186,7 +186,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             # Wait for app to load
             await pilot.pause(1.0)
             await self._save_screenshot(pilot, filename)
@@ -199,7 +199,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # App starts in MERCHANT view by default (no 'g' press needed)
             await self._save_screenshot(pilot, filename)
@@ -212,7 +212,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Press 'g' once: MERCHANT → CATEGORY
             await pilot.press("g")
@@ -227,7 +227,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Press 'g' twice: MERCHANT → CATEGORY → GROUP
             await pilot.press("g", "g")
@@ -242,7 +242,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Press 'g' three times: MERCHANT → CATEGORY → GROUP → ACCOUNT
             await pilot.press("g", "g", "g")
@@ -257,7 +257,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view (default state)
             # Navigate down to find Amazon (assuming it's in the list)
@@ -273,7 +273,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view (default state)
 
@@ -293,7 +293,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Press 'd' to go to ungrouped detail view
             await pilot.press("d")
@@ -352,7 +352,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
 
@@ -374,7 +374,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
             # Scroll down to Amazon
@@ -395,7 +395,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view
 
@@ -423,7 +423,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Open search with '/'
             await pilot.press("slash")
@@ -438,7 +438,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view
             # Open search
@@ -460,7 +460,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
 
             # Scroll down to AMAZON.COM
@@ -488,7 +488,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill into detail
             # await pilot.press("enter")
@@ -520,7 +520,7 @@ class ScreenshotGenerator:
         app.demo_mode = True
         app.backend = DemoBackend()
 
-        async with app.run_test(size=(150, 40)) as pilot:
+        async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill into detail and select items
             await pilot.press("enter")
