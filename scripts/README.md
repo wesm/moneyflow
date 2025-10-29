@@ -1,103 +1,137 @@
-# Publishing Scripts
+# moneyflow Scripts
 
-Automation scripts for version management and PyPI publishing.
+Development and documentation scripts for moneyflow.
 
-## Scripts
+## Screenshot Generation
 
-### `bump-version.sh <version>`
+Automatically generate all documentation screenshots using Textual's pilot API and SVG export.
 
-Bump version number and create git tag.
-
-```bash
-# Bump to 0.2.0
-./scripts/bump-version.sh 0.2.0
-
-# This will:
-# 1. Update version in pyproject.toml
-# 2. Commit the change
-# 3. Create git tag v0.2.0
-# 4. Print next steps (you push when ready)
-```
-
-### `test-build.sh`
-
-Build the package and test it locally before publishing.
+### Quick Start
 
 ```bash
-./scripts/test-build.sh
+# Generate all screenshots (saves to ../moneyflow-assets/)
+uv run python scripts/generate_screenshots.py
 
-# This will:
-# 1. Clean old builds
-# 2. Build with uv
-# 3. Test the wheel with uvx
-# 4. Verify --help and --demo work
+# Generate and convert to PNG
+uv run python scripts/generate_screenshots.py --png
+
+# Use custom font
+uv run python scripts/generate_screenshots.py --font "JetBrains Mono"
+
+# Custom output directory
+uv run python scripts/generate_screenshots.py --output-dir ~/my-screenshots
 ```
 
-### `publish-testpypi.sh`
+### Screenshots Generated
 
-Publish to TestPyPI for testing.
+The script generates all screenshots referenced in the documentation:
+
+**Setup Screens:**
+- `backend-select.svg` - Backend selection screen
+- `monarch-credentials.svg` - Monarch credential setup
+
+**Demo Mode Screens:**
+- `home-screen.svg` - Main home screen
+- `cycle-1-merchants.svg` - Merchants aggregation view
+- `cycle-2-categories.svg` - Categories aggregation view
+- `cycle-3-groups.svg` - Category groups view
+- `cycle-4-accounts.svg` - Accounts view
+- `merchants-view.svg` - Merchants with Amazon highlighted
+- `drill-down-detail.svg` - Drilled into merchant
+- `detail-view-flags.svg` - Detail view with pending/recurring flags
+- `merchants-drill-by-category.svg` - Merchant drill grouped by category
+- `drill-down-group-by-account.svg` - Merchant drill grouped by account
+- `drill-down-multi-level.svg` - Multi-level drill-down with breadcrumbs
+- `search-modal.svg` - Search modal
+- `merchants-search.svg` - Search results for "coffee"
+- `drill-down-detail-multi-select.svg` - Multi-select mode
+- `drill-down-bulk-edit-merchant.svg` - Bulk edit merchant modal
+- `drill-down-edit-category.svg` - Edit category selection
+
+### Workflow
+
+After generating screenshots:
 
 ```bash
-./scripts/publish-testpypi.sh
+# Navigate to moneyflow-assets repo
+cd ../moneyflow-assets
 
-# This will:
-# 1. Run tests
-# 2. Build package
-# 3. Upload to TestPyPI
-# 4. Print instructions for testing
+# Review changes
+git status
+git diff
+
+# Commit and push
+git add *.svg *.png
+git commit -m "Update documentation screenshots"
+git push
 ```
 
-### `publish-pypi.sh`
+### Requirements
 
-Publish to production PyPI (with safety checks).
+- Python 3.11+
+- All moneyflow dependencies (run `uv sync`)
+- Optional: `cairosvg` for PNG conversion (`uv pip install cairosvg`)
 
+### How It Works
+
+1. **Textual Pilot API**: Uses Textual's testing infrastructure to programmatically navigate the app
+2. **Demo Backend**: Uses `DemoBackend` to provide realistic test data
+3. **SVG Export**: Leverages Textual's built-in `save_screenshot()` for crisp vector graphics
+4. **Font Customization**: Post-processes SVG to use MesloLGS NF font
+5. **Optional PNG**: Converts SVG to PNG for compatibility
+
+### Customization
+
+To add new screenshots:
+
+1. Add a new method to `ScreenshotGenerator` class
+2. Add the screenshot to the `demo_screenshots` list in `generate_all()`
+3. Run the script to generate
+
+Example:
+
+```python
+async def screenshot_new_feature(self, filename: str, description: str):
+    """Screenshot: New feature."""
+    print(f"  📸 {filename}.svg - {description}")
+
+    app = MoneyflowApp()
+    app.demo_mode = True
+    app.backend = DemoBackend()
+
+    async with app.run_test() as pilot:
+        await pilot.pause(1.0)
+        # Navigate to your feature
+        await pilot.press("x")  # Your keybinding
+        await pilot.pause(0.3)
+        await self._save_screenshot(pilot, filename)
+```
+
+### Troubleshooting
+
+**"Output directory does not exist"**
 ```bash
-./scripts/publish-pypi.sh
-
-# This will:
-# 1. Check for git tag
-# 2. Check for uncommitted changes
-# 3. Run tests
-# 4. Build package
-# 5. Ask for confirmation
-# 6. Upload to PyPI
+# Clone the moneyflow-assets repo as a sibling
+git clone git@github.com:wesm/moneyflow-assets.git ../moneyflow-assets
 ```
 
-## Full Release Workflow
+**Font not rendering in SVG**
+- Make sure the font is installed on your system
+- SVG viewers may fall back to default monospace if font is unavailable
+- PNG conversion requires the font to be installed
 
+**PNG conversion fails**
 ```bash
-# 1. Bump version
-./scripts/bump-version.sh 0.2.0
+# Install cairosvg
+uv pip install cairosvg
 
-# 2. Test build locally
-./scripts/test-build.sh
-
-# 3. Publish to TestPyPI
-./scripts/publish-testpypi.sh
-
-# 4. Test from TestPyPI
-uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ moneyflow --demo
-
-# 5. If good, publish to PyPI
-./scripts/publish-pypi.sh
-
-# 6. Test from PyPI
-uvx moneyflow --demo
-
-# 7. Push to GitHub
-git push && git push --tags
+# On macOS, you may need additional dependencies
+brew install cairo pango gdk-pixbuf libffi
 ```
 
-## Prerequisites
+## Other Scripts
 
-- `~/.pypirc` configured with API tokens (see PUBLISHING.md)
-- All tests passing
-- Clean git state (no uncommitted changes)
-
-## Safety Features
-
-- All scripts run tests before building
-- PyPI publish script requires typing "yes" to confirm
-- Version tag check before publishing
-- Uncommitted changes warning
-- Test on TestPyPI before production
+- `bump-version.sh` - Bump version number for release
+- `publish-pypi.sh` - Publish package to PyPI
+- `publish-testpypi.sh` - Publish package to TestPyPI
+- `test-build.sh` - Test package build

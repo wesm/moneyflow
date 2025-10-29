@@ -1,0 +1,506 @@
+"""
+Automated screenshot generator for moneyflow documentation.
+
+Generates all documentation screenshots programmatically using Textual's
+pilot API and SVG export capabilities. Screenshots are saved to the sibling
+moneyflow-assets repository for documentation embedding.
+
+Usage:
+    uv run python scripts/generate_screenshots.py
+    uv run python scripts/generate_screenshots.py --png  # Also convert to PNG
+"""
+
+import asyncio
+import sys
+from pathlib import Path
+from typing import Optional
+
+from textual.pilot import Pilot
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from moneyflow.app import MoneyflowApp
+from moneyflow.backends import DemoBackend
+from moneyflow.screens.credential_screens import BackendSelectionScreen, CredentialSetupScreen
+
+
+class ScreenshotGenerator:
+    """Generate screenshots for documentation."""
+
+    def __init__(self, output_dir: Path, convert_to_png: bool = False, font_name: str = "MesloLGS NF"):
+        self.output_dir = output_dir
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.convert_to_png = convert_to_png
+        self.font_name = font_name
+        self.generated = []
+
+    async def generate_all(self):
+        """Generate all documentation screenshots."""
+        print("🎬 Generating moneyflow documentation screenshots...")
+        print(f"📁 Output directory: {self.output_dir}")
+        print()
+
+        # Credential setup screens (no backend needed)
+        await self.screenshot_backend_select()
+        await self.screenshot_monarch_credentials()
+
+        # Demo mode screens (uses DemoBackend)
+        demo_screenshots = [
+            ("home-screen", "Main home screen", self.screenshot_home),
+            ("cycle-1-merchants", "Merchants view", self.screenshot_merchants_view),
+            ("cycle-2-categories", "Categories view", self.screenshot_categories_view),
+            ("cycle-3-groups", "Category groups view", self.screenshot_groups_view),
+            ("cycle-4-accounts", "Accounts view", self.screenshot_accounts_view),
+            ("merchants-view", "Merchants view with Amazon", self.screenshot_merchants_with_amazon),
+            ("drill-down-detail", "Drilled into merchant detail", self.screenshot_drill_down),
+            ("detail-view-flags", "Detail view with flags", self.screenshot_detail_flags),
+            ("merchants-drill-by-category", "Drill grouped by category", self.screenshot_drill_by_category),
+            ("drill-down-group-by-account", "Drill grouped by account", self.screenshot_drill_by_account),
+            ("drill-down-multi-level", "Multi-level drill-down", self.screenshot_multi_level_drill),
+            ("search-modal", "Search modal", self.screenshot_search_modal),
+            ("merchants-search", "Search results", self.screenshot_search_results),
+            ("drill-down-detail-multi-select", "Multi-select mode", self.screenshot_multi_select),
+            ("drill-down-bulk-edit-merchant", "Bulk edit merchant", self.screenshot_bulk_edit_merchant),
+            ("drill-down-edit-category", "Edit category", self.screenshot_edit_category),
+        ]
+
+        for filename, description, generator in demo_screenshots:
+            await generator(filename, description)
+
+        print()
+        print(f"✅ Generated {len(self.generated)} screenshots")
+        print()
+
+        if self.convert_to_png:
+            self.convert_svgs_to_png()
+
+    async def screenshot_backend_select(self):
+        """Screenshot: Backend selection screen."""
+        filename = "backend-select"
+        print(f"  📸 {filename}.svg - Backend selection screen")
+
+        class BackendSelectApp(MoneyflowApp):
+            """Minimal app that shows backend selection."""
+
+            async def on_mount(self):
+                """Show backend selection on mount."""
+                await self.push_screen(BackendSelectionScreen())
+
+        app = BackendSelectApp()
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_monarch_credentials(self):
+        """Screenshot: Monarch credential setup screen."""
+        filename = "monarch-credentials"
+        print(f"  📸 {filename}.svg - Monarch credential setup")
+
+        class CredentialSetupApp(MoneyflowApp):
+            """Minimal app that shows credential setup."""
+
+            async def on_mount(self):
+                """Show credential setup on mount."""
+                await self.push_screen(CredentialSetupScreen(backend_type="monarch"))
+
+        app = CredentialSetupApp()
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_home(self, filename: str, description: str):
+        """Screenshot: Main home screen in demo mode."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            # Wait for app to load
+            await pilot.pause(1.0)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_merchants_view(self, filename: str, description: str):
+        """Screenshot: Merchants aggregation view."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # App starts in MERCHANT view by default (no 'g' press needed)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_categories_view(self, filename: str, description: str):
+        """Screenshot: Categories aggregation view."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' once: MERCHANT → CATEGORY
+            await pilot.press("g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_groups_view(self, filename: str, description: str):
+        """Screenshot: Category groups aggregation view."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' twice: MERCHANT → CATEGORY → GROUP
+            await pilot.press("g", "g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_accounts_view(self, filename: str, description: str):
+        """Screenshot: Accounts aggregation view."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' three times: MERCHANT → CATEGORY → GROUP → ACCOUNT
+            await pilot.press("g", "g", "g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_merchants_with_amazon(self, filename: str, description: str):
+        """Screenshot: Merchants view with Amazon highlighted."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view (default state)
+            # Navigate down to find Amazon (assuming it's in the list)
+            await pilot.press("down", "down")
+            await pilot.pause(0.2)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_drill_down(self, filename: str, description: str):
+        """Screenshot: Drilled down into a merchant."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view (default state)
+            # Select first merchant and drill down
+            await pilot.press("enter")
+            await pilot.pause(0.5)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_detail_flags(self, filename: str, description: str):
+        """Screenshot: Detail view with pending/recurring indicators."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'd' to go to ungrouped detail view
+            await pilot.press("d")
+            await pilot.pause(0.5)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_drill_by_category(self, filename: str, description: str):
+        """Screenshot: Drilled into merchant, grouped by category."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view, drill down
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            # Change grouping with 'g' (cycles through group modes)
+            await pilot.press("g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_drill_by_account(self, filename: str, description: str):
+        """Screenshot: Drilled into merchant, grouped by account."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view, drill down
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            # Cycle grouping to account: MERCHANT → CATEGORY → GROUP → ACCOUNT
+            await pilot.press("g", "g", "g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_multi_level_drill(self, filename: str, description: str):
+        """Screenshot: Multi-level drill-down with breadcrumb."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view
+            # Drill into merchant
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            # Change to category grouping
+            await pilot.press("g")
+            await pilot.pause(0.3)
+            # Drill into a category
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_search_modal(self, filename: str, description: str):
+        """Screenshot: Search modal."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Open search with '/'
+            await pilot.press("slash")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_search_results(self, filename: str, description: str):
+        """Screenshot: Search results for 'coffee'."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view
+            # Open search
+            await pilot.press("slash")
+            await pilot.pause(0.3)
+            # Type 'coffee'
+            await pilot.press("c", "o", "f", "f", "e", "e")
+            await pilot.pause(0.3)
+            # Submit search
+            await pilot.press("enter")
+            await pilot.pause(0.5)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_multi_select(self, filename: str, description: str):
+        """Screenshot: Multi-select with checkmarks."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view, drill into detail
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            # Select multiple items with space
+            await pilot.press("space")
+            await pilot.pause(0.2)
+            await pilot.press("down")
+            await pilot.press("space")
+            await pilot.pause(0.2)
+            await pilot.press("down")
+            await pilot.press("space")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_bulk_edit_merchant(self, filename: str, description: str):
+        """Screenshot: Bulk edit merchant modal."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view, drill into detail and select items
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            await pilot.press("space", "down", "space")
+            await pilot.pause(0.3)
+            # Open edit merchant modal with 'm'
+            await pilot.press("m")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_edit_category(self, filename: str, description: str):
+        """Screenshot: Edit category selection."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend()
+
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(1.0)
+            # Already in merchants view, drill into detail and select items
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            await pilot.press("space", "down", "space")
+            await pilot.pause(0.3)
+            # Open category selection with 'c' (edit category)
+            await pilot.press("c")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def _save_screenshot(self, pilot: Pilot, filename: str):
+        """Save SVG screenshot to output directory with custom font."""
+        svg_filename = f"{filename}.svg"
+
+        # Save screenshot to output directory
+        pilot.app.save_screenshot(
+            filename=svg_filename,
+            path=str(self.output_dir),
+        )
+
+        svg_path = self.output_dir / svg_filename
+
+        # Post-process SVG to use custom font
+        self._apply_custom_font(svg_path, self.font_name)
+
+        self.generated.append(svg_path)
+
+    def _apply_custom_font(self, svg_path: Path, font_name: str):
+        """Update SVG to use custom font."""
+        content = svg_path.read_text()
+
+        # Replace default font-family with MesloLGS NF
+        # Textual uses font-family in the SVG style tag
+        content = content.replace(
+            'font-family: monospace',
+            f'font-family: "{font_name}", monospace'
+        )
+        content = content.replace(
+            "font-family: monospace",
+            f'font-family: "{font_name}", monospace'
+        )
+
+        # Also handle if there's a @font-face rule or other font declarations
+        if 'font-family:' in content:
+            # Find and replace any font-family declarations
+            import re
+            content = re.sub(
+                r'font-family:\s*[^;]+',
+                f'font-family: "{font_name}", monospace',
+                content
+            )
+
+        svg_path.write_text(content)
+
+    def convert_svgs_to_png(self):
+        """Convert all SVG screenshots to PNG using cairosvg."""
+        try:
+            import cairosvg  # noqa: F401
+        except ImportError:
+            print()
+            print("⚠️  cairosvg not installed. Skipping PNG conversion.")
+            print("   To convert SVGs to PNG, install cairosvg:")
+            print("   uv pip install cairosvg")
+            return
+
+        print()
+        print("🔄 Converting SVGs to PNG...")
+
+        import cairosvg
+
+        for svg_path in self.generated:
+            png_path = svg_path.with_suffix(".png")
+            print(f"   {svg_path.name} → {png_path.name}")
+            cairosvg.svg2png(url=str(svg_path), write_to=str(png_path), output_width=1200)
+
+        print(f"✅ Converted {len(self.generated)} screenshots to PNG")
+
+
+async def main():
+    """Run screenshot generation."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate moneyflow documentation screenshots")
+    parser.add_argument(
+        "--png", action="store_true", help="Also convert SVGs to PNG (requires cairosvg)"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(__file__).parent.parent.parent / "moneyflow-assets",
+        help="Output directory (default: ../moneyflow-assets)",
+    )
+    parser.add_argument(
+        "--font",
+        type=str,
+        default="MesloLGS NF",
+        help="Font to use in screenshots (default: MesloLGS NF)",
+    )
+
+    args = parser.parse_args()
+
+    output_dir = args.output_dir
+
+    if not output_dir.exists():
+        print(f"❌ Output directory does not exist: {output_dir}")
+        print(f"   Expected sibling repository at: {output_dir}")
+        print()
+        print("   Clone the moneyflow-assets repository:")
+        print("   git clone git@github.com:wesm/moneyflow-assets.git ../moneyflow-assets")
+        return 1
+
+    generator = ScreenshotGenerator(output_dir, convert_to_png=args.png, font_name=args.font)
+    await generator.generate_all()
+
+    print()
+    print("📝 Next steps:")
+    print(f"   cd {output_dir}")
+    print("   git status")
+    print("   git add *.svg *.png")
+    print('   git commit -m "Update documentation screenshots"')
+    print("   git push")
+    print()
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))
