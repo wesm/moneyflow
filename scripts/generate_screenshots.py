@@ -241,7 +241,7 @@ class ScreenshotGenerator:
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_detail_flags(self, filename: str, description: str):
-        """Screenshot: Detail view with pending/recurring indicators."""
+        """Screenshot: Detail view with all transaction flags visible."""
         print(f"  📸 {filename}.svg - {description}")
 
         app = MoneyflowApp()
@@ -253,6 +253,50 @@ class ScreenshotGenerator:
             # Press 'd' to go to ungrouped detail view
             await pilot.press("d")
             await pilot.pause(0.5)
+
+            # Step 1: Hide rows 1 and 4, then COMMIT them
+            # Row 1 (index 0): Hide
+            await pilot.press("h")
+            await pilot.pause(0.2)
+
+            # Row 4 (index 3): Navigate down 3 rows and hide
+            await pilot.press("down", "down", "down")
+            await pilot.pause(0.2)
+            await pilot.press("h")
+            await pilot.pause(0.2)
+
+            # Commit these changes (w to review, enter to commit)
+            await pilot.press("w")
+            await pilot.pause(0.3)
+            await pilot.press("enter")
+            await pilot.pause(0.5)
+
+            # Step 2: Hide rows 8 and 11 (these will be PENDING/staged)
+            # Navigate to row 8 (we're at row 4, so go down 4)
+            await pilot.press("down", "down", "down", "down")
+            await pilot.pause(0.2)
+            await pilot.press("h")
+            await pilot.pause(0.2)
+
+            # Row 11 (index 10): Navigate down 3 rows and hide
+            await pilot.press("down", "down", "down")
+            await pilot.pause(0.2)
+            await pilot.press("h")
+            await pilot.pause(0.2)
+
+            # Step 3: Select rows 3 and 6 with checkmarks
+            # Navigate to row 3 (we're at row 11, so go up 8)
+            await pilot.press("up", "up", "up", "up", "up", "up", "up", "up")
+            await pilot.pause(0.2)
+            await pilot.press("space")
+            await pilot.pause(0.2)
+
+            # Row 6 (index 5): Navigate down 3 rows and select
+            await pilot.press("down", "down", "down")
+            await pilot.pause(0.2)
+            await pilot.press("space")
+            await pilot.pause(0.5)
+
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_drill_by_category(self, filename: str, description: str):
