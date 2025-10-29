@@ -150,7 +150,7 @@ Works in all aggregate views and sub-grouped views.
 
 **In detail view** (transactions):
 
-- ++s++ cycles through: Date → Merchant → Category → Account → Amount → Date
+- ++s++ cycles through: Date, Merchant, Category, Account, Amount (repeats)
 
 ---
 
@@ -242,7 +242,7 @@ When in a modal dialog (edit merchant, select category, etc.):
     - The cursor stays in place after edits - keep pressing ++m++ or ++c++
 
 !!! tip "Time Navigation"
-    - ++left++/++right++ maintain context (month→month, year→year)
+    - ++left++/++right++ maintain context (month-to-month, year-to-year)
     - ++y++ is your "reset" - always returns to current year
 
 !!! tip "Review Before Committing"
