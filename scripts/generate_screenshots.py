@@ -235,6 +235,10 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view (default state)
+
+            # Scroll down to Amazon
+            await pilot.press(*(["down"] * 10))
+
             # Select first merchant and drill down
             await pilot.press("enter")
             await pilot.pause(0.5)
@@ -404,16 +408,20 @@ class ScreenshotGenerator:
 
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
+
+            # Scroll down to AMAZON.COM
+            await pilot.press(*(["down"] * 11))
+
             # Already in merchants view, drill into detail
             await pilot.press("enter")
             await pilot.pause(0.3)
             # Select multiple items with space
             await pilot.press("space")
             await pilot.pause(0.2)
-            await pilot.press("down")
+            await pilot.press(*(["down"] * 3))
             await pilot.press("space")
             await pilot.pause(0.2)
-            await pilot.press("down")
+            await pilot.press(*(["down"] * 4))
             await pilot.press("space")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
@@ -429,15 +437,15 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill into detail
-            await pilot.press("enter")
+            # await pilot.press("enter")
+            # await pilot.pause(0.3)
+
+            # Navigate down 10 times to highlight Amazon
+            await pilot.press(*(["down"] * 10))
             await pilot.pause(0.3)
 
             # Select some items for bulk edit
             await pilot.press("space", "down", "space")
-            await pilot.pause(0.3)
-
-            # Navigate down 10 times to highlight Amazon
-            await pilot.press("down", "down", "down", "down", "down", "down", "down", "down", "down", "down")
             await pilot.pause(0.3)
 
             # Open edit merchant modal with 'm'
@@ -463,11 +471,12 @@ class ScreenshotGenerator:
             # Already in merchants view, drill into detail and select items
             await pilot.press("enter")
             await pilot.pause(0.3)
-            await pilot.press("space", "down", "space")
-            await pilot.pause(0.3)
+
             # Open category selection with 'c' (edit category)
             await pilot.press("c")
             await pilot.pause(0.3)
+
+            await pilot.press("C", "l")
             await self._save_screenshot(pilot, filename)
 
     async def _save_screenshot(self, pilot: Pilot, filename: str):
