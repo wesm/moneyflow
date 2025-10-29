@@ -1,6 +1,7 @@
 # Amazon Purchase Analysis Mode
 
-moneyflow includes a dedicated mode for analyzing Amazon purchase history using Amazon's official "Your Orders" data export. This allows you to import, categorize, and explore your Amazon purchases using the same powerful terminal UI.
+moneyflow includes a dedicated mode for analyzing Amazon purchase history using Amazon's official "Your Orders" data
+export. This allows you to import, categorize, and explore your Amazon purchases using the same powerful terminal UI.
 
 ## Overview
 
@@ -28,6 +29,7 @@ Amazon mode provides:
     7. Unzip it to get the "Your Orders" directory
 
 The directory will contain files like:
+
 - `Retail.OrderHistory.1/Retail.OrderHistory.1.csv`
 - `Retail.OrderHistory.2/Retail.OrderHistory.2.csv`
 - etc.
@@ -40,6 +42,7 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 ```
 
 The import will:
+
 - Scan for all Retail.OrderHistory CSV files
 - Parse and validate order data
 - Assign categories automatically using built-in category mappings
@@ -55,6 +58,7 @@ moneyflow amazon status
 ```
 
 This shows:
+
 - Total transactions imported
 - Date range of purchases
 - Total amount spent
@@ -80,7 +84,7 @@ Files named: `Retail.OrderHistory.*.csv`
 
 ### Expected Columns
 
-- **ASIN**: Amazon Standard Identification Number
+- **ASIN**: Amazon Standard Identification Number (ASIN) or product name hash if ASIN missing
 - **Order ID**: Amazon order identifier
 - **Order Date**: ISO timestamp (e.g., "2025-10-13T22:08:07Z")
 - **Product Name**: Item description/title
@@ -92,17 +96,20 @@ Files named: `Retail.OrderHistory.*.csv`
 
 ### Category Assignment
 
-Categories are automatically assigned using moneyflow's built-in category mappings. You can edit categories in the UI after import.
+Categories are automatically assigned using moneyflow's built-in category mappings. You can edit categories in the UI
+after import.
 
 ## Features
 
 ### Automatic Deduplication
 
 Transactions are deduplicated based on a unique ID generated from:
+
 - ASIN (or product name hash if ASIN missing)
 - Order ID
 
-This means you can safely re-import the same directory multiple times - duplicates will be automatically skipped.
+This means you can safely re-import the same directory multiple times - duplicates will be automatically
+skipped.
 
 ```bash
 # First import
@@ -146,6 +153,7 @@ Amazon mode uses the same keyboard shortcuts as the main application. See [Keybo
 **View name mappings:**
 
 In Amazon mode, views reflect Amazon purchase data:
+
 - **Item** (instead of Merchant) - Product names
 - **Category** - Product categories
 - **Group** - Category groups
@@ -160,6 +168,7 @@ All navigation, editing, and search shortcuts work identically.
 **Cause**: The directory doesn't contain Amazon export files.
 
 **Solution**:
+
 1. Make sure you've unzipped the "Your Orders.zip" file
 2. Point to the unzipped directory (not individual CSV files)
 3. The directory should contain folders like `Retail.OrderHistory.1/`
@@ -169,6 +178,7 @@ All navigation, editing, and search shortcuts work identically.
 **Cause**: No data has been imported yet.
 
 **Solution**: Import your data first:
+
 ```bash
 moneyflow amazon import ~/Downloads/"Your Orders"
 ```
@@ -178,6 +188,7 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 **Cause**: All transactions already exist in the database.
 
 **Solution**:
+
 - This is expected if you're re-importing the same data
 - Use `--force` flag to re-import: `moneyflow amazon import --force ~/Downloads/"Your Orders"`
 - Or delete the database and start fresh: `rm ~/.moneyflow/amazon.db`
@@ -186,7 +197,8 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 
 **Cause**: Some Amazon items don't have ASINs (e.g., digital content, gift cards).
 
-**Solution**: moneyflow automatically generates a pseudo-ASIN from the product name hash. This is normal and doesn't affect functionality.
+**Solution**: moneyflow automatically generates a pseudo-ASIN from the product name hash. This is normal and doesn't
+affect functionality.
 
 ## Tips
 

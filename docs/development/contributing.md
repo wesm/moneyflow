@@ -22,6 +22,7 @@ Thank you for your interest in contributing to moneyflow!
 ## Development Guidelines
 
 See [Developing moneyflow](developing.md) for:
+
 - Development setup with uv
 - Testing requirements
 - Code quality standards

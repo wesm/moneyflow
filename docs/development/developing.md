@@ -30,10 +30,12 @@ uv run pyright moneyflow/
 ### Standard Environment (uv)
 
 **Required:**
+
 - Python 3.11+
 - [uv](https://docs.astral.sh/uv/) - Package manager
 
 **Optional:**
+
 - VS Code or PyCharm with Python extension
 
 ### Nix Environment (Alternative)
@@ -145,6 +147,7 @@ open htmlcov/index.html
 ## CI/CD
 
 Tests run automatically on every push and pull request:
+
 - Python 3.11, 3.12 compatibility
 - Full test suite
 - Type checking with pyright
@@ -168,6 +171,7 @@ git push && git push --tags
 ```
 
 The bump-version.sh script automatically:
+
 - Runs all tests
 - Runs type checking (pyright)
 - Checks code formatting (ruff format)
@@ -181,11 +185,13 @@ This ensures releases never have failing tests or code quality issues.
 ## Troubleshooting
 
 **Tests fail after `git pull`:**
+
 ```bash
 uv sync  # Sync dependencies
 ```
 
 **Import errors or stale cache:**
+
 ```bash
 # Clear Python cache
 find . -type d -name __pycache__ -exec rm -rf {} +
@@ -195,6 +201,7 @@ uv sync --reinstall
 ```
 
 **Module not found errors:**
+
 ```bash
 # Ensure you're using uv run
 uv run pytest -v  # Correct

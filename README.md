@@ -7,11 +7,13 @@
 
 **Track your moneyflow from the terminal.**
 
-A keyboard-driven terminal UI for managing personal finance transactions. Built for users who prefer efficiency and direct control over their financial data.
+A keyboard-driven terminal UI for managing personal finance transactions. Built for users who prefer efficiency and
+direct control over their financial data.
 
 ![moneyflow main screen](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/home-screen.svg)
 
 **Supported Platforms:**
+
 - ✅ **Monarch Money** - Full integration with editing and sync
 - ✅ **YNAB** - Full integration with editing and sync
 - ✅ **Amazon Purchases** - Import and analyze purchase history
@@ -76,17 +78,20 @@ Full keyboard shortcuts and tutorials: [moneyflow.dev](https://moneyflow.dev)
 ## Common Workflows
 
 **Clean up merchant names:**
+
 1. Press `g` until Merchant view
 2. Press `m` on a merchant to rename all transactions
 3. Press `w` to review and commit
 
 **Recategorize transactions:**
+
 1. Press `d` for detail view
 2. Press `Space` to multi-select transactions
 3. Press `c` to change category
 4. Press `w` to review and commit
 
 **Analyze spending:**
+
 1. Press `g` to cycle to Category view
 2. Press `Enter` on a category to drill down
 3. Press `g` to sub-group by merchant or account
@@ -111,24 +116,29 @@ See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
 
 ## Troubleshooting
 
-**Login fails with "Incorrect password"**
-→ Enter your **encryption password** (for moneyflow), not your backend password
-→ If forgotten: Click "Reset Credentials" or delete `~/.moneyflow/`
+### Login fails with "Incorrect password"
 
-**Monarch Money - 2FA not working**
-→ Copy the BASE32 secret (long string), not the QR code
-→ Get fresh secret: Disable and re-enable 2FA in Monarch Money
+- Enter your **encryption password** (for moneyflow), not your backend password
+- If forgotten: Click "Reset Credentials" or delete `~/.moneyflow/`
 
-**YNAB - Connection fails**
-→ Verify your Personal Access Token is correct
-→ Token may have expired - generate a new one from YNAB Developer Settings
-→ Make sure you copied the entire token (no spaces before/after)
-→ Token is only shown once - if lost, generate a new one
+### Monarch Money - 2FA not working
 
-**Terminal displays weird characters**
-→ Use a modern terminal with Unicode support (iTerm2, GNOME Terminal, Windows Terminal)
+- Copy the BASE32 secret (long string), not the QR code
+- Get fresh secret: Disable and re-enable 2FA in Monarch Money
 
-**Complete reset**
+### YNAB - Connection fails
+
+- Verify your Personal Access Token is correct
+- Token may have expired - generate a new one from YNAB Developer Settings
+- Make sure you copied the entire token (no spaces before/after)
+- Token is only shown once - if lost, generate a new one
+
+### Terminal displays weird characters
+
+- Use a modern terminal with Unicode support (iTerm2, GNOME Terminal, Windows Terminal)
+
+### Complete reset
+
 ```bash
 rm -rf ~/.moneyflow/
 pip install --upgrade --force-reinstall moneyflow
@@ -168,6 +178,7 @@ More help: [Troubleshooting Guide](https://moneyflow.dev/reference/troubleshooti
 Contributions welcome! See [Contributing Guide](https://moneyflow.dev/development/contributing).
 
 **Development setup:**
+
 ```bash
 git clone https://github.com/wesm/moneyflow.git
 cd moneyflow
@@ -176,6 +187,7 @@ uv run pytest -v
 ```
 
 **Code quality checks:**
+
 ```bash
 uv run pytest -v                          # Tests
 uv run pyright moneyflow/                 # Type checking
@@ -184,7 +196,9 @@ uv run ruff check moneyflow/ tests/       # Linting
 ```
 
 **Security reviews:**
-All PRs from external contributors are automatically reviewed by Claude for security issues. See [Security Bot Documentation](.github/SECURITY_BOT.md) for details.
+
+All PRs from external contributors are automatically reviewed by Claude for security issues.
+See [Security Bot Documentation](.github/SECURITY_BOT.md) for details.
 
 See [Developing moneyflow](https://moneyflow.dev/development/developing) for details.
 
@@ -193,9 +207,13 @@ See [Developing moneyflow](https://moneyflow.dev/development/developing) for det
 ## Acknowledgments
 
 ### Monarch Money Integration
-This project's Monarch Money backend uses code derived from the [monarchmoney](https://github.com/hammem/monarchmoney) Python client library by hammem, used under the MIT License. See [licenses/monarchmoney-LICENSE](licenses/monarchmoney-LICENSE) for details.
 
-Monarch Money® is a trademark of Monarch Money, Inc. This project is independent and not affiliated with, endorsed by, or officially connected to Monarch Money, Inc.
+This project's Monarch Money backend uses code derived from the [monarchmoney](https://github.com/hammem/monarchmoney)
+Python client library by hammem, used under the MIT License.
+See [licenses/monarchmoney-LICENSE](licenses/monarchmoney-LICENSE) for details.
+
+Monarch Money® is a trademark of Monarch Money, Inc. This project is independent and not affiliated with, endorsed by,
+or officially connected to Monarch Money, Inc.
 
 ---
 

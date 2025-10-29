@@ -40,7 +40,8 @@ Before setting up moneyflow with YNAB, you'll need:
     7. Save this somewhere secure (password manager recommended)
 
 !!! info "Why do I need this?"
-    moneyflow uses YNAB's official API to access your budget data. Personal Access Tokens provide secure, long-lived authentication without requiring your YNAB password.
+    moneyflow uses YNAB's official API to access your budget data. Personal Access Tokens provide secure, long-lived
+    authentication without requiring your YNAB password.
 
 ---
 
@@ -77,7 +78,8 @@ moneyflow will ask you to create a **NEW password** to encrypt your stored crede
 - Minimum 8 characters recommended
 
 !!! info "How Credentials Are Stored"
-    Your YNAB Personal Access Token is encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations) and stored at:
+    Your YNAB Personal Access Token is encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations) and
+    stored at:
 
     ```
     ~/.moneyflow/credentials.enc
@@ -87,7 +89,8 @@ moneyflow will ask you to create a **NEW password** to encrypt your stored crede
 
 ### 4. Initial Data Load
 
-**Note:** If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection UI is not yet implemented.
+**Note:** If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection
+UI is not yet implemented.
 
 moneyflow will:
 
@@ -123,6 +126,7 @@ moneyflow will:
 All edits sync back to YNAB immediately after commit. See the [Editing Guide](editing.md) for full details.
 
 **YNAB-specific notes:**
+
 - Payees (YNAB term) are called "merchants" in moneyflow UI
 - Category changes respect YNAB's category structure
 - Split transactions are not currently supported
@@ -181,13 +185,15 @@ YNAB only shows tokens once during generation. If you lose it:
 
 ### Slow startup
 
-Try filtering to recent data (`--year 2025`) or enable caching (`--cache`). See [CLI Options](../reference/cli.md) and [Caching](../config/caching.md) for details.
+Try filtering to recent data (`--year 2025`) or enable caching (`--cache`). See [CLI Options](../reference/cli.md)
+and [Caching](../config/caching.md) for details.
 
 ---
 
 ## Data Privacy & Security
 
-Your YNAB credentials are encrypted locally. moneyflow uses YNAB's official REST API and doesn't send data anywhere except YNAB. See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
+Your YNAB credentials are encrypted locally. moneyflow uses YNAB's official REST API and doesn't send data anywhere
+except YNAB. See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
 
 ---
 
@@ -240,7 +246,8 @@ moneyflow is optimized for **bulk operations** and **keyboard-driven workflows**
 | Speed | Web UI delays | Instant local data |
 | Editing | One at a time | Bulk with review |
 
-Use moneyflow when you need to **clean up** lots of transactions quickly. Use YNAB's official apps for **budgeting** and **planning**.
+Use moneyflow when you need to **clean up** lots of transactions quickly. Use YNAB's official apps for **budgeting**
+and **planning**.
 
 ---
 

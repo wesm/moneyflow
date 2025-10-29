@@ -17,7 +17,8 @@ The cursor stays in place after editing, so you can quickly edit multiple transa
 
 All edits are queued (not committed immediately) so you can review them before saving.
 
-**Note:** Delete is different - it executes immediately after confirmation (not queued). This is because deletion is irreversible and should be done carefully.
+**Note:** Delete is different - it executes immediately after confirmation (not queued). This is because deletion is
+irreversible and should be done carefully.
 
 ### Edit Merchant Modal
 
@@ -28,11 +29,13 @@ When you press ++m++ to edit a merchant, the edit modal shows:
 3. **Your exact input as "create new" option** - displayed in quotes: `"Your Input"`
 
 **Selecting existing merchants:**
+
 - Type to filter the list of existing merchants
 - If exactly one match: press `Enter` to auto-select it
 - If multiple matches: use arrow keys to select, then `Enter`
 
 **Creating new merchants:**
+
 - Your typed input always appears in the list as `"Your Input"` (in quotes)
 - Press down arrow to navigate to this option
 - Press `Enter` to create a new merchant with exactly that name
@@ -71,7 +74,7 @@ Select multiple transactions to edit them all at once:
 4. Or press ++h++ to hide/unhide all selected
 5. Or press ++x++ to delete all selected (with confirmation)
 
-**Example: Recategorize 3 transactions**
+### Example: Recategorize 3 transactions
 
 1. Navigate to transactions
 2. ++space++ on transaction 1 → ✓
@@ -84,11 +87,12 @@ Select multiple transactions to edit them all at once:
 
 ### Single Group Edit
 
-From any aggregate view (Merchants, Categories, Groups, Accounts), press ++m++, ++c++, or ++h++ to edit ALL transactions in that group:
+From any aggregate view (Merchants, Categories, Groups, Accounts), press ++m++, ++c++, or ++h++ to edit ALL
+transactions in that group:
 
 ![Bulk edit merchant modal](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-bulk-edit-merchant.svg)
 
-**Example: Rename a merchant (all transactions)**
+### Example: Rename a merchant (all transactions)
 
 1. Press ++g++ until "Merchants" view
 2. Navigate to "AMZN*ABC123"
@@ -102,7 +106,7 @@ From any aggregate view (Merchants, Categories, Groups, Accounts), press ++m++, 
 
 You can now select **multiple groups** and bulk edit all their transactions at once:
 
-**Example: Recategorize multiple merchants**
+### Example: Recategorize multiple merchants
 
 1. Press ++g++ until "Merchants" view
 2. Press ++space++ on "Amazon" → ✓ appears
@@ -114,6 +118,7 @@ You can now select **multiple groups** and bulk edit all their transactions at o
 <!-- TODO: Add screenshot of multiple selected merchants with ✓ marks -->
 
 **Available bulk operations:**
+
 - ++m++ - Rename merchant for all transactions in selected groups
 - ++c++ - Change category for all transactions in selected groups
 - ++h++ - Hide/unhide all transactions in selected groups from reports

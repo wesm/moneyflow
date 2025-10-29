@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub stars](https://img.shields.io/github/stars/wesm/moneyflow?style=social)](https://github.com/wesm/moneyflow)
 
-**Terminal UI for personal finance power users**
+## Terminal UI for personal finance power users
 
 ![moneyflow terminal UI](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/home-screen.svg)
 
@@ -19,7 +19,8 @@ uvx moneyflow
 uvx moneyflow --demo  # Try with demo data
 ```
 
-Track spending, bulk edit transactions, and navigate your financial data at lightning speed. Supports personal finance platforms like Monarch Money or even analyzing your Amazon purchase history.
+Track spending, bulk edit transactions, and navigate your financial data at lightning speed. Supports personal finance
+platforms like Monarch Money or even analyzing your Amazon purchase history.
 
 <div class="quick-links" markdown>
 [Get Started](getting-started/installation.md){ .md-button .md-button--primary }
@@ -34,8 +35,9 @@ Track spending, bulk edit transactions, and navigate your financial data at ligh
 moneyflow is perfect if you:
 
 - **Live in the terminal** - Prefer keyboard-driven workflows over clicking through web UIs
-- **Have lots of transactions to clean up** - Need to rename dozens of merchants or recategorize hundreds of transactions
--  **Want to analyze spending patterns** - Quickly drill down by merchant, category, or time period
+- **Have lots of transactions to clean up** - Need to rename dozens of merchants or recategorize hundreds of
+  transactions
+- **Want to analyze spending patterns** - Quickly drill down by merchant, category, or time period
 - **Track Amazon purchases** - Want insights into your Amazon spending habits
 - **Value privacy** - Prefer local data processing over cloud-only platforms
 
@@ -62,7 +64,8 @@ Select multiple transactions. Rename merchants or recategorize hundreds of trans
 
 <div class="feature-card" markdown>
 ### Smart Views & Drill-Down
-Aggregate by merchant, category, group, or account. Drill down and sub-group within any view—see your Amazon purchases by category, or your restaurant spending grouped by merchant or credit card.
+Aggregate by merchant, category, group, or account. Drill down and sub-group within any view—see your Amazon
+purchases by category, or your restaurant spending grouped by merchant or credit card.
 </div>
 
 <div class="feature-card" markdown>
@@ -111,7 +114,8 @@ See exactly what changes you're making before saving. All edits are queued and r
 
 - **[Monarch Money](https://www.monarchmoney.com/)** - Full-featured integration with real-time sync
 - **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
-- **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official data exports
+- **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official
+  data exports
 - **Demo Mode** - Synthetic data for testing features
 
 **Future:**
@@ -120,7 +124,8 @@ See exactly what changes you're making before saving. All edits are queued and r
 - Actual Budget
 - Generic CSV import for any platform
 
-The backend system is pluggable—adding new platforms is straightforward. See [Contributing](development/contributing.md) if you want to add support for your platform.
+The backend system is pluggable—adding new platforms is straightforward.
+See [Contributing](development/contributing.md) if you want to add support for your platform.
 
 ---
 
@@ -144,10 +149,11 @@ uvx moneyflow --demo
 
 ---
 
-## Independent Open Source Project 
+## Independent Open Source Project
 
 !!! info ""
-    moneyflow is an independent open-source project. It is not affiliated with, endorsed by, or officially connected to Monarch Money, Inc., YNAB LLC, or any other finance platform.
+    moneyflow is an independent open-source project. It is not affiliated with, endorsed by, or officially connected
+    to Monarch Money, Inc., YNAB LLC, or any other finance platform.
 
 ---
 

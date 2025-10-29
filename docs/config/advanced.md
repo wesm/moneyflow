@@ -7,18 +7,21 @@ Customize the category hierarchy to match your finance platform or workflow pref
 **📁 Configuration file:** `~/.moneyflow/config.yaml`
 
 **Quick commands:**
+
 ```bash
 moneyflow categories dump              # View current hierarchy (YAML format)
 moneyflow categories dump --format=readable  # View with counts
 ```
 
 **Features:**
+
 - Add custom categories from your finance platform
 - Rename groups or categories
 - Reorganize categories into different groups
 - Create custom groups
 
-**Built-in defaults**: The included categories were chosen to ease integration with Monarch Money but work well for most personal finance platforms.
+**Built-in defaults**: The included categories were chosen to ease integration with Monarch Money but work well for
+most personal finance platforms.
 
 **See:** [Category Configuration Guide](../categories.md) for complete documentation.
 
@@ -27,6 +30,7 @@ moneyflow categories dump --format=readable  # View with counts
 Speed up startup by caching transaction data locally.
 
 **Usage:**
+
 ```bash
 moneyflow --cache              # Enable caching (uses ~/.moneyflow/cache/)
 moneyflow --cache ~/my-cache   # Custom cache location
@@ -39,7 +43,7 @@ moneyflow --refresh            # Force refresh, skip cache
 
 All moneyflow configuration is stored in `~/.moneyflow/`:
 
-```
+```text
 ~/.moneyflow/
 ├── config.yaml        # Application configuration (categories, settings, etc.) - optional
 ├── credentials.enc    # Encrypted credentials

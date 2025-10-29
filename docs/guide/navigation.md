@@ -1,12 +1,15 @@
 # Navigation & Search
 
-moneyflow provides multiple views of your transaction data and powerful drill-down capabilities to analyze spending from different angles.
+moneyflow provides multiple views of your transaction data and powerful drill-down capabilities to analyze spending
+from different angles.
 
 ## View Types
 
 ### Aggregate Views
 
-Press `g` to cycle through aggregate views. Aggregate views group your transactions by a specific field (merchant, category, group, or account) and display summary statistics for each group, including transaction count and total amount spent.
+Press `g` to cycle through aggregate views. Aggregate views group your transactions by a specific field (merchant,
+category, group, or account) and display summary statistics for each group, including transaction count and total
+amount spent.
 
 **Cycle Order**: Merchant → Category → Group → Account → Merchant...
 
@@ -41,8 +44,10 @@ Press `g` to cycle through aggregate views. Aggregate views group your transacti
 | **Account** | Spending by payment method | Reconciliation, per-account spending analysis |
 
 **Columns displayed:**
+
 - **Name, Count, Total** (all aggregate views)
-- **Top Category** (Merchant view only) - Shows the most common category for each merchant with percentage (e.g., "Groceries 90%"). This helps identify categorization patterns and spot miscategorized transactions.
+- **Top Category** (Merchant view only) - Shows the most common category for each merchant with percentage
+  (e.g., "Groceries 90%"). This helps identify categorization patterns and spot miscategorized transactions.
 
 !!! tip "Top Category Column"
     The Top Category column in Merchant view shows at a glance whether a merchant is properly categorized:
@@ -67,6 +72,7 @@ Press `g` to cycle through aggregate views. Aggregate views group your transacti
 Press `d` to view all transactions ungrouped in chronological order, or press `Enter` from any aggregate row to see the transactions for that specific item.
 
 **Columns displayed:**
+
 - Date
 - Merchant
 - Category
@@ -82,6 +88,7 @@ Press `d` to view all transactions ungrouped in chronological order, or press `E
 | * | Transaction has pending edits |
 
 **Capabilities:**
+
 - Edit merchant names, categories, and hide status
 - Multi-select for bulk operations
 - View full transaction details
@@ -129,11 +136,13 @@ Once you've drilled down into a specific item, press `g` to sub-group the filter
 ![Drilled into Amazon, grouped by Account](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-group-by-account.svg)
 
 Sub-grouping helps answer analytical questions like:
+
 - "How much did I spend on groceries from Amazon?"
 - "Which credit card do I use most at Starbucks?"
 - "What categories make up my Target spending?"
 
-When you're in a drilled-down view, pressing `g` cycles through the available sub-groupings. The field you're already filtered by is automatically excluded from the cycle to avoid redundancy.
+When you're in a drilled-down view, pressing `g` cycles through the available sub-groupings. The field you're already
+filtered by is automatically excluded from the cycle to avoid redundancy.
 
 ## Multi-Level Drill-Down
 
@@ -156,31 +165,40 @@ This powerful feature lets you combine multiple filters to answer very specific 
 Press `Escape` to navigate backwards through your drill-down path, removing one filter level at a time.
 
 **Single-level drill-down with sub-grouping:**
-- From `Merchants > Amazon (by Category)` → press `Escape` → returns to `Merchants > Amazon` (clears the sub-grouping, shows detail view)
+
+- From `Merchants > Amazon (by Category)` → press `Escape` → returns to `Merchants > Amazon` (clears the
+  sub-grouping, shows detail view)
 - From `Merchants > Amazon` → press `Escape` → returns to `Merchants` (clears the merchant filter)
 
 **Multi-level drill-down:**
-- From `Merchants > Amazon > Groceries` → press `Escape` → returns to `Merchants > Amazon` (removes the category filter)
+
+- From `Merchants > Amazon > Groceries` → press `Escape` → returns to `Merchants > Amazon` (removes the category
+  filter)
 - From `Merchants > Amazon` → press `Escape` → returns to `Merchants` (removes the merchant filter)
 
 **With search active:**
+
 - If search was your most recent action, the first `Escape` press clears the search and returns to your previous view
 - Subsequent `Escape` presses navigate backwards through your drill-down levels
 
-Your cursor position and scroll state are preserved when going back, making it easy to explore different views and return to exactly where you were.
+Your cursor position and scroll state are preserved when going back, making it easy to explore different views and
+return to exactly where you were.
 
 ## Sorting
 
 Control how rows are sorted in the current view.
 
 **Cycle sort fields:**
+
 - Press `s` to cycle through the available sort fields for the current view
 - Available fields depend on whether you're in an aggregate or detail view
 
 **Reverse sort direction:**
+
 - Press `v` to reverse the sort direction between ascending and descending
 
 **Available sort fields by view type:**
+
 - **Aggregate Views**: Field name (e.g., Merchant, Category), Count (number of transactions), Amount (total spent)
 - **Detail Views**: Date, Merchant name, Category, Account, Amount
 
@@ -189,15 +207,19 @@ Control how rows are sorted in the current view.
 Filter your transactions to specific time periods for focused analysis.
 
 **Quick time filters:**
+
 - `t` - Filter to this month only
 - `y` - Filter to this year only
 - `a` - Show all time (remove time filter)
 
 **Navigate between periods:**
+
 - `←` (Left arrow) - Move to the previous time period
 - `→` (Right arrow) - Move to the next time period
 
-The arrow keys intelligently navigate based on your current time filter. When viewing "This Month", arrows move to the previous or next month. When viewing "This Year", arrows move to the previous or next year. The breadcrumb displays your current time period.
+The arrow keys intelligently navigate based on your current time filter. When viewing "This Month", arrows move to the
+previous or next month. When viewing "This Year", arrows move to the previous or next year. The breadcrumb displays
+your current time period.
 
 **Command-line time filters:**
 
@@ -224,18 +246,22 @@ Press `/` to search and filter transactions by text matching across merchant nam
 
 ![Search results for "coffee"](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-search.svg)
 
-Search filters persist as you navigate between different views. The breadcrumb displays "Search: your query" to remind you that search is active. To clear a search, press `/` again and submit an empty search, or press `Escape` if search was your most recent action.
+Search filters persist as you navigate between different views. The breadcrumb displays "Search: your query" to remind
+you that search is active. To clear a search, press `/` again and submit an empty search, or press `Escape` if search
+was your most recent action.
 
 ## Multi-Select
 
 Select multiple transactions or aggregate groups to perform bulk operations.
 
 **Selecting rows:**
+
 - Press `Space` to toggle selection on the current row
 - Press `Ctrl+A` to select all visible rows in the current view
 - Selected rows display a checkmark indicator
 
 **Bulk operations available:**
+
 - Rename merchants across multiple transactions
 - Change categories for multiple transactions
 - Hide or unhide multiple transactions from reports
@@ -244,21 +270,21 @@ Select multiple transactions or aggregate groups to perform bulk operations.
 
 Here are some practical examples of using moneyflow's navigation features to answer real questions about your spending:
 
-**"What do I buy at Costco?"**
+### "What do I buy at Costco?"
 
 1. **Navigate to Merchant view** - Press `g` until you see Merchants
 2. **Drill into Costco** - Move cursor to "Costco", press `Enter`
 3. **Sub-group by Category** - Press `g` until breadcrumb shows "(by Category)"
 4. **View breakdown** - See Groceries $450, Gas $120, etc.
 
-**"Where am I buying groceries?"**
+### "Where am I buying groceries?"
 
 1. **Navigate to Category view** - Press `g` until you see Categories
 2. **Drill into Groceries** - Move cursor to "Groceries", press `Enter`
 3. **Sub-group by Merchant** - Press `g` until breadcrumb shows "(by Merchant)"
 4. **View breakdown** - See Whole Foods $890, Safeway $650, Amazon $234
 
-**"How do I use my Chase Sapphire card?"**
+### "How do I use my Chase Sapphire card?"
 
 1. **Navigate to Account view** - Press `g` until you see Accounts
 2. **Drill into Chase Sapphire** - Move cursor to "Chase Sapphire", press `Enter`
@@ -266,9 +292,11 @@ Here are some practical examples of using moneyflow's navigation features to ans
 4. **View breakdown** - See spending by category for this card
 
 **Quick Analysis Tip:**
+
 - When drilled down, `g` becomes your pivot tool for viewing the same filtered data from different perspectives
 - No need to go back to the top-level view and re-filter
-- Combine drill-down with time navigation for powerful analysis: press `t` to filter to this month, drill down to analyze current spending, then press `←` to compare with previous months
+- Combine drill-down with time navigation for powerful analysis: press `t` to filter to this month, drill down to
+  analyze current spending, then press `←` to compare with previous months
 
 ## Quick Reference
 
