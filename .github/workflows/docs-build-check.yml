@@ -38,6 +38,10 @@ jobs:
           uv pip install --system mkdocs-material mkdocs-material-extensions
           npm install -g markdownlint-cli
 
+      - name: Check for arrow-based pseudo-lists
+        run: |
+          .github/scripts/check-arrow-lists.sh
+
       - name: Lint markdown
         run: |
           markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
