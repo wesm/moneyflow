@@ -31,11 +31,10 @@ from moneyflow.screens.credential_screens import BackendSelectionScreen, Credent
 class ScreenshotGenerator:
     """Generate screenshots for documentation."""
 
-    def __init__(self, output_dir: Path, convert_to_png: bool = False, font_name: str = "MesloLGS NF"):
+    def __init__(self, output_dir: Path, convert_to_png: bool = False):
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.convert_to_png = convert_to_png
-        self.font_name = font_name
         self.generated = []
 
         # Create isolated config directory for screenshot generation
@@ -534,48 +533,19 @@ class ScreenshotGenerator:
             await self._save_screenshot(pilot, filename)
 
     async def _save_screenshot(self, pilot: Pilot, filename: str):
-        """Save SVG screenshot to output directory with custom font."""
+        """Save SVG screenshot to output directory."""
         svg_filename = f"{filename}.svg"
 
         # Save screenshot to output directory
+        # Uses Textual's default font (FiraCode loaded from CDN)
         pilot.app.save_screenshot(
             filename=svg_filename,
             path=str(self.output_dir),
         )
 
         svg_path = self.output_dir / svg_filename
-
-        # Post-process SVG to use custom font
-        self._apply_custom_font(svg_path, self.font_name)
-
         self.generated.append(svg_path)
 
-    def _apply_custom_font(self, svg_path: Path, font_name: str):
-        """Update SVG to use custom font."""
-        content = svg_path.read_text()
-
-        # Replace default font-family with MesloLGS NF
-        # Textual uses font-family in the SVG style tag
-        content = content.replace(
-            'font-family: monospace',
-            f'font-family: "{font_name}", monospace'
-        )
-        content = content.replace(
-            "font-family: monospace",
-            f'font-family: "{font_name}", monospace'
-        )
-
-        # Also handle if there's a @font-face rule or other font declarations
-        if 'font-family:' in content:
-            # Find and replace any font-family declarations
-            import re
-            content = re.sub(
-                r'font-family:\s*[^;]+',
-                f'font-family: "{font_name}", monospace',
-                content
-            )
-
-        svg_path.write_text(content)
 
     def convert_svgs_to_png(self):
         """Convert all SVG screenshots to PNG using cairosvg."""
@@ -616,12 +586,6 @@ async def main():
         help="Output directory (default: ../moneyflow-assets)",
     )
     parser.add_argument(
-        "--font",
-        type=str,
-        default="MesloLGS NF",
-        help="Font to use in screenshots (default: MesloLGS NF)",
-    )
-    parser.add_argument(
         "--filter",
         type=str,
         default=None,
@@ -641,7 +605,7 @@ async def main():
         return 1
 
     # Use context manager to ensure isolated config directory
-    with ScreenshotGenerator(output_dir, convert_to_png=args.png, font_name=args.font) as generator:
+    with ScreenshotGenerator(output_dir, convert_to_png=args.png) as generator:
         await generator.generate_all(filter_pattern=args.filter)
 
     print()
