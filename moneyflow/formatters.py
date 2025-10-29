@@ -66,6 +66,7 @@ class ViewPresenter:
         Returns:
             Formatted string like "-$1,234.56" or "+$5,000.00"
             If for_table=True, returns Rich Text object with right justification
+            Positive amounts (credits) are styled in green
 
         Examples:
             >>> ViewPresenter.format_amount(-1234.56)
@@ -80,7 +81,11 @@ class ViewPresenter:
         formatted = f"{sign}${abs_amount:,.2f}"
 
         if for_table:
-            return Text(formatted, justify="right")
+            # Color positive amounts (credits) green for visual distinction
+            if amount > 0:
+                return Text(formatted, justify="right", style="green")
+            else:
+                return Text(formatted, justify="right")
         return formatted
 
     @staticmethod
