@@ -55,7 +55,7 @@ moneyflow
 
 On first run, you'll be prompted to select a backend:
 
-![Backend selection](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/backend-select.png)
+![Backend selection](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/backend-select.svg)
 
 Select **Monarch Money**.
 
@@ -63,7 +63,7 @@ Select **Monarch Money**.
 
 You'll see the credential setup screen:
 
-![Credential setup screen](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/monarch-credentials.png)
+![Credential setup screen](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/monarch-credentials.svg)
 
 Enter:
 

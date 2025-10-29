@@ -14,21 +14,21 @@ Press `g` to cycle through aggregate views. Aggregate views group your transacti
 <tr>
 <td width="50%">
 <strong>Merchant View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-1-merchants.png" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-1-merchants.svg" width="100%">
 </td>
 <td width="50%">
 <strong>Category View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-2-categories.png" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-2-categories.svg" width="100%">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>Group View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-3-groups.png" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-3-groups.svg" width="100%">
 </td>
 <td width="50%">
 <strong>Account View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.png" width="100%">
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.svg" width="100%">
 </td>
 </tr>
 </table>
@@ -86,13 +86,13 @@ Press `d` to view all transactions ungrouped in chronological order, or press `E
 - Multi-select for bulk operations
 - View full transaction details
 
-![Detail view with indicators](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/detail-view-flags.png)
+![Detail view with indicators](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/detail-view-flags.svg)
 
 ## Drill-Down
 
 From any aggregate view, press `Enter` on a row to drill into it and see the individual transactions that make up that aggregate.
 
-![Merchant view with Amazon highlighted](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-view.png)
+![Merchant view with Amazon highlighted](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-view.svg)
 
 **Example workflow:**
 
@@ -101,7 +101,7 @@ From any aggregate view, press `Enter` on a row to drill into it and see the ind
 3. **Press `Enter`** - Drill down to see transactions
 4. **View results** - All Amazon transactions displayed
 
-![Drilled down into Amazon - transaction detail view](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-detail.png)
+![Drilled down into Amazon - transaction detail view](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-detail.svg)
 
 The breadcrumb shows your current path: `Merchants > Amazon`
 
@@ -124,9 +124,9 @@ Once you've drilled down into a specific item, press `g` to sub-group the filter
 5. **Press `g` again** - Returns to detail view
    - Shows all Amazon transactions ungrouped
 
-![Drilled into Merchant, grouped by Category](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-drill-by-category.png)
+![Drilled into Merchant, grouped by Category](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-drill-by-category.svg)
 
-![Drilled into Amazon, grouped by Account](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-group-by-account.png)
+![Drilled into Amazon, grouped by Account](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-group-by-account.svg)
 
 Sub-grouping helps answer analytical questions like:
 - "How much did I spend on groceries from Amazon?"
@@ -147,7 +147,7 @@ You can drill down from sub-grouped views to add another level of filtering, cre
 4. **View results** - Breadcrumb shows: `Merchants > Amazon > Groceries`
    - Now viewing only Amazon grocery transactions
 
-![Multi-level drill-down breadcrumb](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-multi-level.png)
+![Multi-level drill-down breadcrumb](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-multi-level.svg)
 
 This powerful feature lets you combine multiple filters to answer very specific questions about your spending.
 
@@ -213,7 +213,7 @@ moneyflow --month 2025-03  # Load March 2025 only
 
 Press `/` to search and filter transactions by text matching across merchant names, categories, and transaction notes.
 
-![Search modal](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/search-modal.png)
+![Search modal](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/search-modal.svg)
 
 **Using search:**
 
@@ -222,7 +222,7 @@ Press `/` to search and filter transactions by text matching across merchant nam
 3. **Press `Enter`** - Applies the search filter
 4. **Press `Escape`** - Clears search and returns to previous view
 
-![Search results for "coffee"](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-search.png)
+![Search results for "coffee"](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-search.svg)
 
 Search filters persist as you navigate between different views. The breadcrumb displays "Search: your query" to remind you that search is active. To clear a search, press `/` again and submit an empty search, or press `Escape` if search was your most recent action.
 
