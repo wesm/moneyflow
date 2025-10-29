@@ -419,7 +419,7 @@ class ScreenshotGenerator:
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_bulk_edit_merchant(self, filename: str, description: str):
-        """Screenshot: Bulk edit merchant modal."""
+        """Screenshot: Bulk edit merchant modal with search filtering."""
         print(f"  📸 {filename}.svg - {description}")
 
         app = MoneyflowApp()
@@ -428,14 +428,26 @@ class ScreenshotGenerator:
 
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause(1.0)
-            # Already in merchants view, drill into detail and select items
+            # Already in merchants view, drill into detail
             await pilot.press("enter")
             await pilot.pause(0.3)
+
+            # Select some items for bulk edit
             await pilot.press("space", "down", "space")
             await pilot.pause(0.3)
+
+            # Navigate down 10 times to highlight Amazon
+            await pilot.press("down", "down", "down", "down", "down", "down", "down", "down", "down", "down")
+            await pilot.pause(0.3)
+
             # Open edit merchant modal with 'm'
             await pilot.press("m")
             await pilot.pause(0.3)
+
+            # Type "ama" to filter merchant list
+            await pilot.press("a", "m", "a")
+            await pilot.pause(0.3)
+
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_edit_category(self, filename: str, description: str):
