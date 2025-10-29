@@ -1,6 +1,6 @@
 # Monarch Money Integration
 
-**This guide is specifically for Monarch Money users.** 
+**This guide is specifically for Monarch Money users.**
 
 ---
 

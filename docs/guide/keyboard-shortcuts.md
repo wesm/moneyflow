@@ -144,9 +144,11 @@ Works in all aggregate views and sub-grouped views.
 | ++v++ | Reverse sort direction (↑/↓) | Any view |
 
 **In aggregate views** (Merchant/Category/Group):
+
 - ++s++ toggles between Count and Amount
 
 **In detail view** (transactions):
+
 - ++s++ cycles through: Date → Merchant → Category → Account → Amount → Date
 
 ---

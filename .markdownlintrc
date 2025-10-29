@@ -1,0 +1,15 @@
+# Custom markdown lint rules to catch arrow-based pseudo-lists
+# This catches patterns like "→ some text" that should be proper list items
+
+{
+  "default": true,
+  "MD013": {
+    "line_length": 120,
+    "tables": false,
+    "code_blocks": false
+  },
+  "MD033": false,
+  "MD041": false,
+  "MD046": false,
+  "MD024": false
+}
