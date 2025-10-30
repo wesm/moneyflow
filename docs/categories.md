@@ -175,7 +175,12 @@ fetched_categories:
     - Category 2
 ```
 
-**Fallback order:**
+**Category resolution (two-step process):**
 
-1. `fetched_categories` from config.yaml
-2. Built-in `DEFAULT_CATEGORY_GROUPS` from `categories.py`
+1. **Base categories** (one or the other, NOT merged):
+   - `fetched_categories` from config.yaml (if present)
+   - OR built-in `DEFAULT_CATEGORY_GROUPS` from `categories.py`
+
+2. **Custom overrides** (merged on top of base):
+   - `categories` section from config.yaml (if present)
+   - Applied via rename_groups, add_to_groups, etc.
