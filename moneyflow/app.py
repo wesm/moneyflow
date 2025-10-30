@@ -452,8 +452,13 @@ class MoneyflowApp(App):
             # All retries exhausted
             logger.error(f"Login failed after all retries: {e}", exc_info=True)
             error_msg = f"Login failed: {e}"
+            log_path = (
+                f"{self.config_dir}/moneyflow.log"
+                if self.config_dir
+                else "~/.moneyflow/moneyflow.log"
+            )
             loading_status.update(
-                f"❌ {error_msg}\n\nCheck ~/.moneyflow/moneyflow.log for details.\n\nPress 'q' to quit"
+                f"❌ {error_msg}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
             )
             return False
 
@@ -620,8 +625,13 @@ class MoneyflowApp(App):
             return None
         except Exception as e:
             logger.error(f"Data fetch failed after all retries: {e}", exc_info=True)
+            log_path = (
+                f"{self.config_dir}/moneyflow.log"
+                if self.config_dir
+                else "~/.moneyflow/moneyflow.log"
+            )
             loading_status.update(
-                f"❌ Failed to load data: {e}\n\nCheck ~/.moneyflow/moneyflow.log for details.\n\nPress 'q' to quit"
+                f"❌ Failed to load data: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
             )
             return None
 
