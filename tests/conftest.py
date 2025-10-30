@@ -6,17 +6,45 @@ including sample transactions, categories, and mock backends.
 """
 
 from datetime import date
+from typing import Union
 
 import polars as pl
 import pytest
+from rich.text import Text
 
 from moneyflow.data_manager import DataManager
+from moneyflow.formatters import ViewPresenter
 from moneyflow.state import AppState
 from tests.mock_backend import MockMonarchMoney
 
 # ============================================================================
 # TEST HELPER FUNCTIONS
 # ============================================================================
+
+
+def expected_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
+    """
+    Format expected amount for test assertions.
+
+    Centralizes amount formatting expectations so tests are easy to update
+    when formatting logic changes. Currency symbol is NOT included in cell
+    values (it's shown in column header instead).
+
+    Args:
+        amount: The amount to format
+        for_table: If True, returns Rich Text object
+
+    Returns:
+        Expected formatted string (e.g., "-1,234.56", "+5,000.00")
+        Or Rich Text object if for_table=True
+
+    Examples:
+        >>> expected_amount(-1234.56)
+        '-1,234.56'
+        >>> expected_amount(5000.00)
+        '+5,000.00'
+    """
+    return ViewPresenter.format_amount(amount, for_table=for_table)
 
 
 def save_test_credentials(

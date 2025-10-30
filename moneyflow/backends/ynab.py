@@ -21,6 +21,7 @@ class YNABBackend(FinanceBackend):
     def __init__(self):
         """Initialize the YNAB backend."""
         self.client = YNABClient()
+        self._currency_symbol: Optional[str] = None
 
     async def login(
         self,
@@ -151,6 +152,15 @@ class YNABBackend(FinanceBackend):
             List of merchant names, sorted alphabetically
         """
         return self.client.get_all_merchants()
+
+    def get_currency_symbol(self) -> str:
+        """
+        Get the currency symbol from YNAB budget settings.
+
+        Returns:
+            Currency symbol (e.g., "$", "€", "£") from budget's currency_format
+        """
+        return self.client.currency_symbol
 
     def clear_auth(self) -> None:
         """

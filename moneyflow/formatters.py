@@ -57,28 +57,30 @@ class ViewPresenter:
     @staticmethod
     def format_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
         """
-        Format dollar amount with sign outside dollar sign.
+        Format amount with sign and thousands separators.
+
+        Currency symbol is shown in column header, not in cells, to reduce visual noise.
 
         Args:
-            amount: The dollar amount to format
+            amount: The amount to format
             for_table: If True, return Rich Text with right justification for tables
 
         Returns:
-            Formatted string like "-$1,234.56" or "+$5,000.00"
+            Formatted string like "-1,234.56" or "+5,000.00" (no currency symbol)
             If for_table=True, returns Rich Text object with right justification
             Positive amounts (credits) are styled in green
 
         Examples:
             >>> ViewPresenter.format_amount(-1234.56)
-            '-$1,234.56'
+            '-1,234.56'
             >>> ViewPresenter.format_amount(5000.00)
-            '+$5,000.00'
+            '+5,000.00'
             >>> ViewPresenter.format_amount(0.00)
-            '+$0.00'
+            '+0.00'
         """
         sign = "-" if amount < 0 else "+"
         abs_amount = abs(amount)
-        formatted = f"{sign}${abs_amount:,.2f}"
+        formatted = f"{sign}{abs_amount:,.2f}"
 
         if for_table:
             # Color positive amounts (credits) green for visual distinction
@@ -160,7 +162,7 @@ class ViewPresenter:
             group_by_field: The field to group by
             sort_by: Current sort mode
             sort_direction: Current sort direction
-            column_config: Optional backend-specific column width config
+            column_config: Backend-specific config (widths, currency_symbol)
             display_labels: Optional backend-specific display labels
 
         Returns:
@@ -190,11 +192,14 @@ class ViewPresenter:
         }
         name_label = name_labels[group_by_field]
 
+        # Extract currency symbol from config (defaults to $ if not provided)
+        currency_symbol = column_config.get("currency_symbol", "$") if column_config else "$"
+
         # Get column width based on field type
         if group_by_field == "merchant":
-            name_width = column_config.get("merchant_width_pct", 35)  # Wider for 150 char terminals
+            name_width = column_config.get("merchant_width_pct", 35) if column_config else 35
         elif group_by_field == "account":
-            name_width = column_config.get("account_width_pct", 30)
+            name_width = column_config.get("account_width_pct", 30) if column_config else 30
         else:
             name_width = 40  # Default for category/group
 
@@ -214,8 +219,8 @@ class ViewPresenter:
         amount_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.AMOUNT)
 
         # Build column specs
-        # Total column label - right-aligned to match the values
-        total_label = f"Total {amount_arrow}".strip()
+        # Total column label - right-aligned to match the values, includes currency
+        total_label = f"Total ({currency_symbol}) {amount_arrow}".strip()
         total_label_text = Text(total_label, justify="right")
 
         columns: list[ColumnSpec] = [
@@ -389,7 +394,7 @@ class ViewPresenter:
         Args:
             sort_by: Current sort mode
             sort_direction: Current sort direction
-            column_config: Optional backend-specific column width config
+            column_config: Backend-specific config (widths, currency_symbol)
             display_labels: Optional backend-specific display labels
 
         Returns:
@@ -406,9 +411,16 @@ class ViewPresenter:
         """
         # Use defaults if not provided
         if column_config is None:
-            column_config = {"merchant_width_pct": 25, "account_width_pct": 30}
+            column_config = {
+                "merchant_width_pct": 25,
+                "account_width_pct": 30,
+                "currency_symbol": "$",
+            }
         if display_labels is None:
             display_labels = {"merchant": "Merchant", "account": "Account", "accounts": "Accounts"}
+
+        # Extract currency symbol from config
+        currency_symbol = column_config.get("currency_symbol", "$")
 
         # Get arrows for each field
         date_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.DATE)
@@ -425,8 +437,8 @@ class ViewPresenter:
         merchant_width = column_config.get("merchant_width_pct", 25)
         account_width = column_config.get("account_width_pct", 30)
 
-        # Amount column label - right-aligned to match the values
-        amount_label = f"Amount {amount_arrow}".strip()
+        # Amount column label - right-aligned to match the values, includes currency
+        amount_label = f"Amount ({currency_symbol}) {amount_arrow}".strip()
         amount_label_text = Text(amount_label, justify="right")
 
         columns: list[ColumnSpec] = [

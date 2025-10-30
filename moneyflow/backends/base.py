@@ -217,6 +217,22 @@ class FinanceBackend(ABC):
             "account_width_pct": 30,  # Default 30% width (wider for long account names)
         }
 
+    def get_currency_symbol(self) -> str:
+        """
+        Get the currency symbol for this backend.
+
+        Returns currency symbol to display in column headers (e.g., "$", "€", "£").
+        Defaults to "$" (USD). Backends can override to fetch from API if available.
+
+        Returns:
+            Currency symbol as string (e.g., "$", "€", "£")
+
+        Example:
+            >>> backend.get_currency_symbol()
+            '$'
+        """
+        return "$"  # Default to USD
+
     def delete_session(self) -> None:
         """
         Delete saved session data.

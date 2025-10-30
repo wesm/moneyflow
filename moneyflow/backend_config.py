@@ -19,6 +19,9 @@ class BackendConfig:
     # Field display names
     merchant_field_name: str = "Merchant"  # Can be "Item" for Amazon
 
+    # Currency symbol (displayed in column headers)
+    currency_symbol: str = "$"  # Default to USD
+
     # Available grouping modes (in order for cycling with 'g' key)
     grouping_modes: list[str] = field(
         default_factory=lambda: ["merchant", "category", "group", "account"]

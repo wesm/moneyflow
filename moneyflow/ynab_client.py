@@ -22,6 +22,7 @@ class YNABClient:
         self.api_client: Optional[ynab.ApiClient] = None
         self.access_token: Optional[str] = None
         self.budget_id: Optional[str] = None
+        self.currency_symbol: str = "$"  # Default to USD, updated during login
         self._transaction_cache: Optional[List[Dict[str, Any]]] = None
         self._cache_params: Optional[Dict[str, Any]] = None
 
@@ -49,7 +50,12 @@ class YNABClient:
             raise ValueError("No budgets found in YNAB account")
 
         if not self.budget_id:
-            self.budget_id = budgets_response.data.budgets[0].id
+            budget = budgets_response.data.budgets[0]
+            self.budget_id = budget.id
+
+            # Fetch currency symbol from budget settings
+            if budget.currency_format and budget.currency_format.currency_symbol:
+                self.currency_symbol = budget.currency_format.currency_symbol
 
     def get_transactions(
         self,

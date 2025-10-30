@@ -136,12 +136,16 @@ class AppController:
     def _get_column_config(self) -> dict:
         """Get column configuration from backend, with safe fallback to defaults."""
         try:
-            return self.data_manager.mm.get_column_config()
+            config = self.data_manager.mm.get_column_config()
+            # Add currency symbol to config
+            config["currency_symbol"] = self.data_manager.mm.get_currency_symbol()
+            return config
         except (AttributeError, Exception):
             # Fallback to default widths if backend doesn't support it
             return {
                 "merchant_width_pct": 25,
                 "account_width_pct": 30,
+                "currency_symbol": "$",
             }
 
     def refresh_view(self, force_rebuild: bool = True) -> None:
