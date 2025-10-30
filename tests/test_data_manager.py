@@ -797,3 +797,123 @@ class TestFetchTransactionsPagination:
         assert len(transactions) > 0
         # Should have progress messages without percentage
         assert any("Downloaded" in msg and "%" not in msg for msg in progress_messages)
+
+
+class TestCategoryMappingRefresh:
+    """
+    Regression test for category mapping refresh bug.
+
+    Bug: category_to_group mapping was built once from stale config.yaml
+    and never updated after fetching fresh categories from API, causing
+    transfers to not be filtered correctly.
+    """
+
+    async def test_category_mapping_refreshes_after_fetch(self, mock_mm, tmp_path):
+        """
+        Test that category_to_group mapping is rebuilt after fetching fresh categories.
+
+        Bug scenario:
+        1. config.yaml has stale/incomplete categories (missing Transfers)
+        2. DataManager.__init__() loads stale categories, builds mapping
+        3. fetch_all_data() fetches fresh categories (including Transfers)
+        4. category_to_group mapping should be updated to include Transfers
+
+        Without the fix, transfers wouldn't be filtered correctly.
+        """
+        import yaml
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.yaml"
+
+        # Create stale config.yaml with ONLY 2 groups (missing Transfers)
+        stale_config = {
+            "version": 1,
+            "fetched_categories": {
+                "Food & Dining": ["Groceries", "Restaurants"],
+                "Shopping": ["Clothing"],
+            },
+        }
+
+        with open(config_path, "w") as f:
+            yaml.dump(stale_config, f)
+
+        # Login to mock backend
+        await mock_mm.login()
+
+        # Initialize DataManager with stale config
+        dm = DataManager(mock_mm, config_dir=str(config_dir))
+
+        # Verify initial mapping is stale (only has 2 groups, no Transfers)
+        initial_mapping = dm.category_to_group
+        assert "Transfers" not in set(initial_mapping.values())
+        initial_group_count = len(set(initial_mapping.values()))
+
+        # Fetch all data (should fetch fresh categories from API and save to config.yaml)
+        df, categories, category_groups = await dm.fetch_all_data()
+
+        # Verify fresh categories were saved to config.yaml
+        with open(config_path, "r") as f:
+            saved_config = yaml.safe_load(f)
+
+        assert "fetched_categories" in saved_config
+        # Mock backend returns 3 groups (Food & Dining, Auto & Transport, Shopping)
+        assert len(saved_config["fetched_categories"]) == 3
+
+        # Verify category_to_group mapping was rebuilt with fresh data
+        updated_mapping = dm.category_to_group
+
+        # Verify categories from mock backend are now in the mapping
+        assert updated_mapping.get("Groceries") == "Food & Dining"
+        assert updated_mapping.get("Gas") == "Auto & Transport"
+
+        # Verify mapping has all groups from fresh data
+        updated_group_count = len(set(updated_mapping.values()))
+        assert updated_group_count == 3  # 3 groups from mock backend
+
+    async def test_categories_get_correct_group_in_dataframe(self, mock_mm, tmp_path):
+        """
+        Test that transactions get correct group after mapping refresh.
+
+        User-facing symptom: categories should be correctly mapped to groups
+        so filtering works properly.
+        """
+        import yaml
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.yaml"
+
+        # Create stale config with wrong mappings
+        stale_config = {
+            "version": 1,
+            "fetched_categories": {
+                "Wrong Group": ["Groceries", "Gas"],  # Both in wrong group
+            },
+        }
+
+        with open(config_path, "w") as f:
+            yaml.dump(stale_config, f)
+
+        # Login to mock backend
+        await mock_mm.login()
+
+        # Initialize DataManager with stale config
+        dm = DataManager(mock_mm, config_dir=str(config_dir))
+
+        # Fetch all data (refreshes categories and rebuilds mapping)
+        df, _, _ = await dm.fetch_all_data()
+
+        # Verify Groceries transactions have correct group
+        groceries_txns = df.filter(df["category"] == "Groceries")
+        if len(groceries_txns) > 0:
+            groups = groceries_txns["group"].unique().to_list()
+            assert "Food & Dining" in groups
+            assert "Wrong Group" not in groups
+
+        # Verify Gas transactions have correct group
+        gas_txns = df.filter(df["category"] == "Gas")
+        if len(gas_txns) > 0:
+            groups = gas_txns["group"].unique().to_list()
+            assert "Auto & Transport" in groups
+            assert "Wrong Group" not in groups
