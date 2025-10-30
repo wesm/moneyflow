@@ -571,8 +571,12 @@ class ScreenshotGenerator:
         # Extract viewBox dimensions
         viewbox_match = re.search(r'viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"', content)
         if viewbox_match:
-            width = viewbox_match.group(1)
-            height = viewbox_match.group(2)
+            # Scale down by 35% (multiply by 0.65) to fit laptop screens better
+            original_width = float(viewbox_match.group(1))
+            original_height = float(viewbox_match.group(2))
+
+            width = int(original_width * 0.65)
+            height = int(original_height * 0.65)
 
             # Add width and height attributes to svg tag
             content = re.sub(
