@@ -847,7 +847,6 @@ class TestCategoryMappingRefresh:
         # Verify initial mapping is stale (only has 2 groups, no Transfers)
         initial_mapping = dm.category_to_group
         assert "Transfers" not in set(initial_mapping.values())
-        initial_group_count = len(set(initial_mapping.values()))
 
         # Fetch all data (should fetch fresh categories from API and save to config.yaml)
         df, categories, category_groups = await dm.fetch_all_data()
@@ -867,9 +866,8 @@ class TestCategoryMappingRefresh:
         assert updated_mapping.get("Groceries") == "Food & Dining"
         assert updated_mapping.get("Gas") == "Auto & Transport"
 
-        # Verify mapping has all groups from fresh data
-        updated_group_count = len(set(updated_mapping.values()))
-        assert updated_group_count == 3  # 3 groups from mock backend
+        # Verify mapping has all 3 groups from mock backend
+        assert len(set(updated_mapping.values())) == 3
 
     async def test_categories_get_correct_group_in_dataframe(self, mock_mm, tmp_path):
         """
