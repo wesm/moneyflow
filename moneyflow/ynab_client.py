@@ -188,10 +188,13 @@ class YNABClient:
         existing_txn = txn_response.data.transaction
 
         # Use ExistingTransaction for updates (required by PutTransactionWrapper)
-        update_data = ynab.ExistingTransaction(
-            account_id=existing_txn.account_id,
-            var_date=existing_txn.var_date,
-            amount=existing_txn.amount,
+        # Using model_validate to avoid pyright issues with Pydantic v2 __init__
+        update_data = ynab.ExistingTransaction.model_validate(
+            {
+                "account_id": existing_txn.account_id,
+                "var_date": existing_txn.var_date,
+                "amount": existing_txn.amount,
+            }
         )
 
         if merchant_name is not None:

@@ -97,7 +97,9 @@ class DataManager:
         # Merchant cache setup
         if not merchant_cache_dir:
             # Use config_dir if available, otherwise default to ~/.moneyflow
-            merchant_cache_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
+            merchant_cache_dir = (
+                self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
+            )
         self.merchant_cache_dir = Path(merchant_cache_dir)
         self.merchant_cache_dir.mkdir(parents=True, exist_ok=True)
         self.merchant_cache_file = self.merchant_cache_dir / "merchants.json"
