@@ -1915,12 +1915,13 @@ def launch_monarch_mode(
         sys.exit(1)
 
 
-def launch_amazon_mode(db_path: Optional[str] = None) -> None:
+def launch_amazon_mode(db_path: Optional[str] = None, config_dir: Optional[str] = None) -> None:
     """
     Launch moneyflow in Amazon purchase analysis mode.
 
     Args:
         db_path: Path to Amazon SQLite database (default: ~/.moneyflow/amazon.db)
+        config_dir: Config directory for loading categories (default: ~/.moneyflow)
 
     Uses the AmazonBackend with data stored in SQLite.
     Data must be imported first using: moneyflow amazon import <csv>
@@ -1929,12 +1930,14 @@ def launch_amazon_mode(db_path: Optional[str] = None) -> None:
     from moneyflow.backends.amazon import AmazonBackend
 
     # Initialize logging
-    logger = setup_logging(console_output=False, config_dir=None)
+    logger = setup_logging(console_output=False, config_dir=config_dir)
     logger.info("Starting moneyflow in Amazon mode")
+    if config_dir:
+        logger.info(f"Using custom config directory: {config_dir}")
 
     try:
         # Create Amazon backend and config
-        backend = AmazonBackend(db_path=db_path)
+        backend = AmazonBackend(db_path=db_path, config_dir=config_dir)
         config = BackendConfig.for_amazon()
 
         # Create MoneyflowApp in Amazon mode

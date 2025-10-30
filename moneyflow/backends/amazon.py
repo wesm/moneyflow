@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..categories import DEFAULT_CATEGORY_GROUPS
+from ..categories import get_effective_category_groups
 from .base import FinanceBackend
 
 
@@ -25,12 +25,13 @@ class AmazonBackend(FinanceBackend):
     imported from CSV files exported from Amazon.com.
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: Optional[str] = None, config_dir: Optional[str] = None):
         """
         Initialize the Amazon backend.
 
         Args:
             db_path: Path to SQLite database. Defaults to ~/.moneyflow/amazon.db
+            config_dir: Config directory for loading categories. Defaults to ~/.moneyflow
 
         Note: Database file is not created until first access (lazy initialization).
         """
@@ -38,6 +39,7 @@ class AmazonBackend(FinanceBackend):
             db_path = str(Path.home() / ".moneyflow" / "amazon.db")
 
         self.db_path = Path(db_path).expanduser()
+        self.config_dir = config_dir
         self._db_initialized = False
 
     def _ensure_db_initialized(self) -> None:
@@ -282,10 +284,11 @@ class AmazonBackend(FinanceBackend):
 
     async def get_transaction_categories(self) -> Dict[str, Any]:
         """
-        Fetch all categories from centralized category list.
+        Fetch all categories from config.yaml (or defaults if not present).
 
-        Returns categories from categories.py (not database) to avoid data duplication
-        and allow easy updates via config file.
+        Returns categories from config.yaml if available (e.g., fetched from Monarch),
+        otherwise uses built-in defaults. This allows Amazon mode to use the same
+        category structure as your primary backend.
 
         Returns:
             Dictionary containing categories in standard format
@@ -293,8 +296,12 @@ class AmazonBackend(FinanceBackend):
         categories = []
         cat_id_counter = 1
 
-        # Build categories from DEFAULT_CATEGORY_GROUPS
-        for group_name, category_names in DEFAULT_CATEGORY_GROUPS.items():
+        # Load category groups from config.yaml if available, otherwise use built-in defaults
+        # Note: This is NOT a merge - it's one or the other (priority: config.yaml > defaults)
+        category_groups = get_effective_category_groups(self.config_dir)
+
+        # Build categories from loaded category groups
+        for group_name, category_names in category_groups.items():
             for cat_name in category_names:
                 cat_id = f"cat_{cat_name.lower().replace(' ', '_').replace('&', 'and')}"
                 categories.append(
@@ -348,11 +355,12 @@ class AmazonBackend(FinanceBackend):
         if category_id is not None:
             updates.append("category_id = ?")
             params.append(category_id)
-            # Also update category name from DEFAULT_CATEGORY_GROUPS
+            # Also update category name from effective category groups
             # (group is derived from category by data_manager, not stored)
             # Build category_id → category_name lookup
+            category_groups = get_effective_category_groups(self.config_dir)
             category_name = None
-            for group_name, category_names in DEFAULT_CATEGORY_GROUPS.items():
+            for group_name, category_names in category_groups.items():
                 for cat_name in category_names:
                     cat_id = f"cat_{cat_name.lower().replace(' ', '_').replace('&', 'and')}"
                     if cat_id == category_id:

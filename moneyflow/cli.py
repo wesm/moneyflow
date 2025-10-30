@@ -81,23 +81,30 @@ def cli(ctx, year, since, mtd, cache, refresh, demo, config_dir):
     default=None,
     help="Path to Amazon SQLite database (default: ~/.moneyflow/amazon.db)",
 )
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help="Config directory (default: ~/.moneyflow). Used for loading categories from config.yaml.",
+)
 @click.pass_context
-def amazon(ctx, db_path):
+def amazon(ctx, db_path, config_dir):
     """Amazon purchase analysis mode.
 
     Run 'moneyflow amazon' to launch the UI.
     Use subcommands for import/status operations.
     """
-    # Store db_path in context for subcommands
+    # Store db_path and config_dir in context for subcommands
     ctx.ensure_object(dict)
     ctx.obj["db_path"] = db_path
+    ctx.obj["config_dir"] = config_dir
 
     # If no subcommand, launch the UI
     if ctx.invoked_subcommand is None:
         from moneyflow.app import launch_amazon_mode
         from moneyflow.backends.amazon import AmazonBackend
 
-        backend = AmazonBackend(db_path=db_path)
+        backend = AmazonBackend(db_path=db_path, config_dir=config_dir)
 
         # Check if database exists
         if not backend.db_path.exists():
@@ -117,7 +124,7 @@ def amazon(ctx, db_path):
             raise click.Abort()
 
         # Launch the UI
-        launch_amazon_mode(db_path=db_path)
+        launch_amazon_mode(db_path=db_path, config_dir=config_dir)
 
 
 @amazon.command(name="import")
@@ -245,12 +252,11 @@ def categories():
     help="Output format: yaml (copy-pastable) or readable (with counts)",
 )
 def categories_dump(config_dir, format):
-    """Display current category hierarchy (defaults + custom from config.yaml).
+    """Display current category hierarchy.
 
-    Shows the effective category structure including:
-    - Built-in defaults
-    - Custom categories from ~/.moneyflow/config.yaml
-    - Category renames and moves
+    Shows categories from config.yaml if available (fetched from backend),
+    otherwise shows built-in defaults. This is NOT a merge - it's one or
+    the other (priority: config.yaml > defaults).
 
     Default output is YAML format (copy-pastable into config.yaml under 'categories:').
     Use --format=readable for human-readable format with counts.

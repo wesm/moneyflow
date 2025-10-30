@@ -450,18 +450,20 @@ def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Di
 
 def get_effective_category_groups(config_dir: Optional[str] = None) -> Dict[str, List[str]]:
     """
-    Get effective category groups with priority order:
+    Get category groups (NOT a merge - returns one or the other).
+
+    Priority order:
     1. Fetched categories from backend API (stored in config.yaml)
     2. Built-in defaults from categories.py
 
-    For Monarch/YNAB: Uses fetched_categories from config.yaml (populated on every startup)
+    For Monarch/YNAB: Uses fetched_categories from config.yaml (populated on startup)
     For Demo/Amazon: Uses fetched_categories if available, otherwise built-in defaults
 
     Args:
         config_dir: Optional custom config directory (default: ~/.moneyflow)
 
     Returns:
-        Final category groups dict
+        Category groups dict (either from config.yaml OR defaults, never merged)
     """
     if config_dir is None:
         config_dir = str(Path.home() / ".moneyflow")
