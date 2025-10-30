@@ -69,51 +69,6 @@ categories:
         assert config is not None
         assert "add_to_groups" in config
 
-    def test_loads_legacy_categories_yaml(self, tmp_path):
-        """Should load legacy categories.yaml format (backward compatibility)."""
-        config_file = tmp_path / "categories.yaml"
-        config_file.write_text(
-            """
-version: 1
-add_to_groups:
-  Business:
-    - Custom Category 1
-"""
-        )
-
-        config = load_custom_categories(str(tmp_path))
-        assert config is not None
-        assert "add_to_groups" in config
-
-    def test_prefers_config_yaml_over_legacy(self, tmp_path):
-        """Should prefer config.yaml when both exist."""
-        # Create both files
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
-version: 1
-categories:
-  add_to_groups:
-    Business:
-      - From config.yaml
-"""
-        )
-
-        legacy_file = tmp_path / "categories.yaml"
-        legacy_file.write_text(
-            """
-version: 1
-add_to_groups:
-  Business:
-    - From categories.yaml
-"""
-        )
-
-        config = load_custom_categories(str(tmp_path))
-        assert config is not None
-        # Should load from config.yaml
-        assert config["add_to_groups"]["Business"] == ["From config.yaml"]
-
     def test_rejects_wrong_version(self, tmp_path):
         """Should reject unsupported version."""
         config_file = tmp_path / "config.yaml"

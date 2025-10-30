@@ -22,6 +22,14 @@ def temp_db():
 
 
 @pytest.fixture
+def temp_config_dir(tmp_path):
+    """Create a temporary config directory for testing (isolated from user's real config)."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    return str(config_dir)
+
+
+@pytest.fixture
 def sample_orders_csv(tmp_path):
     """Create a sample Retail.OrderHistory CSV file."""
     csv_content = """﻿"Website","Order ID","Order Date","Purchase Order Number","Currency","Unit Price","Unit Price Tax","Shipping Charge","Total Discounts","Total Owed","Shipment Item Subtotal","Shipment Item Subtotal Tax","ASIN","Product Condition","Quantity","Payment Instrument Type","Order Status","Shipment Status","Ship Date","Shipping Option","Shipping Address","Billing Address","Carrier Name & Tracking Number","Product Name","Gift Message","Gift Sender Name","Gift Recipient Contact Details","Item Serial Number"
@@ -42,9 +50,9 @@ def sample_orders_csv(tmp_path):
 class TestImportBasic:
     """Test basic import functionality."""
 
-    def test_import_sample_csv(self, sample_orders_csv, temp_db):
+    def test_import_sample_csv(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test importing a sample CSV file."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         stats = import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -53,9 +61,9 @@ class TestImportBasic:
         assert stats["skipped"] == 1  # Cancelled order
         assert stats["duplicates"] == 0
 
-    def test_import_creates_transactions(self, sample_orders_csv, temp_db):
+    def test_import_creates_transactions(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that transactions are created in database."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -68,9 +76,9 @@ class TestImportBasic:
         assert count == 3  # Cancelled order excluded
 
     @pytest.mark.asyncio
-    async def test_import_makes_categories_available(self, sample_orders_csv, temp_db):
+    async def test_import_makes_categories_available(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that categories are available from backend after import."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -84,9 +92,9 @@ class TestImportBasic:
         cat_ids = [c["id"] for c in categories]
         assert "cat_uncategorized" in cat_ids
 
-    def test_import_generates_correct_ids(self, sample_orders_csv, temp_db):
+    def test_import_generates_correct_ids(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that transaction IDs are generated correctly."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -101,9 +109,9 @@ class TestImportBasic:
         assert txn_id == expected_id
         assert txn_id.startswith("amz_")
 
-    def test_import_stores_all_fields(self, sample_orders_csv, temp_db):
+    def test_import_stores_all_fields(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that all fields are stored correctly."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -130,9 +138,9 @@ class TestImportBasic:
 class TestImportDuplicateHandling:
     """Test duplicate detection and handling."""
 
-    def test_import_twice_skips_duplicates(self, sample_orders_csv, temp_db):
+    def test_import_twice_skips_duplicates(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that importing twice skips existing transactions."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # First import
         stats1 = import_amazon_orders(str(sample_orders_csv), backend)
@@ -150,9 +158,9 @@ class TestImportDuplicateHandling:
         conn.close()
         assert count == 3
 
-    def test_import_force_reimports_duplicates(self, sample_orders_csv, temp_db):
+    def test_import_force_reimports_duplicates(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that force=True re-imports existing transactions."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # First import
         import_amazon_orders(str(sample_orders_csv), backend)
@@ -166,9 +174,9 @@ class TestImportDuplicateHandling:
 class TestImportFiltering:
     """Test filtering of rows during import."""
 
-    def test_import_skips_cancelled_orders(self, sample_orders_csv, temp_db):
+    def test_import_skips_cancelled_orders(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that cancelled orders are skipped."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         stats = import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -183,9 +191,9 @@ class TestImportFiltering:
 
         assert count == 0
 
-    def test_import_includes_new_orders(self, sample_orders_csv, temp_db):
+    def test_import_includes_new_orders(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that New (pending) orders are imported."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -197,9 +205,9 @@ class TestImportFiltering:
 
         assert count == 1  # Test Product 4 Pending
 
-    def test_import_includes_closed_orders(self, sample_orders_csv, temp_db):
+    def test_import_includes_closed_orders(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that Closed orders are imported."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -215,9 +223,9 @@ class TestImportFiltering:
 class TestImportHistory:
     """Test import history tracking."""
 
-    def test_import_records_history(self, sample_orders_csv, temp_db):
+    def test_import_records_history(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that import history is recorded."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         import_amazon_orders(str(sample_orders_csv), backend)
 
@@ -228,9 +236,9 @@ class TestImportHistory:
         assert history[0]["duplicate_count"] == 0
         assert history[0]["skipped_count"] == 1
 
-    def test_import_history_tracks_duplicates(self, sample_orders_csv, temp_db):
+    def test_import_history_tracks_duplicates(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that duplicate counts are tracked."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # First import
         import_amazon_orders(str(sample_orders_csv), backend)
@@ -249,16 +257,16 @@ class TestImportHistory:
 class TestImportValidation:
     """Test validation and error handling."""
 
-    def test_import_missing_directory(self, temp_db):
+    def test_import_missing_directory(self, temp_db, temp_config_dir):
         """Test that import fails gracefully with missing directory."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         with pytest.raises(FileNotFoundError):
             import_amazon_orders("/nonexistent/directory", backend)
 
-    def test_import_no_csv_files(self, tmp_path, temp_db):
+    def test_import_no_csv_files(self, tmp_path, temp_db, temp_config_dir):
         """Test that import fails gracefully with no CSV files."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         with pytest.raises(ValueError, match="No Retail.OrderHistory"):
             import_amazon_orders(str(tmp_path), backend)
@@ -300,9 +308,9 @@ class TestTransactionIDGeneration:
 class TestDisplayLabels:
     """Test backend display label customization."""
 
-    def test_amazon_backend_has_custom_labels(self, temp_db):
+    def test_amazon_backend_has_custom_labels(self, temp_db, temp_config_dir):
         """Test that Amazon backend returns custom display labels."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         labels = backend.get_display_labels()
 
@@ -349,9 +357,9 @@ class TestTransactionUpdates:
     """Test transaction update operations."""
 
     @pytest.mark.asyncio
-    async def test_update_item_name(self, temp_db):
+    async def test_update_item_name(self, temp_db, temp_config_dir):
         """Test updating item/merchant name."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Import a test transaction first
         conn = backend._get_connection()
@@ -394,9 +402,9 @@ class TestTransactionUpdates:
         assert row[0] == "New Name"
 
     @pytest.mark.asyncio
-    async def test_update_category_changes_category(self, temp_db):
+    async def test_update_category_changes_category(self, temp_db, temp_config_dir):
         """Test that updating category works correctly."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Categories are pre-populated from DEFAULT_CATEGORY_GROUPS during init
         # No need to insert - just use existing category
@@ -443,9 +451,9 @@ class TestTransactionUpdates:
         assert row[1] == "cat_groceries"  # category_id
 
     @pytest.mark.asyncio
-    async def test_get_transactions_has_category(self, temp_db):
+    async def test_get_transactions_has_category(self, temp_db, temp_config_dir):
         """Test that get_transactions returns category (group added by data_manager)."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Insert test transaction
         conn = backend._get_connection()
@@ -489,11 +497,11 @@ class TestEndToEndDataFetch:
     """Test end-to-end data fetching workflow."""
 
     @pytest.mark.asyncio
-    async def test_fetch_all_data_workflow(self, sample_orders_csv, temp_db):
+    async def test_fetch_all_data_workflow(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test complete workflow: import → fetch with DataManager."""
         from moneyflow.data_manager import DataManager
 
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Import data
         import_amazon_orders(str(sample_orders_csv), backend)
@@ -518,9 +526,9 @@ class TestEndToEndDataFetch:
         assert all(df["group"] == "Uncategorized")  # All initially in Uncategorized group
 
     @pytest.mark.asyncio
-    async def test_fetch_respects_date_filters(self, sample_orders_csv, temp_db):
+    async def test_fetch_respects_date_filters(self, sample_orders_csv, temp_db, temp_config_dir):
         """Test that date filtering works correctly."""
-        backend = AmazonBackend(temp_db)
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Import data
         import_amazon_orders(str(sample_orders_csv), backend)

@@ -78,7 +78,7 @@ class DataManager:
         Args:
             mm: Backend instance (must implement FinanceBackend interface)
             merchant_cache_dir: Directory for merchant cache (defaults to ~/.moneyflow/)
-            config_dir: Optional config directory for categories.yaml (defaults to ~/.moneyflow/)
+            config_dir: Optional config directory for config.yaml (defaults to ~/.moneyflow/)
         """
         self.mm = mm
         self.config_dir = config_dir  # Store for apply_category_groups
@@ -407,7 +407,7 @@ class DataManager:
         Convert raw transaction data to Polars DataFrame with enriched fields.
 
         Note: Does NOT include 'group' field - groups are applied dynamically
-        via apply_category_groups() so changes to categories.yaml take effect
+        via apply_category_groups() so changes to config.yaml take effect
         on cached data.
         """
         if not transactions:
@@ -458,9 +458,9 @@ class DataManager:
         Apply category-to-group mapping to a DataFrame.
 
         This adds/updates the 'group' column based on category groups from
-        categories module (defaults + custom from ~/.moneyflow/categories.yaml).
+        config.yaml (or built-in defaults if config.yaml not present).
         Called after loading data (from API or cache) so that changes to
-        categories.yaml always take effect.
+        config.yaml always take effect.
 
         Args:
             df: DataFrame with 'category' column

@@ -306,16 +306,12 @@ def categories_dump(config_dir, format):
         # Show config file location
         if config_dir:
             config_path = Path(config_dir) / "config.yaml"
-            legacy_path = Path(config_dir) / "categories.yaml"
         else:
             config_path = Path.home() / ".moneyflow" / "config.yaml"
-            legacy_path = Path.home() / ".moneyflow" / "categories.yaml"
 
         click.echo(f"\n# {'=' * 58}")
         if config_path.exists():
             click.echo(f"# Custom config: {config_path}")
-        elif legacy_path.exists():
-            click.echo(f"# Custom config: {legacy_path} (legacy format)")
         else:
             click.echo(f"# Using built-in defaults (no custom config at {config_path})")
 

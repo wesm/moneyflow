@@ -54,5 +54,3 @@ All moneyflow configuration is stored in `~/.moneyflow/`:
 ```
 
 **Security note:** credentials.enc is encrypted with AES-128. Safe to backup but keep private.
-
-**Backward compatibility:** Legacy `categories.yaml` files are still supported.
