@@ -187,9 +187,10 @@ class YNABClient:
         )
         existing_txn = txn_response.data.transaction
 
-        update_data = ynab.SaveTransactionWithOptionalFields(
+        # Use ExistingTransaction for updates (required by PutTransactionWrapper)
+        update_data = ynab.ExistingTransaction(
             account_id=existing_txn.account_id,
-            date=existing_txn.var_date,
+            var_date=existing_txn.var_date,
             amount=existing_txn.amount,
         )
 
