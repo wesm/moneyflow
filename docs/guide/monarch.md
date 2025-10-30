@@ -1,48 +1,36 @@
 # Monarch Money Integration
 
-**This guide is specifically for Monarch Money users.**
-
----
+Terminal interface for Monarch Money with full editing and sync capabilities.
 
 ## Overview
 
-moneyflow provides a powerful terminal interface for Monarch Money, allowing you to:
-
-- View and analyze all your synced transactions
-- Edit merchant names, categories, and other fields
+- View and analyze synced transactions
+- Edit merchants, categories, and transaction fields
 - Hide/unhide transactions from reports
-- Navigate by time periods, merchants, categories, and accounts
-- Bulk edit transactions with multi-select
-- Commit changes back to Monarch Money in real-time
-
-All changes sync bidirectionally with your Monarch Money account.
+- Navigate by time, merchant, category, and account
+- Bulk edit with multi-select
+- Real-time sync to Monarch Money
 
 ---
 
 ## Prerequisites
 
-Before setting up moneyflow with Monarch Money, you'll need:
-
-1. **Monarch Money account** - Active subscription required
-2. **2FA secret key** - For automatic login (see below)
+1. Active Monarch Money subscription
+2. 2FA secret key (see below for setup)
 
 ---
 
 ## Getting Your 2FA Secret
 
-!!! warning "Do this BEFORE running moneyflow"
+1. Log into [Monarch Money](https://app.monarchmoney.com/)
+2. Go to **Settings** → **Security**
+3. **Disable** existing 2FA, then **re-enable** it
+4. Click **"Can't scan?"** when shown the QR code
+5. Copy the BASE32 secret (e.g., `JBSWY3DPEHPK3PXP`)
+6. Save to password manager
 
-    1. Log into [Monarch Money](https://app.monarchmoney.com/)
-    2. Go to **Settings** → **Security**
-    3. **Disable** your existing 2FA
-    4. **Re-enable** 2FA
-    5. When shown the QR code, click **"Can't scan?"**
-    6. Copy the **BASE32 secret** (e.g., `JBSWY3DPEHPK3PXP`)
-    7. Save this somewhere secure (password manager recommended)
-
-!!! info "Why do I need this?"
-    moneyflow requires your 2FA secret to automatically generate 6-digit codes for login.
-    This allows unattended operation and avoids manual code entry on every startup.
+!!! info
+    moneyflow needs this secret to generate 2FA codes automatically for login.
 
 ---
 
@@ -74,21 +62,14 @@ Enter:
 
 ### 3. Create Encryption Password
 
-moneyflow will ask you to create a **NEW password** to encrypt your stored credentials:
+Create a NEW password to encrypt your stored credentials:
 
-- This password is **only for moneyflow**, not for Monarch Money
-- Choose something memorable - you'll need it every time you launch
-- Minimum 8 characters recommended
+- Only for moneyflow (not your Monarch Money password)
+- Needed every time you launch
+- Minimum 8 characters
 
-!!! info "How Credentials Are Stored"
-    Your Monarch Money credentials are encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations)
-    and stored at:
-
-    ```
-    ~/.moneyflow/credentials.enc
-    ```
-
-    Only you can decrypt them with your encryption password.
+!!! info
+    Credentials encrypted with AES-128/PBKDF2 (100k iterations) at `~/.moneyflow/credentials.enc`
 
 ### 4. Initial Data Load
 
@@ -183,8 +164,7 @@ See [CLI Options](../reference/cli.md) and [Caching](../config/caching.md) for d
 
 ## Data Privacy & Security
 
-Your Monarch Money credentials are encrypted locally. moneyflow doesn't send data anywhere except Monarch Money.
-See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md) for full details.
+Credentials encrypted locally. Data only sent to Monarch Money. See [Security Documentation](https://github.com/wesm/moneyflow/blob/main/SECURITY.md).
 
 ---
 

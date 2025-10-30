@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**New:**
+
+- **YNAB support** - Full integration with You Need A Budget
+- `--config-dir` option for custom configuration directory
+- Nix flake for reproducible builds
+- Green styling for credits/refunds
+- Right-justified dollar amounts
+
+**Fixed:**
+
+- Crash when quitting during credential screen
+- Empty account (0 transactions) load error
+- Log path in error messages when using `--config-dir`
+
+---
+
 ## v0.5.3 - October 2025
 
 **New:**
