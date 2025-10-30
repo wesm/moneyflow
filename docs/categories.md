@@ -86,32 +86,41 @@ This shows the actual categories being used (fetched from backend or defaults).
 
 ---
 
-## Advanced: Manual Category Customization (Legacy)
+## Advanced: Custom Category Overrides
 
-!!! warning "Not recommended for Monarch/YNAB users"
-    For Monarch and YNAB users, we recommend using your backend's categories directly.
-    They're automatically fetched and synced on every startup.
+!!! info "Only for advanced users"
+    Most users don't need this. Monarch/YNAB categories are automatically fetched and synced.
 
-    Manual customization is primarily useful for Amazon mode users who want to define their
-    own category structure.
-
-If you need to manually define categories (e.g., for Amazon-only usage without Monarch/YNAB),
-you can create a custom category structure in `config.yaml`:
+You can customize how categories are organized by editing `~/.moneyflow/config.yaml`:
 
 ```yaml
 version: 1
 
-# Manually defined categories (overrides fetched_categories if present)
-custom_categories:
-  Food:
+# Backend categories (auto-populated by Monarch/YNAB)
+fetched_categories:
+  Food & Dining:
     - Groceries
     - Restaurants
-  Shopping:
-    - Clothing
-    - Electronics
+
+# Optional: Custom overrides (applied on top of fetched_categories)
+categories:
+  rename_groups:
+    "Food & Dining": "Food"
+  add_to_groups:
+    Food:
+      - Fast Food
 ```
 
-**Note:** Manual customization is rarely needed with the new auto-fetch system.
+**Available customizations:**
+- `rename_groups` - Rename category groups
+- `rename_categories` - Rename individual categories
+- `add_to_groups` - Add categories to existing groups
+- `custom_groups` - Create entirely new groups
+- `move_categories` - Move categories between groups
+
+**Which backends write to config.yaml:**
+- Monarch/YNAB: Write `fetched_categories` on every startup
+- Amazon/Demo: Only read, never write
 
 ---
 
