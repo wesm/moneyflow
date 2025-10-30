@@ -402,6 +402,7 @@ def save_categories_to_config(
         config_dir = str(Path.home() / ".moneyflow")
 
     config_path = Path(config_dir) / "config.yaml"
+    legacy_path = Path(config_dir) / "categories.yaml"
 
     # Load existing config or create new
     if config_path.exists():
@@ -414,13 +415,28 @@ def save_categories_to_config(
     else:
         config = {}
 
+    # Migrate custom settings from legacy categories.yaml if not already in config.yaml
+    if legacy_path.exists() and "categories" not in config:
+        try:
+            with open(legacy_path, "r") as f:
+                legacy_config = yaml.safe_load(f) or {}
+            # Migrate custom category settings (rename_groups, add_to_groups, etc.)
+            if "rename_groups" in legacy_config or "add_to_groups" in legacy_config or "move_categories" in legacy_config or "custom_groups" in legacy_config:
+                config["categories"] = {}
+                for key in ["rename_groups", "add_to_groups", "move_categories", "custom_groups"]:
+                    if key in legacy_config:
+                        config["categories"][key] = legacy_config[key]
+                logger.info(f"Migrated custom category settings from {legacy_path} to {config_path}")
+        except Exception as e:
+            logger.warning(f"Failed to migrate legacy categories.yaml: {e}")
+
     # Ensure version is set
     config["version"] = 1
 
-    # Store fetched categories
+    # Store fetched categories (preserves all other existing keys in config)
     config["fetched_categories"] = category_groups
 
-    # Write back to file
+    # Write back to file (preserving all existing keys like 'categories', etc.)
     Path(config_dir).mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
