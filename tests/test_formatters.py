@@ -709,7 +709,10 @@ class TestFormatTransactionRows:
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][4].plain == "-$12,345.67"
+        amount_field = rows[0][4]
+        # Amount field is Text object when for_table=True
+        assert hasattr(amount_field, "plain")
+        assert amount_field.plain == "-$12,345.67"  # type: ignore[union-attr]
 
     def test_formats_positive_amount(self):
         """Should format positive amounts (income)."""
@@ -727,7 +730,10 @@ class TestFormatTransactionRows:
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][4].plain == "+$5,000.00"
+        amount_field = rows[0][4]
+        # Amount field is Text object when for_table=True
+        assert hasattr(amount_field, "plain")
+        assert amount_field.plain == "+$5,000.00"  # type: ignore[union-attr]
 
 
 class TestPrepareTransactionView:

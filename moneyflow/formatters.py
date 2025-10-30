@@ -491,7 +491,7 @@ class ViewPresenter:
         df: pl.DataFrame,
         selected_ids: set[str],
         pending_edit_ids: set[str],
-    ) -> list[tuple[str, str, str, str, str, str]]:
+    ) -> list[tuple[str, str, str, str, Union[str, Text], str]]:
         """
         Format transaction DataFrame rows for display.
 
@@ -517,7 +517,7 @@ class ViewPresenter:
             >>> rows[0][0]  # date
             '2025-01-15'
         """
-        rows: list[tuple[str, str, str, str, str, str]] = []
+        rows: list[tuple[str, str, str, str, Union[str, Text], str]] = []
 
         for row_dict in df.iter_rows(named=True):
             date = str(row_dict["date"])
