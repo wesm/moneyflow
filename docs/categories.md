@@ -112,6 +112,7 @@ categories:
 ```
 
 **Available customizations:**
+
 - `rename_groups` - Rename category groups
 - `rename_categories` - Rename individual categories
 - `add_to_groups` - Add categories to existing groups
@@ -119,6 +120,7 @@ categories:
 - `move_categories` - Move categories between groups
 
 **Which backends write to config.yaml:**
+
 - Monarch/YNAB: Write `fetched_categories` on every startup
 - Amazon/Demo: Only read, never write
 
