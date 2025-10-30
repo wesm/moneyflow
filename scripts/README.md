@@ -129,9 +129,10 @@ uv pip install cairosvg
 brew install cairo pango gdk-pixbuf libffi
 ```
 
-## Other Scripts
+## Release Scripts
 
-- `bump-version.sh` - Bump version number for release
-- `publish-pypi.sh` - Publish package to PyPI
-- `publish-testpypi.sh` - Publish package to TestPyPI
-- `test-build.sh` - Test package build
+- `bump-version.sh` - Bump version number and create git tag
+- `test-build.sh` - Test package build locally
+- `publish-testpypi.sh` - Publish to TestPyPI for testing
+- `publish-pypi.sh` - Publish to production PyPI
+- `post-publish.sh` - Post-publish automation (screenshots, assets, stable branch)

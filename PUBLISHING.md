@@ -76,6 +76,17 @@ Publishes to production PyPI (with confirmation prompts).
 git push && git push --tags
 ```
 
+### 7. Post-Publish Automation
+
+```bash
+./scripts/post-publish.sh v0.2.0
+```
+
+This automates:
+- Generating latest screenshots
+- Committing to moneyflow-assets with squashed history
+- Updating stable branch to release tag
+
 ---
 
 ## Quick Reference
@@ -88,6 +99,7 @@ git push && git push --tags
 # Test from TestPyPI...
 ./scripts/publish-pypi.sh
 git push && git push --tags
+./scripts/post-publish.sh v0.2.0
 ```
 
 See `scripts/README.md` for detailed script documentation.

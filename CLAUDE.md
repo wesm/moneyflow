@@ -354,6 +354,7 @@ If you need to adjust the bot's behavior:
 **IMPORTANT**: When working with Claude Code or AI assistants:
 - ✅ AI can create commits locally
 - ❌ AI must NEVER push to git without explicit user permission
+- ❌ AI must NEVER create new branches unless explicitly asked by the user
 - 💡 User should review commits before pushing
 
 ```bash
