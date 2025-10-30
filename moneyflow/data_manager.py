@@ -22,7 +22,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import polars as pl
 
 from .backends.base import FinanceBackend
-from .categories import build_category_to_group_mapping, get_effective_category_groups
+from .categories import (
+    build_category_to_group_mapping,
+    convert_api_categories_to_groups,
+    get_effective_category_groups,
+    save_categories_to_config,
+)
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -273,11 +278,17 @@ class DataManager:
             getattr(self.mm, "__class__", None).__name__ if hasattr(self.mm, "__class__") else None
         )
         if backend_type and backend_type not in ["DemoBackend", "AmazonBackend"]:
-            from .categories import convert_api_categories_to_groups, save_categories_to_config
-
             try:
                 simple_groups = convert_api_categories_to_groups(categories_data, groups_data)
                 save_categories_to_config(simple_groups, config_dir=self.config_dir)
+
+                # Rebuild category mapping after saving fresh categories
+                # This fixes bug where stale mapping causes transfers to not be filtered
+                self.category_groups_config = get_effective_category_groups(self.config_dir)
+                self.category_to_group = build_category_to_group_mapping(
+                    self.category_groups_config
+                )
+                logger.debug("Rebuilt category-to-group mapping with fresh categories")
             except Exception as e:
                 logger.warning(f"Failed to save categories to config.yaml: {e}")
 
