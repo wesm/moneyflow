@@ -1,5 +1,7 @@
 """Credential setup and unlock screens, quit confirmation, and filter modal."""
 
+from pathlib import Path
+
 from textual.app import ComposeResult
 from textual.containers import Container
 from textual.events import Key
@@ -273,7 +275,9 @@ class CredentialSetupScreen(Screen):
         # Save credentials
         try:
             error_label.update("💾 Saving credentials...")
-            cred_manager = CredentialManager()
+            # Get config_dir from app and pass to CredentialManager
+            config_path = Path(self.app.config_dir) if self.app.config_dir else None
+            cred_manager = CredentialManager(config_dir=config_path)
             cred_manager.save_credentials(
                 email=email,
                 password=password,
@@ -408,7 +412,9 @@ class CredentialUnlockScreen(Screen):
 
         try:
             error_label.update("🔓 Unlocking...")
-            cred_manager = CredentialManager()
+            # Get config_dir from app and pass to CredentialManager
+            config_path = Path(self.app.config_dir) if self.app.config_dir else None
+            cred_manager = CredentialManager(config_dir=config_path)
             creds = cred_manager.load_credentials(encryption_password=encryption_password)
 
             error_label.update("✅ Unlocked! Logging in...")
@@ -426,7 +432,9 @@ class CredentialUnlockScreen(Screen):
     async def reset_credentials(self) -> None:
         """Delete credentials and show setup screen."""
         try:
-            cred_manager = CredentialManager()
+            # Get config_dir from app and pass to CredentialManager
+            config_path = Path(self.app.config_dir) if self.app.config_dir else None
+            cred_manager = CredentialManager(config_dir=config_path)
             cred_manager.delete_credentials()
 
             # Switch to setup screen

@@ -1797,7 +1797,7 @@ def main():
     args = parser.parse_args()
 
     # Initialize logging (file only - Textual swallows console output anyway)
-    logger = setup_logging(console_output=False)
+    logger = setup_logging(console_output=False, config_dir=None)
     logger.info("Starting moneyflow application")
 
     # Determine start year or date range
@@ -1866,7 +1866,7 @@ def launch_monarch_mode(
     from datetime import date as date_type
 
     # Initialize logging
-    logger = setup_logging(console_output=False)
+    logger = setup_logging(console_output=False, config_dir=config_dir)
     logger.info("Starting moneyflow with Monarch Money backend")
     if config_dir:
         logger.info(f"Using custom config directory: {config_dir}")
@@ -1919,7 +1919,7 @@ def launch_amazon_mode(db_path: Optional[str] = None) -> None:
     from moneyflow.backends.amazon import AmazonBackend
 
     # Initialize logging
-    logger = setup_logging(console_output=False)
+    logger = setup_logging(console_output=False, config_dir=None)
     logger.info("Starting moneyflow in Amazon mode")
 
     try:

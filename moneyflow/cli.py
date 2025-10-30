@@ -57,8 +57,11 @@ def cli(ctx, year, since, mtd, cache, refresh, demo, config_dir):
     # Launch default backend (Monarch Money)
     from moneyflow.app import launch_monarch_mode
 
-    # Convert cache flag to path (None if not enabled, default path if enabled)
-    cache_path = "~/.moneyflow/cache" if cache else None
+    # Convert cache flag to path (None if not enabled, respect config_dir if enabled)
+    if cache:
+        cache_path = f"{config_dir}/cache" if config_dir else "~/.moneyflow/cache"
+    else:
+        cache_path = None
 
     launch_monarch_mode(
         year=year,

@@ -8,23 +8,28 @@ All errors and important events are logged to ~/.moneyflow/moneyflow.log
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 
-def setup_logging(console_output: bool = False):
+def setup_logging(console_output: bool = False, config_dir: Optional[str] = None):
     """
     Configure logging to write to file.
 
-    Logs are written to ~/.moneyflow/moneyflow.log so they're not
+    Logs are written to ~/.moneyflow/moneyflow.log (or custom config dir) so they're not
     swallowed by Textual's UI. Console output is disabled by default
     to avoid interfering with the TUI.
 
     Args:
         console_output: If True, also log to console (for --dev mode)
+        config_dir: Optional custom config directory. If None, uses ~/.moneyflow
 
     Returns:
         Logger instance
     """
-    log_dir = Path.home() / ".moneyflow"
+    if config_dir:
+        log_dir = Path(config_dir).expanduser()
+    else:
+        log_dir = Path.home() / ".moneyflow"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "moneyflow.log"
 
