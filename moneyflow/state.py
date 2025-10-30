@@ -555,6 +555,10 @@ class AppState:
 
         df = self.transactions_df
 
+        # Handle empty DataFrame (0 transactions) - return early to avoid column errors
+        if len(df) == 0:
+            return df
+
         # Apply time filter
         if self.start_date and self.end_date:
             df = df.filter((pl.col("date") >= self.start_date) & (pl.col("date") <= self.end_date))
