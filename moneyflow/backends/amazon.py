@@ -154,13 +154,10 @@ class AmazonBackend(FinanceBackend):
 
         Returns:
             Dictionary with column width percentages:
-            - merchant_width_pct: 33 (30% wider than default 25)
-            - account_width_pct: 30 (wider for Order IDs)
+            - merchant_width_pct: 60 (wider for Item Names)
+            - account_width_pct: 30 (Order IDs are small)
         """
-        return {
-            "merchant_width_pct": 33,  # 30% wider than default (25 * 1.3 ≈ 33)
-            "account_width_pct": 30,  # Wider for Order IDs
-        }
+        return {"merchant_width_pct": 60, "account_width_pct": 30}
 
     async def login(
         self,

@@ -179,7 +179,8 @@ class ViewPresenter:
         """
         # Use defaults if not provided
         if column_config is None:
-            column_config = {"merchant_width_pct": 35, "account_width_pct": 30}
+            column_config = {}
+
         if display_labels is None:
             display_labels = {"merchant": "Merchant", "account": "Account", "accounts": "Accounts"}
 
@@ -195,13 +196,14 @@ class ViewPresenter:
         # Extract currency symbol from config (defaults to $ if not provided)
         currency_symbol = column_config.get("currency_symbol", "$") if column_config else "$"
 
+        # Default name width
+        name_width = 40
+
         # Get column width based on field type
         if group_by_field == "merchant":
-            name_width = column_config.get("merchant_width_pct", 35) if column_config else 35
+            name_width = column_config.get("merchant_width_pct", name_width)
         elif group_by_field == "account":
-            name_width = column_config.get("account_width_pct", 30) if column_config else 30
-        else:
-            name_width = 40  # Default for category/group
+            name_width = column_config.get("account_width_pct", name_width)
 
         # Map aggregation field to sort mode
         field_to_sort_mode: dict[AggregationField, SortMode] = {

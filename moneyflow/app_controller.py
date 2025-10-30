@@ -143,8 +143,8 @@ class AppController:
         except (AttributeError, Exception):
             # Fallback to default widths if backend doesn't support it
             return {
-                "merchant_width_pct": 25,
-                "account_width_pct": 30,
+                "merchant_width_pct": 40,
+                "account_width_pct": 40,
                 "currency_symbol": "$",
             }
 
