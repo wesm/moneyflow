@@ -29,7 +29,8 @@ Terminal interface for YNAB (You Need A Budget) with full editing and sync capab
 6. Save to password manager
 
 !!! info
-    moneyflow uses YNAB's official API. Personal Access Tokens provide secure authentication without requiring your YNAB password.
+    moneyflow uses YNAB's official API. Personal Access Tokens provide secure authentication without requiring your
+    YNAB password.
 
 ---
 
@@ -197,4 +198,3 @@ Current limitations with YNAB integration:
 - **No reconciliation**: Can't mark accounts as reconciled
 
 These features may be added in future releases.
-
