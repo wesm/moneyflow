@@ -881,7 +881,7 @@ class AppController:
             ):
                 return "Esc/g=Back | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
             else:
-                return "g=Group | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+                return "Esc/g=Group | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
 
     # Edit Orchestration Methods
 
