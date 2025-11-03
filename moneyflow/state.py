@@ -222,6 +222,21 @@ class AppState:
         self.selected_ids.clear()
         self.selected_group_keys.clear()
 
+    def clear_drill_down_and_selection(self):
+        """
+        Clear all drill-down filters and selections.
+
+        This is a common operation when switching views or returning to top-level.
+        Clears:
+        - All drill-down filters (merchant, category, group, account)
+        - Multi-select state (transaction IDs and group keys)
+        """
+        self.selected_merchant = None
+        self.selected_category = None
+        self.selected_group = None
+        self.selected_account = None
+        self.clear_selection()
+
     def set_timeframe(
         self,
         timeframe: TimeFrame,

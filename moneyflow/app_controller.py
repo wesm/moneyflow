@@ -29,7 +29,15 @@ from .commit_orchestrator import CommitOrchestrator
 from .data_manager import DataManager
 from .formatters import ViewPresenter
 from .logging_config import get_logger
-from .state import AppState, SortDirection, SortMode, TimeFrame, TransactionEdit, ViewMode
+from .state import (
+    AppState,
+    NavigationState,
+    SortDirection,
+    SortMode,
+    TimeFrame,
+    TransactionEdit,
+    ViewMode,
+)
 from .time_navigator import TimeNavigator
 from .view_interface import IViewPresenter
 
@@ -407,11 +415,7 @@ class AppController:
     def switch_to_merchant_view(self):
         """Switch to merchant aggregation view."""
         self.state.view_mode = ViewMode.MERCHANT
-        self.state.selected_merchant = None
-        self.state.selected_category = None
-        self.state.selected_group = None
-        self.state.selected_account = None
-        self.state.clear_selection()  # Clear all multi-select
+        self.state.clear_drill_down_and_selection()
         # Reset sort to valid field for aggregate views (now includes field name)
         if self.state.sort_by not in [SortMode.MERCHANT, SortMode.COUNT, SortMode.AMOUNT]:
             self.state.sort_by = SortMode.AMOUNT
@@ -420,11 +424,7 @@ class AppController:
     def switch_to_category_view(self):
         """Switch to category aggregation view."""
         self.state.view_mode = ViewMode.CATEGORY
-        self.state.selected_merchant = None
-        self.state.selected_category = None
-        self.state.selected_group = None
-        self.state.selected_account = None
-        self.state.clear_selection()  # Clear all multi-select
+        self.state.clear_drill_down_and_selection()
         if self.state.sort_by not in [SortMode.CATEGORY, SortMode.COUNT, SortMode.AMOUNT]:
             self.state.sort_by = SortMode.AMOUNT
         self.refresh_view()
@@ -432,11 +432,7 @@ class AppController:
     def switch_to_group_view(self):
         """Switch to group aggregation view."""
         self.state.view_mode = ViewMode.GROUP
-        self.state.selected_merchant = None
-        self.state.selected_category = None
-        self.state.selected_group = None
-        self.state.selected_account = None
-        self.state.clear_selection()  # Clear all multi-select
+        self.state.clear_drill_down_and_selection()
         if self.state.sort_by not in [SortMode.GROUP, SortMode.COUNT, SortMode.AMOUNT]:
             self.state.sort_by = SortMode.AMOUNT
         self.refresh_view()
@@ -444,11 +440,7 @@ class AppController:
     def switch_to_account_view(self):
         """Switch to account aggregation view."""
         self.state.view_mode = ViewMode.ACCOUNT
-        self.state.selected_merchant = None
-        self.state.selected_category = None
-        self.state.selected_group = None
-        self.state.selected_account = None
-        self.state.clear_selection()  # Clear all multi-select
+        self.state.clear_drill_down_and_selection()
         if self.state.sort_by not in [SortMode.ACCOUNT, SortMode.COUNT, SortMode.AMOUNT]:
             self.state.sort_by = SortMode.AMOUNT
         self.refresh_view()
@@ -457,15 +449,37 @@ class AppController:
         """
         Switch to transaction detail view (ungrouped).
 
+        Saves current state to navigation history if switching from an aggregate view,
+        so that pressing Esc or 'g' can restore the previous view.
+
         Args:
             set_default_sort: If True, set default sort (Date descending)
         """
+        # Save current state to navigation history if we're in an aggregate view
+        # This allows Esc/'g' to return to the correct aggregate view
+        if self.state.view_mode in [
+            ViewMode.MERCHANT,
+            ViewMode.CATEGORY,
+            ViewMode.GROUP,
+            ViewMode.ACCOUNT,
+        ]:
+            self.state.navigation_history.append(
+                NavigationState(
+                    view_mode=self.state.view_mode,
+                    cursor_position=0,  # Don't preserve cursor when switching with 'd'
+                    scroll_y=0.0,
+                    sort_by=self.state.sort_by,
+                    sort_direction=self.state.sort_direction,
+                    selected_merchant=self.state.selected_merchant,
+                    selected_category=self.state.selected_category,
+                    selected_group=self.state.selected_group,
+                    selected_account=self.state.selected_account,
+                    sub_grouping_mode=self.state.sub_grouping_mode,
+                )
+            )
+
         self.state.view_mode = ViewMode.DETAIL
-        self.state.selected_merchant = None
-        self.state.selected_category = None
-        self.state.selected_group = None
-        self.state.selected_account = None
-        self.state.clear_selection()  # Clear all multi-select
+        self.state.clear_drill_down_and_selection()
         if set_default_sort:
             self.state.sort_by = SortMode.DATE
             self.state.sort_direction = SortDirection.DESC

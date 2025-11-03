@@ -941,6 +941,39 @@ class TestViewModeSwitching:
         assert controller.state.sort_by == SortMode.AMOUNT
         assert controller.state.sort_direction == SortDirection.ASC
 
+    async def test_switch_to_detail_view_saves_navigation_history(self, controller, mock_view):
+        """Test that switching from aggregate to detail view saves navigation history."""
+        # Start in category view
+        controller.state.view_mode = ViewMode.CATEGORY
+        controller.state.sort_by = SortMode.CATEGORY
+        controller.state.sort_direction = SortDirection.ASC
+
+        # Switch to detail view
+        controller.switch_to_detail_view(set_default_sort=True)
+
+        # Should have saved the category view to navigation history
+        assert len(controller.state.navigation_history) == 1
+        nav_state = controller.state.navigation_history[0]
+        assert nav_state.view_mode == ViewMode.CATEGORY
+        assert nav_state.sort_by == SortMode.CATEGORY
+        assert nav_state.sort_direction == SortDirection.ASC
+
+        # Now in detail view
+        assert controller.state.view_mode == ViewMode.DETAIL
+
+    async def test_switch_to_detail_view_from_detail_no_duplicate_history(
+        self, controller, mock_view
+    ):
+        """Test that switching from detail to detail doesn't add duplicate history."""
+        # Already in detail view
+        controller.state.view_mode = ViewMode.DETAIL
+
+        # Switch to detail view again
+        controller.switch_to_detail_view(set_default_sort=True)
+
+        # Should not have added to navigation history
+        assert len(controller.state.navigation_history) == 0
+
     async def test_view_switch_clears_selections(self, controller, mock_view):
         """Test that switching views clears all drill-down selections."""
         # Set up some selections
