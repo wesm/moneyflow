@@ -74,6 +74,8 @@ alt="Categories view">
 Press `d` to view all transactions ungrouped in chronological order,
 or press `Enter` from any aggregate row to see the transactions for that specific item.
 
+To return to an aggregate view, press `g` or `Escape`.
+
 **Columns displayed:**
 
 - Date
@@ -167,6 +169,11 @@ This powerful feature lets you combine multiple filters to answer very specific 
 ## Going Back
 
 Press `Escape` to navigate backwards through your drill-down path, removing one filter level at a time.
+
+**From top-level detail view:**
+
+- When viewing all transactions (not drilled down), press `g` or `Escape` to return to an aggregate view
+- Both keys restore your previous aggregate view (Merchant, Category, Group, or Account)
 
 **Single-level drill-down with sub-grouping:**
 
@@ -304,10 +311,10 @@ Here are some practical examples of using moneyflow's navigation features to ans
 
 | Key | Action |
 |-----|--------|
-| `g` | Cycle views (Merchant/Category/Group/Account) |
+| `g` | Cycle aggregate views, or return to aggregate view from detail view |
 | `d` | Detail view (all transactions) |
 | `Enter` | Drill down |
-| `Escape` | Go back |
+| `Escape` | Go back (or return to aggregate view from detail view) |
 | `s` | Cycle sort field |
 | `v` | Reverse sort |
 | `/` | Search |

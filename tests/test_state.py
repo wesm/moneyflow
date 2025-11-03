@@ -1143,6 +1143,50 @@ class TestSubGrouping:
         assert state.view_mode == ViewMode.CATEGORY
         assert result == "Categories"
 
+    def test_cycle_grouping_from_detail_view_with_history_restores_previous_view(self):
+        """Pressing 'g' from top-level DETAIL view with navigation history should restore previous view."""
+        state = AppState()
+        state.view_mode = ViewMode.DETAIL
+        state.sort_by = SortMode.DATE
+        state.sort_direction = SortDirection.ASC
+
+        # Simulate having navigation history from a previous CATEGORY view
+        nav_state = NavigationState(
+            view_mode=ViewMode.CATEGORY,
+            sort_by=SortMode.CATEGORY,
+            sort_direction=SortDirection.DESC,
+            cursor_position=5,
+            scroll_y=100.0,
+        )
+        state.navigation_history.append(nav_state)
+
+        result = state.cycle_grouping()
+
+        # Should restore to CATEGORY view with previous sort settings
+        assert state.view_mode == ViewMode.CATEGORY
+        assert state.sort_by == SortMode.CATEGORY
+        assert state.sort_direction == SortDirection.DESC
+        assert result == "Categories"
+        # Navigation history should be consumed
+        assert len(state.navigation_history) == 0
+
+    def test_cycle_grouping_from_detail_view_without_history_defaults_to_merchant(self):
+        """Pressing 'g' from top-level DETAIL view without history should default to MERCHANT view."""
+        state = AppState()
+        state.view_mode = ViewMode.DETAIL
+        state.sort_by = SortMode.DATE
+        state.sort_direction = SortDirection.ASC
+        # No navigation history
+
+        result = state.cycle_grouping()
+
+        # Should default to MERCHANT view
+        assert state.view_mode == ViewMode.MERCHANT
+        # Sort settings should be preserved from current state
+        assert state.sort_by == SortMode.DATE
+        assert state.sort_direction == SortDirection.ASC
+        assert result == "Merchants"
+
     def test_cycle_sub_grouping_resets_date_sort_to_amount(self):
         """When cycling from detail to aggregated sub-grouping, should reset DATE sort to AMOUNT."""
         state = AppState()
