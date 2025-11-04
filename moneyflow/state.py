@@ -24,6 +24,7 @@ class ViewMode(Enum):
     CATEGORY = "category"
     GROUP = "group"
     ACCOUNT = "account"
+    TIME = "time"
     DETAIL = "detail"
 
 
@@ -37,6 +38,7 @@ class SortMode(Enum):
     CATEGORY = "category"
     GROUP = "group"
     ACCOUNT = "account"
+    TIME_PERIOD = "time_period"
 
 
 class SortDirection(Enum):
@@ -53,6 +55,13 @@ class TimeFrame(Enum):
     THIS_YEAR = "this_year"
     THIS_MONTH = "this_month"
     CUSTOM = "custom"
+
+
+class TimeGranularity(Enum):
+    """Granularity for time-based aggregation."""
+
+    YEAR = "year"
+    MONTH = "month"
 
 
 @dataclass
@@ -75,7 +84,10 @@ class NavigationState:
     selected_category: Optional[str] = None
     selected_group: Optional[str] = None
     selected_account: Optional[str] = None
+    selected_time_year: Optional[int] = None
+    selected_time_month: Optional[int] = None
     sub_grouping_mode: Optional[ViewMode] = None
+    time_granularity: TimeGranularity = TimeGranularity.YEAR
 
 
 @dataclass
@@ -134,12 +146,17 @@ class AppState:
     selected_category: Optional[str] = None
     selected_group: Optional[str] = None
     selected_account: Optional[str] = None
+    selected_time_year: Optional[int] = None  # Drill-down: which year
+    selected_time_month: Optional[int] = None  # Drill-down: which month (1-12)
     selected_row: int = 0
 
     # Sub-grouping when drilled down (e.g., "Merchant > Amazon (by Category)")
     # When set, shows aggregated view of filtered data instead of detail view
-    # Cycles: Category → Group → Account → None (detail) → Category...
+    # Cycles: Category → Group → Account → Time → None (detail) → Category...
     sub_grouping_mode: Optional[ViewMode] = None
+
+    # Time dimension
+    time_granularity: TimeGranularity = TimeGranularity.YEAR
 
     # Multi-select for bulk operations
     selected_ids: set[str] = dataclass_field(default_factory=set)  # Transaction IDs in detail view
@@ -228,14 +245,51 @@ class AppState:
 
         This is a common operation when switching views or returning to top-level.
         Clears:
-        - All drill-down filters (merchant, category, group, account)
+        - All drill-down filters (merchant, category, group, account, time)
         - Multi-select state (transaction IDs and group keys)
         """
         self.selected_merchant = None
         self.selected_category = None
         self.selected_group = None
         self.selected_account = None
+        self.selected_time_year = None
+        self.selected_time_month = None
         self.clear_selection()
+
+    def is_time_period_selected(self) -> bool:
+        """Check if drilled into a specific time period."""
+        return self.selected_time_year is not None
+
+    def get_selected_time_period(self) -> Optional[tuple[int, Optional[int]]]:
+        """
+        Get selected time period as (year, month) tuple.
+
+        Returns:
+            (year, month) if drilled into time, None otherwise.
+            month will be None if only year is selected.
+        """
+        if self.selected_time_year is None:
+            return None
+        return (self.selected_time_year, self.selected_time_month)
+
+    def clear_time_selection(self):
+        """Clear time period drill-down."""
+        self.selected_time_year = None
+        self.selected_time_month = None
+
+    def toggle_time_granularity(self) -> str:
+        """
+        Toggle between year and month granularity.
+
+        Returns:
+            Friendly name of new granularity ("Years" or "Months")
+        """
+        if self.time_granularity == TimeGranularity.YEAR:
+            self.time_granularity = TimeGranularity.MONTH
+            return "Months"
+        else:
+            self.time_granularity = TimeGranularity.YEAR
+            return "Years"
 
     def set_timeframe(
         self,
@@ -301,6 +355,7 @@ class AppState:
                 self.selected_category,
                 self.selected_group,
                 self.selected_account,
+                self.selected_time_year,
             ]
         )
 
@@ -351,7 +406,7 @@ class AppState:
         """
         Cycle through sub-grouping modes when drilled down.
 
-        Order: MERCHANT → CATEGORY → GROUP → ACCOUNT → None (detail) → MERCHANT
+        Order: MERCHANT → CATEGORY → GROUP → ACCOUNT → TIME → None (detail) → MERCHANT
 
         Skips the field we're already drilled into (e.g., if drilled into Category > Groceries,
         don't offer Category as sub-grouping since we're already filtered by that).
@@ -383,6 +438,8 @@ class AppState:
             available_modes.append(ViewMode.GROUP)
         if not self.selected_account:
             available_modes.append(ViewMode.ACCOUNT)
+        if not self.selected_time_year:
+            available_modes.append(ViewMode.TIME)
 
         # Add None for detail view
         available_modes.append(None)
@@ -428,6 +485,7 @@ class AppState:
             ViewMode.CATEGORY: SortMode.CATEGORY,
             ViewMode.GROUP: SortMode.GROUP,
             ViewMode.ACCOUNT: SortMode.ACCOUNT,
+            ViewMode.TIME: SortMode.TIME_PERIOD,
         }
 
         # Check if current sort is valid for the new mode
@@ -448,11 +506,16 @@ class AppState:
                 SortMode.CATEGORY,
                 SortMode.GROUP,
                 SortMode.ACCOUNT,
+                SortMode.TIME_PERIOD,
             ]:
                 # Aggregate field sort - only valid if it matches the new mode
                 if self.sort_by != mode_to_sort.get(new_mode):
                     # Current sort doesn't match new mode's field, fall back to AMOUNT
                     self.sort_by = SortMode.AMOUNT
+                    # For TIME mode, default to chronological ascending
+                    if new_mode == ViewMode.TIME:
+                        self.sort_by = SortMode.TIME_PERIOD
+                        self.sort_direction = SortDirection.ASC
 
         self.sub_grouping_mode = new_mode
 
@@ -467,6 +530,8 @@ class AppState:
             return "by Group"
         elif self.sub_grouping_mode == ViewMode.ACCOUNT:
             return "by Account"
+        elif self.sub_grouping_mode == ViewMode.TIME:
+            return "by Year" if self.time_granularity == TimeGranularity.YEAR else "by Month"
         else:
             return ""
 
@@ -512,6 +577,9 @@ class AppState:
                     ViewMode.CATEGORY: "Categories",
                     ViewMode.GROUP: "Groups",
                     ViewMode.ACCOUNT: "Accounts",
+                    ViewMode.TIME: "Years"
+                    if nav_state.time_granularity == TimeGranularity.YEAR
+                    else "Months",
                 }
                 return view_names.get(nav_state.view_mode, "")
             else:
@@ -524,10 +592,12 @@ class AppState:
         self.selected_category = None
         self.selected_group = None
         self.selected_account = None
+        self.selected_time_year = None
+        self.selected_time_month = None
         self.sub_grouping_mode = None  # Clear sub-grouping too
 
         # Reset sort to valid field for aggregate views if needed
-        # Now includes field-based sorting (MERCHANT, CATEGORY, GROUP, ACCOUNT)
+        # Now includes field-based sorting (MERCHANT, CATEGORY, GROUP, ACCOUNT, TIME_PERIOD)
         if self.sort_by not in [
             SortMode.COUNT,
             SortMode.AMOUNT,
@@ -535,6 +605,7 @@ class AppState:
             SortMode.CATEGORY,
             SortMode.GROUP,
             SortMode.ACCOUNT,
+            SortMode.TIME_PERIOD,
         ]:
             self.sort_by = SortMode.AMOUNT
 
@@ -545,6 +616,7 @@ class AppState:
             SortMode.CATEGORY,
             SortMode.GROUP,
             SortMode.ACCOUNT,
+            SortMode.TIME_PERIOD,
         ]
 
         # Cycle through views and update sort field if needed
@@ -564,6 +636,14 @@ class AppState:
                 self.sort_by = SortMode.ACCOUNT
             return "Accounts"
         elif self.view_mode == ViewMode.ACCOUNT:
+            self.view_mode = ViewMode.TIME
+            if is_sorting_by_aggregate_field:
+                self.sort_by = SortMode.TIME_PERIOD
+            # Default to chronological ascending for TIME view
+            self.sort_by = SortMode.TIME_PERIOD
+            self.sort_direction = SortDirection.ASC
+            return "Years" if self.time_granularity == TimeGranularity.YEAR else "Months"
+        elif self.view_mode == ViewMode.TIME:
             self.view_mode = ViewMode.MERCHANT
             if is_sorting_by_aggregate_field:
                 self.sort_by = SortMode.MERCHANT

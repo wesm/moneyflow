@@ -1080,7 +1080,7 @@ class TestSubGrouping:
         state.view_mode = ViewMode.DETAIL
         state.selected_merchant = "Amazon"
 
-        # Cycle: Category → Group → Account → Detail → Category
+        # Cycle: Category → Group → Account → TIME → Detail → Category
         assert state.cycle_sub_grouping() == "by Category"
         assert state.sub_grouping_mode == ViewMode.CATEGORY
 
@@ -1089,6 +1089,9 @@ class TestSubGrouping:
 
         assert state.cycle_sub_grouping() == "by Account"
         assert state.sub_grouping_mode == ViewMode.ACCOUNT
+
+        assert state.cycle_sub_grouping() == "by Year"  # TIME now in cycle
+        assert state.sub_grouping_mode == ViewMode.TIME
 
         assert state.cycle_sub_grouping() == "Detail"
         assert state.sub_grouping_mode is None
@@ -1103,7 +1106,7 @@ class TestSubGrouping:
         state.view_mode = ViewMode.DETAIL
         state.selected_category = "Groceries"
 
-        # Cycle: Merchant → Group → Account → Detail → Merchant
+        # Cycle: Merchant → Group → Account → TIME → Detail → Merchant
         assert state.cycle_sub_grouping() == "by Merchant"
         assert state.sub_grouping_mode == ViewMode.MERCHANT
 
@@ -1112,6 +1115,9 @@ class TestSubGrouping:
 
         assert state.cycle_sub_grouping() == "by Account"
         assert state.sub_grouping_mode == ViewMode.ACCOUNT
+
+        assert state.cycle_sub_grouping() == "by Year"  # TIME now in cycle
+        assert state.sub_grouping_mode == ViewMode.TIME
 
         assert state.cycle_sub_grouping() == "Detail"
         assert state.sub_grouping_mode is None
@@ -1283,14 +1289,19 @@ class TestSubGrouping:
         state.sub_grouping_mode = ViewMode.ACCOUNT
         state.sort_by = SortMode.ACCOUNT  # Sorting by account
 
-        # Cycle through: Account → None(detail) → Merchant
-        state.cycle_sub_grouping()  # Account → None (detail)
+        # Cycle through: Account → TIME → None(detail) → Merchant
+        state.cycle_sub_grouping()  # Account → TIME
+        assert state.sub_grouping_mode == ViewMode.TIME
+        # ACCOUNT sort is not valid for TIME, should reset to TIME_PERIOD
+        assert state.sort_by == SortMode.TIME_PERIOD
+
+        state.cycle_sub_grouping()  # TIME → None (detail)
         assert state.sub_grouping_mode is None
-        # When we go to detail, account sort should be preserved (it's valid for detail)
-        assert state.sort_by == SortMode.ACCOUNT
+        # When we go to detail, TIME_PERIOD sort should be preserved (it's valid for detail)
+        assert state.sort_by == SortMode.TIME_PERIOD
 
         state.cycle_sub_grouping()  # None → Merchant
-        # ACCOUNT sort is not valid for merchant sub-grouping, should reset
+        # TIME_PERIOD sort is not valid for merchant sub-grouping, should reset
         assert state.sub_grouping_mode == ViewMode.MERCHANT
         assert state.sort_by == SortMode.AMOUNT
 
