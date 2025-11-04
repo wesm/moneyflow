@@ -323,6 +323,20 @@ class AppController:
         else:
             return
 
+        # Update date range for breadcrumb display (compute from filtered data)
+        # Use transactions_df filtered by current timeframe for date range
+        filtered_df = self.state.get_filtered_df()
+        if filtered_df is not None and not filtered_df.is_empty() and "date" in filtered_df.columns:
+            # Get min/max dates as Python date objects
+            min_val = filtered_df["date"].min()
+            max_val = filtered_df["date"].max()
+            # Polars returns date objects directly for date columns
+            self.state.current_data_start_date = min_val if isinstance(min_val, date_type) else None
+            self.state.current_data_end_date = max_val if isinstance(max_val, date_type) else None
+        else:
+            self.state.current_data_start_date = None
+            self.state.current_data_end_date = None
+
         # Delegate rendering to view - it handles the details of clearing/rebuilding
         self.view.update_table(
             columns=view_data["columns"], rows=view_data["rows"], force_rebuild=force_rebuild

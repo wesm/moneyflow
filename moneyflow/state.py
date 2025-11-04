@@ -185,6 +185,9 @@ class AppState:
 
     # Current view data (for display)
     current_data: Optional[pl.DataFrame] = None
+    # Date range of current view data (for breadcrumb display)
+    current_data_start_date: Optional[date] = None
+    current_data_end_date: Optional[date] = None
 
     # Navigation history for breadcrumb and back navigation
     # Stores NavigationState objects for restoring state on go_back
@@ -1072,11 +1075,16 @@ class AppState:
         elif self.view_mode == ViewMode.ACCOUNT:
             parts.append(accounts_label)
         elif self.view_mode == ViewMode.TIME:
-            # TIME view
+            # TIME view - show granularity and date range if available
             granularity_label = (
                 "Years" if self.time_granularity == TimeGranularity.YEAR else "Months"
             )
-            parts.append(granularity_label)
+            if self.current_data_start_date and self.current_data_end_date:
+                # Show date range in ISO-8601 format
+                date_range = f"{self.current_data_start_date} to {self.current_data_end_date}"
+                parts.append(f"{granularity_label} ({date_range})")
+            else:
+                parts.append(granularity_label)
         elif self.view_mode == ViewMode.DETAIL:
             # Show all drill-down levels
             # Order: Time (if set) → Merchant/Category/Group/Account
