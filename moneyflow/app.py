@@ -980,9 +980,12 @@ class MoneyflowApp(App):
 
     # Time navigation actions
     def action_toggle_year_granularity(self) -> None:
-        """Toggle to year granularity (only in TIME view)."""
-        if self.state.view_mode != ViewMode.TIME:
-            return  # Ignore if not in TIME view
+        """Toggle to year granularity (in TIME view or when sub-grouping by time)."""
+        # Allow in TIME view or when sub-grouping by time
+        if not (
+            self.state.view_mode == ViewMode.TIME or self.state.sub_grouping_mode == ViewMode.TIME
+        ):
+            return  # Ignore if not in TIME context
 
         if self.state.time_granularity == TimeGranularity.YEAR:
             return  # Already in year view
@@ -991,9 +994,12 @@ class MoneyflowApp(App):
         self.notify(f"Switched to {view_name}", timeout=1)
 
     def action_toggle_month_granularity(self) -> None:
-        """Toggle to month granularity (only in TIME view)."""
-        if self.state.view_mode != ViewMode.TIME:
-            return  # Ignore if not in TIME view
+        """Toggle to month granularity (in TIME view or when sub-grouping by time)."""
+        # Allow in TIME view or when sub-grouping by time
+        if not (
+            self.state.view_mode == ViewMode.TIME or self.state.sub_grouping_mode == ViewMode.TIME
+        ):
+            return  # Ignore if not in TIME context
 
         if self.state.time_granularity == TimeGranularity.MONTH:
             return  # Already in month view
