@@ -29,6 +29,7 @@ from .categories import (
     save_categories_to_config,
 )
 from .logging_config import get_logger
+from .state import TimeGranularity
 
 logger = get_logger(__name__)
 
@@ -623,6 +624,188 @@ class DataManager:
             Aggregated DataFrame with columns: [account, count, total, account_id]
         """
         return self._aggregate_by_field(df, "account", include_id=True, include_group=False)
+
+    def _generate_all_months(self, min_year: int, max_year: int) -> pl.DataFrame:
+        """
+        Generate DataFrame with all months between min and max year (inclusive).
+
+        Args:
+            min_year: Starting year
+            max_year: Ending year
+
+        Returns:
+            DataFrame with columns: [year, month, time_period_display]
+            where time_period_display is formatted as "YYYY-MM" for sorting
+        """
+        periods = []
+
+        for year in range(min_year, max_year + 1):
+            for month in range(1, 13):
+                periods.append(
+                    {
+                        "year": year,
+                        "month": month,
+                        "time_period_display": f"{year}-{month:02d}",
+                    }
+                )
+
+        return pl.DataFrame(periods)
+
+    def _fill_time_gaps(self, df: pl.DataFrame, granularity: TimeGranularity) -> pl.DataFrame:
+        """
+        Fill gaps in time series with zero-value rows.
+
+        Ensures continuous time series between earliest and latest period,
+        filling missing periods with count=0 and total=0.
+
+        Args:
+            df: Aggregated time DataFrame with year, month, count, total columns
+            granularity: TIME granularity (YEAR or MONTH)
+
+        Returns:
+            DataFrame with all periods filled, sorted chronologically
+        """
+        if df.is_empty():
+            return df
+
+        if granularity == TimeGranularity.YEAR:
+            # Determine range of years in the data
+            min_year = df["year"].min()
+            max_year = df["year"].max()
+
+            # Create all years in range
+            all_periods = pl.DataFrame(
+                {
+                    "year": list(range(min_year, max_year + 1)),
+                    "time_period_display": [str(y) for y in range(min_year, max_year + 1)],
+                }
+            )
+            join_cols = ["year", "time_period_display"]
+        else:  # MONTH
+            # Find actual min and max months (not just years)
+            # Sort by time_period_display to get actual earliest/latest
+            sorted_df = df.sort("time_period_display")
+            first_row = sorted_df.head(1)
+            last_row = sorted_df.tail(1)
+
+            min_year = first_row["year"][0]
+            min_month = first_row["month"][0]
+            max_year = last_row["year"][0]
+            max_month = last_row["month"][0]
+
+            # Generate all months between min and max
+            periods = []
+            current_year = min_year
+            current_month = min_month
+
+            while (current_year < max_year) or (
+                current_year == max_year and current_month <= max_month
+            ):
+                periods.append(
+                    {
+                        "year": current_year,
+                        "month": current_month,
+                        "time_period_display": f"{current_year}-{current_month:02d}",
+                    }
+                )
+
+                # Advance to next month
+                current_month += 1
+                if current_month > 12:
+                    current_month = 1
+                    current_year += 1
+
+            all_periods = pl.DataFrame(periods)
+            join_cols = ["year", "month", "time_period_display"]
+
+        # Left join to preserve all periods, filling missing with 0
+        result = (
+            all_periods.join(df, on=join_cols, how="left")
+            .with_columns(
+                [
+                    pl.col("count").fill_null(0),
+                    pl.col("total").fill_null(0.0),
+                ]
+            )
+            .sort("time_period_display")
+        )
+
+        return result
+
+    def aggregate_by_time(self, df: pl.DataFrame, granularity: TimeGranularity) -> pl.DataFrame:
+        """
+        Aggregate transactions by time period (year or month).
+
+        Groups transactions by time period with gap filling between
+        earliest and latest period.
+
+        Args:
+            df: Transaction DataFrame to aggregate
+            granularity: TIME granularity (YEAR or MONTH)
+
+        Returns:
+            Aggregated DataFrame with columns:
+            - time_period_display: "2024" or "2024-03" (for sorting)
+            - year: int
+            - month: int (only for MONTH granularity)
+            - count: int (number of transactions)
+            - total: float (sum of amounts, excluding hidden)
+
+            Sorted chronologically by time_period_display.
+            Includes zero-value rows for gaps between min and max period.
+
+        Example:
+            >>> # Aggregate by year
+            >>> agg = dm.aggregate_by_time(df, TimeGranularity.YEAR)
+            >>> agg.columns
+            ['time_period_display', 'year', 'count', 'total']
+        """
+        if df.is_empty():
+            return pl.DataFrame()
+
+        # Add year and month columns extracted from date
+        df = df.with_columns(
+            [
+                pl.col("date").dt.year().alias("year"),
+                pl.col("date").dt.month().alias("month"),
+            ]
+        )
+
+        if granularity == TimeGranularity.YEAR:
+            # Group by year
+            df = df.with_columns([pl.col("year").cast(pl.Utf8).alias("time_period_display")])
+
+            aggregated = df.group_by(["year", "time_period_display"]).agg(
+                [
+                    pl.count("id").alias("count"),
+                    # Exclude hidden transactions from totals
+                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+                ]
+            )
+        else:  # MONTH
+            # Group by year and month
+            df = df.with_columns(
+                [
+                    (
+                        pl.col("year").cast(pl.Utf8)
+                        + "-"
+                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
+                    ).alias("time_period_display")
+                ]
+            )
+
+            aggregated = df.group_by(["year", "month", "time_period_display"]).agg(
+                [
+                    pl.count("id").alias("count"),
+                    # Exclude hidden transactions from totals
+                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+                ]
+            )
+
+        # Fill gaps between earliest and latest period
+        result = self._fill_time_gaps(aggregated, granularity)
+
+        return result
 
     def filter_by_merchant(self, df: pl.DataFrame, merchant: str) -> pl.DataFrame:
         """Filter transactions by merchant name."""

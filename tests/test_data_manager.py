@@ -7,7 +7,7 @@ from datetime import datetime
 import polars as pl
 
 from moneyflow.data_manager import DataManager
-from moneyflow.state import TransactionEdit
+from moneyflow.state import TimeGranularity, TransactionEdit
 
 
 class TestDataFetching:
@@ -915,3 +915,129 @@ class TestCategoryMappingRefresh:
             groups = gas_txns["group"].unique().to_list()
             assert "Auto & Transport" in groups
             assert "Wrong Group" not in groups
+
+
+class TestTimeAggregation:
+    """Test time-based aggregation."""
+
+    async def test_aggregate_by_time_year_basic(self, data_manager):
+        """Test basic year aggregation."""
+        # Create test data spanning multiple years
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3", "4"],
+                "date": [
+                    datetime(2023, 6, 15),
+                    datetime(2024, 3, 10),
+                    datetime(2024, 8, 20),
+                    datetime(2025, 1, 5),
+                ],
+                "amount": [-100.0, -200.0, -150.0, -50.0],
+                "hideFromReports": [False, False, False, False],
+            }
+        )
+
+        result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
+
+        # Should have 3 years: 2023, 2024, 2025
+        assert len(result) == 3
+        assert set(result["year"].to_list()) == {2023, 2024, 2025}
+
+        # Check 2024 has 2 transactions
+        year_2024 = result.filter(pl.col("year") == 2024)
+        assert year_2024["count"][0] == 2
+        assert year_2024["total"][0] == -350.0
+
+    async def test_aggregate_by_time_month_basic(self, data_manager):
+        """Test basic month aggregation."""
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3"],
+                "date": [
+                    datetime(2024, 1, 15),
+                    datetime(2024, 1, 20),
+                    datetime(2024, 3, 10),
+                ],
+                "amount": [-100.0, -50.0, -200.0],
+                "hideFromReports": [False, False, False],
+            }
+        )
+
+        result = data_manager.aggregate_by_time(df, TimeGranularity.MONTH)
+
+        # Should have months
+        assert len(result) >= 2  # At least Jan and Mar
+
+        # Check January 2024 has 2 transactions
+        jan_2024 = result.filter((pl.col("year") == 2024) & (pl.col("month") == 1))
+        assert len(jan_2024) == 1
+        assert jan_2024["count"][0] == 2
+        assert jan_2024["total"][0] == -150.0
+
+    async def test_aggregate_by_time_fills_year_gaps(self, data_manager):
+        """Test that gaps in years are filled with zeros."""
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2"],
+                "date": [datetime(2023, 1, 1), datetime(2025, 1, 1)],
+                "amount": [-100.0, -200.0],
+                "hideFromReports": [False, False],
+            }
+        )
+
+        result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
+
+        # Should have 3 years with 2024 filled as zero
+        assert len(result) == 3
+        years = result["year"].to_list()
+        assert sorted(years) == [2023, 2024, 2025]
+
+        # 2024 should have zero count and total
+        year_2024 = result.filter(pl.col("year") == 2024)
+        assert year_2024["count"][0] == 0
+        assert year_2024["total"][0] == 0.0
+
+    async def test_aggregate_by_time_fills_month_gaps(self, data_manager):
+        """Test that gaps in months are filled with zeros."""
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2"],
+                "date": [datetime(2024, 1, 1), datetime(2024, 3, 1)],
+                "amount": [-100.0, -200.0],
+                "hideFromReports": [False, False],
+            }
+        )
+
+        result = data_manager.aggregate_by_time(df, TimeGranularity.MONTH)
+
+        # Should have all months from Jan to Mar (3 months)
+        assert len(result) == 3
+
+        # February should be filled with zeros
+        feb_2024 = result.filter((pl.col("year") == 2024) & (pl.col("month") == 2))
+        assert len(feb_2024) == 1
+        assert feb_2024["count"][0] == 0
+        assert feb_2024["total"][0] == 0.0
+
+    async def test_aggregate_by_time_empty_dataframe(self, data_manager):
+        """Test aggregating empty DataFrame."""
+        df = pl.DataFrame()
+        result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
+        assert result.is_empty()
+
+    async def test_aggregate_by_time_excludes_hidden_from_total(self, data_manager):
+        """Test that hidden transactions are excluded from totals but included in count."""
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3"],
+                "date": [datetime(2024, 1, 1), datetime(2024, 1, 2), datetime(2024, 1, 3)],
+                "amount": [-100.0, -200.0, -50.0],
+                "hideFromReports": [False, True, False],
+            }
+        )
+
+        result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
+
+        year_2024 = result.filter(pl.col("year") == 2024)
+        assert year_2024["count"][0] == 3  # All 3 counted
+        assert year_2024["total"][0] == -150.0  # Only non-hidden: -100 + -50

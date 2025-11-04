@@ -12,7 +12,7 @@ from typing import Any, Dict, Literal, Optional, TypedDict, Union
 import polars as pl
 from rich.text import Text
 
-from .state import SortDirection, SortMode
+from .state import SortDirection, SortMode, TimeGranularity
 
 # Type definitions for better type safety
 AggregationField = Literal["merchant", "category", "group", "account"]
@@ -89,6 +89,48 @@ class ViewPresenter:
             else:
                 return Text(formatted, justify="right")
         return formatted
+
+    @staticmethod
+    def format_time_period(
+        year: int, month: Optional[int] = None, granularity: TimeGranularity = TimeGranularity.YEAR
+    ) -> str:
+        """
+        Format time period for display.
+
+        Args:
+            year: The year
+            month: The month (1-12), or None for year-only display
+            granularity: TIME granularity (YEAR or MONTH)
+
+        Returns:
+            Formatted period string
+
+        Examples:
+            >>> ViewPresenter.format_time_period(2024, None, TimeGranularity.YEAR)
+            '2024'
+            >>> ViewPresenter.format_time_period(2024, 3, TimeGranularity.MONTH)
+            'Mar 2024'
+            >>> ViewPresenter.format_time_period(2024, 12, TimeGranularity.MONTH)
+            'Dec 2024'
+        """
+        if granularity == TimeGranularity.YEAR or month is None:
+            return str(year)
+
+        month_names = [
+            "Jan",
+            "Feb",
+            "Mar",
+            "Apr",
+            "May",
+            "Jun",
+            "Jul",
+            "Aug",
+            "Sep",
+            "Oct",
+            "Nov",
+            "Dec",
+        ]
+        return f"{month_names[month - 1]} {year}"
 
     @staticmethod
     def get_sort_arrow(sort_by: SortMode, sort_direction: SortDirection, field: SortMode) -> str:
