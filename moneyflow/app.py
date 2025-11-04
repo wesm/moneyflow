@@ -1764,6 +1764,7 @@ class MoneyflowApp(App):
             ViewMode.CATEGORY,
             ViewMode.GROUP,
             ViewMode.ACCOUNT,
+            ViewMode.TIME,
         ]:
             # Drill down from top-level view - save cursor and scroll position for restoration on go_back
             from .logging_config import get_logger

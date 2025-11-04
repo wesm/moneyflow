@@ -248,7 +248,7 @@ class AppController:
                 if self.state.sub_grouping_mode == ViewMode.TIME:
                     # Special handling for time sub-grouping
                     agg = self.data_manager.aggregate_by_time(txns, self.state.time_granularity)
-                    field_name = "time_period"
+                    field_name = "time_period_display"  # Actual column name in time aggregation
                 else:
                     sub_group_map = {
                         ViewMode.CATEGORY: (self.data_manager.aggregate_by_category, "category"),
@@ -264,6 +264,8 @@ class AppController:
                 sort_col = self.state.sort_by.value
                 if sort_col == "amount":
                     sort_col = "total"
+                elif sort_col == "time_period":
+                    sort_col = "time_period_display"
                 elif sort_col in ["merchant", "category", "group", "account"]:
                     sort_col = field_name
 
