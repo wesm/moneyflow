@@ -321,11 +321,14 @@ class MoneyflowApp(App):
         self.state.transactions_df = df
 
     def _initialize_view(self):
-        """Initialize time frame to THIS_YEAR and show initial view."""
+        """Initialize view. In demo mode, show all data. Otherwise filter to current year."""
 
-        today = date_type.today()
-        self.state.start_date = date_type(today.year, 1, 1)
-        self.state.end_date = date_type(today.year, 12, 31)
+        if not self.demo_mode:
+            # For real backends, default to current year to avoid loading too much data
+            today = date_type.today()
+            self.state.start_date = date_type(today.year, 1, 1)
+            self.state.end_date = date_type(today.year, 12, 31)
+        # else: In demo mode, start_date and end_date remain None (show all data)
 
         # Show initial view (merchants)
         self.refresh_view()
