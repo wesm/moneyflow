@@ -21,7 +21,7 @@ moneyflow is designed to be used entirely with the keyboard. Here's your complet
 
 | Key | Action |
 |-----|--------|
-| ++g++ | Cycle grouping (Merchant → Category → Group → Account) |
+| ++g++ | Cycle grouping (Merchant → Category → Group → Account → Time → Merchant...) |
 | ++d++ | Detail view (all transactions) |
 | ++shift+d++ | Find duplicates |
 
@@ -42,22 +42,23 @@ moneyflow is designed to be used entirely with the keyboard. Here's your complet
 
 ## Time Navigation
 
-### Quick Jumps
+### TIME View Controls
 
-| Key | Time Period |
-|-----|-------------|
-| ++y++ | Current year |
-| ++t++ | Current month |
-| ++a++ | All time |
+| Key | Action | Context |
+|-----|--------|---------|
+| ++y++ | Toggle to year granularity | TIME view only |
+| ++t++ | Toggle to month granularity | TIME view only |
+| ++a++ | Clear time drill-down (return to all data) | When drilled into time period |
 
 ### Period Navigation
 
-| Key | Action |
-|-----|--------|
-| ++left++ | Previous period (month or year) |
-| ++right++ | Next period (month or year) |
+| Key | Action | Context |
+|-----|--------|---------|
+| ++left++ | Previous period (month or year) | When drilled into time period |
+| ++right++ | Next period (month or year) | When drilled into time period |
 
-**Smart navigation**: If viewing a full year, arrows move by year. If viewing a month, arrows move by month.
+**Navigation behavior**: Arrow keys navigate between periods when you've drilled into a specific year or month.
+The granularity matches your drill-down level (year-to-year or month-to-month).
 
 ---
 
@@ -198,7 +199,7 @@ Works in all aggregate views and sub-grouped views.
 
 **Edit categories for transactions:**
 
-1. ++u++ (all transactions)
+1. ++d++ (detail view - all transactions)
 2. ++space++ on each transaction to select
 3. ++c++ (edit category)
 4. Type to filter categories, ++enter++ to select
@@ -206,11 +207,11 @@ Works in all aggregate views and sub-grouped views.
 
 **Monthly spending review:**
 
-1. ++t++ (this month)
-2. ++g++ (cycle to categories)
-3. ++enter++ on a category to drill down
-4. ++left++ to view previous month
-5. ++right++ to return
+1. ++g++ repeatedly until you reach TIME view
+2. ++t++ to toggle to month granularity
+3. ++enter++ on current month to drill into it
+4. ++g++ to sub-group by Category/Merchant/etc
+5. ++left++/++right++ to navigate between months
 
 ---
 
@@ -237,13 +238,14 @@ When in a modal dialog (edit merchant, select category, etc.):
 ## Pro Tips
 
 !!! tip "Speed Up Editing"
-    - Stay in detail view (++u++) for rapid transaction editing
+    - Stay in detail view (++d++) for rapid transaction editing
     - Use ++space++ to queue multiple edits before committing
     - The cursor stays in place after edits - keep pressing ++m++ or ++c++
 
-!!! tip "Time Navigation"
-    - ++left++/++right++ maintain context (month-to-month, year-to-year)
-    - ++y++ is your "reset" - always returns to current year
+!!! tip "TIME View Navigation"
+    - Press ++g++ to cycle to TIME view, then ++y++/++t++ to toggle granularity
+    - ++left++/++right++ navigate between periods when drilled into a time period
+    - ++a++ clears time drill-down (shortcut for ++escape++)
 
 !!! tip "Review Before Committing"
     - ++w++ shows ALL pending changes before saving
@@ -257,8 +259,8 @@ When in a modal dialog (edit merchant, select category, etc.):
 Print this for reference:
 
 ```text
-Views:       g (cycle)  d (detail)  D (duplicates)
-Time:        y (year)   t (month)  a (all)  ←/→ (navigate)
+Views:       g (cycle: Merchant/Category/Group/Account/Time)  d (detail)  D (duplicates)
+Time:        y (year granularity)  t (month granularity)  a (clear drill-down)  ←/→ (navigate periods)
 Edit:        m (merchant)  c (category)  h (hide)  x (delete)  u (undo)
 Select:      Space (multi-select)  Ctrl+A (select all)
 Sort:        s (toggle field)  v (reverse)

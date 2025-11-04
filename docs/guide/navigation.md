@@ -36,6 +36,18 @@ alt="Categories view">
 <img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.svg" width="100%" alt="Accounts view">
 </td>
 </tr>
+<tr>
+<td width="50%">
+<strong>TIME View (by Years)</strong><br>
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-5-time-years.svg" width="100%"
+alt="Time view by years">
+</td>
+<td width="50%">
+<strong>TIME View (by Months)</strong><br>
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-view-months.svg" width="100%"
+alt="Time view by months">
+</td>
+</tr>
 </table>
 
 | View | What It Shows | Use For |
@@ -135,7 +147,9 @@ This allows you to analyze the same transactions from multiple perspectives with
    - Shows Amazon spending grouped by category group
 4. **Press `g` again** - View changes to `Merchants > Amazon (by Account)`
    - Shows which payment methods you use at Amazon
-5. **Press `g` again** - Returns to detail view
+5. **Press `g` again** - View changes to `Merchants > Amazon (by Year)`
+   - Shows Amazon spending trends over time (press `t` to toggle to monthly)
+6. **Press `g` again** - Returns to detail view
    - Shows all Amazon transactions ungrouped
 
 ![Drilled into Merchant, grouped by Category](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-drill-by-category.svg)
@@ -148,8 +162,11 @@ Sub-grouping helps answer analytical questions like:
 - "Which credit card do I use most at Starbucks?"
 - "What categories make up my Target spending?"
 
-When you're in a drilled-down view, pressing `g` cycles through the available sub-groupings. The field you're already
-filtered by is automatically excluded from the cycle to avoid redundancy.
+When you're in a drilled-down view, pressing `g` cycles through the available sub-groupings:
+
+**Sub-grouping cycle:** Category → Group → Account → Time → Detail → Category...
+
+The field you're already filtered by is automatically excluded from the cycle to avoid redundancy.
 
 ## Multi-Level Drill-Down
 
@@ -237,12 +254,27 @@ and month granularity to adjust the time grouping:
 
 From TIME view, press `Enter` on any year or month to drill down and see only transactions from that period.
 
+<table>
+<tr>
+<td width="50%">
+<strong>Drilled Into Year</strong><br>
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-drill-down-year.svg" width="100%"
+alt="Drilled into specific year">
+</td>
+<td width="50%">
+<strong>Drilled Into Month</strong><br>
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-drill-down-month.svg" width="100%"
+alt="Drilled into specific month">
+</td>
+</tr>
+</table>
+
 **Example:**
 
 1. **In TIME view** (showing years 2023, 2024, 2025)
 2. **Press `Enter` on 2024** → Breadcrumb shows `Time > 2024`
 3. **Press `g`** → View by Merchants within 2024
-4. **Press `g` again** → Cycle through Categories, Groups, Accounts
+4. **Press `g` again** → Cycle through Categories, Groups, Accounts, Time (by month)
 5. **Press `Escape`** → Back to `Time > 2024` (detail view)
 6. **Press `Escape`** → Back to TIME view (all years)
 
@@ -274,16 +306,17 @@ Arrow keys only work when drilled into a time period. The navigation respects yo
 
 ### Command-Line Data Loading
 
-You can specify time filters when launching moneyflow to load less data for faster startup:
+For Monarch Money and YNAB backends, you can fetch only recent data for faster startup:
 
 ```bash
-moneyflow --year 2025      # Load only 2025 transactions
-moneyflow --days 90        # Load last 90 days
-moneyflow --month 2025-03  # Load March 2025 only
+moneyflow --year 2025           # Fetch from 2025-01-01 onwards
+moneyflow --since 2024-06-01    # Fetch from specific date onwards
+moneyflow --mtd                 # Fetch month-to-date only
 ```
 
-These are data loading shortcuts, not filters. Once data is loaded, you can view and analyze it by any dimension,
-including TIME.
+!!! note "API Fetching vs View Filtering"
+    These flags control what data is **fetched from the API**, not what you see in the view.
+    Once data is loaded, all of it is visible by default. Use TIME view to analyze specific periods.
 
 ## Search
 
