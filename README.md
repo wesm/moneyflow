@@ -51,8 +51,9 @@ moneyflow
 moneyflow amazon import ~/Downloads/"Your Orders"
 moneyflow amazon
 
-# Load only recent data
-moneyflow --year 2025
+# Fetch only recent data from API (Monarch/YNAB only - for faster loading)
+moneyflow --year 2025  # Fetch from 2025-01-01 onwards
+moneyflow --since 2024-06-01  # Fetch from specific date
 ```
 
 **First-time Monarch Money setup:** You'll need your 2FA secret key. See the [Monarch Money setup guide](https://moneyflow.dev/guide/monarch).
@@ -65,9 +66,10 @@ moneyflow --year 2025
 
 - **Keyboard-driven** - Navigate with `g` to cycle views, `Enter` to drill down, `Escape` to go back
 - **Multi-select bulk editing** - Select with `Space`, edit with `m`/`c`/`h`, commit with `w`
-- **Drill-down and sub-grouping** - Analyze spending from multiple angles
+- **5 aggregation dimensions** - Merchants, Categories, Groups, Accounts, and **Time** (by year/month)
+- **Drill-down and sub-grouping** - Analyze spending from multiple angles, combine dimensions
 - **Type-to-search** - Filter transactions as you type with `/`
-- **Time navigation** - Switch periods with `t`/`y`/`a` and `←`/`→` arrows
+- **Time dimension** - View by year or month, drill into periods, toggle granularity with `t`/`y`, clear with `a`
 - **Review before commit** - Preview all changes before syncing to backend
 - **Encrypted credentials** - AES-128 with PBKDF2 (100,000 iterations)
 
@@ -92,10 +94,11 @@ Full keyboard shortcuts and tutorials: [moneyflow.dev](https://moneyflow.dev)
 
 **Analyze spending:**
 
-1. Press `g` to cycle to Category view
-2. Press `Enter` on a category to drill down
-3. Press `g` to sub-group by merchant or account
-4. Press `t` for this month, `←`/`→` to navigate periods
+1. Press `g` to cycle views (Merchants → Categories → Groups → Accounts → Time)
+2. In Time view: Press `t`/`y` to toggle year/month, `Enter` to drill into a period
+3. In any aggregate view: Press `Enter` to drill down
+4. Press `g` to cycle sub-groupings (including by Time)
+5. Press `a` to clear time drill-down, `Escape` to go back
 
 Learn more: [Navigation & Search Guide](https://moneyflow.dev/guide/navigation)
 

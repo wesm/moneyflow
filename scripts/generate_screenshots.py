@@ -96,6 +96,14 @@ class ScreenshotGenerator:
             ("cycle-2-categories", "Categories view", self.screenshot_categories_view),
             ("cycle-3-groups", "Category groups view", self.screenshot_groups_view),
             ("cycle-4-accounts", "Accounts view", self.screenshot_accounts_view),
+            ("cycle-5-time-years", "Time view by years", self.screenshot_time_years_view),
+            ("time-view-months", "Time view by months", self.screenshot_time_months_view),
+            ("time-drill-down-year", "Drilled into specific year", self.screenshot_time_drill_year),
+            (
+                "time-drill-down-month",
+                "Drilled into specific month",
+                self.screenshot_time_drill_month,
+            ),
             ("merchants-view", "Merchants view with Amazon", self.screenshot_merchants_with_amazon),
             ("drill-down-detail", "Drilled into merchant detail", self.screenshot_drill_down),
             ("detail-view-flags", "Detail view with flags", self.screenshot_detail_flags),
@@ -195,7 +203,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             # Wait for app to load
@@ -208,7 +216,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -221,7 +229,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -236,7 +244,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -251,12 +259,86 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Press 'g' three times: MERCHANT → CATEGORY → GROUP → ACCOUNT
             await pilot.press("g", "g", "g")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_time_years_view(self, filename: str, description: str):
+        """Screenshot: TIME view aggregated by years."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' four times: MERCHANT → CATEGORY → GROUP → ACCOUNT → TIME
+            await pilot.press("g", "g", "g", "g")
+            await pilot.pause(0.3)
+            # Make sure we're in year view (press 'y' to ensure year granularity)
+            await pilot.press("y")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_time_months_view(self, filename: str, description: str):
+        """Screenshot: TIME view aggregated by months."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' four times to get to TIME view
+            await pilot.press("g", "g", "g", "g")
+            await pilot.pause(0.3)
+            # Press 't' to switch to month granularity
+            await pilot.press("t")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_time_drill_year(self, filename: str, description: str):
+        """Screenshot: Drilled down into a specific year."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Navigate to TIME view (by years)
+            await pilot.press("g", "g", "g", "g")
+            await pilot.pause(0.3)
+            # Press Enter to drill into first year (2025)
+            await pilot.press("enter")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_time_drill_month(self, filename: str, description: str):
+        """Screenshot: Drilled down into a specific month."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Navigate to TIME view and switch to months
+            await pilot.press("g", "g", "g", "g")
+            await pilot.pause(0.3)
+            await pilot.press("t")  # Switch to month view
+            await pilot.pause(0.3)
+            # Drill into first month
+            await pilot.press("enter")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
@@ -266,7 +348,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -282,7 +364,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -302,7 +384,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -361,7 +443,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
@@ -383,7 +465,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
@@ -404,7 +486,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
@@ -432,7 +514,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
@@ -447,7 +529,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
@@ -469,7 +551,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -497,7 +579,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
@@ -529,7 +611,7 @@ class ScreenshotGenerator:
 
         app = MoneyflowApp()
         app.demo_mode = True
-        app.backend = DemoBackend()
+        app.backend = DemoBackend(start_year=2023, years=3)
 
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
