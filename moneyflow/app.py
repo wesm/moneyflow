@@ -193,7 +193,8 @@ class MoneyflowApp(App):
             # Backend provided externally (Amazon mode, etc.)
             pass
         elif demo_mode:
-            self.backend = DemoBackend(year=start_year or 2025)
+            # Default to 3 years of data (2023-2025) for showcasing multi-year TIME views
+            self.backend = DemoBackend(start_year=start_year or 2023, years=3)
             self.title = "moneyflow [DEMO MODE]"
         else:
             # Backend will be set in initialize_data() based on credentials
