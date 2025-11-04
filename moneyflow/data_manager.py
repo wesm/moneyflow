@@ -673,11 +673,18 @@ class DataManager:
             min_year = df["year"].min()
             max_year = df["year"].max()
 
+            # Type assertions: df is not empty so min/max are not None
+            assert min_year is not None
+            assert max_year is not None
+            # Ensure we have ints for range() function
+            min_year_int = int(min_year)
+            max_year_int = int(max_year)
+
             # Create all years in range
             all_periods = pl.DataFrame(
                 {
-                    "year": list(range(min_year, max_year + 1)),
-                    "time_period_display": [str(y) for y in range(min_year, max_year + 1)],
+                    "year": list(range(min_year_int, max_year_int + 1)),
+                    "time_period_display": [str(y) for y in range(min_year_int, max_year_int + 1)],
                 }
             )
             join_cols = ["year", "time_period_display"]

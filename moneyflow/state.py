@@ -325,6 +325,9 @@ class AppState:
         if not self.is_time_period_selected():
             return None
 
+        # Type assertion: is_time_period_selected() ensures selected_time_year is not None
+        assert self.selected_time_year is not None
+
         if self.time_granularity == TimeGranularity.YEAR:
             # Navigate years
             self.selected_time_year += direction
