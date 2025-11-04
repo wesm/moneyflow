@@ -19,9 +19,9 @@ This loads synthetic spending data so you can explore all features risk-free.
 - ~3,000 transactions across 3 years (2023-2025)
 - Realistic spending patterns for dual-income household
 - Multiple accounts (checking, savings, credit cards)
-- All features enabled including TIME dimension
+- All features enabled
 
-Press ++g++ to cycle through views (includes TIME), ++slash++ to search, ++q++ to quit.
+Press ++g++ to cycle through views, ++slash++ to search, ++q++ to quit.
 
 ---
 
@@ -80,8 +80,8 @@ First run downloads all your transactions:
 
 You're in! Here's what to try:
 
-- Press ++g++ to cycle views: Merchants, Categories, Groups, Accounts, **Time**
-- In TIME view: Press ++y++/++t++ to toggle year/month granularity
+- Press ++g++ to cycle views: Merchants, Categories, Groups, Accounts, Time
+- In Time view: Press ++y++/++t++ to toggle year/month granularity
 - Press ++enter++ on any row to drill down
 - Press ++escape++ to go back
 - Press ++question++ for help

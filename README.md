@@ -66,10 +66,9 @@ moneyflow --since 2024-06-01  # Fetch from specific date
 
 - **Keyboard-driven** - Navigate with `g` to cycle views, `Enter` to drill down, `Escape` to go back
 - **Multi-select bulk editing** - Select with `Space`, edit with `m`/`c`/`h`, commit with `w`
-- **5 aggregation dimensions** - Merchants, Categories, Groups, Accounts, and **Time** (by year/month)
+- **Multiple aggregation dimensions** - Merchants, Categories, Groups, Accounts, Time (by year/month)
 - **Drill-down and sub-grouping** - Analyze spending from multiple angles, combine dimensions
 - **Type-to-search** - Filter transactions as you type with `/`
-- **Time dimension** - View by year or month, drill into periods, toggle granularity with `t`/`y`, clear with `a`
 - **Review before commit** - Preview all changes before syncing to backend
 - **Encrypted credentials** - AES-128 with PBKDF2 (100,000 iterations)
 
