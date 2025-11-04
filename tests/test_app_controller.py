@@ -1069,7 +1069,7 @@ class TestViewModeSwitching:
         assert controller.state.sort_by == SortMode.ACCOUNT
 
     async def test_cycle_grouping_account_to_merchant_field_sort(self, controller, mock_view):
-        """Test ACCOUNT sort becomes TIME_PERIOD sort when cycling to TIME, then MERCHANT sort to MERCHANT view."""
+        """Test cycling ACCOUNT → TIME → MERCHANT resets sort correctly for each view."""
         controller.state.view_mode = ViewMode.ACCOUNT
         controller.state.sort_by = SortMode.ACCOUNT
 
@@ -1077,11 +1077,14 @@ class TestViewModeSwitching:
 
         assert controller.state.view_mode == ViewMode.TIME
         assert controller.state.sort_by == SortMode.TIME_PERIOD
+        assert controller.state.sort_direction == SortDirection.ASC
 
         controller.cycle_grouping()  # TIME → Merchant (wrap around)
 
         assert controller.state.view_mode == ViewMode.MERCHANT
-        assert controller.state.sort_by == SortMode.MERCHANT
+        # When leaving TIME, reset to AMOUNT DESC (highest spending first)
+        assert controller.state.sort_by == SortMode.AMOUNT
+        assert controller.state.sort_direction == SortDirection.DESC
 
     async def test_cycle_grouping_preserves_count_sort(self, controller, mock_view):
         """Test that COUNT sort is preserved when cycling views."""

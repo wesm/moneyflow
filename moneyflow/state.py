@@ -645,7 +645,7 @@ class AppState:
             SortMode.TIME_PERIOD,
         ]
 
-        # Cycle through views and update sort field if needed
+        # Cycle through views and reset sort to appropriate default
         if self.view_mode == ViewMode.MERCHANT:
             self.view_mode = ViewMode.CATEGORY
             if is_sorting_by_aggregate_field:
@@ -663,16 +663,15 @@ class AppState:
             return "Accounts"
         elif self.view_mode == ViewMode.ACCOUNT:
             self.view_mode = ViewMode.TIME
-            if is_sorting_by_aggregate_field:
-                self.sort_by = SortMode.TIME_PERIOD
-            # Default to chronological ascending for TIME view
+            # TIME view always defaults to chronological order (period ASC)
             self.sort_by = SortMode.TIME_PERIOD
             self.sort_direction = SortDirection.ASC
             return "Years" if self.time_granularity == TimeGranularity.YEAR else "Months"
         elif self.view_mode == ViewMode.TIME:
             self.view_mode = ViewMode.MERCHANT
-            if is_sorting_by_aggregate_field:
-                self.sort_by = SortMode.MERCHANT
+            # When leaving TIME view, reset to default: highest spending first
+            self.sort_by = SortMode.AMOUNT
+            self.sort_direction = SortDirection.DESC
             return "Merchants"
 
         return ""
