@@ -58,7 +58,7 @@ from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, 
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
-from .state import AppState, TimeGranularity, ViewMode
+from .state import AppState, TimeFrame, TimeGranularity, ViewMode
 from .textual_view import TextualViewPresenter
 from .widgets.help_screen import HelpScreen
 
@@ -202,6 +202,9 @@ class MoneyflowApp(App):
 
         self.data_manager: Optional[DataManager] = None
         self.state = AppState()
+        # In demo mode, show all years of data by default
+        if demo_mode:
+            self.state.time_frame = TimeFrame.ALL_TIME
         self.loading = False
         self.custom_start_date = custom_start_date
         self.stored_credentials: Optional[dict] = None
