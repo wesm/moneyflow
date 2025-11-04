@@ -291,6 +291,80 @@ class AppState:
             self.time_granularity = TimeGranularity.YEAR
             return "Years"
 
+    def navigate_time_period(self, direction: int) -> Optional[str]:
+        """
+        Navigate to adjacent time period (for arrow key navigation).
+
+        Only works when drilled into a specific time period. Navigates based
+        on current granularity:
+        - YEAR: Navigate between years
+        - MONTH: Navigate between months (wraps around year boundaries)
+
+        Args:
+            direction: -1 for previous period, +1 for next period
+
+        Returns:
+            Description of new period (e.g., "2024", "Mar 2024"), or None if
+            not drilled into a time period
+
+        Examples:
+            >>> state = AppState()
+            >>> state.selected_time_year = 2024
+            >>> state.time_granularity = TimeGranularity.YEAR
+            >>> state.navigate_time_period(1)  # Next year
+            '2025'
+            >>> state.selected_time_year
+            2025
+
+            >>> state.selected_time_year = 2024
+            >>> state.selected_time_month = 12
+            >>> state.time_granularity = TimeGranularity.MONTH
+            >>> state.navigate_time_period(1)  # Next month (wraps to next year)
+            'Jan 2025'
+        """
+        if not self.is_time_period_selected():
+            return None
+
+        if self.time_granularity == TimeGranularity.YEAR:
+            # Navigate years
+            self.selected_time_year += direction
+            return str(self.selected_time_year)
+        else:  # MONTH
+            # Navigate months (handle year boundaries)
+            if self.selected_time_month is None:
+                # Shouldn't happen, but default to January if month not set
+                self.selected_time_month = 1
+
+            new_month = self.selected_time_month + direction
+
+            if new_month < 1:
+                # Wrap to previous year December
+                self.selected_time_year -= 1
+                self.selected_time_month = 12
+            elif new_month > 12:
+                # Wrap to next year January
+                self.selected_time_year += 1
+                self.selected_time_month = 1
+            else:
+                self.selected_time_month = new_month
+
+            # Format as "Mon YYYY"
+            month_names = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ]
+            return f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
+
     def set_timeframe(
         self,
         timeframe: TimeFrame,

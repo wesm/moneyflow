@@ -12,6 +12,7 @@ from moneyflow.state import (
     SortDirection,
     SortMode,
     TimeFrame,
+    TimeGranularity,
     ViewMode,
 )
 
@@ -1904,3 +1905,129 @@ class TestMultiLevelDrillDownNavigation:
         assert state.view_mode == ViewMode.GROUP
         assert state.selected_group is None
         assert state.sub_grouping_mode is None
+
+
+class TestTimeNavigation:
+    """Tests for time period navigation and granularity."""
+
+    def test_is_time_period_selected_when_year_set(self):
+        """Should return True when year is selected."""
+        state = AppState()
+        state.selected_time_year = 2024
+        assert state.is_time_period_selected() is True
+
+    def test_is_time_period_selected_when_not_set(self):
+        """Should return False when year is not selected."""
+        state = AppState()
+        assert state.is_time_period_selected() is False
+
+    def test_get_selected_time_period_year_only(self):
+        """Should return (year, None) when only year selected."""
+        state = AppState()
+        state.selected_time_year = 2024
+        assert state.get_selected_time_period() == (2024, None)
+
+    def test_get_selected_time_period_year_and_month(self):
+        """Should return (year, month) when both selected."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 3
+        assert state.get_selected_time_period() == (2024, 3)
+
+    def test_get_selected_time_period_none(self):
+        """Should return None when no time period selected."""
+        state = AppState()
+        assert state.get_selected_time_period() is None
+
+    def test_clear_time_selection(self):
+        """Should clear both year and month."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 6
+        state.clear_time_selection()
+        assert state.selected_time_year is None
+        assert state.selected_time_month is None
+
+    def test_toggle_time_granularity_year_to_month(self):
+        """Should toggle from YEAR to MONTH."""
+        state = AppState()
+        state.time_granularity = TimeGranularity.YEAR
+        result = state.toggle_time_granularity()
+        assert state.time_granularity == TimeGranularity.MONTH
+        assert result == "Months"
+
+    def test_toggle_time_granularity_month_to_year(self):
+        """Should toggle from MONTH to YEAR."""
+        state = AppState()
+        state.time_granularity = TimeGranularity.MONTH
+        result = state.toggle_time_granularity()
+        assert state.time_granularity == TimeGranularity.YEAR
+        assert result == "Years"
+
+    def test_navigate_time_period_next_year(self):
+        """Should navigate to next year."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.time_granularity = TimeGranularity.YEAR
+        result = state.navigate_time_period(1)
+        assert state.selected_time_year == 2025
+        assert result == "2025"
+
+    def test_navigate_time_period_prev_year(self):
+        """Should navigate to previous year."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.time_granularity = TimeGranularity.YEAR
+        result = state.navigate_time_period(-1)
+        assert state.selected_time_year == 2023
+        assert result == "2023"
+
+    def test_navigate_time_period_next_month(self):
+        """Should navigate to next month."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 3
+        state.time_granularity = TimeGranularity.MONTH
+        result = state.navigate_time_period(1)
+        assert state.selected_time_year == 2024
+        assert state.selected_time_month == 4
+        assert result == "Apr 2024"
+
+    def test_navigate_time_period_prev_month(self):
+        """Should navigate to previous month."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 3
+        state.time_granularity = TimeGranularity.MONTH
+        result = state.navigate_time_period(-1)
+        assert state.selected_time_year == 2024
+        assert state.selected_time_month == 2
+        assert result == "Feb 2024"
+
+    def test_navigate_time_period_month_wraps_to_next_year(self):
+        """Should wrap from December to January of next year."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 12
+        state.time_granularity = TimeGranularity.MONTH
+        result = state.navigate_time_period(1)
+        assert state.selected_time_year == 2025
+        assert state.selected_time_month == 1
+        assert result == "Jan 2025"
+
+    def test_navigate_time_period_month_wraps_to_prev_year(self):
+        """Should wrap from January to December of previous year."""
+        state = AppState()
+        state.selected_time_year = 2024
+        state.selected_time_month = 1
+        state.time_granularity = TimeGranularity.MONTH
+        result = state.navigate_time_period(-1)
+        assert state.selected_time_year == 2023
+        assert state.selected_time_month == 12
+        assert result == "Dec 2023"
+
+    def test_navigate_time_period_returns_none_when_not_selected(self):
+        """Should return None when no time period is selected."""
+        state = AppState()
+        result = state.navigate_time_period(1)
+        assert result is None
