@@ -11,7 +11,7 @@ from .backends import DemoBackend, FinanceBackend, MonarchBackend, get_backend
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .monarchmoney import MonarchMoney
-from .state import AppState, SortMode, TimeFrame, TransactionEdit, ViewMode
+from .state import AppState, SortMode, TransactionEdit, ViewMode
 
 __all__ = [
     "MonarchMoney",
@@ -23,7 +23,6 @@ __all__ = [
     "AppState",
     "ViewMode",
     "SortMode",
-    "TimeFrame",
     "TransactionEdit",
     "DuplicateDetector",
 ]

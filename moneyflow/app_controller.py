@@ -34,7 +34,6 @@ from .state import (
     NavigationState,
     SortDirection,
     SortMode,
-    TimeFrame,
     TimeGranularity,
     TransactionEdit,
     ViewMode,
@@ -668,21 +667,6 @@ class AppController:
         return "Descending" if self.state.sort_direction == SortDirection.DESC else "Ascending"
 
     # Time navigation operations
-    def set_timeframe_this_year(self):
-        """Set view to current year."""
-        self.state.set_timeframe(TimeFrame.THIS_YEAR)
-        self.refresh_view()
-
-    def set_timeframe_all_time(self):
-        """Set view to all time."""
-        self.state.set_timeframe(TimeFrame.ALL_TIME)
-        self.refresh_view()
-
-    def set_timeframe_this_month(self):
-        """Set view to current month."""
-        self.state.set_timeframe(TimeFrame.THIS_MONTH)
-        self.refresh_view()
-
     def select_month(self, month: int) -> str:
         """
         Select a specific month of the current year.
@@ -696,9 +680,8 @@ class AppController:
         today = date_type.today()
         date_range = TimeNavigator.get_month_range(today.year, month)
 
-        self.state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date_range.start_date, end_date=date_range.end_date
-        )
+        self.state.start_date = date_range.start_date
+        self.state.end_date = date_range.end_date
         self.refresh_view()
         return date_range.description
 
@@ -716,9 +699,8 @@ class AppController:
             return (True, None)
 
         date_range = TimeNavigator.previous_period(self.state.start_date, self.state.end_date)
-        self.state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date_range.start_date, end_date=date_range.end_date
-        )
+        self.state.start_date = date_range.start_date
+        self.state.end_date = date_range.end_date
         self.refresh_view()
         return (False, date_range.description)
 
@@ -736,9 +718,8 @@ class AppController:
             return (True, None)
 
         date_range = TimeNavigator.next_period(self.state.start_date, self.state.end_date)
-        self.state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date_range.start_date, end_date=date_range.end_date
-        )
+        self.state.start_date = date_range.start_date
+        self.state.end_date = date_range.end_date
         self.refresh_view()
         return (False, date_range.description)
 

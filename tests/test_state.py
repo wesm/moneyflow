@@ -11,7 +11,6 @@ from moneyflow.state import (
     NavigationState,
     SortDirection,
     SortMode,
-    TimeFrame,
     TimeGranularity,
     ViewMode,
 )
@@ -25,38 +24,10 @@ class TestAppState:
         assert app_state.view_mode == ViewMode.MERCHANT
         assert app_state.sort_by == SortMode.AMOUNT
         assert app_state.sort_direction == SortDirection.DESC
-        assert app_state.time_frame == TimeFrame.THIS_YEAR
         assert app_state.transactions_df is None
         assert len(app_state.pending_edits) == 0
         assert len(app_state.selected_ids) == 0
         assert app_state.search_query == ""
-
-    def test_set_timeframe_this_year(self, app_state):
-        """Test setting timeframe to this year."""
-        app_state.set_timeframe(TimeFrame.THIS_YEAR)
-
-        assert app_state.time_frame == TimeFrame.THIS_YEAR
-        assert app_state.start_date == date(date.today().year, 1, 1)
-        assert app_state.end_date == date(date.today().year, 12, 31)
-
-    def test_set_timeframe_this_month(self, app_state):
-        """Test setting timeframe to this month."""
-        app_state.set_timeframe(TimeFrame.THIS_MONTH)
-
-        assert app_state.time_frame == TimeFrame.THIS_MONTH
-        assert app_state.start_date.month == date.today().month
-        assert app_state.start_date.day == 1
-
-    def test_set_timeframe_custom(self, app_state):
-        """Test setting custom timeframe."""
-        start = date(2024, 1, 1)
-        end = date(2024, 6, 30)
-
-        app_state.set_timeframe(TimeFrame.CUSTOM, start_date=start, end_date=end)
-
-        assert app_state.time_frame == TimeFrame.CUSTOM
-        assert app_state.start_date == start
-        assert app_state.end_date == end
 
     def test_toggle_sort(self, app_state):
         """Test sort field toggling."""
@@ -923,115 +894,19 @@ class TestBreadcrumbs:
 
         assert "Transactions" in breadcrumb
 
-    def test_breadcrumb_with_this_year_timeframe(self, app_state):
-        """Test breadcrumb does NOT include year when using THIS_YEAR timeframe filter."""
+    def test_breadcrumb_with_date_filter(self, app_state):
+        """Test breadcrumb does NOT include date range when using date filters."""
         app_state.view_mode = ViewMode.MERCHANT
-        app_state.set_timeframe(TimeFrame.THIS_YEAR)
+        # Set date filters directly
+        current_year = date.today().year
+        app_state.start_date = date(current_year, 1, 1)
+        app_state.end_date = date(current_year, 12, 31)
 
         breadcrumb = app_state.get_breadcrumb()
 
         # Time is only shown when drilled into via TIME view, not as a filter indicator
         assert "Year" not in breadcrumb
         assert breadcrumb == "Merchants"
-
-    def test_breadcrumb_with_this_month_timeframe(self, app_state):
-        """Test breadcrumb does NOT include month when using THIS_MONTH timeframe filter."""
-        app_state.view_mode = ViewMode.MERCHANT
-        app_state.set_timeframe(TimeFrame.THIS_MONTH)
-
-        breadcrumb = app_state.get_breadcrumb()
-
-        # Time is only shown when drilled into via TIME view, not as a filter indicator
-        month_name = date.today().strftime("%B")
-        assert month_name not in breadcrumb
-        assert breadcrumb == "Merchants"
-
-    def test_breadcrumb_with_custom_single_month(self, app_state):
-        """Test breadcrumb does NOT include month when using CUSTOM timeframe filter."""
-        app_state.view_mode = ViewMode.MERCHANT
-        app_state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date(2024, 3, 1), end_date=date(2024, 3, 31)
-        )
-
-        breadcrumb = app_state.get_breadcrumb()
-
-        # Time is only shown when drilled into via TIME view, not as a filter indicator
-        assert "March" not in breadcrumb
-        assert breadcrumb == "Merchants"
-
-    def test_breadcrumb_with_custom_date_range(self, app_state):
-        """Test breadcrumb does NOT include date range when using CUSTOM timeframe filter."""
-        app_state.view_mode = ViewMode.MERCHANT
-        app_state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date(2024, 1, 1), end_date=date(2024, 6, 30)
-        )
-
-        breadcrumb = app_state.get_breadcrumb()
-
-        # Time is only shown when drilled into via TIME view, not as a filter indicator
-        assert "2024-01-01" not in breadcrumb
-        assert "2024-06-30" not in breadcrumb
-        assert breadcrumb == "Merchants"
-
-
-class TestTimeFrameEdgeCases:
-    """Test edge cases in time frame handling."""
-
-    def test_set_timeframe_all_time(self, app_state):
-        """Test setting timeframe to ALL_TIME clears dates."""
-        # First set some dates
-        app_state.set_timeframe(
-            TimeFrame.CUSTOM, start_date=date(2024, 1, 1), end_date=date(2024, 12, 31)
-        )
-        assert app_state.start_date is not None
-        assert app_state.end_date is not None
-
-        # Now set to ALL_TIME
-        app_state.set_timeframe(TimeFrame.ALL_TIME)
-
-        assert app_state.time_frame == TimeFrame.ALL_TIME
-        assert app_state.start_date is None
-        assert app_state.end_date is None
-
-    def test_set_timeframe_this_month_december(self, app_state):
-        """Test setting timeframe to THIS_MONTH handles December correctly."""
-        # Mock today being in December - must mock in time_navigator module
-        from unittest.mock import patch
-
-        with patch("moneyflow.time_navigator.date") as mock_date:
-            mock_date.today.return_value = date(2024, 12, 15)
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-
-            app_state.set_timeframe(TimeFrame.THIS_MONTH)
-
-            assert app_state.start_date == date(2024, 12, 1)
-            assert app_state.end_date == date(2024, 12, 31)
-
-    def test_set_timeframe_this_month_february_leap_year(self, app_state):
-        """Test THIS_MONTH handles February in a leap year."""
-        from unittest.mock import patch
-
-        with patch("moneyflow.time_navigator.date") as mock_date:
-            mock_date.today.return_value = date(2024, 2, 15)  # 2024 is leap year
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-
-            app_state.set_timeframe(TimeFrame.THIS_MONTH)
-
-            assert app_state.start_date == date(2024, 2, 1)
-            assert app_state.end_date == date(2024, 2, 29)  # Leap year has 29 days
-
-    def test_set_timeframe_this_month_february_non_leap_year(self, app_state):
-        """Test THIS_MONTH handles February in a non-leap year."""
-        from unittest.mock import patch
-
-        with patch("moneyflow.time_navigator.date") as mock_date:
-            mock_date.today.return_value = date(2023, 2, 15)  # 2023 is not leap year
-            mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
-
-            app_state.set_timeframe(TimeFrame.THIS_MONTH)
-
-            assert app_state.start_date == date(2023, 2, 1)
-            assert app_state.end_date == date(2023, 2, 28)  # Non-leap year has 28 days
 
 
 class TestSubGrouping:
@@ -1508,14 +1383,13 @@ class TestSubGrouping:
         assert len(state.navigation_history) == 1  # Popped the sub-grouping entry
 
     def test_breadcrumb_shows_sub_grouping(self):
-        """Breadcrumb should show sub-grouping mode but NOT timeframe filter."""
+        """Breadcrumb should show sub-grouping mode but NOT date filter."""
         state = AppState()
         state.view_mode = ViewMode.DETAIL
         state.selected_merchant = "Amazon"
         state.sub_grouping_mode = ViewMode.CATEGORY
         state.start_date = date(2025, 1, 1)
         state.end_date = date(2025, 12, 31)
-        state.time_frame = TimeFrame.THIS_YEAR
 
         breadcrumb = state.get_breadcrumb()
 
@@ -1527,14 +1401,13 @@ class TestSubGrouping:
         assert breadcrumb == "Merchants > Amazon > (by Category)"
 
     def test_breadcrumb_multi_level_drill_down(self):
-        """Breadcrumb should show multiple drill-down levels but NOT timeframe filter."""
+        """Breadcrumb should show multiple drill-down levels but NOT date filter."""
         state = AppState()
         state.view_mode = ViewMode.DETAIL
         state.selected_merchant = "Amazon"
         state.selected_category = "Groceries"
         state.start_date = date(2025, 10, 1)
         state.end_date = date(2025, 10, 31)
-        state.time_frame = TimeFrame.THIS_MONTH
 
         breadcrumb = state.get_breadcrumb()
 

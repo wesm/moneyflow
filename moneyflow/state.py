@@ -14,8 +14,6 @@ from typing import Any, Dict, List, Optional
 
 import polars as pl
 
-from .time_navigator import TimeNavigator
-
 
 class ViewMode(Enum):
     """Available view modes for transaction aggregation."""
@@ -46,15 +44,6 @@ class SortDirection(Enum):
 
     DESC = "desc"
     ASC = "asc"
-
-
-class TimeFrame(Enum):
-    """Time frame for filtering transactions."""
-
-    ALL_TIME = "all_time"
-    THIS_YEAR = "this_year"
-    THIS_MONTH = "this_month"
-    CUSTOM = "custom"
 
 
 class TimeGranularity(Enum):
@@ -135,7 +124,6 @@ class AppState:
     view_mode: ViewMode = ViewMode.MERCHANT
     sort_by: SortMode = SortMode.AMOUNT  # What to sort by (count/amount/date)
     sort_direction: SortDirection = SortDirection.DESC  # Direction (asc/desc)
-    time_frame: TimeFrame = TimeFrame.THIS_YEAR
 
     # Time filtering
     start_date: Optional[date] = None
@@ -370,48 +358,6 @@ class AppState:
                 "Dec",
             ]
             return f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
-
-    def set_timeframe(
-        self,
-        timeframe: TimeFrame,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> None:
-        """
-        Set the time frame for filtering transactions.
-
-        Uses TimeNavigator for date calculations to avoid duplication
-        and ensure consistency with tested logic.
-
-        Args:
-            timeframe: The time frame to set
-            start_date: Start date for CUSTOM timeframe
-            end_date: End date for CUSTOM timeframe
-
-        Examples:
-            >>> state = AppState()
-            >>> state.set_timeframe(TimeFrame.THIS_YEAR)
-            >>> state.start_date.month == 1  # January
-            True
-            >>> state.end_date.month == 12  # December
-            True
-        """
-        self.time_frame = timeframe
-
-        if timeframe == TimeFrame.CUSTOM:
-            self.start_date = start_date
-            self.end_date = end_date
-        elif timeframe == TimeFrame.THIS_YEAR:
-            date_range = TimeNavigator.get_current_year_range()
-            self.start_date = date_range.start_date
-            self.end_date = date_range.end_date
-        elif timeframe == TimeFrame.THIS_MONTH:
-            date_range = TimeNavigator.get_current_month_range()
-            self.start_date = date_range.start_date
-            self.end_date = date_range.end_date
-        else:  # ALL_TIME
-            self.start_date = None
-            self.end_date = None
 
     def reverse_sort(self):
         """Reverse the current sort direction."""
@@ -1003,7 +949,7 @@ class AppState:
         Saves everything that defines the current view including:
         - View mode and drill-down selections
         - Sort settings (column and direction)
-        - Time filtering (time_frame and date range)
+        - Time filtering (start_date and end_date)
         - Search query
         - Filter settings (show_transfers, show_hidden)
 
@@ -1018,7 +964,6 @@ class AppState:
             "selected_account": self.selected_account,
             "sort_by": self.sort_by,
             "sort_direction": self.sort_direction,
-            "time_frame": self.time_frame,
             "start_date": self.start_date,
             "end_date": self.end_date,
             "search_query": self.search_query,
@@ -1035,7 +980,6 @@ class AppState:
         self.selected_account = saved_state.get("selected_account")
         self.sort_by = saved_state.get("sort_by", self.sort_by)
         self.sort_direction = saved_state.get("sort_direction", self.sort_direction)
-        self.time_frame = saved_state.get("time_frame", self.time_frame)
         self.start_date = saved_state.get("start_date", self.start_date)
         self.end_date = saved_state.get("end_date", self.end_date)
         self.search_query = saved_state.get("search_query", self.search_query)
