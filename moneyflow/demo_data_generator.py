@@ -1,8 +1,9 @@
 """
 Generate realistic synthetic transaction data for demo mode.
 
-Creates a year of transactions for a millennial couple in a major US city
+Creates multiple years of transactions for a millennial couple in a major US city
 with ~$250k gross income, realistic spending patterns, and edge cases for testing features.
+Defaults to 3 years of data (2023-2025) to enable testing of multi-year TIME views.
 """
 
 import hashlib
@@ -15,21 +16,23 @@ from moneyflow.categories import DEFAULT_CATEGORY_GROUPS
 class DemoDataGenerator:
     """Generate realistic synthetic financial data."""
 
-    def __init__(self, year: int = 2025, seed: int = 42):
+    def __init__(self, start_year: int = 2023, years: int = 3, seed: int = 42):
         """
         Initialize data generator.
 
         Args:
-            year: Year to generate data for
+            start_year: First year to generate data for
+            years: Number of years of data to generate
             seed: Random seed for reproducible data
         """
-        self.year = year
+        self.start_year = start_year
+        self.years = years
         random.seed(seed)
         self.transaction_counter = 1000
 
     def generate_full_year(self) -> tuple[List[Dict], List[Dict], List[Dict]]:
         """
-        Generate a full year of transactions, categories, and category groups.
+        Generate transactions for configured number of years, plus categories and category groups.
 
         Returns:
             Tuple of (transactions, categories, category_groups)
@@ -193,48 +196,51 @@ class DemoDataGenerator:
         return base_categories
 
     def _generate_transactions(self) -> List[Dict]:
-        """Generate a year of realistic transactions."""
+        """Generate multiple years of realistic transactions."""
         transactions = []
 
-        # Generate for each month
-        for month in range(1, 13):
-            transactions.extend(self._generate_month_transactions(month))
+        # Generate for each year
+        for year_offset in range(self.years):
+            current_year = self.start_year + year_offset
+            # Generate for each month in the year
+            for month in range(1, 13):
+                transactions.extend(self._generate_month_transactions(current_year, month))
 
         return transactions
 
-    def _generate_month_transactions(self, month: int) -> List[Dict]:
-        """Generate transactions for a single month."""
+    def _generate_month_transactions(self, year: int, month: int) -> List[Dict]:
+        """Generate transactions for a single month in a specific year."""
         transactions = []
 
         # Income - biweekly paychecks (1st and 15th)
-        transactions.extend(self._generate_paychecks(month))
+        transactions.extend(self._generate_paychecks(year, month))
 
         # Fixed recurring expenses
-        transactions.extend(self._generate_recurring_expenses(month))
+        transactions.extend(self._generate_recurring_expenses(year, month))
 
         # Variable expenses
-        transactions.extend(self._generate_groceries(month))
-        transactions.extend(self._generate_restaurants(month))
-        transactions.extend(self._generate_coffee(month))
-        transactions.extend(self._generate_gas(month))
-        transactions.extend(self._generate_amazon(month))
-        transactions.extend(self._generate_shopping(month))
-        transactions.extend(self._generate_entertainment(month))
+        transactions.extend(self._generate_groceries(year, month))
+        transactions.extend(self._generate_restaurants(year, month))
+        transactions.extend(self._generate_coffee(year, month))
+        transactions.extend(self._generate_gas(year, month))
+        transactions.extend(self._generate_amazon(year, month))
+        transactions.extend(self._generate_shopping(year, month))
+        transactions.extend(self._generate_entertainment(year, month))
 
         # Occasional expenses
         if month in [3, 6, 9, 12]:  # Quarterly
-            transactions.extend(self._generate_travel(month))
+            transactions.extend(self._generate_travel(year, month))
 
         # Add some duplicates for testing (1-2% of transactions)
         if random.random() < 0.5:
             transactions.extend(self._create_duplicate_transactions(transactions))
 
         # Add some transfers
-        transactions.extend(self._generate_transfers(month))
+        transactions.extend(self._generate_transfers(year, month))
 
         return transactions
 
-    def _generate_paychecks(self, month: int) -> List[Dict]:
+    def _generate_paychecks(self, year: int, month: int) -> List[Dict]:
         """Generate biweekly paychecks."""
         transactions = []
 
@@ -246,6 +252,7 @@ class DemoDataGenerator:
             # Person 1 paycheck
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=4300 + random.uniform(-50, 50),
@@ -258,6 +265,7 @@ class DemoDataGenerator:
             # Person 2 paycheck
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=2900 + random.uniform(-50, 50),
@@ -269,13 +277,14 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_recurring_expenses(self, month: int) -> List[Dict]:
+    def _generate_recurring_expenses(self, year: int, month: int) -> List[Dict]:
         """Generate monthly recurring bills."""
         transactions = []
 
         # Rent on 1st
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 1,
                 amount=-3400,
@@ -288,6 +297,7 @@ class DemoDataGenerator:
         # Utilities mid-month
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 15,
                 amount=-random.uniform(150, 250),
@@ -300,6 +310,7 @@ class DemoDataGenerator:
         # Internet
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 5,
                 amount=-89.99,
@@ -312,6 +323,7 @@ class DemoDataGenerator:
         # Phone
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 10,
                 amount=-140,
@@ -324,6 +336,7 @@ class DemoDataGenerator:
         # Gym memberships
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 3,
                 amount=-120,
@@ -337,6 +350,7 @@ class DemoDataGenerator:
         for service, amount in [("Netflix", 22.99), ("Spotify Premium", 16.99), ("HBO Max", 15.99)]:
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     random.randint(5, 10),
                     amount=-amount,
@@ -350,6 +364,7 @@ class DemoDataGenerator:
         # Insurance
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 1,
                 amount=-185,
@@ -361,7 +376,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_groceries(self, month: int) -> List[Dict]:
+    def _generate_groceries(self, year: int, month: int) -> List[Dict]:
         """Generate grocery shopping transactions."""
         transactions = []
 
@@ -381,6 +396,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -392,7 +408,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_restaurants(self, month: int) -> List[Dict]:
+    def _generate_restaurants(self, year: int, month: int) -> List[Dict]:
         """Generate restaurant transactions."""
         transactions = []
 
@@ -419,6 +435,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -430,7 +447,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_coffee(self, month: int) -> List[Dict]:
+    def _generate_coffee(self, year: int, month: int) -> List[Dict]:
         """Generate coffee shop transactions."""
         transactions = []
 
@@ -451,6 +468,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -462,7 +480,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_gas(self, month: int) -> List[Dict]:
+    def _generate_gas(self, year: int, month: int) -> List[Dict]:
         """Generate gas station transactions."""
         transactions = []
 
@@ -481,6 +499,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -492,7 +511,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_amazon(self, month: int) -> List[Dict]:
+    def _generate_amazon(self, year: int, month: int) -> List[Dict]:
         """Generate Amazon purchases with name variations."""
         transactions = []
 
@@ -521,6 +540,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -532,7 +552,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_shopping(self, month: int) -> List[Dict]:
+    def _generate_shopping(self, year: int, month: int) -> List[Dict]:
         """Generate misc shopping transactions."""
         transactions = []
 
@@ -553,6 +573,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -564,7 +585,7 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_entertainment(self, month: int) -> List[Dict]:
+    def _generate_entertainment(self, year: int, month: int) -> List[Dict]:
         """Generate entertainment transactions."""
         transactions = []
 
@@ -585,6 +606,7 @@ class DemoDataGenerator:
 
             transactions.append(
                 self._create_transaction(
+                    year,
                     month,
                     day,
                     amount=amount,
@@ -596,13 +618,14 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_travel(self, month: int) -> List[Dict]:
+    def _generate_travel(self, year: int, month: int) -> List[Dict]:
         """Generate travel-related transactions (quarterly)."""
         transactions = []
 
         # Flight
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 random.randint(1, 10),
                 amount=-random.uniform(600, 1200),
@@ -615,6 +638,7 @@ class DemoDataGenerator:
         # Hotel
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 random.randint(15, 25),
                 amount=-random.uniform(800, 1500),
@@ -626,13 +650,14 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_transfers(self, month: int) -> List[Dict]:
+    def _generate_transfers(self, year: int, month: int) -> List[Dict]:
         """Generate internal transfers (should be hidden from reports)."""
         transactions = []
 
         # Savings transfer each month
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 2,
                 amount=-2000,
@@ -646,6 +671,7 @@ class DemoDataGenerator:
         # Credit card payment
         transactions.append(
             self._create_transaction(
+                year,
                 month,
                 20,
                 amount=-random.uniform(2000, 4000),
@@ -674,6 +700,7 @@ class DemoDataGenerator:
 
     def _create_transaction(
         self,
+        year: int,
         month: int,
         day: int,
         amount: float,
@@ -723,7 +750,7 @@ class DemoDataGenerator:
 
         return {
             "id": txn_id,
-            "date": f"{self.year}-{month:02d}-{min(day, 28):02d}",
+            "date": f"{year}-{month:02d}-{min(day, 28):02d}",
             "amount": round(amount, 2),
             "merchant": {
                 "id": f"merch_{hashlib.md5(merchant.encode()).hexdigest()[:8]}",
@@ -747,15 +774,16 @@ class DemoDataGenerator:
         return txn_id
 
 
-def generate_demo_data(year: int = 2025) -> tuple:
+def generate_demo_data(start_year: int = 2023, years: int = 3) -> tuple:
     """
-    Generate a full year of demo data.
+    Generate demo data for multiple years.
 
     Args:
-        year: Year to generate data for
+        start_year: First year to generate data for
+        years: Number of years of data to generate (default: 3)
 
     Returns:
         Tuple of (transactions, categories, category_groups)
     """
-    generator = DemoDataGenerator(year=year)
+    generator = DemoDataGenerator(start_year=start_year, years=years)
     return generator.generate_full_year()

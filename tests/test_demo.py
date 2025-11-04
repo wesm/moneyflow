@@ -24,13 +24,13 @@ from moneyflow.demo_data_generator import DemoDataGenerator, generate_demo_data
 @pytest.fixture
 def demo_generator():
     """Provide a fresh DemoDataGenerator with fixed seed for reproducible tests."""
-    return DemoDataGenerator(year=2025, seed=42)
+    return DemoDataGenerator(start_year=2025, years=1, seed=42)
 
 
 @pytest.fixture
 def demo_backend():
-    """Provide a fresh DemoBackend instance."""
-    return DemoBackend(year=2025)
+    """Provide a fresh DemoBackend instance with 1 year of data for faster tests."""
+    return DemoBackend(start_year=2025, years=1)
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ class TestDemoDataGeneratorBasics:
 
     def test_generator_initialization(self, demo_generator):
         """Test that generator initializes with correct year and seed."""
-        assert demo_generator.year == 2025
+        assert demo_generator.start_year == 2025
         assert demo_generator.transaction_counter == 1000
 
     def test_generate_full_year_returns_tuple(self, demo_generator):
@@ -399,7 +399,8 @@ class TestDemoBackendInitialization:
 
     def test_backend_initializes(self, demo_backend):
         """Test that backend initializes correctly."""
-        assert demo_backend.year == 2025
+        assert demo_backend.start_year == 2025
+        assert demo_backend.years == 1
         assert demo_backend.is_logged_in is False
         assert len(demo_backend.transactions) > 0
         assert len(demo_backend.categories) > 0
@@ -908,7 +909,7 @@ class TestDemoModeIntegration:
 
 def test_generate_demo_data_function():
     """Test the standalone generate_demo_data function."""
-    transactions, categories, category_groups = generate_demo_data(year=2025)
+    transactions, categories, category_groups = generate_demo_data(start_year=2025, years=1)
 
     assert len(transactions) > 0
     assert len(categories) > 0

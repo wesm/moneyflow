@@ -15,7 +15,7 @@ from rich.text import Text
 from .state import SortDirection, SortMode, TimeGranularity
 
 # Type definitions for better type safety
-AggregationField = Literal["merchant", "category", "group", "account"]
+AggregationField = Literal["merchant", "category", "group", "account", "time_period_display"]
 ColumnKey = Literal["name", "count", "total"]
 
 
@@ -232,6 +232,7 @@ class ViewPresenter:
             "category": "Category",
             "group": "Group",
             "account": display_labels.get("account", "Account"),
+            "time_period_display": "Period",
         }
         name_label = name_labels[group_by_field]
 
@@ -253,6 +254,7 @@ class ViewPresenter:
             "category": SortMode.CATEGORY,
             "group": SortMode.GROUP,
             "account": SortMode.ACCOUNT,
+            "time_period_display": SortMode.TIME_PERIOD,
         }
 
         # Get arrows

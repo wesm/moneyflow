@@ -298,6 +298,9 @@ class AppController:
                 # Sort
                 if not txns.is_empty():
                     sort_field = self.state.sort_by.value
+                    # Map TIME_PERIOD to DATE for detail view (transactions don't have time_period column)
+                    if sort_field == "time_period":
+                        sort_field = "date"
                     descending = ViewPresenter.should_sort_descending(
                         sort_field, self.state.sort_direction
                     )

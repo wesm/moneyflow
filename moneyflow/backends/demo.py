@@ -19,18 +19,22 @@ class DemoBackend(FinanceBackend):
     Implements the FinanceBackend interface.
     """
 
-    def __init__(self, year: int = 2025):
+    def __init__(self, start_year: int = 2023, years: int = 3):
         """
         Initialize demo backend with synthetic data.
 
         Args:
-            year: Year to generate demo data for
+            start_year: First year to generate data for (default: 2023)
+            years: Number of years of data to generate (default: 3)
         """
         self.is_logged_in = False
-        self.year = year
+        self.start_year = start_year
+        self.years = years
 
         # Generate synthetic data
-        self.transactions, self.categories, self.category_groups = generate_demo_data(year)
+        self.transactions, self.categories, self.category_groups = generate_demo_data(
+            start_year=start_year, years=years
+        )
         self.update_calls = []  # Track updates for demonstration
 
     async def login(
