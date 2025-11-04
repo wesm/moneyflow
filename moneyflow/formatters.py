@@ -338,8 +338,20 @@ class ViewPresenter:
         rows: list[tuple] = []
 
         for row_dict in df.iter_rows(named=True):
-            # Get the name from first column (merchant/category/group/account)
+            # Get the name from first column (merchant/category/group/account/time_period_display)
             name = str(row_dict.get(df.columns[0], "Unknown") or "Unknown")
+
+            # Special formatting for time periods
+            if group_by_field == "time_period_display":
+                # Format time period nicely: "2024" or "Mar 2024"
+                year = row_dict.get("year")
+                month = row_dict.get("month")
+                # Determine granularity from whether month is present
+                from .state import TimeGranularity
+
+                granularity = TimeGranularity.MONTH if month else TimeGranularity.YEAR
+                name = ViewPresenter.format_time_period(year, month, granularity)
+
             count = row_dict["count"]
             total = row_dict["total"]
 
