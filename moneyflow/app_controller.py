@@ -597,7 +597,7 @@ class AppController:
 
     def cycle_grouping(self) -> Optional[str]:
         """
-        Cycle through aggregation views (Merchant → Category → Group → Account).
+        Cycle through aggregation views (Merchant → Category → Group → Account → Time).
 
         Returns:
             View name if changed, None if at end of cycle
@@ -606,6 +606,17 @@ class AppController:
         if view_name:
             self.refresh_view()
         return view_name
+
+    def toggle_time_granularity(self) -> str:
+        """
+        Toggle between year and month granularity in TIME view.
+
+        Returns:
+            Name of new granularity ("Years" or "Months")
+        """
+        result = self.state.toggle_time_granularity()
+        self.refresh_view()
+        return result
 
     # Sorting operations
     def toggle_sort_field(self) -> str:

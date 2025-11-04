@@ -25,7 +25,9 @@ class KeyBinding:
 # All keyboard shortcuts organized by category
 KEYBINDINGS: List[KeyBinding] = [
     # View Navigation
-    KeyBinding("g", "cycle_grouping", "Cycle grouping (Merchant→Category→Group→Account)", "Views"),
+    KeyBinding(
+        "g", "cycle_grouping", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views"
+    ),
     KeyBinding("u", "view_ungrouped", "View all transactions (detail view)", "Views"),
     KeyBinding("D", "find_duplicates", "Find duplicate transactions", "Views"),
     KeyBinding("m", "view_merchants", "View merchant aggregation (direct)", "Views"),
@@ -34,11 +36,13 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding("enter", "drill_down", "Drill down into selected item", "Views"),
     KeyBinding("esc", "go_back", "Go back (restores cursor and sort preferences)", "Views"),
     # Time Navigation
-    KeyBinding("y", "this_year", "View this year", "Time"),
-    KeyBinding("t", "this_month", "View this month", "Time"),
-    KeyBinding("a", "all_time", "View all time", "Time"),
-    KeyBinding("←", "prev_period", "Previous period (month/year)", "Time"),
-    KeyBinding("→", "next_period", "Next period (month/year)", "Time"),
+    KeyBinding("y", "toggle_year_granularity", "Toggle to year granularity (in TIME view)", "Time"),
+    KeyBinding(
+        "t", "toggle_month_granularity", "Toggle to month granularity (in TIME view)", "Time"
+    ),
+    KeyBinding("a", "clear_time_period", "Clear time period selection", "Time"),
+    KeyBinding("←", "prev_period", "Previous time period (when drilled into time)", "Time"),
+    KeyBinding("→", "next_period", "Next time period (when drilled into time)", "Time"),
     # Sorting
     KeyBinding("s", "toggle_sort_field", "Toggle sort field (count/amount/date)", "Sorting"),
     KeyBinding("v", "reverse_sort", "Reverse sort direction", "Sorting"),

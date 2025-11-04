@@ -1069,11 +1069,16 @@ class TestViewModeSwitching:
         assert controller.state.sort_by == SortMode.ACCOUNT
 
     async def test_cycle_grouping_account_to_merchant_field_sort(self, controller, mock_view):
-        """Test ACCOUNT sort becomes MERCHANT sort when cycling back to merchant view."""
+        """Test ACCOUNT sort becomes TIME_PERIOD sort when cycling to TIME, then MERCHANT sort to MERCHANT view."""
         controller.state.view_mode = ViewMode.ACCOUNT
         controller.state.sort_by = SortMode.ACCOUNT
 
-        controller.cycle_grouping()  # Account → Merchant (wrap around)
+        controller.cycle_grouping()  # Account → TIME
+
+        assert controller.state.view_mode == ViewMode.TIME
+        assert controller.state.sort_by == SortMode.TIME_PERIOD
+
+        controller.cycle_grouping()  # TIME → Merchant (wrap around)
 
         assert controller.state.view_mode == ViewMode.MERCHANT
         assert controller.state.sort_by == SortMode.MERCHANT

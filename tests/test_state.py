@@ -924,29 +924,30 @@ class TestBreadcrumbs:
         assert "Transactions" in breadcrumb
 
     def test_breadcrumb_with_this_year_timeframe(self, app_state):
-        """Test breadcrumb includes year when in THIS_YEAR mode."""
+        """Test breadcrumb does NOT include year when using THIS_YEAR timeframe filter."""
         app_state.view_mode = ViewMode.MERCHANT
         app_state.set_timeframe(TimeFrame.THIS_YEAR)
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "Year" in breadcrumb
-        assert str(date.today().year) in breadcrumb
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
+        assert "Year" not in breadcrumb
+        assert breadcrumb == "Merchants"
 
     def test_breadcrumb_with_this_month_timeframe(self, app_state):
-        """Test breadcrumb includes month when in THIS_MONTH mode."""
+        """Test breadcrumb does NOT include month when using THIS_MONTH timeframe filter."""
         app_state.view_mode = ViewMode.MERCHANT
         app_state.set_timeframe(TimeFrame.THIS_MONTH)
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should include month name
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
         month_name = date.today().strftime("%B")
-        assert month_name in breadcrumb
-        assert str(date.today().year) in breadcrumb
+        assert month_name not in breadcrumb
+        assert breadcrumb == "Merchants"
 
     def test_breadcrumb_with_custom_single_month(self, app_state):
-        """Test breadcrumb for custom timeframe spanning a single month."""
+        """Test breadcrumb does NOT include month when using CUSTOM timeframe filter."""
         app_state.view_mode = ViewMode.MERCHANT
         app_state.set_timeframe(
             TimeFrame.CUSTOM, start_date=date(2024, 3, 1), end_date=date(2024, 3, 31)
@@ -954,11 +955,12 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "March" in breadcrumb
-        assert "2024" in breadcrumb
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
+        assert "March" not in breadcrumb
+        assert breadcrumb == "Merchants"
 
     def test_breadcrumb_with_custom_date_range(self, app_state):
-        """Test breadcrumb for custom timeframe spanning multiple months."""
+        """Test breadcrumb does NOT include date range when using CUSTOM timeframe filter."""
         app_state.view_mode = ViewMode.MERCHANT
         app_state.set_timeframe(
             TimeFrame.CUSTOM, start_date=date(2024, 1, 1), end_date=date(2024, 6, 30)
@@ -966,9 +968,10 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "2024-01-01" in breadcrumb
-        assert "2024-06-30" in breadcrumb
-        assert "to" in breadcrumb
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
+        assert "2024-01-01" not in breadcrumb
+        assert "2024-06-30" not in breadcrumb
+        assert breadcrumb == "Merchants"
 
 
 class TestTimeFrameEdgeCases:
@@ -1505,7 +1508,7 @@ class TestSubGrouping:
         assert len(state.navigation_history) == 1  # Popped the sub-grouping entry
 
     def test_breadcrumb_shows_sub_grouping(self):
-        """Breadcrumb should show sub-grouping mode."""
+        """Breadcrumb should show sub-grouping mode but NOT timeframe filter."""
         state = AppState()
         state.view_mode = ViewMode.DETAIL
         state.selected_merchant = "Amazon"
@@ -1519,10 +1522,12 @@ class TestSubGrouping:
         assert "Merchants" in breadcrumb
         assert "Amazon" in breadcrumb
         assert "(by Category)" in breadcrumb
-        assert "Year 2025" in breadcrumb
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
+        assert "Year 2025" not in breadcrumb
+        assert breadcrumb == "Merchants > Amazon > (by Category)"
 
     def test_breadcrumb_multi_level_drill_down(self):
-        """Breadcrumb should show multiple drill-down levels."""
+        """Breadcrumb should show multiple drill-down levels but NOT timeframe filter."""
         state = AppState()
         state.view_mode = ViewMode.DETAIL
         state.selected_merchant = "Amazon"
@@ -1536,7 +1541,9 @@ class TestSubGrouping:
         assert "Merchants" in breadcrumb
         assert "Amazon" in breadcrumb
         assert "Groceries" in breadcrumb
-        assert "October 2025" in breadcrumb
+        # Time is only shown when drilled into via TIME view, not as a filter indicator
+        assert "October 2025" not in breadcrumb
+        assert breadcrumb == "Merchants > Amazon > Groceries"
 
     def test_multi_level_go_back_clears_deepest_first(self):
         """Multi-level drill-down should clear deepest selection first."""

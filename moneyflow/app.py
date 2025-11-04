@@ -58,7 +58,7 @@ from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, 
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
-from .state import AppState, ViewMode
+from .state import AppState, TimeGranularity, ViewMode
 from .textual_view import TextualViewPresenter
 from .widgets.help_screen import HelpScreen
 
@@ -118,10 +118,10 @@ class MoneyflowApp(App):
         # Note: 'm' conflicts with edit_merchant in detail view, so view_merchants removed
         # Note: 'c' removed - conflicts with commit confirmation in review screen
         Binding("A", "view_accounts", "Accounts", show=False, key_display="A"),
-        # Time navigation
-        Binding("y", "this_year", "Year", show=True),
-        Binding("t", "this_month", "Month", show=True),
-        Binding("a", "all_time", "All", show=True),
+        # Time granularity (only active in TIME view)
+        Binding("y", "toggle_year_granularity", "Year", show=False),
+        Binding("t", "toggle_month_granularity", "Month", show=False),
+        Binding("a", "clear_time_period", "Clear Time", show=False),
         # Sorting
         Binding("s", "toggle_sort_field", "Sort", show=True),
         Binding("v", "reverse_sort", "↕ Reverse", show=True),
@@ -979,20 +979,36 @@ class MoneyflowApp(App):
             )
 
     # Time navigation actions
-    def action_this_year(self) -> None:
-        """Switch to current year view."""
-        self.controller.set_timeframe_this_year()
-        self.notify("Viewing: This Year", timeout=1)
+    def action_toggle_year_granularity(self) -> None:
+        """Toggle to year granularity (only in TIME view)."""
+        if self.state.view_mode != ViewMode.TIME:
+            return  # Ignore if not in TIME view
 
-    def action_all_time(self) -> None:
-        """Switch to all time view."""
-        self.controller.set_timeframe_all_time()
-        self.notify("Viewing: All Time", timeout=1)
+        if self.state.time_granularity == TimeGranularity.YEAR:
+            return  # Already in year view
 
-    def action_this_month(self) -> None:
-        """Switch to current month view."""
-        self.controller.set_timeframe_this_month()
-        self.notify("Viewing: This Month", timeout=1)
+        view_name = self.controller.toggle_time_granularity()
+        self.notify(f"Switched to {view_name}", timeout=1)
+
+    def action_toggle_month_granularity(self) -> None:
+        """Toggle to month granularity (only in TIME view)."""
+        if self.state.view_mode != ViewMode.TIME:
+            return  # Ignore if not in TIME view
+
+        if self.state.time_granularity == TimeGranularity.MONTH:
+            return  # Already in month view
+
+        view_name = self.controller.toggle_time_granularity()
+        self.notify(f"Switched to {view_name}", timeout=1)
+
+    def action_clear_time_period(self) -> None:
+        """Clear time period selection (shortcut for Escape when drilled into time)."""
+        if not self.state.is_time_period_selected():
+            return  # Nothing to clear
+
+        self.state.clear_time_selection()
+        self.controller.refresh_view()
+        self.notify("Cleared time period filter", timeout=1)
 
     def _select_month(self, month: int, month_name: str) -> None:
         """Helper to select a specific month of the current year."""
@@ -1000,24 +1016,22 @@ class MoneyflowApp(App):
         self.notify(f"Viewing: {description}", timeout=1)
 
     def action_prev_period(self) -> None:
-        """Navigate to previous time period."""
-        should_fallback, description = self.controller.navigate_prev_period()
+        """Navigate to previous time period (only when drilled into time)."""
+        description = self.state.navigate_time_period(-1)
 
-        if should_fallback:
-            # In all-time view, go to current year
-            self.action_this_year()
-        else:
-            self.notify(f"Viewing: {description}", timeout=1)
+        if description:
+            self.controller.refresh_view()
+            self.notify(f"← {description}", timeout=1)
+        # Otherwise do nothing (not drilled into time)
 
     def action_next_period(self) -> None:
-        """Navigate to next time period."""
-        should_fallback, description = self.controller.navigate_next_period()
+        """Navigate to next time period (only when drilled into time)."""
+        description = self.state.navigate_time_period(1)
 
-        if should_fallback:
-            # In all-time view, go to current year
-            self.action_this_year()
-        else:
-            self.notify(f"Viewing: {description}", timeout=1)
+        if description:
+            self.controller.refresh_view()
+            self.notify(f"→ {description}", timeout=1)
+        # Otherwise do nothing (not drilled into time)
 
     def action_reverse_sort(self) -> None:
         """Reverse the current sort direction."""
