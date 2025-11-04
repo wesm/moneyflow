@@ -507,13 +507,14 @@ class AppController:
             count_label = f"{count_label} {arrow}"
         columns.append({"label": count_label, "key": "count", "width": 10})
 
-        # Total column (with currency symbol)
-        total_label = self._get_column_config().get("currency_symbol", "$")
+        # Total column (with currency symbol) - consistent with other aggregate views
+        currency_symbol = self._get_column_config().get("currency_symbol", "$")
+        arrow = ""
         if self.state.sort_by == SortMode.AMOUNT:
-            arrow = ViewPresenter.get_sort_arrow(
+            arrow = " " + ViewPresenter.get_sort_arrow(
                 self.state.sort_by, self.state.sort_direction, SortMode.AMOUNT
             )
-            total_label = f"{total_label} {arrow}"
+        total_label = f"Total ({currency_symbol}){arrow}"
         columns.append({"label": total_label, "key": "total", "width": 15})
 
         # Build rows
