@@ -1009,15 +1009,26 @@ class AppState:
 
         parts = []
 
+        # Helper to format date range suffix
+        def get_date_range_suffix() -> str:
+            """Get date range suffix if available and no time drill-down active."""
+            if (
+                self.current_data_start_date
+                and self.current_data_end_date
+                and self.selected_time_year is None
+            ):
+                return f" ({self.current_data_start_date} to {self.current_data_end_date})"
+            return ""
+
         # Add view mode
         if self.view_mode == ViewMode.MERCHANT:
-            parts.append(merchants_label)
+            parts.append(merchants_label + get_date_range_suffix())
         elif self.view_mode == ViewMode.CATEGORY:
-            parts.append("Categories")
+            parts.append("Categories" + get_date_range_suffix())
         elif self.view_mode == ViewMode.GROUP:
-            parts.append("Groups")
+            parts.append("Groups" + get_date_range_suffix())
         elif self.view_mode == ViewMode.ACCOUNT:
-            parts.append(accounts_label)
+            parts.append(accounts_label + get_date_range_suffix())
         elif self.view_mode == ViewMode.TIME:
             # TIME view - show granularity and date range if available
             granularity_label = (
