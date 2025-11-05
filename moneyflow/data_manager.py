@@ -75,16 +75,14 @@ class DataManager:
 
     MERCHANT_CACHE_MAX_AGE_HOURS = 24  # Refresh once per day
 
-    def __init__(
-        self, mm: FinanceBackend, merchant_cache_dir: str = "", config_dir: Optional[str] = None
-    ):
+    def __init__(self, mm: FinanceBackend, config_dir: str, merchant_cache_dir: str = ""):
         """
         Initialize DataManager with a finance backend.
 
         Args:
             mm: Backend instance (must implement FinanceBackend interface)
-            merchant_cache_dir: Directory for merchant cache (defaults to ~/.moneyflow/)
-            config_dir: Optional config directory for config.yaml (defaults to ~/.moneyflow/)
+            config_dir: Config directory for config.yaml (required to prevent accidental pollution)
+            merchant_cache_dir: Directory for merchant cache (defaults to config_dir if empty)
         """
         self.mm = mm
         self.config_dir = config_dir  # Store for apply_category_groups
@@ -239,7 +237,7 @@ class DataManager:
             - category_groups: Dict mapping group_id to {name, type, ...}
 
         Example:
-            >>> dm = DataManager(backend)
+            >>> dm = DataManager(backend, config_dir="~/.moneyflow")
             >>> df, cats, groups = await dm.fetch_all_data(
             ...     start_date="2025-01-01",
             ...     progress_callback=lambda msg: print(msg)

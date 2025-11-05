@@ -275,9 +275,10 @@ class MoneyflowApp(App):
         """Initialize data manager, cache manager, and controller."""
         # In demo mode, use a temp directory for merchant cache (don't pollute ~/.moneyflow)
         merchant_cache_dir = "" if not self.demo_mode else "/tmp/moneyflow_demo"
-        # config_dir is already a string (or None), DataManager accepts Optional[str]
+        # config_dir is required - default to ~/.moneyflow if not specified
+        config_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
         self.data_manager = DataManager(
-            self.backend, merchant_cache_dir=merchant_cache_dir, config_dir=self.config_dir
+            self.backend, config_dir=config_dir, merchant_cache_dir=merchant_cache_dir
         )
 
         # Initialize cache manager only if user requested caching
@@ -499,7 +500,9 @@ class MoneyflowApp(App):
             result = self.cache_manager.load_cache()
             if result:
                 df, categories, category_groups, metadata = result
+
                 # Apply category grouping dynamically (so CATEGORY_GROUPS changes take effect)
+                # Note: DataManager.__init__() already loaded config.yaml and built the mapping
                 loading_status.update("🔄 Applying category groupings...")
                 df = self.data_manager.apply_category_groups(df)
 

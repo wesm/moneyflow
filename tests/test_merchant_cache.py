@@ -20,10 +20,11 @@ def temp_merchant_cache_dir(tmp_path):
 
 
 @pytest.fixture
-async def data_manager_with_cache(mock_mm, temp_merchant_cache_dir):
-    """Provide DataManager with temporary merchant cache."""
+async def data_manager_with_cache(mock_mm, temp_merchant_cache_dir, tmp_path):
+    """Provide DataManager with temporary merchant cache and isolated config."""
     await mock_mm.login()
-    dm = DataManager(mock_mm, merchant_cache_dir=temp_merchant_cache_dir)
+    # Use tmp_path for config_dir to avoid modifying user's ~/.moneyflow/config.yaml
+    dm = DataManager(mock_mm, config_dir=str(tmp_path), merchant_cache_dir=temp_merchant_cache_dir)
     return dm
 
 

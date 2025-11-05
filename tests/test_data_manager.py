@@ -55,9 +55,9 @@ class TestAggregation:
         # Note: Sorting is now handled by app.py, not by aggregate methods
         # The aggregation just returns grouped data
 
-    async def test_aggregate_by_merchant_top_category_single(self, mock_mm):
+    async def test_aggregate_by_merchant_top_category_single(self, mock_mm, tmp_path):
         """Test top category when all transactions have same category."""
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         # All Whole Foods transactions are Groceries
         df = pl.DataFrame(
@@ -80,9 +80,9 @@ class TestAggregation:
         assert row["top_category"] == "Groceries"
         assert row["top_category_pct"] == 100  # 100% are Groceries
 
-    async def test_aggregate_by_merchant_top_category_mixed(self, mock_mm):
+    async def test_aggregate_by_merchant_top_category_mixed(self, mock_mm, tmp_path):
         """Test top category when transactions have different categories."""
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         # Starbucks: 7 Coffee Shops, 3 Groceries
         df = pl.DataFrame(
@@ -105,9 +105,9 @@ class TestAggregation:
         assert row["top_category"] == "Coffee Shops"
         assert row["top_category_pct"] == 70  # 7/10 = 70%
 
-    async def test_aggregate_by_merchant_top_category_multiple_merchants(self, mock_mm):
+    async def test_aggregate_by_merchant_top_category_multiple_merchants(self, mock_mm, tmp_path):
         """Test top category with multiple merchants."""
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         df = pl.DataFrame(
             {
@@ -736,7 +736,7 @@ class TestFetchTransactionsPagination:
         for txn in transactions:
             assert "2024-10-02" <= txn["date"] <= "2024-10-03"
 
-    async def test_fetch_alternative_results_format(self, mock_mm):
+    async def test_fetch_alternative_results_format(self, mock_mm, tmp_path):
         """Test fetching with alternative results format (bare 'results' key)."""
         # Temporarily change mock to return bare 'results' format
         original_get_transactions = mock_mm.get_transactions
@@ -751,26 +751,26 @@ class TestFetchTransactionsPagination:
         mock_mm.get_transactions = alternate_format_get_transactions
 
         await mock_mm.login()
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         transactions = await dm._fetch_all_transactions()
 
         assert len(transactions) > 0
         assert len(transactions) == 6  # All mock transactions
 
-    async def test_fetch_empty_results(self, mock_mm):
+    async def test_fetch_empty_results(self, mock_mm, tmp_path):
         """Test fetching when API returns empty results."""
         # Clear all transactions
         mock_mm.transactions = []
 
         await mock_mm.login()
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         transactions = await dm._fetch_all_transactions()
 
         assert len(transactions) == 0
 
-    async def test_fetch_progress_without_total_count(self, mock_mm):
+    async def test_fetch_progress_without_total_count(self, mock_mm, tmp_path):
         """Test progress callback when total count is not available."""
         # Modify mock to not include totalCount
         original_get_transactions = mock_mm.get_transactions
@@ -785,7 +785,7 @@ class TestFetchTransactionsPagination:
         mock_mm.get_transactions = no_total_count_get_transactions
 
         await mock_mm.login()
-        dm = DataManager(mock_mm)
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         progress_messages = []
 
@@ -915,6 +915,77 @@ class TestCategoryMappingRefresh:
             groups = gas_txns["group"].unique().to_list()
             assert "Auto & Transport" in groups
             assert "Wrong Group" not in groups
+
+    async def test_category_mapping_correct_after_restart_with_cache(self, mock_mm, tmp_path):
+        """
+        Test that categories work correctly when loading from cache after app restart.
+
+        Regression test for bug where transfers would appear when loading from cache.
+        The root cause was that tests were corrupting the user's config.yaml by
+        not using isolated config directories.
+
+        This test verifies:
+        1. fetch_all_data() updates config.yaml with fresh categories from API
+        2. After app restart, DataManager.__init__() loads updated config.yaml
+        3. apply_category_groups() works correctly with the mapping from config.yaml
+        """
+        import yaml
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = config_dir / "config.yaml"
+
+        # Scenario: config.yaml starts with incomplete categories (before first API fetch)
+        initial_config = {
+            "version": 1,
+            "fetched_categories": {
+                "Food & Dining": ["Groceries", "Restaurants"],
+                "Shopping": ["Clothing"],
+                # NOTE: Missing "Auto & Transport" group with "Gas" category
+            },
+        }
+
+        with open(config_path, "w") as f:
+            yaml.dump(initial_config, f)
+
+        # Login to mock backend
+        await mock_mm.login()
+
+        # Initialize DataManager (loads incomplete categories from config.yaml)
+        dm = DataManager(mock_mm, config_dir=str(config_dir))
+
+        # Verify initial mapping is incomplete (missing Auto & Transport)
+        initial_mapping = dm.category_to_group
+        assert initial_mapping.get("Gas") is None  # Not in mapping
+
+        # Fetch data from API (saves fresh categories to config.yaml)
+        df_from_api, _, _ = await dm.fetch_all_data()
+
+        # Verify fresh categories were saved to config.yaml
+        with open(config_path, "r") as f:
+            saved_config = yaml.safe_load(f)
+        assert len(saved_config["fetched_categories"]) == 3  # Now has all 3 groups
+
+        # Verify mapping was rebuilt by fetch_all_data()
+        assert dm.category_to_group.get("Gas") == "Auto & Transport"
+
+        # ========== SIMULATE APP RESTART WITH CACHE ==========
+
+        # Simulate app restart: Create NEW DataManager instance (like when app restarts)
+        dm_after_restart = DataManager(mock_mm, config_dir=str(config_dir))
+
+        # DataManager.__init__() should load the UPDATED config.yaml
+        # This is the KEY FIX: config.yaml must be protected from test corruption
+        assert dm_after_restart.category_to_group.get("Gas") == "Auto & Transport"
+
+        # Apply category groups (simulates what app.py does when loading from cache)
+        df_from_cache = df_from_api.clone()  # Simulate cached DataFrame
+        df_with_groups = dm_after_restart.apply_category_groups(df_from_cache)
+
+        # Verify Gas transactions have correct group
+        gas_txns = df_with_groups.filter(df_with_groups["category"] == "Gas")
+        if len(gas_txns) > 0:
+            assert gas_txns["group"].unique().to_list()[0] == "Auto & Transport"
 
 
 class TestTimeAggregation:

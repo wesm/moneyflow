@@ -27,10 +27,11 @@ def mock_view():
 
 
 @pytest.fixture
-async def controller(mock_view, mock_mm):
-    """Provide controller with mock dependencies."""
+async def controller(mock_view, mock_mm, tmp_path):
+    """Provide controller with mock dependencies and isolated config."""
     await mock_mm.login()
-    data_manager = DataManager(mock_mm)
+    # Use tmp_path for config_dir to avoid modifying user's ~/.moneyflow/config.yaml
+    data_manager = DataManager(mock_mm, config_dir=str(tmp_path))
     state = AppState()
 
     # Fetch data
