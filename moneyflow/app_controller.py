@@ -358,11 +358,13 @@ class AppController:
             total_expenses = float(expense_df["amount"].sum()) if not expense_df.is_empty() else 0.0
             net_savings = total_income + total_expenses
 
+            # Use abbreviated labels for compact display
+            # In: (Income), Out: (Expenses/Outflow), Net: (Savings)
             stats_text = (
                 f"{len(filtered_df):,} txns | "
-                f"Income: {ViewPresenter.format_amount(total_income)} | "
-                f"Expenses: {ViewPresenter.format_amount(total_expenses)} | "
-                f"Savings: {ViewPresenter.format_amount(net_savings)}"
+                f"In: {ViewPresenter.format_amount(total_income)} | "
+                f"Out: {ViewPresenter.format_amount(total_expenses)} | "
+                f"Net: {ViewPresenter.format_amount(net_savings)}"
             )
             self.view.update_stats(stats_text)
         else:
@@ -522,7 +524,10 @@ class AppController:
         for row_dict in agg.to_dicts():
             year = row_dict["year"]
             month = row_dict.get("month")
-            period_str = ViewPresenter.format_time_period(year, month, self.state.time_granularity)
+            day = row_dict.get("day")
+            period_str = ViewPresenter.format_time_period(
+                year, month, day, self.state.time_granularity
+            )
             count_str = str(row_dict["count"])
             total_str = ViewPresenter.format_amount(row_dict["total"])
 
@@ -1011,11 +1016,15 @@ class AppController:
 
         if self.state.view_mode == ViewMode.TIME:
             # TIME view - show granularity toggle
-            granularity = "year" if self.state.time_granularity == TimeGranularity.YEAR else "month"
-            toggle_key = "t" if granularity == "year" else "y"
-            toggle_to = "Month" if granularity == "year" else "Year"
+            # Determine next granularity in cycle: Year → Month → Day → Year
+            if self.state.time_granularity == TimeGranularity.YEAR:
+                toggle_to = "By Month"
+            elif self.state.time_granularity == TimeGranularity.MONTH:
+                toggle_to = "By Day"
+            else:  # DAY
+                toggle_to = "By Year"
 
-            return f"Enter=Drill | {toggle_key}={toggle_to} | s=Sort({sort_name}) | g=Group"
+            return f"Enter=Drill | t={toggle_to} | s=Sort({sort_name}) | g=Group"
         elif self.state.view_mode == ViewMode.MERCHANT:
             return f"Enter=Drill | Space=Select | m=✏️ Merchant (bulk) | c=✏️ Category (bulk) | s=Sort({sort_name}) | g=Group"
         elif self.state.view_mode in [ViewMode.CATEGORY, ViewMode.GROUP]:

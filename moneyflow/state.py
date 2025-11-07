@@ -1169,18 +1169,20 @@ class AppState:
 
             # Helper to add dimension to breadcrumb
             def add_dimension(dim: str, is_first: bool):
-                """Add a dimension to the breadcrumb parts."""
+                """
+                Add a dimension to the breadcrumb parts.
+
+                Uses abbreviated format "X: Value" to save horizontal space.
+                Abbreviations: M: (Merchant), C: (Category), G: (Group), A: (Account), T: (Time)
+                Custom labels get first letter (e.g., "Item Name" → "I:", "Order" → "O:")
+                """
                 if dim == "time":
-                    # Only add "Time" label if it's the first dimension
-                    if is_first:
-                        parts.append("Time")
+                    # Format time period value
                     if self.selected_time_day is not None:
                         # Format as ISO date "2024-03-15"
                         assert self.selected_time_year is not None
                         assert self.selected_time_month is not None
-                        parts.append(
-                            f"{self.selected_time_year:04d}-{self.selected_time_month:02d}-{self.selected_time_day:02d}"
-                        )
+                        time_value = f"{self.selected_time_year:04d}-{self.selected_time_month:02d}-{self.selected_time_day:02d}"
                     elif self.selected_time_month is not None:
                         # Format as "Mar 2024"
                         month_names = [
@@ -1197,34 +1199,39 @@ class AppState:
                             "Nov",
                             "Dec",
                         ]
-                        parts.append(
+                        time_value = (
                             f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
                         )
                     else:
                         # Just year
                         assert self.selected_time_year is not None
-                        parts.append(str(self.selected_time_year))
+                        time_value = str(self.selected_time_year)
+
+                    # Use "T: value" format
+                    parts.append(f"T: {time_value}")
+
                 elif dim == "merchant":
-                    # Merchant always adds label (matching old behavior where both if/else added it)
-                    parts.append(merchants_label)
+                    # Use abbreviated form: first letter of merchant label
                     assert self.selected_merchant is not None
-                    parts.append(self.selected_merchant)
+                    merchant_label = display_labels.get("merchant", "Merchant")
+                    abbrev = merchant_label[0].upper()
+                    parts.append(f"{abbrev}: {self.selected_merchant}")
+
                 elif dim == "category":
-                    # Category/group/account only add label if first dimension
-                    if is_first:
-                        parts.append("Categories")
+                    # Use "C: value" format
                     assert self.selected_category is not None
-                    parts.append(self.selected_category)
+                    parts.append(f"C: {self.selected_category}")
+
                 elif dim == "group":
-                    if is_first:
-                        parts.append("Groups")
+                    # Use "G: value" format
                     assert self.selected_group is not None
-                    parts.append(self.selected_group)
+                    parts.append(f"G: {self.selected_group}")
+
                 elif dim == "account":
-                    if is_first:
-                        parts.append(accounts_label)
+                    # Use abbreviated form: first letter of account label
                     assert self.selected_account is not None
-                    parts.append(self.selected_account)
+                    abbrev = account_label[0].upper()
+                    parts.append(f"{abbrev}: {self.selected_account}")
 
             # Add dimensions in drill-down order
             for i, dim in enumerate(drill_order):

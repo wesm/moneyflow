@@ -828,8 +828,7 @@ class TestBreadcrumbs:
         amazon_labels = {"merchant": "Item Name", "account": "Order", "accounts": "Orders"}
         breadcrumb = app_state.get_breadcrumb(amazon_labels)
 
-        assert "Orders" in breadcrumb
-        assert "113-1234567-8901234" in breadcrumb
+        assert "O: 113-1234567-8901234" in breadcrumb  # Abbreviated: Order → O:
         assert "Accounts" not in breadcrumb
 
     def test_breadcrumb_sub_grouping_with_custom_labels(self, app_state):
@@ -863,8 +862,7 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "Merchants" in breadcrumb
-        assert "Starbucks" in breadcrumb
+        assert "M: Starbucks" in breadcrumb  # Abbreviated: Merchant → M:
 
     def test_breadcrumb_detail_view_category(self, app_state):
         """Test breadcrumb for detail view drilled down from category."""
@@ -873,8 +871,7 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "Categories" in breadcrumb
-        assert "Groceries" in breadcrumb
+        assert "C: Groceries" in breadcrumb  # Abbreviated: Category → C:
 
     def test_breadcrumb_detail_view_group(self, app_state):
         """Test breadcrumb for detail view drilled down from group."""
@@ -883,8 +880,7 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        assert "Groups" in breadcrumb
-        assert "Food & Dining" in breadcrumb
+        assert "G: Food & Dining" in breadcrumb  # Abbreviated: Group → G:
 
     def test_breadcrumb_detail_view_no_selection(self, app_state):
         """Test breadcrumb for detail view with no selection."""
@@ -922,9 +918,9 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should show: Merchants > Amazon > 2024
-        # NOT: Time > 2024 > Merchants > Amazon
-        assert breadcrumb == "Merchants > Amazon > 2024"
+        # Should show: M: Amazon > T: 2024
+        # NOT: T: 2024 > M: Amazon
+        assert breadcrumb == "M: Amazon > T: 2024"
 
     def test_breadcrumb_merchant_then_time_month(self, app_state):
         """Test breadcrumb shows merchant before time month when drilled in that order."""
@@ -937,8 +933,8 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should show: Merchants > Amazon > Mar 2024
-        assert breadcrumb == "Merchants > Amazon > Mar 2024"
+        # Should show: M: Amazon > T: Mar 2024
+        assert breadcrumb == "M: Amazon > T: Mar 2024"
 
     def test_breadcrumb_category_then_time(self, app_state):
         """Test breadcrumb shows category before time when drilled in that order."""
@@ -951,8 +947,8 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should show: Categories > Groceries > 2024
-        assert breadcrumb == "Categories > Groceries > 2024"
+        # Should show: C: Groceries > T: 2024
+        assert breadcrumb == "C: Groceries > T: 2024"
 
     def test_breadcrumb_time_then_merchant(self, app_state):
         """Test breadcrumb shows time before merchant when drilled in that order."""
@@ -967,15 +963,15 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should show: Time > 2024 > Merchants > Amazon
-        # NOT: Merchants > Amazon > 2024
+        # Should show: T: 2024 > M: Amazon
+        # NOT: M: Amazon > T: 2024
         # The order should be preserved based on navigation_history
         parts = breadcrumb.split(" > ")
-        # Time should come before Merchants in the breadcrumb
+        # Time should come before Merchant in the breadcrumb
         time_index = next((i for i, p in enumerate(parts) if "2024" in p), -1)
         merchant_index = next((i for i, p in enumerate(parts) if "Amazon" in p), -1)
         assert time_index < merchant_index
-        assert breadcrumb == "Time > 2024 > Merchants > Amazon"
+        assert breadcrumb == "T: 2024 > M: Amazon"
 
     def test_breadcrumb_time_only(self, app_state):
         """Test breadcrumb shows only time when that's the only drill-down."""
@@ -986,8 +982,8 @@ class TestBreadcrumbs:
 
         breadcrumb = app_state.get_breadcrumb()
 
-        # Should show: Time > 2024
-        assert breadcrumb == "Time > 2024"
+        # Should show: T: 2024
+        assert breadcrumb == "T: 2024"
 
 
 class TestSubGrouping:
@@ -1476,12 +1472,12 @@ class TestSubGrouping:
 
         breadcrumb = state.get_breadcrumb()
 
-        assert "Merchants" in breadcrumb
+        assert "M:" in breadcrumb  # Abbreviated merchant
         assert "Amazon" in breadcrumb
         assert "(by Category)" in breadcrumb
         # Time is only shown when drilled into via TIME view, not as a filter indicator
         assert "Year 2025" not in breadcrumb
-        assert breadcrumb == "Merchants > Amazon > (by Category)"
+        assert breadcrumb == "M: Amazon > (by Category)"
 
     def test_breadcrumb_multi_level_drill_down(self):
         """Breadcrumb should show multiple drill-down levels but NOT date filter."""
@@ -1494,12 +1490,12 @@ class TestSubGrouping:
 
         breadcrumb = state.get_breadcrumb()
 
-        assert "Merchants" in breadcrumb
+        assert "M:" in breadcrumb  # Abbreviated merchant
         assert "Amazon" in breadcrumb
         assert "Groceries" in breadcrumb
         # Time is only shown when drilled into via TIME view, not as a filter indicator
         assert "October 2025" not in breadcrumb
-        assert breadcrumb == "Merchants > Amazon > Groceries"
+        assert breadcrumb == "M: Amazon > C: Groceries"
 
     def test_multi_level_go_back_clears_deepest_first(self):
         """Multi-level drill-down should clear deepest selection first."""

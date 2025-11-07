@@ -248,9 +248,11 @@ class TestStatsCalculation:
 
         stats_text = mock_view.stats[-1]
         # Stats should be calculated (exact values depend on mock data)
+        # Format: "N txns | In: $X | Out: $Y | Net: $Z"
         assert "txns" in stats_text
-        assert "Income:" in stats_text
-        assert "Expenses:" in stats_text
+        assert "In:" in stats_text
+        assert "Out:" in stats_text
+        assert "Net:" in stats_text
 
     async def test_stats_with_no_data(self, controller, mock_view):
         """Test stats with empty dataset."""
