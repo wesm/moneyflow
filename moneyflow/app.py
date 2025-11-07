@@ -918,7 +918,9 @@ class MoneyflowApp(App):
                 account_id, profile_dir, creds = await self._handle_account_selection()
 
                 if account_id is None:
-                    return  # User exited
+                    # User chose to exit from account selector
+                    self.exit()
+                    return
 
                 if account_id == "demo":
                     # User selected demo mode from account selector

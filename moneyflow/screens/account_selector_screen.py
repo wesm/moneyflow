@@ -118,7 +118,8 @@ class AccountSelectorScreen(Screen):
         super().__init__()
         self.config_dir = config_dir
         self.account_manager = AccountManager(config_dir=config_dir)
-        self.accounts = []
+        # Load accounts immediately so they're available for compose()
+        self.accounts = self.account_manager.list_accounts()
 
     def compose(self) -> ComposeResult:
         """Compose the account selector UI."""
@@ -144,9 +145,6 @@ class AccountSelectorScreen(Screen):
                 )
                 yield Button("Exit", variant="default", id="exit-button", classes="action-button")
 
-    def on_mount(self) -> None:
-        """Load accounts when screen mounts."""
-        self.accounts = self.account_manager.list_accounts()
 
     def _render_account_list(self) -> list:
         """Render list of account items."""
