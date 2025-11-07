@@ -40,9 +40,11 @@ class AccountSelectorScreen(Screen):
         Binding("escape,q", "exit_selector", "Exit", show=False),
         Binding("a,n", "add_account", "Add New", show=False),
         Binding("d", "demo_mode", "Demo", show=False),
-        Binding("up", "cursor_up", "Up", show=False),
-        Binding("down", "cursor_down", "Down", show=False),
+        Binding("up", "cursor_up", "Up", show=False, priority=True),
+        Binding("down", "cursor_down", "Down", show=False, priority=True),
         Binding("enter", "select_current", "Select", show=False),
+        Binding("j", "cursor_down", "Down (j)", show=False),
+        Binding("k", "cursor_up", "Up (k)", show=False),
     ]
 
     CSS = """
@@ -163,7 +165,7 @@ class AccountSelectorScreen(Screen):
 
             yield Static(
                 "Choose an account to load, or add a new one.\n"
-                "Keys: ↑/↓=Navigate | Enter=Select | a=Add | d=Demo | Esc/q=Exit",
+                "Keys: ↑/↓ or j/k=Navigate | Enter=Select | a=Add | d=Demo | Esc/q=Exit",
                 classes="selector-help",
             )
 
