@@ -199,7 +199,9 @@ class AccountSelectorScreen(Screen):
 
         # Simplified: Use a single button per account with icon, name, and metadata
         # The button includes formatted info and encodes account_id in its ID
-        button_label = f"{icon} {account.name}\n  {account.backend_type.capitalize()} • {last_used_str}"
+        button_label = (
+            f"{icon} {account.name}\n  {account.backend_type.capitalize()} • {last_used_str}"
+        )
 
         return Button(
             button_label,

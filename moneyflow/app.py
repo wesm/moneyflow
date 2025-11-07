@@ -34,6 +34,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
+from .account_manager import AccountManager
 from .app_controller import AppController
 from .backends import DemoBackend, get_backend
 from .cache_manager import CacheManager
@@ -41,10 +42,13 @@ from .credentials import CredentialManager
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .logging_config import get_logger, setup_logging
+from .migration import migrate_legacy_credentials
 from .notification_helper import NotificationHelper
 from .retry_logic import RetryAborted, retry_with_backoff
 
 # Screen imports
+from .screens.account_name_input_screen import AccountNameInputScreen
+from .screens.account_selector_screen import AccountSelectorScreen
 from .screens.credential_screens import (
     BackendSelectionScreen,
     CachePromptScreen,
@@ -270,19 +274,45 @@ class MoneyflowApp(App):
         loading_status.display = True
         return loading_status
 
-    def _initialize_managers(self):
-        """Initialize data manager, cache manager, and controller."""
-        # In demo mode, use a temp directory for merchant cache (don't pollute ~/.moneyflow)
-        merchant_cache_dir = "" if not self.demo_mode else "/tmp/moneyflow_demo"
+    def _initialize_managers(self, profile_dir: Optional[Path] = None):
+        """
+        Initialize data manager, cache manager, and controller.
+
+        Args:
+            profile_dir: Optional profile directory for multi-account mode
+                        If provided, merchant cache and transaction cache will be
+                        stored in this directory to isolate accounts
+        """
         # config_dir is required - default to ~/.moneyflow if not specified
         config_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
+
+        # Determine merchant cache directory
+        if self.demo_mode:
+            # Demo mode: use temp directory (don't pollute ~/.moneyflow)
+            merchant_cache_dir = "/tmp/moneyflow_demo"
+        elif profile_dir:
+            # Multi-account mode: use profile directory to isolate merchant caches
+            merchant_cache_dir = str(profile_dir)
+        else:
+            # Legacy single-account mode: use config_dir
+            merchant_cache_dir = ""
+
         self.data_manager = DataManager(
             self.backend, config_dir=config_dir, merchant_cache_dir=merchant_cache_dir
         )
 
-        # Initialize cache manager only if user requested caching
+        # Initialize cache manager
         if self.cache_path is not None:
-            self.cache_manager = CacheManager(cache_dir=self.cache_path)
+            # If profile_dir provided, use profile-scoped cache directory
+            if profile_dir and self.cache_path == "":
+                # User passed --cache without path, use default cache location
+                # For multi-account: cache inside profile directory
+                cache_dir = str(profile_dir / "cache")
+            else:
+                # User specified explicit cache path or using legacy mode
+                cache_dir = self.cache_path
+
+            self.cache_manager = CacheManager(cache_dir=cache_dir)
 
         # Initialize controller with view presenter pattern
         view = TextualViewPresenter(self)
@@ -378,6 +408,162 @@ class MoneyflowApp(App):
                 self.exit()
                 return None
             return creds
+
+    async def _handle_account_selection(self):
+        """
+        Handle account selection flow for multi-account support.
+
+        Shows account selector, handles add new account flow, and sets up profile.
+
+        Returns:
+            tuple: (account_id, profile_dir, credentials_dict) or (None, None, None) if user exits
+                   account_id can be "demo" for demo mode
+        """
+        logger = get_logger(__name__)
+
+        # Initialize account manager
+        config_path = Path(self.config_dir) if self.config_dir else None
+
+        # Check for legacy credentials and migrate if needed
+        migrated = migrate_legacy_credentials(config_dir=config_path)
+        if migrated:
+            logger.info("Migrated legacy credentials to default profile")
+
+        account_manager = AccountManager(config_dir=config_path)
+
+        while True:  # Loop to handle "add new account" flow
+            # Show account selector
+            result = await self.push_screen(
+                AccountSelectorScreen(config_dir=str(config_path) if config_path else None),
+                wait_for_dismiss=True,
+            )
+
+            if result is None:
+                # User chose to exit
+                return None, None, None
+
+            if result == "demo":
+                # Demo mode - no account/credentials needed
+                return "demo", None, None
+
+            if result == "add_new":
+                # Add new account flow
+                new_account_info = await self._handle_add_new_account(account_manager)
+
+                if new_account_info is None:
+                    # User cancelled - return to account selector
+                    continue
+
+                # New account created - return its info
+                account_id, profile_dir, creds = new_account_info
+                return account_id, profile_dir, creds
+
+            # result is an account_id - load that account
+            account = account_manager.get_account(result)
+            if account is None:
+                logger.error(f"Account {result} not found in registry")
+                # Show error and return to selector
+                continue
+
+            # Get profile directory for this account
+            profile_dir = account_manager.get_profile_dir(account.id)
+
+            # Load credentials for this account (if backend requires auth)
+            cred_manager = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
+
+            if not cred_manager.credentials_exist():
+                # Account exists in registry but has no credentials
+                # (shouldn't happen, but handle gracefully)
+                logger.warning(f"Account {account.id} has no credentials, prompting setup")
+
+                # Show credential setup
+                creds = await self.push_screen(
+                    CredentialSetupScreen(backend_type=account.backend_type),
+                    wait_for_dismiss=True,
+                )
+
+                if not creds:
+                    # User cancelled - return to account selector
+                    continue
+
+                return account.id, profile_dir, creds
+
+            # Load existing credentials
+            creds = await self.push_screen(CredentialUnlockScreen(), wait_for_dismiss=True)
+
+            if creds is None:
+                # User chose to reset credentials or cancelled
+                # For now, just return to account selector
+                # TODO: Could add option to reset/delete account here
+                continue
+
+            # Success - return account info
+            return account.id, profile_dir, creds
+
+    async def _handle_add_new_account(self, account_manager: AccountManager):
+        """
+        Handle adding a new account.
+
+        Args:
+            account_manager: AccountManager instance
+
+        Returns:
+            tuple: (account_id, profile_dir, credentials) or None if cancelled
+        """
+        # Step 1: Get account name from user
+        account_name = await self.push_screen(
+            AccountNameInputScreen(
+                backend_type="monarch"
+            ),  # Placeholder, will get actual type next
+            wait_for_dismiss=True,
+        )
+
+        if not account_name:
+            return None  # User cancelled
+
+        # Step 2: Select backend type
+        backend_type = await self.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
+
+        if not backend_type:
+            return None  # User cancelled
+
+        # Step 3: Create account profile
+        try:
+            account = account_manager.create_account(name=account_name, backend_type=backend_type)
+        except ValueError as e:
+            # Duplicate account ID - shouldn't happen with our ID generation, but handle it
+            logger = get_logger(__name__)
+            logger.error(f"Failed to create account: {e}")
+            return None
+
+        # Step 4: Get credentials (if backend requires auth)
+        from .backend_config import BackendConfig
+
+        backend_config = {
+            "monarch": BackendConfig.for_monarch(),
+            "ynab": BackendConfig.for_ynab(),
+            "amazon": BackendConfig.for_amazon(),
+            "demo": BackendConfig.for_demo(),
+        }.get(backend_type, BackendConfig.for_monarch())
+
+        if backend_config.requires_auth:
+            # Show credential setup
+            creds = await self.push_screen(
+                CredentialSetupScreen(backend_type=backend_type), wait_for_dismiss=True
+            )
+
+            if not creds:
+                # User cancelled - delete the account we just created
+                account_manager.delete_account(account.id)
+                return None
+        else:
+            # Backend doesn't need credentials (Amazon, Demo)
+            creds = {"backend_type": backend_type}
+
+        # Get profile directory
+        profile_dir = account_manager.get_profile_dir(account.id)
+
+        return account.id, profile_dir, creds
 
     async def _login_with_retry(self, creds, loading_status):
         """Login with retry logic for robustness.
@@ -706,14 +892,38 @@ class MoneyflowApp(App):
             loading_status.update("🔄 Connecting to backend...")
 
         try:
-            # Step 1: Handle credentials (only if backend requires auth)
+            # Step 1: Handle account selection (unless in demo mode or backend pre-configured)
+            profile_dir = None
             creds = None
-            if not self.demo_mode and self.backend_config.requires_auth:
-                creds = await self._handle_credentials()
-                if creds is None:
+
+            if self.demo_mode:
+                # Demo mode - no account selection needed
+                account_id = "demo"
+                loading_status.update("🎮 DEMO MODE - Loading sample data...")
+            elif self.backend is not None:
+                # Backend pre-configured (e.g., Amazon mode via CLI)
+                # Use legacy credential handling
+                account_id = None  # No account tracking for pre-configured backends
+                if self.backend_config.requires_auth:
+                    creds = await self._handle_credentials()
+                    if creds is None:
+                        return  # User exited
+            else:
+                # Normal multi-account flow
+                account_id, profile_dir, creds = await self._handle_account_selection()
+
+                if account_id is None:
                     return  # User exited
 
-                # Initialize backend based on credentials
+                if account_id == "demo":
+                    # User selected demo mode from account selector
+                    self.demo_mode = True
+                    self.backend = DemoBackend(start_year=self.start_year or 2023, years=3)
+                    self.title = "moneyflow [DEMO MODE]"
+                    loading_status.update("🎮 DEMO MODE - Loading sample data...")
+
+            # Step 2: Initialize backend (if not already set)
+            if self.backend is None and creds:
                 backend_type = creds.get("backend_type", "monarch")
                 loading_status.update(f"🔄 Initializing {backend_type} backend...")
                 self.backend = get_backend(backend_type)
@@ -729,23 +939,23 @@ class MoneyflowApp(App):
                 elif backend_type == "demo":
                     self.backend_config = BackendConfig.for_demo()
 
-                # Step 2: Login with retry logic
+                # Step 3: Login with retry logic
                 login_success = await self._login_with_retry(creds, loading_status)
                 if not login_success:
                     has_error = True
                     return
-            else:
-                # No authentication needed (demo mode or local backend like Amazon)
-                if self.demo_mode:
-                    loading_status.update("🎮 DEMO MODE - No authentication required")
+            elif self.backend and not self.demo_mode:
+                # Backend exists but might need login
+                if self.backend_config.requires_auth and creds:
+                    login_success = await self._login_with_retry(creds, loading_status)
+                    if not login_success:
+                        has_error = True
+                        return
                 else:
-                    loading_status.update(
-                        f"📂 Using local {self.backend_config.backend_type} data..."
-                    )
-                await self.backend.login()  # No-op for backends without auth
+                    await self.backend.login()  # No-op for backends without auth
 
-            # Step 3: Initialize managers
-            self._initialize_managers()
+            # Step 4: Initialize managers (pass profile_dir for multi-account isolation)
+            self._initialize_managers(profile_dir=profile_dir)
 
             # Step 4: Determine date range
             start_date, end_date, self.cache_year_filter, self.cache_since_filter = (
