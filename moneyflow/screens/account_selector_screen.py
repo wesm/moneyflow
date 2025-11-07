@@ -87,10 +87,24 @@ class AccountSelectorScreen(Screen):
         padding: 1 2;
         background: $boost;
         margin-bottom: 1;
+        border: solid transparent;
     }
 
     .account-item:hover {
         background: $primary;
+    }
+
+    .account-item:focus {
+        background: $accent;
+        border: thick $accent;
+        text-style: bold;
+        color: $text;
+    }
+
+    Button.account-item:focus {
+        background: $accent;
+        border: thick $accent;
+        text-style: bold;
     }
 
     .account-name {
@@ -229,13 +243,12 @@ class AccountSelectorScreen(Screen):
 
         # Simplified: Use a single button per account with icon, name, and metadata
         # The button includes formatted info and encodes account_id in its ID
-        button_label = (
-            f"{icon} {account.name}\n  {account.backend_type.capitalize()} • {last_used_str}"
-        )
+        # Visual highlighting is handled by CSS :focus pseudo-class
+        button_label = f"{icon} {account.name}\n  {account.backend_type.capitalize()} • {last_used_str}"
 
         return Button(
             button_label,
-            variant="primary",
+            variant="default",
             id=f"select-{account.id}",
             classes="account-item",
         )
