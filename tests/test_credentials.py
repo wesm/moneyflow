@@ -484,3 +484,107 @@ class TestSecurityProperties:
 
         # Encrypted data should be different (due to random IV in Fernet)
         assert encrypted1 != encrypted2
+
+
+class TestProfileDirectory:
+    """Test profile directory mode for multi-account support."""
+
+    def test_profile_dir_creates_separate_storage(self, temp_config_dir):
+        """Test that profile_dir creates separate credentials storage."""
+        profile_dir = temp_config_dir / "profiles" / "test-profile"
+
+        manager = CredentialManager(config_dir=temp_config_dir, profile_dir=profile_dir)
+
+        assert manager.storage_dir == profile_dir
+        assert manager.credentials_file == profile_dir / "credentials.enc"
+        assert manager.salt_file == profile_dir / "salt"
+
+    def test_profile_dir_isolates_credentials(self, temp_config_dir):
+        """Test that different profiles have isolated credentials."""
+        profile1_dir = temp_config_dir / "profiles" / "account1"
+        profile2_dir = temp_config_dir / "profiles" / "account2"
+
+        manager1 = CredentialManager(config_dir=temp_config_dir, profile_dir=profile1_dir)
+        manager2 = CredentialManager(config_dir=temp_config_dir, profile_dir=profile2_dir)
+
+        # Save different credentials to each profile
+        manager1.save_credentials(
+            email="user1@example.com",
+            password="pass1",
+            mfa_secret="secret1",
+            encryption_password="encrypt1",
+        )
+
+        manager2.save_credentials(
+            email="user2@example.com",
+            password="pass2",
+            mfa_secret="secret2",
+            encryption_password="encrypt2",
+        )
+
+        # Load and verify isolation
+        creds1 = manager1.load_credentials(encryption_password="encrypt1")
+        creds2 = manager2.load_credentials(encryption_password="encrypt2")
+
+        assert creds1["email"] == "user1@example.com"
+        assert creds2["email"] == "user2@example.com"
+
+        # Verify files are in separate directories
+        assert (profile1_dir / "credentials.enc").exists()
+        assert (profile2_dir / "credentials.enc").exists()
+        assert (profile1_dir / "salt").exists()
+        assert (profile2_dir / "salt").exists()
+
+    def test_profile_dir_creates_directory_if_missing(self, temp_config_dir):
+        """Test that profile directory is created if it doesn't exist."""
+        profile_dir = temp_config_dir / "profiles" / "new-profile"
+
+        assert not profile_dir.exists()
+
+        _manager = CredentialManager(config_dir=temp_config_dir, profile_dir=profile_dir)
+
+        assert profile_dir.exists()
+        assert oct(profile_dir.stat().st_mode)[-3:] == "700"
+
+    def test_legacy_mode_without_profile_dir(self, temp_config_dir):
+        """Test legacy mode (no profile_dir) still works."""
+        manager = CredentialManager(config_dir=temp_config_dir)
+
+        # Should use config_dir as storage_dir (legacy behavior)
+        assert manager.storage_dir == temp_config_dir
+        assert manager.credentials_file == temp_config_dir / "credentials.enc"
+        assert manager.salt_file == temp_config_dir / "salt"
+
+    def test_multiple_profiles_same_backend_type(self, temp_config_dir):
+        """Test multiple profiles for same backend type (e.g., two Monarch accounts)."""
+        monarch_personal = temp_config_dir / "profiles" / "monarch-personal"
+        monarch_business = temp_config_dir / "profiles" / "monarch-business"
+
+        mgr_personal = CredentialManager(config_dir=temp_config_dir, profile_dir=monarch_personal)
+        mgr_business = CredentialManager(config_dir=temp_config_dir, profile_dir=monarch_business)
+
+        # Save credentials with same backend_type but different accounts
+        mgr_personal.save_credentials(
+            email="personal@example.com",
+            password="pass1",
+            mfa_secret="secret1",
+            encryption_password="encrypt",
+            backend_type="monarch",
+        )
+
+        mgr_business.save_credentials(
+            email="business@example.com",
+            password="pass2",
+            mfa_secret="secret2",
+            encryption_password="encrypt",
+            backend_type="monarch",
+        )
+
+        # Both should have backend_type=monarch but different credentials
+        creds_personal = mgr_personal.load_credentials(encryption_password="encrypt")
+        creds_business = mgr_business.load_credentials(encryption_password="encrypt")
+
+        assert creds_personal["backend_type"] == "monarch"
+        assert creds_business["backend_type"] == "monarch"
+        assert creds_personal["email"] == "personal@example.com"
+        assert creds_business["email"] == "business@example.com"

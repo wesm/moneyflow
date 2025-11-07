@@ -83,6 +83,8 @@ class DataManager:
             mm: Backend instance (must implement FinanceBackend interface)
             config_dir: Config directory for config.yaml (required to prevent accidental pollution)
             merchant_cache_dir: Directory for merchant cache (defaults to config_dir if empty)
+                               For multi-account mode, pass profile directory to isolate merchant
+                               caches per account (e.g., ~/.moneyflow/profiles/monarch-personal/)
         """
         self.mm = mm
         self.config_dir = config_dir  # Store for apply_category_groups

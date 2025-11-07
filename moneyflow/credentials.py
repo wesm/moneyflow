@@ -22,28 +22,45 @@ class CredentialManager:
     """
     Manages encrypted credentials for finance backends.
 
-    Credentials are stored in ~/.moneyflow/credentials.enc
-    and encrypted with a user-provided password using Fernet.
-    Supports multiple backends (Monarch Money, YNAB, etc.).
+    Supports two modes:
+    1. Multi-account mode (profile_dir specified):
+       Credentials stored in {profile_dir}/credentials.enc
+       Each account has isolated credentials/salt
+
+    2. Legacy mode (profile_dir=None):
+       Credentials stored in {config_dir}/credentials.enc
+       Single account (backward compatible)
     """
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Optional[Path] = None, profile_dir: Optional[Path] = None):
         """
         Initialize credential manager.
 
         Args:
-            config_dir: Optional custom config directory.
-                       Defaults to ~/.moneyflow
+            config_dir: Optional custom config directory (defaults to ~/.moneyflow)
+                       Used for legacy single-account mode when profile_dir is None
+            profile_dir: Optional profile directory for multi-account mode
+                        If provided, credentials stored in profile_dir instead of config_dir
+                        Example: ~/.moneyflow/profiles/monarch-personal/
         """
         if config_dir is None:
             config_dir = Path.home() / ".moneyflow"
 
-        self.config_dir = config_dir
-        self.credentials_file = config_dir / "credentials.enc"
-        self.salt_file = config_dir / "salt"
+        self.config_dir = Path(config_dir)
 
-        # Create config directory if it doesn't exist
-        self.config_dir.mkdir(mode=0o700, exist_ok=True)
+        # Determine storage directory: profile_dir takes precedence over config_dir
+        if profile_dir is not None:
+            storage_dir = Path(profile_dir)
+        else:
+            # Legacy mode: store in config_dir directly
+            storage_dir = self.config_dir
+
+        self.storage_dir = storage_dir
+        self.credentials_file = storage_dir / "credentials.enc"
+        self.salt_file = storage_dir / "salt"
+
+        # Create storage directory if it doesn't exist
+        self.storage_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     def _derive_key(self, password: str, salt: bytes) -> bytes:
         """
