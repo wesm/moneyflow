@@ -996,6 +996,58 @@ class AppState:
         self.show_transfers = saved_state.get("show_transfers", self.show_transfers)
         self.show_hidden = saved_state.get("show_hidden", self.show_hidden)
 
+    def _get_drill_down_order(self) -> List[str]:
+        """
+        Determine the order in which dimensions were drilled down.
+
+        Returns a list of dimension names in the order they were selected.
+        Used to display breadcrumbs in the correct hierarchical order.
+
+        Returns:
+            List of dimension names ('time', 'merchant', 'category', 'group', 'account')
+            in the order they were selected during navigation.
+        """
+        # Check which dimensions are currently selected
+        current_selections = {
+            "time": self.selected_time_year is not None,
+            "merchant": self.selected_merchant is not None,
+            "category": self.selected_category is not None,
+            "group": self.selected_group is not None,
+            "account": self.selected_account is not None,
+        }
+
+        selected_dims = [k for k, v in current_selections.items() if v]
+
+        # If only one or zero dimensions, order is simple
+        if len(selected_dims) <= 1:
+            return selected_dims
+
+        # Multiple dimensions - determine order from navigation_history
+        order = []
+
+        # Iterate through navigation history to build the drill order
+        for nav_state in self.navigation_history:
+            # Check which dimensions were selected at this point in history
+            hist_selections = {
+                "time": nav_state.selected_time_year is not None,
+                "merchant": nav_state.selected_merchant is not None,
+                "category": nav_state.selected_category is not None,
+                "group": nav_state.selected_group is not None,
+                "account": nav_state.selected_account is not None,
+            }
+
+            # Find dimensions that are in hist_selections but not yet in order
+            for dim, selected in hist_selections.items():
+                if selected and dim not in order and current_selections[dim]:
+                    order.append(dim)
+
+        # Add dimensions that are in current state but not in history (most recent drill)
+        for dim in selected_dims:
+            if dim not in order:
+                order.append(dim)
+
+        return order
+
     def get_breadcrumb(self, display_labels: Optional[Dict[str, str]] = None) -> str:
         """
         Get breadcrumb string showing current navigation path.
@@ -1051,65 +1103,67 @@ class AppState:
             else:
                 parts.append(granularity_label)
         elif self.view_mode == ViewMode.DETAIL:
-            # Show all drill-down levels
-            # Order: Time (if set) → Merchant/Category/Group/Account
-            has_any_selection = False
+            # Show all drill-down levels in the order they were drilled
+            drill_order = self._get_drill_down_order()
 
-            # Time period comes first if selected
-            if self.selected_time_year is not None:
-                parts.append("Time")
-                if self.selected_time_month is not None:
-                    # Format as "Mar 2024"
-                    month_names = [
-                        "Jan",
-                        "Feb",
-                        "Mar",
-                        "Apr",
-                        "May",
-                        "Jun",
-                        "Jul",
-                        "Aug",
-                        "Sep",
-                        "Oct",
-                        "Nov",
-                        "Dec",
-                    ]
-                    parts.append(
-                        f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
-                    )
-                else:
-                    # Just year
-                    parts.append(str(self.selected_time_year))
-                has_any_selection = True
-
-            # Then other dimensions
-            if self.selected_merchant:
-                if not has_any_selection:
+            # Helper to add dimension to breadcrumb
+            def add_dimension(dim: str, is_first: bool):
+                """Add a dimension to the breadcrumb parts."""
+                if dim == "time":
+                    # Only add "Time" label if it's the first dimension
+                    if is_first:
+                        parts.append("Time")
+                    if self.selected_time_month is not None:
+                        # Format as "Mar 2024"
+                        month_names = [
+                            "Jan",
+                            "Feb",
+                            "Mar",
+                            "Apr",
+                            "May",
+                            "Jun",
+                            "Jul",
+                            "Aug",
+                            "Sep",
+                            "Oct",
+                            "Nov",
+                            "Dec",
+                        ]
+                        parts.append(
+                            f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
+                        )
+                    else:
+                        # Just year
+                        assert self.selected_time_year is not None
+                        parts.append(str(self.selected_time_year))
+                elif dim == "merchant":
+                    # Merchant always adds label (matching old behavior where both if/else added it)
                     parts.append(merchants_label)
-                else:
-                    parts.append(merchants_label)
-                parts.append(self.selected_merchant)
-                has_any_selection = True
+                    assert self.selected_merchant is not None
+                    parts.append(self.selected_merchant)
+                elif dim == "category":
+                    # Category/group/account only add label if first dimension
+                    if is_first:
+                        parts.append("Categories")
+                    assert self.selected_category is not None
+                    parts.append(self.selected_category)
+                elif dim == "group":
+                    if is_first:
+                        parts.append("Groups")
+                    assert self.selected_group is not None
+                    parts.append(self.selected_group)
+                elif dim == "account":
+                    if is_first:
+                        parts.append(accounts_label)
+                    assert self.selected_account is not None
+                    parts.append(self.selected_account)
 
-            if self.selected_category:
-                if not has_any_selection:
-                    parts.append("Categories")
-                parts.append(self.selected_category)
-                has_any_selection = True
+            # Add dimensions in drill-down order
+            for i, dim in enumerate(drill_order):
+                add_dimension(dim, i == 0)
 
-            if self.selected_group:
-                if not has_any_selection:
-                    parts.append("Groups")
-                parts.append(self.selected_group)
-                has_any_selection = True
-
-            if self.selected_account:
-                if not has_any_selection:
-                    parts.append(accounts_label)
-                parts.append(self.selected_account)
-                has_any_selection = True
-
-            if not has_any_selection:
+            # If no dimensions selected, show default
+            if not drill_order:
                 parts.append("All Transactions")
 
             # Add sub-grouping indicator if active

@@ -908,6 +908,87 @@ class TestBreadcrumbs:
         assert "Year" not in breadcrumb
         assert breadcrumb == "Merchants"
 
+    def test_breadcrumb_merchant_then_time(self, app_state):
+        """Test breadcrumb shows merchant before time when drilled in that order."""
+        # Simulate drilling: Merchants → Amazon → (by Time) → 2024
+        app_state.view_mode = ViewMode.MERCHANT
+        app_state.time_granularity = TimeGranularity.YEAR
+        # First drill into Amazon
+        app_state.drill_down("Amazon", cursor_position=0, scroll_y=0.0)
+        # Cycle to sub-grouping by time
+        app_state.sub_grouping_mode = ViewMode.TIME
+        # Then drill into time period (this properly saves navigation history)
+        app_state.drill_down("2024", cursor_position=0, scroll_y=0.0)
+
+        breadcrumb = app_state.get_breadcrumb()
+
+        # Should show: Merchants > Amazon > 2024
+        # NOT: Time > 2024 > Merchants > Amazon
+        assert breadcrumb == "Merchants > Amazon > 2024"
+
+    def test_breadcrumb_merchant_then_time_month(self, app_state):
+        """Test breadcrumb shows merchant before time month when drilled in that order."""
+        # Simulate drilling: Merchants → Amazon → (by Time) → Mar 2024
+        app_state.view_mode = ViewMode.MERCHANT
+        app_state.time_granularity = TimeGranularity.MONTH
+        app_state.drill_down("Amazon", cursor_position=0, scroll_y=0.0)
+        app_state.sub_grouping_mode = ViewMode.TIME
+        app_state.drill_down("Mar 2024", cursor_position=0, scroll_y=0.0)
+
+        breadcrumb = app_state.get_breadcrumb()
+
+        # Should show: Merchants > Amazon > Mar 2024
+        assert breadcrumb == "Merchants > Amazon > Mar 2024"
+
+    def test_breadcrumb_category_then_time(self, app_state):
+        """Test breadcrumb shows category before time when drilled in that order."""
+        # Simulate drilling: Categories → Groceries → (by Time) → 2024
+        app_state.view_mode = ViewMode.CATEGORY
+        app_state.time_granularity = TimeGranularity.YEAR
+        app_state.drill_down("Groceries", cursor_position=0, scroll_y=0.0)
+        app_state.sub_grouping_mode = ViewMode.TIME
+        app_state.drill_down("2024", cursor_position=0, scroll_y=0.0)
+
+        breadcrumb = app_state.get_breadcrumb()
+
+        # Should show: Categories > Groceries > 2024
+        assert breadcrumb == "Categories > Groceries > 2024"
+
+    def test_breadcrumb_time_then_merchant(self, app_state):
+        """Test breadcrumb shows time before merchant when drilled in that order."""
+        # Simulate drilling: Time → 2024 → (by Merchant) → Amazon
+        app_state.view_mode = ViewMode.TIME
+        app_state.time_granularity = TimeGranularity.YEAR
+        app_state.drill_down("2024", cursor_position=0, scroll_y=0.0)
+        # Cycle to sub-grouping by merchant
+        app_state.sub_grouping_mode = ViewMode.MERCHANT
+        # Drill into merchant
+        app_state.drill_down("Amazon", cursor_position=0, scroll_y=0.0)
+
+        breadcrumb = app_state.get_breadcrumb()
+
+        # Should show: Time > 2024 > Merchants > Amazon
+        # NOT: Merchants > Amazon > 2024
+        # The order should be preserved based on navigation_history
+        parts = breadcrumb.split(" > ")
+        # Time should come before Merchants in the breadcrumb
+        time_index = next((i for i, p in enumerate(parts) if "2024" in p), -1)
+        merchant_index = next((i for i, p in enumerate(parts) if "Amazon" in p), -1)
+        assert time_index < merchant_index
+        assert breadcrumb == "Time > 2024 > Merchants > Amazon"
+
+    def test_breadcrumb_time_only(self, app_state):
+        """Test breadcrumb shows only time when that's the only drill-down."""
+        # Simulate drilling: Time → 2024
+        app_state.view_mode = ViewMode.TIME
+        app_state.time_granularity = TimeGranularity.YEAR
+        app_state.drill_down("2024", cursor_position=0, scroll_y=0.0)
+
+        breadcrumb = app_state.get_breadcrumb()
+
+        # Should show: Time > 2024
+        assert breadcrumb == "Time > 2024"
+
 
 class TestSubGrouping:
     """Tests for sub-grouping within drilled-down views."""
