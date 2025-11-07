@@ -1,6 +1,7 @@
 """Account name input screen for adding new accounts."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import Button, Input, Label, Static
@@ -12,7 +13,15 @@ class AccountNameInputScreen(Screen):
 
     Shows backend type and asks for a friendly display name.
     Returns the account name when dismissed, or None if canceled.
+
+    Keyboard shortcuts:
+    - Enter: Continue with entered name (also from input field)
+    - Esc: Cancel
     """
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
 
     CSS = """
     AccountNameInputScreen {
@@ -101,7 +110,8 @@ class AccountNameInputScreen(Screen):
             yield Label(f"📝 Name Your {backend_label} Account", id="name-title")
 
             yield Static(
-                "Enter a friendly name to identify this account:",
+                "Enter a friendly name to identify this account.\n"
+                "Keys: Enter=Continue | Esc=Cancel",
                 classes="name-help",
             )
 
@@ -164,3 +174,7 @@ class AccountNameInputScreen(Screen):
 
         # Valid - dismiss with account name
         self.dismiss(account_name)
+
+    def action_cancel(self) -> None:
+        """Cancel account name input (Esc key)."""
+        self.dismiss(None)

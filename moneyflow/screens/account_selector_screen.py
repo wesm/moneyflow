@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static
@@ -15,16 +16,34 @@ class AccountSelectorScreen(Screen):
     Account selection screen shown on startup.
 
     Allows users to:
-    - Select an existing account to use
-    - Add a new account
-    - Use demo mode (no account required)
-    - Delete accounts (with confirmation)
+    - Navigate accounts with Up/Down arrows
+    - Select account with Enter
+    - Add new account (a/n key or button)
+    - Use demo mode (d key or button)
+    - Exit (Esc/q or button)
 
     Returns selected account ID when dismissed, or special values:
     - "demo" for demo mode
     - "add_new" to trigger add account flow
     - None if user exits
+
+    Keyboard shortcuts:
+    - Up/Down: Navigate accounts
+    - Enter: Select highlighted account
+    - a/n: Add new account
+    - d: Demo mode
+    - Esc/q: Exit
+    - Tab/Shift+Tab: Navigate buttons
     """
+
+    BINDINGS = [
+        Binding("escape,q", "exit_selector", "Exit", show=False),
+        Binding("a,n", "add_account", "Add New", show=False),
+        Binding("d", "demo_mode", "Demo", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("enter", "select_current", "Select", show=False),
+    ]
 
     CSS = """
     AccountSelectorScreen {
@@ -120,6 +139,8 @@ class AccountSelectorScreen(Screen):
         self.account_manager = AccountManager(config_dir=config_dir)
         # Load accounts immediately so they're available for compose()
         self.accounts = self.account_manager.list_accounts()
+        # Track currently highlighted account index (for arrow key navigation)
+        self.current_index = 0
 
     def compose(self) -> ComposeResult:
         """Compose the account selector UI."""
@@ -127,7 +148,8 @@ class AccountSelectorScreen(Screen):
             yield Label("💼 Select Account", id="selector-title")
 
             yield Static(
-                "Choose an account to load, or add a new one:",
+                "Choose an account to load, or add a new one.\n"
+                "Keys: ↑/↓=Navigate | Enter=Select | a=Add | d=Demo | Esc/q=Exit",
                 classes="selector-help",
             )
 
@@ -144,7 +166,6 @@ class AccountSelectorScreen(Screen):
                     "🎮 Demo Mode", variant="default", id="demo-button", classes="action-button"
                 )
                 yield Button("Exit", variant="default", id="exit-button", classes="action-button")
-
 
     def _render_account_list(self) -> list:
         """Render list of account items."""
@@ -165,6 +186,17 @@ class AccountSelectorScreen(Screen):
             widgets.append(self._create_account_item(account))
 
         return widgets
+
+    def on_mount(self) -> None:
+        """Set focus to first account button when screen loads."""
+        if self.accounts:
+            # Focus the first account button
+            first_button_id = f"select-{self.accounts[0].id}"
+            try:
+                button = self.query_one(f"#{first_button_id}", Button)
+                button.focus()
+            except Exception:
+                pass  # Button might not exist yet
 
     def _create_account_item(self, account: Account) -> Container:
         """
@@ -231,3 +263,54 @@ class AccountSelectorScreen(Screen):
             self.account_manager.update_last_used(account_id)
             self.dismiss(account_id)
             return
+
+    def action_exit_selector(self) -> None:
+        """Exit the account selector (Esc/q key)."""
+        self.dismiss(None)
+
+    def action_add_account(self) -> None:
+        """Trigger add new account flow (a/n key)."""
+        self.dismiss("add_new")
+
+    def action_demo_mode(self) -> None:
+        """Launch demo mode (d key)."""
+        self.dismiss("demo")
+
+    def action_cursor_up(self) -> None:
+        """Move selection up (↑ key)."""
+        if not self.accounts:
+            return
+
+        # Move to previous account (wrap around)
+        self.current_index = (self.current_index - 1) % len(self.accounts)
+        self._focus_current_account()
+
+    def action_cursor_down(self) -> None:
+        """Move selection down (↓ key)."""
+        if not self.accounts:
+            return
+
+        # Move to next account (wrap around)
+        self.current_index = (self.current_index + 1) % len(self.accounts)
+        self._focus_current_account()
+
+    def action_select_current(self) -> None:
+        """Select currently highlighted account (Enter key)."""
+        if not self.accounts or self.current_index >= len(self.accounts):
+            return
+
+        account = self.accounts[self.current_index]
+        # Update last used timestamp
+        self.account_manager.update_last_used(account.id)
+        self.dismiss(account.id)
+
+    def _focus_current_account(self) -> None:
+        """Focus the button for the currently selected account."""
+        if self.current_index < len(self.accounts):
+            account = self.accounts[self.current_index]
+            button_id = f"select-{account.id}"
+            try:
+                button = self.query_one(f"#{button_id}", Button)
+                button.focus()
+            except Exception:
+                pass  # Button might not exist yet
