@@ -1,6 +1,7 @@
 """Credential setup and unlock screens, quit confirmation, and filter modal."""
 
 from pathlib import Path
+from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -148,10 +149,18 @@ class CredentialSetupScreen(Screen):
     }
     """
 
-    def __init__(self, backend_type: str = "monarch"):
-        """Initialize with selected backend type."""
+    def __init__(self, backend_type: str = "monarch", profile_dir: Optional[Path] = None):
+        """
+        Initialize credential setup screen.
+
+        Args:
+            backend_type: Backend type (monarch, ynab, etc.)
+            profile_dir: Optional profile directory for multi-account mode
+                        If provided, credentials will be saved in profile_dir
+        """
         super().__init__()
         self.backend_type = backend_type
+        self.profile_dir = profile_dir
 
     def compose(self) -> ComposeResult:
         with Container(id="setup-container"):
@@ -277,7 +286,7 @@ class CredentialSetupScreen(Screen):
             error_label.update("💾 Saving credentials...")
             # Get config_dir from app and pass to CredentialManager
             config_path = Path(self.app.config_dir) if self.app.config_dir else None
-            cred_manager = CredentialManager(config_dir=config_path)
+            cred_manager = CredentialManager(config_dir=config_path, profile_dir=self.profile_dir)
             cred_manager.save_credentials(
                 email=email,
                 password=password,
@@ -304,6 +313,16 @@ class CredentialSetupScreen(Screen):
 
 class CredentialUnlockScreen(Screen):
     """Screen to unlock encrypted credentials."""
+
+    def __init__(self, profile_dir: Optional[Path] = None):
+        """
+        Initialize credential unlock screen.
+
+        Args:
+            profile_dir: Optional profile directory for multi-account mode
+        """
+        super().__init__()
+        self.profile_dir = profile_dir
 
     CSS = """
     CredentialUnlockScreen {
@@ -414,7 +433,7 @@ class CredentialUnlockScreen(Screen):
             error_label.update("🔓 Unlocking...")
             # Get config_dir from app and pass to CredentialManager
             config_path = Path(self.app.config_dir) if self.app.config_dir else None
-            cred_manager = CredentialManager(config_dir=config_path)
+            cred_manager = CredentialManager(config_dir=config_path, profile_dir=self.profile_dir)
             creds = cred_manager.load_credentials(encryption_password=encryption_password)
 
             error_label.update("✅ Unlocked! Logging in...")
@@ -434,7 +453,7 @@ class CredentialUnlockScreen(Screen):
         try:
             # Get config_dir from app and pass to CredentialManager
             config_path = Path(self.app.config_dir) if self.app.config_dir else None
-            cred_manager = CredentialManager(config_dir=config_path)
+            cred_manager = CredentialManager(config_dir=config_path, profile_dir=self.profile_dir)
             cred_manager.delete_credentials()
 
             # Switch to setup screen

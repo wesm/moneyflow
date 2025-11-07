@@ -478,7 +478,9 @@ class MoneyflowApp(App):
 
                 # Show credential setup
                 creds = await self.push_screen(
-                    CredentialSetupScreen(backend_type=account.backend_type),
+                    CredentialSetupScreen(
+                        backend_type=account.backend_type, profile_dir=profile_dir
+                    ),
                     wait_for_dismiss=True,
                 )
 
@@ -489,7 +491,9 @@ class MoneyflowApp(App):
                 return account.id, profile_dir, creds
 
             # Load existing credentials
-            creds = await self.push_screen(CredentialUnlockScreen(), wait_for_dismiss=True)
+            creds = await self.push_screen(
+                CredentialUnlockScreen(profile_dir=profile_dir), wait_for_dismiss=True
+            )
 
             if creds is None:
                 # User chose to reset credentials or cancelled
@@ -546,10 +550,14 @@ class MoneyflowApp(App):
             "demo": BackendConfig.for_demo(),
         }.get(backend_type, BackendConfig.for_monarch())
 
+        # Get profile directory
+        profile_dir = account_manager.get_profile_dir(account.id)
+
         if backend_config.requires_auth:
             # Show credential setup
             creds = await self.push_screen(
-                CredentialSetupScreen(backend_type=backend_type), wait_for_dismiss=True
+                CredentialSetupScreen(backend_type=backend_type, profile_dir=profile_dir),
+                wait_for_dismiss=True,
             )
 
             if not creds:
@@ -559,9 +567,6 @@ class MoneyflowApp(App):
         else:
             # Backend doesn't need credentials (Amazon, Demo)
             creds = {"backend_type": backend_type}
-
-        # Get profile directory
-        profile_dir = account_manager.get_profile_dir(account.id)
 
         return account.id, profile_dir, creds
 
