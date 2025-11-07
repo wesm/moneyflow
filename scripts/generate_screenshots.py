@@ -98,6 +98,7 @@ class ScreenshotGenerator:
             ("cycle-4-accounts", "Accounts view", self.screenshot_accounts_view),
             ("cycle-5-time-years", "Time view by years", self.screenshot_time_years_view),
             ("time-view-months", "Time view by months", self.screenshot_time_months_view),
+            ("time-view-days", "Time view by days", self.screenshot_time_days_view),
             ("time-drill-down-year", "Drilled into specific year", self.screenshot_time_drill_year),
             (
                 "time-drill-down-month",
@@ -281,9 +282,7 @@ class ScreenshotGenerator:
             # Press 'g' four times: MERCHANT → CATEGORY → GROUP → ACCOUNT → TIME
             await pilot.press("g", "g", "g", "g")
             await pilot.pause(0.3)
-            # Make sure we're in year view (press 'y' to ensure year granularity)
-            await pilot.press("y")
-            await pilot.pause(0.3)
+            # TIME view starts in year granularity by default
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_time_months_view(self, filename: str, description: str):
@@ -299,8 +298,26 @@ class ScreenshotGenerator:
             # Press 'g' four times to get to TIME view
             await pilot.press("g", "g", "g", "g")
             await pilot.pause(0.3)
-            # Press 't' to switch to month granularity
+            # Press 't' to toggle granularity: YEAR → MONTH
             await pilot.press("t")
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_time_days_view(self, filename: str, description: str):
+        """Screenshot: TIME view aggregated by days."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Press 'g' four times to get to TIME view
+            await pilot.press("g", "g", "g", "g")
+            await pilot.pause(0.3)
+            # Press 't' twice to toggle granularity: YEAR → MONTH → DAY
+            await pilot.press("t", "t")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 

@@ -58,7 +58,7 @@ from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, 
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
-from .state import AppState, TimeGranularity, ViewMode
+from .state import AppState, ViewMode
 from .textual_view import TextualViewPresenter
 from .widgets.help_screen import HelpScreen
 
@@ -119,8 +119,7 @@ class MoneyflowApp(App):
         # Note: 'c' removed - conflicts with commit confirmation in review screen
         Binding("A", "view_accounts", "Accounts", show=False, key_display="A"),
         # Time granularity (only active in TIME view)
-        Binding("y", "toggle_year_granularity", "Year", show=False),
-        Binding("t", "toggle_month_granularity", "Month", show=False),
+        Binding("t", "toggle_time_granularity", "Toggle Time", show=False),
         Binding("a", "clear_time_period", "Clear Time", show=False),
         # Sorting
         Binding("s", "toggle_sort_field", "Sort", show=True),
@@ -982,30 +981,13 @@ class MoneyflowApp(App):
             )
 
     # Time navigation actions
-    def action_toggle_year_granularity(self) -> None:
-        """Toggle to year granularity (in TIME view or when sub-grouping by time)."""
+    def action_toggle_time_granularity(self) -> None:
+        """Cycle through time granularities: Year → Month → Day → Year."""
         # Allow in TIME view or when sub-grouping by time
         if not (
             self.state.view_mode == ViewMode.TIME or self.state.sub_grouping_mode == ViewMode.TIME
         ):
             return  # Ignore if not in TIME context
-
-        if self.state.time_granularity == TimeGranularity.YEAR:
-            return  # Already in year view
-
-        view_name = self.controller.toggle_time_granularity()
-        self.notify(f"Switched to {view_name}", timeout=1)
-
-    def action_toggle_month_granularity(self) -> None:
-        """Toggle to month granularity (in TIME view or when sub-grouping by time)."""
-        # Allow in TIME view or when sub-grouping by time
-        if not (
-            self.state.view_mode == ViewMode.TIME or self.state.sub_grouping_mode == ViewMode.TIME
-        ):
-            return  # Ignore if not in TIME context
-
-        if self.state.time_granularity == TimeGranularity.MONTH:
-            return  # Already in month view
 
         view_name = self.controller.toggle_time_granularity()
         self.notify(f"Switched to {view_name}", timeout=1)

@@ -48,6 +48,15 @@ alt="Time view by years">
 alt="Time view by months">
 </td>
 </tr>
+<tr>
+<td width="50%">
+<strong>TIME View (by Days)</strong><br>
+<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-view-days.svg" width="100%"
+alt="Time view by days">
+</td>
+<td width="50%">
+</td>
+</tr>
 </table>
 
 | View | What It Shows | Use For |
@@ -56,7 +65,7 @@ alt="Time view by months">
 | **Category** | Spending by category | Identify which categories consume your budget |
 | **Group** | Spending by category group | Monthly budget reviews, broad spending patterns |
 | **Account** | Spending by payment method | Reconciliation, per-account spending analysis |
-| **Time** | Spending by time period (years or months) | Analyze spending trends over time, year-over-year comparisons |
+| **Time** | Spending by time period (years, months, or days) | Analyze spending trends over time, year-over-year comparisons |
 
 **Columns displayed:**
 
@@ -148,7 +157,7 @@ This allows you to analyze the same transactions from multiple perspectives with
 4. **Press `g` again** - View changes to `Merchants > Amazon (by Account)`
    - Shows which payment methods you use at Amazon
 5. **Press `g` again** - View changes to `Merchants > Amazon (by Year)`
-   - Shows Amazon spending trends over time (press `t` to toggle to monthly)
+   - Shows Amazon spending trends over time (press `t` to cycle granularity)
 6. **Press `g` again** - Returns to detail view
    - Shows all Amazon transactions ungrouped
 
@@ -237,22 +246,22 @@ temporal analysis.
 
 ### TIME View
 
-Press `g` to cycle to the TIME view, which shows your transactions aggregated by time period. Toggle between year
-and month granularity to adjust the time grouping:
+Press `g` to cycle to the TIME view, which shows your transactions aggregated by time period. Toggle through three
+granularity levels to adjust the time grouping:
 
-- **Press `y`** - Switch to year granularity (view by years: 2023, 2024, 2025)
-- **Press `t`** - Switch to month granularity (view by months: Jan 2024, Feb 2024, ...)
+- **Press `t`** - Cycle through granularities (Year, then Month, then Day, then back to Year)
 
 **Example workflow:**
 
 1. **Press `g` until you reach TIME view** - Shows all years in your dataset
 2. **Press `t`** - Toggle to monthly view - Shows all months with data
-3. **Press `Enter` on a specific period** - Drill into that time period
-4. **Press `g` to sub-group** - Pivot by Merchant/Category/etc within that period
+3. **Press `t` again** - Toggle to daily view - Shows all days with data
+4. **Press `Enter` on a specific period** - Drill into that time period
+5. **Press `g` to sub-group** - Pivot by Merchant/Category/etc within that period
 
 ### Drilling Into Time Periods
 
-From TIME view, press `Enter` on any year or month to drill down and see only transactions from that period.
+From TIME view, press `Enter` on any year, month, or day to drill down and see only transactions from that period.
 
 <table>
 <tr>
@@ -419,7 +428,7 @@ Here are some practical examples of using moneyflow's navigation features to ans
 | `x` | Delete selected transaction(s) |
 | `u` | Undo pending edit |
 | `w` | Commit pending edits |
-| `y` / `t` | Toggle time granularity (year/month) in TIME view |
+| `t` | Cycle time granularity (Year → Month → Day) in TIME view |
 | `a` | Clear time period drill-down |
 | `←` / `→` | Navigate time periods (when drilled into time) |
 

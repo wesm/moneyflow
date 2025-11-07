@@ -1919,10 +1919,18 @@ class TestTimeNavigation:
         assert state.time_granularity == TimeGranularity.MONTH
         assert result == "Months"
 
-    def test_toggle_time_granularity_month_to_year(self):
-        """Should toggle from MONTH to YEAR."""
+    def test_toggle_time_granularity_month_to_day(self):
+        """Should toggle from MONTH to DAY."""
         state = AppState()
         state.time_granularity = TimeGranularity.MONTH
+        result = state.toggle_time_granularity()
+        assert state.time_granularity == TimeGranularity.DAY
+        assert result == "Days"
+
+    def test_toggle_time_granularity_day_to_year(self):
+        """Should toggle from DAY to YEAR (completing the cycle)."""
+        state = AppState()
+        state.time_granularity = TimeGranularity.DAY
         result = state.toggle_time_granularity()
         assert state.time_granularity == TimeGranularity.YEAR
         assert result == "Years"

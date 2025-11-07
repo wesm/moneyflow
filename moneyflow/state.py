@@ -51,6 +51,7 @@ class TimeGranularity(Enum):
 
     YEAR = "year"
     MONTH = "month"
+    DAY = "day"
 
 
 @dataclass
@@ -75,6 +76,7 @@ class NavigationState:
     selected_account: Optional[str] = None
     selected_time_year: Optional[int] = None
     selected_time_month: Optional[int] = None
+    selected_time_day: Optional[int] = None
     sub_grouping_mode: Optional[ViewMode] = None
     time_granularity: TimeGranularity = TimeGranularity.YEAR
 
@@ -136,6 +138,7 @@ class AppState:
     selected_account: Optional[str] = None
     selected_time_year: Optional[int] = None  # Drill-down: which year
     selected_time_month: Optional[int] = None  # Drill-down: which month (1-12)
+    selected_time_day: Optional[int] = None  # Drill-down: which day (1-31)
     selected_row: int = 0
 
     # Sub-grouping when drilled down (e.g., "Merchant > Amazon (by Category)")
@@ -267,18 +270,22 @@ class AppState:
         """Clear time period drill-down."""
         self.selected_time_year = None
         self.selected_time_month = None
+        self.selected_time_day = None
 
     def toggle_time_granularity(self) -> str:
         """
-        Toggle between year and month granularity.
+        Cycle through time granularities: Year → Month → Day → Year.
 
         Returns:
-            Friendly name of new granularity ("Years" or "Months")
+            Friendly name of new granularity ("Years", "Months", or "Days")
         """
         if self.time_granularity == TimeGranularity.YEAR:
             self.time_granularity = TimeGranularity.MONTH
             return "Months"
-        else:
+        elif self.time_granularity == TimeGranularity.MONTH:
+            self.time_granularity = TimeGranularity.DAY
+            return "Days"
+        else:  # DAY
             self.time_granularity = TimeGranularity.YEAR
             return "Years"
 
@@ -290,12 +297,13 @@ class AppState:
         on current granularity:
         - YEAR: Navigate between years
         - MONTH: Navigate between months (wraps around year boundaries)
+        - DAY: Navigate between days (wraps around month/year boundaries)
 
         Args:
             direction: -1 for previous period, +1 for next period
 
         Returns:
-            Description of new period (e.g., "2024", "Mar 2024"), or None if
+            Description of new period (e.g., "2024", "Mar 2024", "2024-03-15"), or None if
             not drilled into a time period
 
         Examples:
@@ -323,7 +331,7 @@ class AppState:
             # Navigate years
             self.selected_time_year += direction
             return str(self.selected_time_year)
-        else:  # MONTH
+        elif self.time_granularity == TimeGranularity.MONTH:
             # Navigate months (handle year boundaries)
             if self.selected_time_month is None:
                 # Shouldn't happen, but default to January if month not set
@@ -358,6 +366,28 @@ class AppState:
                 "Dec",
             ]
             return f"{month_names[self.selected_time_month - 1]} {self.selected_time_year}"
+        else:  # DAY
+            # Navigate days (handle month/year boundaries)
+            if self.selected_time_month is None or self.selected_time_day is None:
+                # Default to first day of current year/month if not set
+                self.selected_time_month = 1
+                self.selected_time_day = 1
+
+            # Use date class to handle day navigation properly
+            from datetime import timedelta
+
+            current_date = date(
+                self.selected_time_year, self.selected_time_month, self.selected_time_day
+            )
+            new_date = current_date + timedelta(days=direction)
+
+            # Update state with new date
+            self.selected_time_year = new_date.year
+            self.selected_time_month = new_date.month
+            self.selected_time_day = new_date.day
+
+            # Format as ISO date
+            return str(new_date)
 
     def reverse_sort(self):
         """Reverse the current sort direction."""
@@ -561,7 +591,12 @@ class AppState:
         elif self.sub_grouping_mode == ViewMode.ACCOUNT:
             return "by Account"
         elif self.sub_grouping_mode == ViewMode.TIME:
-            return "by Year" if self.time_granularity == TimeGranularity.YEAR else "by Month"
+            if self.time_granularity == TimeGranularity.YEAR:
+                return "by Year"
+            elif self.time_granularity == TimeGranularity.MONTH:
+                return "by Month"
+            else:
+                return "by Day"
         else:
             return ""
 
@@ -670,7 +705,12 @@ class AppState:
             # TIME view always defaults to chronological order (period ASC)
             self.sort_by = SortMode.TIME_PERIOD
             self.sort_direction = SortDirection.ASC
-            return "Years" if self.time_granularity == TimeGranularity.YEAR else "Months"
+            if self.time_granularity == TimeGranularity.YEAR:
+                return "Years"
+            elif self.time_granularity == TimeGranularity.MONTH:
+                return "Months"
+            else:
+                return "Days"
         elif self.view_mode == ViewMode.TIME:
             self.view_mode = ViewMode.MERCHANT
             # When leaving TIME view, reset to default: highest spending first
@@ -735,6 +775,9 @@ class AppState:
             if self.selected_time_month is not None:
                 df = df.filter(pl.col("date").dt.month() == self.selected_time_month)
 
+                if self.selected_time_day is not None:
+                    df = df.filter(pl.col("date").dt.day() == self.selected_time_day)
+
         # Apply view-specific filters
         if self.view_mode == ViewMode.DETAIL:
             if self.selected_merchant:
@@ -787,6 +830,7 @@ class AppState:
                 selected_account=self.selected_account,
                 selected_time_year=self.selected_time_year,
                 selected_time_month=self.selected_time_month,
+                selected_time_day=self.selected_time_day,
                 sub_grouping_mode=self.sub_grouping_mode,
                 time_granularity=self.time_granularity,
             )
@@ -814,12 +858,13 @@ class AppState:
             self.view_mode = ViewMode.DETAIL
             self.sub_grouping_mode = None
         elif effective_view_mode == ViewMode.TIME:
-            # Drilling into a time period (e.g., "2024" or "Mar 2024")
+            # Drilling into a time period (e.g., "2024", "Mar 2024", or "2024-03-15")
             if self.time_granularity == TimeGranularity.YEAR:
                 # item_name is a year like "2024"
                 self.selected_time_year = int(item_name)
                 self.selected_time_month = None
-            else:  # MONTH
+                self.selected_time_day = None
+            elif self.time_granularity == TimeGranularity.MONTH:
                 # item_name is like "Mar 2024"
                 parts = item_name.split()
                 month_name = parts[0]
@@ -841,6 +886,15 @@ class AppState:
                 ]
                 self.selected_time_year = int(year_str)
                 self.selected_time_month = month_names.index(month_name) + 1
+                self.selected_time_day = None
+            else:  # DAY
+                # item_name is like "2024-03-15" (ISO format)
+                from datetime import datetime
+
+                parsed_date = datetime.strptime(item_name, "%Y-%m-%d").date()
+                self.selected_time_year = parsed_date.year
+                self.selected_time_month = parsed_date.month
+                self.selected_time_day = parsed_date.day
 
             self.view_mode = ViewMode.DETAIL
             self.sub_grouping_mode = None
@@ -915,6 +969,7 @@ class AppState:
             self.selected_account = nav_state.selected_account
             self.selected_time_year = nav_state.selected_time_year
             self.selected_time_month = nav_state.selected_time_month
+            self.selected_time_day = nav_state.selected_time_day
             self.sub_grouping_mode = nav_state.sub_grouping_mode
             self.time_granularity = nav_state.time_granularity
             return True, nav_state.cursor_position, nav_state.scroll_y
@@ -931,6 +986,9 @@ class AppState:
                 self.selected_category = None
             elif self.selected_merchant:
                 self.selected_merchant = None
+            elif self.selected_time_day:
+                # Clear day but keep year/month
+                self.selected_time_day = None
             elif self.selected_time_month:
                 # Clear month but keep year
                 self.selected_time_month = None
@@ -1093,9 +1151,12 @@ class AppState:
             parts.append(accounts_label + get_date_range_suffix())
         elif self.view_mode == ViewMode.TIME:
             # TIME view - show granularity and date range if available
-            granularity_label = (
-                "Years" if self.time_granularity == TimeGranularity.YEAR else "Months"
-            )
+            if self.time_granularity == TimeGranularity.YEAR:
+                granularity_label = "Years"
+            elif self.time_granularity == TimeGranularity.MONTH:
+                granularity_label = "Months"
+            else:
+                granularity_label = "Days"
             if self.current_data_start_date and self.current_data_end_date:
                 # Show date range in ISO-8601 format
                 date_range = f"{self.current_data_start_date} to {self.current_data_end_date}"
@@ -1113,7 +1174,14 @@ class AppState:
                     # Only add "Time" label if it's the first dimension
                     if is_first:
                         parts.append("Time")
-                    if self.selected_time_month is not None:
+                    if self.selected_time_day is not None:
+                        # Format as ISO date "2024-03-15"
+                        assert self.selected_time_year is not None
+                        assert self.selected_time_month is not None
+                        parts.append(
+                            f"{self.selected_time_year:04d}-{self.selected_time_month:02d}-{self.selected_time_day:02d}"
+                        )
+                    elif self.selected_time_month is not None:
                         # Format as "Mar 2024"
                         month_names = [
                             "Jan",
@@ -1177,9 +1245,12 @@ class AppState:
                 elif self.sub_grouping_mode == ViewMode.ACCOUNT:
                     parts.append(f"(by {account_label})")
                 elif self.sub_grouping_mode == ViewMode.TIME:
-                    granularity = (
-                        "Year" if self.time_granularity == TimeGranularity.YEAR else "Month"
-                    )
+                    if self.time_granularity == TimeGranularity.YEAR:
+                        granularity = "Year"
+                    elif self.time_granularity == TimeGranularity.MONTH:
+                        granularity = "Month"
+                    else:
+                        granularity = "Day"
                     parts.append(f"(by {granularity})")
 
         # Time is now shown via drill-down (Time > 2024), not as a filter indicator

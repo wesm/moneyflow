@@ -657,8 +657,8 @@ class DataManager:
         filling missing periods with count=0 and total=0.
 
         Args:
-            df: Aggregated time DataFrame with year, month, count, total columns
-            granularity: TIME granularity (YEAR or MONTH)
+            df: Aggregated time DataFrame with year, month, day, count, total columns
+            granularity: TIME granularity (YEAR, MONTH, or DAY)
 
         Returns:
             DataFrame with all periods filled, sorted chronologically
@@ -686,7 +686,7 @@ class DataManager:
                 }
             )
             join_cols = ["year", "time_period_display"]
-        else:  # MONTH
+        elif granularity == TimeGranularity.MONTH:
             # Find actual min and max months (not just years)
             # Sort by time_period_display to get actual earliest/latest
             sorted_df = df.sort("time_period_display")
@@ -722,6 +722,39 @@ class DataManager:
 
             all_periods = pl.DataFrame(periods)
             join_cols = ["year", "month", "time_period_display"]
+        else:  # DAY
+            # Find actual min and max days
+            from datetime import date, timedelta
+
+            sorted_df = df.sort("time_period_display")
+            first_row = sorted_df.head(1)
+            last_row = sorted_df.tail(1)
+
+            min_year = first_row["year"][0]
+            min_month = first_row["month"][0]
+            min_day = first_row["day"][0]
+            max_year = last_row["year"][0]
+            max_month = last_row["month"][0]
+            max_day = last_row["day"][0]
+
+            # Generate all days between min and max
+            periods = []
+            current_date = date(min_year, min_month, min_day)
+            end_date = date(max_year, max_month, max_day)
+
+            while current_date <= end_date:
+                periods.append(
+                    {
+                        "year": current_date.year,
+                        "month": current_date.month,
+                        "day": current_date.day,
+                        "time_period_display": f"{current_date.year}-{current_date.month:02d}-{current_date.day:02d}",
+                    }
+                )
+                current_date += timedelta(days=1)
+
+            all_periods = pl.DataFrame(periods)
+            join_cols = ["year", "month", "day", "time_period_display"]
 
         # Left join to preserve all periods, filling missing with 0
         result = (
@@ -746,13 +779,14 @@ class DataManager:
 
         Args:
             df: Transaction DataFrame to aggregate
-            granularity: TIME granularity (YEAR or MONTH)
+            granularity: TIME granularity (YEAR, MONTH, or DAY)
 
         Returns:
             Aggregated DataFrame with columns:
-            - time_period_display: "2024" or "2024-03" (for sorting)
+            - time_period_display: "2024", "2024-03", or "2024-03-15" (for sorting)
             - year: int
-            - month: int (only for MONTH granularity)
+            - month: int (for MONTH and DAY granularity)
+            - day: int (only for DAY granularity)
             - count: int (number of transactions)
             - total: float (sum of amounts, excluding hidden)
 
@@ -768,11 +802,12 @@ class DataManager:
         if df.is_empty():
             return pl.DataFrame()
 
-        # Add year and month columns extracted from date
+        # Add year, month, and day columns extracted from date
         df = df.with_columns(
             [
                 pl.col("date").dt.year().alias("year"),
                 pl.col("date").dt.month().alias("month"),
+                pl.col("date").dt.day().alias("day"),
             ]
         )
 
@@ -787,7 +822,7 @@ class DataManager:
                     pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
                 ]
             )
-        else:  # MONTH
+        elif granularity == TimeGranularity.MONTH:
             # Group by year and month
             df = df.with_columns(
                 [
@@ -800,6 +835,27 @@ class DataManager:
             )
 
             aggregated = df.group_by(["year", "month", "time_period_display"]).agg(
+                [
+                    pl.count("id").alias("count"),
+                    # Exclude hidden transactions from totals
+                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+                ]
+            )
+        else:  # DAY
+            # Group by year, month, and day
+            df = df.with_columns(
+                [
+                    (
+                        pl.col("year").cast(pl.Utf8)
+                        + "-"
+                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
+                        + "-"
+                        + pl.col("day").cast(pl.Utf8).str.zfill(2)
+                    ).alias("time_period_display")
+                ]
+            )
+
+            aggregated = df.group_by(["year", "month", "day", "time_period_display"]).agg(
                 [
                     pl.count("id").alias("count"),
                     # Exclude hidden transactions from totals

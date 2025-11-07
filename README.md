@@ -94,7 +94,7 @@ Full keyboard shortcuts and tutorials: [moneyflow.dev](https://moneyflow.dev)
 **Analyze spending:**
 
 1. Press `g` to cycle views (Merchants → Categories → Groups → Accounts → Time)
-2. In Time view: Press `t`/`y` to toggle year/month, `Enter` to drill into a period
+2. In Time view: Press `t` to cycle granularity (Year → Month → Day), `Enter` to drill into a period
 3. In any aggregate view: Press `Enter` to drill down
 4. Press `g` to cycle sub-groupings (including by Time)
 5. Press `a` to clear time drill-down, `Escape` to go back

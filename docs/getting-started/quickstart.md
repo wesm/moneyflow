@@ -81,7 +81,7 @@ First run downloads all your transactions:
 You're in! Here's what to try:
 
 - Press ++g++ to cycle views: Merchants, Categories, Groups, Accounts, Time
-- In Time view: Press ++y++/++t++ to toggle year/month granularity
+- In Time view: Press ++t++ to cycle through Year, Month, and Day granularities
 - Press ++enter++ on any row to drill down
 - Press ++escape++ to go back
 - Press ++question++ for help

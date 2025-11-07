@@ -36,10 +36,7 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding("enter", "drill_down", "Drill down into selected item", "Views"),
     KeyBinding("esc", "go_back", "Go back (restores cursor and sort preferences)", "Views"),
     # Time Navigation
-    KeyBinding("y", "toggle_year_granularity", "Toggle to year granularity (in TIME view)", "Time"),
-    KeyBinding(
-        "t", "toggle_month_granularity", "Toggle to month granularity (in TIME view)", "Time"
-    ),
+    KeyBinding("t", "toggle_time_granularity", "Toggle time granularity (Year→Month→Day)", "Time"),
     KeyBinding("a", "clear_time_period", "Clear time period selection", "Time"),
     KeyBinding("←", "prev_period", "Previous time period (when drilled into time)", "Time"),
     KeyBinding("→", "next_period", "Next time period (when drilled into time)", "Time"),

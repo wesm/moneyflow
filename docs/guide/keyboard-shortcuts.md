@@ -46,19 +46,18 @@ moneyflow is designed to be used entirely with the keyboard. Here's your complet
 
 | Key | Action | Context |
 |-----|--------|---------|
-| ++y++ | Toggle to year granularity | TIME view only |
-| ++t++ | Toggle to month granularity | TIME view only |
+| ++t++ | Toggle time granularity (Year → Month → Day) | TIME view only |
 | ++a++ | Clear time drill-down (return to all data) | When drilled into time period |
 
 ### Period Navigation
 
 | Key | Action | Context |
 |-----|--------|---------|
-| ++left++ | Previous period (month or year) | When drilled into time period |
-| ++right++ | Next period (month or year) | When drilled into time period |
+| ++left++ | Previous period (year, month, or day) | When drilled into time period |
+| ++right++ | Next period (year, month, or day) | When drilled into time period |
 
-**Navigation behavior**: Arrow keys navigate between periods when you've drilled into a specific year or month.
-The granularity matches your drill-down level (year-to-year or month-to-month).
+**Navigation behavior**: Arrow keys navigate between periods when you've drilled into a specific year, month, or day.
+The granularity matches your drill-down level (year-to-year, month-to-month, or day-to-day).
 
 ---
 
@@ -243,7 +242,7 @@ When in a modal dialog (edit merchant, select category, etc.):
     - The cursor stays in place after edits - keep pressing ++m++ or ++c++
 
 !!! tip "TIME View Navigation"
-    - Press ++g++ to cycle to TIME view, then ++y++/++t++ to toggle granularity
+    - Press ++g++ to cycle to TIME view, then ++t++ to cycle through Year, Month, and Day granularities
     - ++left++/++right++ navigate between periods when drilled into a time period
     - ++a++ clears time drill-down (shortcut for ++escape++)
 
@@ -260,7 +259,7 @@ Print this for reference:
 
 ```text
 Views:       g (cycle: Merchant/Category/Group/Account/Time)  d (detail)  D (duplicates)
-Time:        y (year granularity)  t (month granularity)  a (clear drill-down)  ←/→ (navigate periods)
+Time:        t (toggle granularity: Year→Month→Day)  a (clear drill-down)  ←/→ (navigate periods)
 Edit:        m (merchant)  c (category)  h (hide)  x (delete)  u (undo)
 Select:      Space (multi-select)  Ctrl+A (select all)
 Sort:        s (toggle field)  v (reverse)

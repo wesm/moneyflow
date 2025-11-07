@@ -92,7 +92,10 @@ class ViewPresenter:
 
     @staticmethod
     def format_time_period(
-        year: int, month: Optional[int] = None, granularity: TimeGranularity = TimeGranularity.YEAR
+        year: int,
+        month: Optional[int] = None,
+        day: Optional[int] = None,
+        granularity: TimeGranularity = TimeGranularity.YEAR,
     ) -> str:
         """
         Format time period for display.
@@ -100,37 +103,41 @@ class ViewPresenter:
         Args:
             year: The year
             month: The month (1-12), or None for year-only display
-            granularity: TIME granularity (YEAR or MONTH)
+            day: The day (1-31), or None for year/month display
+            granularity: TIME granularity (YEAR, MONTH, or DAY)
 
         Returns:
             Formatted period string
 
         Examples:
-            >>> ViewPresenter.format_time_period(2024, None, TimeGranularity.YEAR)
+            >>> ViewPresenter.format_time_period(2024, None, None, TimeGranularity.YEAR)
             '2024'
-            >>> ViewPresenter.format_time_period(2024, 3, TimeGranularity.MONTH)
+            >>> ViewPresenter.format_time_period(2024, 3, None, TimeGranularity.MONTH)
             'Mar 2024'
-            >>> ViewPresenter.format_time_period(2024, 12, TimeGranularity.MONTH)
-            'Dec 2024'
+            >>> ViewPresenter.format_time_period(2024, 3, 15, TimeGranularity.DAY)
+            '2024-03-15'
         """
         if granularity == TimeGranularity.YEAR or month is None:
             return str(year)
-
-        month_names = [
-            "Jan",
-            "Feb",
-            "Mar",
-            "Apr",
-            "May",
-            "Jun",
-            "Jul",
-            "Aug",
-            "Sep",
-            "Oct",
-            "Nov",
-            "Dec",
-        ]
-        return f"{month_names[month - 1]} {year}"
+        elif granularity == TimeGranularity.DAY and day is not None:
+            # Format as ISO date
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        else:  # MONTH
+            month_names = [
+                "Jan",
+                "Feb",
+                "Mar",
+                "Apr",
+                "May",
+                "Jun",
+                "Jul",
+                "Aug",
+                "Sep",
+                "Oct",
+                "Nov",
+                "Dec",
+            ]
+            return f"{month_names[month - 1]} {year}"
 
     @staticmethod
     def get_sort_arrow(sort_by: SortMode, sort_direction: SortDirection, field: SortMode) -> str:
@@ -346,11 +353,17 @@ class ViewPresenter:
                 # Format time period nicely: "2024" or "Mar 2024"
                 year = row_dict.get("year")
                 month = row_dict.get("month")
-                # Determine granularity from whether month is present
+                day = row_dict.get("day")
+                # Determine granularity from whether month/day are present
                 from .state import TimeGranularity
 
-                granularity = TimeGranularity.MONTH if month else TimeGranularity.YEAR
-                name = ViewPresenter.format_time_period(year, month, granularity)
+                if day:
+                    granularity = TimeGranularity.DAY
+                elif month:
+                    granularity = TimeGranularity.MONTH
+                else:
+                    granularity = TimeGranularity.YEAR
+                name = ViewPresenter.format_time_period(year, month, day, granularity)
 
             count = row_dict["count"]
             total = row_dict["total"]
