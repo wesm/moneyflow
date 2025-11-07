@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container
 from textual.events import Key
 from textual.screen import ModalScreen, Screen
@@ -13,7 +14,25 @@ from ..credentials import CredentialManager
 
 
 class BackendSelectionScreen(Screen):
-    """Backend selection screen for first-time setup."""
+    """
+    Backend selection screen for first-time setup.
+
+    Keyboard shortcuts:
+    - Up/Down: Navigate between backends
+    - Enter: Select highlighted backend
+    - m: Select Monarch Money
+    - y: Select YNAB
+    - Esc: Exit/Cancel
+    """
+
+    BINDINGS = [
+        Binding("escape", "exit_backend_selector", "Exit", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("enter", "select_current", "Select", show=False),
+        Binding("m", "select_monarch", "Monarch", show=False),
+        Binding("y", "select_ynab", "YNAB", show=False),
+    ]
 
     CSS = """
     BackendSelectionScreen {
@@ -48,6 +67,12 @@ class BackendSelectionScreen(Screen):
         height: 3;
     }
 
+    .backend-option:focus {
+        background: $accent;
+        border: thick $accent;
+        text-style: bold;
+    }
+
     #button-container {
         layout: horizontal;
         width: 100%;
@@ -61,27 +86,42 @@ class BackendSelectionScreen(Screen):
     }
     """
 
+    def __init__(self):
+        """Initialize backend selector with tracking for keyboard navigation."""
+        super().__init__()
+        self.backends = ["monarch", "ynab"]  # Available backends in order
+        self.current_index = 0  # Currently highlighted backend
+
     def compose(self) -> ComposeResult:
         with Container(id="backend-container"):
             yield Label("💼 Select Finance Backend", id="backend-title")
 
             yield Static(
-                "Choose which personal finance platform you want to connect to:",
+                "Choose which personal finance platform you want to connect to.\n"
+                "Keys: ↑/↓=Navigate | Enter=Select | m=Monarch | y=YNAB | Esc=Cancel",
                 classes="backend-help",
             )
 
             yield Button(
-                "🏦 Monarch Money", variant="primary", id="monarch-button", classes="backend-option"
+                "🏦 Monarch Money", variant="default", id="monarch-button", classes="backend-option"
             )
 
-            yield Button("💰 YNAB", variant="primary", id="ynab-button", classes="backend-option")
+            yield Button("💰 YNAB", variant="default", id="ynab-button", classes="backend-option")
 
             with Container(id="button-container"):
-                yield Button("Exit", variant="default", id="exit-button")
+                yield Button("Cancel", variant="default", id="exit-button")
+
+    def on_mount(self) -> None:
+        """Focus first backend button on load."""
+        try:
+            button = self.query_one("#monarch-button", Button)
+            button.focus()
+        except Exception:
+            pass
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "exit-button":
-            self.app.exit()
+            self.dismiss(None)  # Return None instead of exiting app
             return
 
         if event.button.id == "monarch-button":
@@ -89,6 +129,43 @@ class BackendSelectionScreen(Screen):
 
         if event.button.id == "ynab-button":
             self.dismiss("ynab")
+
+    def action_exit_backend_selector(self) -> None:
+        """Exit backend selector (Esc key)."""
+        self.dismiss(None)
+
+    def action_cursor_up(self) -> None:
+        """Move selection up (↑ key)."""
+        self.current_index = (self.current_index - 1) % len(self.backends)
+        self._focus_current_backend()
+
+    def action_cursor_down(self) -> None:
+        """Move selection down (↓ key)."""
+        self.current_index = (self.current_index + 1) % len(self.backends)
+        self._focus_current_backend()
+
+    def action_select_current(self) -> None:
+        """Select currently highlighted backend (Enter key)."""
+        backend = self.backends[self.current_index]
+        self.dismiss(backend)
+
+    def action_select_monarch(self) -> None:
+        """Select Monarch Money (m key)."""
+        self.dismiss("monarch")
+
+    def action_select_ynab(self) -> None:
+        """Select YNAB (y key)."""
+        self.dismiss("ynab")
+
+    def _focus_current_backend(self) -> None:
+        """Focus the button for currently selected backend."""
+        backend = self.backends[self.current_index]
+        button_id = f"{backend}-button"
+        try:
+            button = self.query_one(f"#{button_id}", Button)
+            button.focus()
+        except Exception:
+            pass
 
 
 class CredentialSetupScreen(Screen):
