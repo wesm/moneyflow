@@ -52,5 +52,3 @@
 ---
 
 **Upgrade**: `pip install --upgrade moneyflow` or `uvx moneyflow@latest`
-
-**Full history**: [CHANGELOG.md](https://github.com/wesm/moneyflow/blob/main/CHANGELOG.md)
