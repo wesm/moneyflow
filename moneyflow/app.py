@@ -939,7 +939,8 @@ class MoneyflowApp(App):
                 loading_status.update("🎮 DEMO MODE - Loading sample data...")
             elif self.backend is not None:
                 # Backend pre-configured (e.g., Amazon mode via CLI)
-                # Use legacy credential handling
+                # Use preconfigured profile_dir if available
+                profile_dir = self._preconfigured_profile_dir
                 account_id = None  # No account tracking for pre-configured backends
                 if self.backend_config.requires_auth:
                     creds = await self._handle_credentials()
