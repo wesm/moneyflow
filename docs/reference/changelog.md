@@ -6,7 +6,7 @@
 
 - **Time as first-class grouping** - Group by Year/Month/Day alongside Merchant/Category/Account
 - **Day granularity** - New granularity level for daily spending analysis
-- **Time toggle with 't' key** - Cycle through Year → Month → Day granularities
+- **Time toggle with 't' key** - Cycle through Year/Month/Day granularities
 - **Multi-account support** - Manage multiple Monarch, YNAB, and Amazon accounts from single interface
 - **Account selector** - Choose accounts on startup with keyboard navigation (↑/↓, Enter, j/k)
 - **Profile-local categories** - Each account maintains its own category structure (no conflicts)
