@@ -178,8 +178,15 @@ class ScreenshotGenerator:
         filename = "backend-select"
         print(f"  📸 {filename}.svg - Backend selection screen")
 
-        class BackendSelectApp(MoneyflowApp):
+        from textual.app import App
+
+        # Use minimal App instead of MoneyflowApp to avoid account selector
+        class BackendSelectApp(App):
             """Minimal app that shows backend selection."""
+
+            def compose(self):
+                """Don't compose anything - just show the screen."""
+                return []
 
             async def on_mount(self):
                 """Show backend selection on mount."""
@@ -195,11 +202,17 @@ class ScreenshotGenerator:
         filename = "monarch-credentials"
         print(f"  📸 {filename}.svg - Monarch credential setup")
 
+        from textual.app import App
+
         from moneyflow.screens.credential_screens import CredentialSetupScreen
 
-        # Just show the credential setup screen directly
-        class CredentialSetupApp(MoneyflowApp):
+        # Use minimal App to avoid account selector
+        class CredentialSetupApp(App):
             """Minimal app that shows credential setup."""
+
+            def compose(self):
+                """Don't compose anything - just show the screen."""
+                return []
 
             async def on_mount(self):
                 """Show credential setup on mount."""
@@ -215,11 +228,17 @@ class ScreenshotGenerator:
         filename = "ynab-credentials"
         print(f"  📸 {filename}.svg - YNAB credential setup")
 
+        from textual.app import App
+
         from moneyflow.screens.credential_screens import CredentialSetupScreen
 
-        # Just show the credential setup screen directly
-        class CredentialSetupApp(MoneyflowApp):
+        # Use minimal App to avoid account selector
+        class CredentialSetupApp(App):
             """Minimal app that shows credential setup."""
+
+            def compose(self):
+                """Don't compose anything - just show the screen."""
+                return []
 
             async def on_mount(self):
                 """Show credential setup on mount."""
