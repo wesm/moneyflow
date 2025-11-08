@@ -195,18 +195,18 @@ class ScreenshotGenerator:
         filename = "monarch-credentials"
         print(f"  📸 {filename}.svg - Monarch credential setup")
 
+        from moneyflow.screens.credential_screens import CredentialSetupScreen
+
+        # Just show the credential setup screen directly
         class CredentialSetupApp(MoneyflowApp):
-            """Minimal app that shows backend selection then credential setup."""
+            """Minimal app that shows credential setup."""
 
             async def on_mount(self):
-                """Show backend selection on mount."""
-                await self.push_screen(BackendSelectionScreen())
+                """Show credential setup on mount."""
+                await self.push_screen(CredentialSetupScreen(backend_type="monarch"))
 
         app = CredentialSetupApp()
         async with app.run_test(size=(150, 50)) as pilot:
-            await pilot.pause(0.3)
-            # Click the Monarch Money button to navigate to credential setup
-            await pilot.click("#monarch-button")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
@@ -215,18 +215,18 @@ class ScreenshotGenerator:
         filename = "ynab-credentials"
         print(f"  📸 {filename}.svg - YNAB credential setup")
 
+        from moneyflow.screens.credential_screens import CredentialSetupScreen
+
+        # Just show the credential setup screen directly
         class CredentialSetupApp(MoneyflowApp):
-            """Minimal app that shows backend selection then credential setup."""
+            """Minimal app that shows credential setup."""
 
             async def on_mount(self):
-                """Show backend selection on mount."""
-                await self.push_screen(BackendSelectionScreen())
+                """Show credential setup on mount."""
+                await self.push_screen(CredentialSetupScreen(backend_type="ynab"))
 
         app = CredentialSetupApp()
         async with app.run_test(size=(150, 50)) as pilot:
-            await pilot.pause(0.3)
-            # Click the YNAB button to navigate to credential setup
-            await pilot.click("#ynab-button")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
