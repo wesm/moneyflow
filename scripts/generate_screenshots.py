@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from moneyflow.app import MoneyflowApp
 from moneyflow.backends import DemoBackend
+from moneyflow.screens.account_selector_screen import AccountSelectorScreen
 from moneyflow.screens.credential_screens import BackendSelectionScreen
 
 
@@ -82,6 +83,8 @@ class ScreenshotGenerator:
 
         # Credential setup screens (no backend needed)
         # These require a fresh config directory (no existing credentials)
+        if matches_filter("account-selector"):
+            await self.screenshot_account_selector()
         if matches_filter("backend-select"):
             await self.screenshot_backend_select()
         if matches_filter("monarch-credentials"):
@@ -140,6 +143,35 @@ class ScreenshotGenerator:
 
         if self.convert_to_png:
             self.convert_svgs_to_png()
+
+    async def screenshot_account_selector(self):
+        """Screenshot: Account selector screen with multiple accounts."""
+        filename = "account-selector"
+        print(f"  📸 {filename}.svg - Account selector screen")
+
+        # Create some mock accounts first
+        from moneyflow.account_manager import AccountManager
+        from pathlib import Path
+
+        config_dir = Path(self.temp_config_dir) / ".moneyflow"
+        account_mgr = AccountManager(config_dir=config_dir)
+
+        # Create demo accounts to show in selector
+        account_mgr.create_account("Personal Monarch", "monarch", account_id="monarch1")
+        account_mgr.create_account("Business YNAB", "ynab", account_id="ynab1")
+        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+
+        class AccountSelectorApp(MoneyflowApp):
+            """Minimal app that shows account selector."""
+
+            async def on_mount(self):
+                """Show account selector on mount."""
+                await self.push_screen(AccountSelectorScreen(config_dir=str(config_dir)))
+
+        app = AccountSelectorApp()
+        async with app.run_test(size=(150, 40)) as pilot:
+            await pilot.pause(0.3)
+            await self._save_screenshot(pilot, filename)
 
     async def screenshot_backend_select(self):
         """Screenshot: Backend selection screen."""
