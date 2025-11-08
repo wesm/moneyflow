@@ -902,9 +902,12 @@ class DataManager:
         """
         Commit pending edits to backend API in parallel.
 
-        This method groups edits by transaction ID (in case multiple edits
-        affect the same transaction) and sends update requests in parallel
-        for maximum speed.
+        This method intelligently optimizes commits based on backend capabilities:
+        - For backends with batch_update_merchant (e.g., YNAB), bulk merchant
+          renames are handled with a single API call per (old, new) pair instead
+          of one call per transaction (100x performance improvement)
+        - For other backends, or non-merchant edits, uses individual transaction
+          updates in parallel for maximum speed
 
         The method is resilient to partial failures - if some updates fail,
         others will still succeed. The caller receives counts for both.
@@ -934,48 +937,119 @@ class DataManager:
             logger.info("No edits to commit")
             return 0, 0
 
-        # Group edits by transaction ID
-        edits_by_txn: Dict[str, Dict[str, Any]] = {}
-        for edit in edits:
-            txn_id = edit.transaction_id
-            if txn_id not in edits_by_txn:
-                edits_by_txn[txn_id] = {}
-
-            if edit.field == "merchant":
-                edits_by_txn[txn_id]["merchant_name"] = edit.new_value
-            elif edit.field == "category":
-                edits_by_txn[txn_id]["category_id"] = edit.new_value
-            elif edit.field == "hide_from_reports":
-                edits_by_txn[txn_id]["hide_from_reports"] = edit.new_value
-
-        # Create update tasks
-        tasks = []
-        for txn_id, updates in edits_by_txn.items():
-            tasks.append(self.mm.update_transaction(transaction_id=txn_id, **updates))
-
-        # Execute in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Count successes and failures, and log errors
         success_count = 0
         failure_count = 0
-
-        # Check for auth errors that should trigger retry
         auth_errors = []
 
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                failure_count += 1
-                logger.error(
-                    f"Transaction update {i + 1}/{len(results)} FAILED: {result}", exc_info=result
+        # Check if backend supports batch merchant updates
+        has_batch_update = hasattr(self.mm, "batch_update_merchant")
+
+        # Separate merchant edits from other edits
+        merchant_edits = [e for e in edits if e.field == "merchant"]
+        other_edits = [e for e in edits if e.field != "merchant"]
+
+        # OPTIMIZATION: Group merchant edits by (old_value, new_value) for batch updates
+        if has_batch_update and merchant_edits:
+            logger.info(
+                f"Backend supports batch updates - optimizing {len(merchant_edits)} merchant edits"
+            )
+
+            # Group merchant edits by (old_name, new_name)
+            merchant_groups: Dict[Tuple[str, str], List[Any]] = {}
+            for edit in merchant_edits:
+                key = (edit.old_value, edit.new_value)
+                if key not in merchant_groups:
+                    merchant_groups[key] = []
+                merchant_groups[key].append(edit)
+
+            # Try batch update for each (old, new) pair
+            successfully_batched_edits = []
+            failed_batch_edits = []
+
+            for (old_name, new_name), group_edits in merchant_groups.items():
+                logger.info(
+                    f"Attempting batch update: '{old_name}' -> '{new_name}' "
+                    f"({len(group_edits)} transactions)"
                 )
 
-                # Check if it's a 401/auth error
-                error_str = str(result).lower()
-                if "401" in error_str or "unauthorized" in error_str:
-                    auth_errors.append(result)
-            else:
-                success_count += 1
+                try:
+                    # Call synchronous batch_update_merchant method
+                    result = self.mm.batch_update_merchant(old_name, new_name)  # type: ignore[attr-defined]
+
+                    if result.get("success"):
+                        # Batch update succeeded - count all edits in this group as successful
+                        success_count += len(group_edits)
+                        successfully_batched_edits.extend(group_edits)
+                        logger.info(
+                            f"✓ Batch update succeeded for '{old_name}' -> '{new_name}' "
+                            f"({len(group_edits)} transactions updated via 1 API call)"
+                        )
+                    else:
+                        # Batch update failed - fall back to individual updates
+                        logger.warning(
+                            f"Batch update failed for '{old_name}' -> '{new_name}': "
+                            f"{result.get('message', 'Unknown error')}. "
+                            f"Falling back to individual transaction updates."
+                        )
+                        failed_batch_edits.extend(group_edits)
+
+                except Exception as e:
+                    logger.warning(
+                        f"Batch update exception for '{old_name}' -> '{new_name}': {e}. "
+                        f"Falling back to individual transaction updates.",
+                        exc_info=True,
+                    )
+                    failed_batch_edits.extend(group_edits)
+
+            # Add failed batch edits back to the list for individual processing
+            merchant_edits = failed_batch_edits
+
+        # Process remaining edits (non-merchant + failed batch updates) individually
+        edits_to_process = merchant_edits + other_edits
+
+        if edits_to_process:
+            logger.info(
+                f"Processing {len(edits_to_process)} edits individually "
+                f"({len(merchant_edits)} merchant, {len(other_edits)} other)"
+            )
+
+            # Group edits by transaction ID
+            edits_by_txn: Dict[str, Dict[str, Any]] = {}
+            for edit in edits_to_process:
+                txn_id = edit.transaction_id
+                if txn_id not in edits_by_txn:
+                    edits_by_txn[txn_id] = {}
+
+                if edit.field == "merchant":
+                    edits_by_txn[txn_id]["merchant_name"] = edit.new_value
+                elif edit.field == "category":
+                    edits_by_txn[txn_id]["category_id"] = edit.new_value
+                elif edit.field == "hide_from_reports":
+                    edits_by_txn[txn_id]["hide_from_reports"] = edit.new_value
+
+            # Create update tasks
+            tasks = []
+            for txn_id, updates in edits_by_txn.items():
+                tasks.append(self.mm.update_transaction(transaction_id=txn_id, **updates))
+
+            # Execute in parallel
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Count successes and failures
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    failure_count += 1
+                    logger.error(
+                        f"Transaction update {i + 1}/{len(results)} FAILED: {result}",
+                        exc_info=result,
+                    )
+
+                    # Check if it's a 401/auth error
+                    error_str = str(result).lower()
+                    if "401" in error_str or "unauthorized" in error_str:
+                        auth_errors.append(result)
+                else:
+                    success_count += 1
 
         logger.info(f"Commit completed: {success_count} succeeded, {failure_count} failed")
 

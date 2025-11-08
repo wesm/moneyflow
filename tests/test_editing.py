@@ -666,8 +666,9 @@ class TestEdgeCase:
         dm.pending_edits.extend(edits)
         success, failure = await dm.commit_pending_edits(dm.pending_edits)
 
-        # Should group into 1 API call with both updates
-        assert success == 1
+        # With batch optimization: merchant handled via batch (1), category individually (1) = 2 total
+        # Note: If backend doesn't support batch update, both would be grouped into 1 API call
+        assert success == 2
         assert failure == 0
 
         # Verify both fields were updated

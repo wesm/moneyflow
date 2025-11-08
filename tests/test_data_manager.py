@@ -699,6 +699,219 @@ class TestCommitEditsAdvanced:
         assert len(hides) == 1
 
 
+class TestBatchMerchantOptimization:
+    """Test batch merchant update optimization for backends that support it."""
+
+    async def test_batch_update_merchant_single_rename(self, data_manager, mock_mm):
+        """Test batch optimization for multiple transactions with same merchant rename."""
+        # Create multiple transactions with same old merchant name
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc123"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc123"})
+        txn_id_3 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc123"})
+
+        # Create edits to rename all 3 to "Amazon"
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc123", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc123", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_3, "merchant", "Amazon.com/abc123", "Amazon", datetime.now()),
+        ]
+
+        # Reset update call tracking
+        mock_mm.reset_update_calls()
+
+        # Commit edits
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # Should use batch update (1 batch call) instead of 3 individual calls
+        assert success == 3
+        assert failure == 0
+
+        # Verify NO individual transaction updates were made (used batch instead)
+        assert len(mock_mm.update_calls) == 0
+
+        # Verify all transactions were updated
+        assert mock_mm.get_transaction_by_id(txn_id_1)["merchant"]["name"] == "Amazon"
+        assert mock_mm.get_transaction_by_id(txn_id_2)["merchant"]["name"] == "Amazon"
+        assert mock_mm.get_transaction_by_id(txn_id_3)["merchant"]["name"] == "Amazon"
+
+    async def test_batch_update_multiple_merchant_groups(self, data_manager, mock_mm):
+        """Test batch optimization with multiple different merchant renames."""
+        # Create transactions with different old merchant names
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_3 = mock_mm.add_test_transaction(merchant={"id": "m2", "name": "Starbucks #123"})
+        txn_id_4 = mock_mm.add_test_transaction(merchant={"id": "m2", "name": "Starbucks #123"})
+
+        # Create edits for two different rename groups
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_3, "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+            TransactionEdit(txn_id_4, "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # Should succeed for all 4 transactions
+        assert success == 4
+        assert failure == 0
+
+        # Verify batch updates were used (no individual transaction calls)
+        assert len(mock_mm.update_calls) == 0
+
+        # Verify all transactions updated correctly
+        assert mock_mm.get_transaction_by_id(txn_id_1)["merchant"]["name"] == "Amazon"
+        assert mock_mm.get_transaction_by_id(txn_id_2)["merchant"]["name"] == "Amazon"
+        assert mock_mm.get_transaction_by_id(txn_id_3)["merchant"]["name"] == "Starbucks"
+        assert mock_mm.get_transaction_by_id(txn_id_4)["merchant"]["name"] == "Starbucks"
+
+    async def test_batch_update_mixed_with_other_edits(self, data_manager, mock_mm):
+        """Test that merchant batch updates work alongside category/hide edits."""
+        # Add transactions
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+
+        # Create mixed edits: merchant renames + category change + hide toggle
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit("txn_1", "category", "cat_groceries", "cat_shopping", datetime.now()),
+            TransactionEdit("txn_2", "hide_from_reports", False, True, datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # All 4 edits should succeed
+        assert success == 4
+        assert failure == 0
+
+        # Only 2 individual transaction updates (for category and hide, not merchant)
+        assert len(mock_mm.update_calls) == 2
+
+        # Verify merchants were batch updated
+        assert mock_mm.get_transaction_by_id(txn_id_1)["merchant"]["name"] == "Amazon"
+        assert mock_mm.get_transaction_by_id(txn_id_2)["merchant"]["name"] == "Amazon"
+
+        # Verify other edits were processed individually
+        assert mock_mm.get_transaction_by_id("txn_1")["category"]["id"] == "cat_shopping"
+        assert mock_mm.get_transaction_by_id("txn_2")["hideFromReports"] is True
+
+    async def test_batch_update_fallback_on_failure(self, data_manager, mock_mm):
+        """Test fallback to individual updates when batch update fails."""
+        # Add transactions first
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+
+        # Create a mock backend that will fail batch updates
+        class MockBackendWithFailingBatch:
+            """Mock backend where batch_update_merchant always fails."""
+
+            def __init__(self, mm):
+                self.mm = mm
+
+            def batch_update_merchant(self, old_name, new_name):
+                return {"success": False, "message": "Simulated batch failure"}
+
+            async def update_transaction(self, **kwargs):
+                return await self.mm.update_transaction(**kwargs)
+
+        # Wrap the mock backend
+        original_mm = data_manager.mm
+        wrapped_mm = MockBackendWithFailingBatch(original_mm)
+
+        # Give it both batch and update methods
+        for attr in dir(original_mm):
+            if not hasattr(wrapped_mm, attr) and not attr.startswith("_"):
+                setattr(wrapped_mm, attr, getattr(original_mm, attr))
+
+        data_manager.mm = wrapped_mm
+
+        # Create edits using the actual transaction IDs
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        original_mm.reset_update_calls()
+
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # Should fall back to individual updates
+        assert success == 2
+        assert failure == 0
+
+        # Verify individual transaction updates were made (fallback path)
+        assert len(original_mm.update_calls) == 2
+
+        # Restore original backend
+        data_manager.mm = original_mm
+
+    async def test_batch_update_with_nonexistent_merchant(self, data_manager, mock_mm):
+        """Test batch update gracefully handles nonexistent merchant names."""
+        # Use existing transactions but try to rename a merchant that doesn't exist
+        # The batch update will return "not found" and fall back to individual updates
+        # Individual updates will also fail (merchant doesn't match)
+        edits = [
+            TransactionEdit(
+                "txn_1", "merchant", "NonExistent Merchant", "New Name", datetime.now()
+            ),
+            TransactionEdit(
+                "txn_2", "merchant", "NonExistent Merchant", "New Name", datetime.now()
+            ),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # Batch update will fail (merchant not found), falls back to individual updates
+        # Individual updates succeed (they update the transactions with txn_1 and txn_2 IDs)
+        assert success == 2
+        assert failure == 0
+
+        # Verify individual transaction updates were made (fallback path)
+        assert len(mock_mm.update_calls) == 2
+
+    async def test_no_batch_update_for_backends_without_support(self, data_manager):
+        """Test that backends without batch_update_merchant use individual updates."""
+
+        # Create a mock backend without batch_update_merchant
+        class MockBackendNoBatch:
+            """Mock backend without batch update support."""
+
+            def __init__(self):
+                self.update_calls = []
+
+            async def update_transaction(self, **kwargs):
+                self.update_calls.append(kwargs)
+                return {"updateTransaction": {"transaction": {"id": kwargs["transaction_id"]}}}
+
+        # Replace backend
+        original_mm = data_manager.mm
+        no_batch_mm = MockBackendNoBatch()
+        data_manager.mm = no_batch_mm
+
+        # Create edits
+        edits = [
+            TransactionEdit("txn_1", "merchant", "Old", "New", datetime.now()),
+            TransactionEdit("txn_2", "merchant", "Old", "New", datetime.now()),
+        ]
+
+        success, failure = await data_manager.commit_pending_edits(edits)
+
+        # Should use individual updates
+        assert success == 2
+        assert failure == 0
+        assert len(no_batch_mm.update_calls) == 2
+
+        # Restore original backend
+        data_manager.mm = original_mm
+
+
 class TestFetchTransactionsPagination:
     """Test transaction fetching with pagination."""
 

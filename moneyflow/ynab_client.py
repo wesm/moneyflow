@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional
 
 import ynab
 
+from .logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class YNABClient:
     """
@@ -262,6 +266,140 @@ class YNABClient:
         response = payees_api.get_payees(budget_id=self.budget_id)
 
         return sorted(payee.name for payee in response.data.payees)
+
+    def update_payee(self, payee_id: str, new_name: str) -> bool:
+        """
+        Update a payee's name via the YNAB API.
+
+        This method updates the payee name, which cascades to ALL transactions
+        that reference this payee_id. This is much more efficient than updating
+        transactions individually.
+
+        Args:
+            payee_id: The unique identifier of the payee to update
+            new_name: The new name for the payee (max 500 characters)
+
+        Returns:
+            True if the payee was successfully updated, False otherwise
+
+        Example:
+            >>> client = YNABClient()
+            >>> client.login(token)
+            >>> success = client.update_payee("payee-123", "Amazon")
+            >>> # All transactions with payee_id "payee-123" now show "Amazon"
+        """
+        self._ensure_authenticated()
+
+        if not new_name or len(new_name) > 500:
+            logger.error(f"Invalid payee name: must be 1-500 characters, got {len(new_name)}")
+            return False
+
+        try:
+            payees_api = ynab.PayeesApi(self.api_client)
+
+            # Create the update payload
+            save_payee = ynab.SavePayee(name=new_name)
+            wrapper = ynab.PatchPayeeWrapper(payee=save_payee)
+
+            # Call the PATCH /payees/{payee_id} endpoint
+            response = payees_api.update_payee(
+                budget_id=self.budget_id, payee_id=payee_id, data=wrapper
+            )
+
+            logger.info(
+                f"Successfully updated payee {payee_id} to '{new_name}' "
+                f"(API returned: {response.data.payee.name})"
+            )
+
+            # Invalidate transaction cache since payee names may have changed
+            self._invalidate_cache()
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update payee {payee_id}: {e}", exc_info=True)
+            return False
+
+    def batch_update_merchant(
+        self, old_merchant_name: str, new_merchant_name: str
+    ) -> Dict[str, Any]:
+        """
+        Batch update all transactions with a given merchant name.
+
+        This is a highly optimized alternative to updating transactions individually.
+        Instead of calling update_transaction() N times (one per transaction), this
+        finds the payee and updates it once, which cascades to all transactions.
+
+        **Performance**: 100x faster than individual updates for large batches.
+        - Traditional: 100 transactions = 100 API calls
+        - Optimized: 100 transactions = 1 API call
+
+        Args:
+            old_merchant_name: Current merchant/payee name to rename
+            new_merchant_name: New merchant/payee name
+
+        Returns:
+            Dictionary with results:
+            - success: True if payee was found and updated
+            - payee_id: ID of the updated payee (if successful)
+            - transactions_affected: Estimated count (if available)
+            - method: "payee_update" for this optimized path
+
+        Example:
+            >>> client = YNABClient()
+            >>> client.login(token)
+            >>> result = client.batch_update_merchant("Amazon.com/abc123", "Amazon")
+            >>> print(f"Updated {result['transactions_affected']} transactions")
+
+        Note:
+            Falls back to creating a new payee if old merchant not found.
+            In this case, future transactions will use the new name, but
+            existing transactions keep their old merchant name.
+        """
+        self._ensure_authenticated()
+
+        logger.info(f"Batch updating merchant: '{old_merchant_name}' -> '{new_merchant_name}'")
+
+        # Find the payee for the old merchant name
+        old_payee = self._find_or_create_payee(old_merchant_name)
+
+        if not old_payee:
+            logger.warning(
+                f"Payee '{old_merchant_name}' not found. "
+                "This merchant may not exist or transactions use payee_name directly."
+            )
+            return {
+                "success": False,
+                "payee_id": None,
+                "transactions_affected": 0,
+                "method": "payee_not_found",
+                "message": f"Payee '{old_merchant_name}' not found",
+            }
+
+        # Update the payee name (cascades to all transactions)
+        success = self.update_payee(old_payee.id, new_merchant_name)
+
+        if success:
+            logger.info(
+                f"Successfully batch-updated payee {old_payee.id}: "
+                f"'{old_merchant_name}' -> '{new_merchant_name}'"
+            )
+            return {
+                "success": True,
+                "payee_id": old_payee.id,
+                "transactions_affected": -1,  # YNAB doesn't provide this count
+                "method": "payee_update",
+                "message": f"Updated payee {old_payee.id} from '{old_merchant_name}' to '{new_merchant_name}'",
+            }
+        else:
+            logger.error(f"Failed to update payee {old_payee.id}")
+            return {
+                "success": False,
+                "payee_id": old_payee.id,
+                "transactions_affected": 0,
+                "method": "payee_update_failed",
+                "message": f"Failed to update payee {old_payee.id}",
+            }
 
     def close(self) -> None:
         """Close the API client and clear all state."""

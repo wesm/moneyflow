@@ -268,6 +268,45 @@ class MockMonarchMoney(FinanceBackend):
 
         return sorted(merchants)
 
+    def batch_update_merchant(
+        self, old_merchant_name: str, new_merchant_name: str
+    ) -> Dict[str, Any]:
+        """
+        Mock batch update merchant.
+
+        Updates all transactions with old_merchant_name to new_merchant_name
+        in a single operation (simulating YNAB's payee update behavior).
+
+        Returns:
+            Dictionary with success status and transaction count
+        """
+        # Find all transactions with this merchant name
+        updated_count = 0
+        found_merchant = False
+
+        for txn in self.transactions:
+            if txn.get("merchant", {}).get("name") == old_merchant_name:
+                found_merchant = True
+                txn["merchant"]["name"] = new_merchant_name
+                updated_count += 1
+
+        if not found_merchant:
+            return {
+                "success": False,
+                "payee_id": None,
+                "transactions_affected": 0,
+                "method": "payee_not_found",
+                "message": f"Payee '{old_merchant_name}' not found",
+            }
+
+        return {
+            "success": True,
+            "payee_id": "mock_payee_id",
+            "transactions_affected": updated_count,
+            "method": "payee_update",
+            "message": f"Updated payee from '{old_merchant_name}' to '{new_merchant_name}'",
+        }
+
     def get_transaction_by_id(self, transaction_id: str) -> Optional[Dict[str, Any]]:
         """Helper to get a transaction by ID for testing."""
         for txn in self.transactions:

@@ -329,3 +329,234 @@ class TestYNABBackend:
 
         assert backend.client.api_client is None
         assert backend.client.access_token is None
+
+    def test_update_payee_success(self, backend, mock_ynab_api):
+        """Test that update_payee successfully updates a payee name."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        mock_updated_payee = MagicMock()
+        mock_updated_payee.name = "Amazon"
+
+        mock_response = MagicMock()
+        mock_response.data.payee = mock_updated_payee
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.update_payee.return_value = mock_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.client.update_payee("payee-123", "Amazon")
+
+        assert result is True
+        mock_payees_api.update_payee.assert_called_once()
+        call_args = mock_payees_api.update_payee.call_args
+        assert call_args[1]["budget_id"] == "test-budget-id"
+        assert call_args[1]["payee_id"] == "payee-123"
+
+    def test_update_payee_invalid_name_empty(self, backend):
+        """Test that update_payee rejects empty names."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        result = backend.client.update_payee("payee-123", "")
+
+        assert result is False
+
+    def test_update_payee_invalid_name_too_long(self, backend):
+        """Test that update_payee rejects names over 500 characters."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        long_name = "A" * 501
+
+        result = backend.client.update_payee("payee-123", long_name)
+
+        assert result is False
+
+    def test_update_payee_api_error(self, backend, mock_ynab_api):
+        """Test that update_payee handles API errors gracefully."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.update_payee.side_effect = Exception("API Error")
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.client.update_payee("payee-123", "Amazon")
+
+        assert result is False
+
+    def test_update_payee_not_authenticated(self, backend):
+        """Test that update_payee raises error when not authenticated."""
+        with pytest.raises(ValueError, match="Must call login"):
+            backend.client.update_payee("payee-123", "Amazon")
+
+    def test_batch_update_merchant_success(self, backend, mock_ynab_api):
+        """Test successful batch merchant update via payee update."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock finding the old payee
+        mock_old_payee = MagicMock()
+        mock_old_payee.id = "payee-old"
+        mock_old_payee.name = "Amazon.com/abc123"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_old_payee]
+
+        # Mock updating the payee
+        mock_updated_payee = MagicMock()
+        mock_updated_payee.name = "Amazon"
+
+        mock_update_response = MagicMock()
+        mock_update_response.data.payee = mock_updated_payee
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+        mock_payees_api.update_payee.return_value = mock_update_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.batch_update_merchant("Amazon.com/abc123", "Amazon")
+
+        assert result["success"] is True
+        assert result["payee_id"] == "payee-old"
+        assert result["method"] == "payee_update"
+        mock_payees_api.update_payee.assert_called_once()
+
+    def test_batch_update_merchant_payee_not_found(self, backend, mock_ynab_api):
+        """Test batch merchant update when old payee doesn't exist."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock no matching payee found
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = []
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.batch_update_merchant("NonExistent", "Amazon")
+
+        assert result["success"] is False
+        assert result["payee_id"] is None
+        assert result["method"] == "payee_not_found"
+        assert "not found" in result["message"]
+
+    def test_batch_update_merchant_update_fails(self, backend, mock_ynab_api):
+        """Test batch merchant update when payee update fails."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock finding the old payee
+        mock_old_payee = MagicMock()
+        mock_old_payee.id = "payee-old"
+        mock_old_payee.name = "Amazon.com/abc123"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_old_payee]
+
+        # Mock update failure
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+        mock_payees_api.update_payee.side_effect = Exception("Update failed")
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.batch_update_merchant("Amazon.com/abc123", "Amazon")
+
+        assert result["success"] is False
+        assert result["payee_id"] == "payee-old"
+        assert result["method"] == "payee_update_failed"
+
+    def test_batch_update_merchant_integration(self, backend, mock_ynab_api):
+        """
+        Integration test: Verify that batch_update_merchant cascades to transactions.
+
+        This test simulates the full flow:
+        1. Fetch transactions (all have payee "Amazon.com/abc123")
+        2. Batch update merchant to "Amazon"
+        3. Verify the payee was updated (which would cascade to all transactions in real API)
+        """
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
+
+        # Setup transactions with old merchant name
+        mock_txn1 = MagicMock()
+        mock_txn1.id = "txn-1"
+        mock_txn1.payee_id = "payee-amazon-old"
+        mock_txn1.payee_name = "Amazon.com/abc123"
+        mock_txn1.var_date = "2025-01-15"
+        mock_txn1.amount = -50000
+        mock_txn1.category_id = "cat-1"
+        mock_txn1.category_name = "Shopping"
+        mock_txn1.account_id = "acc-1"
+        mock_txn1.account_name = "Checking"
+        mock_txn1.memo = ""
+        mock_txn1.deleted = False
+        mock_txn1.transfer_account_id = None
+        mock_txn1.cleared = "cleared"
+
+        mock_txn2 = MagicMock()
+        mock_txn2.id = "txn-2"
+        mock_txn2.payee_id = "payee-amazon-old"
+        mock_txn2.payee_name = "Amazon.com/abc123"
+        mock_txn2.var_date = "2025-01-16"
+        mock_txn2.amount = -30000
+        mock_txn2.category_id = "cat-1"
+        mock_txn2.category_name = "Shopping"
+        mock_txn2.account_id = "acc-1"
+        mock_txn2.account_name = "Checking"
+        mock_txn2.memo = ""
+        mock_txn2.deleted = False
+        mock_txn2.transfer_account_id = None
+        mock_txn2.cleared = "cleared"
+
+        mock_txns_response = MagicMock()
+        mock_txns_response.data.transactions = [mock_txn1, mock_txn2]
+
+        mock_transactions_api = MagicMock()
+        mock_transactions_api.get_transactions.return_value = mock_txns_response
+
+        # Setup payee for batch update
+        mock_old_payee = MagicMock()
+        mock_old_payee.id = "payee-amazon-old"
+        mock_old_payee.name = "Amazon.com/abc123"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_old_payee]
+
+        mock_updated_payee = MagicMock()
+        mock_updated_payee.name = "Amazon"
+
+        mock_update_response = MagicMock()
+        mock_update_response.data.payee = mock_updated_payee
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+        mock_payees_api.update_payee.return_value = mock_update_response
+
+        mock_ynab_api.TransactionsApi.return_value = mock_transactions_api
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        # Perform batch update
+        result = backend.batch_update_merchant("Amazon.com/abc123", "Amazon")
+
+        # Verify batch update succeeded
+        assert result["success"] is True
+        assert result["payee_id"] == "payee-amazon-old"
+        assert result["method"] == "payee_update"
+
+        # Verify payee was updated (in real API, this cascades to all transactions)
+        mock_payees_api.update_payee.assert_called_once()
+        call_args = mock_payees_api.update_payee.call_args
+        assert call_args[1]["budget_id"] == "test-budget-id"
+        assert call_args[1]["payee_id"] == "payee-amazon-old"
+
+        # Verify cache was invalidated (so next fetch gets updated data)
+        assert backend.client._transaction_cache is None

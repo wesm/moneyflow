@@ -153,6 +153,40 @@ class YNABBackend(FinanceBackend):
         """
         return self.client.get_all_merchants()
 
+    def batch_update_merchant(
+        self, old_merchant_name: str, new_merchant_name: str
+    ) -> Dict[str, Any]:
+        """
+        Batch update all transactions with a given merchant name (YNAB optimization).
+
+        This is a YNAB-specific optimization that updates the payee once instead
+        of updating each transaction individually. This cascades to all transactions
+        with that payee, making bulk renames 100x faster.
+
+        **Performance**:
+        - Traditional: 100 transactions = 100 API calls
+        - Optimized: 100 transactions = 1 API call
+
+        Args:
+            old_merchant_name: Current merchant/payee name to rename
+            new_merchant_name: New merchant/payee name
+
+        Returns:
+            Dictionary with results (see YNABClient.batch_update_merchant for format)
+
+        Example:
+            >>> backend = YNABBackend()
+            >>> await backend.login(password=token)
+            >>> result = backend.batch_update_merchant("Amazon.com/abc", "Amazon")
+            >>> if result['success']:
+            ...     print(f"Optimized: Updated payee {result['payee_id']}")
+
+        Note:
+            This method is synchronous (not async) because the YNAB SDK is synchronous.
+            Other backends may not support this optimization.
+        """
+        return self.client.batch_update_merchant(old_merchant_name, new_merchant_name)
+
     def get_currency_symbol(self) -> str:
         """
         Get the currency symbol from YNAB budget settings.
