@@ -102,13 +102,21 @@ class DataManager:
         self.profile_dir = profile_dir
         self.backend_type = backend_type
 
+        # Debug logging
+        logger.debug(
+            f"DataManager init: profile_dir={profile_dir}, backend_type={backend_type}, "
+            f"config_dir={config_dir}"
+        )
+
         # Load category groups (profile-aware if profile_dir provided)
         if profile_dir:
+            logger.debug(f"Using profile-aware category loading for {backend_type}")
             self.category_groups_config = get_profile_category_groups(
                 profile_dir=profile_dir, config_dir=config_dir, backend_type=backend_type
             )
         else:
             # Legacy mode - use global config
+            logger.debug("Using legacy global config category loading")
             self.category_groups_config = get_effective_category_groups(config_dir)
 
         self.category_to_group = build_category_to_group_mapping(self.category_groups_config)
