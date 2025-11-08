@@ -966,7 +966,25 @@ class DataManager:
             successfully_batched_edits = []
             failed_batch_edits = []
 
+            # Track processed transaction IDs to prevent double-counting
+            # Note: If the same transaction has multiple merchant edits (e.g., A→B then B→C),
+            # they'll be in different batch groups. We can only batch one of them.
+            processed_txn_ids = set()
+
             for (old_name, new_name), group_edits in merchant_groups.items():
+                # Filter out edits for transactions already processed in a different batch
+                unprocessed_edits = [
+                    e for e in group_edits if e.transaction_id not in processed_txn_ids
+                ]
+
+                if not unprocessed_edits:
+                    # All edits in this group were already processed in a previous batch
+                    # Add them to failed list so they get individual processing with latest values
+                    failed_batch_edits.extend(group_edits)
+                    continue
+
+                group_edits = unprocessed_edits  # Only batch the unprocessed ones
+                group_txn_ids = {e.transaction_id for e in group_edits}
                 logger.info(
                     f"Attempting batch update: '{old_name}' -> '{new_name}' "
                     f"({len(group_edits)} transactions)"
@@ -981,7 +999,8 @@ class DataManager:
                     )
 
                     if result.get("success"):
-                        # Batch update succeeded - count all edits in this group as successful
+                        # Batch update succeeded - mark edits as processed and count as successful
+                        processed_txn_ids.update(group_txn_ids)
                         success_count += len(group_edits)
                         successfully_batched_edits.extend(group_edits)
                         logger.info(
@@ -989,7 +1008,8 @@ class DataManager:
                             f"({len(group_edits)} transactions updated via 1 API call)"
                         )
                     else:
-                        # Batch update failed - fall back to individual updates
+                        # Batch update failed - mark as processed but add to fallback list
+                        processed_txn_ids.update(group_txn_ids)
                         logger.warning(
                             f"Batch update failed for '{old_name}' -> '{new_name}': "
                             f"{result.get('message', 'Unknown error')}. "
@@ -998,6 +1018,8 @@ class DataManager:
                         failed_batch_edits.extend(group_edits)
 
                 except Exception as e:
+                    # Exception during batch - mark as processed and add to fallback list
+                    processed_txn_ids.update(group_txn_ids)
                     logger.warning(
                         f"Batch update exception for '{old_name}' -> '{new_name}': {e}. "
                         f"Falling back to individual transaction updates.",
