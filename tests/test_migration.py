@@ -4,7 +4,12 @@ import pytest
 
 from moneyflow.account_manager import AccountManager
 from moneyflow.credentials import CredentialManager
-from moneyflow.migration import check_migration_needed, migrate_legacy_credentials
+from moneyflow.migration import (
+    check_amazon_migration_needed,
+    check_migration_needed,
+    migrate_legacy_amazon_db,
+    migrate_legacy_credentials,
+)
 
 
 @pytest.fixture
@@ -299,3 +304,151 @@ class TestMigrationEdgeCases:
         # credentials.enc moved
         profile_dir = temp_config_dir / "profiles" / "default"
         assert (profile_dir / "credentials.enc").exists()
+
+
+class TestCheckAmazonMigrationNeeded:
+    """Tests for checking if Amazon database migration is needed."""
+
+    def test_no_migration_when_no_legacy_db(self, temp_config_dir):
+        """Test that migration not needed when no legacy amazon.db exists."""
+        needed = check_amazon_migration_needed(config_dir=temp_config_dir)
+
+        assert needed is False
+
+    def test_migration_needed_when_legacy_db_exists(self, temp_config_dir):
+        """Test that migration needed when legacy amazon.db exists."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        needed = check_amazon_migration_needed(config_dir=temp_config_dir)
+
+        assert needed is True
+
+    def test_no_migration_when_amazon_account_already_exists(self, temp_config_dir):
+        """Test that migration skipped if Amazon account already configured."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        # Create an Amazon account
+        account_manager = AccountManager(config_dir=temp_config_dir)
+        account_manager.create_account("Amazon Orders", "amazon")
+
+        # Should not migrate because Amazon account already exists
+        needed = check_amazon_migration_needed(config_dir=temp_config_dir)
+
+        assert needed is False
+
+
+class TestMigrateLegacyAmazonDb:
+    """Tests for migrating legacy Amazon database."""
+
+    def test_migrate_creates_amazon_account(self, temp_config_dir):
+        """Test that migration creates an 'amazon' account."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        # Migrate
+        migrated = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert migrated is True
+
+        # Verify amazon account was created
+        account_manager = AccountManager(config_dir=temp_config_dir)
+        accounts = account_manager.list_accounts()
+
+        assert len(accounts) == 1
+        assert accounts[0].id == "amazon"
+        assert accounts[0].name == "Amazon"
+        assert accounts[0].backend_type == "amazon"
+
+    def test_migrate_moves_db_to_profile(self, temp_config_dir):
+        """Test that migration moves amazon.db to profile directory."""
+        # Create legacy amazon.db with some content
+        amazon_db = temp_config_dir / "amazon.db"
+        test_content = "fake database content with data"
+        amazon_db.write_text(test_content)
+
+        # Verify legacy file exists
+        assert amazon_db.exists()
+
+        # Migrate
+        migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        # Legacy file should be moved (not copied)
+        assert not amazon_db.exists()
+
+        # Profile file should exist
+        profile_dir = temp_config_dir / "profiles" / "amazon"
+        profile_db = profile_dir / "amazon.db"
+        assert profile_db.exists()
+
+        # Verify content preserved
+        assert profile_db.read_text() == test_content
+
+    def test_dry_run_does_not_modify_files(self, temp_config_dir):
+        """Test that dry_run mode doesn't modify any files."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        # Run dry_run
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir, dry_run=True)
+
+        assert result is True  # Migration would be performed
+
+        # Verify legacy file still exists
+        assert amazon_db.exists()
+
+        # Verify profile directory not created
+        profile_dir = temp_config_dir / "profiles" / "amazon"
+        assert not profile_dir.exists()
+
+    def test_no_migration_returns_false(self, temp_config_dir):
+        """Test that migration returns False when nothing to migrate."""
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert result is False
+
+    def test_migration_with_existing_amazon_account_returns_false(self, temp_config_dir):
+        """Test migration skipped if Amazon account already exists."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        # Create an existing Amazon account
+        account_manager = AccountManager(config_dir=temp_config_dir)
+        account_manager.create_account("My Amazon", "amazon")
+
+        # Try to migrate - should be skipped
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert result is False
+
+        # Legacy database should still exist (not moved)
+        assert amazon_db.exists()
+
+    def test_migration_works_with_other_accounts_present(self, temp_config_dir):
+        """Test that Amazon migration works even if other accounts exist."""
+        # Create legacy amazon.db
+        amazon_db = temp_config_dir / "amazon.db"
+        amazon_db.write_text("fake database content")
+
+        # Create a Monarch account
+        account_manager = AccountManager(config_dir=temp_config_dir)
+        account_manager.create_account("My Monarch", "monarch")
+
+        # Migration should still work
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert result is True
+
+        # Should now have 2 accounts
+        accounts = account_manager.list_accounts()
+        assert len(accounts) == 2
+
+        backend_types = {acc.backend_type for acc in accounts}
+        assert "monarch" in backend_types
+        assert "amazon" in backend_types

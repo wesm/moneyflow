@@ -42,7 +42,7 @@ from .credentials import CredentialManager
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .logging_config import get_logger, setup_logging
-from .migration import migrate_legacy_credentials
+from .migration import migrate_legacy_amazon_db, migrate_legacy_credentials
 from .notification_helper import NotificationHelper
 from .retry_logic import RetryAborted, retry_with_backoff
 
@@ -429,6 +429,11 @@ class MoneyflowApp(App):
         if migrated:
             logger.info("Migrated legacy credentials to default profile")
 
+        # Check for legacy Amazon database and migrate if needed
+        amazon_migrated = migrate_legacy_amazon_db(config_dir=config_path)
+        if amazon_migrated:
+            logger.info("Migrated legacy Amazon database to amazon profile")
+
         account_manager = AccountManager(config_dir=config_path)
 
         while True:  # Loop to handle "add new account" flow
@@ -467,6 +472,11 @@ class MoneyflowApp(App):
 
             # Get profile directory for this account
             profile_dir = account_manager.get_profile_dir(account.id)
+
+            # Amazon backend doesn't require credentials (local-only)
+            if account.backend_type == "amazon":
+                logger.info(f"Loading Amazon account {account.id} (no credentials needed)")
+                return account.id, profile_dir, None
 
             # Load credentials for this account (if backend requires auth)
             cred_manager = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
@@ -928,6 +938,23 @@ class MoneyflowApp(App):
                     self.backend = DemoBackend(start_year=self.start_year or 2023, years=3)
                     self.title = "moneyflow [DEMO MODE]"
                     loading_status.update("🎮 DEMO MODE - Loading sample data...")
+                else:
+                    # Load account info to get backend_type
+                    from moneyflow.account_manager import AccountManager
+
+                    config_path = Path(self.config_dir) if self.config_dir else None
+                    account_manager = AccountManager(config_dir=config_path)
+                    account = account_manager.get_account(account_id)
+
+                    if account and account.backend_type == "amazon" and profile_dir:
+                        # Initialize Amazon backend with profile-scoped database
+                        from moneyflow.backend_config import BackendConfig
+                        from moneyflow.backends.amazon import AmazonBackend
+
+                        db_path = str(profile_dir / "amazon.db")
+                        self.backend = AmazonBackend(db_path=db_path, config_dir=self.config_dir)
+                        self.backend_config = BackendConfig.for_amazon()
+                        loading_status.update("📦 Loading Amazon data...")
 
             # Step 2: Initialize backend (if not already set)
             if self.backend is None and creds:

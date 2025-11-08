@@ -86,7 +86,7 @@ class AccountSelectorScreen(Screen):
     .account-item {
         width: 100%;
         height: auto;
-        padding: 1 2;
+        padding: 0 1;
         background: $boost;
         margin-bottom: 1;
         border: solid transparent;
@@ -133,7 +133,7 @@ class AccountSelectorScreen(Screen):
 
     .action-button {
         width: auto;
-        min-width: 20;
+        min-width: 15;
     }
 
     #no-accounts-message {

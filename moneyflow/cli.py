@@ -101,8 +101,32 @@ def amazon(ctx, db_path, config_dir):
 
     # If no subcommand, launch the UI
     if ctx.invoked_subcommand is None:
+        from pathlib import Path
+
+        from moneyflow.account_manager import AccountManager
         from moneyflow.app import launch_amazon_mode
         from moneyflow.backends.amazon import AmazonBackend
+
+        # Determine the correct db_path
+        # Priority: 1) explicit --db-path, 2) migrated profile, 3) legacy location
+        if db_path is None:
+            # Check if Amazon account exists in profiles
+            config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+            account_manager = AccountManager(config_dir=config_path)
+            accounts = account_manager.list_accounts()
+
+            # Look for an amazon account
+            amazon_account = None
+            for account in accounts:
+                if account.backend_type == "amazon":
+                    amazon_account = account
+                    break
+
+            if amazon_account:
+                # Use migrated profile path
+                profile_dir = account_manager.get_profile_dir(amazon_account.id)
+                db_path = str(profile_dir / "amazon.db")
+            # else: db_path stays None, AmazonBackend will use default
 
         backend = AmazonBackend(db_path=db_path, config_dir=config_dir)
 
