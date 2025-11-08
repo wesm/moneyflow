@@ -4,6 +4,21 @@ All notable changes to moneyflow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.7.0] - 2025-11-08
+
+### Added
+
+- **Multi-account support** - Manage multiple Monarch, YNAB, and Amazon accounts from single interface
+- **Account selector** - Choose accounts on startup with keyboard navigation (↑/↓, Enter, j/k)
+- **Profile-local categories** - Each account maintains its own category structure (no conflicts)
+- **Amazon category inheritance** - Auto-inherits categories from Monarch/YNAB if only one profile exists
+- **YNAB:** Batch payee updates - Rename merchant once instead of updating each transaction (100x faster)
+- Keyboard navigation for backend and account selection screens
+
+### Fixed
+
+- **YNAB:** Arrow key bindings now work in account selector (priority over scroll)
+
 ## [0.6.0] - 2025-10-29
 
 ### Added
