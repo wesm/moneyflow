@@ -78,6 +78,11 @@ Local credential storage with AES-128 encryption. Your finance credentials stay 
 See exactly what changes you're making before saving. All edits are queued and reviewed together.
 </div>
 
+<div class="feature-card" markdown>
+### Multi-Account Support
+Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamlessly from the account selector.
+</div>
+
 </div>
 
 ---

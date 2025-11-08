@@ -67,12 +67,25 @@ This shows:
 
 ### 4. Launch the UI
 
+You can access Amazon mode in two ways:
+
+**Option 1: Account Selector** (Recommended)
+
 ```bash
-# Open the terminal UI
+# Launch moneyflow normally
+moneyflow
+```
+
+After importing, Amazon will appear in the account selector alongside your other accounts (Monarch Money, YNAB, etc.). Select it with arrow keys or click.
+
+**Option 2: Direct CLI Command**
+
+```bash
+# Open Amazon mode directly
 moneyflow amazon
 ```
 
-Uses the same keyboard-driven interface and features.
+Both methods use the same keyboard-driven interface and features.
 
 ## CSV Format
 
@@ -133,9 +146,21 @@ Amazon mode supports incremental imports, preserving any manual edits you've mad
 4. Only new orders are added - your edits are preserved
 5. Use `--force` flag to re-import and overwrite existing transactions if needed
 
-### Custom Database Location
+### Database Location
 
-By default, data is stored in `~/.moneyflow/amazon.db`. You can use a custom location:
+**Default Location**:
+
+Amazon data is stored in your profile directory:
+
+```
+~/.moneyflow/profiles/amazon/amazon.db
+```
+
+This integrates Amazon with your other accounts and allows selection from the account picker.
+
+**Custom Database Location**:
+
+You can use a custom location with the `--db-path` flag:
 
 ```bash
 # Use custom database
@@ -192,7 +217,7 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 
 - This is expected if you're re-importing the same data
 - Use `--force` flag to re-import: `moneyflow amazon import --force ~/Downloads/"Your Orders"`
-- Or delete the database and start fresh: `rm ~/.moneyflow/amazon.db`
+- Or delete the database and start fresh: `rm ~/.moneyflow/profiles/amazon/amazon.db`
 
 ### Missing ASIN for some items
 

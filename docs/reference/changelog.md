@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.0 - November 2025
+
+**New:**
+
+- **Multi-account support** - Manage multiple Monarch, YNAB, and Amazon accounts from a single interface
+- **Account selector** - Choose accounts on startup with keyboard navigation (↑/↓, Enter)
+- Keyboard navigation for backend selection screens
+- Amazon mode integrates with account selector (appears alongside Monarch/YNAB)
+
+---
+
 ## v0.6.0 - October 2025
 
 **New:**

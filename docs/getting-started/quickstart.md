@@ -187,6 +187,10 @@ You're in! Here's what to try:
 - [Editing Transactions](../guide/editing.md) - Master bulk operations
 - [Monarch Money Guide](../guide/monarch.md) - Detailed Monarch-specific documentation
 - [YNAB Guide](../guide/ynab.md) - Detailed YNAB-specific documentation
+- [Amazon Mode](../guide/amazon-mode.md) - Analyze Amazon purchase history
+
+!!! info "Multiple Accounts"
+    moneyflow supports multiple accounts! You can add Monarch, YNAB, and Amazon accounts and switch between them from the account selector on startup.
 
 ---
 
