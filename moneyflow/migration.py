@@ -2,11 +2,14 @@
 Migration utilities for upgrading from single-account to multi-account system.
 
 Handles migrating existing ~/.moneyflow/credentials.enc to the new profile system.
+Also handles migrating global config.yaml categories to profile-local config.
 """
 
 import shutil
 from pathlib import Path
 from typing import Optional
+
+import yaml
 
 from .account_manager import AccountManager
 
@@ -180,3 +183,109 @@ def check_amazon_migration_needed(config_dir: Optional[Path] = None) -> bool:
         True if migration needed, False otherwise
     """
     return migrate_legacy_amazon_db(config_dir=config_dir, dry_run=True)
+
+
+def migrate_global_categories_to_profiles(
+    config_dir: Optional[Path] = None, dry_run: bool = False
+) -> bool:
+    """
+    Migrate global config.yaml categories to profile-local configs.
+
+    Checks if global config.yaml has fetched_categories and migrates them
+    to each existing profile's config.yaml.
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+        dry_run: If True, only check if migration is needed without performing it
+
+    Returns:
+        True if migration was performed (or would be performed in dry_run),
+        False if no migration needed
+    """
+    if config_dir is None:
+        config_dir = Path.home() / ".moneyflow"
+    else:
+        config_dir = Path(config_dir)
+
+    global_config_path = config_dir / "config.yaml"
+
+    # Check if global config has fetched_categories
+    if not global_config_path.exists():
+        return False
+
+    try:
+        with open(global_config_path, "r") as f:
+            global_config = yaml.safe_load(f)
+
+        if not global_config or "fetched_categories" not in global_config:
+            # No categories to migrate
+            return False
+
+        fetched_categories = global_config["fetched_categories"]
+
+    except Exception:
+        # Can't read config, nothing to migrate
+        return False
+
+    # Get all existing profiles
+    account_manager = AccountManager(config_dir=config_dir)
+    accounts = account_manager.list_accounts()
+
+    if not accounts:
+        # No profiles to migrate to
+        return False
+
+    if dry_run:
+        return True
+
+    # Migrate categories to each profile's config.yaml
+    migrated_count = 0
+    for account in accounts:
+        # Skip Amazon profiles - they will inherit
+        if account.backend_type == "amazon":
+            continue
+
+        profile_dir = account_manager.get_profile_dir(account.id)
+        profile_config_path = profile_dir / "config.yaml"
+
+        # Load or create profile config
+        if profile_config_path.exists():
+            try:
+                with open(profile_config_path, "r") as f:
+                    profile_config = yaml.safe_load(f) or {}
+            except Exception:
+                profile_config = {}
+        else:
+            profile_config = {}
+
+        # Only migrate if profile doesn't already have categories
+        if "fetched_categories" not in profile_config:
+            profile_config["version"] = 1
+            profile_config["fetched_categories"] = fetched_categories
+
+            with open(profile_config_path, "w") as f:
+                yaml.dump(profile_config, f, default_flow_style=False, sort_keys=False)
+
+            migrated_count += 1
+
+    if migrated_count > 0:
+        # Remove fetched_categories from global config (keep other settings)
+        global_config.pop("fetched_categories", None)
+
+        with open(global_config_path, "w") as f:
+            yaml.dump(global_config, f, default_flow_style=False, sort_keys=False)
+
+    return migrated_count > 0
+
+
+def check_categories_migration_needed(config_dir: Optional[Path] = None) -> bool:
+    """
+    Check if global categories migration is needed.
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+
+    Returns:
+        True if migration needed, False otherwise
+    """
+    return migrate_global_categories_to_profiles(config_dir=config_dir, dry_run=True)

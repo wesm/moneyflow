@@ -7,6 +7,7 @@ from moneyflow.credentials import CredentialManager
 from moneyflow.migration import (
     check_amazon_migration_needed,
     check_migration_needed,
+    migrate_global_categories_to_profiles,
     migrate_legacy_amazon_db,
     migrate_legacy_credentials,
 )
@@ -452,3 +453,201 @@ class TestMigrateLegacyAmazonDb:
         backend_types = {acc.backend_type for acc in accounts}
         assert "monarch" in backend_types
         assert "amazon" in backend_types
+
+
+class TestMigrateGlobalCategoriesToProfiles:
+    """Tests for migrating global config.yaml categories to profiles."""
+
+    def test_no_migration_when_no_global_config(self, temp_config_dir):
+        """Test no migration when global config doesn't exist."""
+        result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        assert result is False
+
+    def test_no_migration_when_no_fetched_categories(self, temp_config_dir):
+        """Test no migration when global config has no fetched_categories."""
+        import yaml
+
+        config_path = temp_config_dir / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "other_setting": "value"}, f)
+
+        result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        assert result is False
+
+    def test_no_migration_when_no_profiles(self, temp_config_dir):
+        """Test no migration when no profiles exist."""
+        import yaml
+
+        config_path = temp_config_dir / "config.yaml"
+        categories = {"Food": ["Groceries"], "Shopping": ["Clothing"]}
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": categories}, f)
+
+        result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        assert result is False
+
+    def test_migrates_to_monarch_profile(self, temp_config_dir):
+        """Test categories migrated to Monarch profile."""
+        import yaml
+
+        from moneyflow.account_manager import AccountManager
+
+        # Create global config with categories
+        config_path = temp_config_dir / "config.yaml"
+        categories = {"Food": ["Groceries"], "Shopping": ["Clothing"]}
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": categories}, f)
+
+        # Create Monarch account
+        account_mgr = AccountManager(config_dir=temp_config_dir)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+
+        # Migrate
+        result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        assert result is True
+
+        # Verify categories in profile
+        profile_dir = temp_config_dir / "profiles" / "monarch1"
+        profile_config_path = profile_dir / "config.yaml"
+
+        assert profile_config_path.exists()
+
+        with open(profile_config_path, "r") as f:
+            profile_config = yaml.safe_load(f)
+
+        assert profile_config["fetched_categories"] == categories
+
+    def test_removes_categories_from_global_config(self, temp_config_dir):
+        """Test that migration removes fetched_categories from global config."""
+        import yaml
+
+        from moneyflow.account_manager import AccountManager
+
+        # Create global config with categories and other settings
+        config_path = temp_config_dir / "config.yaml"
+        global_config = {
+            "version": 1,
+            "fetched_categories": {"Food": ["Groceries"]},
+            "other_setting": "keep_me",
+        }
+        with open(config_path, "w") as f:
+            yaml.dump(global_config, f)
+
+        # Create account
+        account_mgr = AccountManager(config_dir=temp_config_dir)
+        account_mgr.create_account("Monarch", "monarch")
+
+        # Migrate
+        migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        # Verify global config
+        with open(config_path, "r") as f:
+            updated_config = yaml.safe_load(f)
+
+        assert "fetched_categories" not in updated_config
+        assert updated_config["other_setting"] == "keep_me"
+        assert updated_config["version"] == 1
+
+    def test_skips_amazon_profiles(self, temp_config_dir):
+        """Test that Amazon profiles are skipped during migration."""
+        import yaml
+
+        from moneyflow.account_manager import AccountManager
+
+        # Create global config with categories
+        config_path = temp_config_dir / "config.yaml"
+        categories = {"Food": ["Groceries"]}
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": categories}, f)
+
+        # Create Amazon and Monarch accounts
+        account_mgr = AccountManager(config_dir=temp_config_dir)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+
+        # Migrate
+        migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        # Verify Monarch has categories
+        monarch_config = temp_config_dir / "profiles" / "monarch1" / "config.yaml"
+        with open(monarch_config, "r") as f:
+            monarch_data = yaml.safe_load(f)
+        assert monarch_data["fetched_categories"] == categories
+
+        # Verify Amazon does NOT have categories (will inherit)
+        amazon_config = temp_config_dir / "profiles" / "amazon" / "config.yaml"
+        if amazon_config.exists():
+            with open(amazon_config, "r") as f:
+                amazon_data = yaml.safe_load(f)
+            assert "fetched_categories" not in amazon_data
+
+    def test_preserves_existing_profile_categories(self, temp_config_dir):
+        """Test that migration doesn't overwrite existing profile categories."""
+        import yaml
+
+        from moneyflow.account_manager import AccountManager
+
+        # Create global config
+        config_path = temp_config_dir / "config.yaml"
+        global_cats = {"Global": ["G1"]}
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": global_cats}, f)
+
+        # Create account with existing categories
+        account_mgr = AccountManager(config_dir=temp_config_dir)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+
+        profile_dir = temp_config_dir / "profiles" / "monarch1"
+        existing_cats = {"Existing": ["E1"]}
+        profile_config_path = profile_dir / "config.yaml"
+
+        with open(profile_config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": existing_cats}, f)
+
+        # Migrate
+        migrate_global_categories_to_profiles(config_dir=temp_config_dir)
+
+        # Verify profile still has original categories
+        with open(profile_config_path, "r") as f:
+            profile_config = yaml.safe_load(f)
+
+        assert profile_config["fetched_categories"] == existing_cats
+
+    def test_dry_run_does_not_modify_files(self, temp_config_dir):
+        """Test dry run doesn't modify any files."""
+        import yaml
+
+        from moneyflow.account_manager import AccountManager
+
+        # Create global config
+        config_path = temp_config_dir / "config.yaml"
+        categories = {"Food": ["Groceries"]}
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "fetched_categories": categories}, f)
+
+        # Create account
+        account_mgr = AccountManager(config_dir=temp_config_dir)
+        account_mgr.create_account("Monarch", "monarch")
+
+        # Dry run
+        result = migrate_global_categories_to_profiles(config_dir=temp_config_dir, dry_run=True)
+
+        assert result is True
+
+        # Verify global config unchanged
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        assert "fetched_categories" in config
+
+        # Verify profile config not created
+        profile_dir = temp_config_dir / "profiles" / "monarch"
+        profile_config = profile_dir / "config.yaml"
+        # config.yaml shouldn't exist or shouldn't have fetched_categories
+        if profile_config.exists():
+            with open(profile_config, "r") as f:
+                profile_data = yaml.safe_load(f) or {}
+            assert "fetched_categories" not in profile_data

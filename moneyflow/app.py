@@ -42,7 +42,11 @@ from .credentials import CredentialManager
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .logging_config import get_logger, setup_logging
-from .migration import migrate_legacy_amazon_db, migrate_legacy_credentials
+from .migration import (
+    migrate_global_categories_to_profiles,
+    migrate_legacy_amazon_db,
+    migrate_legacy_credentials,
+)
 from .notification_helper import NotificationHelper
 from .retry_logic import RetryAborted, retry_with_backoff
 
@@ -440,6 +444,11 @@ class MoneyflowApp(App):
         amazon_migrated = migrate_legacy_amazon_db(config_dir=config_path)
         if amazon_migrated:
             logger.info("Migrated legacy Amazon database to amazon profile")
+
+        # Migrate global config.yaml categories to profile-local configs
+        categories_migrated = migrate_global_categories_to_profiles(config_dir=config_path)
+        if categories_migrated:
+            logger.info("Migrated global categories to profile-local configs")
 
         account_manager = AccountManager(config_dir=config_path)
 
