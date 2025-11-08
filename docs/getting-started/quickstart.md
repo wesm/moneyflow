@@ -190,7 +190,8 @@ You're in! Here's what to try:
 - [Amazon Mode](../guide/amazon-mode.md) - Analyze Amazon purchase history
 
 !!! info "Multiple Accounts"
-    moneyflow supports multiple accounts! You can add Monarch, YNAB, and Amazon accounts and switch between them from the account selector on startup.
+    moneyflow supports multiple accounts! You can add Monarch, YNAB, and Amazon accounts and switch between them
+    from the account selector on startup.
 
 ---
 

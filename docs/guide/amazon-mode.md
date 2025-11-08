@@ -69,16 +69,17 @@ This shows:
 
 You can access Amazon mode in two ways:
 
-**Option 1: Account Selector** (Recommended)
+#### Option 1: Account Selector (Recommended)
 
 ```bash
 # Launch moneyflow normally
 moneyflow
 ```
 
-After importing, Amazon will appear in the account selector alongside your other accounts (Monarch Money, YNAB, etc.). Select it with arrow keys or click.
+After importing, Amazon will appear in the account selector alongside your other accounts (Monarch Money, YNAB,
+etc.). Select it with arrow keys or click.
 
-**Option 2: Direct CLI Command**
+#### Option 2: Direct CLI Command
 
 ```bash
 # Open Amazon mode directly
@@ -152,7 +153,7 @@ Amazon mode supports incremental imports, preserving any manual edits you've mad
 
 Amazon data is stored in your profile directory:
 
-```
+```text
 ~/.moneyflow/profiles/amazon/amazon.db
 ```
 
