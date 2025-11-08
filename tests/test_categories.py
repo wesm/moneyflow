@@ -7,9 +7,13 @@ Tests the category loading, merging, and customization logic.
 from moneyflow.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
+    get_amazon_category_source,
     get_effective_category_groups,
+    get_profile_category_groups,
+    load_categories_from_profile,
     load_custom_categories,
     merge_category_groups,
+    save_categories_to_profile,
 )
 
 
@@ -302,3 +306,242 @@ class TestEdgeCases:
         result = merge_category_groups(defaults, custom)
         # Category should remain in original group
         assert "Category X" in result["Group A"]
+
+
+class TestProfileLocalCategories:
+    """Tests for profile-local category storage and loading."""
+
+    def test_save_and_load_profile_categories(self, tmp_path):
+        """Test saving and loading categories from profile directory."""
+        profile_dir = tmp_path / "profiles" / "test_profile"
+
+        test_categories = {
+            "Food": ["Groceries", "Restaurants"],
+            "Transport": ["Gas", "Parking"],
+        }
+
+        # Save categories
+        save_categories_to_profile(test_categories, profile_dir)
+
+        # Verify file created
+        assert (profile_dir / "config.yaml").exists()
+
+        # Load categories back
+        loaded = load_categories_from_profile(profile_dir)
+
+        assert loaded == test_categories
+
+    def test_load_from_nonexistent_profile(self, tmp_path):
+        """Test loading from profile without config returns None."""
+        profile_dir = tmp_path / "profiles" / "nonexistent"
+
+        result = load_categories_from_profile(profile_dir)
+
+        assert result is None
+
+    def test_save_preserves_other_config_keys(self, tmp_path):
+        """Test that saving categories preserves other keys in config.yaml."""
+        profile_dir = tmp_path / "profiles" / "test_profile"
+        profile_dir.mkdir(parents=True)
+
+        # Create config with other keys
+        import yaml
+
+        config_path = profile_dir / "config.yaml"
+        existing_config = {"version": 1, "custom_setting": "value", "another_key": 123}
+
+        with open(config_path, "w") as f:
+            yaml.dump(existing_config, f)
+
+        # Save categories
+        test_categories = {"Food": ["Groceries"]}
+        save_categories_to_profile(test_categories, profile_dir)
+
+        # Load and verify other keys preserved
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        assert config["fetched_categories"] == test_categories
+        assert config["custom_setting"] == "value"
+        assert config["another_key"] == 123
+        assert config["version"] == 1
+
+
+class TestGetProfileCategoryGroups:
+    """Tests for get_profile_category_groups with profile-aware loading."""
+
+    def test_loads_from_profile_config(self, tmp_path):
+        """Test that profile config takes priority."""
+        profile_dir = tmp_path / "profiles" / "test"
+
+        profile_categories = {"Custom": ["Cat1", "Cat2"]}
+        save_categories_to_profile(profile_categories, profile_dir)
+
+        result = get_profile_category_groups(profile_dir=profile_dir)
+
+        assert result == profile_categories
+
+    def test_falls_back_to_defaults_when_no_profile(self, tmp_path):
+        """Test fallback to defaults when profile has no config."""
+        profile_dir = tmp_path / "profiles" / "empty"
+        profile_dir.mkdir(parents=True)
+
+        result = get_profile_category_groups(profile_dir=profile_dir)
+
+        assert result == DEFAULT_CATEGORY_GROUPS
+
+    def test_non_amazon_profile_uses_profile_config_only(self, tmp_path):
+        """Test that Monarch/YNAB profiles don't inherit from others."""
+        # Create two profiles
+        monarch_dir = tmp_path / "profiles" / "monarch1"
+        ynab_dir = tmp_path / "profiles" / "ynab1"
+
+        monarch_cats = {"Monarch Group": ["Monarch Cat"]}
+        save_categories_to_profile(monarch_cats, monarch_dir)
+
+        # YNAB profile should use defaults, not inherit from Monarch
+        result = get_profile_category_groups(profile_dir=ynab_dir, backend_type="ynab")
+
+        assert result == DEFAULT_CATEGORY_GROUPS
+        assert result != monarch_cats
+
+
+class TestAmazonCategoryInheritance:
+    """Tests for Amazon category inheritance logic."""
+
+    def test_amazon_uses_own_config_if_exists(self, tmp_path):
+        """Test Amazon uses its own config if present."""
+        amazon_dir = tmp_path / "profiles" / "amazon"
+        monarch_dir = tmp_path / "profiles" / "monarch1"
+
+        # Both have categories
+        amazon_cats = {"Amazon Custom": ["Item1"]}
+        monarch_cats = {"Monarch Group": ["Cat1"]}
+
+        save_categories_to_profile(amazon_cats, amazon_dir)
+        save_categories_to_profile(monarch_cats, monarch_dir)
+
+        # Amazon should use its own
+        result = get_profile_category_groups(
+            profile_dir=amazon_dir, config_dir=str(tmp_path), backend_type="amazon"
+        )
+
+        assert result == amazon_cats
+
+    def test_amazon_inherits_from_explicit_source(self, tmp_path):
+        """Test Amazon inherits from amazon_categories_source in global config."""
+        import yaml
+
+        config_dir = tmp_path
+        amazon_dir = tmp_path / "profiles" / "amazon"
+        monarch_dir = tmp_path / "profiles" / "monarch1"
+
+        # Set up global config
+        global_config = {"version": 1, "amazon_categories_source": "monarch1"}
+        with open(tmp_path / "config.yaml", "w") as f:
+            yaml.dump(global_config, f)
+
+        # Create Monarch categories
+        monarch_cats = {"Monarch Group": ["Cat1", "Cat2"]}
+        save_categories_to_profile(monarch_cats, monarch_dir)
+
+        # Amazon should inherit from monarch1
+        result = get_profile_category_groups(
+            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
+        )
+
+        assert result == monarch_cats
+
+    def test_amazon_auto_inherits_from_single_profile(self, tmp_path):
+        """Test Amazon auto-inherits when only one other profile exists."""
+        from moneyflow.account_manager import AccountManager
+
+        config_dir = tmp_path
+        amazon_dir = tmp_path / "profiles" / "amazon"
+        monarch_dir = tmp_path / "profiles" / "monarch1"
+
+        # Create accounts
+        account_mgr = AccountManager(config_dir=config_dir)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+
+        # Create Monarch categories
+        monarch_cats = {"Monarch Group": ["Cat1"]}
+        save_categories_to_profile(monarch_cats, monarch_dir)
+
+        # Amazon should auto-inherit
+        result = get_profile_category_groups(
+            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
+        )
+
+        assert result == monarch_cats
+
+    def test_amazon_uses_defaults_with_multiple_profiles(self, tmp_path):
+        """Test Amazon uses defaults when multiple other profiles exist."""
+        from moneyflow.account_manager import AccountManager
+
+        config_dir = tmp_path
+        amazon_dir = tmp_path / "profiles" / "amazon"
+        monarch_dir = tmp_path / "profiles" / "monarch1"
+        ynab_dir = tmp_path / "profiles" / "ynab1"
+
+        # Create accounts
+        account_mgr = AccountManager(config_dir=config_dir)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_mgr.create_account("YNAB", "ynab", account_id="ynab1")
+        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+
+        # Create different categories for each
+        save_categories_to_profile({"Monarch": ["M1"]}, monarch_dir)
+        save_categories_to_profile({"YNAB": ["Y1"]}, ynab_dir)
+
+        # Amazon should use defaults (can't pick between 2 profiles)
+        result = get_profile_category_groups(
+            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
+        )
+
+        assert result == DEFAULT_CATEGORY_GROUPS
+
+    def test_amazon_fallback_to_defaults_when_no_profiles(self, tmp_path):
+        """Test Amazon uses defaults when no other profiles exist."""
+        amazon_dir = tmp_path / "profiles" / "amazon"
+
+        result = get_profile_category_groups(
+            profile_dir=amazon_dir, config_dir=str(tmp_path), backend_type="amazon"
+        )
+
+        assert result == DEFAULT_CATEGORY_GROUPS
+
+
+class TestGetAmazonCategorySource:
+    """Tests for amazon_categories_source config option."""
+
+    def test_returns_none_when_no_global_config(self, tmp_path):
+        """Test returns None when global config doesn't exist."""
+        result = get_amazon_category_source(config_dir=str(tmp_path))
+
+        assert result is None
+
+    def test_returns_none_when_setting_not_present(self, tmp_path):
+        """Test returns None when setting not in config."""
+        import yaml
+
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "other_setting": "value"}, f)
+
+        result = get_amazon_category_source(config_dir=str(tmp_path))
+
+        assert result is None
+
+    def test_returns_profile_id_when_configured(self, tmp_path):
+        """Test returns profile ID when configured."""
+        import yaml
+
+        config_path = tmp_path / "config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump({"version": 1, "amazon_categories_source": "monarch1"}, f)
+
+        result = get_amazon_category_source(config_dir=str(tmp_path))
+
+        assert result == "monarch1"
