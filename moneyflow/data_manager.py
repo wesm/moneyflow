@@ -973,8 +973,12 @@ class DataManager:
                 )
 
                 try:
-                    # Call synchronous batch_update_merchant method
-                    result = self.mm.batch_update_merchant(old_name, new_name)  # type: ignore[attr-defined]
+                    # Call batch_update_merchant in thread to avoid blocking event loop
+                    result = await asyncio.to_thread(
+                        self.mm.batch_update_merchant,  # type: ignore[attr-defined]
+                        old_name,
+                        new_name,
+                    )
 
                     if result.get("success"):
                         # Batch update succeeded - count all edits in this group as successful

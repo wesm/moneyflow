@@ -490,6 +490,8 @@ class YNABClient:
         response = payees_api.get_payees(budget_id=self.budget_id)
 
         # Find all payees with matching name
+        # Note: Linear search is intentional - we need ALL matches to detect duplicates
+        # Using a dict would only find one match and miss duplicate detection
         matching_payees = [p for p in response.data.payees if p.name == merchant_name]
 
         if not matching_payees:
