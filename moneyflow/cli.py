@@ -151,7 +151,7 @@ def amazon(ctx, db_path, config_dir):
             raise click.Abort()
 
         # Launch the UI
-        launch_amazon_mode(db_path=db_path, config_dir=config_dir)
+        launch_amazon_mode(db_path=db_path, config_dir=config_dir, profile_dir=amazon_profile_dir)
 
 
 @amazon.command(name="import")
