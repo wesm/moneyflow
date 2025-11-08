@@ -274,7 +274,9 @@ class MoneyflowApp(App):
         loading_status.display = True
         return loading_status
 
-    def _initialize_managers(self, profile_dir: Optional[Path] = None):
+    def _initialize_managers(
+        self, profile_dir: Optional[Path] = None, backend_type: Optional[str] = None
+    ):
         """
         Initialize data manager, cache manager, and controller.
 
@@ -282,6 +284,7 @@ class MoneyflowApp(App):
             profile_dir: Optional profile directory for multi-account mode
                         If provided, merchant cache and transaction cache will be
                         stored in this directory to isolate accounts
+            backend_type: Backend type (amazon, monarch, ynab) for category logic
         """
         # config_dir is required - default to ~/.moneyflow if not specified
         config_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
@@ -298,7 +301,11 @@ class MoneyflowApp(App):
             merchant_cache_dir = ""
 
         self.data_manager = DataManager(
-            self.backend, config_dir=config_dir, merchant_cache_dir=merchant_cache_dir
+            self.backend,
+            config_dir=config_dir,
+            merchant_cache_dir=merchant_cache_dir,
+            profile_dir=profile_dir,
+            backend_type=backend_type,
         )
 
         # Initialize cache manager
@@ -989,7 +996,23 @@ class MoneyflowApp(App):
                     await self.backend.login()  # No-op for backends without auth
 
             # Step 4: Initialize managers (pass profile_dir for multi-account isolation)
-            self._initialize_managers(profile_dir=profile_dir)
+            # Determine backend_type for category loading
+            determined_backend_type = None
+            if self.demo_mode:
+                determined_backend_type = "demo"
+            elif self.backend:
+                # Get backend type from backend instance
+                backend_class = self.backend.__class__.__name__
+                if "Amazon" in backend_class:
+                    determined_backend_type = "amazon"
+                elif "Monarch" in backend_class:
+                    determined_backend_type = "monarch"
+                elif "YNAB" in backend_class:
+                    determined_backend_type = "ynab"
+            elif creds:
+                determined_backend_type = creds.get("backend_type")
+
+            self._initialize_managers(profile_dir=profile_dir, backend_type=determined_backend_type)
 
             # Step 4: Determine date range
             start_date, end_date, self.cache_year_filter, self.cache_since_filter = (

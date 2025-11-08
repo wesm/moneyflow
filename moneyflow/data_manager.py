@@ -26,7 +26,9 @@ from .categories import (
     build_category_to_group_mapping,
     convert_api_categories_to_groups,
     get_effective_category_groups,
+    get_profile_category_groups,
     save_categories_to_config,
+    save_categories_to_profile,
 )
 from .logging_config import get_logger
 from .state import TimeGranularity
@@ -75,22 +77,40 @@ class DataManager:
 
     MERCHANT_CACHE_MAX_AGE_HOURS = 24  # Refresh once per day
 
-    def __init__(self, mm: FinanceBackend, config_dir: str, merchant_cache_dir: str = ""):
+    def __init__(
+        self,
+        mm: FinanceBackend,
+        config_dir: str,
+        merchant_cache_dir: str = "",
+        profile_dir: Optional[Path] = None,
+        backend_type: Optional[str] = None,
+    ):
         """
         Initialize DataManager with a finance backend.
 
         Args:
             mm: Backend instance (must implement FinanceBackend interface)
-            config_dir: Config directory for config.yaml (required to prevent accidental pollution)
+            config_dir: Config directory for global config.yaml (required)
             merchant_cache_dir: Directory for merchant cache (defaults to config_dir if empty)
                                For multi-account mode, pass profile directory to isolate merchant
                                caches per account (e.g., ~/.moneyflow/profiles/monarch-personal/)
+            profile_dir: Profile directory for profile-local config.yaml (for multi-account mode)
+            backend_type: Backend type (amazon, monarch, ynab) for category inheritance logic
         """
         self.mm = mm
-        self.config_dir = config_dir  # Store for apply_category_groups
+        self.config_dir = config_dir
+        self.profile_dir = profile_dir
+        self.backend_type = backend_type
 
-        # Load effective category groups (defaults + custom from YAML)
-        self.category_groups_config = get_effective_category_groups(config_dir)
+        # Load category groups (profile-aware if profile_dir provided)
+        if profile_dir:
+            self.category_groups_config = get_profile_category_groups(
+                profile_dir=profile_dir, config_dir=config_dir, backend_type=backend_type
+            )
+        else:
+            # Legacy mode - use global config
+            self.category_groups_config = get_effective_category_groups(config_dir)
+
         self.category_to_group = build_category_to_group_mapping(self.category_groups_config)
 
         # Data storage
@@ -272,20 +292,33 @@ class DataManager:
                 "type": group["type"],
             }
 
-        # Convert and save categories to config.yaml for Monarch/YNAB backends
-        # This allows Amazon mode and other backends to use the same category structure
-        # Skip for demo mode (uses built-in defaults)
-        backend_type = (
+        # Convert and save categories to profile config for Monarch/YNAB backends
+        # Skip for demo mode (uses built-in defaults) and Amazon (local-only)
+        backend_class = (
             getattr(self.mm, "__class__", None).__name__ if hasattr(self.mm, "__class__") else None
         )
-        if backend_type and backend_type not in ["DemoBackend", "AmazonBackend"]:
+        if backend_class and backend_class not in ["DemoBackend", "AmazonBackend"]:
             try:
                 simple_groups = convert_api_categories_to_groups(categories_data, groups_data)
-                save_categories_to_config(simple_groups, config_dir=self.config_dir)
+
+                # Save to profile-local config if available, otherwise legacy global config
+                if self.profile_dir:
+                    save_categories_to_profile(simple_groups, profile_dir=self.profile_dir)
+                else:
+                    # Legacy: save to global config
+                    save_categories_to_config(simple_groups, config_dir=self.config_dir)
 
                 # Rebuild category mapping after saving fresh categories
                 # This fixes bug where stale mapping causes transfers to not be filtered
-                self.category_groups_config = get_effective_category_groups(self.config_dir)
+                if self.profile_dir:
+                    self.category_groups_config = get_profile_category_groups(
+                        profile_dir=self.profile_dir,
+                        config_dir=self.config_dir,
+                        backend_type=self.backend_type,
+                    )
+                else:
+                    self.category_groups_config = get_effective_category_groups(self.config_dir)
+
                 self.category_to_group = build_category_to_group_mapping(
                     self.category_groups_config
                 )
