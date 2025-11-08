@@ -10,7 +10,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..categories import get_effective_category_groups
+from ..categories import get_effective_category_groups, get_profile_category_groups
 from .base import FinanceBackend
 
 
@@ -25,13 +25,19 @@ class AmazonBackend(FinanceBackend):
     imported from CSV files exported from Amazon.com.
     """
 
-    def __init__(self, db_path: Optional[str] = None, config_dir: Optional[str] = None):
+    def __init__(
+        self,
+        db_path: Optional[str] = None,
+        config_dir: Optional[str] = None,
+        profile_dir: Optional[Path] = None,
+    ):
         """
         Initialize the Amazon backend.
 
         Args:
             db_path: Path to SQLite database. Defaults to ~/.moneyflow/amazon.db
             config_dir: Config directory for loading categories. Defaults to ~/.moneyflow
+            profile_dir: Profile directory for profile-local categories
 
         Note: Database file is not created until first access (lazy initialization).
         """
@@ -40,6 +46,7 @@ class AmazonBackend(FinanceBackend):
 
         self.db_path = Path(db_path).expanduser()
         self.config_dir = config_dir
+        self.profile_dir = profile_dir
         self._db_initialized = False
 
     def _ensure_db_initialized(self) -> None:
@@ -281,11 +288,13 @@ class AmazonBackend(FinanceBackend):
 
     async def get_transaction_categories(self) -> Dict[str, Any]:
         """
-        Fetch all categories from config.yaml (or defaults if not present).
+        Fetch all categories for Amazon backend with smart inheritance.
 
-        Returns categories from config.yaml if available (e.g., fetched from Monarch),
-        otherwise uses built-in defaults. This allows Amazon mode to use the same
-        category structure as your primary backend.
+        Priority order:
+        1. Profile-local config.yaml (if exists)
+        2. Inherit from amazon_categories_source (if configured)
+        3. Auto-inherit from single other profile (if only one Monarch/YNAB exists)
+        4. Built-in defaults
 
         Returns:
             Dictionary containing categories in standard format
@@ -293,9 +302,14 @@ class AmazonBackend(FinanceBackend):
         categories = []
         cat_id_counter = 1
 
-        # Load category groups from config.yaml if available, otherwise use built-in defaults
-        # Note: This is NOT a merge - it's one or the other (priority: config.yaml > defaults)
-        category_groups = get_effective_category_groups(self.config_dir)
+        # Load category groups (profile-aware with Amazon inheritance)
+        if self.profile_dir:
+            category_groups = get_profile_category_groups(
+                profile_dir=self.profile_dir, config_dir=self.config_dir, backend_type="amazon"
+            )
+        else:
+            # Legacy mode - use global config
+            category_groups = get_effective_category_groups(self.config_dir)
 
         # Build categories from loaded category groups
         for group_name, category_names in category_groups.items():

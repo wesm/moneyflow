@@ -959,7 +959,9 @@ class MoneyflowApp(App):
                         from moneyflow.backends.amazon import AmazonBackend
 
                         db_path = str(profile_dir / "amazon.db")
-                        self.backend = AmazonBackend(db_path=db_path, config_dir=self.config_dir)
+                        self.backend = AmazonBackend(
+                            db_path=db_path, config_dir=self.config_dir, profile_dir=profile_dir
+                        )
                         self.backend_config = BackendConfig.for_amazon()
                         loading_status.update("📦 Loading Amazon data...")
 
