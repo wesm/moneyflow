@@ -122,13 +122,16 @@ def amazon(ctx, db_path, config_dir):
                     amazon_account = account
                     break
 
+            amazon_profile_dir = None
             if amazon_account:
                 # Use migrated profile path
-                profile_dir = account_manager.get_profile_dir(amazon_account.id)
-                db_path = str(profile_dir / "amazon.db")
+                amazon_profile_dir = account_manager.get_profile_dir(amazon_account.id)
+                db_path = str(amazon_profile_dir / "amazon.db")
             # else: db_path stays None, AmazonBackend will use default
 
-        backend = AmazonBackend(db_path=db_path, config_dir=config_dir)
+        backend = AmazonBackend(
+            db_path=db_path, config_dir=config_dir, profile_dir=amazon_profile_dir
+        )
 
         # Check if database exists
         if not backend.db_path.exists():

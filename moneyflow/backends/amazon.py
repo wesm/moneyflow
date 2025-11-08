@@ -369,7 +369,12 @@ class AmazonBackend(FinanceBackend):
             # Also update category name from effective category groups
             # (group is derived from category by data_manager, not stored)
             # Build category_id → category_name lookup
-            category_groups = get_effective_category_groups(self.config_dir)
+            if self.profile_dir:
+                category_groups = get_profile_category_groups(
+                    profile_dir=self.profile_dir, config_dir=self.config_dir, backend_type="amazon"
+                )
+            else:
+                category_groups = get_effective_category_groups(self.config_dir)
             category_name = None
             for group_name, category_names in category_groups.items():
                 for cat_name in category_names:
