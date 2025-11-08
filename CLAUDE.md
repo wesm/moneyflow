@@ -1,5 +1,19 @@
 # moneyflow - Development Guide
 
+## CRITICAL: Git Branch Management for AI Assistants
+
+**⚠️ NEVER change git branches or create new branches without explicit user permission.**
+
+- ✅ **ALWAYS ask before** `git checkout <branch>`
+- ✅ **ALWAYS ask before** creating new branches
+- ✅ **Stay on the branch the user checked out** unless they explicitly ask you to switch
+- ❌ **NEVER run `git checkout` on your own**
+- ❌ **NEVER create branches autonomously**
+
+**If you need to work on a different branch**, ask the user first:
+- "Should I switch to branch X to work on this?"
+- "Should I create a new branch for this feature?"
+
 ## Project Overview
 
 moneyflow is a terminal-based UI for power users to manage personal finance transactions efficiently. Built with Python using Textual for the UI and Polars for data processing. Supports multiple backends including Monarch Money, with more platforms planned (YNAB, Lunch Money, etc.).
