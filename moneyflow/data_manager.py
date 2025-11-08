@@ -1008,6 +1008,15 @@ class DataManager:
             # Add failed batch edits back to the list for individual processing
             merchant_edits = failed_batch_edits
 
+            # Safety check: ensure no overlap between successful and failed batches
+            successful_ids = {e.transaction_id for e in successfully_batched_edits}
+            failed_ids = {e.transaction_id for e in failed_batch_edits}
+            overlap = successful_ids & failed_ids
+            assert not overlap, (
+                f"Found {len(overlap)} edits in both successful and failed batches - "
+                "this indicates a race condition or logic error"
+            )
+
         # Process remaining edits (non-merchant + failed batch updates) individually
         edits_to_process = merchant_edits + other_edits
 
