@@ -28,7 +28,7 @@ class AmazonBackend(FinanceBackend):
     def __init__(
         self,
         db_path: Optional[str] = None,
-        config_dir: Optional[str] = None,
+        config_dir: str = str(Path.home() / ".moneyflow"),
         profile_dir: Optional[Path] = None,
     ):
         """
@@ -36,7 +36,7 @@ class AmazonBackend(FinanceBackend):
 
         Args:
             db_path: Path to SQLite database. Defaults to ~/.moneyflow/amazon.db
-            config_dir: Config directory for loading categories. Defaults to ~/.moneyflow
+            config_dir: Config directory for loading categories (required for category inheritance)
             profile_dir: Profile directory for profile-local categories
 
         Note: Database file is not created until first access (lazy initialization).
