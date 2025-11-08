@@ -299,26 +299,16 @@ class AmazonBackend(FinanceBackend):
         Returns:
             Dictionary containing categories in standard format
         """
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.debug(
-            f"Amazon.get_transaction_categories: profile_dir={self.profile_dir}, "
-            f"config_dir={self.config_dir}"
-        )
-
         categories = []
         cat_id_counter = 1
 
         # Load category groups (profile-aware with Amazon inheritance)
         if self.profile_dir:
-            logger.debug("Amazon backend using profile-aware category loading")
             category_groups = get_profile_category_groups(
                 profile_dir=self.profile_dir, config_dir=self.config_dir, backend_type="amazon"
             )
         else:
             # Legacy mode - use global config
-            logger.debug("Amazon backend using legacy global config")
             category_groups = get_effective_category_groups(self.config_dir)
 
         # Build categories from loaded category groups
