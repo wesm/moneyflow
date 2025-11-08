@@ -560,3 +560,92 @@ class TestYNABBackend:
 
         # Verify cache was invalidated (so next fetch gets updated data)
         assert backend.client._transaction_cache is None
+
+    def test_find_payee_detects_duplicates(self, backend, mock_ynab_api):
+        """Test that _find_or_create_payee detects duplicate payee names."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock duplicate payees with the same name
+        mock_payee1 = MagicMock()
+        mock_payee1.id = "payee-amazon-1"
+        mock_payee1.name = "Amazon"
+
+        mock_payee2 = MagicMock()
+        mock_payee2.id = "payee-amazon-2"
+        mock_payee2.name = "Amazon"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_payee1, mock_payee2]
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        # Call should return a dict with warning about duplicates
+        result = backend.client._find_or_create_payee("Amazon")
+
+        assert result is not None
+        assert "payee" in result
+        assert "duplicates_found" in result
+        assert result["duplicates_found"] is True
+        assert len(result["duplicate_ids"]) == 2
+        assert "payee-amazon-1" in result["duplicate_ids"]
+        assert "payee-amazon-2" in result["duplicate_ids"]
+
+    def test_find_payee_no_duplicates(self, backend, mock_ynab_api):
+        """Test that _find_or_create_payee works normally with unique names."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        mock_payee = MagicMock()
+        mock_payee.id = "payee-amazon"
+        mock_payee.name = "Amazon"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_payee]
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.client._find_or_create_payee("Amazon")
+
+        assert result is not None
+        assert "payee" in result
+        assert "duplicates_found" in result
+        assert result["duplicates_found"] is False
+        assert result["duplicate_ids"] == []
+
+    def test_batch_update_merchant_with_duplicates(self, backend, mock_ynab_api):
+        """Test that batch_update_merchant warns about duplicate payees."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock duplicate payees with the same name
+        mock_payee1 = MagicMock()
+        mock_payee1.id = "payee-amazon-1"
+        mock_payee1.name = "Amazon.com/abc123"
+
+        mock_payee2 = MagicMock()
+        mock_payee2.id = "payee-amazon-2"
+        mock_payee2.name = "Amazon.com/abc123"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_payee1, mock_payee2]
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        result = backend.batch_update_merchant("Amazon.com/abc123", "Amazon")
+
+        # Should fail and report duplicates
+        assert result["success"] is False
+        assert result["method"] == "duplicate_payees_found"
+        assert "duplicate" in result["message"].lower()
+        assert "duplicate_ids" in result
+        assert len(result["duplicate_ids"]) == 2

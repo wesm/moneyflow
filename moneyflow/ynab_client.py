@@ -208,9 +208,9 @@ class YNABClient:
         )
 
         if merchant_name is not None:
-            payee = self._find_or_create_payee(merchant_name)
-            if payee:
-                update_data.payee_id = payee.id
+            payee_result = self._find_or_create_payee(merchant_name)
+            if payee_result["payee"]:
+                update_data.payee_id = payee_result["payee"].id
             else:
                 update_data.payee_name = merchant_name
 
@@ -361,9 +361,9 @@ class YNABClient:
         logger.info(f"Batch updating merchant: '{old_merchant_name}' -> '{new_merchant_name}'")
 
         # Find the payee for the old merchant name
-        old_payee = self._find_or_create_payee(old_merchant_name)
+        payee_result = self._find_or_create_payee(old_merchant_name)
 
-        if not old_payee:
+        if not payee_result["payee"]:
             logger.warning(
                 f"Payee '{old_merchant_name}' not found. "
                 "This merchant may not exist or transactions use payee_name directly."
@@ -375,6 +375,27 @@ class YNABClient:
                 "method": "payee_not_found",
                 "message": f"Payee '{old_merchant_name}' not found",
             }
+
+        # Check for duplicates - abort if found
+        if payee_result["duplicates_found"]:
+            logger.error(
+                f"Found duplicate payees with name '{old_merchant_name}': "
+                f"{payee_result['duplicate_ids']}. Cannot safely perform batch update. "
+                "Please merge duplicate payees in YNAB first."
+            )
+            return {
+                "success": False,
+                "payee_id": None,
+                "transactions_affected": 0,
+                "method": "duplicate_payees_found",
+                "message": (
+                    f"Found {len(payee_result['duplicate_ids'])} duplicate payees "
+                    f"with name '{old_merchant_name}'. Merge duplicates in YNAB first."
+                ),
+                "duplicate_ids": payee_result["duplicate_ids"],
+            }
+
+        old_payee = payee_result["payee"]
 
         # Update the payee name (cascades to all transactions)
         success = self.update_payee(old_payee.id, new_merchant_name)
@@ -452,16 +473,45 @@ class YNABClient:
             "isRecurring": False,
         }
 
-    def _find_or_create_payee(self, merchant_name: str) -> Optional[Any]:
+    def _find_or_create_payee(self, merchant_name: str) -> Dict[str, Any]:
         """
-        Find a payee by name.
+        Find a payee by name and detect duplicates.
 
         Args:
             merchant_name: Payee name to search for
 
         Returns:
-            Payee object if found, None otherwise
+            Dictionary with:
+            - payee: The payee object (first match) or None
+            - duplicates_found: True if multiple payees with same name exist
+            - duplicate_ids: List of all payee IDs with matching names
         """
         payees_api = ynab.PayeesApi(self.api_client)
         response = payees_api.get_payees(budget_id=self.budget_id)
-        return next((p for p in response.data.payees if p.name == merchant_name), None)
+
+        # Find all payees with matching name
+        matching_payees = [p for p in response.data.payees if p.name == merchant_name]
+
+        if not matching_payees:
+            return {
+                "payee": None,
+                "duplicates_found": False,
+                "duplicate_ids": [],
+            }
+
+        # Detect duplicates
+        duplicates_found = len(matching_payees) > 1
+        duplicate_ids = [p.id for p in matching_payees] if duplicates_found else []
+
+        if duplicates_found:
+            logger.warning(
+                f"Found {len(matching_payees)} payees with name '{merchant_name}': {duplicate_ids}. "
+                "Using first match, but this may cause unexpected behavior. "
+                "Consider merging duplicate payees in YNAB."
+            )
+
+        return {
+            "payee": matching_payees[0],
+            "duplicates_found": duplicates_found,
+            "duplicate_ids": duplicate_ids,
+        }
