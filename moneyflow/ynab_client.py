@@ -29,6 +29,7 @@ class YNABClient:
         self.currency_symbol: str = "$"  # Default to USD, updated during login
         self._transaction_cache: Optional[List[Dict[str, Any]]] = None
         self._cache_params: Optional[Dict[str, Any]] = None
+        self._account_cache: Optional[Dict[str, Dict[str, Any]]] = None
 
     def login(self, access_token: str) -> None:
         """
@@ -60,6 +61,9 @@ class YNABClient:
             # Fetch currency symbol from budget settings
             if budget.currency_format and budget.currency_format.currency_symbol:
                 self.currency_symbol = budget.currency_format.currency_symbol
+
+        # Fetch and cache account information (including on_budget status)
+        self._fetch_and_cache_accounts()
 
     def get_transactions(
         self,
@@ -430,6 +434,7 @@ class YNABClient:
         self.access_token = None
         self.budget_id = None
         self._invalidate_cache()
+        self._account_cache = None
 
     def _ensure_authenticated(self) -> None:
         """Ensure client is authenticated before API calls."""
@@ -441,9 +446,43 @@ class YNABClient:
         self._transaction_cache = None
         self._cache_params = None
 
+    def _fetch_and_cache_accounts(self) -> None:
+        """
+        Fetch all accounts from YNAB and cache account metadata.
+
+        Caches account information including on_budget status to determine
+        if transactions should be hidden from reports (tracking accounts).
+        """
+        self._ensure_authenticated()
+
+        accounts_api = ynab.AccountsApi(self.api_client)
+        response = accounts_api.get_accounts(budget_id=self.budget_id)
+
+        self._account_cache = {
+            account.id: {
+                "id": account.id,
+                "name": account.name,
+                "on_budget": account.on_budget,
+                "closed": account.closed,
+                "type": str(account.type) if account.type else "unknown",
+            }
+            for account in response.data.accounts
+        }
+
+        tracking_count = sum(1 for a in self._account_cache.values() if not a["on_budget"])
+        logger.info(
+            f"Cached {len(self._account_cache)} accounts "
+            f"({tracking_count} tracking, {len(self._account_cache) - tracking_count} budget)"
+        )
+
     def _convert_transaction(self, txn: Any) -> Dict[str, Any]:
         """
         Convert a YNAB transaction to moneyflow-compatible format.
+
+        Transactions are hidden from reports if:
+        1. They are deleted (txn.deleted)
+        2. They are transfers (txn.transfer_account_id is not None)
+        3. They belong to a tracking account (on_budget=False)
 
         Args:
             txn: YNAB TransactionDetail object
@@ -451,6 +490,11 @@ class YNABClient:
         Returns:
             Dictionary in moneyflow format
         """
+        # Check if transaction belongs to a tracking account
+        is_tracking_account = False
+        if self._account_cache and txn.account_id in self._account_cache:
+            is_tracking_account = not self._account_cache[txn.account_id]["on_budget"]
+
         return {
             "id": txn.id,
             "date": str(txn.var_date),
@@ -468,7 +512,11 @@ class YNABClient:
                 "displayName": txn.account_name,
             },
             "notes": txn.memo or "",
-            "hideFromReports": txn.deleted or txn.transfer_account_id is not None,
+            "hideFromReports": (
+                txn.deleted
+                or txn.transfer_account_id is not None
+                or is_tracking_account
+            ),
             "pending": txn.cleared == "uncleared",
             "isRecurring": False,
         }

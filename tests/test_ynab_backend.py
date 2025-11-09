@@ -649,3 +649,315 @@ class TestYNABBackend:
         assert "duplicate" in result["message"].lower()
         assert "duplicate_ids" in result
         assert len(result["duplicate_ids"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_login_caches_accounts(self, backend, mock_ynab_api):
+        """Test that login fetches and caches account information."""
+        mock_budget = MagicMock()
+        mock_budget.id = "test-budget-id"
+        mock_budget.name = "Test Budget"
+        mock_budget.currency_format = None
+
+        mock_budgets_response = MagicMock()
+        mock_budgets_response.data.budgets = [mock_budget]
+
+        mock_budgets_api = MagicMock()
+        mock_budgets_api.get_budgets.return_value = mock_budgets_response
+
+        # Mock accounts
+        mock_checking = MagicMock()
+        mock_checking.id = "acc-checking"
+        mock_checking.name = "Checking"
+        mock_checking.on_budget = True
+        mock_checking.closed = False
+        mock_checking.type = "checking"
+
+        mock_401k = MagicMock()
+        mock_401k.id = "acc-401k"
+        mock_401k.name = "401k"
+        mock_401k.on_budget = False
+        mock_401k.closed = False
+        mock_401k.type = "investmentAccount"
+
+        mock_accounts_response = MagicMock()
+        mock_accounts_response.data.accounts = [mock_checking, mock_401k]
+
+        mock_accounts_api = MagicMock()
+        mock_accounts_api.get_accounts.return_value = mock_accounts_response
+
+        mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
+        mock_ynab_api.AccountsApi.return_value = mock_accounts_api
+
+        await backend.login(password="test-access-token")
+
+        # Verify account cache was populated
+        assert backend.client._account_cache is not None
+        assert len(backend.client._account_cache) == 2
+        assert "acc-checking" in backend.client._account_cache
+        assert "acc-401k" in backend.client._account_cache
+        assert backend.client._account_cache["acc-checking"]["on_budget"] is True
+        assert backend.client._account_cache["acc-401k"]["on_budget"] is False
+
+    @pytest.mark.asyncio
+    async def test_tracking_account_transactions_hidden(self, backend, mock_ynab_api):
+        """Test that transactions from tracking accounts are hidden."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
+
+        # Set up account cache with a tracking account
+        backend.client._account_cache = {
+            "acc-401k": {
+                "id": "acc-401k",
+                "name": "401k",
+                "on_budget": False,
+                "closed": False,
+                "type": "investmentAccount",
+            }
+        }
+
+        # Mock transaction from tracking account
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-investment"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = 100000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Investment Transfer"
+        mock_txn.category_id = "cat-1"
+        mock_txn.category_name = "Investment"
+        mock_txn.account_id = "acc-401k"
+        mock_txn.account_name = "401k"
+        mock_txn.memo = "Monthly contribution"
+        mock_txn.deleted = False
+        mock_txn.transfer_account_id = None
+        mock_txn.cleared = "cleared"
+
+        mock_response = MagicMock()
+        mock_response.data.transactions = [mock_txn]
+
+        mock_transactions_api = MagicMock()
+        mock_transactions_api.get_transactions.return_value = mock_response
+
+        mock_ynab_api.TransactionsApi.return_value = mock_transactions_api
+
+        result = await backend.get_transactions(limit=10)
+
+        # Verify transaction is hidden
+        assert len(result["allTransactions"]["results"]) == 1
+        assert result["allTransactions"]["results"][0]["hideFromReports"] is True
+
+    @pytest.mark.asyncio
+    async def test_budget_account_transactions_visible(self, backend, mock_ynab_api):
+        """Test that transactions from budget accounts remain visible."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.access_token = "test-token"
+        backend.client.api_client = MagicMock()
+
+        # Set up account cache with a budget account
+        backend.client._account_cache = {
+            "acc-checking": {
+                "id": "acc-checking",
+                "name": "Checking",
+                "on_budget": True,
+                "closed": False,
+                "type": "checking",
+            }
+        }
+
+        # Mock transaction from budget account
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-groceries"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = -50000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Grocery Store"
+        mock_txn.category_id = "cat-1"
+        mock_txn.category_name = "Groceries"
+        mock_txn.account_id = "acc-checking"
+        mock_txn.account_name = "Checking"
+        mock_txn.memo = "Weekly shopping"
+        mock_txn.deleted = False
+        mock_txn.transfer_account_id = None
+        mock_txn.cleared = "cleared"
+
+        mock_response = MagicMock()
+        mock_response.data.transactions = [mock_txn]
+
+        mock_transactions_api = MagicMock()
+        mock_transactions_api.get_transactions.return_value = mock_response
+
+        mock_ynab_api.TransactionsApi.return_value = mock_transactions_api
+
+        result = await backend.get_transactions(limit=10)
+
+        # Verify transaction is visible
+        assert len(result["allTransactions"]["results"]) == 1
+        assert result["allTransactions"]["results"][0]["hideFromReports"] is False
+
+    def test_missing_account_cache_no_error(self, backend):
+        """Test that missing account cache doesn't cause errors."""
+        backend.client._account_cache = None
+
+        # Mock transaction
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-1"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = -50000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Test Merchant"
+        mock_txn.category_id = "cat-1"
+        mock_txn.category_name = "Test Category"
+        mock_txn.account_id = "unknown-account"
+        mock_txn.account_name = "Unknown Account"
+        mock_txn.memo = "Test"
+        mock_txn.deleted = False
+        mock_txn.transfer_account_id = None
+        mock_txn.cleared = "cleared"
+
+        # Should not crash
+        converted = backend.client._convert_transaction(mock_txn)
+
+        # Should not hide transaction when cache is missing
+        assert converted["hideFromReports"] is False
+
+    def test_unknown_account_id_not_hidden(self, backend):
+        """Test that transactions from unknown accounts are not hidden."""
+        backend.client._account_cache = {
+            "acc-known": {
+                "id": "acc-known",
+                "name": "Known Account",
+                "on_budget": True,
+                "closed": False,
+                "type": "checking",
+            }
+        }
+
+        # Mock transaction with unknown account_id
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-1"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = -50000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Test Merchant"
+        mock_txn.category_id = "cat-1"
+        mock_txn.category_name = "Test Category"
+        mock_txn.account_id = "acc-unknown"
+        mock_txn.account_name = "Unknown Account"
+        mock_txn.memo = "Test"
+        mock_txn.deleted = False
+        mock_txn.transfer_account_id = None
+        mock_txn.cleared = "cleared"
+
+        converted = backend.client._convert_transaction(mock_txn)
+
+        # Unknown accounts should not be hidden by default
+        assert converted["hideFromReports"] is False
+
+    def test_deleted_transactions_still_hidden(self, backend):
+        """Test that deleted transactions remain hidden regardless of account type."""
+        backend.client._account_cache = {
+            "acc-checking": {
+                "id": "acc-checking",
+                "name": "Checking",
+                "on_budget": True,
+                "closed": False,
+                "type": "checking",
+            }
+        }
+
+        # Mock deleted transaction from budget account
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-deleted"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = -50000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Test Merchant"
+        mock_txn.category_id = "cat-1"
+        mock_txn.category_name = "Test Category"
+        mock_txn.account_id = "acc-checking"
+        mock_txn.account_name = "Checking"
+        mock_txn.memo = "Deleted"
+        mock_txn.deleted = True
+        mock_txn.transfer_account_id = None
+        mock_txn.cleared = "cleared"
+
+        converted = backend.client._convert_transaction(mock_txn)
+
+        # Deleted transactions should always be hidden
+        assert converted["hideFromReports"] is True
+
+    def test_transfer_transactions_still_hidden(self, backend):
+        """Test that transfer transactions remain hidden regardless of account type."""
+        backend.client._account_cache = {
+            "acc-checking": {
+                "id": "acc-checking",
+                "name": "Checking",
+                "on_budget": True,
+                "closed": False,
+                "type": "checking",
+            }
+        }
+
+        # Mock transfer transaction from budget account
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-transfer"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = 100000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Transfer"
+        mock_txn.category_id = None
+        mock_txn.category_name = None
+        mock_txn.account_id = "acc-checking"
+        mock_txn.account_name = "Checking"
+        mock_txn.memo = "Transfer to savings"
+        mock_txn.deleted = False
+        mock_txn.transfer_account_id = "acc-savings"
+        mock_txn.cleared = "cleared"
+
+        converted = backend.client._convert_transaction(mock_txn)
+
+        # Transfer transactions should always be hidden
+        assert converted["hideFromReports"] is True
+
+    def test_multiple_hide_conditions(self, backend):
+        """Test that hideFromReports is True if ANY condition is met."""
+        backend.client._account_cache = {
+            "acc-401k": {
+                "id": "acc-401k",
+                "name": "401k",
+                "on_budget": False,
+                "closed": False,
+                "type": "investmentAccount",
+            }
+        }
+
+        # Mock transaction with all hide conditions
+        mock_txn = MagicMock()
+        mock_txn.id = "txn-multiple"
+        mock_txn.var_date = "2025-01-15"
+        mock_txn.amount = 100000
+        mock_txn.payee_id = "payee-1"
+        mock_txn.payee_name = "Test"
+        mock_txn.category_id = None
+        mock_txn.category_name = None
+        mock_txn.account_id = "acc-401k"
+        mock_txn.account_name = "401k"
+        mock_txn.memo = "Multiple conditions"
+        mock_txn.deleted = True
+        mock_txn.transfer_account_id = "acc-other"
+        mock_txn.cleared = "cleared"
+
+        converted = backend.client._convert_transaction(mock_txn)
+
+        # Should be hidden (not "triple hidden")
+        assert converted["hideFromReports"] is True
+
+    def test_close_clears_account_cache(self, backend):
+        """Test that close() clears the account cache."""
+        backend.client.api_client = MagicMock()
+        backend.client.access_token = "test-token"
+        backend.client._account_cache = {"acc-1": {"id": "acc-1", "on_budget": True}}
+
+        backend.clear_auth()
+
+        assert backend.client._account_cache is None
