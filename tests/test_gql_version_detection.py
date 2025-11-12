@@ -7,8 +7,6 @@ Covers:
 - Edge cases (pre-releases, build metadata)
 """
 
-import pytest
-
 from moneyflow.monarchmoney import _parse_gql_version
 
 
