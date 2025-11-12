@@ -4,6 +4,9 @@ Monarch Money API Client
 This file is derived from the monarchmoney Python client library:
 https://github.com/hammem/monarchmoney
 
+With authentication fixes from:
+https://github.com/keithah/monarchmoney-enhanced
+
 Copyright (c) 2023 hammem
 Licensed under the MIT License
 
@@ -17,6 +20,7 @@ import json
 import os
 import pickle
 import time
+import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Union
 
@@ -43,7 +47,7 @@ DEFAULT_SESSION_FILE = f"{DEFAULT_SESSION_DIR}/mm_session.pickle"
 
 
 class MonarchMoneyEndpoints(object):
-    BASE_URL = "https://api.monarchmoney.com"
+    BASE_URL = "https://api.monarch.com"
 
     @classmethod
     def getLoginEndpoint(cls) -> str:
@@ -82,7 +86,12 @@ class MonarchMoney(object):
             "Accept": "application/json",
             "Client-Platform": "web",
             "Content-Type": "application/json",
-            "User-Agent": "MonarchMoneyAPI (https://github.com/hammem/monarchmoney)",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "device-uuid": str(uuid.uuid4()),
+            "Origin": "https://app.monarch.com",
+            "x-cio-client-platform": "web",
+            "x-cio-site-id": "2598be4aa410159198b2",
+            "x-gist-user-anonymous": "false",
         }
         if token:
             self._headers["Authorization"] = f"Token {token}"
@@ -2925,10 +2934,12 @@ class MonarchMoney(object):
 
         try:
             data = {
-                "password": password,
-                "supports_mfa": True,
-                "trusted_device": False,
                 "username": email,
+                "password": password,
+                "trusted_device": True,
+                "supports_mfa": True,
+                "supports_email_otp": True,
+                "supports_recaptcha": True,
             }
 
             if mfa_secret_key:
@@ -2944,6 +2955,11 @@ class MonarchMoney(object):
                     MonarchMoneyEndpoints.getLoginEndpoint(), json=data
                 ) as resp:
                     print(f"[DEBUG] Login response status: {resp.status}", file=sys.stderr)
+
+                    # Handle 404 - REST endpoint no longer exists, fallback to GraphQL
+                    if resp.status == 404:
+                        print("[DEBUG] REST login returned 404, trying GraphQL fallback", file=sys.stderr)
+                        return await self._login_user_graphql(email, password, mfa_secret_key)
 
                     if resp.status == 403:
                         raise RequireMFAException("Multi-Factor Auth Required")
@@ -2966,6 +2982,11 @@ class MonarchMoney(object):
             # Re-raise known exceptions as-is
             raise
         except Exception as e:
+            # Check if 404 in exception message - fallback to GraphQL
+            if "404" in str(e):
+                print("[DEBUG] REST login failed with 404, trying GraphQL fallback", file=sys.stderr)
+                return await self._login_user_graphql(email, password, mfa_secret_key)
+
             # Wrap any other exception with context
             import traceback
 
@@ -2975,16 +2996,113 @@ class MonarchMoney(object):
                 f"Unexpected error during login: {type(e).__name__}: {e}"
             ) from e
 
+    async def _login_user_graphql(
+        self, email: str, password: str, mfa_secret_key: Optional[str] = None
+    ) -> None:
+        """
+        GraphQL fallback login method for when REST endpoint is unavailable.
+
+        Args:
+            email: User's email address
+            password: User's password
+            mfa_secret_key: Optional MFA secret key for TOTP generation
+
+        Raises:
+            LoginFailedException: If GraphQL login fails
+        """
+        import sys
+
+        print("[DEBUG] Attempting GraphQL login", file=sys.stderr)
+
+        variables = {
+            "email": email,
+            "password": password,
+            "rememberMe": True,
+        }
+
+        if mfa_secret_key:
+            totp_code = oathtool.generate_otp(mfa_secret_key)
+            variables["totpToken"] = totp_code
+            print("[DEBUG] Added TOTP token to GraphQL login", file=sys.stderr)
+
+        query = gql(
+            """
+            mutation LoginMutation(
+                $email: String!,
+                $password: String!,
+                $totpToken: String,
+                $rememberMe: Boolean
+            ) {
+                login(
+                    email: $email,
+                    password: $password,
+                    totpToken: $totpToken,
+                    rememberMe: $rememberMe
+                ) {
+                    token
+                    user {
+                        id
+                        email
+                        __typename
+                    }
+                    errors {
+                        field
+                        messages
+                        __typename
+                    }
+                    __typename
+                }
+            }
+        """
+        )
+
+        try:
+            result = await self.gql_call(
+                operation="LoginMutation", graphql_query=query, variables=variables
+            )
+
+            login_data = result.get("login", {})
+            errors = login_data.get("errors", [])
+
+            if errors:
+                error_messages = []
+                for error in errors:
+                    messages = error.get("messages", [])
+                    error_messages.extend(messages)
+                error_text = "; ".join(error_messages)
+                print(f"[DEBUG] GraphQL login errors: {error_text}", file=sys.stderr)
+                raise LoginFailedException(f"Login failed: {error_text}")
+
+            token = login_data.get("token")
+            if not token:
+                raise LoginFailedException("No token received from GraphQL login")
+
+            # Update client authentication
+            self.set_token(token)
+            self._headers["Authorization"] = f"Token {self._token}"
+            print("[DEBUG] GraphQL login successful", file=sys.stderr)
+
+        except LoginFailedException:
+            raise
+        except Exception as e:
+            import traceback
+
+            print("\n[DEBUG] Exception during GraphQL login:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise LoginFailedException(f"GraphQL login failed: {type(e).__name__}: {e}") from e
+
     async def _multi_factor_authenticate(self, email: str, password: str, code: str) -> None:
         """
         Performs the MFA step of login.
         """
         data = {
-            "password": password,
-            "supports_mfa": True,
-            "totp": code,
-            "trusted_device": False,
             "username": email,
+            "password": password,
+            "trusted_device": True,
+            "supports_mfa": True,
+            "supports_email_otp": True,
+            "supports_recaptcha": True,
+            "totp": code,
         }
 
         async with ClientSession(headers=self._headers) as session:
