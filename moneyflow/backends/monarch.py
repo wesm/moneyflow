@@ -18,9 +18,16 @@ class MonarchBackend(FinanceBackend):
     FinanceBackend interface for moneyflow.
     """
 
-    def __init__(self):
-        """Initialize the Monarch Money backend."""
-        self.client = MonarchMoney()
+    def __init__(self, profile_dir: Optional[str] = None):
+        """
+        Initialize the Monarch Money backend.
+
+        Args:
+            profile_dir: Optional profile directory for storing session files.
+                        If provided, session will be stored in {profile_dir}/.mm/
+                        If not provided, falls back to .mm/ in current directory.
+        """
+        self.client = MonarchMoney(profile_dir=profile_dir)
 
     async def login(
         self,

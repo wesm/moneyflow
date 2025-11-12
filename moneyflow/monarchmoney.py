@@ -37,8 +37,9 @@ AUTH_HEADER_KEY = "authorization"
 CSRF_KEY = "csrftoken"
 DEFAULT_RECORD_LIMIT = 100
 ERRORS_KEY = "error_code"
-SESSION_DIR = ".mm"
-SESSION_FILE = f"{SESSION_DIR}/mm_session.pickle"
+# Default session directory (used if profile_dir not provided)
+DEFAULT_SESSION_DIR = ".mm"
+DEFAULT_SESSION_FILE = f"{DEFAULT_SESSION_DIR}/mm_session.pickle"
 
 
 class MonarchMoneyEndpoints(object):
@@ -72,9 +73,10 @@ class RequestFailedException(Exception):
 class MonarchMoney(object):
     def __init__(
         self,
-        session_file: str = SESSION_FILE,
+        session_file: Optional[str] = None,
         timeout: int = 10,
         token: Optional[str] = None,
+        profile_dir: Optional[str] = None,
     ) -> None:
         self._headers = {
             "Accept": "application/json",
@@ -85,7 +87,17 @@ class MonarchMoney(object):
         if token:
             self._headers["Authorization"] = f"Token {token}"
 
-        self._session_file = session_file
+        # Determine session file location
+        if session_file is not None:
+            # Explicit session_file path provided - use it
+            self._session_file = session_file
+        elif profile_dir is not None:
+            # Profile directory provided - use .mm inside it
+            self._session_file = os.path.join(profile_dir, ".mm", "mm_session.pickle")
+        else:
+            # Fall back to default (current directory)
+            self._session_file = DEFAULT_SESSION_FILE
+
         self._token = token
         self._timeout = timeout
 
@@ -129,16 +141,32 @@ class MonarchMoney(object):
         """Logs into a Monarch Money account."""
         if use_saved_session and os.path.exists(self._session_file):
             print(f"Using saved session found at {self._session_file}")
-            self.load_session(self._session_file)
-            return
+            try:
+                self.load_session(self._session_file)
+                # Validate the session by making a simple API call
+                # This catches stale/expired tokens that Monarch rejects
+                await self.get_subscription_details()
+                # Session is valid - we're done
+                return
+            except Exception as e:
+                # Session is invalid/corrupt/expired - delete it and continue to fresh login
+                print(f"Saved session invalid ({e}), deleting and attempting fresh login")
+                self.delete_session(self._session_file)
+                # Fall through to normal login below
 
         if (email is None) or (password is None) or (email == "") or (password == ""):
             raise LoginFailedException(
                 "Email and password are required to login when not using a saved session."
             )
-        await self._login_user(email, password, mfa_secret_key)
-        if save_session:
-            self.save_session(self._session_file)
+
+        try:
+            await self._login_user(email, password, mfa_secret_key)
+            if save_session:
+                self.save_session(self._session_file)
+        except (LoginFailedException, RequireMFAException) as e:
+            # Login failed - delete any existing session file to ensure clean retry
+            self.delete_session(self._session_file)
+            raise
 
     async def multi_factor_authenticate(self, email: str, password: str, code: str) -> None:
         """Performs multi-factor authentication to access a Monarch Money account."""
@@ -2867,13 +2895,27 @@ class MonarchMoney(object):
 
     def delete_session(self, filename: Optional[str] = None) -> None:
         """
-        Deletes the session file.
+        Deletes the session file and its parent directory if it becomes empty.
+
+        This is useful for cleaning up after failed login attempts or
+        when switching accounts.
         """
         if filename is None:
             filename = self._session_file
 
         if os.path.exists(filename):
             os.remove(filename)
+
+            # Clean up empty parent directory (.mm directory)
+            parent_dir = os.path.dirname(filename)
+            if parent_dir and os.path.exists(parent_dir):
+                try:
+                    # Only remove if directory is empty
+                    if not os.listdir(parent_dir):
+                        os.rmdir(parent_dir)
+                except OSError:
+                    # Directory not empty or other error - ignore
+                    pass
 
     async def _login_user(self, email: str, password: str, mfa_secret_key: Optional[str]) -> None:
         """

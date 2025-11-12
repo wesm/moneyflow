@@ -985,7 +985,13 @@ class MoneyflowApp(App):
             if self.backend is None and creds:
                 backend_type = creds.get("backend_type", "monarch")
                 loading_status.update(f"🔄 Initializing {backend_type} backend...")
-                self.backend = get_backend(backend_type)
+
+                # Pass profile_dir for Monarch backend to store session in profile
+                backend_kwargs = {}
+                if backend_type == "monarch" and self._preconfigured_profile_dir:
+                    backend_kwargs["profile_dir"] = str(self._preconfigured_profile_dir)
+
+                self.backend = get_backend(backend_type, **backend_kwargs)
 
                 from moneyflow.backend_config import BackendConfig
 
