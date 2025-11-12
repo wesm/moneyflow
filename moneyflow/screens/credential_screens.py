@@ -281,9 +281,10 @@ class CredentialSetupScreen(ModalScreen):
                     classes="setup-input",
                 )
 
-                yield Label("2FA/TOTP Secret Key:", classes="setup-label")
+                yield Label("2FA/TOTP Secret Key (~32 characters):", classes="setup-label")
                 yield Static(
-                    "Get this from: Settings → Security → Re-enable 2FA → 'Can't scan?'",
+                    "Get this from: Settings → Security → Re-enable 2FA → 'Can't scan?'\n"
+                    "Should be a ~32 character base32 string (not the 6-digit code)",
                     classes="setup-help",
                 )
                 yield Input(
