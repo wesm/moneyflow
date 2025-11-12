@@ -5,9 +5,15 @@ Covers:
 - Version string parsing with various formats
 - Detection of gql v4+ vs v3.x
 - Edge cases (pre-releases, build metadata)
+- Validation with actual installed gql library versions
+
+Note: These tests run against the installed gql version. Use GitHub Actions
+matrix to test against multiple gql versions (3.4.0, 3.5.0, 4.0.0, 4.2.0, etc.)
 """
 
-from moneyflow.monarchmoney import _parse_gql_version
+import inspect
+
+from moneyflow.monarchmoney import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_version
 
 
 class TestParseGqlVersion:
@@ -107,3 +113,76 @@ class TestEdgeCases:
         """Test version strings with unicode characters."""
         # Should handle gracefully and return partial or zero tuple
         assert _parse_gql_version("3.5.0—special") == (3, 5, 0)
+
+
+class TestActualGqlLibrary:
+    """
+    Test version detection with the actual installed gql library.
+
+    These tests validate that our version detection correctly identifies the
+    installed gql version and predicts the correct API to use.
+
+    To test against multiple gql versions, run these tests in a GitHub Actions
+    matrix with different gql versions installed.
+    """
+
+    def test_detect_gql_version_and_api(self):
+        """
+        Test that version detection correctly identifies the gql version
+        and predicts the correct execute_async API signature.
+
+        This is the main integration test that validates:
+        1. gql library is installed and has __version__
+        2. Version string can be parsed
+        3. Detection correctly identifies v3 vs v4+
+        4. Detection matches actual API signature
+        """
+        try:
+            import gql
+            from gql import Client
+            from gql.transport.aiohttp import AIOHTTPTransport
+
+            # Get actual version
+            actual_version = gql.__version__
+            parsed_version = _parse_gql_version(actual_version)
+            detected_v4_plus = _detect_gql_v4_plus()
+
+            # Verify detection matches version number
+            expected_v4_plus = parsed_version >= (4, 0, 0)
+            assert (
+                detected_v4_plus == expected_v4_plus
+            ), f"Version detection mismatch: gql {actual_version} parsed as {parsed_version}, expected GQL_V4_PLUS={expected_v4_plus} but got {detected_v4_plus}"
+
+            # Verify detection matches actual API signature
+            transport = AIOHTTPTransport(url="https://example.com/graphql")
+            client = Client(transport=transport, fetch_schema_from_transport=False)
+            sig = inspect.signature(client.execute_async)
+            first_param = list(sig.parameters.keys())[0]
+
+            if detected_v4_plus:
+                assert (
+                    first_param == "request"
+                ), f"gql {actual_version} detected as v4+ but execute_async first param is '{first_param}' (expected 'request')"
+            else:
+                assert (
+                    first_param == "document"
+                ), f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
+
+            # Print success message for visibility in test output
+            print(
+                f"\n✓ gql {actual_version}: parsed as {parsed_version}, "
+                f"GQL_V4_PLUS={detected_v4_plus}, "
+                f"execute_async({first_param}=...)"
+            )
+
+        except ImportError:
+            # If gql is not installed, detection should return False
+            assert _detect_gql_v4_plus() is False
+            print("\n✓ gql not installed: GQL_V4_PLUS=False (expected)")
+
+    def test_global_constant_matches_detection(self):
+        """Test that the global GQL_V4_PLUS constant matches runtime detection."""
+        detected = _detect_gql_v4_plus()
+        assert (
+            GQL_V4_PLUS == detected
+        ), f"Global GQL_V4_PLUS ({GQL_V4_PLUS}) doesn't match _detect_gql_v4_plus() ({detected})"
