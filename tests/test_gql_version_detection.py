@@ -149,9 +149,9 @@ class TestActualGqlLibrary:
 
             # Verify detection matches version number
             expected_v4_plus = parsed_version >= (4, 0, 0)
-            assert (
-                detected_v4_plus == expected_v4_plus
-            ), f"Version detection mismatch: gql {actual_version} parsed as {parsed_version}, expected GQL_V4_PLUS={expected_v4_plus} but got {detected_v4_plus}"
+            assert detected_v4_plus == expected_v4_plus, (
+                f"Version detection mismatch: gql {actual_version} parsed as {parsed_version}, expected GQL_V4_PLUS={expected_v4_plus} but got {detected_v4_plus}"
+            )
 
             # Verify detection matches actual API signature
             transport = AIOHTTPTransport(url="https://example.com/graphql")
@@ -160,13 +160,13 @@ class TestActualGqlLibrary:
             first_param = list(sig.parameters.keys())[0]
 
             if detected_v4_plus:
-                assert (
-                    first_param == "request"
-                ), f"gql {actual_version} detected as v4+ but execute_async first param is '{first_param}' (expected 'request')"
+                assert first_param == "request", (
+                    f"gql {actual_version} detected as v4+ but execute_async first param is '{first_param}' (expected 'request')"
+                )
             else:
-                assert (
-                    first_param == "document"
-                ), f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
+                assert first_param == "document", (
+                    f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
+                )
 
             # Print success message for visibility in test output
             print(
@@ -183,6 +183,6 @@ class TestActualGqlLibrary:
     def test_global_constant_matches_detection(self):
         """Test that the global GQL_V4_PLUS constant matches runtime detection."""
         detected = _detect_gql_v4_plus()
-        assert (
-            GQL_V4_PLUS == detected
-        ), f"Global GQL_V4_PLUS ({GQL_V4_PLUS}) doesn't match _detect_gql_v4_plus() ({detected})"
+        assert GQL_V4_PLUS == detected, (
+            f"Global GQL_V4_PLUS ({GQL_V4_PLUS}) doesn't match _detect_gql_v4_plus() ({detected})"
+        )
