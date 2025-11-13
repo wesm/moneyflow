@@ -6,7 +6,47 @@ to be compatible with moneyflow.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional
+
+
+class AggregationFunc(Enum):
+    """Aggregation functions for computed columns."""
+
+    FIRST = "first"  # Take first value from group
+    LAST = "last"  # Take last value from group
+    MIN = "min"  # Minimum value in group
+    MAX = "max"  # Maximum value in group
+    COUNT_DISTINCT = "count_distinct"  # Count unique values
+    SUM = "sum"  # Sum of values
+    MEAN = "mean"  # Average of values
+
+
+@dataclass
+class ComputedColumn:
+    """
+    Configuration for a computed column in aggregated views.
+
+    Computed columns are derived from transaction data during aggregation.
+    For example, in Amazon Orders view, we can compute "Order Date" by taking
+    the first date from all transactions in an order.
+
+    Attributes:
+        name: Internal column name (used in DataFrame)
+        source_field: Field from transaction data to aggregate
+        aggregation: How to aggregate the field (first, min, max, etc.)
+        display_name: User-facing column name
+        view_modes: List of ViewMode values where this column appears (empty = all modes)
+        formatter: Optional function to format the value for display
+    """
+
+    name: str
+    source_field: str
+    aggregation: AggregationFunc
+    display_name: str
+    view_modes: List[str] = field(default_factory=list)  # ViewMode names as strings
+    formatter: Optional[Callable[[Any], str]] = None
 
 
 class FinanceBackend(ABC):
@@ -232,6 +272,22 @@ class FinanceBackend(ABC):
             '$'
         """
         return "$"  # Default to USD
+
+    def get_computed_columns(self) -> List[ComputedColumn]:
+        """
+        Get backend-specific computed columns for aggregated views.
+
+        Computed columns are derived from transaction data during aggregation.
+        For example, Amazon backend can compute "Order Date" from transaction dates.
+
+        Returns:
+            List of ComputedColumn configurations. Empty list means no computed columns.
+
+        Example:
+            >>> backend.get_computed_columns()
+            [ComputedColumn(name='order_date', source_field='date', ...)]
+        """
+        return []  # Default: no computed columns
 
     def delete_session(self) -> None:
         """

@@ -141,6 +141,14 @@ class AppController:
                 "accounts": "Accounts",
             }
 
+    def _get_computed_columns(self) -> list:
+        """Get computed columns from backend, with safe fallback to empty list."""
+        try:
+            return self.data_manager.mm.get_computed_columns()
+        except (AttributeError, Exception):
+            # Fallback to no computed columns if backend doesn't support it
+            return []
+
     def _get_column_config(self) -> dict:
         """Get column configuration from backend, with safe fallback to defaults."""
         try:
@@ -291,6 +299,7 @@ class AppController:
                     selected_group_keys=self.state.selected_group_keys,
                     column_config=self._get_column_config(),
                     display_labels=self._get_display_labels(),
+                    computed_columns=self._get_computed_columns(),
                 )
             else:
                 # Show detail view (normal behavior)
@@ -442,6 +451,7 @@ class AppController:
             selected_group_keys=self.state.selected_group_keys,
             column_config=self._get_column_config(),
             display_labels=self._get_display_labels(),
+            computed_columns=self._get_computed_columns(),
         )
 
     def _prepare_time_aggregate_view(self):

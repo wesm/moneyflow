@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..categories import get_effective_category_groups, get_profile_category_groups
-from .base import FinanceBackend
+from .base import AggregationFunc, ComputedColumn, FinanceBackend
 
 
 class AmazonBackend(FinanceBackend):
@@ -151,6 +151,24 @@ class AmazonBackend(FinanceBackend):
             "account": "Order",
             "accounts": "Orders",
         }
+
+    def get_computed_columns(self) -> List[ComputedColumn]:
+        """
+        Get computed columns for Amazon aggregated views.
+
+        Returns:
+            List of computed columns:
+            - order_date: Date of the order (first transaction date in order group)
+        """
+        return [
+            ComputedColumn(
+                name="order_date",
+                source_field="date",
+                aggregation=AggregationFunc.FIRST,
+                display_name="Order Date",
+                view_modes=["account"],  # Only show in Orders view (ACCOUNT mode)
+            )
+        ]
 
     def get_column_config(self) -> Dict[str, Any]:
         """
