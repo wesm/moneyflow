@@ -1035,7 +1035,27 @@ class AppController:
                 ]
 
             # Standard cycle: Field → Count → Amount → [Computed Columns] → Field
-            if current_sort == field_sort:
+            # IMPORTANT: Check sort_column FIRST before checking sort_by enum
+            if self.state.sort_column and computed_cols:
+                # Currently on a computed column, find next one or cycle back to field
+                current_idx = next(
+                    (
+                        i
+                        for i, col in enumerate(computed_cols)
+                        if col.name == self.state.sort_column
+                    ),
+                    -1,
+                )
+                if current_idx >= 0 and current_idx < len(computed_cols) - 1:
+                    # Move to next computed column
+                    next_col = computed_cols[current_idx + 1]
+                    self.state.sort_column = next_col.name
+                    return (SortMode.AMOUNT, next_col.display_name)
+                else:
+                    # No more computed columns, cycle back to field
+                    self.state.sort_column = None
+                    return (field_sort, field_name)
+            elif current_sort == field_sort:
                 self.state.sort_column = None  # Clear dynamic column
                 return (SortMode.COUNT, "Count")
             elif current_sort == SortMode.COUNT:
@@ -1050,24 +1070,7 @@ class AppController:
                     self.state.sort_column = None
                     return (field_sort, field_name)
             else:
-                # We're on a computed column, find next one or cycle back to field
-                if self.state.sort_column and computed_cols:
-                    # Find current computed column index
-                    current_idx = next(
-                        (
-                            i
-                            for i, col in enumerate(computed_cols)
-                            if col.name == self.state.sort_column
-                        ),
-                        -1,
-                    )
-                    if current_idx >= 0 and current_idx < len(computed_cols) - 1:
-                        # Move to next computed column
-                        next_col = computed_cols[current_idx + 1]
-                        self.state.sort_column = next_col.name
-                        return (SortMode.AMOUNT, next_col.display_name)
-
-                # No more computed columns, cycle back to field
+                # Fallback: cycle back to field
                 self.state.sort_column = None
                 return (field_sort, field_name)
 

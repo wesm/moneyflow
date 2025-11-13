@@ -843,6 +843,107 @@ class TestSortFieldCycling:
         assert new_sort == SortMode.ACCOUNT
         assert display == "Account"
 
+    async def test_account_view_with_computed_column_full_cycle(self, controller):
+        """Account view with computed column: Account → Count → Amount → Order Date → Account."""
+        from moneyflow.backends.base import AggregationFunc, ComputedColumn
+
+        # Mock backend with computed column
+        order_date_col = ComputedColumn(
+            name="order_date",
+            source_field="date",
+            aggregation=AggregationFunc.FIRST,
+            display_name="Order Date",
+            view_modes=["account"],
+        )
+        controller.data_manager.mm.get_computed_columns = lambda: [order_date_col]
+
+        # Account → Count
+        controller.state.sort_column = None
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.ACCOUNT)
+        assert new_sort == SortMode.COUNT
+        assert display == "Count"
+        assert controller.state.sort_column is None
+
+        # Count → Amount
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.COUNT)
+        assert new_sort == SortMode.AMOUNT
+        assert display == "Amount"
+        assert controller.state.sort_column is None
+
+        # Amount → Order Date (first computed column)
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.AMOUNT)
+        assert new_sort == SortMode.AMOUNT  # sort_by stays as AMOUNT
+        assert display == "Order Date"
+        assert controller.state.sort_column == "order_date"  # Dynamic column set
+
+        # Order Date → Account (back to field, completes cycle)
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.AMOUNT)
+        assert new_sort == SortMode.ACCOUNT
+        assert display == "Account"
+        assert controller.state.sort_column is None  # Dynamic column cleared
+
+    async def test_account_view_with_multiple_computed_columns(self, controller):
+        """Account view with multiple computed columns cycles through all of them."""
+        from moneyflow.backends.base import AggregationFunc, ComputedColumn
+
+        # Mock backend with two computed columns
+        col1 = ComputedColumn(
+            name="order_date",
+            source_field="date",
+            aggregation=AggregationFunc.FIRST,
+            display_name="Order Date",
+            view_modes=["account"],
+        )
+        col2 = ComputedColumn(
+            name="item_count",
+            source_field="id",
+            aggregation=AggregationFunc.COUNT_DISTINCT,
+            display_name="Items",
+            view_modes=["account"],
+        )
+        controller.data_manager.mm.get_computed_columns = lambda: [col1, col2]
+
+        # Start from Amount
+        controller.state.sort_by = SortMode.AMOUNT
+        controller.state.sort_column = None
+
+        # Amount → Order Date
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.AMOUNT)
+        assert display == "Order Date"
+        assert controller.state.sort_column == "order_date"
+
+        # Order Date → Items (second computed column)
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.AMOUNT)
+        assert display == "Items"
+        assert controller.state.sort_column == "item_count"
+
+        # Items → Account (back to field)
+        new_sort, display = controller.get_next_sort_field(ViewMode.ACCOUNT, SortMode.AMOUNT)
+        assert new_sort == SortMode.ACCOUNT
+        assert display == "Account"
+        assert controller.state.sort_column is None
+
+    async def test_computed_column_not_in_cycle_for_other_views(self, controller):
+        """Computed columns filtered by view_modes don't appear in other views."""
+        from moneyflow.backends.base import AggregationFunc, ComputedColumn
+
+        # Computed column only for account view
+        order_date_col = ComputedColumn(
+            name="order_date",
+            source_field="date",
+            aggregation=AggregationFunc.FIRST,
+            display_name="Order Date",
+            view_modes=["account"],  # Only in account view
+        )
+        controller.data_manager.mm.get_computed_columns = lambda: [order_date_col]
+
+        # In MERCHANT view, should NOT include computed column
+        controller.state.sort_column = None
+        new_sort, display = controller.get_next_sort_field(ViewMode.MERCHANT, SortMode.AMOUNT)
+        assert new_sort == SortMode.MERCHANT  # Cycle back to merchant (no computed col)
+        assert display == "Merchant"
+        assert controller.state.sort_column is None
+
     async def test_toggle_sort_in_subgroup_view_uses_subgroup_mode(self, controller):
         """Test that toggle_sort_field uses sub_grouping_mode when in subgroup view."""
         # Setup: Drilled down with sub-grouping by merchant
