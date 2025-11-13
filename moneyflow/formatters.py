@@ -204,6 +204,7 @@ class ViewPresenter:
         column_config: Optional[Dict[str, Any]] = None,
         display_labels: Optional[Dict[str, str]] = None,
         computed_columns: Optional[List[Any]] = None,
+        sort_column: Optional[str] = None,
     ) -> list[ColumnSpec]:
         """
         Prepare column specifications for aggregation views.
@@ -318,15 +319,10 @@ class ViewPresenter:
                     )
                 ):
                     # Check if we're sorting by this computed column
-                    # Map column name to SortMode (e.g., "order_date" -> SortMode.ORDER_DATE)
-                    try:
-                        col_sort_mode = SortMode(col_config.name)
-                        col_arrow = ViewPresenter.get_sort_arrow(
-                            sort_by, sort_direction, col_sort_mode
-                        )
-                    except (ValueError, AttributeError):
-                        # Column name doesn't have a corresponding SortMode
-                        col_arrow = ""
+                    col_arrow = ""
+                    if sort_column and sort_column == col_config.name:
+                        # Show sort arrow for this computed column
+                        col_arrow = "↓" if sort_direction == SortDirection.DESC else "↑"
 
                     columns.append(
                         {
@@ -482,6 +478,7 @@ class ViewPresenter:
         column_config: Optional[Dict[str, Any]] = None,
         display_labels: Optional[Dict[str, str]] = None,
         computed_columns: Optional[List[Any]] = None,
+        sort_column: Optional[str] = None,
     ) -> PreparedView:
         """
         Prepare complete aggregation view data.
@@ -515,7 +512,13 @@ class ViewPresenter:
             4
         """
         columns = ViewPresenter.prepare_aggregation_columns(
-            group_by_field, sort_by, sort_direction, column_config, display_labels, computed_columns
+            group_by_field,
+            sort_by,
+            sort_direction,
+            column_config,
+            display_labels,
+            computed_columns,
+            sort_column,
         )
 
         if df.is_empty():
