@@ -554,6 +554,43 @@ class DataManager:
 
         return df
 
+    def _apply_computed_columns(
+        self, df: pl.DataFrame, computed_columns: List[Any], agg_exprs: List[Any]
+    ) -> None:
+        """
+        Apply computed column aggregations to aggregation expressions list.
+
+        This is a helper to avoid duplicating the aggregation function mapping logic.
+
+        Args:
+            df: DataFrame being aggregated (to check column existence)
+            computed_columns: List of ComputedColumn configurations
+            agg_exprs: List of aggregation expressions to append to (modified in place)
+        """
+        from .backends.base import AggregationFunc
+
+        # Map aggregation functions to Polars methods
+        agg_func_map = {
+            AggregationFunc.FIRST: lambda expr: expr.first(),
+            AggregationFunc.LAST: lambda expr: expr.last(),
+            AggregationFunc.MIN: lambda expr: expr.min(),
+            AggregationFunc.MAX: lambda expr: expr.max(),
+            AggregationFunc.COUNT_DISTINCT: lambda expr: expr.n_unique(),
+            AggregationFunc.SUM: lambda expr: expr.sum(),
+            AggregationFunc.MEAN: lambda expr: expr.mean(),
+        }
+
+        for col_config in computed_columns:
+            # Check if source field exists in DataFrame
+            if col_config.source_field not in df.columns:
+                continue
+
+            # Apply aggregation function
+            col_expr = pl.col(col_config.source_field)
+            agg_func = agg_func_map.get(col_config.aggregation)
+            if agg_func:
+                agg_exprs.append(agg_func(col_expr).alias(col_config.name))
+
     def _aggregate_by_field(
         self,
         df: pl.DataFrame,
@@ -603,29 +640,7 @@ class DataManager:
 
         # Add computed columns if provided
         if computed_columns:
-            from .backends.base import AggregationFunc
-
-            # Map aggregation functions to Polars methods
-            agg_func_map = {
-                AggregationFunc.FIRST: lambda expr: expr.first(),
-                AggregationFunc.LAST: lambda expr: expr.last(),
-                AggregationFunc.MIN: lambda expr: expr.min(),
-                AggregationFunc.MAX: lambda expr: expr.max(),
-                AggregationFunc.COUNT_DISTINCT: lambda expr: expr.n_unique(),
-                AggregationFunc.SUM: lambda expr: expr.sum(),
-                AggregationFunc.MEAN: lambda expr: expr.mean(),
-            }
-
-            for col_config in computed_columns:
-                # Check if source field exists in DataFrame
-                if col_config.source_field not in df.columns:
-                    continue
-
-                # Apply aggregation function
-                col_expr = pl.col(col_config.source_field)
-                agg_func = agg_func_map.get(col_config.aggregation)
-                if agg_func:
-                    agg_exprs.append(agg_func(col_expr).alias(col_config.name))
+            self._apply_computed_columns(df, computed_columns, agg_exprs)
 
         return df.group_by(group_field).agg(agg_exprs)
 
@@ -681,25 +696,7 @@ class DataManager:
 
         # Add computed columns
         if computed_cols:
-            from .backends.base import AggregationFunc
-
-            agg_func_map = {
-                AggregationFunc.FIRST: lambda expr: expr.first(),
-                AggregationFunc.LAST: lambda expr: expr.last(),
-                AggregationFunc.MIN: lambda expr: expr.min(),
-                AggregationFunc.MAX: lambda expr: expr.max(),
-                AggregationFunc.COUNT_DISTINCT: lambda expr: expr.n_unique(),
-                AggregationFunc.SUM: lambda expr: expr.sum(),
-                AggregationFunc.MEAN: lambda expr: expr.mean(),
-            }
-
-            for col_config in computed_cols:
-                if col_config.source_field not in df.columns:
-                    continue
-                col_expr = pl.col(col_config.source_field)
-                agg_func = agg_func_map.get(col_config.aggregation)
-                if agg_func:
-                    agg_exprs.append(agg_func(col_expr).alias(col_config.name))
+            self._apply_computed_columns(df, computed_cols, agg_exprs)
 
         # Group by merchant and compute aggregations including top category
         result = df.group_by("merchant").agg(agg_exprs)

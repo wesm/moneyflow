@@ -54,6 +54,15 @@ class ViewPresenter:
     to emphasize the pure function nature.
     """
 
+    # Map view mode strings to aggregation field names
+    _VIEW_MODE_TO_FIELD = {
+        "merchant": "merchant",
+        "category": "category",
+        "group": "group",
+        "account": "account",
+        "time_period": "time_period_display",
+    }
+
     @staticmethod
     def format_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
         """
@@ -303,25 +312,17 @@ class ViewPresenter:
         # Add backend-specific computed columns (before flags)
         if computed_columns:
             for col_config in computed_columns:
-                # Map view mode strings to aggregation fields
-                view_mode_to_field = {
-                    "merchant": "merchant",
-                    "category": "category",
-                    "group": "group",
-                    "account": "account",
-                    "time_period": "time_period_display",
-                }
                 # Only add if this column applies to current view
                 if (
                     not col_config.view_modes
-                    or view_mode_to_field.get(
+                    or ViewPresenter._VIEW_MODE_TO_FIELD.get(
                         col_config.view_modes[0] if col_config.view_modes else ""
                     )
                     == group_by_field
                     or (
                         col_config.view_modes
                         and any(
-                            view_mode_to_field.get(mode) == group_by_field
+                            ViewPresenter._VIEW_MODE_TO_FIELD.get(mode) == group_by_field
                             for mode in col_config.view_modes
                         )
                     )
@@ -442,18 +443,10 @@ class ViewPresenter:
 
             # Add computed columns (if they apply to this view)
             if computed_columns:
-                # Map view mode strings to aggregation fields
-                view_mode_to_field = {
-                    "merchant": "merchant",
-                    "category": "category",
-                    "group": "group",
-                    "account": "account",
-                    "time_period": "time_period_display",
-                }
                 for col_config in computed_columns:
                     # Only include if this column applies to current view
                     if not col_config.view_modes or any(
-                        view_mode_to_field.get(mode) == group_by_field
+                        ViewPresenter._VIEW_MODE_TO_FIELD.get(mode) == group_by_field
                         for mode in col_config.view_modes
                     ):
                         value = row_dict.get(col_config.name)
