@@ -386,3 +386,300 @@ class TestCacheEdgeCases:
         df, _, _, metadata = result
         assert len(df) == n
         assert metadata["total_transactions"] == n
+
+
+class TestCacheEncryption:
+    """Test cache encryption functionality."""
+
+    def test_encryption_initialization_with_password(self, temp_cache_dir):
+        """Test that encryption is set up when password is provided."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Verify encryption components are initialized
+        assert cache_mgr.password == "test_password"
+        assert cache_mgr.encryption_key is not None
+        assert len(cache_mgr.encryption_key) == 32  # 256 bits
+        assert cache_mgr.decryption_props is not None
+
+    def test_no_encryption_without_password(self, temp_cache_dir):
+        """Test that encryption is not set up when no password provided."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir)
+
+        # Verify encryption components are None
+        assert cache_mgr.password is None
+        assert cache_mgr.encryption_key is None
+        assert cache_mgr.decryption_props is None
+
+    def test_salt_file_creation(self, temp_cache_dir):
+        """Test that salt file is created on first initialization."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Verify salt file exists
+        assert cache_mgr.salt_file.exists()
+
+        # Verify salt is 16 bytes
+        salt = cache_mgr.salt_file.read_bytes()
+        assert len(salt) == 16
+
+        # Verify file permissions are restrictive (user only)
+        import stat
+
+        st = cache_mgr.salt_file.stat()
+        assert st.st_mode & 0o777 == 0o600
+
+    def test_salt_file_persistence(self, temp_cache_dir):
+        """Test that salt file is reused across initializations."""
+        # First initialization creates salt
+        cache_mgr1 = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        salt1 = cache_mgr1.salt_file.read_bytes()
+
+        # Second initialization reuses salt
+        cache_mgr2 = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        salt2 = cache_mgr2.salt_file.read_bytes()
+
+        # Salt should be identical
+        assert salt1 == salt2
+
+        # Encryption keys should be identical (same password + same salt)
+        assert cache_mgr1.encryption_key == cache_mgr2.encryption_key
+
+    def test_encrypted_save_and_load_roundtrip(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that encrypted cache can be saved and loaded successfully."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Save with encryption
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups, year=2025)
+
+        # Verify files exist
+        assert cache_mgr.cache_exists()
+
+        # Load with encryption
+        result = cache_mgr.load_cache()
+        assert result is not None
+
+        # Verify data integrity
+        df, categories, category_groups, metadata = result
+        assert df.equals(sample_df)
+        assert categories == sample_categories
+        assert category_groups == sample_category_groups
+        assert metadata["year_filter"] == 2025
+        assert metadata["total_transactions"] == 3
+
+    def test_encrypted_files_cannot_be_read_without_password(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that encrypted cache cannot be read without password."""
+        # Save with encryption
+        cache_mgr_encrypted = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        cache_mgr_encrypted.save_cache(
+            sample_df, sample_categories, sample_category_groups, year=2025
+        )
+
+        # Try to load without password (should fail gracefully)
+        cache_mgr_no_password = CacheManager(cache_dir=temp_cache_dir)
+        result = cache_mgr_no_password.load_cache()
+
+        # Should return None since it can't decrypt
+        assert result is None
+
+    def test_wrong_password_fails_gracefully(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that wrong password fails gracefully."""
+        # Save with one password
+        cache_mgr_save = CacheManager(cache_dir=temp_cache_dir, password="correct_password")
+        cache_mgr_save.save_cache(sample_df, sample_categories, sample_category_groups)
+
+        # Try to load with wrong password
+        cache_mgr_load = CacheManager(cache_dir=temp_cache_dir, password="wrong_password")
+        result = cache_mgr_load.load_cache()
+
+        # Should return None (decryption fails)
+        assert result is None
+
+    def test_encrypted_metadata_roundtrip(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that metadata is encrypted and decrypted correctly."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Save cache with metadata
+        cache_mgr.save_cache(
+            sample_df, sample_categories, sample_category_groups, year=2025, since="2024-01-01"
+        )
+
+        # Verify metadata file is not plain JSON (encrypted)
+        try:
+            with open(cache_mgr.metadata_file, "r") as f:
+                json.load(f)
+            # If this succeeds, file is not encrypted
+            assert False, "Metadata should be encrypted, not plain JSON"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Expected - file is encrypted
+            pass
+
+        # Load and verify metadata can be decrypted
+        metadata = cache_mgr.load_metadata()
+        assert metadata["version"] == CacheManager.CACHE_VERSION
+        assert metadata["year_filter"] == 2025
+        assert metadata["since_filter"] == "2024-01-01"
+        assert metadata["total_transactions"] == 3
+
+    def test_encrypted_categories_roundtrip(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that categories JSON is encrypted and decrypted correctly."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Save cache
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups)
+
+        # Verify categories file is not plain JSON (encrypted)
+        try:
+            with open(cache_mgr.categories_file, "r") as f:
+                json.load(f)
+            # If this succeeds, file is not encrypted
+            assert False, "Categories should be encrypted, not plain JSON"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Expected - file is encrypted
+            pass
+
+        # Load and verify categories can be decrypted
+        result = cache_mgr.load_cache()
+        assert result is not None
+        _, categories, category_groups, _ = result
+        assert categories == sample_categories
+        assert category_groups == sample_category_groups
+
+    def test_migration_from_unencrypted_to_encrypted(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test automatic migration from unencrypted to encrypted cache."""
+        # Save unencrypted cache
+        cache_mgr_unencrypted = CacheManager(cache_dir=temp_cache_dir)
+        cache_mgr_unencrypted.save_cache(
+            sample_df, sample_categories, sample_category_groups, year=2025
+        )
+
+        # Verify files are plain text
+        with open(cache_mgr_unencrypted.metadata_file, "r") as f:
+            metadata_plain = json.load(f)
+        assert metadata_plain["year_filter"] == 2025
+
+        # Load with password (should trigger migration)
+        cache_mgr_encrypted = CacheManager(cache_dir=temp_cache_dir, password="new_password")
+        result = cache_mgr_encrypted.load_cache()
+
+        # Should successfully load and migrate
+        assert result is not None
+        df, categories, category_groups, metadata = result
+        assert df.equals(sample_df)
+        assert categories == sample_categories
+        assert category_groups == sample_category_groups
+        assert metadata["year_filter"] == 2025
+
+        # Verify files are now encrypted
+        try:
+            with open(cache_mgr_encrypted.metadata_file, "r") as f:
+                json.load(f)
+            assert False, "Metadata should now be encrypted after migration"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            # Expected - file is now encrypted
+            pass
+
+    def test_encrypted_cache_validation(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that cache validation works with encrypted cache."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Save encrypted cache with year filter
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups, year=2025)
+
+        # Validation should work
+        assert cache_mgr.is_cache_valid(year=2025)
+        assert not cache_mgr.is_cache_valid(year=2024)
+        assert not cache_mgr.is_cache_valid()
+
+    def test_encrypted_cache_age(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that cache age calculation works with encrypted cache."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups)
+
+        age_hours = cache_mgr.get_cache_age_hours()
+        assert age_hours is not None
+        assert age_hours < 1.0  # Should be very recent
+
+    def test_encrypted_cache_info(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that cache info works with encrypted cache."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups, year=2025)
+
+        info = cache_mgr.get_cache_info()
+        assert info is not None
+        assert info["transaction_count"] == 3
+        assert "Year 2025 onwards" in info["filter"]
+
+    def test_encrypted_cache_clear(
+        self, temp_cache_dir, sample_df, sample_categories, sample_category_groups
+    ):
+        """Test that clearing encrypted cache works correctly."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+        cache_mgr.save_cache(sample_df, sample_categories, sample_category_groups)
+
+        assert cache_mgr.cache_exists()
+        assert cache_mgr.salt_file.exists()
+
+        cache_mgr.clear_cache()
+
+        # Cache files should be deleted
+        assert not cache_mgr.cache_exists()
+        assert not cache_mgr.transactions_file.exists()
+        assert not cache_mgr.metadata_file.exists()
+        assert not cache_mgr.categories_file.exists()
+
+        # Note: salt_file is NOT deleted (intentional - reused for new caches)
+        assert cache_mgr.salt_file.exists()
+
+    def test_different_passwords_produce_different_keys(self, temp_cache_dir):
+        """Test that different passwords produce different encryption keys."""
+        cache_mgr1 = CacheManager(cache_dir=temp_cache_dir, password="password1")
+        cache_mgr2 = CacheManager(cache_dir=temp_cache_dir, password="password2")
+
+        # Keys should be different
+        assert cache_mgr1.encryption_key != cache_mgr2.encryption_key
+
+    def test_encrypted_large_dataframe(
+        self, temp_cache_dir, sample_categories, sample_category_groups
+    ):
+        """Test encryption with large DataFrame."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, password="test_password")
+
+        # Create large DataFrame (10k rows)
+        n = 10000
+        large_df = pl.DataFrame(
+            {
+                "id": [f"tx{i}" for i in range(n)],
+                "date": ["2025-01-01"] * n,
+                "merchant": ["Amazon"] * n,
+                "amount": [-50.0] * n,
+                "category": ["Shopping"] * n,
+                "category_id": ["cat1"] * n,
+            }
+        )
+
+        # Save encrypted
+        cache_mgr.save_cache(large_df, sample_categories, sample_category_groups)
+
+        # Load and verify
+        result = cache_mgr.load_cache()
+        assert result is not None
+        df, _, _, metadata = result
+        assert len(df) == n
+        assert metadata["total_transactions"] == n

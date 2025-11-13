@@ -31,6 +31,7 @@
               click
               gql
               polars
+              pyarrow
               pyyaml
               textual
               cryptography
@@ -101,6 +102,7 @@
             pythonPackages.click
             pythonPackages.gql
             pythonPackages.polars
+            pythonPackages.pyarrow
             pythonPackages.pyyaml
             pythonPackages.textual
             pythonPackages.cryptography
@@ -114,10 +116,15 @@
             pkgs.pyright
             # uv for development workflow
             pkgs.uv
+            # System libraries needed by pyarrow
+            pkgs.stdenv.cc.cc.lib
           ];
 
           shellHook = ''
             echo "moneyflow development environment"
+
+            # Set up library path for pyarrow
+            export LD_LIBRARY_PATH="${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH"
 
             # Install package in editable mode if not already installed
             if ! python -c "import moneyflow" 2>/dev/null; then

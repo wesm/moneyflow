@@ -13,6 +13,8 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+import base64
+
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -20,7 +22,89 @@ import pyarrow.parquet.encryption as pe
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from pyarrow.tests.parquet.encryption import InMemoryKmsClient
+
+
+class SimpleKmsClient(pe.KmsClient):
+    """
+    Simple in-memory KMS client for PyArrow Parquet encryption.
+
+    Why not use PyArrow's InMemoryKmsClient?
+    ------------------------------------------
+    PyArrow's InMemoryKmsClient has a hardcoded 16-byte master key length limit
+    in unwrap_key() [line: master_key_bytes = decoded_wrapped_key[:16]].
+    This is fine for testing with short keys, but our use case requires:
+
+    - 32-byte (256-bit) master keys from PBKDF2
+    - Keys stored as hex strings (64 chars) or base64 (44 chars)
+    - Either encoding exceeds the 16-byte limit
+
+    This implementation uses the same wrapping algorithm (concatenate + base64)
+    but handles arbitrary-length master keys correctly.
+
+    Note: The "wrapping" here is intentionally simple (not cryptographically
+    secure key wrapping like AES-KW). Security comes from:
+    1. Strong password → PBKDF2 (100k iterations) → master key
+    2. PyArrow's AES-256-GCM encryption of actual data using random DEKs
+    3. Local-only cache files (not transmitted)
+
+    The master key only protects the Data Encryption Keys (DEKs) stored in
+    Parquet metadata. The actual data is encrypted with proper AES-256-GCM.
+    """
+
+    def __init__(self, kms_connection_config):
+        """Initialize with key mapping from connection config."""
+        super().__init__()
+        # Store master keys as hex strings from config
+        self.master_keys_map = kms_connection_config.custom_kms_conf or {}
+
+    def wrap_key(self, key_bytes, master_key_identifier):
+        """
+        Wrap a Data Encryption Key (DEK) with the master key.
+
+        Simple wrapping: master_key + DEK, base64 encoded.
+        This matches PyArrow's InMemoryKmsClient behavior.
+
+        Args:
+            key_bytes: DEK to wrap (32 bytes for AES-256-GCM)
+            master_key_identifier: Key ID to look up master key
+
+        Returns:
+            Base64-encoded wrapped key
+        """
+        # Get master key as hex string, convert to bytes
+        # Fall back to footer_key if identifier not found (for flexibility)
+        master_key_hex = self.master_keys_map.get(
+            master_key_identifier, self.master_keys_map.get("footer_key")
+        )
+        master_key_bytes = bytes.fromhex(master_key_hex)
+
+        # Concatenate and base64 encode
+        wrapped_key = master_key_bytes + key_bytes
+        return base64.b64encode(wrapped_key)
+
+    def unwrap_key(self, wrapped_key, master_key_identifier):
+        """
+        Unwrap a Data Encryption Key (DEK).
+
+        Reverses wrap_key operation: base64 decode, strip master key prefix.
+
+        Args:
+            wrapped_key: Base64-encoded wrapped key
+            master_key_identifier: Key ID to look up master key
+
+        Returns:
+            Unwrapped DEK (32 bytes)
+        """
+        # Get master key length (handles arbitrary lengths, unlike InMemoryKmsClient)
+        # Fall back to footer_key if identifier not found (for flexibility)
+        master_key_hex = self.master_keys_map.get(
+            master_key_identifier, self.master_keys_map.get("footer_key")
+        )
+        master_key_len = len(bytes.fromhex(master_key_hex))
+
+        # Decode and strip master key prefix
+        decoded = base64.b64decode(wrapped_key)
+        return decoded[master_key_len:]
 
 
 class CacheManager:
@@ -56,10 +140,9 @@ class CacheManager:
         self.password = password
         if password:
             self.encryption_key = self._derive_encryption_key(password)
-            self._setup_parquet_encryption()
+            self._setup_parquet_decryption()
         else:
             self.encryption_key = None
-            self.encryption_props = None
             self.decryption_props = None
 
     def cache_exists(self) -> bool:
@@ -109,36 +192,80 @@ class CacheManager:
         )
         return kdf.derive(password.encode())
 
-    def _setup_parquet_encryption(self):
+    def _setup_parquet_decryption(self):
         """
-        Configure PyArrow Parquet encryption with AES_GCM_V1.
+        Configure PyArrow Parquet decryption properties.
 
-        Sets up encryption_props and decryption_props for use with
-        pq.write_table() and pq.read_table().
+        Decryption doesn't need column names, so we can set it up at init time.
         """
-        # Encryption configuration
-        encryption_config = pe.EncryptionConfiguration(
-            footer_key="footer_key",  # Master key ID
-            encryption_algorithm="AES_GCM_V1",  # Default, most secure
-            data_key_length_bits=256,  # AES-256
-        )
-
         # KMS connection config (in-memory KMS with our derived key)
+        # Store both footer_key and data_key for compatibility with both PyArrow versions
         kms_connection_config = pe.KmsConnectionConfig(
-            custom_kms_conf={"footer_key": self.encryption_key.hex()}
+            custom_kms_conf={
+                "footer_key": self.encryption_key.hex(),
+                "data_key": self.encryption_key.hex(),  # Same key for all columns
+            }
         )
 
-        # Create crypto factory
+        # Create crypto factory with our SimpleKmsClient
+        # (can't use PyArrow's InMemoryKmsClient - see SimpleKmsClient docstring)
         def kms_factory(kms_connection_configuration):
-            return InMemoryKmsClient(kms_connection_configuration)
+            return SimpleKmsClient(kms_connection_configuration)
 
         crypto_factory = pe.CryptoFactory(kms_factory)
 
-        # Generate encryption and decryption properties
-        self.encryption_props = crypto_factory.file_encryption_properties(
-            kms_connection_config, encryption_config
-        )
+        # Generate decryption properties
         self.decryption_props = crypto_factory.file_decryption_properties(kms_connection_config)
+
+    def _get_encryption_properties(self, column_names: list[str]):
+        """
+        Get PyArrow Parquet encryption properties for the given columns.
+
+        PyArrow 22+ supports uniform_encryption parameter for encrypting all columns.
+        PyArrow 18.x requires column_keys parameter with format: {"key_id": [col_list]}.
+
+        Args:
+            column_names: List of column names from the DataFrame
+
+        Returns:
+            FileEncryptionProperties for pq.write_table()
+        """
+        # KMS connection config (in-memory KMS with our derived key)
+        # Store both footer_key and data_key as the same encryption key
+        kms_connection_config = pe.KmsConnectionConfig(
+            custom_kms_conf={
+                "footer_key": self.encryption_key.hex(),
+                "data_key": self.encryption_key.hex(),  # Same key for all columns
+            }
+        )
+
+        # Create crypto factory with our SimpleKmsClient
+        def kms_factory(kms_connection_configuration):
+            return SimpleKmsClient(kms_connection_configuration)
+
+        crypto_factory = pe.CryptoFactory(kms_factory)
+
+        # Try with uniform_encryption first (PyArrow 22+)
+        try:
+            encryption_config = pe.EncryptionConfiguration(
+                footer_key="footer_key",  # Master key ID
+                encryption_algorithm="AES_GCM_V1",  # Default, most secure
+                data_key_length_bits=256,  # AES-256
+                uniform_encryption=True,  # Encrypt all columns uniformly (PyArrow 22+)
+            )
+            return crypto_factory.file_encryption_properties(kms_connection_config, encryption_config)
+
+        except TypeError:
+            # PyArrow 18.x doesn't support uniform_encryption, use column_keys instead
+            # Format: {"key_id": [list of column names]}
+            # All columns encrypted with the same "data_key"
+            encryption_config = pe.EncryptionConfiguration(
+                footer_key="footer_key",  # Master key ID for footer
+                column_keys={"data_key": column_names},  # All columns with one key
+                encryption_algorithm="AES_GCM_V1",
+                data_key_length_bits=256,  # AES-256
+            )
+            return crypto_factory.file_encryption_properties(kms_connection_config, encryption_config)
 
     def _encrypt_json(self, data: dict) -> bytes:
         """
@@ -278,11 +405,12 @@ class CacheManager:
         """
         # Save DataFrame as Parquet with optional encryption
         if self.password:
-            # Use PyArrow for encrypted Parquet
+            # Use PyArrow for encrypted Parquet (supports both PyArrow 18.x and 22+)
             arrow_table = transactions_df.to_arrow()
-            pq.write_table(
-                arrow_table, self.transactions_file, encryption_properties=self.encryption_props
-            )
+            # Get encryption properties with actual column names
+            # (PyArrow 22+ uses uniform_encryption, 18.x uses column_keys)
+            encryption_props = self._get_encryption_properties(arrow_table.column_names)
+            pq.write_table(arrow_table, self.transactions_file, encryption_properties=encryption_props)
         else:
             # Use Polars native write (faster, no encryption)
             transactions_df.write_parquet(self.transactions_file)

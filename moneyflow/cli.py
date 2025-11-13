@@ -57,11 +57,13 @@ def cli(ctx, year, since, mtd, cache, refresh, demo, config_dir):
     # Launch default backend (Monarch Money)
     from moneyflow.app import launch_monarch_mode
 
-    # Convert cache flag to path (None if not enabled, respect config_dir if enabled)
+    # Convert cache flag to path
+    # Pass empty string to let app.py determine profile-scoped cache directory
+    # (app.py will use profile_dir/cache for multi-account isolation)
     if cache:
-        cache_path = f"{config_dir}/cache" if config_dir else "~/.moneyflow/cache"
+        cache_path = ""  # Empty string signals: use default profile-scoped location
     else:
-        cache_path = None
+        cache_path = None  # None signals: no caching
 
     launch_monarch_mode(
         year=year,
