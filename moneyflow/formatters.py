@@ -267,11 +267,19 @@ class ViewPresenter:
         }
 
         # Get arrows
-        name_arrow = ViewPresenter.get_sort_arrow(
-            sort_by, sort_direction, field_to_sort_mode[group_by_field]
-        )
-        count_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.COUNT)
-        amount_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.AMOUNT)
+        # IMPORTANT: If sort_column is set (computed column active), don't show arrows on standard columns
+        if sort_column:
+            # Sorting by computed column, no arrows on standard columns
+            name_arrow = ""
+            count_arrow = ""
+            amount_arrow = ""
+        else:
+            # Standard sorting, show arrows normally
+            name_arrow = ViewPresenter.get_sort_arrow(
+                sort_by, sort_direction, field_to_sort_mode[group_by_field]
+            )
+            count_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.COUNT)
+            amount_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.AMOUNT)
 
         # Build column specs
         # Total column label - right-aligned to match the values, includes currency
