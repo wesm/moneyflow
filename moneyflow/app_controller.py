@@ -1012,7 +1012,28 @@ class AppController:
 
             field_sort, field_name = view_to_field_sort.get(view_mode, (SortMode.COUNT, "Count"))
 
-            # Cycle through: Field → Count → Amount → Field
+            # For ACCOUNT view, add Order Date to the cycle if available
+            # (Amazon backend provides this computed column)
+            if view_mode == ViewMode.ACCOUNT:
+                # Check if order_date column exists (Amazon backend)
+                if hasattr(self.data_manager.mm, "get_computed_columns"):
+                    computed_cols = self.data_manager.mm.get_computed_columns()
+                    has_order_date = any(col.name == "order_date" for col in computed_cols)
+
+                    if has_order_date:
+                        # Cycle: Account → Count → Amount → Order Date → Account
+                        if current_sort == field_sort:
+                            return (SortMode.COUNT, "Count")
+                        elif current_sort == SortMode.COUNT:
+                            return (SortMode.AMOUNT, "Amount")
+                        elif current_sort == SortMode.AMOUNT:
+                            return (SortMode.ORDER_DATE, "Order Date")
+                        elif current_sort == SortMode.ORDER_DATE:
+                            return (field_sort, field_name)
+                        else:
+                            return (field_sort, field_name)
+
+            # Standard cycle: Field → Count → Amount → Field
             if current_sort == field_sort:
                 return (SortMode.COUNT, "Count")
             elif current_sort == SortMode.COUNT:

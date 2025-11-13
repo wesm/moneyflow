@@ -317,9 +317,20 @@ class ViewPresenter:
                         )
                     )
                 ):
+                    # Check if we're sorting by this computed column
+                    # Map column name to SortMode (e.g., "order_date" -> SortMode.ORDER_DATE)
+                    try:
+                        col_sort_mode = SortMode(col_config.name)
+                        col_arrow = ViewPresenter.get_sort_arrow(
+                            sort_by, sort_direction, col_sort_mode
+                        )
+                    except (ValueError, AttributeError):
+                        # Column name doesn't have a corresponding SortMode
+                        col_arrow = ""
+
                     columns.append(
                         {
-                            "label": col_config.display_name,
+                            "label": f"{col_config.display_name} {col_arrow}".strip(),
                             "key": col_config.name,
                             "width": 15,  # Default width for computed columns
                         }

@@ -37,6 +37,7 @@ class SortMode(Enum):
     GROUP = "group"
     ACCOUNT = "account"
     TIME_PERIOD = "time_period"
+    ORDER_DATE = "order_date"  # Computed column for Amazon backend
 
 
 class SortDirection(Enum):

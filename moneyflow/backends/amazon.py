@@ -182,7 +182,7 @@ class AmazonBackend(FinanceBackend):
             - merchant_width_pct: 60 (wider for Item Names)
             - account_width_pct: 30 (Order IDs are small)
         """
-        return {"merchant_width_pct": 60, "account_width_pct": 30}
+        return {"merchant_width_pct": 60, "account_width_pct": 20}
 
     async def login(
         self,
