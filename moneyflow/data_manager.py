@@ -517,7 +517,9 @@ class DataManager:
             rows.append(row)
 
         # Create DataFrame
-        df = pl.DataFrame(rows)
+        # Use infer_schema_length=None to scan ALL rows for schema inference
+        # This prevents errors when extra backend fields have inconsistent presence/types
+        df = pl.DataFrame(rows, infer_schema_length=None)
 
         # Convert date column to date type
         df = df.with_columns(pl.col("date").str.strptime(pl.Date, format="%Y-%m-%d"))
