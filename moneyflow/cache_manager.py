@@ -235,9 +235,19 @@ class CacheManager:
             Exception: If decryption fails or file is corrupt
         """
         if self.password:
-            # Decrypt metadata
-            encrypted_meta = self.metadata_file.read_bytes()
-            return self._decrypt_json(encrypted_meta)
+            try:
+                # Decrypt metadata
+                encrypted_meta = self.metadata_file.read_bytes()
+                return self._decrypt_json(encrypted_meta)
+            except Exception:
+                # Decryption failed - might be unencrypted (migration path)
+                # Try loading as plain JSON
+                try:
+                    with open(self.metadata_file, "r") as f:
+                        return json.load(f)
+                except Exception:
+                    # Both encrypted and unencrypted loads failed
+                    raise
         else:
             # Plain JSON
             with open(self.metadata_file, "r") as f:
@@ -317,6 +327,10 @@ class CacheManager:
         - Parquet: AES-256-GCM via PyArrow native decryption
         - JSON files: AES-256-GCM with manual decryption
 
+        Automatic Migration:
+        If password is provided but cache is unencrypted (old format), automatically
+        loads unencrypted cache and re-saves it encrypted. This is transparent to the user.
+
         Returns:
             Tuple of (transactions_df, categories, category_groups, metadata) or None if cache invalid
 
@@ -325,6 +339,7 @@ class CacheManager:
         if not self.cache_exists():
             return None
 
+        # Try to load cache (encrypted if password provided, unencrypted otherwise)
         try:
             # Load DataFrame from Parquet with optional decryption
             if self.password:
@@ -356,8 +371,46 @@ class CacheManager:
             return transactions_df, categories, category_groups, metadata
 
         except Exception as e:
-            print(f"Warning: Failed to load cache: {e}")
-            return None
+            # If password provided, decryption might have failed because cache is unencrypted
+            # Try migration path: load as unencrypted, then re-save as encrypted
+            if self.password:
+                print(f"Decryption failed, attempting migration from unencrypted cache...")
+                try:
+                    # Attempt to load as unencrypted
+                    transactions_df = pl.read_parquet(self.transactions_file)
+
+                    with open(self.categories_file, "r") as f:
+                        cache_data = json.load(f)
+
+                    with open(self.metadata_file, "r") as f:
+                        metadata = json.load(f)
+
+                    categories = cache_data["categories"]
+                    category_groups = cache_data["category_groups"]
+
+                    # Successfully loaded unencrypted cache - migrate to encrypted
+                    print(f"Migration: Re-saving cache with encryption...")
+                    self.save_cache(
+                        transactions_df=transactions_df,
+                        categories=categories,
+                        category_groups=category_groups,
+                        year=metadata.get("year_filter"),
+                        since=metadata.get("since_filter"),
+                    )
+                    print(f"Migration complete: Cache is now encrypted")
+
+                    return transactions_df, categories, category_groups, metadata
+
+                except Exception as migration_error:
+                    # Migration also failed - likely wrong password or corrupt cache
+                    print(
+                        f"Warning: Failed to load encrypted cache and migration failed: {migration_error}"
+                    )
+                    return None
+            else:
+                # No password provided, regular load failure
+                print(f"Warning: Failed to load cache: {e}")
+                return None
 
     def clear_cache(self) -> None:
         """Delete all cache files."""
