@@ -285,7 +285,10 @@ class MoneyflowApp(App):
         return loading_status
 
     def _initialize_managers(
-        self, profile_dir: Optional[Path] = None, backend_type: Optional[str] = None
+        self,
+        profile_dir: Optional[Path] = None,
+        backend_type: Optional[str] = None,
+        password: Optional[str] = None,
     ):
         """
         Initialize data manager, cache manager, and controller.
@@ -295,6 +298,7 @@ class MoneyflowApp(App):
                         If provided, merchant cache and transaction cache will be
                         stored in this directory to isolate accounts
             backend_type: Backend type (amazon, monarch, ynab) for category logic
+            password: Optional password for cache encryption (same password used for credentials)
         """
         # config_dir is required - default to ~/.moneyflow if not specified
         config_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
@@ -329,7 +333,7 @@ class MoneyflowApp(App):
                 # User specified explicit cache path or using legacy mode
                 cache_dir = self.cache_path
 
-            self.cache_manager = CacheManager(cache_dir=cache_dir)
+            self.cache_manager = CacheManager(cache_dir=cache_dir, password=password)
 
         # Initialize controller with view presenter pattern
         view = TextualViewPresenter(self)
@@ -1040,8 +1044,13 @@ class MoneyflowApp(App):
                 elif creds:
                     determined_backend_type = creds.get("backend_type")
 
+            # Extract password for cache encryption (same password as credentials)
+            cache_password = creds.get("password") if creds else None
+
             self._initialize_managers(
-                profile_dir=determined_profile_dir, backend_type=determined_backend_type
+                profile_dir=determined_profile_dir,
+                backend_type=determined_backend_type,
+                password=cache_password,
             )
 
             # Step 4: Determine date range
