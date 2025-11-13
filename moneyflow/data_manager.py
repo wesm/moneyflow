@@ -491,6 +491,8 @@ class DataManager:
 
             # Preserve extra backend-specific fields (e.g., Amazon: quantity, asin, order_id, etc.)
             # Skip fields that were already processed (standard fields or nested objects)
+            # IMPORTANT: Convert all extra fields to strings for schema consistency
+            # Polars requires all rows to have the same schema, and backend data can be inconsistent
             standard_fields = {
                 "id",
                 "date",
@@ -505,13 +507,11 @@ class DataManager:
             }
             for key, value in txn.items():
                 if key not in standard_fields and not isinstance(value, dict):
-                    # Preserve the value with appropriate type conversion
-                    if isinstance(value, (str, int, float, bool)):
-                        row[key] = value
-                    elif value is None:
+                    # Convert to string to ensure schema consistency across all transactions
+                    # This prevents Polars errors when backends have inconsistent field types
+                    if value is None:
                         row[key] = None
                     else:
-                        # Convert other types to string
                         row[key] = str(value)
 
             rows.append(row)
