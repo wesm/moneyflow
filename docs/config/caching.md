@@ -16,7 +16,7 @@ First run fetches and saves data. Subsequent runs load from cache in millisecond
 
 Cache files are stored per-account:
 
-```
+```text
 ~/.moneyflow/profiles/{account-id}/cache/
 ├── transactions.parquet  # Transaction data
 ├── categories.json       # Categories
@@ -45,10 +45,12 @@ moneyflow --cache
 ```
 
 **Without encryption:**
+
 - Cache files are plaintext Parquet/JSON
 - Anyone with filesystem access can read your transaction data
 
 **With encryption:**
+
 - All cache files encrypted with AES-256-GCM
 - Only accessible with your password
 
@@ -65,13 +67,15 @@ A separate salt file (`cache_salt`) is created for key derivation.
 
 ### Why SimpleKmsClient?
 
-PyArrow's `InMemoryKmsClient` has a hardcoded 16-byte master key limit. Our PBKDF2-derived keys are 32 bytes (256 bits), so we implement a custom `SimpleKmsClient` that:
+PyArrow's `InMemoryKmsClient` has a hardcoded 16-byte master key limit. Our PBKDF2-derived keys are 32 bytes
+(256 bits), so we implement a custom `SimpleKmsClient` that:
 
 - Uses the same wrapping algorithm (concatenate + base64)
 - Handles arbitrary-length master keys
 - Works with our 32-byte PBKDF2 keys
 
-The master key only protects the DEKs in metadata. The actual data is encrypted by PyArrow using proper AES-256-GCM with the DEKs.
+The master key only protects the DEKs in metadata. The actual data is encrypted by PyArrow using proper
+AES-256-GCM with the DEKs.
 
 ### Migration
 

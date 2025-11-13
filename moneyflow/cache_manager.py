@@ -6,17 +6,14 @@ Tracks filter parameters to ensure cache matches user's request.
 Supports optional encryption using Parquet's native AES-GCM encryption.
 """
 
+import base64
 import json
 import os
 from datetime import datetime
-from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
-
-import base64
+from typing import Any, Dict, Optional, Tuple, cast
 
 import polars as pl
-import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.parquet.encryption as pe
 from cryptography.hazmat.primitives import hashes
@@ -253,7 +250,9 @@ class CacheManager:
                 data_key_length_bits=256,  # AES-256
                 uniform_encryption=True,  # Encrypt all columns uniformly (PyArrow 22+)
             )
-            return crypto_factory.file_encryption_properties(kms_connection_config, encryption_config)
+            return crypto_factory.file_encryption_properties(
+                kms_connection_config, encryption_config
+            )
 
         except TypeError:
             # PyArrow 18.x doesn't support uniform_encryption, use column_keys instead
@@ -265,7 +264,9 @@ class CacheManager:
                 encryption_algorithm="AES_GCM_V1",
                 data_key_length_bits=256,  # AES-256
             )
-            return crypto_factory.file_encryption_properties(kms_connection_config, encryption_config)
+            return crypto_factory.file_encryption_properties(
+                kms_connection_config, encryption_config
+            )
 
     def _encrypt_json(self, data: dict) -> bytes:
         """
@@ -410,7 +411,9 @@ class CacheManager:
             # Get encryption properties with actual column names
             # (PyArrow 22+ uses uniform_encryption, 18.x uses column_keys)
             encryption_props = self._get_encryption_properties(arrow_table.column_names)
-            pq.write_table(arrow_table, self.transactions_file, encryption_properties=encryption_props)
+            pq.write_table(
+                arrow_table, self.transactions_file, encryption_properties=encryption_props
+            )
         else:
             # Use Polars native write (faster, no encryption)
             transactions_df.write_parquet(self.transactions_file)
@@ -475,10 +478,10 @@ class CacheManager:
                 arrow_table = pq.read_table(
                     self.transactions_file, decryption_properties=self.decryption_props
                 )
-                transactions_df = pl.from_arrow(arrow_table)
+                transactions_df = cast(pl.DataFrame, pl.from_arrow(arrow_table))
             else:
                 # Use Polars native read (faster, no decryption)
-                transactions_df = pl.read_parquet(self.transactions_file)
+                transactions_df = cast(pl.DataFrame, pl.read_parquet(self.transactions_file))
 
             # Load categories and groups
             if self.password:
@@ -502,10 +505,10 @@ class CacheManager:
             # If password provided, decryption might have failed because cache is unencrypted
             # Try migration path: load as unencrypted, then re-save as encrypted
             if self.password:
-                print(f"Decryption failed, attempting migration from unencrypted cache...")
+                print("Decryption failed, attempting migration from unencrypted cache...")
                 try:
                     # Attempt to load as unencrypted
-                    transactions_df = pl.read_parquet(self.transactions_file)
+                    transactions_df = cast(pl.DataFrame, pl.read_parquet(self.transactions_file))
 
                     with open(self.categories_file, "r") as f:
                         cache_data = json.load(f)
@@ -517,7 +520,7 @@ class CacheManager:
                     category_groups = cache_data["category_groups"]
 
                     # Successfully loaded unencrypted cache - migrate to encrypted
-                    print(f"Migration: Re-saving cache with encryption...")
+                    print("Migration: Re-saving cache with encryption...")
                     self.save_cache(
                         transactions_df=transactions_df,
                         categories=categories,
@@ -525,7 +528,7 @@ class CacheManager:
                         year=metadata.get("year_filter"),
                         since=metadata.get("since_filter"),
                     )
-                    print(f"Migration complete: Cache is now encrypted")
+                    print("Migration complete: Cache is now encrypted")
 
                     return transactions_df, categories, category_groups, metadata
 

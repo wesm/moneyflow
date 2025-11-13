@@ -112,10 +112,12 @@
             pythonPackages.pytest-asyncio
             pythonPackages.pytest-cov
             pythonPackages.pytest-mock
-            pythonPackages.ruff
+            pkgs.ruff
             pkgs.pyright
             # uv for development workflow
             pkgs.uv
+            # Markdown linting
+            pkgs.nodePackages.markdownlint-cli
             # System libraries needed by pyarrow
             pkgs.stdenv.cc.cc.lib
           ];
@@ -132,8 +134,8 @@
               uv pip install -e . --quiet
             fi
 
-            # Add uv-managed venv bin to PATH
-            export PATH="$PWD/.venv/bin:$PATH"
+            # Add uv-managed venv bin to PATH (after nix tools to prefer nix versions)
+            export PATH="$PATH:$PWD/.venv/bin"
 
             echo "Ready! Try: moneyflow --demo"
             echo "Run tests: pytest -v"

@@ -422,7 +422,6 @@ class TestCacheEncryption:
         assert len(salt) == 16
 
         # Verify file permissions are restrictive (user only)
-        import stat
 
         st = cache_mgr.salt_file.stat()
         assert st.st_mode & 0o777 == 0o600
