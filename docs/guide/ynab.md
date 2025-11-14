@@ -140,21 +140,24 @@ focused on actual spending and income.
 
 ### Viewing Hidden Transactions
 
-To see transactions from tracking accounts:
+To see transactions from tracking accounts and other hidden items:
 
-1. Press **`h`** to toggle visibility of hidden transactions
-2. Hidden transactions will appear with a dimmed style
-3. Press **`h`** again to hide them
+1. Press **`f`** to open the filter settings modal
+2. Toggle the visibility settings for hidden transactions
+3. Hidden transactions are marked with an "H" in the flags column when visible
 
 This applies to all hidden transactions, including:
 
 - Tracking account transactions
 - Deleted transactions
 - Transfer transactions between accounts
+- Transactions manually marked as hidden (using **`h`** on individual transactions)
+
+See the [Keyboard Shortcuts](keyboard-shortcuts.md) guide for all available commands.
 
 !!! tip
-    If you want to analyze investment contributions or mortgage payments specifically, press `h` to show hidden
-    transactions, then filter by account or use search to find what you need.
+    If you want to analyze investment contributions or mortgage payments specifically, press `f` to access filter
+    settings and show hidden transactions, then filter by account or use search to find what you need.
 
 ---
 
