@@ -135,7 +135,8 @@ YNAB distinguishes between **budget accounts** (on-budget) and **tracking accoun
 
 ### Why Are Tracking Accounts Hidden?
 
-Since tracking account transactions don't affect your budget, they're filtered out by default to keep your reports focused on actual spending and income.
+Since tracking account transactions don't affect your budget, they're filtered out by default to keep your reports
+focused on actual spending and income.
 
 ### Viewing Hidden Transactions
 
@@ -152,7 +153,8 @@ This applies to all hidden transactions, including:
 - Transfer transactions between accounts
 
 !!! tip
-    If you want to analyze investment contributions or mortgage payments specifically, press `h` to show hidden transactions, then filter by account or use search to find what you need.
+    If you want to analyze investment contributions or mortgage payments specifically, press `h` to show hidden
+    transactions, then filter by account or use search to find what you need.
 
 ---
 

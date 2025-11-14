@@ -513,9 +513,7 @@ class YNABClient:
             },
             "notes": txn.memo or "",
             "hideFromReports": (
-                txn.deleted
-                or txn.transfer_account_id is not None
-                or is_tracking_account
+                txn.deleted or txn.transfer_account_id is not None or is_tracking_account
             ),
             "pending": txn.cleared == "uncleared",
             "isRecurring": False,
