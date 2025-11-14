@@ -190,7 +190,7 @@ class TestCredentialStorage:
         )
 
         # Load and verify new credentials
-        creds = credential_manager.load_credentials(encryption_password="enc_pass")
+        creds, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert creds["email"] == "new@example.com"
         assert creds["password"] == "new_pass"
         assert creds["mfa_secret"] == "NEW_SECRET"
@@ -206,7 +206,7 @@ class TestCredentialStorage:
             backend_type="ynab",  # Custom backend
         )
 
-        creds = credential_manager.load_credentials(encryption_password="enc_pass")
+        creds, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert creds["backend_type"] == "ynab"
 
 
@@ -229,7 +229,7 @@ class TestCredentialLoading:
         )
 
         # Load credentials
-        loaded = credential_manager.load_credentials(encryption_password=encryption_password)
+        loaded, _ = credential_manager.load_credentials(encryption_password=encryption_password)
 
         assert loaded["email"] == email
         assert loaded["password"] == password
@@ -255,7 +255,7 @@ class TestCredentialLoading:
         )
 
         # Load credentials
-        loaded = credential_manager.load_credentials(encryption_password=encryption_password)
+        loaded, _ = credential_manager.load_credentials(encryption_password=encryption_password)
 
         assert loaded["email"] == email
         assert loaded["password"] == password
@@ -293,7 +293,7 @@ class TestCredentialLoading:
             f.write(encrypted)
 
         # Load credentials - should add default backend_type
-        loaded = credential_manager.load_credentials(encryption_password=encryption_password)
+        loaded, _ = credential_manager.load_credentials(encryption_password=encryption_password)
 
         assert loaded["email"] == email
         assert loaded["password"] == password
@@ -385,7 +385,7 @@ class TestEdgeCases:
             encryption_password="enc_pass",
         )
 
-        loaded = credential_manager.load_credentials(encryption_password="enc_pass")
+        loaded, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert loaded["password"] == ""
 
     def test_special_characters_in_credentials(self, credential_manager):
@@ -398,7 +398,7 @@ class TestEdgeCases:
             email=email, password=password, mfa_secret=mfa_secret, encryption_password="enc_pass"
         )
 
-        loaded = credential_manager.load_credentials(encryption_password="enc_pass")
+        loaded, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert loaded["email"] == email
         assert loaded["password"] == password
         assert loaded["mfa_secret"] == mfa_secret
@@ -412,7 +412,7 @@ class TestEdgeCases:
             email=email, password=password, mfa_secret="SECRET", encryption_password="enc_pass"
         )
 
-        loaded = credential_manager.load_credentials(encryption_password="enc_pass")
+        loaded, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert loaded["email"] == email
         assert loaded["password"] == password
 
@@ -427,7 +427,7 @@ class TestEdgeCases:
             encryption_password="enc_pass",
         )
 
-        loaded = credential_manager.load_credentials(encryption_password="enc_pass")
+        loaded, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert loaded["password"] == long_password
 
 
@@ -523,8 +523,8 @@ class TestProfileDirectory:
         )
 
         # Load and verify isolation
-        creds1 = manager1.load_credentials(encryption_password="encrypt1")
-        creds2 = manager2.load_credentials(encryption_password="encrypt2")
+        creds1, _ = manager1.load_credentials(encryption_password="encrypt1")
+        creds2, _ = manager2.load_credentials(encryption_password="encrypt2")
 
         assert creds1["email"] == "user1@example.com"
         assert creds2["email"] == "user2@example.com"
@@ -581,8 +581,8 @@ class TestProfileDirectory:
         )
 
         # Both should have backend_type=monarch but different credentials
-        creds_personal = mgr_personal.load_credentials(encryption_password="encrypt")
-        creds_business = mgr_business.load_credentials(encryption_password="encrypt")
+        creds_personal, _ = mgr_personal.load_credentials(encryption_password="encrypt")
+        creds_business, _ = mgr_business.load_credentials(encryption_password="encrypt")
 
         assert creds_personal["backend_type"] == "monarch"
         assert creds_business["backend_type"] == "monarch"

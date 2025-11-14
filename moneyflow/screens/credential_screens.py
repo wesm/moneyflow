@@ -512,9 +512,14 @@ class CredentialUnlockScreen(ModalScreen):
             # Get config_dir from app and pass to CredentialManager
             config_path = Path(self.app.config_dir) if self.app.config_dir else None
             cred_manager = CredentialManager(config_dir=config_path, profile_dir=self.profile_dir)
-            creds = cred_manager.load_credentials(encryption_password=encryption_password)
+            creds, encryption_key = cred_manager.load_credentials(
+                encryption_password=encryption_password
+            )
 
             error_label.update("✅ Unlocked! Logging in...")
+
+            # Store encryption key in app for cache encryption
+            self.app.encryption_key = encryption_key
 
             # Dismiss and return credentials
             self.dismiss(creds)

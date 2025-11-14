@@ -159,7 +159,9 @@ class CredentialManager:
 
         print(f"✓ Credentials saved to {self.credentials_file}")
 
-    def load_credentials(self, encryption_password: Optional[str] = None) -> Dict[str, str]:
+    def load_credentials(
+        self, encryption_password: Optional[str] = None
+    ) -> tuple[Dict[str, str], bytes]:
         """
         Load and decrypt credentials from disk.
 
@@ -168,8 +170,10 @@ class CredentialManager:
                                 If None, will prompt user.
 
         Returns:
-            Dictionary with 'email', 'password', 'mfa_secret', and 'backend_type' keys.
-            For backward compatibility, 'backend_type' defaults to 'monarch' if not present.
+            Tuple of:
+            - Dictionary with 'email', 'password', 'mfa_secret', and 'backend_type' keys.
+              For backward compatibility, 'backend_type' defaults to 'monarch' if not present.
+            - Encryption key (32-byte URL-safe base64-encoded) for use with cache encryption
 
         Raises:
             FileNotFoundError: If credentials file doesn't exist
@@ -204,7 +208,8 @@ class CredentialManager:
             if "backend_type" not in credentials:
                 credentials["backend_type"] = "monarch"
 
-            return credentials
+            # Return credentials AND encryption key for cache encryption
+            return credentials, key
         except InvalidToken:
             raise ValueError("Incorrect password!")
 

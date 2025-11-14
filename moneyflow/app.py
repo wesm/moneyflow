@@ -55,7 +55,6 @@ from .screens.account_name_input_screen import AccountNameInputScreen
 from .screens.account_selector_screen import AccountSelectorScreen
 from .screens.credential_screens import (
     BackendSelectionScreen,
-    CachePromptScreen,
     CredentialSetupScreen,
     CredentialUnlockScreen,
     FilterScreen,
@@ -225,6 +224,7 @@ class MoneyflowApp(App):
         self.cache_year_filter = None  # Track what filters the cache uses
         self.cache_since_filter = None
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
+        self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
 
@@ -318,18 +318,24 @@ class MoneyflowApp(App):
             backend_type=backend_type,
         )
 
-        # Initialize cache manager
+        # Initialize cache manager (with encryption if key available)
         if self.cache_path is not None:
-            # If profile_dir provided, use profile-scoped cache directory
-            if profile_dir and self.cache_path == "":
-                # User passed --cache without path, use default cache location
-                # For multi-account: cache inside profile directory
-                cache_dir = str(profile_dir / "cache")
+            # Determine cache directory
+            if self.cache_path == "":
+                # Default cache location - use profile-specific or legacy location
+                if profile_dir:
+                    # Multi-account mode: cache inside profile directory
+                    cache_dir = str(profile_dir / "cache")
+                else:
+                    # Legacy single-account mode: use default location
+                    cache_dir = str(Path.home() / ".moneyflow" / "cache")
             else:
-                # User specified explicit cache path or using legacy mode
+                # User specified explicit cache path
                 cache_dir = self.cache_path
 
-            self.cache_manager = CacheManager(cache_dir=cache_dir)
+            self.cache_manager = CacheManager(
+                cache_dir=cache_dir, encryption_key=self.encryption_key
+            )
 
         # Initialize controller with view presenter pattern
         view = TextualViewPresenter(self)
@@ -686,7 +692,7 @@ class MoneyflowApp(App):
             return False
 
     async def _check_and_load_cache(self, loading_status):
-        """Check if cache is valid and load from cache if user approves.
+        """Check if cache is valid and auto-load if available.
 
         Args:
             loading_status: Loading status widget
@@ -696,29 +702,19 @@ class MoneyflowApp(App):
         """
         logger = get_logger(__name__)
 
-        use_cache = False
-        if (
+        # Auto-load cache if valid (no prompt needed with encrypted cache + 24h expiry)
+        use_cache = (
             self.cache_manager
             and not self.force_refresh
             and self.cache_manager.is_cache_valid(
                 year=self.cache_year_filter, since=self.cache_since_filter
             )
-        ):
-            # Cache is valid - show prompt
-            cache_info = self.cache_manager.get_cache_info()
-            if cache_info:
-                use_cache = await self.push_screen(
-                    CachePromptScreen(
-                        age=cache_info["age"],
-                        transaction_count=cache_info["transaction_count"],
-                        filter_desc=cache_info["filter"],
-                    ),
-                    wait_for_dismiss=True,
-                )
+        )
 
         if use_cache:
             # Load from cache
             loading_status.update("📦 Loading from cache...")
+            cache_info = self.cache_manager.get_cache_info()
             result = self.cache_manager.load_cache()
             if result:
                 df, categories, category_groups, metadata = result
@@ -738,6 +734,16 @@ class MoneyflowApp(App):
                     self.data_manager.all_merchants = []
 
                 loading_status.update(f"✅ Loaded {len(df):,} transactions from cache!")
+
+                # Show notification about cache usage
+                if cache_info:
+                    age_str = cache_info["age"]
+                    self.notify(
+                        f"📦 Loaded from cache ({age_str}) • Use --refresh to force update",
+                        severity="information",
+                        timeout=4.0,
+                    )
+
                 return df, categories, category_groups
             else:
                 # Cache load failed, fall back to API

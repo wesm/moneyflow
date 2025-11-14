@@ -29,9 +29,9 @@ from .formatters import ViewPresenter
     "--mtd", is_flag=True, help="Load month-to-date transactions (from 1st of current month)"
 )
 @click.option(
-    "--cache",
+    "--no-cache",
     is_flag=True,
-    help="Enable caching (uses ~/.moneyflow/cache by default)",
+    help="Disable encrypted caching (caching is enabled by default)",
 )
 @click.option("--refresh", is_flag=True, help="Force refresh from API, skip cache even if valid")
 @click.option(
@@ -44,11 +44,14 @@ from .formatters import ViewPresenter
     help="Config directory (default: ~/.moneyflow). Useful for testing with isolated configs.",
 )
 @click.pass_context
-def cli(ctx, year, since, mtd, cache, refresh, demo, config_dir):
+def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir):
     """moneyflow - Terminal UI for personal finance management.
 
     Run with no arguments to launch the default backend (Monarch Money).
     Use subcommands for other backends (e.g., 'moneyflow amazon').
+
+    Caching is now ENABLED BY DEFAULT with encrypted cache files.
+    Use --no-cache to disable caching.
     """
     # If a subcommand is provided, don't launch default backend
     if ctx.invoked_subcommand is not None:
@@ -57,11 +60,15 @@ def cli(ctx, year, since, mtd, cache, refresh, demo, config_dir):
     # Launch default backend (Monarch Money)
     from moneyflow.app import launch_monarch_mode
 
-    # Convert cache flag to path (None if not enabled, respect config_dir if enabled)
-    if cache:
-        cache_path = f"{config_dir}/cache" if config_dir else "~/.moneyflow/cache"
-    else:
+    # Convert no-cache flag to cache path
+    # Caching is enabled by default (unless --no-cache is passed)
+    if no_cache:
         cache_path = None
+    else:
+        # Enable caching with default location
+        # Use empty string to trigger profile-specific cache directory logic in app.py
+        # If config_dir is specified, use that; otherwise empty string for default behavior
+        cache_path = f"{config_dir}/cache" if config_dir else ""
 
     launch_monarch_mode(
         year=year,
@@ -400,14 +407,34 @@ def categories_audit(config_dir, cache_dir):
     click.echo(f"Loaded {len(known_categories)} categories from config")
     click.echo("Checking cached transaction data...\n")
 
-    # Try to load cached data
-    cache_manager = CacheManager(cache_dir=cache_dir)
+    # Load encryption key from credentials
+    from .credentials import CredentialManager
+
+    config_path = Path(config_dir) if config_dir else None
+    cred_manager = CredentialManager(config_dir=config_path)
+
+    if not cred_manager.credentials_exist():
+        click.echo("❌ No credentials found. Please run moneyflow first to set up credentials.")
+        return
+
+    try:
+        # Load credentials to get encryption key
+        _, encryption_key = cred_manager.load_credentials()
+    except ValueError:
+        click.echo("❌ Incorrect password!")
+        return
+    except Exception as e:
+        click.echo(f"❌ Failed to load credentials: {e}")
+        return
+
+    # Try to load cached data with encryption key
+    cache_manager = CacheManager(cache_dir=cache_dir, encryption_key=encryption_key)
     cached_data = cache_manager.load_cache()
 
     if not cached_data:
         click.echo("❌ No cached data found.")
-        click.echo("\nRun moneyflow with --cache flag first to create cache:")
-        click.echo("  $ moneyflow --cache")
+        click.echo("\nRun moneyflow first to create encrypted cache:")
+        click.echo("  $ moneyflow")
         return
 
     df, _, _, _ = cached_data

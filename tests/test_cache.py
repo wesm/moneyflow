@@ -12,6 +12,7 @@ Tests cover:
 - Edge cases and error conditions
 """
 
+import base64
 import json
 import shutil
 import tempfile
@@ -21,8 +22,26 @@ from unittest.mock import patch
 
 import polars as pl
 import pytest
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from moneyflow.cache_manager import CacheManager
+
+
+@pytest.fixture
+def encryption_key():
+    """Create a test encryption key using the same method as CredentialManager."""
+    password = "test_password"
+    salt = b"test_salt_123456"  # 16 bytes
+
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+    return key
 
 
 @pytest.fixture
@@ -35,9 +54,9 @@ def temp_cache_dir():
 
 
 @pytest.fixture
-def cache_manager(temp_cache_dir):
+def cache_manager(temp_cache_dir, encryption_key):
     """Provide a CacheManager instance with temporary directory."""
-    return CacheManager(cache_dir=temp_cache_dir)
+    return CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
 
 
 @pytest.fixture
@@ -77,15 +96,15 @@ def sample_category_groups():
 class TestCacheInitialization:
     """Test cache manager initialization."""
 
-    def test_init_with_explicit_dir(self, temp_cache_dir):
+    def test_init_with_explicit_dir(self, temp_cache_dir, encryption_key):
         """Test initialization with explicit cache directory."""
-        cm = CacheManager(cache_dir=temp_cache_dir)
+        cm = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
 
         assert cm.cache_dir == Path(temp_cache_dir)
         assert cm.cache_dir.exists()
-        assert cm.transactions_file == cm.cache_dir / "transactions.parquet"
-        assert cm.metadata_file == cm.cache_dir / "metadata.json"
-        assert cm.categories_file == cm.cache_dir / "categories.json"
+        assert cm.transactions_file == cm.cache_dir / "transactions.parquet.enc"
+        assert cm.metadata_file == cm.cache_dir / "cache_metadata.json"
+        assert cm.categories_file == cm.cache_dir / "categories.json.enc"
 
     def test_init_with_default_dir(self):
         """Test initialization with default cache directory."""
@@ -95,20 +114,20 @@ class TestCacheInitialization:
         assert cm.cache_dir == expected_dir
         assert cm.cache_dir.exists()
 
-    def test_init_creates_directory(self, temp_cache_dir):
+    def test_init_creates_directory(self, temp_cache_dir, encryption_key):
         """Test that initialization creates cache directory if it doesn't exist."""
         non_existent = Path(temp_cache_dir) / "new_cache_dir"
         assert not non_existent.exists()
 
-        cm = CacheManager(cache_dir=str(non_existent))
+        cm = CacheManager(cache_dir=str(non_existent), encryption_key=encryption_key)
 
         assert cm.cache_dir.exists()
         assert cm.cache_dir.is_dir()
 
-    def test_init_with_tilde_expansion(self, temp_cache_dir):
+    def test_init_with_tilde_expansion(self, temp_cache_dir, encryption_key):
         """Test that ~ in path is expanded correctly."""
         # expanduser() expands ~ to the actual home directory
-        cm = CacheManager(cache_dir="~/test_cache")
+        cm = CacheManager(cache_dir="~/test_cache", encryption_key=encryption_key)
 
         # Should expand to actual home directory + test_cache
         expected_dir = Path.home() / "test_cache"
@@ -116,8 +135,8 @@ class TestCacheInitialization:
         assert cm.cache_dir.exists()
 
     def test_cache_version_constant(self):
-        """Test that CACHE_VERSION is properly defined."""
-        assert CacheManager.CACHE_VERSION == "1.0"
+        """Test that CACHE_VERSION is properly defined (v2.0 for encrypted cache)."""
+        assert CacheManager.CACHE_VERSION == "2.0"
 
     def test_cache_max_age_constant(self):
         """Test that CACHE_MAX_AGE_HOURS is properly defined."""
@@ -227,11 +246,15 @@ class TestSaveCache:
     def test_save_cache_categories_structure(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that categories are saved correctly."""
+        """Test that categories are saved correctly (encrypted)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        with open(cache_manager.categories_file, "r") as f:
-            data = json.load(f)
+        # Decrypt and verify
+        with open(cache_manager.categories_file, "rb") as f:
+            encrypted = f.read()
+
+        decrypted = cache_manager.fernet.decrypt(encrypted)
+        data = json.loads(decrypted.decode())
 
         assert "categories" in data
         assert "category_groups" in data
@@ -271,11 +294,17 @@ class TestSaveCache:
     def test_save_cache_parquet_format(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that transactions are saved as Parquet."""
+        """Test that transactions are saved as encrypted Parquet."""
+        import io
+
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Verify we can read the Parquet file
-        loaded_df = pl.read_parquet(cache_manager.transactions_file)
+        # Decrypt and verify we can read the Parquet file
+        with open(cache_manager.transactions_file, "rb") as f:
+            encrypted = f.read()
+
+        decrypted = cache_manager.fernet.decrypt(encrypted)
+        loaded_df = pl.read_parquet(io.BytesIO(decrypted))
 
         assert loaded_df.shape == sample_df.shape
         assert loaded_df.columns == sample_df.columns
@@ -400,20 +429,24 @@ class TestCacheValidation:
     def test_is_cache_valid_mismatching_year(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test validation fails with mismatching year."""
+        """Test validation passes when cache covers requested year (even if year_filter differs)."""
+        # Cache says "year=2023" but data is from 2024 (sample_df has 2024-10-* dates)
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2023)
 
-        assert not cache_manager.is_cache_valid(year=2024)
+        # Request year=2024 -> cache covers this (data from 2024-10-01 >= 2024-01-01)
+        assert cache_manager.is_cache_valid(year=2024)
 
     def test_is_cache_valid_mismatching_since(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test validation fails with mismatching since date."""
+        """Test validation passes when cache covers requested date range."""
+        # Cache has since="2024-01-01" (data from 2024-10-01)
         cache_manager.save_cache(
             sample_df, sample_categories, sample_category_groups, since="2024-01-01"
         )
 
-        assert not cache_manager.is_cache_valid(since="2024-06-01")
+        # Request since="2024-06-01" -> cache covers this (2024-01-01 <= 2024-06-01)
+        assert cache_manager.is_cache_valid(since="2024-06-01")
 
     def test_is_cache_valid_cache_has_filter_request_doesnt(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
@@ -427,11 +460,11 @@ class TestCacheValidation:
     def test_is_cache_valid_request_has_filter_cache_doesnt(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test validation fails when request has filter but cache doesn't."""
+        """Test validation passes when cache has all data (covers any filter request)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Request with filter should not match cache without filter
-        assert not cache_manager.is_cache_valid(year=2024)
+        # Request with filter matches cache without filter (cache has all data)
+        assert cache_manager.is_cache_valid(year=2024)
 
     def test_is_cache_valid_wrong_version(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
@@ -813,10 +846,10 @@ class TestEdgeCases:
 
         assert df["merchant"][0] == "Café Münchën 日本"
 
-    def test_special_characters_in_path(self, temp_cache_dir):
+    def test_special_characters_in_path(self, temp_cache_dir, encryption_key):
         """Test cache directory with special characters."""
         special_dir = Path(temp_cache_dir) / "cache with spaces & special-chars"
-        cm = CacheManager(cache_dir=str(special_dir))
+        cm = CacheManager(cache_dir=str(special_dir), encryption_key=encryption_key)
 
         assert cm.cache_dir.exists()
         assert cm.cache_dir.is_dir()
@@ -920,10 +953,10 @@ class TestEdgeCases:
     def test_load_cache_with_print_warning(
         self, cache_manager, sample_df, sample_categories, sample_category_groups, capsys
     ):
-        """Test that load_cache prints warning on failure."""
+        """Test that load_cache prints warning on decryption failure."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Corrupt parquet file
+        # Corrupt encrypted parquet file
         with open(cache_manager.transactions_file, "wb") as f:
             f.write(b"corrupt")
 
@@ -931,9 +964,10 @@ class TestEdgeCases:
 
         assert result is None
 
-        # Check that warning was printed
+        # Check that warning was printed (either decryption or loading failure)
         captured = capsys.readouterr()
-        assert "Warning: Failed to load cache:" in captured.out
+        assert "Warning:" in captured.out
+        assert "Failed to decrypt" in captured.out or "Failed to load cache:" in captured.out
 
     def test_year_filter_zero(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
@@ -941,9 +975,9 @@ class TestEdgeCases:
         """Test saving and validating cache with year=0."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=0)
 
-        # 0 is a valid year value
+        # year=0 means all data from year 0 onwards, covers any request
         assert cache_manager.is_cache_valid(year=0)
-        assert not cache_manager.is_cache_valid(year=None)
+        assert cache_manager.is_cache_valid(year=None)  # Cache covers all data
 
     def test_empty_string_since_filter(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
@@ -951,5 +985,6 @@ class TestEdgeCases:
         """Test saving and validating cache with empty string since filter."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, since="")
 
+        # Empty string is treated as no filter (all data)
         assert cache_manager.is_cache_valid(since="")
-        assert not cache_manager.is_cache_valid(since=None)
+        assert cache_manager.is_cache_valid(since=None)  # Cache covers all data

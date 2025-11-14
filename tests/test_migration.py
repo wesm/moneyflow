@@ -140,7 +140,7 @@ class TestMigrateLegacyCredentials:
         profile_dir = temp_config_dir / "profiles" / "default"
         profile_cred = CredentialManager(config_dir=temp_config_dir, profile_dir=profile_dir)
 
-        creds = profile_cred.load_credentials(encryption_password="encrypt")
+        creds, _ = profile_cred.load_credentials(encryption_password="encrypt")
 
         assert creds["email"] == "test@example.com"
         assert creds["password"] == "testpass"
