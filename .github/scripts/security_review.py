@@ -126,6 +126,18 @@ Review this pull request for security vulnerabilities and concerns. Focus on iss
 - Leak secrets or API keys
 - Weaken existing security controls
 
+**CRITICAL: Only review lines that were ADDED or MODIFIED in this PR.**
+- In the diff below, lines starting with `+` are NEW code that was added
+- Lines starting with `-` are REMOVED code (no need to review)
+- Lines without `+` or `-` are CONTEXT (existing code, already reviewed, DO NOT flag)
+- ONLY flag security issues in lines that start with `+` (new/modified code)
+
+**Special consideration for `moneyflow/monarchmoney.py`:**
+- This file is vendor code from an external library
+- Changes to this file should be reviewed with EXTRA scrutiny
+- Flag any suspicious changes that could introduce backdoors or malicious behavior
+- However, do NOT flag existing issues in unchanged vendor code (context lines)
+
 # Project Context
 
 {context}
@@ -292,6 +304,30 @@ def parse_claude_response(response: str) -> list[dict]:
         return []
 
 
+def get_existing_bot_comments(pr) -> set[str]:
+    """Get set of existing bot comments to avoid duplicates."""
+    existing = set()
+    for comment in pr.get_issue_comments():
+        if (
+            comment.user.login == "github-actions[bot]"
+            and "Automated security review" in comment.body
+        ):
+            # Extract a simple signature from the comment
+            if "**In `" in comment.body:
+                # Extract filename from "**In `filename`:**"
+                start = comment.body.find("**In `") + 6
+                end = comment.body.find("`:**", start)
+                if end > start:
+                    filename = comment.body[start:end]
+                    # Create a simple signature: file + first 50 chars of title
+                    title_start = comment.body.find("**", end) + 2
+                    title_end = comment.body.find("**", title_start)
+                    if title_end > title_start:
+                        title = comment.body[title_start:title_end][:50]
+                        existing.add(f"{filename}:{title}")
+    return existing
+
+
 def post_review_comments(issues: list[dict]) -> None:
     """Post review comments on the PR."""
     if not issues:
@@ -303,11 +339,30 @@ def post_review_comments(issues: list[dict]) -> None:
     repo = g.get_repo(os.environ["REPO_NAME"])
     pr = repo.get_pull(int(os.environ["PR_NUMBER"]))
 
+    # Get existing comments to avoid duplicates
+    existing_comments = get_existing_bot_comments(pr)
+    print(f"Found {len(existing_comments)} existing bot comments")
+
     # Post each issue as a review comment
     severity_emoji = {"high": "🚨", "medium": "⚠️", "low": "ℹ️"}
 
     comments_posted = 0
+    skipped_duplicates = 0
+    skipped_low_severity = 0
+
     for issue in issues:
+        # Skip low severity issues to reduce noise
+        if issue["severity"] == "low":
+            skipped_low_severity += 1
+            continue
+
+        # Check for duplicate
+        signature = f"{issue['file']}:{issue['title'][:50]}"
+        if signature in existing_comments:
+            print(f"Skipping duplicate comment: {signature}")
+            skipped_duplicates += 1
+            continue
+
         emoji = severity_emoji.get(issue["severity"], "⚠️")
         comment_body = f"""{emoji} **{issue["title"]}** ({issue["severity"]} severity)
 
@@ -354,19 +409,26 @@ def post_review_comments(issues: list[dict]) -> None:
                 print(f"Error posting fallback comment: {e2}", file=sys.stderr)
 
     print(f"Posted {comments_posted} security review comments")
-    post_summary_comment(len(issues))
+    print(f"Skipped {skipped_duplicates} duplicates, {skipped_low_severity} low severity")
+    post_summary_comment(comments_posted, skipped_duplicates, skipped_low_severity)
 
 
-def post_summary_comment(num_issues: int) -> None:
+def post_summary_comment(
+    num_issues: int, skipped_duplicates: int = 0, skipped_low_severity: int = 0
+) -> None:
     """Post a summary comment on the PR."""
     g = Github(os.environ["GITHUB_TOKEN"])
     repo = g.get_repo(os.environ["REPO_NAME"])
     pr = repo.get_pull(int(os.environ["PR_NUMBER"]))
 
     if num_issues == 0:
-        summary = """## 🔒 Security Review: No Issues Found
+        extra_info = ""
+        if skipped_low_severity > 0:
+            extra_info = f"\n\n**Note:** {skipped_low_severity} low severity issue(s) were found but not posted to reduce noise."
 
-Claude's automated security review did not identify any obvious security concerns in this PR.
+        summary = f"""## 🔒 Security Review: No High/Medium Issues Found
+
+Claude's automated security review did not identify any high or medium severity security concerns in this PR.{extra_info}
 
 **Note:** This is an automated review and should not replace human security review, especially for changes involving:
 - Credential handling
@@ -379,9 +441,20 @@ Claude's automated security review did not identify any obvious security concern
 *Powered by Claude 4.5 Sonnet*
 """
     else:
-        summary = f"""## 🔒 Security Review: {num_issues} Issue{"s" if num_issues != 1 else ""} Found
+        extra_info = ""
+        if skipped_duplicates > 0:
+            extra_info += f"\n- {skipped_duplicates} duplicate issue(s) were skipped"
+        if skipped_low_severity > 0:
+            extra_info += (
+                f"\n- {skipped_low_severity} low severity issue(s) were skipped to reduce noise"
+            )
 
-Claude's automated security review identified potential security concerns. Please review the inline comments.
+        if extra_info:
+            extra_info = f"\n\n**Additionally:**{extra_info}"
+
+        summary = f"""## 🔒 Security Review: {num_issues} High/Medium Issue{"s" if num_issues != 1 else ""} Found
+
+Claude's automated security review identified potential security concerns. Please review the inline comments.{extra_info}
 
 **Note:** This is an automated review. False positives are possible. Please review each issue carefully and use your judgment.
 
