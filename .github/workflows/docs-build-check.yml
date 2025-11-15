@@ -38,6 +38,17 @@ jobs:
           uv pip install --system mkdocs-material mkdocs-material-extensions
           npm install -g markdownlint-cli
 
+      - name: Sync project dependencies
+        run: |
+          uv sync
+
+      - name: Generate screenshots
+        run: |
+          uv run python scripts/generate_screenshots.py
+        env:
+          # Use headless mode for CI
+          TERM: xterm-256color
+
       - name: Check for arrow-based pseudo-lists
         run: |
           .github/scripts/check-arrow-lists.sh
@@ -53,5 +64,6 @@ jobs:
       - name: Summary
         run: |
           echo "✅ Documentation builds successfully" >> $GITHUB_STEP_SUMMARY
+          echo "🎬 Screenshots generated for build verification" >> $GITHUB_STEP_SUMMARY
           echo "📁 Built site is in site/ directory (not deployed)" >> $GITHUB_STEP_SUMMARY
           echo "ℹ️  Deployment only happens from stable branch" >> $GITHUB_STEP_SUMMARY
