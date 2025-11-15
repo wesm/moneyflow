@@ -7,7 +7,7 @@
 
 ## Terminal UI for personal finance power users
 
-![moneyflow terminal UI](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/home-screen.svg)
+![moneyflow terminal UI](assets/screenshots/home-screen.svg)
 
 ```bash
 # Install and run

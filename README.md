@@ -10,7 +10,7 @@
 A keyboard-driven terminal UI for managing personal finance transactions. Built for users who prefer efficiency and
 direct control over their financial data.
 
-![moneyflow main screen](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/home-screen.svg)
+![moneyflow main screen](https://moneyflow.dev/assets/screenshots/home-screen.svg)
 
 **Supported Platforms:**
 

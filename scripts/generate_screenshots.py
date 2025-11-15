@@ -2,8 +2,8 @@
 Automated screenshot generator for moneyflow documentation.
 
 Generates all documentation screenshots programmatically using Textual's
-pilot API and SVG export capabilities. Screenshots are saved to the sibling
-moneyflow-assets repository for documentation embedding.
+pilot API and SVG export capabilities. Screenshots are saved to docs/assets/screenshots/
+for inclusion in the mkdocs build.
 
 Usage:
     uv run python scripts/generate_screenshots.py
@@ -150,8 +150,9 @@ class ScreenshotGenerator:
         print(f"  📸 {filename}.svg - Account selector screen")
 
         # Create some mock accounts first
-        from moneyflow.account_manager import AccountManager
         from pathlib import Path
+
+        from moneyflow.account_manager import AccountManager
 
         config_dir = Path(self.temp_config_dir) / ".moneyflow"
         account_mgr = AccountManager(config_dir=config_dir)
@@ -770,8 +771,8 @@ async def main():
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).parent.parent.parent / "moneyflow-assets",
-        help="Output directory (default: ../moneyflow-assets)",
+        default=Path(__file__).parent.parent / "docs" / "assets" / "screenshots",
+        help="Output directory (default: docs/assets/screenshots)",
     )
     parser.add_argument(
         "--filter",
@@ -784,25 +785,19 @@ async def main():
 
     output_dir = args.output_dir
 
-    if not output_dir.exists():
-        print(f"❌ Output directory does not exist: {output_dir}")
-        print(f"   Expected sibling repository at: {output_dir}")
-        print()
-        print("   Clone the moneyflow-assets repository:")
-        print("   git clone git@github.com:wesm/moneyflow-assets.git ../moneyflow-assets")
-        return 1
+    # Create output directory if it doesn't exist
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Use context manager to ensure isolated config directory
     with ScreenshotGenerator(output_dir, convert_to_png=args.png) as generator:
         await generator.generate_all(filter_pattern=args.filter)
 
     print()
-    print("📝 Next steps:")
-    print(f"   cd {output_dir}")
-    print("   git status")
-    print("   git add *.svg *.png")
-    print('   git commit -m "Update documentation screenshots"')
-    print("   git push")
+    print("✅ Screenshots generated successfully!")
+    print(f"   Location: {output_dir}")
+    print()
+    print("📝 To preview docs with screenshots:")
+    print("   mkdocs serve")
     print()
 
     return 0

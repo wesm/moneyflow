@@ -83,9 +83,9 @@ git push && git push --tags
 ```
 
 This automates:
-- Generating latest screenshots
-- Committing to moneyflow-assets with squashed history
+
 - Updating stable branch to release tag
+- Pushing to GitHub (triggers docs deployment with screenshot generation)
 
 ---
 
@@ -123,6 +123,7 @@ TestPyPI allows re-uploads for testing.
 ### uvx can't find command after install
 
 Check entry point in pyproject.toml:
+
 ```toml
 [project.scripts]
 moneyflow = "moneyflow.app:main"
@@ -134,6 +135,6 @@ moneyflow = "moneyflow.app:main"
 
 Your package will be available at:
 
-- **PyPI**: https://pypi.org/project/moneyflow/
+- **PyPI**: <https://pypi.org/project/moneyflow/>
 - **Install**: `pip install moneyflow`
 - **Run**: `uvx moneyflow`

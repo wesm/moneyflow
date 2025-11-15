@@ -31,6 +31,17 @@ jobs:
         run: |
           uv pip install --system mkdocs-material mkdocs-material-extensions
 
+      - name: Sync project dependencies
+        run: |
+          uv sync
+
+      - name: Generate screenshots
+        run: |
+          uv run python scripts/generate_screenshots.py
+        env:
+          # Use headless mode for CI
+          TERM: xterm-256color
+
       - name: Build and deploy
         run: |
           mkdocs gh-deploy --force
@@ -38,5 +49,6 @@ jobs:
       - name: Summary
         run: |
           echo "📚 Documentation deployed to GitHub Pages from stable branch" >> $GITHUB_STEP_SUMMARY
+          echo "🎬 Screenshots generated and included in build" >> $GITHUB_STEP_SUMMARY
           echo "🌐 Site will be available at: https://moneyflow.dev" >> $GITHUB_STEP_SUMMARY
           echo "⚠️  Only released features (from stable branch) are published" >> $GITHUB_STEP_SUMMARY

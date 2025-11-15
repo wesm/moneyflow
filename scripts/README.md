@@ -9,14 +9,11 @@ Automatically generate all documentation screenshots using Textual's pilot API a
 ### Quick Start
 
 ```bash
-# Generate all screenshots (saves to ../moneyflow-assets/)
+# Generate all screenshots (saves to docs/assets/screenshots/)
 uv run python scripts/generate_screenshots.py
 
 # Generate and convert to PNG
 uv run python scripts/generate_screenshots.py --png
-
-# Use custom font
-uv run python scripts/generate_screenshots.py --font "JetBrains Mono"
 
 # Custom output directory
 uv run python scripts/generate_screenshots.py --output-dir ~/my-screenshots
@@ -27,10 +24,12 @@ uv run python scripts/generate_screenshots.py --output-dir ~/my-screenshots
 The script generates all screenshots referenced in the documentation:
 
 **Setup Screens:**
+
 - `backend-select.svg` - Backend selection screen
 - `monarch-credentials.svg` - Monarch credential setup
 
 **Demo Mode Screens:**
+
 - `home-screen.svg` - Main home screen
 - `cycle-1-merchants.svg` - Merchants aggregation view
 - `cycle-2-categories.svg` - Categories aggregation view
@@ -50,20 +49,18 @@ The script generates all screenshots referenced in the documentation:
 
 ### Workflow
 
-After generating screenshots:
+Screenshots are generated automatically during the docs deployment workflow when pushing to the `stable` branch.
+
+For local development:
 
 ```bash
-# Navigate to moneyflow-assets repo
-cd ../moneyflow-assets
+# Generate screenshots locally
+uv run python scripts/generate_screenshots.py
 
-# Review changes
-git status
-git diff
+# Preview docs with screenshots
+mkdocs serve
 
-# Commit and push
-git add *.svg *.png
-git commit -m "Update documentation screenshots"
-git push
+# Screenshots are gitignored and will be regenerated in CI
 ```
 
 ### Requirements
@@ -109,18 +106,8 @@ async def screenshot_new_feature(self, filename: str, description: str):
 
 ### Troubleshooting
 
-**"Output directory does not exist"**
-```bash
-# Clone the moneyflow-assets repo as a sibling
-git clone git@github.com:wesm/moneyflow-assets.git ../moneyflow-assets
-```
+#### PNG conversion fails
 
-**Font not rendering in SVG**
-- Make sure the font is installed on your system
-- SVG viewers may fall back to default monospace if font is unavailable
-- PNG conversion requires the font to be installed
-
-**PNG conversion fails**
 ```bash
 # Install cairosvg
 uv pip install cairosvg
@@ -135,4 +122,4 @@ brew install cairo pango gdk-pixbuf libffi
 - `test-build.sh` - Test package build locally
 - `publish-testpypi.sh` - Publish to TestPyPI for testing
 - `publish-pypi.sh` - Publish to production PyPI
-- `post-publish.sh` - Post-publish automation (screenshots, assets, stable branch)
+- `post-publish.sh` - Post-publish automation (update stable branch, trigger docs deployment)

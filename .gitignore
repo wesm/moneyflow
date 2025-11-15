@@ -49,6 +49,10 @@ htmlcov/
 .DS_Store
 site/
 
+# Generated documentation assets
+docs/assets/screenshots/*.svg
+docs/assets/screenshots/*.png
+
 # Nix
 result
 result-*

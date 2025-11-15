@@ -17,41 +17,41 @@ amount spent.
 <tr>
 <td width="50%">
 <strong>Merchant View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-1-merchants.svg" width="100%"
+<img src="assets/screenshots/cycle-1-merchants.svg" width="100%"
 alt="Merchants view">
 </td>
 <td width="50%">
 <strong>Category View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-2-categories.svg" width="100%"
+<img src="assets/screenshots/cycle-2-categories.svg" width="100%"
 alt="Categories view">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>Group View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-3-groups.svg" width="100%" alt="Groups view">
+<img src="assets/screenshots/cycle-3-groups.svg" width="100%" alt="Groups view">
 </td>
 <td width="50%">
 <strong>Account View</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-4-accounts.svg" width="100%" alt="Accounts view">
+<img src="assets/screenshots/cycle-4-accounts.svg" width="100%" alt="Accounts view">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>TIME View (by Years)</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/cycle-5-time-years.svg" width="100%"
+<img src="assets/screenshots/cycle-5-time-years.svg" width="100%"
 alt="Time view by years">
 </td>
 <td width="50%">
 <strong>TIME View (by Months)</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-view-months.svg" width="100%"
+<img src="assets/screenshots/time-view-months.svg" width="100%"
 alt="Time view by months">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>TIME View (by Days)</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-view-days.svg" width="100%"
+<img src="assets/screenshots/time-view-days.svg" width="100%"
 alt="Time view by days">
 </td>
 <td width="50%">
@@ -120,13 +120,13 @@ To return to an aggregate view, press `g` or `Escape`.
 - Multi-select for bulk operations
 - View full transaction details
 
-![Detail view with indicators](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/detail-view-flags.svg)
+![Detail view with indicators](assets/screenshots/detail-view-flags.svg)
 
 ## Drill-Down
 
 From any aggregate view, press `Enter` on a row to drill into it and see the individual transactions that make up that aggregate.
 
-![Merchant view with Amazon highlighted](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-view.svg)
+![Merchant view with Amazon highlighted](assets/screenshots/merchants-view.svg)
 
 **Example workflow:**
 
@@ -135,7 +135,7 @@ From any aggregate view, press `Enter` on a row to drill into it and see the ind
 3. **Press `Enter`** - Drill down to see transactions
 4. **View results** - All Amazon transactions displayed
 
-![Drilled down into Amazon - transaction detail view](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-detail.svg)
+![Drilled down into Amazon - transaction detail view](assets/screenshots/drill-down-detail.svg)
 
 The breadcrumb shows your current path: `Merchants > Amazon`
 
@@ -161,9 +161,9 @@ This allows you to analyze the same transactions from multiple perspectives with
 6. **Press `g` again** - Returns to detail view
    - Shows all Amazon transactions ungrouped
 
-![Drilled into Merchant, grouped by Category](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-drill-by-category.svg)
+![Drilled into Merchant, grouped by Category](assets/screenshots/merchants-drill-by-category.svg)
 
-![Drilled into Amazon, grouped by Account](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-group-by-account.svg)
+![Drilled into Amazon, grouped by Account](assets/screenshots/drill-down-group-by-account.svg)
 
 Sub-grouping helps answer analytical questions like:
 
@@ -189,7 +189,7 @@ You can drill down from sub-grouped views to add another level of filtering, cre
 4. **View results** - Breadcrumb shows: `Merchants > Amazon > Groceries`
    - Now viewing only Amazon grocery transactions
 
-![Multi-level drill-down breadcrumb](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/drill-down-multi-level.svg)
+![Multi-level drill-down breadcrumb](assets/screenshots/drill-down-multi-level.svg)
 
 This powerful feature lets you combine multiple filters to answer very specific questions about your spending.
 
@@ -267,12 +267,12 @@ From TIME view, press `Enter` on any year, month, or day to drill down and see o
 <tr>
 <td width="50%">
 <strong>Drilled Into Year</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-drill-down-year.svg" width="100%"
+<img src="assets/screenshots/time-drill-down-year.svg" width="100%"
 alt="Drilled into specific year">
 </td>
 <td width="50%">
 <strong>Drilled Into Month</strong><br>
-<img src="https://raw.githubusercontent.com/wesm/moneyflow-assets/main/time-drill-down-month.svg" width="100%"
+<img src="assets/screenshots/time-drill-down-month.svg" width="100%"
 alt="Drilled into specific month">
 </td>
 </tr>
@@ -331,7 +331,7 @@ moneyflow --mtd                 # Fetch month-to-date only
 
 Press `/` to search and filter transactions by text matching across merchant names, categories, and transaction notes.
 
-![Search modal](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/search-modal.svg)
+![Search modal](assets/screenshots/search-modal.svg)
 
 **Using search:**
 
@@ -340,7 +340,7 @@ Press `/` to search and filter transactions by text matching across merchant nam
 3. **Press `Enter`** - Applies the search filter
 4. **Press `Escape`** - Clears search and returns to previous view
 
-![Search results for "coffee"](https://raw.githubusercontent.com/wesm/moneyflow-assets/main/merchants-search.svg)
+![Search results for "coffee"](assets/screenshots/merchants-search.svg)
 
 Search filters persist as you navigate between different views. The breadcrumb displays "Search: your query" to remind
 you that search is active. To clear a search, press `/` again and submit an empty search, or press `Escape` if search

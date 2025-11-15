@@ -60,6 +60,17 @@ fi
 echo "✓ Linting passes"
 
 echo ""
+echo "5. Verifying screenshot generation..."
+if ! uv run python scripts/generate_screenshots.py --filter "home-screen"; then
+    echo "❌ Screenshot generation failed! Fix errors before bumping version."
+    exit 1
+fi
+echo "✓ Screenshot generation works"
+
+# Clean up test screenshot
+rm -rf docs/assets/screenshots/home-screen.svg
+
+echo ""
 echo "All code quality checks passed!"
 echo ""
 
