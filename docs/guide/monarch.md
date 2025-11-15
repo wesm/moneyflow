@@ -47,7 +47,7 @@ moneyflow
 
 On first run, you'll be prompted to select a backend:
 
-![Backend selection](assets/screenshots/backend-select.svg)
+![Backend selection](../assets/screenshots/backend-select.svg)
 
 Select **Monarch Money**.
 
@@ -55,7 +55,7 @@ Select **Monarch Money**.
 
 You'll see the credential setup screen:
 
-![Credential setup screen](assets/screenshots/monarch-credentials.svg)
+![Credential setup screen](../assets/screenshots/monarch-credentials.svg)
 
 Enter:
 

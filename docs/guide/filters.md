@@ -53,4 +53,4 @@ More advanced filtering capabilities (by amount range, date range, merchant patt
 are planned for future releases.
 
 For now, use [Search](navigation.md#search) to filter by text matching,
-and [Time Navigation](navigation.md#time-navigation) to filter by date.
+and [Time Navigation](navigation.md#time-as-an-aggregate-dimension) to filter by date.

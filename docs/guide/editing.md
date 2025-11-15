@@ -65,7 +65,7 @@ This workflow gives you precise control over merchant names while making it easy
 
 Select multiple transactions to edit them all at once:
 
-![Multi-select transactions with checkmarks](assets/screenshots/drill-down-detail-multi-select.svg)
+![Multi-select transactions with checkmarks](../assets/screenshots/drill-down-detail-multi-select.svg)
 
 1. Press ++space++ on each transaction you want to edit
    - A `✓` checkmark appears
@@ -90,7 +90,7 @@ Select multiple transactions to edit them all at once:
 From any aggregate view (Merchants, Categories, Groups, Accounts), press ++m++, ++c++, or ++h++ to edit ALL
 transactions in that group:
 
-![Bulk edit merchant modal](assets/screenshots/drill-down-bulk-edit-merchant.svg)
+![Bulk edit merchant modal](../assets/screenshots/drill-down-bulk-edit-merchant.svg)
 
 ### Example: Rename a merchant (all transactions)
 
@@ -100,7 +100,7 @@ transactions in that group:
 4. Type "Amazon" and press ++enter++
 5. ALL transactions for that merchant are renamed
 
-![Edit category selection](assets/screenshots/drill-down-edit-category.svg)
+![Edit category selection](../assets/screenshots/drill-down-edit-category.svg)
 
 ### Multi-Select Groups (NEW!)
 
