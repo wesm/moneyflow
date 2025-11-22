@@ -137,6 +137,12 @@ class ScreenshotGenerator:
             if matches_filter(filename):
                 await generator(filename, description)
 
+        # Theme screenshots
+        themes = ["default", "berg", "nord", "gruvbox", "dracula", "monokai", "solarized-dark"]
+        for theme in themes:
+            if matches_filter(f"theme-{theme}"):
+                await self.screenshot_theme(theme)
+
         print()
         print(f"✅ Generated {len(self.generated)} screenshots")
         print()
@@ -693,6 +699,25 @@ class ScreenshotGenerator:
             await pilot.pause(0.3)
 
             await pilot.press("B", "u")
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_theme(self, theme_name: str):
+        """Screenshot: Theme showcase.
+
+        Args:
+            theme_name: Name of the theme to capture
+        """
+        filename = f"theme-{theme_name}"
+        print(f"  🎨 {filename}.svg - {theme_name} theme")
+
+        # Create app with specific theme override
+        app = MoneyflowApp(theme_override=theme_name)
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+            # Show merchants view for consistent theme comparison
             await self._save_screenshot(pilot, filename)
 
     async def _save_screenshot(self, pilot: Pilot, filename: str):

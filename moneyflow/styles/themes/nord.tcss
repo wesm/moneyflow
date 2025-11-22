@@ -1,4 +1,27 @@
-/* moneyflow TUI Styles */
+/* Nord Theme
+ * Arctic, north-bluish color palette
+ * Created by Arctic Ice Studio
+ * Popular in developer communities for its eye-friendly cool tones
+ */
+
+/* Polar Night (backgrounds) */
+$background: #2e3440;
+$surface: #3b4252;
+$panel-bg: #434c5e;
+
+/* Frost (primary colors) */
+$primary: #5e8d9a;
+$accent: #88c0d0;
+
+/* Snow Storm (text) */
+$text: #eceff4;
+$text-muted: #d8dee9;
+
+/* Aurora (status colors) */
+$warning: #ebcb8b;
+$error: #bf616a;
+$success: #a3be8c;
+$boost: #b48ead;
 
 /* Main layout */
 Screen {

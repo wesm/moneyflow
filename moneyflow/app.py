@@ -67,6 +67,8 @@ from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
 from .state import AppState, ViewMode
 from .textual_view import TextualViewPresenter
+from .theme_manager import get_theme_css_paths, load_theme_from_config
+from .version import get_version
 from .widgets.help_screen import HelpScreen
 
 
@@ -112,9 +114,9 @@ class MoneyflowApp(App):
     while keeping complex logic fully tested.
     """
 
-    # Use Path object to properly resolve CSS file location
-    # __file__ is moneyflow/app.py, so parent/styles/moneyflow.tcss is correct
-    CSS_PATH = str(Path(__file__).parent / "styles" / "moneyflow.tcss")
+    # CSS_PATH will be set dynamically based on theme configuration
+    # This is set in __init__ to allow theme selection from config
+    CSS_PATH = None
 
     BINDINGS = [
         # View mode
@@ -183,7 +185,22 @@ class MoneyflowApp(App):
         config_dir: Optional[str] = None,
         profile_dir: Optional[Path] = None,
         backend_type: Optional[str] = None,
+        theme_override: Optional[str] = None,
     ):
+        # Load theme before calling super().__init__() so CSS is ready
+        # config_dir may be None (defaults to ~/.moneyflow)
+        # theme_override takes precedence over config file
+        theme_name = load_theme_from_config(config_dir, theme_override=theme_override)
+        css_paths = get_theme_css_paths(theme_name)
+
+        # Set CSS_PATH on the class before super().__init__()
+        # Textual will load these CSS files during initialization
+        # Convert to List[str | PurePath] for Textual's type requirements
+        from pathlib import PurePath
+        from typing import List, cast
+
+        MoneyflowApp.CSS_PATH = cast(List[str | PurePath], css_paths)
+
         super().__init__()
         self.demo_mode = demo_mode
         self.start_year = start_year
@@ -203,10 +220,12 @@ class MoneyflowApp(App):
         elif demo_mode:
             # Default to 3 years of data (2023-2025) for showcasing multi-year TIME views
             self.backend = DemoBackend(start_year=start_year or 2023, years=3)
-            self.title = "moneyflow [DEMO MODE]"
+            version = get_version()
+            self.title = f"moneyflow [{version}] [DEMO MODE]"
         else:
             # Backend will be set in initialize_data() based on credentials
-            self.title = "moneyflow"
+            version = get_version()
+            self.title = f"moneyflow [{version}]"
 
         self.data_manager: Optional[DataManager] = None
         self.state = AppState()
@@ -2169,6 +2188,7 @@ def launch_monarch_mode(
     refresh: bool = False,
     demo: bool = False,
     config_dir: Optional[str] = None,
+    theme: Optional[str] = None,
 ) -> None:
     """
     Launch moneyflow with default backend (Monarch Money).
@@ -2181,6 +2201,7 @@ def launch_monarch_mode(
         refresh: Force refresh from API, skip cache
         demo: Run in demo mode with sample data
         config_dir: Config directory (None = ~/.moneyflow)
+        theme: Override theme (temporary, doesn't modify config.yaml)
     """
     from datetime import date as date_type
 
@@ -2211,6 +2232,7 @@ def launch_monarch_mode(
             cache_path=cache,
             force_refresh=refresh,
             config_dir=config_dir,
+            theme_override=theme,
         )
         app.run()
     except Exception:

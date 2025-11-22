@@ -7,6 +7,19 @@
 
 version: 1
 
+# General settings
+settings:
+  # Theme: Color scheme for the TUI
+  # Available themes:
+  #   - default: Original moneyflow dark theme
+  #   - berg: Orange on black (inspired by Bloomberg Terminal)
+  #   - nord: Nord (arctic blue tones)
+  #   - gruvbox: Gruvbox (retro warm colors)
+  #   - dracula: Dracula (modern purple)
+  #   - solarized-dark: Solarized Dark (precision colors)
+  #   - monokai: Monokai (Sublime Text classic)
+  theme: default
+
 # Category customization
 # Built-in defaults are chosen to ease integration with Monarch Money but work
 # well for most personal finance platforms.

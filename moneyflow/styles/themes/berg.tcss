@@ -1,4 +1,26 @@
-/* moneyflow TUI Styles */
+/* Berg Theme
+ * Warm amber terminal aesthetic
+ * Inspired by classic financial terminals
+ */
+
+/* Core backgrounds */
+$background: #1a1a1a;
+$surface: #222222;
+$panel-bg: #2a2a2a;
+
+/* Warm amber accents */
+$primary: #8b6508;
+$accent: #cd9b3d;
+
+/* Text colors */
+$text: #c5b5a0;
+$text-muted: #8a7f6f;
+
+/* Status colors */
+$warning: #d4a76a;
+$error: #c87872;
+$success: #7a9971;
+$boost: #c19464;
 
 /* Main layout */
 Screen {

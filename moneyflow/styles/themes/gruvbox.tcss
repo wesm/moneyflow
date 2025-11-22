@@ -1,4 +1,26 @@
-/* moneyflow TUI Styles */
+/* Gruvbox Theme
+ * Retro groove warm color scheme
+ * Vintage aesthetic for terminal enthusiasts
+ */
+
+/* Dark backgrounds */
+$background: #1d2021;
+$surface: #282828;
+$panel-bg: #3c3836;
+
+/* Warm primary colors */
+$primary: #a87c1a;
+$accent: #d87c31;
+
+/* Text colors */
+$text: #d5c4a1;
+$text-muted: #a89984;
+
+/* Status colors */
+$warning: #c28a1d;
+$error: #d9736c;
+$success: #a3af5a;
+$boost: #c4849f;
 
 /* Main layout */
 Screen {

@@ -95,8 +95,16 @@ def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
     default=None,
     help="Config directory (default: ~/.moneyflow). Useful for testing with isolated configs.",
 )
+@click.option(
+    "--theme",
+    type=click.Choice(
+        ["default", "berg", "nord", "gruvbox", "dracula", "solarized-dark", "monokai"]
+    ),
+    default=None,
+    help="Override theme for this session",
+)
 @click.pass_context
-def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir):
+def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir, theme):
     """moneyflow - Terminal UI for personal finance management.
 
     Run with no arguments to launch the default backend (Monarch Money).
@@ -130,6 +138,7 @@ def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir):
         refresh=refresh,
         demo=demo,
         config_dir=config_dir,
+        theme=theme,
     )
 
 

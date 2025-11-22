@@ -120,6 +120,7 @@ nav:
     - YNAB: guide/ynab.md
     - Amazon Mode: guide/amazon-mode.md
   - Configuration:
+    - Themes: config/themes.md
     - Categories: categories.md
     - Caching: config/caching.md
     - Advanced Options: config/advanced.md

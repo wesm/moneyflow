@@ -1,4 +1,27 @@
-/* moneyflow TUI Styles */
+/* Solarized Dark Theme
+ * Precision color scheme by Ethan Schoonover
+ * Scientifically designed for reduced eye strain
+ * One of the most popular themes in programming history
+ */
+
+/* Base backgrounds */
+$background: #002b36;
+$surface: #073642;
+$panel-bg: #073642;
+
+/* Primary accent colors */
+$primary: #268bd2;
+$accent: #3fbfb3;
+
+/* Text colors */
+$text: #839496;
+$text-muted: #586e75;
+
+/* Status colors */
+$warning: #b58900;
+$error: #dc322f;
+$success: #859900;
+$boost: #6c71c4;
 
 /* Main layout */
 Screen {

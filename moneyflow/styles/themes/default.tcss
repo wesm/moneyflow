@@ -1,4 +1,11 @@
-/* moneyflow TUI Styles */
+/* Default Theme
+ * Uses Textual's built-in dark theme colors
+ * Original moneyflow look and feel
+ */
+
+/* Only define $panel-bg since we renamed it from $panel to avoid conflicts */
+/* All other colors use Textual's defaults */
+$panel-bg: #0e1626;
 
 /* Main layout */
 Screen {

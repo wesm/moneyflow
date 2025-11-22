@@ -151,6 +151,33 @@ More help: [Troubleshooting Guide](https://moneyflow.dev/reference/troubleshooti
 
 ---
 
+## Themes
+
+moneyflow includes multiple color themes for different aesthetic preferences:
+
+- **default** - Original moneyflow dark theme
+- **berg** - Orange on black (inspired by Bloomberg Terminal) - nostalgic 1980s financial terminal aesthetic
+- **nord** - Nord (arctic blue tones) - popular among developers for eye-friendly cool colors
+- **gruvbox** - Gruvbox (retro warm colors) - vintage aesthetic beloved by vim users
+- **dracula** - Dracula (modern purple) - vibrant high-contrast dark theme
+- **solarized-dark** - Solarized Dark (precision colors) - scientifically designed for reduced eye strain
+- **monokai** - Monokai (Sublime Text classic) - the iconic editor theme
+
+### Configuring Themes
+
+Set your preferred theme in `~/.moneyflow/config.yaml`:
+
+```yaml
+version: 1
+
+settings:
+  theme: berg  # or nord, gruvbox, dracula, solarized-dark, monokai
+```
+
+Restart moneyflow for the theme to take effect.
+
+---
+
 ## Documentation
 
 **Full documentation available at [moneyflow.dev](https://moneyflow.dev)**

@@ -1,4 +1,26 @@
-/* moneyflow TUI Styles */
+/* Monokai Theme
+ * Classic Sublime Text color scheme
+ * Vibrant syntax highlighting
+ */
+
+/* Backgrounds */
+$background: #272822;
+$surface: #2d2e27;
+$panel-bg: #3e3d32;
+
+/* Signature colors */
+$primary: #4a7a85;
+$accent: #e59c6a;
+
+/* Text colors */
+$text: #e5e5e5;
+$text-muted: #888877;
+
+/* Status colors */
+$warning: #d4c48a;
+$error: #d67c7c;
+$success: #98c379;
+$boost: #e5a050;
 
 /* Main layout */
 Screen {

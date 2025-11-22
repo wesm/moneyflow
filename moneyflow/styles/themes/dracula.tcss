@@ -1,4 +1,26 @@
-/* moneyflow TUI Styles */
+/* Dracula Theme
+ * Modern dark theme with purple accents
+ * Popular across editors and terminals
+ */
+
+/* Backgrounds */
+$background: #282a36;
+$surface: #2f3241;
+$panel-bg: #44475a;
+
+/* Purple accents */
+$primary: #8b6fc8;
+$accent: #c75a94;
+
+/* Text colors */
+$text: #e5e5e5;
+$text-muted: #7c8db5;
+
+/* Status colors */
+$warning: #e9e87c;
+$error: #ef6d6d;
+$success: #6bd16b;
+$boost: #f5b76c;
 
 /* Main layout */
 Screen {
