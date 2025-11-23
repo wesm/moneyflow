@@ -961,3 +961,120 @@ class TestYNABBackend:
         backend.clear_auth()
 
         assert backend.client._account_cache is None
+
+    @pytest.mark.asyncio
+    async def test_login_with_budget_id(self, backend, mock_ynab_api):
+        """Test login with specific budget ID."""
+        mock_budget1 = MagicMock()
+        mock_budget1.id = "budget-1"
+        mock_budget1.name = "Personal Budget"
+        mock_budget1.currency_format = None
+
+        mock_budget2 = MagicMock()
+        mock_budget2.id = "budget-2"
+        mock_budget2.name = "Business Budget"
+        mock_budget2.currency_format = None
+
+        mock_budgets_response = MagicMock()
+        mock_budgets_response.data.budgets = [mock_budget1, mock_budget2]
+
+        mock_budgets_api = MagicMock()
+        mock_budgets_api.get_budgets.return_value = mock_budgets_response
+
+        # Mock accounts
+        mock_accounts_response = MagicMock()
+        mock_accounts_response.data.accounts = []
+        mock_accounts_api = MagicMock()
+        mock_accounts_api.get_accounts.return_value = mock_accounts_response
+
+        mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
+        mock_ynab_api.AccountsApi.return_value = mock_accounts_api
+
+        # Login with specific budget ID
+        await backend.login(password="test-token", budget_id="budget-2")
+
+        assert backend.client.access_token == "test-token"
+        assert backend.client.budget_id == "budget-2"
+
+    @pytest.mark.asyncio
+    async def test_login_with_invalid_budget_id(self, backend, mock_ynab_api):
+        """Test login with invalid budget ID raises error."""
+        mock_budget = MagicMock()
+        mock_budget.id = "budget-1"
+        mock_budget.name = "Personal Budget"
+
+        mock_budgets_response = MagicMock()
+        mock_budgets_response.data.budgets = [mock_budget]
+
+        mock_budgets_api = MagicMock()
+        mock_budgets_api.get_budgets.return_value = mock_budgets_response
+
+        mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
+
+        with pytest.raises(ValueError, match="Budget with ID 'invalid-id' not found"):
+            await backend.login(password="test-token", budget_id="invalid-id")
+
+    @pytest.mark.asyncio
+    async def test_get_budgets(self, backend, mock_ynab_api):
+        """Test get_budgets returns all budgets."""
+        mock_budget1 = MagicMock()
+        mock_budget1.id = "budget-1"
+        mock_budget1.name = "Personal Budget"
+        mock_budget1.last_modified_on = "2025-01-01T00:00:00Z"
+        mock_budget1.currency_format = MagicMock()
+        mock_budget1.currency_format.currency_symbol = "$"
+
+        mock_budget2 = MagicMock()
+        mock_budget2.id = "budget-2"
+        mock_budget2.name = "Business Budget"
+        mock_budget2.last_modified_on = "2025-01-15T00:00:00Z"
+        mock_budget2.currency_format = MagicMock()
+        mock_budget2.currency_format.currency_symbol = "€"
+
+        mock_budgets_response = MagicMock()
+        mock_budgets_response.data.budgets = [mock_budget1, mock_budget2]
+
+        mock_budgets_api = MagicMock()
+        mock_budgets_api.get_budgets.return_value = mock_budgets_response
+
+        mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
+        backend.client.api_client = MagicMock()
+
+        budgets = await backend.get_budgets()
+
+        assert len(budgets) == 2
+        assert budgets[0]["id"] == "budget-1"
+        assert budgets[0]["name"] == "Personal Budget"
+        assert budgets[0]["last_modified_on"] == "2025-01-01T00:00:00Z"
+        assert budgets[0]["currency_format"]["currency_symbol"] == "$"
+        assert budgets[1]["id"] == "budget-2"
+        assert budgets[1]["name"] == "Business Budget"
+        assert budgets[1]["currency_format"]["currency_symbol"] == "€"
+
+    @pytest.mark.asyncio
+    async def test_get_budgets_no_currency_format(self, backend, mock_ynab_api):
+        """Test get_budgets handles missing currency format."""
+        mock_budget = MagicMock()
+        mock_budget.id = "budget-1"
+        mock_budget.name = "Test Budget"
+        mock_budget.last_modified_on = None
+        mock_budget.currency_format = None
+
+        mock_budgets_response = MagicMock()
+        mock_budgets_response.data.budgets = [mock_budget]
+
+        mock_budgets_api = MagicMock()
+        mock_budgets_api.get_budgets.return_value = mock_budgets_response
+
+        mock_ynab_api.BudgetsApi.return_value = mock_budgets_api
+        backend.client.api_client = MagicMock()
+
+        budgets = await backend.get_budgets()
+
+        assert len(budgets) == 1
+        assert budgets[0]["currency_format"]["currency_symbol"] == "$"  # Default
+
+    def test_get_budgets_not_authenticated(self, backend):
+        """Test get_budgets raises error when not authenticated."""
+        with pytest.raises(ValueError, match="Must authenticate first"):
+            backend.client.get_budgets()

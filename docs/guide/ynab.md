@@ -69,10 +69,17 @@ Create a NEW password to encrypt your stored credentials:
 !!! info
     Token encrypted with AES-128/PBKDF2 (100k iterations) at `~/.moneyflow/credentials.enc`
 
-### 4. Initial Data Load
+### 4. Budget Selection (if multiple budgets)
 
-**Note:** If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection
-UI is not yet implemented.
+If you have multiple YNAB budgets, moneyflow will show a budget selector screen:
+
+- Use **↑/↓** arrow keys to navigate between budgets
+- Press **Enter** to select the highlighted budget
+- Press **Esc** to cancel
+
+The selected budget will be saved for future sessions, so you won't need to select it again unless you switch accounts or delete the account profile.
+
+### 5. Initial Data Load
 
 moneyflow will:
 

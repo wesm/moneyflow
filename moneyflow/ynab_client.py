@@ -31,12 +31,13 @@ class YNABClient:
         self._cache_params: Optional[Dict[str, Any]] = None
         self._account_cache: Optional[Dict[str, Dict[str, Any]]] = None
 
-    def login(self, access_token: str) -> None:
+    def login(self, access_token: str, budget_id: Optional[str] = None) -> None:
         """
         Authenticate with YNAB using a Personal Access Token.
 
         Args:
             access_token: YNAB Personal Access Token
+            budget_id: Optional specific budget ID to use
 
         Raises:
             ValueError: If no budgets found or token is invalid
@@ -54,16 +55,60 @@ class YNABClient:
         if not budgets_response.data.budgets:
             raise ValueError("No budgets found in YNAB account")
 
-        if not self.budget_id:
+        if budget_id:
+            # Verify the specified budget exists
+            budget = next((b for b in budgets_response.data.budgets if b.id == budget_id), None)
+            if not budget:
+                raise ValueError(f"Budget with ID '{budget_id}' not found")
+            self.budget_id = budget_id
+        elif not self.budget_id:
+            # Use first budget if no budget specified
             budget = budgets_response.data.budgets[0]
             self.budget_id = budget.id
+        else:
+            # Use existing budget_id
+            budget = next(
+                (b for b in budgets_response.data.budgets if b.id == self.budget_id), None
+            )
 
-            # Fetch currency symbol from budget settings
-            if budget.currency_format and budget.currency_format.currency_symbol:
-                self.currency_symbol = budget.currency_format.currency_symbol
+        # Fetch currency symbol from budget settings
+        if budget and budget.currency_format and budget.currency_format.currency_symbol:
+            self.currency_symbol = budget.currency_format.currency_symbol
 
         # Fetch and cache account information (including on_budget status)
         self._fetch_and_cache_accounts()
+
+    def get_budgets(self) -> List[Dict[str, Any]]:
+        """
+        Get all budgets from YNAB account.
+
+        Returns:
+            List of budget dictionaries with id, name, and last_modified_on fields
+
+        Raises:
+            ValueError: If not authenticated
+        """
+        if not self.api_client:
+            raise ValueError("Must authenticate first")
+
+        budgets_api = ynab.BudgetsApi(self.api_client)
+        budgets_response = budgets_api.get_budgets()
+
+        return [
+            {
+                "id": budget.id,
+                "name": budget.name,
+                "last_modified_on": str(budget.last_modified_on)
+                if budget.last_modified_on
+                else None,
+                "currency_format": {
+                    "currency_symbol": budget.currency_format.currency_symbol
+                    if budget.currency_format
+                    else "$"
+                },
+            }
+            for budget in budgets_response.data.budgets
+        ]
 
     def get_transactions(
         self,

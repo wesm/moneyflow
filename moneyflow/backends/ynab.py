@@ -30,6 +30,7 @@ class YNABBackend(FinanceBackend):
         use_saved_session: bool = True,
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
+        budget_id: Optional[str] = None,
     ) -> None:
         """
         Authenticate with YNAB using a Personal Access Token.
@@ -40,6 +41,7 @@ class YNABBackend(FinanceBackend):
             use_saved_session: Not used (token is stateless)
             save_session: Not used (token is stateless)
             mfa_secret_key: Not used (YNAB doesn't use MFA)
+            budget_id: Optional specific budget ID to use
 
         Raises:
             ValueError: If no token provided or no budgets found
@@ -49,7 +51,16 @@ class YNABBackend(FinanceBackend):
                 "YNAB backend requires an access token. "
                 "The access token should be stored in the password field."
             )
-        self.client.login(password)
+        self.client.login(password, budget_id=budget_id)
+
+    async def get_budgets(self) -> List[Dict[str, Any]]:
+        """
+        Get all budgets from YNAB account.
+
+        Returns:
+            List of budget dictionaries with id, name, and last_modified_on fields
+        """
+        return self.client.get_budgets()
 
     async def get_transactions(
         self,

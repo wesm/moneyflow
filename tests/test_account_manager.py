@@ -328,6 +328,58 @@ class TestCreateAccount:
         assert account_manager.get_profile_dir(acc2.id).exists()
         assert account_manager.get_profile_dir(acc3.id).exists()
 
+    def test_create_account_with_budget_id(self, account_manager):
+        """Test that create_account properly stores budget_id for YNAB accounts."""
+        account = account_manager.create_account("YNAB Account", "ynab", budget_id="budget-123")
+        assert account.budget_id == "budget-123"
+        assert account.backend_type == "ynab"
+        assert account.name == "YNAB Account"
+
+    def test_account_to_dict_includes_budget_id(self, account_manager):
+        """Test that account serialization includes budget_id when present."""
+        account = account_manager.create_account("YNAB Account", "ynab", budget_id="budget-123")
+        account_dict = account.to_dict()
+        assert account_dict["budget_id"] == "budget-123"
+        assert "budget_id" in account_dict
+
+    def test_account_to_dict_excludes_none_budget_id(self, account_manager):
+        """Test that account serialization excludes budget_id when None."""
+        account = account_manager.create_account("Monarch Account", "monarch")
+        account_dict = account.to_dict()
+        assert "budget_id" not in account_dict
+        assert account.budget_id is None
+
+    def test_account_from_dict_with_budget_id(self):
+        """Test that Account can be reconstructed from dict with budget_id."""
+        from moneyflow.account_manager import Account
+
+        data = {
+            "id": "ynab-test",
+            "name": "Test YNAB",
+            "backend_type": "ynab",
+            "created_at": "2025-01-01T00:00:00",
+            "last_used": None,
+            "budget_id": "budget-456",
+        }
+        account = Account.from_dict(data)
+        assert account.budget_id == "budget-456"
+        assert account.id == "ynab-test"
+
+    def test_account_from_dict_without_budget_id(self):
+        """Test that Account can be reconstructed from dict without budget_id."""
+        from moneyflow.account_manager import Account
+
+        data = {
+            "id": "monarch-test",
+            "name": "Test Monarch",
+            "backend_type": "monarch",
+            "created_at": "2025-01-01T00:00:00",
+            "last_used": None,
+        }
+        account = Account.from_dict(data)
+        assert account.budget_id is None
+        assert account.id == "monarch-test"
+
 
 class TestDeleteAccount:
     """Tests for account deletion."""

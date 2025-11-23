@@ -38,16 +38,20 @@ class Account:
     backend_type: BackendType  # Backend type (monarch, ynab, amazon, demo)
     created_at: str  # ISO timestamp when account was created
     last_used: Optional[str] = None  # ISO timestamp when last accessed
+    budget_id: Optional[str] = None  # For YNAB: the specific budget ID to use
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        result = {
             "id": self.id,
             "name": self.name,
             "backend_type": self.backend_type,
             "created_at": self.created_at,
             "last_used": self.last_used,
         }
+        if self.budget_id is not None:
+            result["budget_id"] = self.budget_id
+        return result
 
     @staticmethod
     def from_dict(data: Dict) -> "Account":
@@ -58,6 +62,7 @@ class Account:
             backend_type=data["backend_type"],
             created_at=data["created_at"],
             last_used=data.get("last_used"),
+            budget_id=data.get("budget_id"),
         )
 
 
@@ -188,7 +193,11 @@ class AccountManager:
         return f"{account_id}-{counter}"
 
     def create_account(
-        self, name: str, backend_type: BackendType, account_id: Optional[str] = None
+        self,
+        name: str,
+        backend_type: BackendType,
+        account_id: Optional[str] = None,
+        budget_id: Optional[str] = None,
     ) -> Account:
         """
         Create a new account profile.
@@ -197,6 +206,7 @@ class AccountManager:
             name: User-friendly display name
             backend_type: Backend type (monarch, ynab, amazon, demo)
             account_id: Optional custom ID (generated if not provided)
+            budget_id: Optional budget ID for YNAB accounts
 
         Returns:
             Created Account object
@@ -226,6 +236,7 @@ class AccountManager:
             backend_type=backend_type,
             created_at=datetime.now().isoformat(),
             last_used=None,
+            budget_id=budget_id,
         )
 
         # Add to registry and save

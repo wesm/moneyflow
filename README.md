@@ -58,7 +58,7 @@ moneyflow --since 2024-06-01  # Fetch from specific date
 
 **First-time Monarch Money setup:** You'll need your 2FA secret key. See the [Monarch Money setup guide](https://moneyflow.dev/guide/monarch).
 
-**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings. See the [YNAB setup guide](https://moneyflow.dev/guide/ynab).
+**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings. If you have multiple budgets, you'll be prompted to select one. See the [YNAB setup guide](https://moneyflow.dev/guide/ynab).
 
 ---
 

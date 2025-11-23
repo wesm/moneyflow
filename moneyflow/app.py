@@ -53,6 +53,7 @@ from .retry_logic import RetryAborted, retry_with_backoff
 # Screen imports
 from .screens.account_name_input_screen import AccountNameInputScreen
 from .screens.account_selector_screen import AccountSelectorScreen
+from .screens.budget_selector_screen import BudgetSelectorScreen
 from .screens.credential_screens import (
     BackendSelectionScreen,
     CredentialSetupScreen,
@@ -588,7 +589,7 @@ class MoneyflowApp(App):
         if not backend_type:
             return None  # User cancelled
 
-        # Step 3: Create account profile
+        # Step 3: Create account profile first
         try:
             account = account_manager.create_account(name=account_name, backend_type=backend_type)
         except ValueError as e:
@@ -597,7 +598,7 @@ class MoneyflowApp(App):
             logger.error(f"Failed to create account: {e}")
             return None
 
-        # Step 4: Get credentials (if backend requires auth)
+        # Step 4: Get/store credentials and handle YNAB budget selection
         from .backend_config import BackendConfig
 
         backend_config = {
@@ -611,7 +612,7 @@ class MoneyflowApp(App):
         profile_dir = account_manager.get_profile_dir(account.id)
 
         if backend_config.requires_auth:
-            # Show credential setup
+            # Show credential setup with profile_dir so it saves to the right place
             creds = await self.push_screen(
                 CredentialSetupScreen(backend_type=backend_type, profile_dir=profile_dir),
                 wait_for_dismiss=True,
@@ -621,18 +622,64 @@ class MoneyflowApp(App):
                 # User cancelled - delete the account we just created
                 account_manager.delete_account(account.id)
                 return None
+
+            # For YNAB, handle budget selection after credentials are set up
+            if backend_type == "ynab":
+                # Create temporary backend to fetch budgets
+                temp_backend = get_backend("ynab")
+                try:
+                    await temp_backend.login(password=creds["password"])
+                    # Type cast is safe since we know this is a YNAB backend
+
+                    budgets = await temp_backend.get_budgets()  # type: ignore
+
+                    budget_id = None
+                    if len(budgets) > 1:
+                        # Show budget selector
+                        budget_id = await self.push_screen(
+                            BudgetSelectorScreen(budgets), wait_for_dismiss=True
+                        )
+
+                        if budget_id is None:
+                            # User cancelled budget selection - clean up
+                            account_manager.delete_account(account.id)
+                            return None
+                    elif len(budgets) == 1:
+                        budget_id = budgets[0]["id"]
+
+                    # Clear the temporary backend
+                    temp_backend.clear_auth()
+
+                    # Update the account with the selected budget_id
+                    if budget_id:
+                        account.budget_id = budget_id
+                        # Save the updated account
+                        registry = account_manager.load_registry()
+                        for i, acc in enumerate(registry.accounts):
+                            if acc.id == account.id:
+                                registry.accounts[i] = account
+                                break
+                        account_manager.save_registry(registry)
+
+                except Exception as e:
+                    logger = get_logger(__name__)
+                    logger.error(f"Failed to fetch YNAB budgets: {e}")
+                    # Clean up the account if budget selection fails
+                    account_manager.delete_account(account.id)
+                    return None
         else:
             # Backend doesn't need credentials (Amazon, Demo)
             creds = {"backend_type": backend_type}
 
         return account.id, profile_dir, creds
 
-    async def _login_with_retry(self, creds, loading_status):
+    async def _login_with_retry(self, creds, loading_status, budget_id=None):
         """Login with retry logic for robustness.
 
         Args:
             creds: Credentials dict
             loading_status: Loading status widget
+            budget_id: Optional budget ID for YNAB accounts
 
         Returns:
             bool: True on success, False on failure
@@ -657,13 +704,22 @@ class MoneyflowApp(App):
             """Login with automatic retry on session expiration."""
             try:
                 logger.debug("Attempting login with saved session...")
-                await self.backend.login(
-                    email=creds["email"],
-                    password=creds["password"],
-                    use_saved_session=True,  # Try saved session first
-                    save_session=True,
-                    mfa_secret_key=creds["mfa_secret"],
-                )
+
+                # Simple login - budget selection happens during account creation
+                login_kwargs = {
+                    "email": creds["email"],
+                    "password": creds["password"],
+                    "use_saved_session": True,
+                    "save_session": True,
+                    "mfa_secret_key": creds["mfa_secret"],
+                }
+
+                # For YNAB, include budget_id if available
+                if backend_type == "ynab" and budget_id:
+                    login_kwargs["budget_id"] = budget_id
+
+                await self.backend.login(**login_kwargs)
+
                 logger.debug("Login succeeded!")
                 return True
             except Exception as e:
@@ -1030,13 +1086,33 @@ class MoneyflowApp(App):
                     self.backend_config = BackendConfig.for_demo()
 
                 # Step 3: Login with retry logic
-                login_success = await self._login_with_retry(creds, loading_status)
+                # For YNAB, get budget_id from account if available
+                budget_id = None
+                if backend_type == "ynab" and account_id:
+                    # Load account to get budget_id
+                    account = (
+                        account_manager.get_account(account_id)
+                        if "account_manager" in locals()
+                        else None
+                    )
+                    if not account and self.config_dir:
+                        from moneyflow.account_manager import AccountManager
+
+                        config_path = Path(self.config_dir) if self.config_dir else None
+                        account_manager = AccountManager(config_dir=config_path)
+                        account = account_manager.get_account(account_id)
+
+                    if account and account.budget_id:
+                        budget_id = account.budget_id
+
+                login_success = await self._login_with_retry(creds, loading_status, budget_id)
                 if not login_success:
                     has_error = True
                     return
             elif self.backend and not self.demo_mode:
                 # Backend exists but might need login
                 if self.backend_config.requires_auth and creds:
+                    # For pre-configured backends, we don't have account_id to look up budget_id
                     login_success = await self._login_with_retry(creds, loading_status)
                     if not login_success:
                         has_error = True
