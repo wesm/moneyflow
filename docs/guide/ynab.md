@@ -77,7 +77,8 @@ If you have multiple YNAB budgets, moneyflow will show a budget selector screen:
 - Press **Enter** to select the highlighted budget
 - Press **Esc** to cancel
 
-The selected budget will be saved for future sessions, so you won't need to select it again unless you switch accounts or delete the account profile.
+The selected budget will be saved for future sessions, so you won't need to select it again unless you switch
+accounts or delete the account profile.
 
 ### 5. Initial Data Load
 
