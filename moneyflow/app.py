@@ -642,6 +642,8 @@ class MoneyflowApp(App):
 
                         if budget_id is None:
                             # User cancelled budget selection - clean up
+                            temp_backend.clear_auth()
+                            creds.clear()
                             account_manager.delete_account(account.id)
                             return None
                     elif len(budgets) == 1:
@@ -661,10 +663,12 @@ class MoneyflowApp(App):
                                 break
                         account_manager.save_registry(registry)
 
-                except Exception as e:
+                except Exception:
                     logger = get_logger(__name__)
-                    logger.error(f"Failed to fetch YNAB budgets: {e}")
-                    # Clean up the account if budget selection fails
+                    logger.error("Failed to fetch YNAB budgets during account setup")
+                    # Clean up credentials and account if budget selection fails
+                    temp_backend.clear_auth()
+                    creds.clear()
                     account_manager.delete_account(account.id)
                     return None
         else:
