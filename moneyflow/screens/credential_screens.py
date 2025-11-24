@@ -373,6 +373,10 @@ class CredentialSetupScreen(ModalScreen):
                 backend_type=self.backend_type,
             )
 
+            # Load credentials back to get the encryption key for cache encryption
+            _, encryption_key = cred_manager.load_credentials(encryption_password=encrypt_pass)
+            self.app.encryption_key = encryption_key
+
             error_label.update("✅ Credentials saved! Loading app...")
 
             # Dismiss this screen and pass credentials back (including backend type)
