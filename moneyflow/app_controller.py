@@ -211,17 +211,12 @@ class AppController:
             self.state.sort_direction = SortDirection.DESC
 
         # Prepare view data based on current state
-        if self.state.view_mode == ViewMode.TIME:
-            # TIME view - special handling for time aggregation
-            view_data = self._prepare_time_aggregate_view()
-            if view_data is None:
-                return
-
-        elif self.state.view_mode in [
+        if self.state.view_mode in [
             ViewMode.MERCHANT,
             ViewMode.CATEGORY,
             ViewMode.GROUP,
             ViewMode.ACCOUNT,
+            ViewMode.TIME,
         ]:
             # All aggregate views use the same pattern
             view_data = self._prepare_aggregate_view(self.state.view_mode)
@@ -419,6 +414,10 @@ class AppController:
             ViewMode.CATEGORY: (self.data_manager.aggregate_by_category, "category"),
             ViewMode.GROUP: (self.data_manager.aggregate_by_group, "group"),
             ViewMode.ACCOUNT: (self.data_manager.aggregate_by_account, "account"),
+            ViewMode.TIME: (
+                lambda df: self.data_manager.aggregate_by_time(df, self.state.time_granularity),
+                "time_period_display",
+            ),
         }
 
         aggregate_func, field_name = aggregation_map[view_mode]
@@ -434,6 +433,8 @@ class AppController:
             # Map sort field to actual column name in aggregation DataFrame
             if sort_col == "amount":
                 sort_col = "total"  # Aggregations use "total" not "amount"
+            elif sort_col == "time_period":
+                sort_col = "time_period_display"  # TIME view uses time_period_display
             elif sort_col in ["merchant", "category", "group", "account"]:
                 # Use the grouping field name (e.g., "merchant" column in merchant aggregation)
                 sort_col = field_name
@@ -463,97 +464,6 @@ class AppController:
             computed_columns=self._get_computed_columns(),
             sort_column=self.state.sort_column,
         )
-
-    def _prepare_time_aggregate_view(self):
-        """
-        Prepare TIME aggregation view (by year or month).
-
-        Returns:
-            dict: View data with columns and rows, or None if no data
-        """
-        filtered_df = self.state.get_filtered_df()
-        if filtered_df is None:
-            return None
-
-        # Aggregate by time with current granularity
-        agg = self.data_manager.aggregate_by_time(filtered_df, self.state.time_granularity)
-
-        # Apply sorting
-        sort_col = self.state.sort_by.value
-        if sort_col == "amount":
-            sort_col = "total"
-        elif sort_col == "time_period":
-            sort_col = "time_period_display"
-
-        descending = ViewPresenter.should_sort_descending(sort_col, self.state.sort_direction)
-        if not agg.is_empty():
-            agg = agg.sort(sort_col, descending=descending)
-
-        self.state.current_data = agg
-
-        # Prepare view - TIME view has special column handling (no Top Category)
-        # We'll need to add a new method or extend prepare_aggregation_view
-        # For now, let's use a simplified version
-        return self._prepare_time_view_data(agg)
-
-    def _prepare_time_view_data(self, agg: pl.DataFrame):
-        """
-        Prepare TIME view data with custom column handling.
-
-        TIME view shows: Period | Count | Total (no Top Category).
-
-        Args:
-            agg: Aggregated time DataFrame
-
-        Returns:
-            dict with columns and rows for view
-        """
-        # Build columns
-        columns = []
-
-        # Period column (with sort arrow)
-        period_label = "Period"
-        if self.state.sort_by == SortMode.TIME_PERIOD:
-            arrow = ViewPresenter.get_sort_arrow(
-                self.state.sort_by, self.state.sort_direction, SortMode.TIME_PERIOD
-            )
-            period_label = f"{period_label} {arrow}"
-        columns.append({"label": period_label, "key": "period", "width": None})
-
-        # Count column
-        count_label = "Count"
-        if self.state.sort_by == SortMode.COUNT:
-            arrow = ViewPresenter.get_sort_arrow(
-                self.state.sort_by, self.state.sort_direction, SortMode.COUNT
-            )
-            count_label = f"{count_label} {arrow}"
-        columns.append({"label": count_label, "key": "count", "width": 10})
-
-        # Total column (with currency symbol) - consistent with other aggregate views
-        currency_symbol = self._get_column_config().get("currency_symbol", "$")
-        arrow = ""
-        if self.state.sort_by == SortMode.AMOUNT:
-            arrow = " " + ViewPresenter.get_sort_arrow(
-                self.state.sort_by, self.state.sort_direction, SortMode.AMOUNT
-            )
-        total_label = f"Total ({currency_symbol}){arrow}"
-        columns.append({"label": total_label, "key": "total", "width": 15})
-
-        # Build rows
-        rows = []
-        for row_dict in agg.to_dicts():
-            year = row_dict["year"]
-            month = row_dict.get("month")
-            day = row_dict.get("day")
-            period_str = ViewPresenter.format_time_period(
-                year, month, day, self.state.time_granularity
-            )
-            count_str = str(row_dict["count"])
-            total_str = ViewPresenter.format_amount(row_dict["total"])
-
-            rows.append((period_str, count_str, total_str))
-
-        return {"columns": columns, "rows": rows, "empty": len(rows) == 0}
 
     # View mode switching operations
     def switch_to_merchant_view(self):

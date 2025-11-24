@@ -265,6 +265,8 @@ class ViewPresenter:
             name_width = column_config.get("merchant_width_pct", name_width)
         elif group_by_field == "account":
             name_width = column_config.get("account_width_pct", name_width)
+        elif group_by_field == "time_period_display":
+            name_width = 15  # Narrow width for time periods (e.g., "2024", "Mar 2024", "Mar 15")
 
         # Map aggregation field to sort mode
         field_to_sort_mode: dict[AggregationField, SortMode] = {
