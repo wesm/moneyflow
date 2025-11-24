@@ -642,15 +642,11 @@ class MoneyflowApp(App):
 
                         if budget_id is None:
                             # User cancelled budget selection - clean up
-                            temp_backend.clear_auth()
                             creds.clear()
                             account_manager.delete_account(account.id)
                             return None
                     elif len(budgets) == 1:
                         budget_id = budgets[0]["id"]
-
-                    # Clear the temporary backend
-                    temp_backend.clear_auth()
 
                     # Update the account with the selected budget_id
                     if budget_id:
@@ -667,10 +663,12 @@ class MoneyflowApp(App):
                     logger = get_logger(__name__)
                     logger.error("Failed to fetch YNAB budgets during account setup")
                     # Clean up credentials and account if budget selection fails
-                    temp_backend.clear_auth()
                     creds.clear()
                     account_manager.delete_account(account.id)
                     return None
+                finally:
+                    # Always clear temporary backend auth to minimize credential exposure
+                    temp_backend.clear_auth()
         else:
             # Backend doesn't need credentials (Amazon, Demo)
             creds = {"backend_type": backend_type}
