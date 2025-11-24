@@ -668,6 +668,9 @@ class MoneyflowApp(App):
                     return None
                 finally:
                     # Always clear temporary backend auth to minimize credential exposure
+                    # Note: creds dict is intentionally NOT cleared here because it's returned
+                    # and used for the actual backend login later. Credentials are stored in
+                    # self.stored_credentials after login for session refresh functionality.
                     temp_backend.clear_auth()
         else:
             # Backend doesn't need credentials (Amazon, Demo)
