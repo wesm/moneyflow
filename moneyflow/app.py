@@ -562,6 +562,24 @@ class MoneyflowApp(App):
             # Success - return account info
             return account.id, profile_dir, creds
 
+    def _get_ynab_budget_id(self, account_id: str) -> Optional[str]:
+        """
+        Look up the budget_id for a YNAB account.
+
+        Args:
+            account_id: The account ID to look up
+
+        Returns:
+            The budget_id if found, None otherwise
+        """
+        config_path = Path(self.config_dir) if self.config_dir else None
+        account_manager = AccountManager(config_dir=config_path)
+        account = account_manager.get_account(account_id)
+
+        if account and account.budget_id:
+            return account.budget_id
+        return None
+
     async def _handle_ynab_budget_selection(
         self,
         creds: dict,
@@ -1110,21 +1128,7 @@ class MoneyflowApp(App):
                 # For YNAB, get budget_id from account if available
                 budget_id = None
                 if backend_type == "ynab" and account_id:
-                    # Load account to get budget_id
-                    account = (
-                        account_manager.get_account(account_id)
-                        if "account_manager" in locals()
-                        else None
-                    )
-                    if not account and self.config_dir:
-                        from moneyflow.account_manager import AccountManager
-
-                        config_path = Path(self.config_dir) if self.config_dir else None
-                        account_manager = AccountManager(config_dir=config_path)
-                        account = account_manager.get_account(account_id)
-
-                    if account and account.budget_id:
-                        budget_id = account.budget_id
+                    budget_id = self._get_ynab_budget_id(account_id)
 
                 login_success = await self._login_with_retry(creds, loading_status, budget_id)
                 if not login_success:
