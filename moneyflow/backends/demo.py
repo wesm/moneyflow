@@ -190,3 +190,7 @@ class DemoBackend(FinanceBackend):
             "net": total_income + total_expenses,
             "updates_made": len(self.update_calls),
         }
+
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
+        return "demo"

@@ -347,6 +347,9 @@ class TestDisplayLabels:
             async def get_all_merchants(self):
                 return []
 
+            def get_backend_type(self):
+                return "test"
+
         backend = TestBackend()
         labels = backend.get_display_labels()
 

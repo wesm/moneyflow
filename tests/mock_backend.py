@@ -341,3 +341,7 @@ class MockMonarchMoney(FinanceBackend):
 
         self.transactions.append(txn)
         return txn_id
+
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
+        return "monarch"

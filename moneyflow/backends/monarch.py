@@ -181,3 +181,7 @@ class MonarchBackend(FinanceBackend):
         self.client.set_token(None)
         if "Authorization" in self.client._headers:
             del self.client._headers["Authorization"]
+
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
+        return "monarch"

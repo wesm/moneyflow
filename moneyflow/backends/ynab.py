@@ -214,3 +214,7 @@ class YNABBackend(FinanceBackend):
         This clears the access token, closes connections, and invalidates caches.
         """
         self.client.close()
+
+    def get_backend_type(self) -> str:
+        """Return the backend type identifier."""
+        return "ynab"

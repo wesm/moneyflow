@@ -34,7 +34,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
-from .account_manager import AccountManager
+from .account_manager import Account, AccountManager
 from .app_controller import AppController
 from .backends import DemoBackend, get_backend
 from .cache_manager import CacheManager
@@ -562,6 +562,75 @@ class MoneyflowApp(App):
             # Success - return account info
             return account.id, profile_dir, creds
 
+    async def _handle_ynab_budget_selection(
+        self,
+        creds: dict,
+        account: Account,
+        account_manager: AccountManager,
+    ) -> Optional[str]:
+        """
+        Handle YNAB-specific budget selection after credentials are set up.
+
+        This method encapsulates the YNAB budget selection flow:
+        1. Create temporary backend and login
+        2. Fetch available budgets
+        3. Show budget selector if multiple budgets exist
+        4. Update account with selected budget_id
+
+        Args:
+            creds: Credentials dictionary (must contain "password" with YNAB token)
+            account: The newly created Account object
+            account_manager: AccountManager for updating the account
+
+        Returns:
+            budget_id if successful, None if user cancelled or error occurred.
+            On error/cancel, this method handles cleanup (clearing creds, deleting account).
+        """
+        logger = get_logger(__name__)
+        temp_backend = get_backend("ynab")
+
+        try:
+            await temp_backend.login(password=creds["password"])
+            budgets = await temp_backend.get_budgets()  # type: ignore
+
+            budget_id = None
+            if len(budgets) > 1:
+                # Show budget selector
+                budget_id = await self.push_screen(
+                    BudgetSelectorScreen(budgets), wait_for_dismiss=True
+                )
+
+                if budget_id is None:
+                    # User cancelled budget selection - clean up
+                    creds.clear()
+                    account_manager.delete_account(account.id)
+                    return None
+            elif len(budgets) == 1:
+                budget_id = budgets[0]["id"]
+
+            # Update the account with the selected budget_id
+            if budget_id:
+                account.budget_id = budget_id
+                registry = account_manager.load_registry()
+                for i, acc in enumerate(registry.accounts):
+                    if acc.id == account.id:
+                        registry.accounts[i] = account
+                        break
+                account_manager.save_registry(registry)
+
+            return budget_id
+
+        except Exception:
+            logger.error("Failed to fetch YNAB budgets during account setup")
+            creds.clear()
+            account_manager.delete_account(account.id)
+            return None
+        finally:
+            # Always clear temporary backend auth to minimize credential exposure
+            # Note: creds dict is intentionally NOT cleared here on success because
+            # it's returned and used for the actual backend login later.
+            temp_backend.clear_auth()
+
     async def _handle_add_new_account(self, account_manager: AccountManager):
         """
         Handle adding a new account.
@@ -598,15 +667,10 @@ class MoneyflowApp(App):
             logger.error(f"Failed to create account: {e}")
             return None
 
-        # Step 4: Get/store credentials and handle YNAB budget selection
-        from .backend_config import BackendConfig
+        # Step 4: Get/store credentials and handle backend-specific setup
+        from .backend_config import get_backend_config
 
-        backend_config = {
-            "monarch": BackendConfig.for_monarch(),
-            "ynab": BackendConfig.for_ynab(),
-            "amazon": BackendConfig.for_amazon(),
-            "demo": BackendConfig.for_demo(),
-        }.get(backend_type, BackendConfig.for_monarch())
+        backend_config = get_backend_config(backend_type)
 
         # Get profile directory
         profile_dir = account_manager.get_profile_dir(account.id)
@@ -623,55 +687,14 @@ class MoneyflowApp(App):
                 account_manager.delete_account(account.id)
                 return None
 
-            # For YNAB, handle budget selection after credentials are set up
+            # Handle backend-specific post-credential setup (e.g., YNAB budget selection)
             if backend_type == "ynab":
-                # Create temporary backend to fetch budgets
-                temp_backend = get_backend("ynab")
-                try:
-                    await temp_backend.login(password=creds["password"])
-                    # Type cast is safe since we know this is a YNAB backend
-
-                    budgets = await temp_backend.get_budgets()  # type: ignore
-
-                    budget_id = None
-                    if len(budgets) > 1:
-                        # Show budget selector
-                        budget_id = await self.push_screen(
-                            BudgetSelectorScreen(budgets), wait_for_dismiss=True
-                        )
-
-                        if budget_id is None:
-                            # User cancelled budget selection - clean up
-                            creds.clear()
-                            account_manager.delete_account(account.id)
-                            return None
-                    elif len(budgets) == 1:
-                        budget_id = budgets[0]["id"]
-
-                    # Update the account with the selected budget_id
-                    if budget_id:
-                        account.budget_id = budget_id
-                        # Save the updated account
-                        registry = account_manager.load_registry()
-                        for i, acc in enumerate(registry.accounts):
-                            if acc.id == account.id:
-                                registry.accounts[i] = account
-                                break
-                        account_manager.save_registry(registry)
-
-                except Exception:
-                    logger = get_logger(__name__)
-                    logger.error("Failed to fetch YNAB budgets during account setup")
-                    # Clean up credentials and account if budget selection fails
-                    creds.clear()
-                    account_manager.delete_account(account.id)
+                budget_id = await self._handle_ynab_budget_selection(
+                    creds, account, account_manager
+                )
+                if budget_id is None:
+                    # User cancelled or error occurred - cleanup already handled
                     return None
-                finally:
-                    # Always clear temporary backend auth to minimize credential exposure
-                    # Note: creds dict is intentionally NOT cleared here because it's returned
-                    # and used for the actual backend login later. Credentials are stored in
-                    # self.stored_credentials after login for session refresh functionality.
-                    temp_backend.clear_auth()
         else:
             # Backend doesn't need credentials (Amazon, Demo)
             creds = {"backend_type": backend_type}
@@ -1057,14 +1080,14 @@ class MoneyflowApp(App):
 
                     if account and account.backend_type == "amazon" and profile_dir:
                         # Initialize Amazon backend with profile-scoped database
-                        from moneyflow.backend_config import BackendConfig
+                        from moneyflow.backend_config import get_backend_config
                         from moneyflow.backends.amazon import AmazonBackend
 
                         db_path = str(profile_dir / "amazon.db")
                         self.backend = AmazonBackend(
                             db_path=db_path, config_dir=self.config_dir, profile_dir=profile_dir
                         )
-                        self.backend_config = BackendConfig.for_amazon()
+                        self.backend_config = get_backend_config("amazon")
                         loading_status.update("📦 Loading Amazon data...")
 
             # Step 2: Initialize backend (if not already set)
@@ -1079,16 +1102,9 @@ class MoneyflowApp(App):
 
                 self.backend = get_backend(backend_type, **backend_kwargs)
 
-                from moneyflow.backend_config import BackendConfig
+                from moneyflow.backend_config import get_backend_config
 
-                if backend_type == "ynab":
-                    self.backend_config = BackendConfig.for_ynab()
-                elif backend_type == "monarch":
-                    self.backend_config = BackendConfig.for_monarch()
-                elif backend_type == "amazon":
-                    self.backend_config = BackendConfig.for_amazon()
-                elif backend_type == "demo":
-                    self.backend_config = BackendConfig.for_demo()
+                self.backend_config = get_backend_config(backend_type)
 
                 # Step 3: Login with retry logic
                 # For YNAB, get budget_id from account if available
@@ -1135,14 +1151,8 @@ class MoneyflowApp(App):
                 if self.demo_mode:
                     determined_backend_type = "demo"
                 elif self.backend:
-                    # Get backend type from backend instance
-                    backend_class = self.backend.__class__.__name__
-                    if "Amazon" in backend_class:
-                        determined_backend_type = "amazon"
-                    elif "Monarch" in backend_class:
-                        determined_backend_type = "monarch"
-                    elif "YNAB" in backend_class:
-                        determined_backend_type = "ynab"
+                    # Get backend type from backend instance (Open/Closed Principle)
+                    determined_backend_type = self.backend.get_backend_type()
                 elif creds:
                     determined_backend_type = creds.get("backend_type")
 
@@ -2343,7 +2353,7 @@ def launch_amazon_mode(
     Uses the AmazonBackend with data stored in SQLite.
     Data must be imported first using: moneyflow amazon import <csv>
     """
-    from moneyflow.backend_config import BackendConfig
+    from moneyflow.backend_config import get_backend_config
     from moneyflow.backends.amazon import AmazonBackend
 
     # Initialize logging
@@ -2357,7 +2367,7 @@ def launch_amazon_mode(
     try:
         # Create Amazon backend and config
         backend = AmazonBackend(db_path=db_path, config_dir=config_dir, profile_dir=profile_dir)
-        config = BackendConfig.for_amazon()
+        config = get_backend_config("amazon")
 
         # Create MoneyflowApp in Amazon mode
         app = MoneyflowApp(

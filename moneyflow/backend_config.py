@@ -95,3 +95,32 @@ class BackendConfig:
             has_groups=True,
             requires_auth=True,  # YNAB requires access token
         )
+
+
+def get_backend_config(backend_type: str) -> BackendConfig:
+    """
+    Get BackendConfig for a backend type.
+
+    This is the single source of truth for backend type → BackendConfig mapping.
+    Use this instead of duplicating the mapping logic throughout the codebase.
+
+    Args:
+        backend_type: Backend type identifier ("monarch", "ynab", "amazon", "demo")
+
+    Returns:
+        BackendConfig for the specified backend type.
+        Falls back to Monarch config for unknown types.
+
+    Example:
+        >>> config = get_backend_config("ynab")
+        >>> print(config.merchant_field_name)
+        'Payee'
+    """
+    factories = {
+        "monarch": BackendConfig.for_monarch,
+        "ynab": BackendConfig.for_ynab,
+        "amazon": BackendConfig.for_amazon,
+        "demo": BackendConfig.for_demo,
+    }
+    factory = factories.get(backend_type, BackendConfig.for_monarch)
+    return factory()

@@ -310,3 +310,16 @@ class FinanceBackend(ABC):
         Default implementation does nothing.
         """
         pass  # Default: no-op
+
+    @abstractmethod
+    def get_backend_type(self) -> str:
+        """
+        Return the backend type identifier.
+
+        This is used for backend-specific logic without class name string matching.
+        Each backend must return its canonical type string.
+
+        Returns:
+            Backend type identifier: "monarch", "ynab", "amazon", or "demo"
+        """
+        pass
