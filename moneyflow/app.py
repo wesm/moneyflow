@@ -36,6 +36,7 @@ from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
 from .account_manager import Account, AccountManager
 from .app_controller import AppController
+from .backend_config import get_backend_config
 from .backends import DemoBackend, get_backend
 from .cache_manager import CacheManager
 from .credentials import CredentialManager
@@ -1090,15 +1091,12 @@ class MoneyflowApp(App):
                     loading_status.update("🎮 DEMO MODE - Loading sample data...")
                 else:
                     # Load account info to get backend_type
-                    from moneyflow.account_manager import AccountManager
-
                     config_path = Path(self.config_dir) if self.config_dir else None
                     account_manager = AccountManager(config_dir=config_path)
                     account = account_manager.get_account(account_id)
 
                     if account and account.backend_type == "amazon" and profile_dir:
                         # Initialize Amazon backend with profile-scoped database
-                        from moneyflow.backend_config import get_backend_config
                         from moneyflow.backends.amazon import AmazonBackend
 
                         db_path = str(profile_dir / "amazon.db")
@@ -1119,9 +1117,6 @@ class MoneyflowApp(App):
                     backend_kwargs["profile_dir"] = str(self._preconfigured_profile_dir)
 
                 self.backend = get_backend(backend_type, **backend_kwargs)
-
-                from moneyflow.backend_config import get_backend_config
-
                 self.backend_config = get_backend_config(backend_type)
 
                 # Step 3: Login with retry logic
