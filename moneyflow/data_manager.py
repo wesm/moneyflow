@@ -652,11 +652,16 @@ class DataManager:
 
         Groups all transactions by merchant name and computes:
         - count: Number of transactions
-        - total: Sum of transaction amounts
+        - total: Sum of transaction amounts (excluding hidden)
         - merchant_id: ID of the merchant (for API operations)
-        - top_category: Most common category for this merchant
-        - top_category_pct: Percentage of transactions in top category
+        - top_category: Category with highest activity (excluding hidden)
+        - top_category_pct: Percentage of activity in top category (excluding hidden)
         - Plus any backend-specific computed columns
+
+        For top_category calculation:
+        - Hidden transactions are excluded
+        - Uses absolute values to measure total activity per category
+        - Captures both spending and income activity in each category
 
         Args:
             df: Transaction DataFrame to aggregate
@@ -677,42 +682,62 @@ class DataManager:
                 col for col in all_computed if not col.view_modes or "merchant" in col.view_modes
             ]
 
-        # Build aggregation expressions
+        # Build aggregation expressions (without top_category - computed separately)
         agg_exprs = [
             pl.count("id").alias("count"),
             # Exclude hidden transactions from totals
             pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
             pl.first("merchant_id").alias("merchant_id"),
-            # Get most common category and its count
-            pl.col("category")
-            .value_counts(sort=True)
-            .first()
-            .struct.field("category")
-            .alias("top_category"),
-            pl.col("category")
-            .value_counts(sort=True)
-            .first()
-            .struct.field("count")
-            .alias("top_category_count"),
         ]
 
         # Add computed columns
         if computed_cols:
             self._apply_computed_columns(df, computed_cols, agg_exprs)
 
-        # Group by merchant and compute aggregations including top category
+        # Group by merchant and compute basic aggregations
         result = df.group_by("merchant").agg(agg_exprs)
 
-        # Calculate percentage (top_category_count / count * 100)
-        result = result.with_columns(
-            ((pl.col("top_category_count") / pl.col("count")) * 100)
-            .round(0)
-            .cast(pl.Int32)
-            .alias("top_category_pct")
-        )
+        # Compute top category based on absolute transaction amounts (excluding hidden)
+        # Using absolute values captures total activity regardless of spending vs income
+        non_hidden = df.filter(~pl.col("hideFromReports"))
 
-        # Drop the intermediate count column
-        result = result.drop("top_category_count")
+        if not non_hidden.is_empty():
+            # Sum absolute amounts per category per merchant
+            cat_activity = non_hidden.group_by(["merchant", "category"]).agg(
+                pl.col("amount").abs().sum().alias("cat_activity")
+            )
+
+            # Find top category per merchant (highest absolute activity)
+            top_cats = (
+                cat_activity.sort("cat_activity", descending=True)
+                .group_by("merchant")
+                .agg(
+                    [
+                        pl.first("category").alias("top_category"),
+                        pl.first("cat_activity").alias("top_cat_activity"),
+                        pl.col("cat_activity").sum().alias("total_activity"),
+                    ]
+                )
+            )
+
+            # Calculate percentage of total activity
+            top_cats = top_cats.with_columns(
+                ((pl.col("top_cat_activity") / pl.col("total_activity")) * 100)
+                .round(0)
+                .cast(pl.Int32)
+                .alias("top_category_pct")
+            ).select(["merchant", "top_category", "top_category_pct"])
+
+            # Join back to result
+            result = result.join(top_cats, on="merchant", how="left")
+        else:
+            # All transactions are hidden - no top category data
+            result = result.with_columns(
+                [
+                    pl.lit(None).cast(pl.Utf8).alias("top_category"),
+                    pl.lit(None).cast(pl.Int32).alias("top_category_pct"),
+                ]
+            )
 
         return result
 

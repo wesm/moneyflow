@@ -81,17 +81,19 @@ class TestAggregation:
         assert row["top_category_pct"] == 100  # 100% are Groceries
 
     async def test_aggregate_by_merchant_top_category_mixed(self, mock_mm, tmp_path):
-        """Test top category when transactions have different categories."""
+        """Test top category is based on spending amount, not transaction count."""
         dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
-        # Starbucks: 7 Coffee Shops, 3 Groceries
+        # Starbucks: 2 Coffee Shops at $50 each = $100, 8 Groceries at $5 each = $40
+        # By count: Groceries would win (80%)
+        # By spending: Coffee Shops wins ($100 / $140 = 71%)
         df = pl.DataFrame(
             {
                 "id": ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
                 "merchant": ["Starbucks"] * 10,
                 "merchant_id": ["m1"] * 10,
-                "category": ["Coffee Shops"] * 7 + ["Groceries"] * 3,
-                "amount": [-5.0] * 10,
+                "category": ["Coffee Shops"] * 2 + ["Groceries"] * 8,
+                "amount": [-50.0] * 2 + [-5.0] * 8,
                 "hideFromReports": [False] * 10,
             }
         )
@@ -102,13 +104,18 @@ class TestAggregation:
         row = agg.row(0, named=True)
         assert row["merchant"] == "Starbucks"
         assert row["count"] == 10
+        # Top category is based on spending, not transaction count
         assert row["top_category"] == "Coffee Shops"
-        assert row["top_category_pct"] == 70  # 7/10 = 70%
+        assert row["top_category_pct"] == 71  # $100 / $140 = 71%
 
     async def test_aggregate_by_merchant_top_category_multiple_merchants(self, mock_mm, tmp_path):
-        """Test top category with multiple merchants."""
+        """Test top category with multiple merchants, percentage based on spending."""
         dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
+        # Whole Foods: All Groceries = 100%
+        # Amazon: Shopping $25, Electronics $175 total
+        #   By count: 2/3 = 67%
+        #   By spending: $175 / $200 = 88%
         df = pl.DataFrame(
             {
                 "id": ["1", "2", "3", "4", "5"],
@@ -129,10 +136,136 @@ class TestAggregation:
         assert wf["top_category"] == "Groceries"
         assert wf["top_category_pct"] == 100
 
-        # Check Amazon (2 Electronics, 1 Shopping = 67% Electronics)
+        # Check Amazon - percentage is by spending, not count
         amz = agg.filter(pl.col("merchant") == "Amazon").row(0, named=True)
         assert amz["top_category"] == "Electronics"
-        assert amz["top_category_pct"] == 67  # 2/3 rounded
+        assert amz["top_category_pct"] == 88  # $175 / $200 = 87.5% -> 88%
+
+    async def test_aggregate_by_merchant_top_category_excludes_hidden(self, mock_mm, tmp_path):
+        """Test that hidden items are excluded from top category calculation."""
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
+
+        # Starbucks: 3 Coffee Shops (non-hidden) at $10 each = $30
+        #           5 Groceries (hidden) at $20 each = $100
+        # If hidden were included: Groceries would win by spending ($100 vs $30)
+        # With hidden excluded: Coffee Shops is 100% of non-hidden spending
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3", "4", "5", "6", "7", "8"],
+                "merchant": ["Starbucks"] * 8,
+                "merchant_id": ["m1"] * 8,
+                "category": ["Coffee Shops"] * 3 + ["Groceries"] * 5,
+                "amount": [-10.0] * 3 + [-20.0] * 5,
+                "hideFromReports": [False] * 3 + [True] * 5,
+            }
+        )
+
+        agg = dm.aggregate_by_merchant(df)
+
+        assert len(agg) == 1
+        row = agg.row(0, named=True)
+        assert row["merchant"] == "Starbucks"
+        # Total count includes all transactions
+        assert row["count"] == 8
+        # But top category is based only on non-hidden items
+        assert row["top_category"] == "Coffee Shops"
+        assert row["top_category_pct"] == 100  # All non-hidden spending is Coffee Shops
+
+    async def test_aggregate_by_merchant_top_category_mixed_hidden(self, mock_mm, tmp_path):
+        """Test top category with mix of hidden and non-hidden in same category."""
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
+
+        # Amazon: Electronics $100 (non-hidden), Electronics $50 (hidden)
+        #         Shopping $80 (non-hidden)
+        # Non-hidden only: Electronics $100, Shopping $80 = $180 total
+        # Electronics percentage: $100 / $180 = 56%
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3"],
+                "merchant": ["Amazon"] * 3,
+                "merchant_id": ["m1"] * 3,
+                "category": ["Electronics", "Electronics", "Shopping"],
+                "amount": [-100.0, -50.0, -80.0],
+                "hideFromReports": [False, True, False],
+            }
+        )
+
+        agg = dm.aggregate_by_merchant(df)
+
+        assert len(agg) == 1
+        row = agg.row(0, named=True)
+        assert row["merchant"] == "Amazon"
+        assert row["count"] == 3
+        # Top category based on non-hidden spending only
+        assert row["top_category"] == "Electronics"
+        assert row["top_category_pct"] == 56  # $100 / $180 = 55.6% -> 56%
+
+    async def test_aggregate_by_merchant_top_category_mixed_income_spending(
+        self, mock_mm, tmp_path
+    ):
+        """Test top category percentage with mixed income and spending.
+
+        Percentage is based on absolute values of all amounts, capturing total
+        activity in each category regardless of direction.
+        """
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
+
+        # Groceries: |-$100| + |+$30| = $130 absolute activity
+        # Shopping: |-$50| = $50 absolute activity
+        # Total absolute: $180
+        # Groceries = $130 / $180 = 72%
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3"],
+                "merchant": ["Store"] * 3,
+                "merchant_id": ["m1"] * 3,
+                "category": ["Groceries", "Groceries", "Shopping"],
+                "amount": [-100.0, 30.0, -50.0],
+                "hideFromReports": [False, False, False],
+            }
+        )
+
+        agg = dm.aggregate_by_merchant(df)
+
+        assert len(agg) == 1
+        row = agg.row(0, named=True)
+        assert row["merchant"] == "Store"
+        # Percentage based on absolute values (total activity)
+        # Groceries: $130, Shopping: $50, total: $180
+        # Groceries = $130 / $180 = 72%
+        assert row["top_category"] == "Groceries"
+        assert row["top_category_pct"] == 72
+
+    async def test_aggregate_by_merchant_top_category_net_income(self, mock_mm, tmp_path):
+        """Test top category when merchant has net income (positive total)."""
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
+
+        # Refunds: |+$200| = $200 absolute
+        # Returns: |+$100| = $100 absolute
+        # Fees: |-$50| = $50 absolute
+        # Total absolute: $350
+        # Refunds = $200 / $350 = 57%
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3"],
+                "merchant": ["Store"] * 3,
+                "merchant_id": ["m1"] * 3,
+                "category": ["Refunds", "Returns", "Fees"],
+                "amount": [200.0, 100.0, -50.0],
+                "hideFromReports": [False, False, False],
+            }
+        )
+
+        agg = dm.aggregate_by_merchant(df)
+
+        assert len(agg) == 1
+        row = agg.row(0, named=True)
+        assert row["merchant"] == "Store"
+        # Percentage based on absolute values (total activity)
+        # Refunds: $200, Returns: $100, Fees: $50, total: $350
+        # Refunds = $200 / $350 = 57%
+        assert row["top_category"] == "Refunds"
+        assert row["top_category_pct"] == 57
 
     async def test_aggregate_by_category(self, loaded_data_manager):
         """Test category aggregation."""
