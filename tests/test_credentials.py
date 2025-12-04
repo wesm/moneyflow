@@ -209,6 +209,28 @@ class TestCredentialStorage:
         creds, _ = credential_manager.load_credentials(encryption_password="enc_pass")
         assert creds["backend_type"] == "ynab"
 
+    def test_save_credentials_with_extra_fields(self, credential_manager):
+        """Ensure arbitrary extra fields are persisted for backends like Xero."""
+        extra_credentials = {
+            "client_id": "abc123",
+            "client_secret": "secret456",
+            "redirect_uri": "https://example.com/callback",
+            "refresh_token": "refresh789",
+            "scopes": "offline_access accounting.transactions",
+        }
+        credential_manager.save_credentials(
+            email="",
+            password="",
+            mfa_secret="",
+            encryption_password="enc_pass",
+            backend_type="xero",
+            extra_credentials=extra_credentials,
+        )
+
+        creds, _ = credential_manager.load_credentials(encryption_password="enc_pass")
+        for key, value in extra_credentials.items():
+            assert creds[key] == value
+
 
 class TestCredentialLoading:
     """Test loading credentials from disk."""

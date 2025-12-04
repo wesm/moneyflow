@@ -7,7 +7,7 @@ Supports multiple finance platforms including Monarch Money.
 
 __version__ = "0.1.0"
 
-from .backends import DemoBackend, FinanceBackend, MonarchBackend, get_backend
+from .backends import DemoBackend, FinanceBackend, MonarchBackend, XeroBackend, get_backend
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .monarchmoney import MonarchMoney
@@ -17,6 +17,7 @@ __all__ = [
     "MonarchMoney",
     "FinanceBackend",
     "MonarchBackend",
+    "XeroBackend",
     "DemoBackend",
     "get_backend",
     "DataManager",

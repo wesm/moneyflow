@@ -14,7 +14,7 @@ class BackendConfig:
     """
 
     # Backend type identifier
-    backend_type: Literal["monarch", "amazon", "demo", "ynab"] = "monarch"
+    backend_type: Literal["monarch", "amazon", "demo", "ynab", "xero"] = "monarch"
 
     # Field display names
     merchant_field_name: str = "Merchant"  # Can be "Item" for Amazon
@@ -96,6 +96,20 @@ class BackendConfig:
             requires_auth=True,  # YNAB requires access token
         )
 
+    @staticmethod
+    def for_xero() -> "BackendConfig":
+        """Create configuration for Xero backend."""
+        return BackendConfig(
+            backend_type="xero",
+            merchant_field_name="Contact",
+            grouping_modes=["merchant", "category", "group", "account"],
+            show_quantity=False,
+            show_price_per_item=False,
+            has_accounts=True,
+            has_groups=True,
+            requires_auth=True,
+        )
+
 
 def get_backend_config(backend_type: str) -> BackendConfig:
     """
@@ -105,7 +119,7 @@ def get_backend_config(backend_type: str) -> BackendConfig:
     Use this instead of duplicating the mapping logic throughout the codebase.
 
     Args:
-        backend_type: Backend type identifier ("monarch", "ynab", "amazon", "demo")
+        backend_type: Backend type identifier ("monarch", "ynab", "amazon", "demo", "xero")
 
     Returns:
         BackendConfig for the specified backend type.
@@ -119,6 +133,7 @@ def get_backend_config(backend_type: str) -> BackendConfig:
     factories = {
         "monarch": BackendConfig.for_monarch,
         "ynab": BackendConfig.for_ynab,
+        "xero": BackendConfig.for_xero,
         "amazon": BackendConfig.for_amazon,
         "demo": BackendConfig.for_demo,
     }

@@ -111,6 +111,7 @@ class CredentialManager:
         mfa_secret: str,
         encryption_password: Optional[str] = None,
         backend_type: str = "monarch",
+        extra_credentials: Optional[Dict[str, str]] = None,
     ) -> None:
         """
         Save encrypted credentials to disk.
@@ -123,6 +124,7 @@ class CredentialManager:
                                 If None, will prompt user.
             backend_type: Backend type (e.g., 'monarch', 'ynab').
                          Defaults to 'monarch' for backward compatibility.
+            extra_credentials: Optional additional fields to persist (e.g., Xero OAuth values).
         """
         # Get encryption password
         if encryption_password is None:
@@ -148,6 +150,9 @@ class CredentialManager:
             "backend_type": backend_type,
         }
 
+        if extra_credentials:
+            credentials.update({k: v for k, v in extra_credentials.items() if v is not None})
+
         # Encrypt and save
         encrypted = fernet.encrypt(json.dumps(credentials).encode())
 
@@ -172,7 +177,8 @@ class CredentialManager:
         Returns:
             Tuple of:
             - Dictionary with 'email', 'password', 'mfa_secret', and 'backend_type' keys.
-              For backward compatibility, 'backend_type' defaults to 'monarch' if not present.
+              Additional backend-specific fields (if provided) are preserved. For backward
+              compatibility, 'backend_type' defaults to 'monarch' if not present.
             - Encryption key (32-byte URL-safe base64-encoded) for use with cache encryption
 
         Raises:

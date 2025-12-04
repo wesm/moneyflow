@@ -44,6 +44,7 @@ class DemoBackend(FinanceBackend):
         use_saved_session: bool = True,
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """Mock login - always succeeds in demo mode."""
         self.is_logged_in = True

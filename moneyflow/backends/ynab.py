@@ -31,6 +31,7 @@ class YNABBackend(FinanceBackend):
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
         budget_id: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """
         Authenticate with YNAB using a Personal Access Token.

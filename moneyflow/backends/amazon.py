@@ -191,6 +191,7 @@ class AmazonBackend(FinanceBackend):
         use_saved_session: bool = True,
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """
         No-op login for Amazon backend.

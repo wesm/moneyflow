@@ -36,6 +36,7 @@ class MonarchBackend(FinanceBackend):
         use_saved_session: bool = True,
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """
         Authenticate with Monarch Money.

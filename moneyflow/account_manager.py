@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-BackendType = Literal["monarch", "ynab", "amazon", "demo"]
+BackendType = Literal["monarch", "ynab", "amazon", "demo", "xero"]
 
 
 @dataclass
@@ -35,7 +35,7 @@ class Account:
 
     id: str  # Unique identifier (e.g., "monarch-personal", "ynab-2025")
     name: str  # User-friendly display name (e.g., "Monarch - Personal")
-    backend_type: BackendType  # Backend type (monarch, ynab, amazon, demo)
+    backend_type: BackendType  # Backend type (monarch, ynab, amazon, demo, xero)
     created_at: str  # ISO timestamp when account was created
     last_used: Optional[str] = None  # ISO timestamp when last accessed
     budget_id: Optional[str] = None  # For YNAB: the specific budget ID to use
@@ -158,7 +158,7 @@ class AccountManager:
         Generate unique account ID from backend type and account name.
 
         Args:
-            backend_type: Backend type (monarch, ynab, etc.)
+            backend_type: Backend type (monarch, ynab, xero, etc.)
             account_name: User-provided account name
 
         Returns:
@@ -204,7 +204,7 @@ class AccountManager:
 
         Args:
             name: User-friendly display name
-            backend_type: Backend type (monarch, ynab, amazon, demo)
+            backend_type: Backend type (monarch, ynab, amazon, demo, xero)
             account_id: Optional custom ID (generated if not provided)
             budget_id: Optional budget ID for YNAB accounts
 

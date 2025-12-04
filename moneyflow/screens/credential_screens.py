@@ -11,6 +11,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from ..credentials import CredentialManager
+from ..xero_client import XERO_DEFAULT_SCOPES, build_xero_auth_url
 
 
 class BackendSelectionScreen(ModalScreen):
@@ -22,6 +23,7 @@ class BackendSelectionScreen(ModalScreen):
     - Enter: Select highlighted backend
     - m: Select Monarch Money
     - y: Select YNAB
+    - x: Select Xero
     - Esc: Exit/Cancel
     """
 
@@ -32,6 +34,7 @@ class BackendSelectionScreen(ModalScreen):
         Binding("enter", "select_current", "Select", show=False),
         Binding("m", "select_monarch", "Monarch", show=False),
         Binding("y", "select_ynab", "YNAB", show=False),
+        Binding("x", "select_xero", "Xero", show=False),
     ]
 
     CSS = """
@@ -89,7 +92,7 @@ class BackendSelectionScreen(ModalScreen):
     def __init__(self):
         """Initialize backend selector with tracking for keyboard navigation."""
         super().__init__()
-        self.backends = ["monarch", "ynab"]  # Available backends in order
+        self.backends = ["monarch", "ynab", "xero"]  # Available backends in order
         self.current_index = 0  # Currently highlighted backend
 
     def compose(self) -> ComposeResult:
@@ -98,7 +101,7 @@ class BackendSelectionScreen(ModalScreen):
 
             yield Static(
                 "Choose which personal finance platform you want to connect to.\n"
-                "Keys: ↑/↓=Navigate | Enter=Select | m=Monarch | y=YNAB | Esc=Cancel",
+                "Keys: ↑/↓=Navigate | Enter=Select | m=Monarch | y=YNAB | x=Xero | Esc=Cancel",
                 classes="backend-help",
             )
 
@@ -107,6 +110,8 @@ class BackendSelectionScreen(ModalScreen):
             )
 
             yield Button("💰 YNAB", variant="default", id="ynab-button", classes="backend-option")
+
+            yield Button("📘 Xero", variant="default", id="xero-button", classes="backend-option")
 
             with Container(id="button-container"):
                 yield Button("Cancel", variant="default", id="exit-button")
@@ -129,6 +134,9 @@ class BackendSelectionScreen(ModalScreen):
 
         if event.button.id == "ynab-button":
             self.dismiss("ynab")
+
+        if event.button.id == "xero-button":
+            self.dismiss("xero")
 
     def action_exit_backend_selector(self) -> None:
         """Exit backend selector (Esc key)."""
@@ -156,6 +164,10 @@ class BackendSelectionScreen(ModalScreen):
     def action_select_ynab(self) -> None:
         """Select YNAB (y key)."""
         self.dismiss("ynab")
+
+    def action_select_xero(self) -> None:
+        """Select Xero (x key)."""
+        self.dismiss("xero")
 
     def _focus_current_backend(self) -> None:
         """Focus the button for currently selected backend."""
@@ -238,6 +250,7 @@ class CredentialSetupScreen(ModalScreen):
         super().__init__()
         self.backend_type = backend_type
         self.profile_dir = profile_dir
+        self._xero_auth_url: str = ""
 
     def compose(self) -> ComposeResult:
         with Container(id="setup-container"):
@@ -261,6 +274,65 @@ class CredentialSetupScreen(ModalScreen):
                     id="password-input",
                     classes="setup-input",
                 )
+            elif self.backend_type == "xero":
+                yield Label("🔐 Xero Credential Setup", id="setup-title")
+
+                yield Static(
+                    "Enter your Xero OAuth app credentials. We'll store them encrypted per profile\n"
+                    "and use them to refresh tokens automatically.",
+                    classes="setup-help",
+                )
+
+                yield Label("Xero Client ID:", classes="setup-label")
+                yield Input(
+                    placeholder="client id from Xero app",
+                    id="xero-client-id-input",
+                    classes="setup-input",
+                )
+
+                yield Label("Xero Client Secret:", classes="setup-label")
+                yield Input(
+                    placeholder="client secret",
+                    password=True,
+                    id="xero-client-secret-input",
+                    classes="setup-input",
+                )
+
+                yield Label("OAuth Redirect URI:", classes="setup-label")
+                yield Input(
+                    placeholder="https://your-app/callback",
+                    id="xero-redirect-uri-input",
+                    classes="setup-input",
+                )
+
+                yield Label("Initial Refresh Token:", classes="setup-label")
+                yield Static(
+                    "Open the auth URL, complete consent, exchange the code for a refresh token,\n"
+                    "and paste the refresh token here. We'll keep it encrypted and refresh it.",
+                    classes="setup-help",
+                )
+                yield Input(
+                    placeholder="refresh token",
+                    password=True,
+                    id="xero-refresh-token-input",
+                    classes="setup-input",
+                )
+
+                yield Static(
+                    f"Scopes auto-set: {XERO_DEFAULT_SCOPES}",
+                    classes="setup-help",
+                )
+
+                yield Button("Generate auth URL", variant="default", id="xero-generate-url-button")
+                yield Label("Auth URL (focus then Cmd/Ctrl+C to copy):", classes="setup-label")
+                yield Input(
+                    placeholder="generate the URL above",
+                    id="xero-auth-url-input",
+                    classes="setup-input",
+                )
+                yield Button("Copy URL to clipboard", variant="default", id="xero-copy-url-button")
+                yield Button("Open URL in browser", variant="default", id="xero-open-url-button")
+                yield Static("", id="xero-auth-url-status", classes="setup-help")
             else:
                 yield Label("🔐 Monarch Money Credential Setup", id="setup-title")
 
@@ -323,6 +395,18 @@ class CredentialSetupScreen(ModalScreen):
             self.app.exit()
             return
 
+        if event.button.id == "xero-generate-url-button":
+            self._show_xero_auth_url()
+            return
+
+        if event.button.id == "xero-copy-url-button":
+            self._copy_xero_auth_url()
+            return
+
+        if event.button.id == "xero-open-url-button":
+            self._open_xero_auth_url()
+            return
+
         if event.button.id == "save-button":
             await self.save_credentials()
 
@@ -332,6 +416,7 @@ class CredentialSetupScreen(ModalScreen):
 
         encrypt_pass = self.query_one("#encrypt-pass-input", Input).value
         confirm_pass = self.query_one("#confirm-pass-input", Input).value
+        extra_credentials: dict[str, str] = {}
 
         if encrypt_pass != confirm_pass:
             error_label.update("❌ Encryption passwords do not match!")
@@ -346,6 +431,32 @@ class CredentialSetupScreen(ModalScreen):
 
             email = ""
             mfa_secret = ""
+        elif self.backend_type == "xero":
+            client_id = self.query_one("#xero-client-id-input", Input).value.strip()
+            client_secret = self.query_one("#xero-client-secret-input", Input).value.strip()
+            redirect_uri = self.query_one("#xero-redirect-uri-input", Input).value.strip()
+            refresh_token = self.query_one("#xero-refresh-token-input", Input).value.strip()
+
+            if (
+                not client_id
+                or not client_secret
+                or not redirect_uri
+                or not refresh_token
+                or not encrypt_pass
+            ):
+                error_label.update("❌ Please fill in all fields")
+                return
+
+            email = ""
+            password = ""
+            mfa_secret = ""
+            extra_credentials = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "refresh_token": refresh_token,
+                "scopes": XERO_DEFAULT_SCOPES,
+            }
         else:
             email = self.query_one("#email-input", Input).value.strip()
             password = self.query_one("#password-input", Input).value
@@ -371,6 +482,7 @@ class CredentialSetupScreen(ModalScreen):
                 mfa_secret=mfa_secret,
                 encryption_password=encrypt_pass,
                 backend_type=self.backend_type,
+                extra_credentials=extra_credentials,
             )
 
             # Load credentials back to get the encryption key for cache encryption
@@ -380,17 +492,92 @@ class CredentialSetupScreen(ModalScreen):
             error_label.update("✅ Credentials saved! Loading app...")
 
             # Dismiss this screen and pass credentials back (including backend type)
-            self.dismiss(
-                {
-                    "email": email,
-                    "password": password,
-                    "mfa_secret": mfa_secret,
-                    "backend_type": self.backend_type,
-                }
-            )
+            credentials = {
+                "email": email,
+                "password": password,
+                "mfa_secret": mfa_secret,
+                "backend_type": self.backend_type,
+            }
+            credentials.update(extra_credentials)
+            self.dismiss(credentials)
 
         except Exception as e:
             error_label.update(f"❌ Error saving credentials: {e}")
+
+    def _show_xero_auth_url(self) -> None:
+        """Build and display the Xero auth URL based on current inputs."""
+        auth_input = self.query_one("#xero-auth-url-input", Input)
+        client_id = self.query_one("#xero-client-id-input", Input).value.strip()
+        redirect_uri = self.query_one("#xero-redirect-uri-input", Input).value.strip()
+        scopes = XERO_DEFAULT_SCOPES
+
+        if not client_id or not redirect_uri:
+            auth_input.value = "❌ Enter Client ID and Redirect URI to generate the auth URL."
+            self._xero_auth_url = ""
+            return
+
+        url = build_xero_auth_url(client_id=client_id, redirect_uri=redirect_uri, scopes=scopes)
+        auth_input.value = url
+        self._xero_auth_url = url
+        auth_input.focus()
+
+    def _copy_xero_auth_url(self) -> None:
+        """Copy the generated auth URL to the system clipboard if possible."""
+        status = self.query_one("#xero-auth-url-status", Static)
+        if not self._xero_auth_url:
+            status.update("❌ Generate the auth URL first.")
+            return
+
+        if self._copy_to_clipboard(self._xero_auth_url):
+            status.update("✅ Copied to clipboard.")
+        else:
+            status.update("⚠ Could not access clipboard. Manually copy from the field above.")
+
+    def _open_xero_auth_url(self) -> None:
+        """Open the generated auth URL in the default browser (if available)."""
+        status = self.query_one("#xero-auth-url-status", Static)
+        if not self._xero_auth_url:
+            status.update("❌ Generate the auth URL first.")
+            return
+
+        try:
+            import webbrowser
+
+            opened = webbrowser.open(self._xero_auth_url)
+            if opened:
+                status.update("✅ Opened in your default browser.")
+            else:
+                status.update("⚠ Could not open browser. Copy the URL manually from the field above.")
+        except Exception:
+            status.update("⚠ Could not open browser. Copy the URL manually from the field above.")
+
+    @staticmethod
+    def _copy_to_clipboard(text: str) -> bool:
+        """Best-effort copy to clipboard without extra dependencies."""
+        import platform
+        import shutil
+        import subprocess
+
+        system = platform.system().lower()
+
+        try:
+            if system == "darwin" and shutil.which("pbcopy"):
+                subprocess.run("pbcopy", input=text, text=True, check=True)
+                return True
+            if system == "windows" and shutil.which("clip"):
+                subprocess.run("clip", input=text, text=True, check=True)
+                return True
+            if system == "linux":
+                if shutil.which("xclip"):
+                    subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=True)
+                    return True
+                if shutil.which("xsel"):
+                    subprocess.run(["xsel", "--clipboard", "--input"], input=text, text=True, check=True)
+                    return True
+        except Exception:
+            return False
+
+        return False
 
 
 class CredentialUnlockScreen(ModalScreen):

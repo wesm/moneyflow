@@ -65,6 +65,7 @@ class FinanceBackend(ABC):
         use_saved_session: bool = True,
         save_session: bool = True,
         mfa_secret_key: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """
         Authenticate with the finance backend.
@@ -75,6 +76,7 @@ class FinanceBackend(ABC):
             use_saved_session: Whether to try using a saved session
             save_session: Whether to save the session for future use
             mfa_secret_key: MFA/2FA secret key (if applicable)
+            **kwargs: Additional backend-specific auth parameters (e.g., client_id for Xero)
 
         Raises:
             Exception: If login fails (backend-specific exceptions)

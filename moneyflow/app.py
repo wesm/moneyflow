@@ -720,6 +720,64 @@ class MoneyflowApp(App):
 
         return account.id, profile_dir, creds
 
+    def _build_login_kwargs(
+        self,
+        creds: dict,
+        *,
+        budget_id: Optional[str] = None,
+        use_saved_session: bool = True,
+        save_session: bool = True,
+    ) -> dict:
+        """
+        Construct backend-specific login kwargs from stored credentials.
+
+        Parameters
+        ----------
+        creds : dict
+            Credential payload returned from the credential screens.
+        budget_id : str, optional
+            YNAB budget identifier to include during auth.
+        use_saved_session : bool, default True
+            Whether to reuse cached sessions when available.
+        save_session : bool, default True
+            Whether to persist refreshed sessions back to disk.
+
+        Returns
+        -------
+        dict
+            Keyword arguments tailored to the active backend.
+        """
+        backend_type = creds.get("backend_type", "monarch")
+        if backend_type == "ynab":
+            return {
+                "email": creds.get("email", ""),
+                "password": creds.get("password", ""),
+                "use_saved_session": use_saved_session,
+                "save_session": save_session,
+                "mfa_secret_key": creds.get("mfa_secret", ""),
+                "budget_id": budget_id,
+            }
+
+        if backend_type == "xero":
+            return {
+                "use_saved_session": use_saved_session,
+                "save_session": save_session,
+                "client_id": creds.get("client_id"),
+                "client_secret": creds.get("client_secret"),
+                "redirect_uri": creds.get("redirect_uri"),
+                "refresh_token": creds.get("refresh_token"),
+                "scopes": creds.get("scopes"),
+                "tenant_id": creds.get("tenant_id"),
+            }
+
+        return {
+            "email": creds.get("email", ""),
+            "password": creds.get("password", ""),
+            "use_saved_session": use_saved_session,
+            "save_session": save_session,
+            "mfa_secret_key": creds.get("mfa_secret", ""),
+        }
+
     async def _login_with_retry(self, creds, loading_status, budget_id=None):
         """Login with retry logic for robustness.
 
@@ -738,8 +796,11 @@ class MoneyflowApp(App):
         loading_status.update(f"🔐 Logging in to {backend_type.capitalize()}...")
 
         logger.debug(f"Starting login flow for {backend_type}")
-        logger.debug(f"Email: {creds['email']}")
-        logger.debug(f"Has MFA secret: {bool(creds.get('mfa_secret'))}")
+        if backend_type != "xero":
+            logger.debug(f"Email: {creds.get('email', '')}")
+            logger.debug(f"Has MFA secret: {bool(creds.get('mfa_secret'))}")
+        else:
+            logger.debug("Using stored Xero OAuth credentials")
 
         def on_login_retry(attempt: int, wait_seconds: float) -> None:
             """Show retry progress during login."""
@@ -752,18 +813,12 @@ class MoneyflowApp(App):
             try:
                 logger.debug("Attempting login with saved session...")
 
-                # Simple login - budget selection happens during account creation
-                login_kwargs = {
-                    "email": creds["email"],
-                    "password": creds["password"],
-                    "use_saved_session": True,
-                    "save_session": True,
-                    "mfa_secret_key": creds["mfa_secret"],
-                }
-
-                # For YNAB, include budget_id if available
-                if backend_type == "ynab" and budget_id:
-                    login_kwargs["budget_id"] = budget_id
+                login_kwargs = self._build_login_kwargs(
+                    creds,
+                    budget_id=budget_id,
+                    use_saved_session=True,
+                    save_session=True,
+                )
 
                 await self.backend.login(**login_kwargs)
 
@@ -1115,6 +1170,10 @@ class MoneyflowApp(App):
                 backend_kwargs = {}
                 if backend_type == "monarch" and self._preconfigured_profile_dir:
                     backend_kwargs["profile_dir"] = str(self._preconfigured_profile_dir)
+                if backend_type == "xero" and profile_dir:
+                    backend_kwargs["profile_dir"] = str(profile_dir)
+                    if self.config_dir:
+                        backend_kwargs["config_dir"] = self.config_dir
 
                 self.backend = get_backend(backend_type, **backend_kwargs)
                 self.backend_config = get_backend_config(backend_type)
@@ -1904,13 +1963,12 @@ class MoneyflowApp(App):
         self.backend.delete_session()
         self.backend.clear_auth()  # Clear in-memory token/headers
 
-        await self.backend.login(
-            email=creds["email"],
-            password=creds["password"],
-            use_saved_session=False,  # Force fresh login
+        login_kwargs = self._build_login_kwargs(
+            creds,
+            use_saved_session=False,
             save_session=True,
-            mfa_secret_key=creds["mfa_secret"],
         )
+        await self.backend.login(**login_kwargs)
         logger.info("Fresh login succeeded")
 
     async def _refresh_session(self) -> bool:
