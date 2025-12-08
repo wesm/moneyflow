@@ -724,6 +724,7 @@ class DataManager:
             top_cats = top_cats.with_columns(
                 ((pl.col("top_cat_activity") / pl.col("total_activity")) * 100)
                 .round(0)
+                .fill_nan(0)
                 .cast(pl.Int32)
                 .alias("top_category_pct")
             ).select(["merchant", "top_category", "top_category_pct"])

@@ -19,42 +19,46 @@ from moneyflow.state import TransactionEdit
 class TestApplyMerchantEdit:
     """Tests for apply_merchant_edit method."""
 
-    def test_updates_correct_transaction(self):
-        """Should update only the specified transaction."""
+    def test_updates_all_matching_merchants(self):
+        """Should update ALL transactions with the old merchant name (bulk behavior)."""
         df = pl.DataFrame(
-            {"id": ["txn1", "txn2", "txn3"], "merchant": ["Amazon", "Starbucks", "Target"]}
+            {
+                "id": ["txn1", "txn2", "txn3", "txn4"],
+                "merchant": ["Amazon", "Amazon", "Amazon", "Target"],
+            }
         )
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn2", "Coffee Shop")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "Whole Foods")
 
-        # Check txn2 was updated
-        assert updated.filter(pl.col("id") == "txn2")["merchant"][0] == "Coffee Shop"
-        # Check others unchanged
-        assert updated.filter(pl.col("id") == "txn1")["merchant"][0] == "Amazon"
-        assert updated.filter(pl.col("id") == "txn3")["merchant"][0] == "Target"
+        # All Amazon transactions should be updated
+        assert updated.filter(pl.col("id") == "txn1")["merchant"][0] == "Whole Foods"
+        assert updated.filter(pl.col("id") == "txn2")["merchant"][0] == "Whole Foods"
+        assert updated.filter(pl.col("id") == "txn3")["merchant"][0] == "Whole Foods"
+        # Target unchanged
+        assert updated.filter(pl.col("id") == "txn4")["merchant"][0] == "Target"
 
     def test_handles_empty_dataframe(self):
         """Should handle empty DataFrame without error."""
         df = pl.DataFrame({"id": [], "merchant": []}, schema={"id": pl.Utf8, "merchant": pl.Utf8})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "NewMerchant")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "OldMerchant", "NewMerchant")
 
         assert updated.is_empty()
 
-    def test_nonexistent_transaction_id(self):
-        """Should return unchanged DataFrame for nonexistent ID."""
+    def test_nonexistent_merchant(self):
+        """Should return unchanged DataFrame for nonexistent merchant name."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn999", "NewMerchant")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "NonExistent", "NewMerchant")
 
         assert updated["merchant"][0] == "Amazon"
 
     def test_multiple_applications(self):
-        """Should handle applying edit multiple times."""
+        """Should handle applying edits multiple times (chained renames)."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated1 = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Whole Foods")
-        updated2 = CommitOrchestrator.apply_merchant_edit(updated1, "txn1", "Trader Joes")
+        updated1 = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "Whole Foods")
+        updated2 = CommitOrchestrator.apply_merchant_edit(updated1, "Whole Foods", "Trader Joes")
 
         assert updated2["merchant"][0] == "Trader Joes"
 
@@ -70,7 +74,7 @@ class TestApplyMerchantEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Target")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "Target")
 
         assert updated["amount"][0] == -99.99
         assert updated["category"][0] == "Shopping"
@@ -393,7 +397,7 @@ class TestDataFramePurity:
         # Create a copy to check against
         original_merchant = original_df["merchant"][0]
 
-        updated = CommitOrchestrator.apply_merchant_edit(original_df, "txn1", "Target")
+        updated = CommitOrchestrator.apply_merchant_edit(original_df, "Amazon", "Target")
 
         # Original should be unchanged
         assert original_df["merchant"][0] == original_merchant
@@ -551,7 +555,7 @@ class TestEdgeCases:
         """Should handle special characters in merchant names."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Old & Busted"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "New & Improved")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Old & Busted", "New & Improved")
 
         assert updated["merchant"][0] == "New & Improved"
 
@@ -559,7 +563,7 @@ class TestEdgeCases:
         """Should handle unicode characters."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Café"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Café Français")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Café", "Café Français")
 
         assert updated["merchant"][0] == "Café Français"
 
@@ -569,7 +573,7 @@ class TestEdgeCases:
 
         long_name = "A" * 200
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", long_name)
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Short", long_name)
 
         assert updated["merchant"][0] == long_name
 
@@ -577,13 +581,13 @@ class TestEdgeCases:
         """Should handle empty string merchant."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "")
+        updated = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "")
 
         assert updated["merchant"][0] == ""
 
     def test_large_dataset_performance(self):
-        """Should handle large datasets efficiently."""
-        # Create 10k transactions
+        """Should handle large datasets efficiently - all matching merchants get updated."""
+        # Create 10k transactions - all have same merchant
         num_txns = 10000
 
         df = pl.DataFrame(
@@ -597,10 +601,9 @@ class TestEdgeCases:
             }
         )
 
-        # Update every 10th transaction
+        # Single edit should update ALL Amazon transactions (bulk behavior)
         edits = [
-            TransactionEdit(f"txn{i}", "merchant", "Amazon", "Target", datetime.now())
-            for i in range(0, num_txns, 10)
+            TransactionEdit("txn0", "merchant", "Amazon", "Target", datetime.now())
         ]
 
         def mock_apply_groups(df):
@@ -608,8 +611,7 @@ class TestEdgeCases:
 
         updated = CommitOrchestrator.apply_edits_to_dataframe(df, edits, {}, mock_apply_groups)
 
-        # Verify some were updated
+        # ALL transactions should be updated (bulk merchant rename)
         assert updated.filter(pl.col("id") == "txn0")["merchant"][0] == "Target"
-        assert updated.filter(pl.col("id") == "txn10")["merchant"][0] == "Target"
-        # Verify others unchanged
-        assert updated.filter(pl.col("id") == "txn1")["merchant"][0] == "Amazon"
+        assert updated.filter(pl.col("id") == "txn1")["merchant"][0] == "Target"
+        assert updated.filter(pl.col("id") == "txn9999")["merchant"][0] == "Target"

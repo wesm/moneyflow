@@ -27,32 +27,37 @@ class CommitOrchestrator:
 
     @staticmethod
     def apply_merchant_edit(
-        df: pl.DataFrame, transaction_id: str, new_merchant: str
+        df: pl.DataFrame, old_merchant: str, new_merchant: str
     ) -> pl.DataFrame:
         """
-        Apply merchant edit to DataFrame.
+        Apply merchant edit to DataFrame for ALL transactions with the old merchant.
+
+        This updates all transactions that match the old merchant name, which matches
+        the behavior of YNAB's batch update (whether via payee rename or batch reassign).
 
         Args:
             df: Transaction DataFrame
-            transaction_id: ID of transaction to update
+            old_merchant: Old merchant name to match
             new_merchant: New merchant name
 
         Returns:
-            Updated DataFrame with merchant changed
+            Updated DataFrame with merchant changed for all matching transactions
 
         Examples:
             >>> df = pl.DataFrame({
-            ...     "id": ["txn1", "txn2"],
-            ...     "merchant": ["Amazon", "Starbucks"]
+            ...     "id": ["txn1", "txn2", "txn3"],
+            ...     "merchant": ["Amazon", "Amazon", "Starbucks"]
             ... })
-            >>> updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Whole Foods")
+            >>> updated = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "Whole Foods")
             >>> updated.filter(pl.col("id") == "txn1")["merchant"][0]
             'Whole Foods'
             >>> updated.filter(pl.col("id") == "txn2")["merchant"][0]
+            'Whole Foods'
+            >>> updated.filter(pl.col("id") == "txn3")["merchant"][0]
             'Starbucks'
         """
         return df.with_columns(
-            pl.when(pl.col("id") == transaction_id)
+            pl.when(pl.col("merchant") == old_merchant)
             .then(pl.lit(new_merchant))
             .otherwise(pl.col("merchant"))
             .alias("merchant")
@@ -177,7 +182,7 @@ class CommitOrchestrator:
             ValueError: If edit.field is unknown
         """
         if edit.field == "merchant":
-            return CommitOrchestrator.apply_merchant_edit(df, edit.transaction_id, edit.new_value)
+            return CommitOrchestrator.apply_merchant_edit(df, edit.old_value, edit.new_value)
         elif edit.field == "category":
             # Lookup category name
             cat_name = categories.get(edit.new_value, {}).get("name", "Unknown")

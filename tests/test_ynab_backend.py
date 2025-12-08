@@ -473,6 +473,80 @@ class TestYNABBackend:
         assert result["payee_id"] == "payee-old"
         assert result["method"] == "payee_update_failed"
 
+    def test_batch_update_merchant_no_op_skipped(self, backend, mock_ynab_api):
+        """Test that renaming a payee to itself is skipped (no API call)."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        mock_payees_api = MagicMock()
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        # Rename "Amazon" to "Amazon" (same name)
+        result = backend.batch_update_merchant("Amazon", "Amazon")
+
+        # Should succeed without making any API calls
+        assert result["success"] is True
+        assert result["payee_id"] is None
+        assert result["method"] == "no_change"
+        assert "same" in result["message"].lower()
+
+        # Verify no payee API calls were made (no get_payees, no update_payee)
+        mock_payees_api.get_payees.assert_not_called()
+        mock_payees_api.update_payee.assert_not_called()
+
+    def test_batch_update_merchant_target_exists(self, backend, mock_ynab_api):
+        """Test batch reassign when target payee already exists."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock both old and new payees exist
+        mock_old_payee = MagicMock()
+        mock_old_payee.id = "payee-old"
+        mock_old_payee.name = "Amazon.com/abc123"
+
+        mock_target_payee = MagicMock()
+        mock_target_payee.id = "payee-amazon"
+        mock_target_payee.name = "Amazon"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_old_payee, mock_target_payee]
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        # Mock transactions for the old payee
+        mock_txn1 = MagicMock()
+        mock_txn1.id = "txn-1"
+        mock_txn2 = MagicMock()
+        mock_txn2.id = "txn-2"
+
+        mock_txns_response = MagicMock()
+        mock_txns_response.data.transactions = [mock_txn1, mock_txn2]
+
+        mock_transactions_api = MagicMock()
+        mock_transactions_api.get_transactions_by_payee.return_value = mock_txns_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+        mock_ynab_api.TransactionsApi.return_value = mock_transactions_api
+
+        # Rename "Amazon.com/abc123" to "Amazon" (which already exists)
+        result = backend.batch_update_merchant("Amazon.com/abc123", "Amazon")
+
+        # Should succeed using batch reassign
+        assert result["success"] is True
+        assert result["payee_id"] == "payee-amazon"
+        assert result["method"] == "batch_reassign"
+        assert result["transactions_affected"] == 2
+
+        # Verify update_payee was NOT called (would create duplicate)
+        mock_payees_api.update_payee.assert_not_called()
+
+        # Verify batch transaction update was called
+        mock_transactions_api.get_transactions_by_payee.assert_called_once_with(
+            budget_id="test-budget-id", payee_id="payee-old"
+        )
+        mock_transactions_api.update_transactions.assert_called_once()
+
     def test_batch_update_merchant_integration(self, backend, mock_ynab_api):
         """
         Integration test: Verify that batch_update_merchant cascades to transactions.
