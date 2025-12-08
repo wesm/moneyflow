@@ -17,7 +17,7 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import polars as pl
 
@@ -1054,7 +1054,9 @@ class DataManager:
             | pl.col("notes").str.to_lowercase().str.contains(query_lower)
         )
 
-    async def commit_pending_edits(self, edits: List[Any]) -> Tuple[int, int]:
+    async def commit_pending_edits(
+        self, edits: List[Any]
+    ) -> Tuple[int, int, Set[Tuple[str, str]]]:
         """
         Commit pending edits to backend API in parallel.
 
@@ -1072,16 +1074,19 @@ class DataManager:
             edits: List of TransactionEdit objects to commit
 
         Returns:
-            Tuple of (success_count, failure_count)
+            Tuple of (success_count, failure_count, bulk_merchant_renames)
             - success_count: Number of successful API updates
             - failure_count: Number of failed API updates
+            - bulk_merchant_renames: Set of (old_merchant, new_merchant) tuples
+              that were batch-updated. Pass this to CommitOrchestrator to
+              ensure all matching transactions are updated locally.
 
         Example:
             >>> edits = [
             ...     TransactionEdit("txn1", "merchant", "Old", "New", ...),
             ...     TransactionEdit("txn2", "category", "cat1", "cat2", ...)
             ... ]
-            >>> success, failure = await dm.commit_pending_edits(edits)
+            >>> success, failure, bulk_renames = await dm.commit_pending_edits(edits)
             >>> print(f"Committed {success} edits, {failure} failed")
 
         Note: After successful commit, caller should use CommitOrchestrator
@@ -1091,11 +1096,12 @@ class DataManager:
 
         if not edits:
             logger.info("No edits to commit")
-            return 0, 0
+            return 0, 0, set()
 
         success_count = 0
         failure_count = 0
         auth_errors = []
+        bulk_merchant_renames: Set[Tuple[str, str]] = set()
 
         # Check if backend supports batch merchant updates
         has_batch_update = hasattr(self.mm, "batch_update_merchant")
@@ -1159,6 +1165,8 @@ class DataManager:
                         processed_txn_ids.update(group_txn_ids)
                         success_count += len(group_edits)
                         successfully_batched_edits.extend(group_edits)
+                        # Track this as a bulk rename for local cache update
+                        bulk_merchant_renames.add((old_name, new_name))
                         logger.info(
                             f"✓ Batch update succeeded for '{old_name}' -> '{new_name}' "
                             f"({len(group_edits)} transactions updated via 1 API call)"
@@ -1249,7 +1257,7 @@ class DataManager:
             logger.warning("All failures were auth errors - raising to trigger retry")
             raise auth_errors[0]  # Raise first auth error to trigger retry
 
-        return success_count, failure_count
+        return success_count, failure_count, bulk_merchant_renames
 
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about current data."""

@@ -2083,8 +2083,8 @@ class MoneyflowApp(App):
             self._notify(NotificationHelper.commit_starting(count))
 
             try:
-                success_count, failure_count = await self._commit_with_retry(  # type: ignore
-                    self.data_manager.pending_edits
+                success_count, failure_count, bulk_merchant_renames = (
+                    await self._commit_with_retry(self.data_manager.pending_edits)  # type: ignore
                 )
 
                 # Show notification based on results
@@ -2107,6 +2107,7 @@ class MoneyflowApp(App):
                     edits=self.data_manager.pending_edits,
                     saved_state=saved_state,
                     cache_filters=cache_filters,
+                    bulk_merchant_renames=bulk_merchant_renames,
                 )
                 # Restore table position after commit completes
                 self._restore_table_position(saved_table_position)

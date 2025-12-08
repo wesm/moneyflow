@@ -27,13 +27,47 @@ class CommitOrchestrator:
 
     @staticmethod
     def apply_merchant_edit(
+        df: pl.DataFrame, transaction_id: str, new_merchant: str
+    ) -> pl.DataFrame:
+        """
+        Apply merchant edit to a single transaction by ID.
+
+        Use this for backends like Monarch Money that update transactions individually.
+
+        Args:
+            df: Transaction DataFrame
+            transaction_id: ID of transaction to update
+            new_merchant: New merchant name
+
+        Returns:
+            Updated DataFrame with merchant changed for the specific transaction
+
+        Examples:
+            >>> df = pl.DataFrame({
+            ...     "id": ["txn1", "txn2"],
+            ...     "merchant": ["Amazon", "Starbucks"]
+            ... })
+            >>> updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Whole Foods")
+            >>> updated.filter(pl.col("id") == "txn1")["merchant"][0]
+            'Whole Foods'
+            >>> updated.filter(pl.col("id") == "txn2")["merchant"][0]
+            'Starbucks'
+        """
+        return df.with_columns(
+            pl.when(pl.col("id") == transaction_id)
+            .then(pl.lit(new_merchant))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+    @staticmethod
+    def apply_bulk_merchant_edit(
         df: pl.DataFrame, old_merchant: str, new_merchant: str
     ) -> pl.DataFrame:
         """
-        Apply merchant edit to DataFrame for ALL transactions with the old merchant.
+        Apply merchant edit to ALL transactions with the old merchant name.
 
-        This updates all transactions that match the old merchant name, which matches
-        the behavior of YNAB's batch update (whether via payee rename or batch reassign).
+        Use this for backends like YNAB that update payees (affecting all transactions).
 
         Args:
             df: Transaction DataFrame
@@ -48,7 +82,7 @@ class CommitOrchestrator:
             ...     "id": ["txn1", "txn2", "txn3"],
             ...     "merchant": ["Amazon", "Amazon", "Starbucks"]
             ... })
-            >>> updated = CommitOrchestrator.apply_merchant_edit(df, "Amazon", "Whole Foods")
+            >>> updated = CommitOrchestrator.apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
             >>> updated.filter(pl.col("id") == "txn1")["merchant"][0]
             'Whole Foods'
             >>> updated.filter(pl.col("id") == "txn2")["merchant"][0]
@@ -162,6 +196,7 @@ class CommitOrchestrator:
         edit: TransactionEdit,
         categories: dict[str, dict],
         apply_groups_func: Callable[[pl.DataFrame], pl.DataFrame],
+        bulk_merchant_renames: set[tuple[str, str]] | None = None,
     ) -> pl.DataFrame:
         """
         Apply a single edit to DataFrame.
@@ -174,6 +209,11 @@ class CommitOrchestrator:
             edit: Edit to apply
             categories: Category lookup dict (id -> {name, group, ...})
             apply_groups_func: Function to reapply category groups
+            bulk_merchant_renames: Set of (old_merchant, new_merchant) tuples that
+                were batch-updated on the backend (e.g., YNAB payee updates).
+                If the edit matches one of these, all transactions with that
+                merchant will be updated. If None or not matching, only the
+                specific transaction is updated.
 
         Returns:
             Updated DataFrame
@@ -182,7 +222,19 @@ class CommitOrchestrator:
             ValueError: If edit.field is unknown
         """
         if edit.field == "merchant":
-            return CommitOrchestrator.apply_merchant_edit(df, edit.old_value, edit.new_value)
+            # Check if this was a bulk update on the backend
+            is_bulk = (
+                bulk_merchant_renames is not None
+                and (edit.old_value, edit.new_value) in bulk_merchant_renames
+            )
+            if is_bulk:
+                return CommitOrchestrator.apply_bulk_merchant_edit(
+                    df, edit.old_value, edit.new_value
+                )
+            else:
+                return CommitOrchestrator.apply_merchant_edit(
+                    df, edit.transaction_id, edit.new_value
+                )
         elif edit.field == "category":
             # Lookup category name
             cat_name = categories.get(edit.new_value, {}).get("name", "Unknown")
@@ -202,6 +254,7 @@ class CommitOrchestrator:
         edits: list[TransactionEdit],
         categories: dict[str, dict],
         apply_groups_func: Callable[[pl.DataFrame], pl.DataFrame],
+        bulk_merchant_renames: set[tuple[str, str]] | None = None,
     ) -> pl.DataFrame:
         """
         Apply multiple edits to DataFrame.
@@ -213,6 +266,11 @@ class CommitOrchestrator:
             edits: List of edits to apply
             categories: Category lookup dict
             apply_groups_func: Function to reapply category groups
+            bulk_merchant_renames: Set of (old_merchant, new_merchant) tuples that
+                were batch-updated on the backend (e.g., YNAB payee updates).
+                Merchant edits matching these tuples will update ALL transactions
+                with that merchant name. For backends like Monarch Money, pass None
+                to update only the specific transaction.
 
         Returns:
             New DataFrame with all edits applied
@@ -243,7 +301,7 @@ class CommitOrchestrator:
 
         for edit in edits:
             result_df = CommitOrchestrator.apply_edit_to_dataframe(
-                result_df, edit, categories, apply_groups_func
+                result_df, edit, categories, apply_groups_func, bulk_merchant_renames
             )
 
         return result_df

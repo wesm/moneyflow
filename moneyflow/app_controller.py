@@ -1520,6 +1520,7 @@ class AppController:
         edits: List[TransactionEdit],
         saved_state: dict,
         cache_filters: dict = None,
+        bulk_merchant_renames: set[tuple[str, str]] | None = None,
     ) -> None:
         """
         Handle commit results and update local state accordingly.
@@ -1541,6 +1542,11 @@ class AppController:
             edits: List of edits that were attempted
             saved_state: View state to restore after commit
             cache_filters: Optional dict with year/since filters for cache
+            bulk_merchant_renames: Set of (old_merchant, new_merchant) tuples
+                that were batch-updated on the backend (e.g., YNAB).
+                For these, ALL transactions with the old merchant name
+                will be updated locally. For None (e.g., Monarch Money),
+                only the specific transaction is updated.
 
         Side effects:
             - May update data_manager.df and state.transactions_df
@@ -1565,11 +1571,13 @@ class AppController:
 
             # Apply edits to local DataFrames for instant UI update
             # Use CommitOrchestrator to apply all edits (fully tested)
+            # Pass bulk_merchant_renames so YNAB batch updates affect all matching transactions
             self.data_manager.df = CommitOrchestrator.apply_edits_to_dataframe(
                 self.data_manager.df,
                 edits,
                 self.data_manager.categories,
                 self.data_manager.apply_category_groups,
+                bulk_merchant_renames,
             )
 
             # Also update state DataFrame
@@ -1579,6 +1587,7 @@ class AppController:
                     edits,
                     self.data_manager.categories,
                     self.data_manager.apply_category_groups,
+                    bulk_merchant_renames,
                 )
 
             # Clear pending edits on success
