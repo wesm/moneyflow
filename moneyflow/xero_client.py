@@ -13,18 +13,27 @@ Notes:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import socket
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
-from urllib.parse import urlencode
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import aiohttp
 
+logger = logging.getLogger(__name__)
+
 TOKEN_FILENAME = "xero_token.json"
+DEFAULT_OAUTH_PORT = 8721
+DEFAULT_REDIRECT_URI = f"http://localhost:{DEFAULT_OAUTH_PORT}/callback/"
 XERO_DEFAULT_SCOPES = (
-    "offline_access accounting.transactions accounting.settings accounting.contacts"
+    "openid profile offline_access accounting.transactions accounting.settings accounting.contacts"
 )
 
 def build_xero_auth_url(
@@ -32,7 +41,6 @@ def build_xero_auth_url(
     redirect_uri: str,
     scopes: str = XERO_DEFAULT_SCOPES,
     state: str = "moneyflow",
-    prompt: str = "consent",
 ) -> str:
     """
     Build a Xero OAuth authorization URL for manual consent.
@@ -47,8 +55,6 @@ def build_xero_auth_url(
         Space-delimited list of scopes. Defaults to the moneyflow preset.
     state : str, optional
         Opaque string to maintain state between request/response.
-    prompt : str, optional
-        Optional prompt parameter (default: consent) to force the consent screen.
 
     Returns
     -------
@@ -62,10 +68,263 @@ def build_xero_auth_url(
             "redirect_uri": redirect_uri,
             "scope": scopes,
             "state": state,
-            "prompt": prompt,
         }
     )
     return f"https://login.xero.com/identity/connect/authorize?{query}"
+
+
+class OAuthCallbackHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for OAuth callback."""
+
+    # Class-level storage for the authorization code
+    auth_code: Optional[str] = None
+    error: Optional[str] = None
+    state: Optional[str] = None
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Suppress default logging."""
+        pass
+
+    def do_GET(self) -> None:
+        """Handle GET request from OAuth redirect."""
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+
+        # Extract code or error
+        if "code" in params:
+            OAuthCallbackHandler.auth_code = params["code"][0]
+            OAuthCallbackHandler.state = params.get("state", [None])[0]
+            self._send_success_response()
+        elif "error" in params:
+            OAuthCallbackHandler.error = params.get("error_description", params["error"])[0]
+            self._send_error_response(OAuthCallbackHandler.error)
+        else:
+            OAuthCallbackHandler.error = "No authorization code received"
+            self._send_error_response(OAuthCallbackHandler.error)
+
+    def _send_success_response(self) -> None:
+        """Send success HTML response."""
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head><title>Xero Authorization Successful</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h1 style="color: #28a745;">Authorization Successful!</h1>
+            <p>You can close this window and return to moneyflow.</p>
+            <script>setTimeout(function() { window.close(); }, 3000);</script>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode())
+
+    def _send_error_response(self, error: str) -> None:
+        """Send error HTML response."""
+        self.send_response(400)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head><title>Xero Authorization Failed</title></head>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+            <h1 style="color: #dc3545;">Authorization Failed</h1>
+            <p>Error: {error}</p>
+            <p>Please close this window and try again in moneyflow.</p>
+        </body>
+        </html>
+        """
+        self.wfile.write(html.encode())
+
+
+def _find_available_port(start_port: int = DEFAULT_OAUTH_PORT, max_attempts: int = 10) -> int:
+    """Find an available port starting from start_port."""
+    for port in range(start_port, start_port + max_attempts):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("localhost", port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(f"Could not find available port in range {start_port}-{start_port + max_attempts}")
+
+
+def start_oauth_callback_server(
+    port: int = DEFAULT_OAUTH_PORT,
+    timeout: float = 120.0,
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Start a local HTTP server to capture the OAuth callback.
+
+    Parameters
+    ----------
+    port : int
+        Port to listen on (default: 8721)
+    timeout : float
+        Maximum time to wait for callback in seconds (default: 120)
+
+    Returns
+    -------
+    tuple
+        (authorization_code, error) - one will be None
+    """
+    # Reset class state
+    OAuthCallbackHandler.auth_code = None
+    OAuthCallbackHandler.error = None
+    OAuthCallbackHandler.state = None
+
+    server = HTTPServer(("localhost", port), OAuthCallbackHandler)
+    server.timeout = timeout
+
+    # Handle one request
+    server.handle_request()
+    server.server_close()
+
+    return OAuthCallbackHandler.auth_code, OAuthCallbackHandler.error
+
+
+async def exchange_code_for_tokens(
+    code: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+) -> Dict[str, Any]:
+    """
+    Exchange an authorization code for access and refresh tokens.
+
+    Parameters
+    ----------
+    code : str
+        The authorization code from OAuth callback
+    client_id : str
+        Xero app client ID
+    client_secret : str
+        Xero app client secret
+    redirect_uri : str
+        The redirect URI used in the authorization request
+
+    Returns
+    -------
+    dict
+        Token response containing access_token, refresh_token, expires_in, etc.
+
+    Raises
+    ------
+    ValueError
+        If token exchange fails
+    """
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            "https://identity.xero.com/connect/token",
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        ) as resp:
+            if resp.status != 200:
+                error_text = await resp.text()
+                raise ValueError(f"Token exchange failed: {resp.status} {error_text}")
+            return await resp.json()
+
+
+async def perform_xero_oauth_flow(
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str = DEFAULT_REDIRECT_URI,
+    scopes: str = XERO_DEFAULT_SCOPES,
+    open_browser: bool = True,
+    on_waiting: Optional[Callable[[], None]] = None,
+) -> Dict[str, Any]:
+    """
+    Perform the complete Xero OAuth flow.
+
+    This function:
+    1. Generates the authorization URL
+    2. Opens the browser for user consent
+    3. Starts a local server to capture the callback
+    4. Exchanges the code for tokens
+
+    Parameters
+    ----------
+    client_id : str
+        Xero app client ID
+    client_secret : str
+        Xero app client secret
+    redirect_uri : str
+        OAuth redirect URI (must match Xero app config)
+    scopes : str
+        Space-separated OAuth scopes
+    open_browser : bool
+        Whether to automatically open the browser
+    on_waiting : callable, optional
+        Callback to invoke when waiting for user authorization
+
+    Returns
+    -------
+    dict
+        Token response with access_token, refresh_token, etc.
+
+    Raises
+    ------
+    ValueError
+        If OAuth flow fails at any step
+    """
+    import webbrowser
+
+    # Parse port from redirect_uri
+    parsed = urlparse(redirect_uri)
+    port = parsed.port or DEFAULT_OAUTH_PORT
+
+    # Build auth URL
+    auth_url = build_xero_auth_url(
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        scopes=scopes,
+    )
+
+    logger.info(f"Starting Xero OAuth flow on port {port}")
+
+    # Open browser
+    if open_browser:
+        webbrowser.open(auth_url)
+
+    # Notify caller we're waiting
+    if on_waiting:
+        on_waiting()
+
+    # Start server and wait for callback (in a thread to not block)
+    loop = asyncio.get_event_loop()
+    code, error = await loop.run_in_executor(
+        None,
+        lambda: start_oauth_callback_server(port=port, timeout=300.0),
+    )
+
+    if error:
+        raise ValueError(f"OAuth authorization failed: {error}")
+
+    if not code:
+        raise ValueError("No authorization code received")
+
+    logger.info("Received authorization code, exchanging for tokens...")
+
+    # Exchange code for tokens
+    tokens = await exchange_code_for_tokens(
+        code=code,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+
+    logger.info("Token exchange successful")
+    return tokens
 
 
 @dataclass

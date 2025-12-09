@@ -11,7 +11,12 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
 from ..credentials import CredentialManager
-from ..xero_client import XERO_DEFAULT_SCOPES, build_xero_auth_url
+from ..xero_client import (
+    DEFAULT_REDIRECT_URI,
+    XERO_DEFAULT_SCOPES,
+    build_xero_auth_url,
+    perform_xero_oauth_flow,
+)
 
 
 class BackendSelectionScreen(ModalScreen):
@@ -250,7 +255,6 @@ class CredentialSetupScreen(ModalScreen):
         super().__init__()
         self.backend_type = backend_type
         self.profile_dir = profile_dir
-        self._xero_auth_url: str = ""
 
     def compose(self) -> ComposeResult:
         with Container(id="setup-container"):
@@ -278,8 +282,8 @@ class CredentialSetupScreen(ModalScreen):
                 yield Label("🔐 Xero Credential Setup", id="setup-title")
 
                 yield Static(
-                    "Enter your Xero OAuth app credentials. We'll store them encrypted per profile\n"
-                    "and use them to refresh tokens automatically.",
+                    "Enter your Xero OAuth app credentials from developer.xero.com.\n"
+                    "We'll open your browser to authorize, then store tokens securely.",
                     classes="setup-help",
                 )
 
@@ -299,40 +303,32 @@ class CredentialSetupScreen(ModalScreen):
                 )
 
                 yield Label("OAuth Redirect URI:", classes="setup-label")
+                yield Static(
+                    f"Set this in your Xero app config (include trailing slash!):",
+                    classes="setup-help",
+                )
                 yield Input(
-                    placeholder="https://your-app/callback",
+                    placeholder="http://localhost:8721/callback/",
+                    value=DEFAULT_REDIRECT_URI,
                     id="xero-redirect-uri-input",
                     classes="setup-input",
                 )
 
-                yield Label("Initial Refresh Token:", classes="setup-label")
-                yield Static(
-                    "Open the auth URL, complete consent, exchange the code for a refresh token,\n"
-                    "and paste the refresh token here. We'll keep it encrypted and refresh it.",
-                    classes="setup-help",
+                yield Static("", id="xero-auth-status", classes="setup-help")
+                yield Button(
+                    "Authorize with Xero",
+                    variant="primary",
+                    id="xero-authorize-button",
                 )
+
+                # Hidden input to store refresh token after OAuth flow
                 yield Input(
-                    placeholder="refresh token",
+                    placeholder="",
                     password=True,
                     id="xero-refresh-token-input",
                     classes="setup-input",
+                    disabled=True,
                 )
-
-                yield Static(
-                    f"Scopes auto-set: {XERO_DEFAULT_SCOPES}",
-                    classes="setup-help",
-                )
-
-                yield Button("Generate auth URL", variant="default", id="xero-generate-url-button")
-                yield Label("Auth URL (focus then Cmd/Ctrl+C to copy):", classes="setup-label")
-                yield Input(
-                    placeholder="generate the URL above",
-                    id="xero-auth-url-input",
-                    classes="setup-input",
-                )
-                yield Button("Copy URL to clipboard", variant="default", id="xero-copy-url-button")
-                yield Button("Open URL in browser", variant="default", id="xero-open-url-button")
-                yield Static("", id="xero-auth-url-status", classes="setup-help")
             else:
                 yield Label("🔐 Monarch Money Credential Setup", id="setup-title")
 
@@ -395,16 +391,8 @@ class CredentialSetupScreen(ModalScreen):
             self.app.exit()
             return
 
-        if event.button.id == "xero-generate-url-button":
-            self._show_xero_auth_url()
-            return
-
-        if event.button.id == "xero-copy-url-button":
-            self._copy_xero_auth_url()
-            return
-
-        if event.button.id == "xero-open-url-button":
-            self._open_xero_auth_url()
+        if event.button.id == "xero-authorize-button":
+            await self._perform_xero_oauth()
             return
 
         if event.button.id == "save-button":
@@ -504,80 +492,44 @@ class CredentialSetupScreen(ModalScreen):
         except Exception as e:
             error_label.update(f"❌ Error saving credentials: {e}")
 
-    def _show_xero_auth_url(self) -> None:
-        """Build and display the Xero auth URL based on current inputs."""
-        auth_input = self.query_one("#xero-auth-url-input", Input)
+    async def _perform_xero_oauth(self) -> None:
+        """Perform the Xero OAuth flow and store the refresh token."""
+        status = self.query_one("#xero-auth-status", Static)
+        error_label = self.query_one("#error-label", Label)
+
         client_id = self.query_one("#xero-client-id-input", Input).value.strip()
+        client_secret = self.query_one("#xero-client-secret-input", Input).value.strip()
         redirect_uri = self.query_one("#xero-redirect-uri-input", Input).value.strip()
-        scopes = XERO_DEFAULT_SCOPES
 
-        if not client_id or not redirect_uri:
-            auth_input.value = "❌ Enter Client ID and Redirect URI to generate the auth URL."
-            self._xero_auth_url = ""
+        if not client_id or not client_secret or not redirect_uri:
+            error_label.update("❌ Please fill in Client ID, Client Secret, and Redirect URI")
             return
 
-        url = build_xero_auth_url(client_id=client_id, redirect_uri=redirect_uri, scopes=scopes)
-        auth_input.value = url
-        self._xero_auth_url = url
-        auth_input.focus()
-
-    def _copy_xero_auth_url(self) -> None:
-        """Copy the generated auth URL to the system clipboard if possible."""
-        status = self.query_one("#xero-auth-url-status", Static)
-        if not self._xero_auth_url:
-            status.update("❌ Generate the auth URL first.")
-            return
-
-        if self._copy_to_clipboard(self._xero_auth_url):
-            status.update("✅ Copied to clipboard.")
-        else:
-            status.update("⚠ Could not access clipboard. Manually copy from the field above.")
-
-    def _open_xero_auth_url(self) -> None:
-        """Open the generated auth URL in the default browser (if available)."""
-        status = self.query_one("#xero-auth-url-status", Static)
-        if not self._xero_auth_url:
-            status.update("❌ Generate the auth URL first.")
-            return
+        status.update("🌐 Opening browser for Xero authorization...")
 
         try:
-            import webbrowser
+            # Perform the OAuth flow
+            tokens = await perform_xero_oauth_flow(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                scopes=XERO_DEFAULT_SCOPES,
+                open_browser=True,
+                on_waiting=lambda: status.update(
+                    "⏳ Waiting for authorization... Complete the flow in your browser."
+                ),
+            )
 
-            opened = webbrowser.open(self._xero_auth_url)
-            if opened:
-                status.update("✅ Opened in your default browser.")
-            else:
-                status.update("⚠ Could not open browser. Copy the URL manually from the field above.")
-        except Exception:
-            status.update("⚠ Could not open browser. Copy the URL manually from the field above.")
+            # Store the refresh token in the hidden input
+            refresh_token_input = self.query_one("#xero-refresh-token-input", Input)
+            refresh_token_input.value = tokens.get("refresh_token", "")
 
-    @staticmethod
-    def _copy_to_clipboard(text: str) -> bool:
-        """Best-effort copy to clipboard without extra dependencies."""
-        import platform
-        import shutil
-        import subprocess
+            status.update("✅ Authorization successful! Now set your encryption password and save.")
+            error_label.update("")
 
-        system = platform.system().lower()
-
-        try:
-            if system == "darwin" and shutil.which("pbcopy"):
-                subprocess.run("pbcopy", input=text, text=True, check=True)
-                return True
-            if system == "windows" and shutil.which("clip"):
-                subprocess.run("clip", input=text, text=True, check=True)
-                return True
-            if system == "linux":
-                if shutil.which("xclip"):
-                    subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True, check=True)
-                    return True
-                if shutil.which("xsel"):
-                    subprocess.run(["xsel", "--clipboard", "--input"], input=text, text=True, check=True)
-                    return True
-        except Exception:
-            return False
-
-        return False
+        except Exception as e:
+            status.update("")
+            error_label.update(f"❌ OAuth failed: {e}")
 
 
 class CredentialUnlockScreen(ModalScreen):
