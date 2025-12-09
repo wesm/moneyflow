@@ -36,7 +36,7 @@ class TestMerchantEditWorkflow:
         assert len(app_state.pending_edits) == 1
 
         # 2. Commit the edit
-        success, failure = await dm.commit_pending_edits(app_state.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(app_state.pending_edits)
 
         assert success == 1
         assert failure == 0
@@ -93,7 +93,7 @@ class TestCategoryEditWorkflow:
         )
 
         # 2. Commit
-        success, failure = await dm.commit_pending_edits(app_state.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(app_state.pending_edits)
 
         assert success == 1
         assert failure == 0
@@ -124,7 +124,7 @@ class TestHideFromReportsWorkflow:
         )
 
         # 2. Commit
-        success, failure = await dm.commit_pending_edits(app_state.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(app_state.pending_edits)
 
         assert success == 1
         assert failure == 0
@@ -162,7 +162,7 @@ class TestBulkEditWorkflow:
             )
 
         # Commit all edits
-        success, failure = await dm.commit_pending_edits(app_state.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(app_state.pending_edits)
 
         assert success == len(app_state.selected_ids)
         assert failure == 0
@@ -193,7 +193,7 @@ class TestBulkEditWorkflow:
             )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(app_state.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(app_state.pending_edits)
 
         assert success == 3
         assert failure == 0
@@ -380,7 +380,7 @@ class TestErrorHandling:
         ]
 
         # Should not raise exception
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Mock backend doesn't fail on invalid IDs, but real API might
         # This test ensures we handle it gracefully

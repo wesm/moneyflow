@@ -113,7 +113,9 @@ class TestApplyBulkMerchantEdit:
         df = pl.DataFrame({"id": ["txn1", "txn2"], "merchant": ["Amazon", "Amazon"]})
 
         updated1 = CommitOrchestrator.apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
-        updated2 = CommitOrchestrator.apply_bulk_merchant_edit(updated1, "Whole Foods", "Trader Joes")
+        updated2 = CommitOrchestrator.apply_bulk_merchant_edit(
+            updated1, "Whole Foods", "Trader Joes"
+        )
 
         assert updated2["merchant"][0] == "Trader Joes"
         assert updated2["merchant"][1] == "Trader Joes"
@@ -640,9 +642,7 @@ class TestEdgeCases:
         )
 
         # Without bulk_merchant_renames, only txn0 should be updated
-        edits = [
-            TransactionEdit("txn0", "merchant", "Amazon", "Target", datetime.now())
-        ]
+        edits = [TransactionEdit("txn0", "merchant", "Amazon", "Target", datetime.now())]
 
         def mock_apply_groups(df):
             return df
@@ -672,9 +672,7 @@ class TestEdgeCases:
         )
 
         # With bulk_merchant_renames, ALL Amazon transactions should be updated
-        edits = [
-            TransactionEdit("txn0", "merchant", "Amazon", "Target", datetime.now())
-        ]
+        edits = [TransactionEdit("txn0", "merchant", "Amazon", "Target", datetime.now())]
 
         def mock_apply_groups(df):
             return df

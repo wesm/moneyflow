@@ -68,7 +68,7 @@ class TestBulkMerchantEdit:
             )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == len(merchant_txns)
         assert failure == 0
@@ -86,7 +86,7 @@ class TestBulkMerchantEdit:
             TransactionEdit("invalid_txn_999", "merchant", "Old", "New", datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # At least one should succeed/fail
         assert success + failure == len(edits)
@@ -115,7 +115,7 @@ class TestIndividualEdits:
         )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         assert failure == 0
@@ -153,7 +153,7 @@ class TestIndividualEdits:
             )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 3
         assert failure == 0
@@ -191,7 +191,7 @@ class TestIndividualEdits:
         )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         assert failure == 0
@@ -218,7 +218,7 @@ class TestIndividualEdits:
             )
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         updated = mock_mm.get_transaction_by_id(txn["id"])
@@ -322,7 +322,7 @@ class TestEditValidation:
 
     async def test_commit_with_no_edits_succeeds(self, data_manager):
         """Test that committing with empty edits list works."""
-        success, failure = await data_manager.commit_pending_edits([])
+        success, failure, _ = await data_manager.commit_pending_edits([])
 
         assert success == 0
         assert failure == 0
@@ -353,7 +353,7 @@ class TestDataFrameUpdates:
         )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
         assert success == 1
 
         # Apply update to DataFrame (simulating what app.py does after successful commit)
@@ -395,7 +395,7 @@ class TestDataFrameUpdates:
             TransactionEdit(txn_id, "hide_from_reports", old_hidden, new_hidden, datetime.now())
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
         assert success == 1
 
         # Apply update to DataFrame (simulating what app.py does)
@@ -429,7 +429,7 @@ class TestEdgeCase:
             TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         updated = mock_mm.get_transaction_by_id(txn["id"])
@@ -446,7 +446,7 @@ class TestEdgeCase:
             TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         updated = mock_mm.get_transaction_by_id(txn["id"])
@@ -485,7 +485,7 @@ class TestEdgeCase:
             TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         # Should succeed - the API should handle length validation
         assert success == 1
@@ -504,7 +504,7 @@ class TestEdgeCase:
             TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         assert success == 1
         updated = mock_mm.get_transaction_by_id(txn["id"])
@@ -524,7 +524,7 @@ class TestEdgeCase:
             ),  # Invalid
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should have 2 successes (valid IDs) and 2 failures (invalid IDs)
         assert success == 2, f"Expected 2 successes, got {success}"
@@ -550,7 +550,7 @@ class TestEdgeCase:
             )
         )
 
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         # Should still succeed at API level (mock doesn't validate category IDs)
         # But verify the update was attempted
@@ -573,7 +573,7 @@ class TestEdgeCase:
         ]
 
         dm.pending_edits.extend(edits)
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         # All edits should be grouped into a single API call
         # commit_pending_edits groups by transaction_id
@@ -603,7 +603,7 @@ class TestEdgeCase:
             )
 
         # Commit
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
         assert success == 2
         assert failure == 0
 
@@ -664,7 +664,7 @@ class TestEdgeCase:
         ]
 
         dm.pending_edits.extend(edits)
-        success, failure = await dm.commit_pending_edits(dm.pending_edits)
+        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
 
         # With batch optimization: merchant handled via batch (1), category individually (1) = 2 total
         # Note: If backend doesn't support batch update, both would be grouped into 1 API call
@@ -695,7 +695,7 @@ class TestEdgeCase:
             txn["id"], "merchant", txn["merchant"], "New Merchant Name", datetime.now()
         )
 
-        success, failure = await dm.commit_pending_edits([merchant_edit])
+        success, failure, _ = await dm.commit_pending_edits([merchant_edit])
 
         # Should succeed
         assert success == 1

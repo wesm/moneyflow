@@ -366,7 +366,7 @@ class TestCommitEdits:
         """Test committing a single edit."""
         edits = [TransactionEdit("txn_1", "merchant", "Old Name", "New Name", datetime.now())]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         assert success == 1
         assert failure == 0
@@ -385,7 +385,7 @@ class TestCommitEdits:
             TransactionEdit("txn_3", "hide_from_reports", False, True, datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         assert success == 3
         assert failure == 0
@@ -393,7 +393,7 @@ class TestCommitEdits:
 
     async def test_commit_empty_edits(self, data_manager, mock_mm):
         """Test committing with no edits."""
-        success, failure = await data_manager.commit_pending_edits([])
+        success, failure, _ = await data_manager.commit_pending_edits([])
 
         assert success == 0
         assert failure == 0
@@ -770,7 +770,7 @@ class TestCommitEditsAdvanced:
             TransactionEdit("txn_1", "hide_from_reports", False, True, datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         assert success == 1  # Only one transaction updated
         assert failure == 0
@@ -801,7 +801,7 @@ class TestCommitEditsAdvanced:
             TransactionEdit("txn_3", "merchant", "E", "F", datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should have 2 successes and 1 failure
         assert success == 2
@@ -816,7 +816,7 @@ class TestCommitEditsAdvanced:
             TransactionEdit("txn_4", "merchant", "X", "Y", datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         assert success == 4
         assert failure == 0
@@ -853,7 +853,7 @@ class TestBatchMerchantOptimization:
         mock_mm.reset_update_calls()
 
         # Commit edits
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should use batch update (1 batch call) instead of 3 individual calls
         assert success == 3
@@ -885,7 +885,7 @@ class TestBatchMerchantOptimization:
 
         mock_mm.reset_update_calls()
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should succeed for all 4 transactions
         assert success == 4
@@ -916,7 +916,7 @@ class TestBatchMerchantOptimization:
 
         mock_mm.reset_update_calls()
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # All 4 edits should succeed
         assert success == 4
@@ -971,7 +971,7 @@ class TestBatchMerchantOptimization:
 
         original_mm.reset_update_calls()
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should fall back to individual updates
         assert success == 2
@@ -999,7 +999,7 @@ class TestBatchMerchantOptimization:
 
         mock_mm.reset_update_calls()
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Batch update will fail (merchant not found), falls back to individual updates
         # Individual updates succeed (they update the transactions with txn_1 and txn_2 IDs)
@@ -1034,7 +1034,7 @@ class TestBatchMerchantOptimization:
             TransactionEdit("txn_2", "merchant", "Old", "New", datetime.now()),
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should use individual updates
         assert success == 2
@@ -1458,3 +1458,230 @@ class TestTimeAggregation:
         year_2024 = result.filter(pl.col("year") == 2024)
         assert year_2024["count"][0] == 3  # All 3 counted
         assert year_2024["total"][0] == -150.0  # Only non-hidden: -100 + -50
+
+
+class TestCheckBatchScope:
+    """Test check_batch_scope method for batch scope prompts."""
+
+    async def test_check_batch_scope_no_merchant_edits(self, data_manager):
+        """Test check_batch_scope returns empty when no merchant edits."""
+        edits = [
+            TransactionEdit("txn_1", "category", "old_cat", "new_cat", datetime.now()),
+            TransactionEdit("txn_2", "hide_from_reports", False, True, datetime.now()),
+        ]
+
+        result = await data_manager.check_batch_scope(edits)
+
+        assert result == {}
+
+    async def test_check_batch_scope_backend_without_support(self, data_manager):
+        """Test check_batch_scope returns empty when backend doesn't support counting."""
+
+        # Create a mock backend without get_transaction_count_by_merchant
+        class MockBackendNoCount:
+            pass
+
+        original_mm = data_manager.mm
+        data_manager.mm = MockBackendNoCount()
+
+        edits = [
+            TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        result = await data_manager.check_batch_scope(edits)
+
+        assert result == {}
+
+        # Restore
+        data_manager.mm = original_mm
+
+    async def test_check_batch_scope_count_equals_selected(self, data_manager):
+        """Test check_batch_scope returns empty when total equals selected."""
+
+        # Create mock backend that returns exact count
+        class MockBackendWithCount:
+            def get_transaction_count_by_merchant(self, merchant_name):
+                return 2  # Same as selected
+
+        original_mm = data_manager.mm
+        data_manager.mm = MockBackendWithCount()
+
+        edits = [
+            TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit("txn_2", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        result = await data_manager.check_batch_scope(edits)
+
+        assert result == {}
+
+        # Restore
+        data_manager.mm = original_mm
+
+    async def test_check_batch_scope_count_more_than_selected(self, data_manager):
+        """Test check_batch_scope returns mismatch when total > selected."""
+
+        # Create mock backend that returns higher count
+        class MockBackendWithCount:
+            def get_transaction_count_by_merchant(self, merchant_name):
+                return 5  # More than selected (2)
+
+        original_mm = data_manager.mm
+        data_manager.mm = MockBackendWithCount()
+
+        edits = [
+            TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit("txn_2", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        result = await data_manager.check_batch_scope(edits)
+
+        assert ("Amazon.com/abc", "Amazon") in result
+        assert result[("Amazon.com/abc", "Amazon")] == {"selected": 2, "total": 5}
+
+        # Restore
+        data_manager.mm = original_mm
+
+    async def test_check_batch_scope_multiple_rename_groups(self, data_manager):
+        """Test check_batch_scope handles multiple merchant rename groups."""
+
+        # Create mock backend that returns different counts per merchant
+        class MockBackendWithCount:
+            def get_transaction_count_by_merchant(self, merchant_name):
+                if merchant_name == "Amazon.com/abc":
+                    return 5
+                elif merchant_name == "Starbucks #123":
+                    return 3  # Same as selected, no mismatch
+                return 0
+
+        original_mm = data_manager.mm
+        data_manager.mm = MockBackendWithCount()
+
+        edits = [
+            TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit("txn_2", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit("txn_3", "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+            TransactionEdit("txn_4", "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+            TransactionEdit("txn_5", "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+        ]
+
+        result = await data_manager.check_batch_scope(edits)
+
+        # Only Amazon should have mismatch (5 total > 2 selected)
+        assert ("Amazon.com/abc", "Amazon") in result
+        assert result[("Amazon.com/abc", "Amazon")] == {"selected": 2, "total": 5}
+
+        # Starbucks should NOT have mismatch (3 total == 3 selected)
+        assert ("Starbucks #123", "Starbucks") not in result
+
+        # Restore
+        data_manager.mm = original_mm
+
+
+class TestSkipBatchFor:
+    """Test skip_batch_for parameter in commit_pending_edits."""
+
+    async def test_skip_batch_for_uses_individual_updates(self, data_manager, mock_mm):
+        """Test that skip_batch_for forces individual transaction updates."""
+        # Add test transactions
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        # Skip batch for this rename
+        skip_batch_for = {("Amazon.com/abc", "Amazon")}
+        success, failure, bulk_renames = await data_manager.commit_pending_edits(
+            edits, skip_batch_for=skip_batch_for
+        )
+
+        assert success == 2
+        assert failure == 0
+
+        # Should use individual updates, NOT batch
+        assert len(mock_mm.update_calls) == 2
+
+        # Bulk renames should NOT include this rename (we skipped batch)
+        assert ("Amazon.com/abc", "Amazon") not in bulk_renames
+
+    async def test_skip_batch_for_partial(self, data_manager, mock_mm):
+        """Test skip_batch_for only affects specified renames."""
+        # Add test transactions for two different merchants
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m2", "name": "Starbucks #123"})
+
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Starbucks #123", "Starbucks", datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        # Skip batch only for Amazon, let Starbucks use batch
+        skip_batch_for = {("Amazon.com/abc", "Amazon")}
+        success, failure, bulk_renames = await data_manager.commit_pending_edits(
+            edits, skip_batch_for=skip_batch_for
+        )
+
+        assert success == 2
+        assert failure == 0
+
+        # Amazon should use individual (1 call), Starbucks should use batch (0 calls)
+        assert len(mock_mm.update_calls) == 1
+
+        # Starbucks should be in bulk renames, Amazon should not
+        assert ("Starbucks #123", "Starbucks") in bulk_renames
+        assert ("Amazon.com/abc", "Amazon") not in bulk_renames
+
+    async def test_skip_batch_for_empty_set(self, data_manager, mock_mm):
+        """Test empty skip_batch_for uses normal batch behavior."""
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+        txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+            TransactionEdit(txn_id_2, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        # Empty skip set
+        success, failure, bulk_renames = await data_manager.commit_pending_edits(
+            edits, skip_batch_for=set()
+        )
+
+        assert success == 2
+        assert failure == 0
+
+        # Should use batch (0 individual calls)
+        assert len(mock_mm.update_calls) == 0
+
+        # Should be in bulk renames
+        assert ("Amazon.com/abc", "Amazon") in bulk_renames
+
+    async def test_skip_batch_for_none(self, data_manager, mock_mm):
+        """Test None skip_batch_for uses normal batch behavior."""
+        txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
+
+        edits = [
+            TransactionEdit(txn_id_1, "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
+        ]
+
+        mock_mm.reset_update_calls()
+
+        # None (default)
+        success, failure, bulk_renames = await data_manager.commit_pending_edits(
+            edits, skip_batch_for=None
+        )
+
+        assert success == 1
+        assert failure == 0
+
+        # Should use batch
+        assert len(mock_mm.update_calls) == 0
+        assert ("Amazon.com/abc", "Amazon") in bulk_renames

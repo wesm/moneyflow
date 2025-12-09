@@ -1054,8 +1054,62 @@ class DataManager:
             | pl.col("notes").str.to_lowercase().str.contains(query_lower)
         )
 
+    async def check_batch_scope(self, edits: List[Any]) -> Dict[Tuple[str, str], Dict[str, int]]:
+        """
+        Check if any merchant renames would affect more transactions than selected.
+
+        This is used to prompt the user before committing, so they can choose
+        between batch rename (affects all transactions) or individual updates
+        (affects only selected transactions).
+
+        Only applicable for backends that support batch_update_merchant (e.g., YNAB).
+
+        Args:
+            edits: List of TransactionEdit objects to check
+
+        Returns:
+            Dict mapping (old_merchant, new_merchant) to counts:
+            {"selected": count_in_queue, "total": count_on_backend}
+
+            Empty dict if backend doesn't support this check or no mismatches found.
+
+        Example:
+            >>> mismatches = await dm.check_batch_scope(edits)
+            >>> for (old, new), counts in mismatches.items():
+            ...     print(f"'{old}' -> '{new}': {counts['selected']} selected, "
+            ...           f"{counts['total']} total on backend")
+        """
+        # Only supported for backends with get_transaction_count_by_merchant
+        if not hasattr(self.mm, "get_transaction_count_by_merchant"):
+            return {}
+
+        # Filter to merchant edits only
+        merchant_edits = [e for e in edits if e.field == "merchant"]
+        if not merchant_edits:
+            return {}
+
+        # Group by (old_value, new_value)
+        groups: Dict[Tuple[str, str], List[Any]] = {}
+        for edit in merchant_edits:
+            key = (edit.old_value, edit.new_value)
+            groups.setdefault(key, []).append(edit)
+
+        result: Dict[Tuple[str, str], Dict[str, int]] = {}
+        for (old_name, new_name), group_edits in groups.items():
+            # Call backend to get total count
+            total = await asyncio.to_thread(self.mm.get_transaction_count_by_merchant, old_name)
+
+            # Only report if backend returned a count and it's more than selected
+            if total is not None and total > len(group_edits):
+                result[(old_name, new_name)] = {
+                    "selected": len(group_edits),
+                    "total": total,
+                }
+
+        return result
+
     async def commit_pending_edits(
-        self, edits: List[Any]
+        self, edits: List[Any], skip_batch_for: Optional[Set[Tuple[str, str]]] = None
     ) -> Tuple[int, int, Set[Tuple[str, str]]]:
         """
         Commit pending edits to backend API in parallel.
@@ -1072,6 +1126,10 @@ class DataManager:
 
         Args:
             edits: List of TransactionEdit objects to commit
+            skip_batch_for: Optional set of (old_merchant, new_merchant) tuples
+                to process individually instead of using batch update. Used when
+                user chooses "rename selected only" for renames that would affect
+                more transactions than selected.
 
         Returns:
             Tuple of (success_count, failure_count, bulk_merchant_renames)
@@ -1133,7 +1191,19 @@ class DataManager:
             # they'll be in different batch groups. We can only batch one of them.
             processed_txn_ids = set()
 
+            # Initialize skip_batch_for if not provided
+            skip_batch_set = skip_batch_for or set()
+
             for (old_name, new_name), group_edits in merchant_groups.items():
+                # Check if user chose to skip batch for this rename
+                if (old_name, new_name) in skip_batch_set:
+                    logger.info(
+                        f"User chose individual updates for '{old_name}' -> '{new_name}' "
+                        f"({len(group_edits)} transactions)"
+                    )
+                    failed_batch_edits.extend(group_edits)
+                    continue
+
                 # Filter out edits for transactions already processed in a different batch
                 unprocessed_edits = [
                     e for e in group_edits if e.transaction_id not in processed_txn_ids

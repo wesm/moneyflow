@@ -300,6 +300,29 @@ class FinanceBackend(ABC):
         """
         pass  # Default: no-op
 
+    def get_transaction_count_by_merchant(self, merchant_name: str) -> Optional[int]:
+        """
+        Return count of transactions with the given merchant name.
+
+        This is used to determine if a batch merchant rename would affect
+        more transactions than are currently selected in the queue.
+
+        Only backends that support batch merchant updates (e.g., YNAB) need
+        to implement this. Other backends return None (not supported).
+
+        Args:
+            merchant_name: The merchant name to count transactions for
+
+        Returns:
+            Number of transactions with this merchant, or None if not supported
+
+        Example:
+            >>> count = backend.get_transaction_count_by_merchant("Amazon")
+            >>> if count is not None and count > selected_count:
+            ...     # Prompt user: batch will affect more transactions than selected
+        """
+        return None  # Default: not supported
+
     def clear_auth(self) -> None:
         """
         Clear all authentication state (in-memory tokens, headers, etc.).

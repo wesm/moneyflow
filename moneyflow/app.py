@@ -54,6 +54,7 @@ from .retry_logic import RetryAborted, retry_with_backoff
 # Screen imports
 from .screens.account_name_input_screen import AccountNameInputScreen
 from .screens.account_selector_screen import AccountSelectorScreen
+from .screens.batch_scope_screen import BatchScopeScreen
 from .screens.budget_selector_screen import BudgetSelectorScreen
 from .screens.credential_screens import (
     BackendSelectionScreen,
@@ -1966,7 +1967,7 @@ class MoneyflowApp(App):
                 # Re-raise other errors
                 raise
 
-    async def _commit_with_retry(self, edits):
+    async def _commit_with_retry(self, edits, skip_batch_for: set[tuple[str, str]] | None = None):
         """
         Commit edits with automatic retry on session expiration.
 
@@ -1979,6 +1980,11 @@ class MoneyflowApp(App):
         - On retry success: Returns normally (no extra notification)
         - On all retries exhausted: Re-raises exception (caller shows error)
         - On user cancel: "Commit cancelled by user"
+
+        Args:
+            edits: List of TransactionEdit objects to commit
+            skip_batch_for: Set of (old, new) merchant tuples to process individually
+                instead of using batch update
         """
 
         logger = get_logger(__name__)
@@ -1994,7 +2000,7 @@ class MoneyflowApp(App):
         async def commit_operation():
             """Wrapper to commit and re-authenticate if needed."""
             try:
-                return await self.data_manager.commit_pending_edits(edits)
+                return await self.data_manager.commit_pending_edits(edits, skip_batch_for)
             except Exception as e:
                 # Check if it's an auth error (session expired)
                 error_msg = str(e).lower()
@@ -2006,7 +2012,7 @@ class MoneyflowApp(App):
                     if await self._refresh_session():
                         logger.debug("Session refreshed, retrying commit immediately")
                         # Session refreshed - try commit again immediately
-                        return await self.data_manager.commit_pending_edits(edits)
+                        return await self.data_manager.commit_pending_edits(edits, skip_batch_for)
                     else:
                         logger.error("Session refresh failed")
                         # Session refresh failed - will trigger retry with backoff
@@ -2079,12 +2085,41 @@ class MoneyflowApp(App):
             # Restore table position after refresh
             self._restore_table_position(saved_table_position)
 
+            # Check for batch scope mismatches (YNAB only)
+            # This identifies merchant renames where batch update would affect more
+            # transactions than the user has selected
+            scope_mismatches = await self.data_manager.check_batch_scope(
+                self.data_manager.pending_edits
+            )
+
+            # Track user choices: which renames should use individual updates instead of batch
+            skip_batch_for: set[tuple[str, str]] = set()
+
+            for (old_name, new_name), counts in scope_mismatches.items():
+                choice = await self.push_screen(
+                    BatchScopeScreen(
+                        merchant_name=old_name,
+                        selected_count=counts["selected"],
+                        total_count=counts["total"],
+                    ),
+                    wait_for_dismiss=True,
+                )
+
+                if choice == "cancel":
+                    # User cancelled - abort the entire commit
+                    self._notify(NotificationHelper.commit_cancelled())
+                    return
+                elif choice == "selected":
+                    # User chose individual updates for this rename
+                    skip_batch_for.add((old_name, new_name))
+                # "all" → use batch (default behavior, nothing to track)
+
             count = len(self.data_manager.pending_edits)
             self._notify(NotificationHelper.commit_starting(count))
 
             try:
-                success_count, failure_count, bulk_merchant_renames = (
-                    await self._commit_with_retry(self.data_manager.pending_edits)  # type: ignore
+                success_count, failure_count, bulk_merchant_renames = await self._commit_with_retry(
+                    self.data_manager.pending_edits, skip_batch_for=skip_batch_for
                 )
 
                 # Show notification based on results

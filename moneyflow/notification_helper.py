@@ -57,6 +57,11 @@ class NotificationHelper:
         """User tried to commit but no changes pending."""
         return ("No pending changes to commit", "information", 2)
 
+    @staticmethod
+    def commit_cancelled() -> NotificationTuple:
+        """User cancelled the commit from batch scope prompt."""
+        return ("Commit cancelled", "information", 2)
+
     # ==================== Session & Auth ====================
 
     @staticmethod

@@ -498,6 +498,31 @@ class YNABClient:
                 "message": f"Failed to update payee {old_payee.id}",
             }
 
+    def get_transaction_count_by_payee(self, payee_name: str) -> int:
+        """
+        Return count of transactions with the given payee name.
+
+        This is used to determine if a batch merchant rename would affect
+        more transactions than are currently selected in the queue.
+
+        Args:
+            payee_name: The payee name to count transactions for
+
+        Returns:
+            Number of transactions with this payee (0 if payee not found)
+        """
+        self._ensure_authenticated()
+
+        payee_result = self._find_or_create_payee(payee_name)
+        if not payee_result["payee"]:
+            return 0
+
+        transactions_api = ynab.TransactionsApi(self.api_client)
+        response = transactions_api.get_transactions_by_payee(
+            budget_id=self.budget_id, payee_id=payee_result["payee"].id
+        )
+        return len(response.data.transactions)
+
     def close(self) -> None:
         """Close the API client and clear all state."""
         # Note: ynab.ApiClient doesn't have a close() method

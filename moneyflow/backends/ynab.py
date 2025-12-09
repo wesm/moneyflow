@@ -198,6 +198,28 @@ class YNABBackend(FinanceBackend):
         """
         return self.client.batch_update_merchant(old_merchant_name, new_merchant_name)
 
+    def get_transaction_count_by_merchant(self, merchant_name: str) -> int:
+        """
+        Return count of transactions with the given merchant/payee name.
+
+        This enables the batch scope prompt feature - when the user renames
+        a merchant in the queue, we can check if the batch would affect more
+        transactions than they have selected.
+
+        Args:
+            merchant_name: The merchant name to count transactions for
+
+        Returns:
+            Number of transactions with this merchant/payee
+
+        Example:
+            >>> backend = YNABBackend()
+            >>> count = backend.get_transaction_count_by_merchant("Amazon")
+            >>> if count > selected_count:
+            ...     # Prompt user: "Rename all 15 or just selected 3?"
+        """
+        return self.client.get_transaction_count_by_payee(merchant_name)
+
     def get_currency_symbol(self) -> str:
         """
         Get the currency symbol from YNAB budget settings.

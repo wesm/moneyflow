@@ -30,7 +30,7 @@ class TestCacheAndCommit:
         edits = [TransactionEdit("txn_1", "merchant", "Old", "New", datetime.now())]
 
         # Attempt commit
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Should succeed
         assert success == 1
@@ -48,7 +48,7 @@ class TestCacheAndCommit:
             for i in range(1, 7)  # Use 6 valid transaction IDs
         ]
 
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # All should succeed
         assert success == 6
@@ -70,7 +70,7 @@ class TestCacheAndCommit:
         # This should either:
         # 1. Fail with clear error
         # 2. Auto-login and succeed
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         # Record what happens for analysis
         # In real backend, not being logged in would cause 401 errors
@@ -141,7 +141,7 @@ class TestCommitFailureDoesNotCorruptLocalState:
         data_manager.pending_edits = edits.copy()
 
         # Commit will fail
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
 
         assert success == 0
         assert failure == 2
@@ -181,7 +181,7 @@ class TestCommitFailureDoesNotCorruptLocalState:
         ]
 
         # Commit fails
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
         assert failure == 2
 
         # CRITICAL TEST: Local DataFrame should be UNCHANGED
@@ -208,7 +208,7 @@ class TestCommitFailureDoesNotCorruptLocalState:
         edits = [TransactionEdit("txn_1", "merchant", "OldMerchant", "NewMerchant", datetime.now())]
 
         # Commit succeeds
-        success, failure = await data_manager.commit_pending_edits(edits)
+        success, failure, _ = await data_manager.commit_pending_edits(edits)
         assert success == 1
         assert failure == 0
 
