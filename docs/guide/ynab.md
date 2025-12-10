@@ -111,6 +111,33 @@ moneyflow will:
 
 ---
 
+## Payee Management
+
+moneyflow includes optimized features for managing YNAB payees (merchants).
+
+### Batch Renaming
+
+When you rename a merchant in the transactions list, moneyflow will:
+
+1. Update the payee name in YNAB
+2. **Automatically update ALL transactions** associated with that payee
+3. This counts as a single API call, making it much faster than updating individual transactions
+
+### Merging Payees
+
+If you rename a merchant to a name that **already exists** in ynab (e.g., renaming "Amazon.com" to "Amazon"):
+
+- moneyflow will detect the existing payee
+- ALL transactions from the old payee will be **reassigned** to the existing payee
+- The old payee will be left with 0 transactions (you can delete it in YNAB later)
+
+### Duplicate Payees
+
+If you have multiple payees with the *exact same name* in YNAB (duplicates), moneyflow will warn you and
+prevent batch updates to avoid data corruption. You should merge these duplicates in the YNAB web interface first.
+
+---
+
 ## Editing Transactions
 
 All edits sync back to YNAB immediately after commit. See the [Editing Guide](editing.md) for full details.
