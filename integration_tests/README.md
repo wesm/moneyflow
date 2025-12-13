@@ -17,6 +17,10 @@ by making real API calls. They are designed to test:
 
 1. **Create a test budget in YNAB**
    - Go to [YNAB](https://app.ynab.com) and create a new budget specifically for testing
+   - **Add at least one on-budget account** (e.g., "Test Checking")
+     - Go to Settings → Accounts → Add Account
+     - Choose "Checking" or any on-budget account type
+     - This is required to create test transactions
    - This budget will have test data created and deleted during tests
    - Do NOT use your personal budget!
 
@@ -86,6 +90,12 @@ uv run pytest tests/ -v  # Only runs unit tests
 
 ### "YNAB_TEST_API_KEY not set"
 Set the environment variable as described in Setup.
+
+### "Test budget has no accounts"
+Your test budget needs at least one on-budget account to create transactions.
+- Go to https://app.ynab.com/settings/accounts
+- Add a checking account or any on-budget account type
+- Run the tests again
 
 ### Tests are slow
 These tests make real API calls, so they're slower than unit tests.

@@ -63,10 +63,38 @@ def ynab_client(ynab_credentials: tuple[str, Optional[str]]) -> Generator[YNABCl
     Session-scoped fixture providing an authenticated YNAB client.
 
     The client is authenticated once per test session for efficiency.
+    If the test budget has no on-budget accounts, one is created automatically.
     """
+    import ynab
+
     api_key, budget_id = ynab_credentials
     client = YNABClient()
     client.login(api_key, budget_id)
+
+    # Check if test budget has at least one on-budget, open account
+    on_budget_accounts = [
+        acc for acc in (client._account_cache or {}).values()
+        if acc["on_budget"] and not acc["closed"]
+    ]
+
+    if not on_budget_accounts:
+        # No suitable account exists - create one for testing
+        accounts_api = ynab.AccountsApi(client.api_client)
+
+        save_account = ynab.SaveAccount(
+            name="__test_checking_account__",
+            type="checking",
+            balance=0,  # Balance in milliunits
+        )
+        wrapper = ynab.PostAccountWrapper(account=save_account)
+
+        response = accounts_api.create_account(budget_id=client.budget_id, data=wrapper)
+
+        # Refresh account cache to include the newly created account
+        client._fetch_and_cache_accounts()
+
+        print(f"\nCreated test account: {response.data.account.name} (id={response.data.account.id})")
+
     yield client
     client.close()
 
@@ -162,7 +190,18 @@ def create_test_transaction(ynab_client: YNABClient, test_payee_prefix: str):
                 if acc["on_budget"] and not acc["closed"]
             ]
             if not budget_accounts:
-                raise ValueError("No budget accounts found in test budget")
+                # Provide helpful error message with account details
+                all_accounts = [
+                    f"{acc['name']} (on_budget={acc['on_budget']}, closed={acc['closed']})"
+                    for acc in ynab_client._account_cache.values()
+                ]
+                account_list = "\n  ".join(all_accounts) if all_accounts else "(none)"
+                raise ValueError(
+                    f"No on-budget, open accounts found in test budget.\n"
+                    f"Available accounts:\n  {account_list}\n\n"
+                    f"Please add at least one on-budget account to your test budget at:\n"
+                    f"https://app.ynab.com/settings/accounts"
+                )
             account_id = budget_accounts[0]
 
         # Use today's date if not specified
