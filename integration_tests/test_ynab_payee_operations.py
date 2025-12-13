@@ -254,6 +254,55 @@ class TestDuplicatePayeeDetection:
         assert result["duplicates_found"] is False
         assert result["duplicate_ids"] == []
 
+    def test_batch_update_rejects_duplicate_target_payee(
+        self,
+        ynab_client: YNABClient,
+        create_test_transaction: Callable[..., Dict[str, Any]],
+        test_payee_prefix: str,
+    ):
+        """
+        Test that batch_update_merchant rejects merges when target has duplicates.
+
+        Note: YNAB's API typically prevents creating duplicate payees, so this
+        test verifies the defensive check is in place even though duplicates
+        are rare in practice (usually only happen via manual UI operations or
+        imports). We test this by mocking the duplicate detection response.
+        """
+        from unittest.mock import patch
+
+        source_name = "SourcePayee_DuplicateTargetTest"
+        target_name = "TargetPayee_DuplicateTargetTest"
+        full_source = f"{test_payee_prefix}{source_name}"
+        full_target = f"{test_payee_prefix}{target_name}"
+
+        # Create source payee via transaction
+        create_test_transaction(source_name, -10.00)
+
+        # Create target payee via transaction
+        target_txn = create_test_transaction(target_name, -20.00)
+
+        # Mock _find_or_create_payee to simulate duplicate target payees
+        original_find = ynab_client._find_or_create_payee
+
+        def mock_find_payee(merchant_name: str):
+            result = original_find(merchant_name)
+            # If this is the target payee, simulate duplicates
+            if merchant_name == full_target and result["payee"]:
+                result["duplicates_found"] = True
+                result["duplicate_ids"] = [result["payee"].id, "fake-duplicate-id"]
+            return result
+
+        with patch.object(ynab_client, "_find_or_create_payee", side_effect=mock_find_payee):
+            # Try to merge source into target (which has duplicates)
+            result = ynab_client.batch_update_merchant(full_source, full_target)
+
+        # Should fail with duplicate target error
+        assert result["success"] is False
+        assert result["method"] == "duplicate_target_payees_found"
+        assert "duplicate" in result["message"].lower()
+        assert "duplicate_ids" in result
+        assert len(result["duplicate_ids"]) == 2
+
     def test_batch_update_with_nonexistent_payee(
         self,
         ynab_client: YNABClient,

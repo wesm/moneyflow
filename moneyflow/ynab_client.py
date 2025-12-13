@@ -460,6 +460,26 @@ class YNABClient:
         # Check if target payee name already exists
         target_payee_result = self._find_or_create_payee(new_merchant_name)
         if target_payee_result["payee"]:
+            # Check for duplicates in target - abort if found
+            if target_payee_result["duplicates_found"]:
+                logger.error(
+                    f"Found duplicate target payees with name '{new_merchant_name}': "
+                    f"{target_payee_result['duplicate_ids']}. Cannot safely perform batch merge. "
+                    "Please merge duplicate payees in YNAB first."
+                )
+                return {
+                    "success": False,
+                    "payee_id": None,
+                    "transactions_affected": 0,
+                    "method": "duplicate_target_payees_found",
+                    "message": (
+                        f"Target payee '{new_merchant_name}' has "
+                        f"{len(target_payee_result['duplicate_ids'])} duplicates. "
+                        "Merge duplicates in YNAB first."
+                    ),
+                    "duplicate_ids": target_payee_result["duplicate_ids"],
+                }
+
             # Target payee already exists - use batch transaction update to merge
             target_payee = target_payee_result["payee"]
             logger.info(
