@@ -369,6 +369,7 @@ If you need to adjust the bot's behavior:
 - ✅ AI can create commits locally
 - ❌ AI must NEVER push to git without explicit user permission
 - ❌ AI must NEVER create new branches unless explicitly asked by the user
+- ❌ AI must NEVER amend commits unless explicitly asked by the user
 - 💡 User should review commits before pushing
 
 ```bash

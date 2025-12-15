@@ -556,7 +556,6 @@ class TestEdgeCases:
 
     def test_date_object_conversion(self, config_dir: Path, amazon_profile: Path) -> None:
         """Should work when date is passed as various formats."""
-        from datetime import date
 
         create_amazon_db(
             amazon_profile,
@@ -626,7 +625,12 @@ class TestEdgeCases:
                     "order_id": "113-1234567-8901234",
                     "date": "2025-01-10",
                     "items": [
-                        {"name": "Expensive Item", "amount": -9999.99, "quantity": 1, "asin": "B001"},
+                        {
+                            "name": "Expensive Item",
+                            "amount": -9999.99,
+                            "quantity": 1,
+                            "asin": "B001",
+                        },
                     ],
                 }
             ],
