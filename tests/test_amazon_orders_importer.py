@@ -547,3 +547,87 @@ class TestEndToEndDataFetch:
         for txn in transactions:
             assert txn["date"] >= "2025-10-12"
             assert txn["date"] <= "2025-10-13"
+
+
+class TestAmazonNoEncryption:
+    """Test that Amazon mode works without encryption (no cache manager).
+
+    Amazon backend stores data locally in SQLite and doesn't need:
+    - Credentials (no login required)
+    - Encryption key (data is local, not sensitive API tokens)
+    - Cache manager (data is already local)
+
+    These tests ensure we don't regress and accidentally require encryption
+    for Amazon mode.
+    """
+
+    def test_amazon_backend_works_without_encryption_key(self, temp_db, temp_config_dir):
+        """Amazon backend should initialize without any encryption key."""
+        # This should not raise any errors
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
+        assert backend is not None
+
+    @pytest.mark.asyncio
+    async def test_amazon_fetch_without_encryption(
+        self, sample_orders_csv, temp_db, temp_config_dir
+    ):
+        """Amazon backend should fetch data without encryption key."""
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
+        import_amazon_orders(str(sample_orders_csv), backend)
+
+        # Fetch should work without any encryption
+        result = await backend.get_transactions()
+        transactions = result["allTransactions"]["results"]
+
+        assert len(transactions) == 3
+
+    def test_cache_manager_not_created_without_encryption_key(self, temp_config_dir):
+        """CacheManager should not be created when encryption_key is None."""
+        from moneyflow.cache_manager import CacheManager
+
+        # When encryption_key is None, CacheManager can be created but
+        # save/load operations should be skipped or raise clear errors
+        cache_mgr = CacheManager(cache_dir=temp_config_dir, encryption_key=None)
+
+        # The manager exists but has no fernet cipher
+        assert cache_mgr.fernet is None
+        assert cache_mgr.encryption_key is None
+
+    def test_cache_manager_save_raises_without_encryption(
+        self, temp_config_dir, sample_orders_csv, temp_db
+    ):
+        """CacheManager.save_cache should raise ValueError without encryption key."""
+        import polars as pl
+        import pytest
+
+        from moneyflow.cache_manager import CacheManager
+
+        cache_mgr = CacheManager(cache_dir=temp_config_dir, encryption_key=None)
+
+        # Create minimal test data
+        df = pl.DataFrame({"id": ["1"], "date": ["2025-01-01"], "amount": [10.0]})
+        categories = {"cat_1": "Category 1"}
+        category_groups = {}
+
+        # Should raise ValueError, not crash with unclear error
+        with pytest.raises(ValueError, match="encryption key not set"):
+            cache_mgr.save_cache(df, categories, category_groups)
+
+    @pytest.mark.asyncio
+    async def test_data_manager_works_without_cache(
+        self, sample_orders_csv, temp_db, temp_config_dir
+    ):
+        """DataManager should work with Amazon backend and no cache manager."""
+        from moneyflow.data_manager import DataManager
+
+        backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
+        import_amazon_orders(str(sample_orders_csv), backend)
+
+        # DataManager with cache_manager=None should work fine
+        data_manager = DataManager(backend, config_dir=temp_config_dir)
+        df, categories, category_groups = await data_manager.fetch_all_data()
+
+        # Data should load successfully
+        assert df is not None
+        assert len(df) == 3
+        assert categories is not None

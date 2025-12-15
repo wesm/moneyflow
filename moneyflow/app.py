@@ -340,8 +340,9 @@ class MoneyflowApp(App):
             backend_type=backend_type,
         )
 
-        # Initialize cache manager (with encryption if key available)
-        if self.cache_path is not None:
+        # Initialize cache manager (only if encryption key available)
+        # Backends like Amazon don't have encryption keys and don't need caching
+        if self.cache_path is not None and self.encryption_key is not None:
             # Determine cache directory
             if self.cache_path == "":
                 # Default cache location - use profile-specific or legacy location
@@ -1767,9 +1768,63 @@ class MoneyflowApp(App):
 
         # Get current transaction data
         row_data = self.state.current_data.row(table.cursor_row, named=True)
+        transaction_dict = dict(row_data)
 
-        # Show detail modal (doesn't change view state, just displays info)
-        self.push_screen(TransactionDetailScreen(dict(row_data)))
+        # Look for matching Amazon orders if this looks like an Amazon transaction
+        amazon_matches, amazon_searched = self._find_amazon_matches(transaction_dict)
+
+        # Show detail modal with any Amazon matches
+        self.push_screen(
+            TransactionDetailScreen(
+                transaction_dict,
+                amazon_matches=amazon_matches,
+                amazon_searched=amazon_searched,
+            )
+        )
+
+    def _find_amazon_matches(self, transaction: dict) -> tuple[list, bool]:
+        """
+        Find matching Amazon orders for a transaction.
+
+        Args:
+            transaction: Transaction dict with merchant, amount, date fields
+
+        Returns:
+            Tuple of (matches, searched) where:
+            - matches: List of AmazonOrderMatch objects
+            - searched: True if we searched (merchant looked like Amazon)
+        """
+        from .amazon_linker import AmazonLinker
+
+        logger = get_logger(__name__)
+        merchant = transaction.get("merchant", "")
+        amount = transaction.get("amount", 0)
+        txn_date = transaction.get("date", "")
+
+        # Convert date to string if it's a date object
+        if hasattr(txn_date, "isoformat"):
+            txn_date = txn_date.isoformat()
+        else:
+            txn_date = str(txn_date)
+
+        # Initialize linker with config directory
+        config_dir = Path.home() / ".moneyflow"
+        linker = AmazonLinker(config_dir)
+
+        # Only look up if merchant looks like Amazon
+        if not linker.is_amazon_merchant(merchant):
+            return [], False
+
+        try:
+            matches = linker.find_matching_orders(
+                amount=float(amount),
+                transaction_date=txn_date,
+                date_tolerance_days=7,
+            )
+            return matches, True
+        except Exception as e:
+            logger.warning(f"Error finding Amazon matches: {e}")
+            return [], True
 
     def action_delete_transaction(self) -> None:
         """Delete current transaction with confirmation."""

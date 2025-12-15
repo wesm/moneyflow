@@ -1,5 +1,7 @@
 """Transaction detail view screen."""
 
+from typing import List, Optional
+
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.events import Key
@@ -20,7 +22,7 @@ class TransactionDetailScreen(ModalScreen):
     #detail-dialog {
         width: 80;
         height: auto;
-        max-height: 40;
+        max-height: 50;
         border: thick $primary;
         background: $surface;
         padding: 2 4;
@@ -35,7 +37,7 @@ class TransactionDetailScreen(ModalScreen):
     }
 
     #detail-content {
-        height: 30;
+        height: 40;
         border: solid $panel;
         padding: 1;
     }
@@ -58,17 +60,64 @@ class TransactionDetailScreen(ModalScreen):
         margin-top: 1;
         text-style: italic;
     }
+
+    .amazon-section-title {
+        color: $warning;
+        text-style: bold;
+        margin-bottom: 1;
+        padding: 0 0 1 0;
+        border-bottom: solid $panel;
+    }
+
+    .amazon-no-match {
+        color: $text-muted;
+        text-style: italic;
+        margin-bottom: 2;
+    }
+
+    .amazon-order-header {
+        color: $accent;
+        margin-top: 1;
+    }
+
+    .amazon-order-info {
+        color: $text-muted;
+        margin-left: 2;
+    }
+
+    .amazon-item {
+        color: $text;
+        margin-left: 4;
+    }
+
+    .amazon-total {
+        color: $text;
+        text-style: bold;
+        margin-left: 2;
+        margin-top: 1;
+    }
     """
 
-    def __init__(self, transaction_data: dict):
+    def __init__(
+        self,
+        transaction_data: dict,
+        amazon_matches: Optional[List] = None,
+        amazon_searched: bool = False,
+    ):
         super().__init__()
         self.transaction_data = transaction_data
+        self.amazon_matches = amazon_matches or []
+        self.amazon_searched = amazon_searched
 
     def compose(self) -> ComposeResult:
         with Container(id="detail-dialog"):
-            yield Label("📋 Transaction Details", id="detail-title")
+            yield Label("Transaction Details", id="detail-title")
 
             with VerticalScroll(id="detail-content"):
+                # Amazon matches section (at top if searched)
+                if self.amazon_searched:
+                    yield from self._compose_amazon_section()
+
                 # Core fields
                 yield Label("ID:", classes="field-label")
                 yield Static(str(self.transaction_data.get("id", "N/A")), classes="field-value")
@@ -131,6 +180,39 @@ class TransactionDetailScreen(ModalScreen):
                 yield Static("Yes" if recurring else "No", classes="field-value")
 
             yield Static("Esc/Enter=Close", id="close-hint")
+
+    def _compose_amazon_section(self) -> ComposeResult:
+        """Compose the Amazon matches section."""
+        yield Label("Matching Amazon Orders", classes="amazon-section-title")
+
+        if not self.amazon_matches:
+            yield Static("No matching orders found", classes="amazon-no-match")
+            return
+
+        for match in self.amazon_matches:
+            # Order header
+            confidence_marker = "*" if match.confidence == "high" else ""
+            yield Label(
+                f"Order: {match.order_id}{confidence_marker}",
+                classes="amazon-order-header",
+            )
+            yield Static(
+                f"Date: {match.order_date} | From: {match.source_profile}",
+                classes="amazon-order-info",
+            )
+
+            # Items
+            for item in match.items:
+                qty_str = f" (x{item['quantity']})" if item["quantity"] > 1 else ""
+                amount_str = ViewPresenter.format_amount(item["amount"])
+                yield Static(
+                    f"  {item['name']}{qty_str}: {amount_str}",
+                    classes="amazon-item",
+                )
+
+            # Total
+            total_str = ViewPresenter.format_amount(match.total_amount)
+            yield Static(f"Total: {total_str}", classes="amazon-total")
 
     def on_key(self, event: Key) -> None:
         """Handle keyboard shortcuts."""
