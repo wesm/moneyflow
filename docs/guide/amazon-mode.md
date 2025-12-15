@@ -137,6 +137,45 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 
 Cancelled orders are automatically skipped during import.
 
+### Transaction Linking with Monarch/YNAB
+
+When you use Amazon mode alongside Monarch Money or YNAB, moneyflow can automatically link Amazon orders to
+transactions in your bank accounts.
+
+**How it works:**
+
+When viewing a transaction in Monarch or YNAB that has an Amazon-like merchant name (e.g., "Amazon.com",
+"AMZN MKTP US"), pressing ++i++ (Info) will:
+
+1. Search your Amazon database for matching orders
+2. Match by amount (within $0.02 tolerance) and date (within 7 days)
+3. Display matched orders at the top of the transaction details
+
+**Example:**
+
+You have a $47.98 charge from "AMZN MKTP US" on your credit card. Pressing ++i++ shows:
+
+```text
+Matching Amazon Orders
+───────────────────────────────────────
+Order: 113-1234567-8901234*
+Date: 2025-01-10 | From: amazon
+  USB-C Cable (x2): -$12.99
+  Wireless Mouse: -$24.99
+  Total: -$37.98
+───────────────────────────────────────
+```
+
+The `*` indicates a high-confidence match (exact amount and close date).
+
+**Requirements:**
+
+- Import your Amazon purchase history first (`moneyflow amazon import`)
+- Transaction must have "amazon" or "amzn" in the merchant name
+- Amount and date must be within tolerance
+
+This feature helps you identify exactly what items were in each Amazon charge, making categorization easier.
+
 ### Incremental Imports
 
 Amazon mode supports incremental imports, preserving any manual edits you've made:
