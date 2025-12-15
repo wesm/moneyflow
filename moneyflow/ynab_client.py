@@ -580,6 +580,24 @@ class YNABClient:
         Returns:
             Dictionary with results (same format as batch_update_merchant)
         """
+        # Guard against attempting to reassign payee to itself
+        if old_payee_id == target_payee_id:
+            logger.warning(
+                f"Attempted to reassign payee {old_payee_id} to itself. "
+                f"This suggests '{old_merchant_name}' and '{new_merchant_name}' "
+                "are the same payee (possible duplicate)."
+            )
+            return {
+                "success": False,
+                "payee_id": old_payee_id,
+                "transactions_affected": 0,
+                "method": "same_payee_error",
+                "message": (
+                    f"Cannot reassign: '{old_merchant_name}' and '{new_merchant_name}' "
+                    f"are the same payee (id={old_payee_id})"
+                ),
+            }
+
         try:
             transactions_api = ynab.TransactionsApi(self.api_client)
 

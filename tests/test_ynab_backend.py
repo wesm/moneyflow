@@ -547,6 +547,40 @@ class TestYNABBackend:
         )
         mock_transactions_api.update_transactions.assert_called_once()
 
+    def test_batch_update_merchant_same_payee_id(self, backend, mock_ynab_api):
+        """Test that reassigning to the same payee ID is rejected."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        # Mock two payees with different names but same ID (edge case - shouldn't happen but guard against it)
+        mock_old_payee = MagicMock()
+        mock_old_payee.id = "payee-same"
+        mock_old_payee.name = "Amazon.com"
+
+        mock_target_payee = MagicMock()
+        mock_target_payee.id = "payee-same"  # Same ID!
+        mock_target_payee.name = "Amazon"
+
+        mock_payees_response = MagicMock()
+        mock_payees_response.data.payees = [mock_old_payee, mock_target_payee]
+
+        mock_payees_api = MagicMock()
+        mock_payees_api.get_payees.return_value = mock_payees_response
+
+        mock_ynab_api.PayeesApi.return_value = mock_payees_api
+
+        # Attempt to rename payee to itself (simulating a bug where names differ but ID is same)
+        result = backend.batch_update_merchant("Amazon.com", "Amazon")
+
+        # Should fail with same_payee_error
+        assert result["success"] is False
+        assert result["method"] == "same_payee_error"
+        assert "same payee" in result["message"]
+        assert result["payee_id"] == "payee-same"
+
+        # Verify no API calls were made to update transactions
+        mock_payees_api.update_payee.assert_not_called()
+
     def test_batch_update_merchant_integration(self, backend, mock_ynab_api):
         """
         Integration test: Verify that batch_update_merchant cascades to transactions.
