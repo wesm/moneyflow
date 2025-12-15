@@ -359,21 +359,16 @@ class AppController:
             # Exclude hidden from totals
             non_hidden_df = filtered_df.filter(~filtered_df["hideFromReports"])
 
-            income_df = non_hidden_df.filter(pl.col("group") == "Income")
-            total_income = float(income_df["amount"].sum()) if not income_df.is_empty() else 0.0
-            expense_df = non_hidden_df.filter(
-                (pl.col("group") != "Income") & (pl.col("group") != "Transfers")
-            )
-            total_expenses = float(expense_df["amount"].sum()) if not expense_df.is_empty() else 0.0
-            net_savings = total_income + total_expenses
-
-            # Use abbreviated labels for compact display
-            # In: (Income), Out: (Expenses/Outflow), Net: (Savings)
+            # In: = sum of positive amounts (money in)
+            # Out: = sum of negative amounts (money out/spending)
+            total_in = float(non_hidden_df.filter(pl.col("amount") > 0)["amount"].sum())
+            total_out = float(non_hidden_df.filter(pl.col("amount") < 0)["amount"].sum())
+            net = total_in + total_out
             stats_text = (
                 f"{len(filtered_df):,} txns | "
-                f"In: {ViewPresenter.format_amount(total_income)} | "
-                f"Out: {ViewPresenter.format_amount(total_expenses)} | "
-                f"Net: {ViewPresenter.format_amount(net_savings)}"
+                f"In: {ViewPresenter.format_amount(total_in)} | "
+                f"Out: {ViewPresenter.format_amount(total_out)} | "
+                f"Net: {ViewPresenter.format_amount(net)}"
             )
             self.view.update_stats(stats_text)
         else:
