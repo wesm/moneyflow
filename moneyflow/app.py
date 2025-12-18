@@ -851,6 +851,44 @@ class MoneyflowApp(App):
         except ValueError:
             return False
 
+    async def _load_merchant_cache(self) -> None:
+        """Load merchant cache for autocomplete. Logs warning on failure."""
+        logger = get_logger(__name__)
+        try:
+            cached_merchants = await self.data_manager.refresh_merchant_cache(force=False)
+            self.data_manager.all_merchants = cached_merchants
+            logger.debug(f"Loaded {len(cached_merchants)} merchants from cache")
+        except Exception as e:
+            logger.warning(f"Merchant cache load failed: {e}")
+            self.data_manager.all_merchants = []
+
+    def _merge_hot_cold_dfs(self, hot_df: pl.DataFrame, cold_df: pl.DataFrame) -> pl.DataFrame:
+        """Merge hot and cold DataFrames with deduplication.
+
+        Hot takes precedence - any overlapping transaction IDs are removed from cold.
+
+        Args:
+            hot_df: Recent transactions (last 90 days)
+            cold_df: Historical transactions (>90 days)
+
+        Returns:
+            Merged DataFrame with no duplicate transaction IDs
+        """
+        if len(cold_df) == 0:
+            return hot_df
+        if len(hot_df) == 0:
+            return cold_df
+
+        # Remove overlapping transactions from cold (hot takes precedence)
+        if "id" in hot_df.columns and "id" in cold_df.columns:
+            hot_ids = set(hot_df["id"].to_list())
+            cold_ids = set(cold_df["id"].to_list())
+            overlap = cold_ids & hot_ids
+            if overlap:
+                cold_df = cold_df.filter(~pl.col("id").is_in(list(overlap)))
+
+        return pl.concat([hot_df, cold_df], how="diagonal")
+
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
 
@@ -892,64 +930,31 @@ class MoneyflowApp(App):
                 loading_status.update("📦 Loading recent transactions from cache...")
                 logger.info("Hot-only optimization: skipping cold cache for MTD/recent query")
                 hot_df = self.cache_manager.load_hot_cache()
-                if hot_df is not None:
-                    # Load categories from full cache result
-                    full_result = self.cache_manager.load_cache()
-                    if full_result:
-                        _, categories, category_groups, metadata = full_result
-
-                        # Apply category grouping dynamically
-                        loading_status.update("🔄 Applying category groupings...")
-                        df = self.data_manager.apply_category_groups(hot_df)
-
-                        # Load merchant cache for autocomplete
-                        try:
-                            cached_merchants = await self.data_manager.refresh_merchant_cache(force=False)
-                            self.data_manager.all_merchants = cached_merchants
-                            logger.debug(f"Loaded {len(cached_merchants)} merchants from cache")
-                        except Exception as e:
-                            logger.warning(f"Merchant cache load failed: {e}")
-                            self.data_manager.all_merchants = []
-
-                        loading_status.update(f"✅ Loaded {len(df):,} recent transactions!")
-                        self.notify(
-                            "📦 Loaded recent transactions (hot cache only)",
-                            severity="information",
-                            timeout=4.0,
-                        )
-                        return (df, categories, category_groups), RefreshStrategy.NONE
+                full_result = self.cache_manager.load_cache()
+                if hot_df is not None and full_result:
+                    _, categories, category_groups, _ = full_result
+                    loading_status.update("🔄 Applying category groupings...")
+                    df = self.data_manager.apply_category_groups(hot_df)
+                    await self._load_merchant_cache()
+                    loading_status.update(f"✅ Loaded {len(df):,} recent transactions!")
+                    self.notify("📦 Loaded recent transactions (hot cache only)", severity="information", timeout=4.0)
+                    return (df, categories, category_groups), RefreshStrategy.NONE
             else:
-                # Normal full cache load
                 loading_status.update("📦 Loading from cache...")
                 cache_info = self.cache_manager.get_cache_info()
                 result = self.cache_manager.load_cache()
                 if result:
-                    df, categories, category_groups, metadata = result
-
-                    # Apply category grouping dynamically
+                    df, categories, category_groups, _ = result
                     loading_status.update("🔄 Applying category groupings...")
                     df = self.data_manager.apply_category_groups(df)
-
-                    # Load merchant cache for autocomplete
-                    try:
-                        cached_merchants = await self.data_manager.refresh_merchant_cache(force=False)
-                        self.data_manager.all_merchants = cached_merchants
-                        logger.debug(f"Loaded {len(cached_merchants)} merchants from cache")
-                    except Exception as e:
-                        logger.warning(f"Merchant cache load failed: {e}")
-                        self.data_manager.all_merchants = []
-
+                    await self._load_merchant_cache()
                     loading_status.update(f"✅ Loaded {len(df):,} transactions from cache!")
-
-                    # Show notification about cache usage
                     if cache_info:
-                        age_str = cache_info["age"]
                         self.notify(
-                            f"📦 Loaded from cache ({age_str}) • Use --refresh to force update",
+                            f"📦 Loaded from cache ({cache_info['age']}) • Use --refresh to force update",
                             severity="information",
                             timeout=4.0,
                         )
-
                     return (df, categories, category_groups), strategy
 
             # Cache load failed, fall back to full fetch
@@ -1094,155 +1099,65 @@ class MoneyflowApp(App):
         boundary_date = date_type.today() - timedelta(days=CacheManager.HOT_WINDOW_DAYS)
         boundary_str = boundary_date.strftime("%Y-%m-%d")
 
-        if strategy == RefreshStrategy.HOT_ONLY:
-            # Load cold from cache, fetch hot from API
-            loading_status.update("🔄 Hot cache expired - refreshing recent transactions...")
-            logger.info("Partial refresh: HOT_ONLY - fetching recent 90 days")
+        # Determine which tier to load from cache vs fetch from API
+        is_hot_refresh = strategy == RefreshStrategy.HOT_ONLY
+        tier_name = "hot" if is_hot_refresh else "cold"
 
-            # Load cold tier from cache
-            cold_df = self.cache_manager.load_cold_cache()
-            if cold_df is None:
-                logger.warning("Failed to load cold cache, falling back to full refresh")
-                return None
+        # Load the valid tier from cache
+        cached_df = self.cache_manager.load_cold_cache() if is_hot_refresh else self.cache_manager.load_hot_cache()
+        if cached_df is None:
+            logger.warning(f"Failed to load {tier_name} cache, falling back to full refresh")
+            return None
 
-            # Load categories from cache (same for both tiers)
-            cache_result = self.cache_manager.load_cache()
-            if cache_result is None:
-                logger.warning("Failed to load cache for categories, falling back to full refresh")
-                return None
-            _, categories, category_groups, _ = cache_result
+        loading_status.update(f"🔄 Refreshing {'recent' if is_hot_refresh else 'historical'} transactions...")
+        logger.info(f"Partial refresh: {strategy.value}")
 
-            # Fetch hot tier from API (recent 90 days)
-            loading_status.update(f"📊 Fetching transactions since {boundary_str}...")
+        def update_progress(msg: str) -> None:
+            loading_status.update(f"📊 {msg}")
 
-            def update_progress(msg: str) -> None:
-                loading_status.update(f"📊 {msg}")
+        try:
+            # Fetch the expired tier from API
+            if is_hot_refresh:
+                fetch_start, fetch_end = boundary_str, None
+                loading_status.update(f"📊 Fetching transactions since {boundary_str}...")
+            else:
+                fetch_start, fetch_end = None, (boundary_date - timedelta(days=1)).strftime("%Y-%m-%d")
+                loading_status.update(f"📊 Fetching historical transactions before {boundary_str}...")
 
-            try:
-                hot_df, api_categories, api_category_groups = await self.data_manager.fetch_all_data(
-                    start_date=boundary_str,
-                    end_date=None,
-                    progress_callback=update_progress,
-                )
+            fetched_df, categories, category_groups = await self.data_manager.fetch_all_data(
+                start_date=fetch_start,
+                end_date=fetch_end,
+                progress_callback=update_progress,
+            )
 
-                # Use fresh categories from API
-                categories = api_categories
-                category_groups = api_category_groups
+            # Merge: hot_df is always first (takes precedence in deduplication)
+            hot_df = fetched_df if is_hot_refresh else cached_df
+            cold_df = cached_df if is_hot_refresh else fetched_df
+            merged_df = self._merge_hot_cold_dfs(hot_df, cold_df)
 
-                # Merge hot and cold, deduplicating by transaction ID (hot takes precedence)
-                if len(cold_df) > 0:
-                    # Exclude any overlapping transactions from cold
-                    cold_ids = set(cold_df["id"].to_list()) if "id" in cold_df.columns else set()
-                    hot_ids = set(hot_df["id"].to_list()) if "id" in hot_df.columns else set()
-                    overlap = cold_ids & hot_ids
-                    if overlap:
-                        cold_df = cold_df.filter(~pl.col("id").is_in(list(overlap)))
-                    merged_df = pl.concat([hot_df, cold_df], how="diagonal")
-                else:
-                    merged_df = hot_df
+            # Save only the refreshed tier
+            loading_status.update(f"💾 Saving {tier_name} cache...")
+            if is_hot_refresh:
+                self.cache_manager.save_hot_cache(hot_df=fetched_df, categories=categories, category_groups=category_groups)
+            else:
+                self.cache_manager.save_cold_cache(cold_df=fetched_df)
 
-                # Save just the hot tier (preserves cold)
-                loading_status.update("💾 Saving hot cache...")
-                self.cache_manager.save_hot_cache(
-                    hot_df=hot_df,
-                    categories=categories,
-                    category_groups=category_groups,
-                )
+            # Apply category groupings
+            loading_status.update("🔄 Applying category groupings...")
+            merged_df = self.data_manager.apply_category_groups(merged_df)
 
-                # Apply category groupings
-                loading_status.update("🔄 Applying category groupings...")
-                merged_df = self.data_manager.apply_category_groups(merged_df)
+            loading_status.update(f"✅ Loaded {len(merged_df):,} transactions (partial refresh)")
+            self.notify(
+                f"🔄 Refreshed {'recent' if is_hot_refresh else 'historical'} • {'Historical' if is_hot_refresh else 'Recent'} from cache",
+                severity="information",
+                timeout=4.0,
+            )
+            return merged_df, categories, category_groups
 
-                loading_status.update(
-                    f"✅ Refreshed {len(hot_df):,} recent + {len(cold_df):,} cached = {len(merged_df):,} total"
-                )
-                self.notify(
-                    "🔄 Refreshed recent transactions • Historical data from cache",
-                    severity="information",
-                    timeout=4.0,
-                )
-
-                return merged_df, categories, category_groups
-
-            except Exception as e:
-                logger.error(f"Hot refresh failed: {e}", exc_info=True)
-                loading_status.update("⚠ Partial refresh failed, falling back to full fetch...")
-                return None
-
-        elif strategy == RefreshStrategy.COLD_ONLY:
-            # Load hot from cache, fetch cold from API
-            loading_status.update("🔄 Cold cache expired - refreshing historical data...")
-            logger.info("Partial refresh: COLD_ONLY - fetching historical data")
-
-            # Load hot tier from cache
-            hot_df = self.cache_manager.load_hot_cache()
-            if hot_df is None:
-                logger.warning("Failed to load hot cache, falling back to full refresh")
-                return None
-
-            # Load categories from cache
-            cache_result = self.cache_manager.load_cache()
-            if cache_result is None:
-                logger.warning("Failed to load cache for categories, falling back to full refresh")
-                return None
-            _, categories, category_groups, _ = cache_result
-
-            # Fetch cold tier from API (historical data before boundary)
-            # Calculate end date as day before boundary
-            end_date = (boundary_date - timedelta(days=1)).strftime("%Y-%m-%d")
-            loading_status.update(f"📊 Fetching historical transactions before {boundary_str}...")
-
-            def update_progress(msg: str) -> None:
-                loading_status.update(f"📊 {msg}")
-
-            try:
-                cold_df_new, api_categories, api_category_groups = await self.data_manager.fetch_all_data(
-                    start_date=None,
-                    end_date=end_date,
-                    progress_callback=update_progress,
-                )
-
-                # Use fresh categories from API
-                categories = api_categories
-                category_groups = api_category_groups
-
-                # Merge hot and cold, deduplicating by transaction ID (hot takes precedence)
-                if len(hot_df) > 0:
-                    cold_ids = set(cold_df_new["id"].to_list()) if "id" in cold_df_new.columns else set()
-                    hot_ids = set(hot_df["id"].to_list()) if "id" in hot_df.columns else set()
-                    overlap = cold_ids & hot_ids
-                    if overlap:
-                        cold_df_new = cold_df_new.filter(~pl.col("id").is_in(list(overlap)))
-                    merged_df = pl.concat([hot_df, cold_df_new], how="diagonal")
-                else:
-                    merged_df = cold_df_new
-
-                # Save just the cold tier (preserves hot)
-                loading_status.update("💾 Saving cold cache...")
-                self.cache_manager.save_cold_cache(cold_df=cold_df_new)
-
-                # Apply category groupings
-                loading_status.update("🔄 Applying category groupings...")
-                merged_df = self.data_manager.apply_category_groups(merged_df)
-
-                loading_status.update(
-                    f"✅ {len(hot_df):,} cached + refreshed {len(cold_df_new):,} historical = {len(merged_df):,} total"
-                )
-                self.notify(
-                    "🔄 Refreshed historical data • Recent transactions from cache",
-                    severity="information",
-                    timeout=4.0,
-                )
-
-                return merged_df, categories, category_groups
-
-            except Exception as e:
-                logger.error(f"Cold refresh failed: {e}", exc_info=True)
-                loading_status.update("⚠ Partial refresh failed, falling back to full fetch...")
-                return None
-
-        # Unknown strategy
-        return None
+        except Exception as e:
+            logger.error(f"Partial refresh failed: {e}", exc_info=True)
+            loading_status.update("⚠ Partial refresh failed, falling back to full fetch...")
+            return None
 
     async def _handle_init_error(self, error, loading_status):
         """Handle initialization errors.
