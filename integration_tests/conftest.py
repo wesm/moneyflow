@@ -73,7 +73,8 @@ def ynab_client(ynab_credentials: tuple[str, Optional[str]]) -> Generator[YNABCl
 
     # Check if test budget has at least one on-budget, open account
     on_budget_accounts = [
-        acc for acc in (client._account_cache or {}).values()
+        acc
+        for acc in (client._account_cache or {}).values()
         if acc["on_budget"] and not acc["closed"]
     ]
 
@@ -93,7 +94,9 @@ def ynab_client(ynab_credentials: tuple[str, Optional[str]]) -> Generator[YNABCl
         # Refresh account cache to include the newly created account
         client._fetch_and_cache_accounts()
 
-        print(f"\nCreated test account: {response.data.account.name} (id={response.data.account.id})")
+        print(
+            f"\nCreated test account: {response.data.account.name} (id={response.data.account.id})"
+        )
 
     yield client
     client.close()

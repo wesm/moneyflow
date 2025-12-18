@@ -101,74 +101,43 @@ class CacheManager:
         """Check if legacy single-file cache exists."""
         return self.legacy_transactions_file.exists() and self.metadata_file.exists()
 
-    def is_hot_cache_valid(self) -> bool:
-        """
-        Check if hot cache is valid (exists and < 24 hours old).
-
-        Returns:
-            True if hot cache exists and is fresh, False otherwise
-        """
-        if not self.hot_transactions_file.exists():
-            return False
-
-        if not self.metadata_file.exists():
+    def _is_tier_valid(self, tier_key: str, file_path: Path, max_age_hours: int) -> bool:
+        """Validate a cache tier by file existence, version, and age."""
+        if not file_path.exists() or not self.metadata_file.exists():
             return False
 
         try:
             metadata = self.load_metadata()
-
-            # Version check
             if metadata.get("version") != self.CACHE_VERSION:
                 return False
 
-            hot_meta = metadata.get("hot", {})
-            if not hot_meta:
+            tier_meta = metadata.get(tier_key, {})
+            if not tier_meta:
                 return False
 
-            # Age check
-            age_hours = self._get_tier_age_hours(hot_meta.get("fetch_timestamp"))
-            if age_hours is None or age_hours >= self.HOT_MAX_AGE_HOURS:
-                return False
-
-            return True
-
-        except Exception:
-            return False
-
-    def is_cold_cache_valid(self) -> bool:
-        """
-        Check if cold cache is valid (exists and < 30 days old).
-
-        Returns:
-            True if cold cache exists and is fresh, False otherwise
-        """
-        if not self.cold_transactions_file.exists():
-            return False
-
-        if not self.metadata_file.exists():
-            return False
-
-        try:
-            metadata = self.load_metadata()
-
-            # Version check
-            if metadata.get("version") != self.CACHE_VERSION:
-                return False
-
-            cold_meta = metadata.get("cold", {})
-            if not cold_meta:
-                return False
-
-            # Age check (30 days = 720 hours)
-            age_hours = self._get_tier_age_hours(cold_meta.get("fetch_timestamp"))
-            max_age_hours = self.COLD_MAX_AGE_DAYS * 24
+            age_hours = self._get_tier_age_hours(tier_meta.get("fetch_timestamp"))
             if age_hours is None or age_hours >= max_age_hours:
                 return False
 
             return True
-
         except Exception:
             return False
+
+    def is_hot_cache_valid(self) -> bool:
+        """Check if hot cache is valid (exists and fresh)."""
+        return self._is_tier_valid(
+            tier_key="hot",
+            file_path=self.hot_transactions_file,
+            max_age_hours=self.HOT_MAX_AGE_HOURS,
+        )
+
+    def is_cold_cache_valid(self) -> bool:
+        """Check if cold cache is valid (exists and fresh)."""
+        return self._is_tier_valid(
+            tier_key="cold",
+            file_path=self.cold_transactions_file,
+            max_age_hours=self.COLD_MAX_AGE_DAYS * 24,
+        )
 
     def _get_tier_age_hours(self, fetch_timestamp: Optional[str]) -> Optional[float]:
         """Get age of a cache tier in hours from its fetch timestamp."""
@@ -330,8 +299,14 @@ class CacheManager:
             print(f"Warning: Failed to load {file_path.name}: {e}")
             return None
 
-    def _build_tier_metadata(self, df: pl.DataFrame, tier_name: str) -> Dict[str, Any]:
+    def _build_tier_metadata(
+        self,
+        df: pl.DataFrame,
+        fetch_time: Optional[str] = None,
+        extra_fields: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Build metadata for a cache tier."""
+        timestamp = fetch_time or datetime.now().isoformat()
         earliest_date = None
         latest_date = None
         if len(df) > 0 and "date" in df.columns:
@@ -339,12 +314,29 @@ class CacheManager:
             earliest_date = str(date_col.min())
             latest_date = str(date_col.max())
 
-        return {
-            "fetch_timestamp": datetime.now().isoformat(),
+        metadata = {
+            "fetch_timestamp": timestamp,
             "transaction_count": len(df),
             "earliest_date": earliest_date,
             "latest_date": latest_date,
         }
+        if extra_fields:
+            metadata.update(extra_fields)
+        return metadata
+
+    def _save_categories(self, categories: Dict, category_groups: Dict) -> None:
+        """Encrypt and write categories data to disk."""
+        if not self.fernet:
+            raise ValueError("Cannot save cache: encryption key not set")
+
+        cache_data = {
+            "categories": categories,
+            "category_groups": category_groups,
+        }
+        categories_json = json.dumps(cache_data, indent=2)
+        encrypted_categories = self.fernet.encrypt(categories_json.encode())
+        with open(self.categories_file, "wb") as f:
+            f.write(encrypted_categories)
 
     def save_cache(
         self,
@@ -400,32 +392,16 @@ class CacheManager:
         self._save_encrypted_parquet(cold_df, self.cold_transactions_file)
 
         # Save categories
-        cache_data = {
-            "categories": categories,
-            "category_groups": category_groups,
-        }
-        categories_json = json.dumps(cache_data, indent=2)
-        encrypted_categories = self.fernet.encrypt(categories_json.encode())
-        with open(self.categories_file, "wb") as f:
-            f.write(encrypted_categories)
+        self._save_categories(categories, category_groups)
 
         # Build and save metadata
         now = datetime.now().isoformat()
         metadata = {
             "version": self.CACHE_VERSION,
-            "hot": {
-                "fetch_timestamp": now,
-                "boundary_date": boundary_str,
-                "transaction_count": len(hot_df),
-                "earliest_date": str(hot_df["date"].min()) if len(hot_df) > 0 else None,
-                "latest_date": str(hot_df["date"].max()) if len(hot_df) > 0 else None,
-            },
-            "cold": {
-                "fetch_timestamp": now,
-                "transaction_count": len(cold_df),
-                "earliest_date": str(cold_df["date"].min()) if len(cold_df) > 0 else None,
-                "latest_date": str(cold_df["date"].max()) if len(cold_df) > 0 else None,
-            },
+            "hot": self._build_tier_metadata(
+                hot_df, fetch_time=now, extra_fields={"boundary_date": boundary_str}
+            ),
+            "cold": self._build_tier_metadata(cold_df, fetch_time=now),
             "year_filter": year,
             "since_filter": since,
             "total_transactions": len(transactions_df),
@@ -460,14 +436,7 @@ class CacheManager:
 
         # Update categories if provided
         if categories is not None and category_groups is not None:
-            cache_data = {
-                "categories": categories,
-                "category_groups": category_groups,
-            }
-            categories_json = json.dumps(cache_data, indent=2)
-            encrypted_categories = self.fernet.encrypt(categories_json.encode())
-            with open(self.categories_file, "wb") as f:
-                f.write(encrypted_categories)
+            self._save_categories(categories, category_groups)
 
         # Update metadata
         try:
@@ -476,13 +445,10 @@ class CacheManager:
             metadata = {"version": self.CACHE_VERSION}
 
         boundary_date = self._get_boundary_date()
-        metadata["hot"] = {
-            "fetch_timestamp": datetime.now().isoformat(),
-            "boundary_date": boundary_date.isoformat(),
-            "transaction_count": len(hot_df),
-            "earliest_date": str(hot_df["date"].min()) if len(hot_df) > 0 else None,
-            "latest_date": str(hot_df["date"].max()) if len(hot_df) > 0 else None,
-        }
+        metadata["hot"] = self._build_tier_metadata(
+            hot_df,
+            extra_fields={"boundary_date": boundary_date.isoformat()},
+        )
         metadata["version"] = self.CACHE_VERSION
 
         # Update total count
@@ -513,12 +479,7 @@ class CacheManager:
         except Exception:
             metadata = {"version": self.CACHE_VERSION}
 
-        metadata["cold"] = {
-            "fetch_timestamp": datetime.now().isoformat(),
-            "transaction_count": len(cold_df),
-            "earliest_date": str(cold_df["date"].min()) if len(cold_df) > 0 else None,
-            "latest_date": str(cold_df["date"].max()) if len(cold_df) > 0 else None,
-        }
+        metadata["cold"] = self._build_tier_metadata(cold_df)
         metadata["version"] = self.CACHE_VERSION
 
         # Update total count
@@ -567,6 +528,12 @@ class CacheManager:
         # Concatenate and sort
         combined = pl.concat([hot_df, cold_filtered])
         return combined.sort("date", descending=True)
+
+    def merge_tiers(
+        self, hot_df: Optional[pl.DataFrame], cold_df: Optional[pl.DataFrame]
+    ) -> pl.DataFrame:
+        """Public wrapper to merge cache tiers with deduplication (hot wins)."""
+        return self._merge_dataframes(hot_df, cold_df)
 
     def load_cache(self) -> Optional[Tuple[pl.DataFrame, Dict, Dict, Dict]]:
         """

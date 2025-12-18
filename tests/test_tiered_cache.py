@@ -74,14 +74,16 @@ def sample_category_groups():
 
 def create_transactions_df(dates: list[str], prefix: str = "tx") -> pl.DataFrame:
     """Helper to create a transactions DataFrame with specified dates."""
-    return pl.DataFrame({
-        "id": [f"{prefix}{i}" for i in range(len(dates))],
-        "date": dates,
-        "merchant": [f"Merchant{i}" for i in range(len(dates))],
-        "amount": [-50.0 * (i + 1) for i in range(len(dates))],
-        "category": ["Shopping"] * len(dates),
-        "category_id": ["cat1"] * len(dates),
-    }).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+    return pl.DataFrame(
+        {
+            "id": [f"{prefix}{i}" for i in range(len(dates))],
+            "date": dates,
+            "merchant": [f"Merchant{i}" for i in range(len(dates))],
+            "amount": [-50.0 * (i + 1) for i in range(len(dates))],
+            "category": ["Shopping"] * len(dates),
+            "category_id": ["cat1"] * len(dates),
+        }
+    ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
 
 def create_mixed_transactions_df() -> pl.DataFrame:
@@ -104,14 +106,16 @@ def create_mixed_transactions_df() -> pl.DataFrame:
     ]
 
     all_dates = hot_dates + cold_dates
-    return pl.DataFrame({
-        "id": [f"tx{i}" for i in range(len(all_dates))],
-        "date": all_dates,
-        "merchant": [f"Merchant{i}" for i in range(len(all_dates))],
-        "amount": [-50.0 * (i + 1) for i in range(len(all_dates))],
-        "category": ["Shopping"] * len(all_dates),
-        "category_id": ["cat1"] * len(all_dates),
-    }).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+    return pl.DataFrame(
+        {
+            "id": [f"tx{i}" for i in range(len(all_dates))],
+            "date": all_dates,
+            "merchant": [f"Merchant{i}" for i in range(len(all_dates))],
+            "amount": [-50.0 * (i + 1) for i in range(len(all_dates))],
+            "category": ["Shopping"] * len(all_dates),
+            "category_id": ["cat1"] * len(all_dates),
+        }
+    ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
 
 class TestRefreshStrategy:
@@ -132,13 +136,20 @@ class TestCacheManagerInit:
     def test_sets_hot_cold_file_paths(self, temp_cache_dir, encryption_key):
         """Test that hot and cold file paths are set correctly."""
         cache_mgr = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
-        assert cache_mgr.hot_transactions_file == Path(temp_cache_dir) / "hot_transactions.parquet.enc"
-        assert cache_mgr.cold_transactions_file == Path(temp_cache_dir) / "cold_transactions.parquet.enc"
+        assert (
+            cache_mgr.hot_transactions_file == Path(temp_cache_dir) / "hot_transactions.parquet.enc"
+        )
+        assert (
+            cache_mgr.cold_transactions_file
+            == Path(temp_cache_dir) / "cold_transactions.parquet.enc"
+        )
 
     def test_sets_legacy_file_path(self, temp_cache_dir, encryption_key):
         """Test that legacy file path is tracked for cleanup."""
         cache_mgr = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
-        assert cache_mgr.legacy_transactions_file == Path(temp_cache_dir) / "transactions.parquet.enc"
+        assert (
+            cache_mgr.legacy_transactions_file == Path(temp_cache_dir) / "transactions.parquet.enc"
+        )
 
     def test_version_is_3_0(self, cache_manager):
         """Test that cache version is 3.0 for two-tier format."""
@@ -301,7 +312,9 @@ class TestLoadMergeLogic:
         unique_ids = combined_df["id"].unique()
         assert len(unique_ids) == len(combined_df)
 
-    def test_hot_takes_precedence_on_conflict(self, cache_manager, sample_categories, sample_category_groups):
+    def test_hot_takes_precedence_on_conflict(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
         """Test that hot tier data takes precedence when same ID exists in both tiers."""
         today = date.today()
         boundary = cache_manager._get_boundary_date()
@@ -311,26 +324,29 @@ class TestLoadMergeLogic:
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
         # Manually create a conflict: same ID in both tiers with different amounts
-        hot_df = pl.DataFrame({
-            "id": ["conflict_tx"],
-            "date": [(today - timedelta(days=10)).isoformat()],
-            "merchant": ["HotMerchant"],
-            "amount": [-999.0],  # Hot version
-            "category": ["Shopping"],
-            "category_id": ["cat1"],
-        }).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+        hot_df = pl.DataFrame(
+            {
+                "id": ["conflict_tx"],
+                "date": [(today - timedelta(days=10)).isoformat()],
+                "merchant": ["HotMerchant"],
+                "amount": [-999.0],  # Hot version
+                "category": ["Shopping"],
+                "category_id": ["cat1"],
+            }
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
-        cold_df = pl.DataFrame({
-            "id": ["conflict_tx"],  # Same ID!
-            "date": [(boundary - timedelta(days=10)).isoformat()],
-            "merchant": ["ColdMerchant"],
-            "amount": [-111.0],  # Cold version
-            "category": ["Shopping"],
-            "category_id": ["cat1"],
-        }).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+        cold_df = pl.DataFrame(
+            {
+                "id": ["conflict_tx"],  # Same ID!
+                "date": [(boundary - timedelta(days=10)).isoformat()],
+                "merchant": ["ColdMerchant"],
+                "amount": [-111.0],  # Cold version
+                "category": ["Shopping"],
+                "category_id": ["cat1"],
+            }
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
-        # Use internal merge method
-        merged = cache_manager._merge_dataframes(hot_df, cold_df)
+        merged = cache_manager.merge_tiers(hot_df, cold_df)
 
         # Should have only 1 transaction (not 2)
         assert len(merged) == 1
@@ -560,8 +576,7 @@ class TestPartialRefresh:
         # Save new hot data
         today = date.today()
         new_hot = create_transactions_df(
-            [(today - timedelta(days=5)).isoformat()],
-            prefix="new_hot"
+            [(today - timedelta(days=5)).isoformat()], prefix="new_hot"
         )
         cache_manager.save_hot_cache(new_hot, sample_categories, sample_category_groups)
 
@@ -585,8 +600,7 @@ class TestPartialRefresh:
         # Save new cold data
         boundary = cache_manager._get_boundary_date()
         new_cold = create_transactions_df(
-            [(boundary - timedelta(days=100)).isoformat()],
-            prefix="new_cold"
+            [(boundary - timedelta(days=100)).isoformat()], prefix="new_cold"
         )
         cache_manager.save_cold_cache(new_cold)
 
@@ -608,13 +622,13 @@ class TestPartialRefresh:
 
         # Wait a tiny bit to ensure different timestamp
         import time
+
         time.sleep(0.01)
 
         # Save new hot data
         today = date.today()
         new_hot = create_transactions_df(
-            [(today - timedelta(days=5)).isoformat()],
-            prefix="new_hot"
+            [(today - timedelta(days=5)).isoformat()], prefix="new_hot"
         )
         cache_manager.save_hot_cache(new_hot, sample_categories, sample_category_groups)
 
@@ -623,7 +637,9 @@ class TestPartialRefresh:
         assert new_metadata["hot"]["fetch_timestamp"] != original_hot_timestamp
 
         # Cold timestamp should be unchanged
-        assert new_metadata["cold"]["fetch_timestamp"] == original_metadata["cold"]["fetch_timestamp"]
+        assert (
+            new_metadata["cold"]["fetch_timestamp"] == original_metadata["cold"]["fetch_timestamp"]
+        )
 
 
 class TestVersionMismatch:
@@ -674,6 +690,7 @@ class TestLegacyCache:
         """Test that legacy cache files are removed on save."""
         # Create a fake legacy cache file
         import io
+
         fernet = Fernet(encryption_key)
         df = create_mixed_transactions_df()
         buffer = io.BytesIO()
@@ -694,6 +711,7 @@ class TestLegacyCache:
     def test_has_legacy_cache_detection(self, cache_manager, encryption_key):
         """Test detection of legacy cache files."""
         import io
+
         fernet = Fernet(encryption_key)
 
         # No cache initially

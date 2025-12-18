@@ -862,33 +862,6 @@ class MoneyflowApp(App):
             logger.warning(f"Merchant cache load failed: {e}")
             self.data_manager.all_merchants = []
 
-    def _merge_hot_cold_dfs(self, hot_df: pl.DataFrame, cold_df: pl.DataFrame) -> pl.DataFrame:
-        """Merge hot and cold DataFrames with deduplication.
-
-        Hot takes precedence - any overlapping transaction IDs are removed from cold.
-
-        Args:
-            hot_df: Recent transactions (last 90 days)
-            cold_df: Historical transactions (>90 days)
-
-        Returns:
-            Merged DataFrame with no duplicate transaction IDs
-        """
-        if len(cold_df) == 0:
-            return hot_df
-        if len(hot_df) == 0:
-            return cold_df
-
-        # Remove overlapping transactions from cold (hot takes precedence)
-        if "id" in hot_df.columns and "id" in cold_df.columns:
-            hot_ids = set(hot_df["id"].to_list())
-            cold_ids = set(cold_df["id"].to_list())
-            overlap = cold_ids & hot_ids
-            if overlap:
-                cold_df = cold_df.filter(~pl.col("id").is_in(list(overlap)))
-
-        return pl.concat([hot_df, cold_df], how="diagonal")
-
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
 
@@ -924,7 +897,9 @@ class MoneyflowApp(App):
         # Check if we can use hot-only optimization (--mtd or recent --since)
         hot_only_mode = self._is_within_hot_window() and self.cache_manager.is_hot_cache_valid()
 
-        if strategy == RefreshStrategy.NONE or (hot_only_mode and strategy == RefreshStrategy.COLD_ONLY):
+        if strategy == RefreshStrategy.NONE or (
+            hot_only_mode and strategy == RefreshStrategy.COLD_ONLY
+        ):
             # Load from cache - either both tiers valid, or hot-only mode
             if hot_only_mode:
                 loading_status.update("📦 Loading recent transactions from cache...")
@@ -937,7 +912,11 @@ class MoneyflowApp(App):
                     df = self.data_manager.apply_category_groups(hot_df)
                     await self._load_merchant_cache()
                     loading_status.update(f"✅ Loaded {len(df):,} recent transactions!")
-                    self.notify("📦 Loaded recent transactions (hot cache only)", severity="information", timeout=4.0)
+                    self.notify(
+                        "📦 Loaded recent transactions (hot cache only)",
+                        severity="information",
+                        timeout=4.0,
+                    )
                     return (df, categories, category_groups), RefreshStrategy.NONE
             else:
                 loading_status.update("📦 Loading from cache...")
@@ -1104,12 +1083,18 @@ class MoneyflowApp(App):
         tier_name = "hot" if is_hot_refresh else "cold"
 
         # Load the valid tier from cache
-        cached_df = self.cache_manager.load_cold_cache() if is_hot_refresh else self.cache_manager.load_hot_cache()
+        cached_df = (
+            self.cache_manager.load_cold_cache()
+            if is_hot_refresh
+            else self.cache_manager.load_hot_cache()
+        )
         if cached_df is None:
             logger.warning(f"Failed to load {tier_name} cache, falling back to full refresh")
             return None
 
-        loading_status.update(f"🔄 Refreshing {'recent' if is_hot_refresh else 'historical'} transactions...")
+        loading_status.update(
+            f"🔄 Refreshing {'recent' if is_hot_refresh else 'historical'} transactions..."
+        )
         logger.info(f"Partial refresh: {strategy.value}")
 
         def update_progress(msg: str) -> None:
@@ -1121,8 +1106,13 @@ class MoneyflowApp(App):
                 fetch_start, fetch_end = boundary_str, None
                 loading_status.update(f"📊 Fetching transactions since {boundary_str}...")
             else:
-                fetch_start, fetch_end = None, (boundary_date - timedelta(days=1)).strftime("%Y-%m-%d")
-                loading_status.update(f"📊 Fetching historical transactions before {boundary_str}...")
+                fetch_start, fetch_end = (
+                    None,
+                    (boundary_date - timedelta(days=1)).strftime("%Y-%m-%d"),
+                )
+                loading_status.update(
+                    f"📊 Fetching historical transactions before {boundary_str}..."
+                )
 
             fetched_df, categories, category_groups = await self.data_manager.fetch_all_data(
                 start_date=fetch_start,
@@ -1133,12 +1123,14 @@ class MoneyflowApp(App):
             # Merge: hot_df is always first (takes precedence in deduplication)
             hot_df = fetched_df if is_hot_refresh else cached_df
             cold_df = cached_df if is_hot_refresh else fetched_df
-            merged_df = self._merge_hot_cold_dfs(hot_df, cold_df)
+            merged_df = self.cache_manager.merge_tiers(hot_df, cold_df)
 
             # Save only the refreshed tier
             loading_status.update(f"💾 Saving {tier_name} cache...")
             if is_hot_refresh:
-                self.cache_manager.save_hot_cache(hot_df=fetched_df, categories=categories, category_groups=category_groups)
+                self.cache_manager.save_hot_cache(
+                    hot_df=fetched_df, categories=categories, category_groups=category_groups
+                )
             else:
                 self.cache_manager.save_cold_cache(cold_df=fetched_df)
 

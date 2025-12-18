@@ -96,8 +96,13 @@ class TestCacheManagerInit:
         """Test that encrypted file paths are set correctly (two-tier cache)."""
         cache_mgr = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
         # Two-tier cache file paths
-        assert cache_mgr.hot_transactions_file == Path(temp_cache_dir) / "hot_transactions.parquet.enc"
-        assert cache_mgr.cold_transactions_file == Path(temp_cache_dir) / "cold_transactions.parquet.enc"
+        assert (
+            cache_mgr.hot_transactions_file == Path(temp_cache_dir) / "hot_transactions.parquet.enc"
+        )
+        assert (
+            cache_mgr.cold_transactions_file
+            == Path(temp_cache_dir) / "cold_transactions.parquet.enc"
+        )
         assert cache_mgr.metadata_file == Path(temp_cache_dir) / "cache_metadata.json"
         assert cache_mgr.categories_file == Path(temp_cache_dir) / "categories.json.enc"
 

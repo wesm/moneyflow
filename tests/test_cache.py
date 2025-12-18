@@ -63,6 +63,7 @@ def cache_manager(temp_cache_dir, encryption_key):
 def sample_df():
     """Provide sample transaction DataFrame with recent dates (within hot window)."""
     from datetime import date
+
     today = date.today()
     dates = [
         (today - timedelta(days=10)).isoformat(),
@@ -850,6 +851,7 @@ class TestEdgeCases:
     ):
         """Test handling unicode characters in merchant names (two-tier)."""
         from datetime import date
+
         today = date.today()
         unicode_df = pl.DataFrame(
             {
@@ -899,11 +901,15 @@ class TestEdgeCases:
     ):
         """Test caching DataFrame with None/null values (two-tier)."""
         from datetime import date
+
         today = date.today()
         df_with_nulls = pl.DataFrame(
             {
                 "id": ["txn_1", "txn_2"],
-                "date": [(today - timedelta(days=10)).isoformat(), (today - timedelta(days=20)).isoformat()],
+                "date": [
+                    (today - timedelta(days=10)).isoformat(),
+                    (today - timedelta(days=20)).isoformat(),
+                ],
                 "merchant": ["Store", None],
                 "category": [None, "Food"],
                 "amount": [-50.00, -75.00],
