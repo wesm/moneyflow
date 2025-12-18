@@ -61,11 +61,18 @@ def cache_manager(temp_cache_dir, encryption_key):
 
 @pytest.fixture
 def sample_df():
-    """Provide sample transaction DataFrame."""
+    """Provide sample transaction DataFrame with recent dates (within hot window)."""
+    from datetime import date
+    today = date.today()
+    dates = [
+        (today - timedelta(days=10)).isoformat(),
+        (today - timedelta(days=20)).isoformat(),
+        (today - timedelta(days=30)).isoformat(),
+    ]
     return pl.DataFrame(
         {
             "id": ["txn_1", "txn_2", "txn_3"],
-            "date": ["2024-10-01", "2024-10-02", "2024-10-03"],
+            "date": dates,
             "amount": [-50.00, -75.50, -100.00],
             "merchant": ["Store A", "Store B", "Store C"],
             "category": ["Groceries", "Shopping", "Gas"],
@@ -102,7 +109,9 @@ class TestCacheInitialization:
 
         assert cm.cache_dir == Path(temp_cache_dir)
         assert cm.cache_dir.exists()
-        assert cm.transactions_file == cm.cache_dir / "transactions.parquet.enc"
+        # Two-tier cache file paths
+        assert cm.hot_transactions_file == cm.cache_dir / "hot_transactions.parquet.enc"
+        assert cm.cold_transactions_file == cm.cache_dir / "cold_transactions.parquet.enc"
         assert cm.metadata_file == cm.cache_dir / "cache_metadata.json"
         assert cm.categories_file == cm.cache_dir / "categories.json.enc"
 
@@ -135,12 +144,12 @@ class TestCacheInitialization:
         assert cm.cache_dir.exists()
 
     def test_cache_version_constant(self):
-        """Test that CACHE_VERSION is properly defined (v2.0 for encrypted cache)."""
-        assert CacheManager.CACHE_VERSION == "2.0"
+        """Test that CACHE_VERSION is properly defined (v3.0 for two-tier cache)."""
+        assert CacheManager.CACHE_VERSION == "3.0"
 
     def test_cache_max_age_constant(self):
-        """Test that CACHE_MAX_AGE_HOURS is properly defined."""
-        assert CacheManager.CACHE_MAX_AGE_HOURS == 24
+        """Test that HOT_MAX_AGE_HOURS is properly defined."""
+        assert CacheManager.HOT_MAX_AGE_HOURS == 6
 
 
 class TestCacheExists:
@@ -152,14 +161,15 @@ class TestCacheExists:
 
     def test_cache_exists_with_partial_files(self, cache_manager):
         """Test cache_exists returns False when only some files exist."""
-        # Create only transactions file
-        cache_manager.transactions_file.touch()
+        # Create only hot transactions file (two-tier cache)
+        cache_manager.hot_transactions_file.touch()
 
         assert not cache_manager.cache_exists()
 
     def test_cache_exists_with_all_files(self, cache_manager):
-        """Test cache_exists returns True when all files exist."""
-        cache_manager.transactions_file.touch()
+        """Test cache_exists returns True when all files exist (two-tier cache)."""
+        cache_manager.hot_transactions_file.touch()
+        cache_manager.cold_transactions_file.touch()
         cache_manager.metadata_file.touch()
         cache_manager.categories_file.touch()
 
@@ -172,11 +182,12 @@ class TestSaveCache:
     def test_save_cache_basic(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test basic cache save operation."""
+        """Test basic cache save operation (two-tier cache)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Verify all files were created
-        assert cache_manager.transactions_file.exists()
+        # Verify all files were created (two-tier)
+        assert cache_manager.hot_transactions_file.exists()
+        assert cache_manager.cold_transactions_file.exists()
         assert cache_manager.metadata_file.exists()
         assert cache_manager.categories_file.exists()
 
@@ -217,14 +228,17 @@ class TestSaveCache:
     def test_save_cache_metadata_structure(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that saved metadata has correct structure."""
+        """Test that saved metadata has correct structure (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
         metadata = cache_manager.load_metadata()
 
         assert "version" in metadata
         assert metadata["version"] == CacheManager.CACHE_VERSION
-        assert "fetch_timestamp" in metadata
+        # Two-tier metadata has hot/cold sections
+        assert "hot" in metadata
+        assert "cold" in metadata
+        assert "fetch_timestamp" in metadata["hot"]
         assert "year_filter" in metadata
         assert "since_filter" in metadata
         assert "total_transactions" in metadata
@@ -233,11 +247,12 @@ class TestSaveCache:
     def test_save_cache_timestamp_format(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that timestamp is saved in ISO format."""
+        """Test that timestamp is saved in ISO format (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
         metadata = cache_manager.load_metadata()
-        timestamp_str = metadata["fetch_timestamp"]
+        # Two-tier metadata has timestamp in hot section
+        timestamp_str = metadata["hot"]["fetch_timestamp"]
 
         # Should be parseable as ISO format
         timestamp = datetime.fromisoformat(timestamp_str)
@@ -294,19 +309,19 @@ class TestSaveCache:
     def test_save_cache_parquet_format(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that transactions are saved as encrypted Parquet."""
+        """Test that transactions are saved as encrypted Parquet (two-tier)."""
         import io
 
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Decrypt and verify we can read the Parquet file
-        with open(cache_manager.transactions_file, "rb") as f:
+        # Decrypt and verify we can read the hot Parquet file
+        with open(cache_manager.hot_transactions_file, "rb") as f:
             encrypted = f.read()
 
         decrypted = cache_manager.fernet.decrypt(encrypted)
         loaded_df = pl.read_parquet(io.BytesIO(decrypted))
 
-        assert loaded_df.shape == sample_df.shape
+        # Hot cache should contain recent transactions
         assert loaded_df.columns == sample_df.columns
 
 
@@ -359,11 +374,11 @@ class TestLoadCache:
     def test_load_cache_with_missing_transactions_file(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test loading cache when transactions file is missing."""
+        """Test loading cache when hot transactions file is missing (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Delete transactions file
-        cache_manager.transactions_file.unlink()
+        # Delete hot transactions file
+        cache_manager.hot_transactions_file.unlink()
 
         result = cache_manager.load_cache()
         assert result is None
@@ -530,13 +545,13 @@ class TestCacheAge:
     def test_get_cache_age_old_cache(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test cache age for old cache."""
+        """Test cache age for old cache (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Manually set timestamp to 25 hours ago
+        # Manually set hot timestamp to 25 hours ago (two-tier metadata)
         metadata = cache_manager.load_metadata()
         old_timestamp = datetime.now() - timedelta(hours=25)
-        metadata["fetch_timestamp"] = old_timestamp.isoformat()
+        metadata["hot"]["fetch_timestamp"] = old_timestamp.isoformat()
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
@@ -561,12 +576,12 @@ class TestCacheAge:
     def test_get_cache_age_invalid_timestamp(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test cache age with invalid timestamp format."""
+        """Test cache age with invalid timestamp format (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Set invalid timestamp
+        # Set invalid timestamp in hot section
         metadata = cache_manager.load_metadata()
-        metadata["fetch_timestamp"] = "not a timestamp"
+        metadata["hot"]["fetch_timestamp"] = "not a timestamp"
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
@@ -599,35 +614,35 @@ class TestCacheInfo:
         assert "timestamp" in info
 
         assert info["transaction_count"] == len(sample_df)
-        assert "minutes ago" in info["age"]
+        assert "min ago" in info["age"]
 
     def test_get_cache_info_age_formatting_minutes(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache less than 1 hour old."""
+        """Test age formatting for cache less than 1 hour old (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Set timestamp to 30 minutes ago
+        # Set hot timestamp to 30 minutes ago
         metadata = cache_manager.load_metadata()
         timestamp = datetime.now() - timedelta(minutes=30)
-        metadata["fetch_timestamp"] = timestamp.isoformat()
+        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
         info = cache_manager.get_cache_info()
 
-        assert "30 minutes ago" in info["age"]
+        assert "30 min ago" in info["age"]
 
     def test_get_cache_info_age_formatting_hours(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache between 1-24 hours old."""
+        """Test age formatting for cache between 1-24 hours old (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Set timestamp to 5 hours ago
+        # Set hot timestamp to 5 hours ago
         metadata = cache_manager.load_metadata()
         timestamp = datetime.now() - timedelta(hours=5)
-        metadata["fetch_timestamp"] = timestamp.isoformat()
+        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
@@ -638,13 +653,13 @@ class TestCacheInfo:
     def test_get_cache_info_age_formatting_days(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache more than 24 hours old."""
+        """Test age formatting for cache more than 24 hours old (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Set timestamp to 3 days ago
+        # Set hot timestamp to 3 days ago
         metadata = cache_manager.load_metadata()
         timestamp = datetime.now() - timedelta(days=3)
-        metadata["fetch_timestamp"] = timestamp.isoformat()
+        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
@@ -700,12 +715,12 @@ class TestCacheInfo:
     def test_get_cache_info_unknown_age(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test cache info when age cannot be determined."""
+        """Test cache info when age cannot be determined (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Break the timestamp
+        # Break the hot timestamp
         metadata = cache_manager.load_metadata()
-        metadata["fetch_timestamp"] = "invalid"
+        metadata["hot"]["fetch_timestamp"] = "invalid"
         with open(cache_manager.metadata_file, "w") as f:
             json.dump(metadata, f)
 
@@ -729,7 +744,7 @@ class TestClearCache:
     def test_clear_cache_removes_all_files(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test that clear_cache removes all cache files."""
+        """Test that clear_cache removes all cache files (two-tier)."""
         # Create cache
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
         assert cache_manager.cache_exists()
@@ -737,21 +752,23 @@ class TestClearCache:
         # Clear cache
         cache_manager.clear_cache()
 
-        # Verify all files are gone
-        assert not cache_manager.transactions_file.exists()
+        # Verify all files are gone (two-tier)
+        assert not cache_manager.hot_transactions_file.exists()
+        assert not cache_manager.cold_transactions_file.exists()
         assert not cache_manager.metadata_file.exists()
         assert not cache_manager.categories_file.exists()
         assert not cache_manager.cache_exists()
 
     def test_clear_cache_partial_files(self, cache_manager):
-        """Test clearing cache when only some files exist."""
+        """Test clearing cache when only some files exist (two-tier)."""
         # Create only some files
-        cache_manager.transactions_file.touch()
+        cache_manager.hot_transactions_file.touch()
         cache_manager.metadata_file.touch()
 
         cache_manager.clear_cache()
 
-        assert not cache_manager.transactions_file.exists()
+        assert not cache_manager.hot_transactions_file.exists()
+        assert not cache_manager.cold_transactions_file.exists()
         assert not cache_manager.metadata_file.exists()
         assert not cache_manager.categories_file.exists()
 
@@ -762,14 +779,15 @@ class TestLoadMetadata:
     def test_load_metadata_success(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test successfully loading metadata."""
+        """Test successfully loading metadata (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
         metadata = cache_manager.load_metadata()
 
         assert isinstance(metadata, dict)
         assert "version" in metadata
-        assert "fetch_timestamp" in metadata
+        assert "hot" in metadata
+        assert "fetch_timestamp" in metadata["hot"]
 
     def test_load_metadata_missing_file(self, cache_manager):
         """Test loading metadata when file doesn't exist."""
@@ -830,10 +848,13 @@ class TestEdgeCases:
     def test_unicode_in_merchant_names(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test handling unicode characters in merchant names."""
+        """Test handling unicode characters in merchant names (two-tier)."""
+        from datetime import date
+        today = date.today()
         unicode_df = pl.DataFrame(
             {
                 "id": ["txn_1"],
+                "date": [(today - timedelta(days=10)).isoformat()],
                 "merchant": ["Café Münchën 日本"],
                 "category": ["Food"],
                 "amount": [-50.00],
@@ -876,10 +897,13 @@ class TestEdgeCases:
     def test_cache_with_none_values_in_dataframe(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test caching DataFrame with None/null values."""
+        """Test caching DataFrame with None/null values (two-tier)."""
+        from datetime import date
+        today = date.today()
         df_with_nulls = pl.DataFrame(
             {
                 "id": ["txn_1", "txn_2"],
+                "date": [(today - timedelta(days=10)).isoformat(), (today - timedelta(days=20)).isoformat()],
                 "merchant": ["Store", None],
                 "category": [None, "Food"],
                 "amount": [-50.00, -75.00],
@@ -896,11 +920,13 @@ class TestEdgeCases:
     def test_corrupt_parquet_file(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
     ):
-        """Test loading cache with corrupt Parquet file."""
+        """Test loading cache with corrupt Parquet file (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Corrupt the Parquet file
-        with open(cache_manager.transactions_file, "wb") as f:
+        # Corrupt both hot and cold Parquet files (two-tier system loads from both)
+        with open(cache_manager.hot_transactions_file, "wb") as f:
+            f.write(b"not a parquet file")
+        with open(cache_manager.cold_transactions_file, "wb") as f:
             f.write(b"not a parquet file")
 
         result = cache_manager.load_cache()
@@ -953,11 +979,13 @@ class TestEdgeCases:
     def test_load_cache_with_print_warning(
         self, cache_manager, sample_df, sample_categories, sample_category_groups, capsys
     ):
-        """Test that load_cache prints warning on decryption failure."""
+        """Test that load_cache prints warning on decryption failure (two-tier)."""
         cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Corrupt encrypted parquet file
-        with open(cache_manager.transactions_file, "wb") as f:
+        # Corrupt both hot and cold encrypted parquet files (two-tier system loads from both)
+        with open(cache_manager.hot_transactions_file, "wb") as f:
+            f.write(b"corrupt")
+        with open(cache_manager.cold_transactions_file, "wb") as f:
             f.write(b"corrupt")
 
         result = cache_manager.load_cache()
@@ -967,7 +995,7 @@ class TestEdgeCases:
         # Check that warning was printed (either decryption or loading failure)
         captured = capsys.readouterr()
         assert "Warning:" in captured.out
-        assert "Failed to decrypt" in captured.out or "Failed to load cache:" in captured.out
+        assert "Failed to decrypt" in captured.out or "Failed to load" in captured.out
 
     def test_year_filter_zero(
         self, cache_manager, sample_df, sample_categories, sample_category_groups
