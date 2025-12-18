@@ -2,7 +2,7 @@
 Cache manager for storing and retrieving transaction data.
 
 Implements a two-tier cache system:
-- Hot cache: Recent transactions (last 90 days), refreshed every 24 hours
+- Hot cache: Recent transactions (last 90 days), refreshed every 6 hours
 - Cold cache: Historical transactions (>90 days old), refreshed every 30 days
 
 This optimization reduces API calls while maintaining data freshness for recent
@@ -17,7 +17,7 @@ import json
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import polars as pl
 from cryptography.fernet import Fernet, InvalidToken

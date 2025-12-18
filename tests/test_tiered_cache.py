@@ -2,7 +2,7 @@
 
 Tests cover:
 - Hot/cold cache splitting by boundary date (90 days)
-- Tier validation (24h for hot, 30d for cold)
+- Tier validation (6h for hot, 30d for cold)
 - Refresh strategy determination
 - Merge logic with deduplication
 - Partial refresh operations
@@ -399,26 +399,26 @@ class TestLoadMergeLogic:
 class TestTierValidation:
     """Test hot and cold cache validation."""
 
-    def test_hot_valid_when_under_24h(
+    def test_hot_valid_when_fresh(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that hot cache is valid when < 24 hours old."""
+        """Test that hot cache is valid when < 6 hours old."""
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
         # Just saved - should be valid
         assert cache_manager.is_hot_cache_valid() is True
 
-    def test_hot_invalid_when_over_24h(
+    def test_hot_invalid_when_over_6h(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that hot cache is invalid when >= 24 hours old."""
+        """Test that hot cache is invalid when >= 6 hours old."""
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Manipulate metadata to simulate old cache
+        # Manipulate metadata to simulate old cache (7 hours > 6 hour max age)
         metadata = cache_manager.load_metadata()
-        old_time = datetime.now() - timedelta(hours=25)
+        old_time = datetime.now() - timedelta(hours=7)
         metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
         cache_manager._save_metadata(metadata)
 
@@ -485,9 +485,9 @@ class TestRefreshStrategyDetermination:
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Make hot stale
+        # Make hot stale (7 hours > 6 hour max age)
         metadata = cache_manager.load_metadata()
-        old_time = datetime.now() - timedelta(hours=25)
+        old_time = datetime.now() - timedelta(hours=7)
         metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
         cache_manager._save_metadata(metadata)
 
@@ -517,9 +517,9 @@ class TestRefreshStrategyDetermination:
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Make both stale
+        # Make both stale (hot: 7h > 6h max, cold: 31d > 30d max)
         metadata = cache_manager.load_metadata()
-        hot_old_time = datetime.now() - timedelta(hours=25)
+        hot_old_time = datetime.now() - timedelta(hours=7)
         cold_old_time = datetime.now() - timedelta(days=31)
         metadata["hot"]["fetch_timestamp"] = hot_old_time.isoformat()
         metadata["cold"]["fetch_timestamp"] = cold_old_time.isoformat()
@@ -875,9 +875,9 @@ class TestBackwardsCompatibility:
         # Fresh cache should be valid
         assert cache_manager.is_cache_valid() is True
 
-        # Make hot stale
+        # Make hot stale (7 hours > 6 hour max age)
         metadata = cache_manager.load_metadata()
-        old_time = datetime.now() - timedelta(hours=25)
+        old_time = datetime.now() - timedelta(hours=7)
         metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
         cache_manager._save_metadata(metadata)
 
