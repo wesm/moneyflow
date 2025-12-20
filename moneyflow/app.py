@@ -245,6 +245,7 @@ class MoneyflowApp(App):
         self.cache_manager = None  # Will be set if caching is enabled
         self.cache_year_filter = None  # Track what filters the cache uses
         self.cache_since_filter = None
+        self.display_start_date = None  # Display filter (--mtd/--since) separate from cache
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
         self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
         # Controller will be initialized after data_manager is ready
@@ -367,27 +368,27 @@ class MoneyflowApp(App):
     def _determine_date_range(self):
         """Determine date range based on CLI arguments.
 
-        Returns:
-            tuple: (start_date, end_date, cache_year_filter, cache_since_filter)
-        """
-        if self.custom_start_date:
-            start_date = self.custom_start_date
-            end_date = datetime.now().strftime("%Y-%m-%d")
-            cache_year_filter = None
-            cache_since_filter = self.custom_start_date
-        elif self.start_year:
-            start_date = f"{self.start_year}-01-01"
-            end_date = datetime.now().strftime("%Y-%m-%d")
-            cache_year_filter = self.start_year
-            cache_since_filter = None
-        else:
-            # Fetch ALL transactions (no date filter for offline-first approach)
-            start_date = None
-            end_date = None
-            cache_year_filter = None
-            cache_since_filter = None
+        Separates display filtering (--mtd, --since) from cache behavior:
+        - display_start_date: What the user wants to VIEW (filters the UI)
+        - cache filters: What the cache actually STORES (preserved on refresh)
 
-        return start_date, end_date, cache_year_filter, cache_since_filter
+        Returns:
+            tuple: (display_start_date, cache_year_filter, cache_since_filter)
+        """
+        # Display filter - what user wants to see
+        if self.custom_start_date:
+            display_start_date = self.custom_start_date
+        elif self.start_year:
+            display_start_date = f"{self.start_year}-01-01"
+        else:
+            display_start_date = None
+
+        # Cache filters - determined by existing cache or first fetch
+        # These are set later based on what's actually cached
+        cache_year_filter = None
+        cache_since_filter = None
+
+        return display_start_date, cache_year_filter, cache_since_filter
 
     @staticmethod
     def _filter_df_by_start_date(df: pl.DataFrame, start_date: str) -> pl.DataFrame:
@@ -1027,14 +1028,15 @@ class MoneyflowApp(App):
             )
 
             # Save to cache for next time (only if --cache was passed)
+            # Always save as full cache (no filters) - display filters applied separately
             if self.cache_manager:
                 loading_status.update("💾 Saving to cache...")
                 self.cache_manager.save_cache(
                     transactions_df=df,
                     categories=categories,
                     category_groups=category_groups,
-                    year=self.cache_year_filter,
-                    since=self.cache_since_filter,
+                    year=None,  # Full cache - no year filter
+                    since=None,  # Full cache - no since filter
                 )
                 loading_status.update(f"✅ Loaded {len(df):,} transactions and cached!")
             else:
@@ -1102,14 +1104,12 @@ class MoneyflowApp(App):
 
         try:
             # Fetch the expired tier from API
+            # Use helper methods to ensure both dates are always provided (API requirement)
             if is_hot_refresh:
-                fetch_start, fetch_end = boundary_str, None
-                loading_status.update(f"📊 Fetching transactions since {boundary_str}...")
+                fetch_start, fetch_end = self.cache_manager.get_hot_refresh_date_range()
+                loading_status.update(f"📊 Fetching transactions since {fetch_start}...")
             else:
-                fetch_start, fetch_end = (
-                    None,
-                    (boundary_date - timedelta(days=1)).strftime("%Y-%m-%d"),
-                )
+                fetch_start, fetch_end = self.cache_manager.get_cold_refresh_date_range()
                 loading_status.update(
                     f"📊 Fetching historical transactions before {boundary_str}..."
                 )
@@ -1322,8 +1322,8 @@ class MoneyflowApp(App):
                 profile_dir=determined_profile_dir, backend_type=determined_backend_type
             )
 
-            # Step 4: Determine date range
-            start_date, end_date, self.cache_year_filter, self.cache_since_filter = (
+            # Step 4: Determine display filter (separate from cache)
+            self.display_start_date, self.cache_year_filter, self.cache_since_filter = (
                 self._determine_date_range()
             )
 
@@ -1335,9 +1335,9 @@ class MoneyflowApp(App):
                 df, categories, category_groups = cached_data
                 # Filter cached data to match requested date range (e.g., --mtd)
                 # Cache may contain more data than requested (e.g., full year cache for MTD request)
-                if start_date:
+                if self.display_start_date:
                     original_count = len(df)
-                    df = self._filter_df_by_start_date(df, start_date)
+                    df = self._filter_df_by_start_date(df, self.display_start_date)
                     if len(df) < original_count:
                         loading_status.update(
                             f"📦 Filtered cache: {len(df):,} of {original_count:,} transactions"
@@ -1348,17 +1348,18 @@ class MoneyflowApp(App):
                 if partial_result:
                     df, categories, category_groups = partial_result
                     # Filter if needed
-                    if start_date:
+                    if self.display_start_date:
                         original_count = len(df)
-                        df = self._filter_df_by_start_date(df, start_date)
+                        df = self._filter_df_by_start_date(df, self.display_start_date)
                         if len(df) < original_count:
                             loading_status.update(
                                 f"📦 Filtered: {len(df):,} of {original_count:,} transactions"
                             )
                 else:
                     # Partial refresh failed, fall back to full fetch
+                    # Always fetch full data - display filter applied after
                     fetch_result = await self._fetch_data_with_retry(
-                        creds, start_date, end_date, loading_status
+                        creds, None, None, loading_status
                     )
                     if fetch_result is None:
                         has_error = True
@@ -1366,13 +1367,23 @@ class MoneyflowApp(App):
                     df, categories, category_groups = fetch_result
             else:
                 # Step 6: Full fetch from API (BOTH, ALL, or no cache)
+                # Always fetch full data - display filter applied after
                 fetch_result = await self._fetch_data_with_retry(
-                    creds, start_date, end_date, loading_status
+                    creds, None, None, loading_status
                 )
                 if fetch_result is None:
                     has_error = True
                     return
                 df, categories, category_groups = fetch_result
+
+            # Apply display filter after fetch (cache stores full data)
+            if self.display_start_date and strategy != RefreshStrategy.NONE:
+                original_count = len(df)
+                df = self._filter_df_by_start_date(df, self.display_start_date)
+                if len(df) < original_count:
+                    loading_status.update(
+                        f"📦 Filtered: {len(df):,} of {original_count:,} transactions"
+                    )
 
             # Step 7: Store data
             self._store_data(df, categories, category_groups)

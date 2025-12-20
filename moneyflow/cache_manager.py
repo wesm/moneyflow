@@ -88,6 +88,73 @@ class CacheManager:
         """Get the boundary date between hot and cold cache (90 days ago)."""
         return date.today() - timedelta(days=self.HOT_WINDOW_DAYS)
 
+    # Overlap days to fetch before cold's end date (ensures no gaps from timing/date changes)
+    TIER_OVERLAP_DAYS = 7
+
+    def get_hot_refresh_date_range(self) -> tuple[str, str]:
+        """Get the date range for refreshing the hot cache tier.
+
+        CRITICAL: Must start from cold cache's latest_date to avoid gaps.
+        The boundary moves forward each day, but cold data is fixed until
+        cold cache expires (30 days). Without this, gaps would grow daily.
+
+        Subtracts TIER_OVERLAP_DAYS to handle transactions that might change
+        dates or timing variations during refresh.
+
+        Returns:
+            Tuple of (start_date, end_date) as ISO format strings.
+            Both values are always non-None to satisfy API requirements.
+        """
+        today = date.today()
+
+        # MUST use cold cache's latest date to avoid gaps
+        try:
+            metadata = self.load_metadata()
+            cold_meta = metadata.get("cold", {})
+            cold_latest = cold_meta.get("latest_date")
+            if cold_latest:
+                cold_end = date.fromisoformat(cold_latest)
+                # Overlap: start a few days before cold ends
+                start = (cold_end - timedelta(days=self.TIER_OVERLAP_DAYS))
+                return start.isoformat(), today.isoformat()
+        except Exception:
+            pass
+
+        # Fallback only if no cold metadata (shouldn't happen in normal use)
+        boundary = self._get_boundary_date()
+        start = (boundary - timedelta(days=self.TIER_OVERLAP_DAYS)).isoformat()
+        return start, today.isoformat()
+
+    def get_cold_refresh_date_range(self) -> tuple[str, str]:
+        """Get the date range for refreshing the cold cache tier.
+
+        CRITICAL: Must end at hot cache's earliest_date + overlap to ensure
+        proper coverage. Uses stored metadata, not computed boundary.
+
+        Returns:
+            Tuple of (start_date, end_date) as ISO format strings.
+            Both values are always non-None to satisfy API requirements.
+        """
+        start = "2000-01-01"
+
+        # Use hot cache's earliest date to ensure overlap
+        try:
+            metadata = self.load_metadata()
+            hot_meta = metadata.get("hot", {})
+            hot_earliest = hot_meta.get("earliest_date")
+            if hot_earliest:
+                hot_start = date.fromisoformat(hot_earliest)
+                # Overlap: end a few days after hot starts
+                end = (hot_start + timedelta(days=self.TIER_OVERLAP_DAYS)).isoformat()
+                return start, end
+        except Exception:
+            pass
+
+        # Fallback only if no hot metadata
+        boundary = self._get_boundary_date()
+        end = (boundary + timedelta(days=self.TIER_OVERLAP_DAYS)).isoformat()
+        return start, end
+
     def cache_exists(self) -> bool:
         """Check if two-tier cache files exist."""
         return (

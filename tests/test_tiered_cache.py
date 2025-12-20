@@ -862,6 +862,278 @@ class TestFilterCoverage:
         assert cache_manager._filter_covered(year=2024, since=None) is True
 
 
+class TestDisplayFilterDoesNotInvalidateCache:
+    """Test that display filters (--mtd, --year) don't invalidate existing full cache.
+
+    This is a critical regression test for the bug where running with --mtd
+    would cause a full re-fetch and overwrite an existing full cache with
+    only the filtered data.
+    """
+
+    def test_full_cache_valid_with_year_filter(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Full cache should return NONE strategy when queried with year filter."""
+        df = create_mixed_transactions_df()
+        # Save as full cache (no filters)
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Query with year filter - should still be valid (NONE = use cache)
+        strategy = cache_manager.get_refresh_strategy(year=2024, since=None)
+        assert strategy == RefreshStrategy.NONE
+
+    def test_full_cache_valid_with_since_filter(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Full cache should return NONE strategy when queried with --mtd/--since filter."""
+        df = create_mixed_transactions_df()
+        # Save as full cache (no filters)
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Query with since filter (simulating --mtd) - should still be valid
+        today = date.today()
+        mtd_start = today.replace(day=1).isoformat()
+        strategy = cache_manager.get_refresh_strategy(year=None, since=mtd_start)
+        assert strategy == RefreshStrategy.NONE
+
+    def test_full_cache_stale_hot_returns_hot_only_with_year_filter(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Stale hot cache should return HOT_ONLY (not ALL) with year filter.
+
+        The cold cache should NOT be invalidated just because a display filter is used.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make hot cache stale (7 hours > 6 hour max)
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        # Query with year filter - should only refresh hot, not both
+        strategy = cache_manager.get_refresh_strategy(year=2024, since=None)
+        assert strategy == RefreshStrategy.HOT_ONLY
+
+    def test_full_cache_stale_hot_returns_hot_only_with_since_filter(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Stale hot cache should return HOT_ONLY (not ALL) with --mtd filter.
+
+        The cold cache should NOT be invalidated just because --mtd is used.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make hot cache stale (7 hours > 6 hour max)
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        # Query with since filter (--mtd) - should only refresh hot
+        today = date.today()
+        mtd_start = today.replace(day=1).isoformat()
+        strategy = cache_manager.get_refresh_strategy(year=None, since=mtd_start)
+        assert strategy == RefreshStrategy.HOT_ONLY
+
+    def test_full_cache_stale_cold_returns_cold_only_with_filters(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Stale cold cache should return COLD_ONLY with display filters.
+
+        Even with --mtd, if only cold is stale, we should refresh cold only.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make cold cache stale (31 days > 30 day max)
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(days=31)
+        metadata["cold"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        # Query with year filter - should only refresh cold
+        strategy = cache_manager.get_refresh_strategy(year=2024, since=None)
+        assert strategy == RefreshStrategy.COLD_ONLY
+
+    def test_cache_metadata_preserved_after_query_with_filter(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Querying with filter should NOT modify cache metadata.
+
+        This ensures the cache filter (year_filter, since_filter in metadata)
+        is not changed when get_refresh_strategy is called with display filters.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Get metadata before query
+        metadata_before = cache_manager.load_metadata()
+        assert metadata_before.get("year_filter") is None
+        assert metadata_before.get("since_filter") is None
+
+        # Query with filters (simulating --mtd and --year)
+        cache_manager.get_refresh_strategy(year=2024, since=None)
+        cache_manager.get_refresh_strategy(year=None, since="2024-12-01")
+
+        # Metadata should be unchanged
+        metadata_after = cache_manager.load_metadata()
+        assert metadata_after.get("year_filter") is None
+        assert metadata_after.get("since_filter") is None
+
+
+class TestPartialRefreshDateRanges:
+    """Test that partial refresh date ranges are always fully specified.
+
+    This is a regression test for a bug where _partial_refresh in app.py
+    was passing None for one of the date parameters, causing the Monarch
+    Money API to fail with "You must specify both a startDate and endDate".
+    """
+
+    def test_get_hot_refresh_date_range_returns_both_dates(
+        self, cache_manager
+    ):
+        """get_hot_refresh_date_range must return both start and end dates."""
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
+
+        # Both must be non-None strings
+        assert fetch_start is not None, "Hot refresh start_date must not be None"
+        assert fetch_end is not None, "Hot refresh end_date must not be None"
+        assert isinstance(fetch_start, str), "Hot refresh start_date must be a string"
+        assert isinstance(fetch_end, str), "Hot refresh end_date must be a string"
+
+        # Verify they're valid ISO dates
+        from datetime import datetime as dt
+        start_date = dt.fromisoformat(fetch_start).date()
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        # Verify date ordering
+        assert start_date <= end_date, "start_date must be <= end_date"
+
+    def test_get_cold_refresh_date_range_returns_both_dates(
+        self, cache_manager
+    ):
+        """get_cold_refresh_date_range must return both start and end dates."""
+        fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
+
+        # Both must be non-None strings
+        assert fetch_start is not None, "Cold refresh start_date must not be None"
+        assert fetch_end is not None, "Cold refresh end_date must not be None"
+        assert isinstance(fetch_start, str), "Cold refresh start_date must be a string"
+        assert isinstance(fetch_end, str), "Cold refresh end_date must be a string"
+
+        # Verify they're valid ISO dates
+        from datetime import datetime as dt
+        start_date = dt.fromisoformat(fetch_start).date()
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        # Verify date ordering
+        assert start_date <= end_date, "start_date must be <= end_date"
+
+    def test_hot_refresh_range_starts_from_cold_latest_date(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Hot refresh should start from cold cache's latest_date minus overlap.
+
+        CRITICAL: This prevents gaps as the boundary moves forward daily while
+        cold cache data stays fixed for up to 30 days.
+        """
+        from moneyflow.cache_manager import CacheManager
+
+        # First save a cache so we have cold metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Get cold's latest date from metadata
+        metadata = cache_manager.load_metadata()
+        cold_latest = metadata["cold"]["latest_date"]
+        cold_end = date.fromisoformat(cold_latest)
+
+        # Get hot refresh range
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
+
+        from datetime import datetime as dt
+        start_date = dt.fromisoformat(fetch_start).date()
+
+        # Should start TIER_OVERLAP_DAYS before cold's latest date
+        expected_start = cold_end - timedelta(days=CacheManager.TIER_OVERLAP_DAYS)
+        assert start_date == expected_start, (
+            f"Hot refresh must start from cold's latest_date ({cold_latest}) "
+            f"minus overlap, not from moving boundary"
+        )
+
+    def test_hot_refresh_range_ends_at_today(self, cache_manager):
+        """Hot refresh should end at today."""
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
+
+        from datetime import datetime as dt
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        assert end_date == date.today()
+
+    def test_cold_refresh_range_ends_from_hot_earliest_date(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Cold refresh should end at hot cache's earliest_date plus overlap.
+
+        CRITICAL: This ensures proper overlap with hot cache regardless of
+        how much time has passed since the cache was created.
+        """
+        from moneyflow.cache_manager import CacheManager
+
+        # First save a cache so we have hot metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Get hot's earliest date from metadata
+        metadata = cache_manager.load_metadata()
+        hot_earliest = metadata["hot"]["earliest_date"]
+        hot_start = date.fromisoformat(hot_earliest)
+
+        # Get cold refresh range
+        fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
+
+        from datetime import datetime as dt
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        # Should end TIER_OVERLAP_DAYS after hot's earliest date
+        expected_end = hot_start + timedelta(days=CacheManager.TIER_OVERLAP_DAYS)
+        assert end_date == expected_end, (
+            f"Cold refresh must end at hot's earliest_date ({hot_earliest}) "
+            f"plus overlap, not from moving boundary"
+        )
+
+    def test_hot_and_cold_ranges_overlap(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Hot and cold refresh ranges SHOULD overlap to prevent gaps.
+
+        The merge logic handles deduplication (hot takes precedence).
+        This is critical for data integrity - gaps could lose transactions.
+        """
+        from moneyflow.cache_manager import CacheManager
+
+        # First save a cache so we have metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        hot_start, hot_end = cache_manager.get_hot_refresh_date_range()
+        cold_start, cold_end = cache_manager.get_cold_refresh_date_range()
+
+        from datetime import datetime as dt
+        hot_start_date = dt.fromisoformat(hot_start).date()
+        cold_end_date = dt.fromisoformat(cold_end).date()
+
+        # Cold should end AFTER hot starts (overlap)
+        assert cold_end_date > hot_start_date, "Hot and cold ranges must overlap to prevent gaps"
+
+        # Verify overlap is at least 2 * TIER_OVERLAP_DAYS
+        overlap_days = (cold_end_date - hot_start_date).days
+        assert overlap_days >= 2 * CacheManager.TIER_OVERLAP_DAYS
+
+
 class TestBackwardsCompatibility:
     """Test backwards compatibility methods."""
 
