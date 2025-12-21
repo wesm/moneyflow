@@ -399,9 +399,7 @@ class TestLoadMergeLogic:
 class TestTierValidation:
     """Test hot and cold cache validation."""
 
-    def test_hot_valid_when_fresh(
-        self, cache_manager, sample_categories, sample_category_groups
-    ):
+    def test_hot_valid_when_fresh(self, cache_manager, sample_categories, sample_category_groups):
         """Test that hot cache is valid when < 6 hours old."""
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
@@ -992,9 +990,7 @@ class TestPartialRefreshDateRanges:
     Money API to fail with "You must specify both a startDate and endDate".
     """
 
-    def test_get_hot_refresh_date_range_returns_both_dates(
-        self, cache_manager
-    ):
+    def test_get_hot_refresh_date_range_returns_both_dates(self, cache_manager):
         """get_hot_refresh_date_range must return both start and end dates."""
         fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
 
@@ -1006,15 +1002,14 @@ class TestPartialRefreshDateRanges:
 
         # Verify they're valid ISO dates
         from datetime import datetime as dt
+
         start_date = dt.fromisoformat(fetch_start).date()
         end_date = dt.fromisoformat(fetch_end).date()
 
         # Verify date ordering
         assert start_date <= end_date, "start_date must be <= end_date"
 
-    def test_get_cold_refresh_date_range_returns_both_dates(
-        self, cache_manager
-    ):
+    def test_get_cold_refresh_date_range_returns_both_dates(self, cache_manager):
         """get_cold_refresh_date_range must return both start and end dates."""
         fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
 
@@ -1026,6 +1021,7 @@ class TestPartialRefreshDateRanges:
 
         # Verify they're valid ISO dates
         from datetime import datetime as dt
+
         start_date = dt.fromisoformat(fetch_start).date()
         end_date = dt.fromisoformat(fetch_end).date()
 
@@ -1055,6 +1051,7 @@ class TestPartialRefreshDateRanges:
         fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
 
         from datetime import datetime as dt
+
         start_date = dt.fromisoformat(fetch_start).date()
 
         # Should start TIER_OVERLAP_DAYS before cold's latest date
@@ -1069,6 +1066,7 @@ class TestPartialRefreshDateRanges:
         fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
 
         from datetime import datetime as dt
+
         end_date = dt.fromisoformat(fetch_end).date()
 
         assert end_date == date.today()
@@ -1096,6 +1094,7 @@ class TestPartialRefreshDateRanges:
         fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
 
         from datetime import datetime as dt
+
         end_date = dt.fromisoformat(fetch_end).date()
 
         # Should end TIER_OVERLAP_DAYS after hot's earliest date
@@ -1123,6 +1122,7 @@ class TestPartialRefreshDateRanges:
         cold_start, cold_end = cache_manager.get_cold_refresh_date_range()
 
         from datetime import datetime as dt
+
         hot_start_date = dt.fromisoformat(hot_start).date()
         cold_end_date = dt.fromisoformat(cold_end).date()
 
@@ -1166,3 +1166,143 @@ class TestBackwardsCompatibility:
         age = cache_manager.get_cache_age_hours()
         assert age is not None
         assert age < 1  # Should be very recent
+
+
+class TestFilteredViewCacheUpdate:
+    """Regression tests for cache updates with filtered view data.
+
+    This tests for a bug where running with --mtd or --year would cause
+    commits to overwrite the cold cache with empty data:
+
+    1. App loads filtered data (only recent transactions) into data_manager.df
+    2. When committing, save_cache() was called with this filtered data
+    3. Since all transactions were recent, cold cache got 0 transactions
+    4. This overwrote the previously-good cold cache with empty data
+
+    The fix: When operating on filtered data, use save_hot_cache() instead
+    of save_cache() to preserve the cold cache tier.
+    """
+
+    def test_save_cache_with_only_hot_data_overwrites_cold(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Verify that save_cache() with only hot data DOES overwrite cold.
+
+        This test documents the behavior that caused the bug. save_cache()
+        will overwrite both tiers, so it should NOT be used with filtered data.
+        """
+        # First, create a cache with both hot and cold data
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Verify cold has data
+        original_cold = cache_manager.load_cold_cache()
+        assert len(original_cold) > 0, "Cold cache should have transactions"
+        original_cold_count = len(original_cold)
+
+        # Now simulate filtered view: only hot (recent) transactions
+        today = date.today()
+        hot_only_df = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="filtered"
+        )
+
+        # save_cache() with only hot data will overwrite cold with empty data
+        cache_manager.save_cache(hot_only_df, sample_categories, sample_category_groups)
+
+        # Cold cache should now be empty (this is the bug behavior!)
+        new_cold = cache_manager.load_cold_cache()
+        assert len(new_cold) == 0, "save_cache() overwrites cold with empty data"
+
+        # Verify hot has the new data
+        new_hot = cache_manager.load_hot_cache()
+        assert len(new_hot) == 1
+
+        # This demonstrates WHY save_hot_cache() should be used for filtered views
+        assert original_cold_count > 0, "Original cold data was lost"
+
+    def test_save_hot_cache_preserves_cold_data(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Verify that save_hot_cache() preserves cold data (the fix).
+
+        When operating on filtered view (--mtd, --year, --since), we must
+        use save_hot_cache() to avoid losing historical data.
+        """
+        # First, create a cache with both hot and cold data
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Verify cold has data
+        original_cold = cache_manager.load_cold_cache()
+        assert len(original_cold) > 0, "Cold cache should have transactions"
+        original_cold_ids = set(original_cold["id"].to_list())
+
+        # Now simulate filtered view: only hot (recent) transactions
+        today = date.today()
+        hot_only_df = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="filtered"
+        )
+
+        # save_hot_cache() preserves cold data (the correct behavior for filtered views)
+        cache_manager.save_hot_cache(hot_only_df, sample_categories, sample_category_groups)
+
+        # Cold cache should still have the original data
+        new_cold = cache_manager.load_cold_cache()
+        assert len(new_cold) == len(original_cold), "Cold cache must be preserved"
+        new_cold_ids = set(new_cold["id"].to_list())
+        assert new_cold_ids == original_cold_ids, "Cold transaction IDs must be unchanged"
+
+        # Hot cache should have the new filtered data
+        new_hot = cache_manager.load_hot_cache()
+        assert len(new_hot) == 1
+        assert new_hot["id"][0] == "filtered0"
+
+    def test_filtered_view_commit_scenario(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """End-to-end test simulating the filtered view commit scenario.
+
+        Simulates:
+        1. Full cache exists with both hot and cold data
+        2. User runs with --year 2025 (filtered view)
+        3. User edits a transaction and commits
+        4. Cache update should preserve cold data
+        """
+        # Step 1: Create full cache with historical and recent data
+        full_df = create_mixed_transactions_df()
+        cache_manager.save_cache(full_df, sample_categories, sample_category_groups)
+
+        original_cold = cache_manager.load_cold_cache()
+        original_hot = cache_manager.load_hot_cache()
+        original_cold_count = len(original_cold)
+        original_hot_count = len(original_hot)
+
+        assert original_cold_count > 0, "Should have cold data"
+        assert original_hot_count > 0, "Should have hot data"
+
+        # Step 2: Simulate filtered view (only hot transactions loaded)
+        # In the real app, this is what data_manager.df contains after --year/--mtd
+        filtered_df = original_hot.clone()
+
+        # Step 3: Simulate an edit (modify one transaction)
+        modified_df = filtered_df.with_columns(
+            pl.when(pl.col("id") == filtered_df["id"][0])
+            .then(pl.lit("Edited Merchant"))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+        # Step 4: Use save_hot_cache() (the correct method for filtered views)
+        cache_manager.save_hot_cache(modified_df, sample_categories, sample_category_groups)
+
+        # Verify cold cache is preserved
+        final_cold = cache_manager.load_cold_cache()
+        assert len(final_cold) == original_cold_count, "Cold data must be preserved"
+
+        # Verify hot cache has the edit
+        final_hot = cache_manager.load_hot_cache()
+        assert len(final_hot) == original_hot_count, "Hot count unchanged"
+
+        # Verify total count is correct in metadata
+        metadata = cache_manager.load_metadata()
+        assert metadata["total_transactions"] == original_cold_count + original_hot_count

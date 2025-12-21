@@ -14,6 +14,7 @@ This ensures sensitive financial data is protected at rest.
 
 import io
 import json
+import logging
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -21,6 +22,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import polars as pl
 from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 
 class RefreshStrategy(Enum):
@@ -115,7 +118,7 @@ class CacheManager:
             if cold_latest:
                 cold_end = date.fromisoformat(cold_latest)
                 # Overlap: start a few days before cold ends
-                start = (cold_end - timedelta(days=self.TIER_OVERLAP_DAYS))
+                start = cold_end - timedelta(days=self.TIER_OVERLAP_DAYS)
                 return start.isoformat(), today.isoformat()
         except Exception:
             pass
@@ -437,6 +440,12 @@ class CacheManager:
         boundary_date = self._get_boundary_date()
         boundary_str = boundary_date.isoformat()
 
+        # Log incoming data for debugging
+        logger.info(
+            f"save_cache called: {len(transactions_df)} transactions, "
+            f"year_filter={year}, since_filter={since}"
+        )
+
         # Split transactions into hot and cold tiers
         if len(transactions_df) > 0 and "date" in transactions_df.columns:
             # Check if date column is string or date type
@@ -453,6 +462,30 @@ class CacheManager:
             # Empty or no date column - put everything in hot
             hot_df = transactions_df
             cold_df = pl.DataFrame(schema=transactions_df.schema)
+
+        # Log split results - critical for debugging cache issues
+        hot_earliest = hot_df["date"].min() if len(hot_df) > 0 else None
+        hot_latest = hot_df["date"].max() if len(hot_df) > 0 else None
+        cold_earliest = cold_df["date"].min() if len(cold_df) > 0 else None
+        cold_latest = cold_df["date"].max() if len(cold_df) > 0 else None
+        logger.info(
+            f"save_cache split: hot={len(hot_df)} ({hot_earliest} to {hot_latest}), "
+            f"cold={len(cold_df)} ({cold_earliest} to {cold_latest}), "
+            f"boundary={boundary_str}"
+        )
+
+        # Warn if cold cache is being overwritten with empty data (potential bug indicator)
+        if len(cold_df) == 0:
+            try:
+                existing_meta = self.load_metadata()
+                existing_cold_count = existing_meta.get("cold", {}).get("transaction_count", 0)
+                if existing_cold_count > 0:
+                    logger.warning(
+                        f"Overwriting cold cache ({existing_cold_count} transactions) with empty data. "
+                        f"This may indicate filtered data being saved incorrectly."
+                    )
+            except Exception:
+                pass  # No existing metadata
 
         # Save both tiers
         self._save_encrypted_parquet(hot_df, self.hot_transactions_file)
@@ -498,6 +531,14 @@ class CacheManager:
         if not self.fernet:
             raise ValueError("Cannot save cache: encryption key not set")
 
+        # Log hot cache save
+        hot_earliest = hot_df["date"].min() if len(hot_df) > 0 else None
+        hot_latest = hot_df["date"].max() if len(hot_df) > 0 else None
+        logger.info(
+            f"save_hot_cache: {len(hot_df)} transactions ({hot_earliest} to {hot_latest}), "
+            f"preserving cold tier"
+        )
+
         # Save hot tier
         self._save_encrypted_parquet(hot_df, self.hot_transactions_file)
 
@@ -523,6 +564,7 @@ class CacheManager:
         cold_count = cold_info.get("transaction_count", 0) if isinstance(cold_info, dict) else 0
         metadata["total_transactions"] = len(hot_df) + cold_count
 
+        logger.debug(f"save_hot_cache: cold tier preserved with {cold_count} transactions")
         self._save_metadata(metadata)
 
     def save_cold_cache(self, cold_df: pl.DataFrame) -> None:
@@ -536,6 +578,14 @@ class CacheManager:
         """
         if not self.fernet:
             raise ValueError("Cannot save cache: encryption key not set")
+
+        # Log cold cache save
+        cold_earliest = cold_df["date"].min() if len(cold_df) > 0 else None
+        cold_latest = cold_df["date"].max() if len(cold_df) > 0 else None
+        logger.info(
+            f"save_cold_cache: {len(cold_df)} transactions ({cold_earliest} to {cold_latest}), "
+            f"preserving hot tier"
+        )
 
         # Save cold tier
         self._save_encrypted_parquet(cold_df, self.cold_transactions_file)
@@ -554,6 +604,7 @@ class CacheManager:
         hot_count = hot_info.get("transaction_count", 0) if isinstance(hot_info, dict) else 0
         metadata["total_transactions"] = hot_count + len(cold_df)
 
+        logger.debug(f"save_cold_cache: hot tier preserved with {hot_count} transactions")
         self._save_metadata(metadata)
 
     def load_hot_cache(self) -> Optional[pl.DataFrame]:

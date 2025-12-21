@@ -1516,6 +1516,7 @@ class AppController:
         saved_state: dict,
         cache_filters: dict = None,
         bulk_merchant_renames: set[tuple[str, str]] | None = None,
+        is_filtered_view: bool = False,
     ) -> None:
         """
         Handle commit results and update local state accordingly.
@@ -1542,6 +1543,9 @@ class AppController:
                 For these, ALL transactions with the old merchant name
                 will be updated locally. For None (e.g., Monarch Money),
                 only the specific transaction is updated.
+            is_filtered_view: True if app is showing filtered data (--mtd, --year, --since).
+                When True, we use save_hot_cache() instead of save_cache() to preserve
+                the cold cache data.
 
         Side effects:
             - May update data_manager.df and state.transactions_df
@@ -1592,14 +1596,28 @@ class AppController:
             # Update cache with edited data (if caching is enabled)
             if self.cache_manager and cache_filters:
                 try:
-                    logger.debug("Updating cache with committed changes")
-                    self.cache_manager.save_cache(
-                        transactions_df=self.data_manager.df,
-                        categories=self.data_manager.categories,
-                        category_groups=self.data_manager.category_groups,
-                        year=cache_filters.get("year"),
-                        since=cache_filters.get("since"),
-                    )
+                    if is_filtered_view:
+                        # When showing filtered data (--mtd, --year, --since),
+                        # data_manager.df only contains a subset of transactions.
+                        # Only update the hot cache to preserve the cold tier.
+                        logger.info(
+                            "Filtered view detected - using save_hot_cache to preserve cold cache"
+                        )
+                        self.cache_manager.save_hot_cache(
+                            hot_df=self.data_manager.df,
+                            categories=self.data_manager.categories,
+                            category_groups=self.data_manager.category_groups,
+                        )
+                    else:
+                        # Full data mode - safe to save both tiers
+                        logger.debug("Full data mode - updating both cache tiers")
+                        self.cache_manager.save_cache(
+                            transactions_df=self.data_manager.df,
+                            categories=self.data_manager.categories,
+                            category_groups=self.data_manager.category_groups,
+                            year=cache_filters.get("year"),
+                            since=cache_filters.get("since"),
+                        )
                 except Exception as e:
                     # Cache update failed - not critical, just log
                     logger.warning(f"Cache update failed: {e}", exc_info=True)

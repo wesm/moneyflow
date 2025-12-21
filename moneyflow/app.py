@@ -1368,9 +1368,7 @@ class MoneyflowApp(App):
             else:
                 # Step 6: Full fetch from API (BOTH, ALL, or no cache)
                 # Always fetch full data - display filter applied after
-                fetch_result = await self._fetch_data_with_retry(
-                    creds, None, None, loading_status
-                )
+                fetch_result = await self._fetch_data_with_retry(creds, None, None, loading_status)
                 if fetch_result is None:
                     has_error = True
                     return
@@ -2395,6 +2393,11 @@ class MoneyflowApp(App):
                     else None
                 )
 
+                # Detect if we're showing filtered data (--mtd, --year, --since).
+                # When filtered, cache updates must use save_hot_cache() to preserve
+                # the cold cache data.
+                is_filtered_view = self.display_start_date is not None
+
                 self.controller.handle_commit_result(
                     success_count=success_count,
                     failure_count=failure_count,
@@ -2402,6 +2405,7 @@ class MoneyflowApp(App):
                     saved_state=saved_state,
                     cache_filters=cache_filters,
                     bulk_merchant_renames=bulk_merchant_renames,
+                    is_filtered_view=is_filtered_view,
                 )
                 # Restore table position after commit completes
                 self._restore_table_position(saved_table_position)
