@@ -745,7 +745,8 @@ class TestProgressCallbacks:
         # Verify progress callbacks were made
         assert len(progress_messages) > 0
         assert any("Fetching categories" in msg for msg in progress_messages)
-        assert any("Fetching transactions" in msg for msg in progress_messages)
+        # New message format includes "Fetching all transactions..." or "Fetching transactions (date range)..."
+        assert any("transactions" in msg and "Fetching" in msg for msg in progress_messages)
         assert any("Processing transactions" in msg for msg in progress_messages)
 
     async def test_fetch_all_data_without_progress_callback(self, data_manager):

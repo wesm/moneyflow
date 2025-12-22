@@ -328,7 +328,12 @@ class DataManager:
 
         # Fetch transactions in batches
         if progress_callback:
-            progress_callback("Fetching transactions...")
+            if start_date and end_date:
+                progress_callback(f"Fetching transactions ({start_date} to {end_date})...")
+            elif start_date:
+                progress_callback(f"Fetching transactions from {start_date}...")
+            else:
+                progress_callback("Fetching all transactions...")
 
         transactions = await self._fetch_all_transactions(
             start_date=start_date, end_date=end_date, progress_callback=progress_callback
@@ -402,8 +407,16 @@ class DataManager:
                 if total_count is None and "allTransactions" in batch:
                     total_count = batch["allTransactions"].get("totalCount", 0)
                     if progress_callback and total_count:
-                        hide_label = "hidden" if hide_value else "visible"
-                        progress_callback(f"Fetching {total_count:,} {hide_label} transactions...")
+                        hide_label = "hidden" if hide_value else ""
+                        date_range = ""
+                        if start_date and end_date:
+                            date_range = f" ({start_date} to {end_date})"
+                        elif start_date:
+                            date_range = f" (from {start_date})"
+                        label = f"{hide_label} " if hide_label else ""
+                        progress_callback(
+                            f"Downloading {total_count:,} {label}transactions{date_range}..."
+                        )
 
                 # Get results from batch
                 batch_results = []
