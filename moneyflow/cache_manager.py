@@ -224,6 +224,68 @@ class CacheManager:
         except Exception:
             return None
 
+    def _is_cache_structure_valid(self, metadata: Dict[str, Any]) -> bool:
+        """
+        Sanity check cache structure to detect inconsistencies.
+
+        This catches issues from code changes to cache logic, ensuring we don't
+        serve stale/inconsistent data. Returns False if any check fails,
+        triggering a full refresh.
+
+        Checks performed:
+        1. Required metadata fields exist for both tiers
+        2. Cold cache extends into hot window (overlap requirement)
+        3. No gap between cold latest_date and hot earliest_date
+        """
+        try:
+            hot_meta = metadata.get("hot", {})
+            cold_meta = metadata.get("cold", {})
+
+            # Check 1: Required fields exist
+            required_hot = ["fetch_timestamp", "earliest_date", "latest_date", "transaction_count"]
+            required_cold = ["fetch_timestamp", "earliest_date", "latest_date", "transaction_count"]
+
+            for field in required_hot:
+                if field not in hot_meta:
+                    logger.debug(f"Cache sanity: missing hot.{field}")
+                    return False
+
+            for field in required_cold:
+                if field not in cold_meta:
+                    logger.debug(f"Cache sanity: missing cold.{field}")
+                    return False
+
+            # Parse dates for remaining checks
+            hot_earliest = date.fromisoformat(hot_meta["earliest_date"])
+            cold_latest = date.fromisoformat(cold_meta["latest_date"])
+            boundary = self._get_boundary_date()
+
+            # Check 2: Cold cache should extend past the boundary (overlap)
+            # Allow some tolerance (7 days) for edge cases
+            min_cold_latest = boundary - timedelta(days=7)
+            if cold_latest < min_cold_latest:
+                logger.debug(
+                    f"Cache sanity: cold latest ({cold_latest}) doesn't reach boundary "
+                    f"({boundary}), min required: {min_cold_latest}"
+                )
+                return False
+
+            # Check 3: No gap between tiers
+            # Hot should start at or before cold ends (with tolerance)
+            max_gap_days = 7
+            if hot_earliest > cold_latest + timedelta(days=max_gap_days):
+                logger.debug(
+                    f"Cache sanity: gap detected - hot starts at {hot_earliest}, "
+                    f"cold ends at {cold_latest}"
+                )
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.debug(f"Cache sanity check error: {e}")
+            return False
+
     def get_refresh_strategy(self, force_refresh: bool = False) -> RefreshStrategy:
         """
         Determine what data needs to be refreshed from API.
@@ -253,6 +315,12 @@ class CacheManager:
                 self.clear_cache()
                 return RefreshStrategy.ALL
         except Exception:
+            self.clear_cache()
+            return RefreshStrategy.ALL
+
+        # Sanity check cache structure - detect inconsistencies from code changes
+        if not self._is_cache_structure_valid(metadata):
+            logger.warning("Cache structure sanity check failed, forcing full refresh")
             self.clear_cache()
             return RefreshStrategy.ALL
 

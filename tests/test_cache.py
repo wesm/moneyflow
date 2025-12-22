@@ -721,6 +721,101 @@ class TestVersionMismatch:
         assert result is None
 
 
+class TestCacheSanityCheck:
+    """Test cache structure sanity checks."""
+
+    def test_valid_cache_passes_sanity_check(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that properly saved cache passes sanity check."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        metadata = cache_manager.load_metadata()
+        assert cache_manager._is_cache_structure_valid(metadata)
+
+    def test_missing_hot_field_fails_sanity_check(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that missing hot metadata field triggers refresh."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Remove a required field
+        metadata = cache_manager.load_metadata()
+        del metadata["hot"]["earliest_date"]
+        cache_manager._save_metadata(metadata)
+
+        assert not cache_manager._is_cache_structure_valid(metadata)
+        # Should trigger full refresh
+        assert cache_manager.get_refresh_strategy() == RefreshStrategy.ALL
+
+    def test_missing_cold_field_fails_sanity_check(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that missing cold metadata field triggers refresh."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Remove a required field
+        metadata = cache_manager.load_metadata()
+        del metadata["cold"]["transaction_count"]
+        cache_manager._save_metadata(metadata)
+
+        assert not cache_manager._is_cache_structure_valid(metadata)
+
+    def test_cold_not_reaching_boundary_fails_sanity_check(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cold cache not extending to boundary triggers refresh."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Set cold latest_date to way before boundary
+        metadata = cache_manager.load_metadata()
+        boundary = cache_manager._get_boundary_date()
+        # Set to 30 days before boundary (beyond 7-day tolerance)
+        old_date = (boundary - timedelta(days=30)).isoformat()
+        metadata["cold"]["latest_date"] = old_date
+        cache_manager._save_metadata(metadata)
+
+        assert not cache_manager._is_cache_structure_valid(metadata)
+
+    def test_gap_between_tiers_fails_sanity_check(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that gap between hot and cold tiers triggers refresh."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Create a gap: hot starts way after cold ends
+        metadata = cache_manager.load_metadata()
+        cold_latest = date.fromisoformat(metadata["cold"]["latest_date"])
+        # Hot starts 30 days after cold ends (beyond 7-day tolerance)
+        gap_date = (cold_latest + timedelta(days=30)).isoformat()
+        metadata["hot"]["earliest_date"] = gap_date
+        cache_manager._save_metadata(metadata)
+
+        assert not cache_manager._is_cache_structure_valid(metadata)
+
+    def test_sanity_check_tolerates_small_gap(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that small gaps (within tolerance) pass sanity check."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Create a small gap within tolerance
+        metadata = cache_manager.load_metadata()
+        cold_latest = date.fromisoformat(metadata["cold"]["latest_date"])
+        # Hot starts 3 days after cold ends (within 7-day tolerance)
+        small_gap_date = (cold_latest + timedelta(days=3)).isoformat()
+        metadata["hot"]["earliest_date"] = small_gap_date
+        cache_manager._save_metadata(metadata)
+
+        assert cache_manager._is_cache_structure_valid(metadata)
+
+
 class TestLegacyCache:
     """Test legacy cache handling."""
 
