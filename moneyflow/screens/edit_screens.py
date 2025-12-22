@@ -181,8 +181,9 @@ class EditMerchantScreen(ModalScreen):
         # Filter merchants using Polars for performance with large merchant lists
         if query:
             # Filter using Polars str.contains (much faster than Python loop for thousands of merchants)
+            # literal=True treats the pattern as a plain string, not regex
             filtered = self.all_merchants.filter(
-                self.all_merchants.str.to_lowercase().str.contains(query.lower())
+                self.all_merchants.str.to_lowercase().str.contains(query.lower(), literal=True)
             )
         else:
             filtered = self.all_merchants
