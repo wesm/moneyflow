@@ -198,8 +198,9 @@ class TestSaveSplitLogic:
         assert len(hot_df) > 0
         assert len(cold_df) > 0
 
-        # Total should match original
-        assert len(hot_df) + len(cold_df) == len(df)
+        # Total may exceed original due to 30-day overlap between tiers
+        # (cold includes transactions up to boundary + 30 days)
+        assert len(hot_df) + len(cold_df) >= len(df)
 
     def test_hot_contains_only_recent_90_days(
         self, cache_manager, sample_categories, sample_category_groups
@@ -215,24 +216,25 @@ class TestSaveSplitLogic:
         for d in hot_df["date"].to_list():
             assert d >= boundary, f"Transaction date {d} should be >= boundary {boundary}"
 
-    def test_cold_contains_only_historical(
+    def test_cold_contains_historical_with_overlap(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that cold tier only contains transactions older than 90 days."""
+        """Test that cold tier contains historical data plus 30-day overlap."""
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
         cold_df = cache_manager.load_cold_cache()
         boundary = cache_manager._get_boundary_date()
+        cold_cutoff = boundary + timedelta(days=cache_manager.COLD_SAVE_OVERLAP_DAYS)
 
-        # All cold transactions should be < boundary
+        # All cold transactions should be < cold_cutoff (boundary + 30 days)
         for d in cold_df["date"].to_list():
-            assert d < boundary, f"Transaction date {d} should be < boundary {boundary}"
+            assert d < cold_cutoff, f"Transaction date {d} should be < cold_cutoff {cold_cutoff}"
 
-    def test_boundary_transaction_goes_to_hot(
+    def test_boundary_transaction_goes_to_both_tiers(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that transaction exactly on boundary goes to hot tier."""
+        """Test that transaction on boundary goes to both hot and cold (overlap)."""
         boundary = cache_manager._get_boundary_date()
         df = create_transactions_df([boundary.isoformat()], prefix="boundary")
 
@@ -241,8 +243,10 @@ class TestSaveSplitLogic:
         hot_df = cache_manager.load_hot_cache()
         cold_df = cache_manager.load_cold_cache()
 
+        # Boundary transaction is in hot (>= boundary)
         assert len(hot_df) == 1
-        assert len(cold_df) == 0
+        # Boundary transaction is also in cold (< boundary + 30 days overlap)
+        assert len(cold_df) == 1
 
     def test_empty_hot_cache_when_all_historical(
         self, cache_manager, sample_categories, sample_category_groups
@@ -281,6 +285,43 @@ class TestSaveSplitLogic:
 
         assert len(hot_df) == 2
         assert len(cold_df) == 0
+
+    def test_cold_cache_has_30_day_overlap(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cold cache includes 30 days into hot window for gap prevention.
+
+        This is critical: when cold cache expires (after 30 days), the boundary
+        moves forward 30 days. Without overlap, there would be a gap between
+        where cold ends and where hot begins.
+        """
+        boundary = cache_manager._get_boundary_date()
+
+        # Create transactions at key dates:
+        # - At boundary (should be in both hot and cold)
+        # - 15 days after boundary (in hot window, should also be in cold due to overlap)
+        # - 40 days after boundary (in hot window, should NOT be in cold)
+        dates = [
+            boundary.isoformat(),  # At boundary
+            (boundary + timedelta(days=15)).isoformat(),  # In overlap window
+            (boundary + timedelta(days=40)).isoformat(),  # Beyond overlap
+        ]
+        df = create_transactions_df(dates, prefix="overlap")
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        cold_df = cache_manager.load_cold_cache()
+        cold_dates = set(cold_df["date"].to_list())
+
+        # Verify overlap: transactions at boundary and 15 days after should be in cold
+        assert boundary in cold_dates, "Boundary date should be in cold cache"
+        assert (boundary + timedelta(days=15)) in cold_dates, (
+            "Transaction 15 days after boundary should be in cold (within 30-day overlap)"
+        )
+        # Transaction 40 days after boundary should NOT be in cold
+        assert (boundary + timedelta(days=40)) not in cold_dates, (
+            "Transaction 40 days after boundary should NOT be in cold (beyond overlap)"
+        )
 
 
 class TestLoadMergeLogic:
@@ -757,7 +798,8 @@ class TestCacheInfo:
         assert info is not None
         assert "hot_count" in info
         assert "cold_count" in info
-        assert info["hot_count"] + info["cold_count"] == len(df)
+        # With 30-day overlap, sum may exceed original count
+        assert info["hot_count"] + info["cold_count"] >= len(df)
 
     def test_cache_info_includes_boundary_date(
         self, cache_manager, sample_categories, sample_category_groups

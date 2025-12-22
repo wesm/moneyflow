@@ -891,6 +891,14 @@ class MoneyflowApp(App):
         strategy = self.cache_manager.get_refresh_strategy(
             force_refresh=self.force_refresh,
         )
+
+        # Override: in hot-only view (--mtd, --since), --refresh only refreshes hot tier
+        if (
+            self.force_refresh
+            and self._is_within_hot_window()
+            and self.cache_manager.is_cold_cache_valid()
+        ):
+            strategy = RefreshStrategy.HOT_ONLY
         logger.debug(f"Cache refresh strategy: {strategy.value}")
 
         # Check if we can use hot-only optimization (--mtd or recent --since)

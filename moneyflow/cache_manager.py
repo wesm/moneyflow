@@ -53,6 +53,10 @@ class CacheManager:
     HOT_MAX_AGE_HOURS = 6  # Hot cache expires after 6 hours
     COLD_MAX_AGE_DAYS = 30  # Cold cache expires after 30 days
     HOT_WINDOW_DAYS = 90  # Hot cache contains last 90 days
+    # Cold cache includes 30 days of overlap into hot window.
+    # This ensures no gaps when cold expires: after 30 days, the boundary
+    # moves forward 30 days, but cold data still reaches the new boundary.
+    COLD_SAVE_OVERLAP_DAYS = 30
 
     def __init__(self, cache_dir: Optional[str] = None, encryption_key: Optional[bytes] = None):
         """
@@ -389,17 +393,21 @@ class CacheManager:
         )
 
         # Split transactions into hot and cold tiers
+        # Cold includes COLD_SAVE_OVERLAP_DAYS into hot window to prevent gaps when cold expires
+        cold_cutoff = boundary_date + timedelta(days=self.COLD_SAVE_OVERLAP_DAYS)
+        cold_cutoff_str = cold_cutoff.isoformat()
+
         if len(transactions_df) > 0 and "date" in transactions_df.columns:
             # Check if date column is string or date type
             date_dtype = transactions_df["date"].dtype
             if date_dtype == pl.Utf8:
                 # String dates - convert boundary to string for comparison
                 hot_df = transactions_df.filter(pl.col("date") >= boundary_str)
-                cold_df = transactions_df.filter(pl.col("date") < boundary_str)
+                cold_df = transactions_df.filter(pl.col("date") < cold_cutoff_str)
             else:
                 # Date type - use date literal for comparison
                 hot_df = transactions_df.filter(pl.col("date") >= boundary_date)
-                cold_df = transactions_df.filter(pl.col("date") < boundary_date)
+                cold_df = transactions_df.filter(pl.col("date") < cold_cutoff)
         else:
             # Empty or no date column - put everything in hot
             hot_df = transactions_df
@@ -413,7 +421,7 @@ class CacheManager:
         logger.info(
             f"save_cache split: hot={len(hot_df)} ({hot_earliest} to {hot_latest}), "
             f"cold={len(cold_df)} ({cold_earliest} to {cold_latest}), "
-            f"boundary={boundary_str}"
+            f"boundary={boundary_str}, cold_cutoff={cold_cutoff_str}"
         )
 
         # Warn if cold cache is being overwritten with empty data (potential bug indicator)
