@@ -958,19 +958,19 @@ class MoneyflowApp(App):
         logger = get_logger(__name__)
 
         # Update status based on date range
+        today_str = date_type.today().isoformat()
         if self.custom_start_date:
             loading_status.update(
-                f"📊 Fetching transactions from {self.custom_start_date} onwards..."
+                f"🔄 Full refresh: fetching {self.custom_start_date} to {today_str}..."
             )
         elif self.start_year:
-            loading_status.update(f"📊 Fetching transactions from {self.start_year} onwards...")
+            loading_status.update(
+                f"🔄 Full refresh: fetching {self.start_year}-01-01 to {today_str}..."
+            )
         else:
-            loading_status.update("📊 Fetching ALL transaction data from backend...")
+            loading_status.update("🔄 Full refresh: fetching all transaction history...")
 
         loading_status.update("⏳ This may take a minute for large accounts (10k+ transactions)...")
-        loading_status.update(
-            "💡 TIP: This is a one-time download. Future operations will be instant!"
-        )
 
         def update_progress(msg: str) -> None:
             """Update the loading status display."""
@@ -1074,10 +1074,6 @@ class MoneyflowApp(App):
         """
         logger = get_logger(__name__)
 
-        # Calculate boundary date (90 days ago)
-        boundary_date = date_type.today() - timedelta(days=CacheManager.HOT_WINDOW_DAYS)
-        boundary_str = boundary_date.strftime("%Y-%m-%d")
-
         # Determine which tier to load from cache vs fetch from API
         is_hot_refresh = strategy == RefreshStrategy.HOT_ONLY
         tier_name = "hot" if is_hot_refresh else "cold"
@@ -1092,9 +1088,6 @@ class MoneyflowApp(App):
             logger.warning(f"Failed to load {tier_name} cache, falling back to full refresh")
             return None
 
-        loading_status.update(
-            f"🔄 Refreshing {'recent' if is_hot_refresh else 'historical'} transactions..."
-        )
         logger.info(f"Partial refresh: {strategy.value}")
 
         def update_progress(msg: str) -> None:
@@ -1105,11 +1098,13 @@ class MoneyflowApp(App):
             # Use helper methods to ensure both dates are always provided (API requirement)
             if is_hot_refresh:
                 fetch_start, fetch_end = self.cache_manager.get_hot_refresh_date_range()
-                loading_status.update(f"📊 Fetching transactions since {fetch_start}...")
+                loading_status.update(
+                    f"🔄 Refreshing recent transactions ({fetch_start} to {fetch_end})..."
+                )
             else:
                 fetch_start, fetch_end = self.cache_manager.get_cold_refresh_date_range()
                 loading_status.update(
-                    f"📊 Fetching historical transactions before {boundary_str}..."
+                    f"🔄 Refreshing historical transactions ({fetch_start} to {fetch_end})..."
                 )
 
             fetched_df, categories, category_groups = await self.data_manager.fetch_all_data(
@@ -1136,12 +1131,19 @@ class MoneyflowApp(App):
             loading_status.update("🔄 Applying category groupings...")
             merged_df = self.data_manager.apply_category_groups(merged_df)
 
-            loading_status.update(f"✅ Loaded {len(merged_df):,} transactions (partial refresh)")
-            self.notify(
-                f"🔄 Refreshed {'recent' if is_hot_refresh else 'historical'} • {'Historical' if is_hot_refresh else 'Recent'} from cache",
-                severity="information",
-                timeout=4.0,
-            )
+            loading_status.update(f"✅ Loaded {len(merged_df):,} transactions")
+            if is_hot_refresh:
+                self.notify(
+                    f"🔄 Fetched recent ({fetch_start} to {fetch_end}) • Historical from cache",
+                    severity="information",
+                    timeout=4.0,
+                )
+            else:
+                self.notify(
+                    f"🔄 Fetched historical ({fetch_start} to {fetch_end}) • Recent from cache",
+                    severity="information",
+                    timeout=4.0,
+                )
             return merged_df, categories, category_groups
 
         except Exception as e:
