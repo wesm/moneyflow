@@ -216,8 +216,8 @@ class DataManager:
             Sorted, deduplicated list of all merchants
         """
         # Use Polars operations for performance with large merchant lists
-        # Convert cached merchants to Series
-        cached_series = pl.Series("merchant", self.all_merchants)
+        # Convert cached merchants to Series (ensure str dtype even if empty)
+        cached_series = pl.Series("merchant", self.all_merchants, dtype=pl.Utf8)
 
         # Merge with current merchants if we have loaded data
         if self.df is not None and not self.df.is_empty():
