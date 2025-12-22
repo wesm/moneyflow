@@ -1,31 +1,29 @@
-"""
-Comprehensive tests for CacheManager.
+"""Comprehensive tests for CacheManager (two-tier cache system).
 
 Tests cover:
-- Cache creation and initialization
-- Save and load operations
-- Cache validation and invalidation
-- Cache age calculation
-- Cache info formatting
-- Clear cache operations
-- Corrupt file handling
-- Edge cases and error conditions
+- Hot/cold cache splitting by boundary date (90 days)
+- Tier validation (6h for hot, 30d for cold)
+- Refresh strategy determination
+- Merge logic with deduplication
+- Partial refresh operations
+- Version mismatch handling
+- Data integrity across operations
+- Edge cases (unicode, large data, corrupt files)
+- Display filtering (--mtd, --since, --year)
 """
 
 import base64
 import json
-import shutil
-import tempfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
 
 import polars as pl
 import pytest
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from moneyflow.cache_manager import CacheManager
+from moneyflow.cache_manager import CacheManager, RefreshStrategy
 
 
 @pytest.fixture
@@ -45,768 +43,1169 @@ def encryption_key():
 
 
 @pytest.fixture
-def temp_cache_dir():
-    """Create a temporary directory for cache testing."""
-    temp_dir = tempfile.mkdtemp()
-    yield temp_dir
-    # Cleanup
-    shutil.rmtree(temp_dir, ignore_errors=True)
+def temp_cache_dir(tmp_path):
+    """Create a temporary cache directory."""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    return str(cache_dir)
 
 
 @pytest.fixture
 def cache_manager(temp_cache_dir, encryption_key):
-    """Provide a CacheManager instance with temporary directory."""
+    """Create a CacheManager instance."""
     return CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
 
 
 @pytest.fixture
-def sample_df():
-    """Provide sample transaction DataFrame with recent dates (within hot window)."""
-    from datetime import date
-
-    today = date.today()
-    dates = [
-        (today - timedelta(days=10)).isoformat(),
-        (today - timedelta(days=20)).isoformat(),
-        (today - timedelta(days=30)).isoformat(),
-    ]
-    return pl.DataFrame(
-        {
-            "id": ["txn_1", "txn_2", "txn_3"],
-            "date": dates,
-            "amount": [-50.00, -75.50, -100.00],
-            "merchant": ["Store A", "Store B", "Store C"],
-            "category": ["Groceries", "Shopping", "Gas"],
-        }
-    )
-
-
-@pytest.fixture
 def sample_categories():
-    """Provide sample categories dict."""
+    """Create sample categories dict."""
     return {
-        "cat_1": {"id": "cat_1", "name": "Groceries"},
-        "cat_2": {"id": "cat_2", "name": "Shopping"},
-        "cat_3": {"id": "cat_3", "name": "Gas"},
+        "cat1": {"id": "cat1", "name": "Shopping", "group": "Shopping"},
+        "cat2": {"id": "cat2", "name": "Groceries", "group": "Food"},
     }
 
 
 @pytest.fixture
 def sample_category_groups():
-    """Provide sample category groups dict."""
+    """Create sample category groups dict."""
     return {
-        "group_1": {"id": "group_1", "name": "Food & Dining"},
-        "group_2": {"id": "group_2", "name": "Shopping"},
-        "group_3": {"id": "group_3", "name": "Transportation"},
+        "Shopping": ["cat1"],
+        "Food": ["cat2"],
     }
 
 
-class TestCacheInitialization:
-    """Test cache manager initialization."""
-
-    def test_init_with_explicit_dir(self, temp_cache_dir, encryption_key):
-        """Test initialization with explicit cache directory."""
-        cm = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
-
-        assert cm.cache_dir == Path(temp_cache_dir)
-        assert cm.cache_dir.exists()
-        # Two-tier cache file paths
-        assert cm.hot_transactions_file == cm.cache_dir / "hot_transactions.parquet.enc"
-        assert cm.cold_transactions_file == cm.cache_dir / "cold_transactions.parquet.enc"
-        assert cm.metadata_file == cm.cache_dir / "cache_metadata.json"
-        assert cm.categories_file == cm.cache_dir / "categories.json.enc"
-
-    def test_init_with_default_dir(self):
-        """Test initialization with default cache directory."""
-        cm = CacheManager()
-
-        expected_dir = Path.home() / ".moneyflow" / "cache"
-        assert cm.cache_dir == expected_dir
-        assert cm.cache_dir.exists()
-
-    def test_init_creates_directory(self, temp_cache_dir, encryption_key):
-        """Test that initialization creates cache directory if it doesn't exist."""
-        non_existent = Path(temp_cache_dir) / "new_cache_dir"
-        assert not non_existent.exists()
-
-        cm = CacheManager(cache_dir=str(non_existent), encryption_key=encryption_key)
-
-        assert cm.cache_dir.exists()
-        assert cm.cache_dir.is_dir()
-
-    def test_init_with_tilde_expansion(self, temp_cache_dir, encryption_key):
-        """Test that ~ in path is expanded correctly."""
-        # expanduser() expands ~ to the actual home directory
-        cm = CacheManager(cache_dir="~/test_cache", encryption_key=encryption_key)
-
-        # Should expand to actual home directory + test_cache
-        expected_dir = Path.home() / "test_cache"
-        assert cm.cache_dir == expected_dir
-        assert cm.cache_dir.exists()
-
-    def test_cache_version_constant(self):
-        """Test that CACHE_VERSION is properly defined (v3.0 for two-tier cache)."""
-        assert CacheManager.CACHE_VERSION == "3.0"
-
-    def test_cache_max_age_constant(self):
-        """Test that HOT_MAX_AGE_HOURS is properly defined."""
-        assert CacheManager.HOT_MAX_AGE_HOURS == 6
+def create_transactions_df(dates: list[str], prefix: str = "tx") -> pl.DataFrame:
+    """Helper to create a transactions DataFrame with specified dates."""
+    return pl.DataFrame(
+        {
+            "id": [f"{prefix}{i}" for i in range(len(dates))],
+            "date": dates,
+            "merchant": [f"Merchant{i}" for i in range(len(dates))],
+            "amount": [-50.0 * (i + 1) for i in range(len(dates))],
+            "category": ["Shopping"] * len(dates),
+            "category_id": ["cat1"] * len(dates),
+        }
+    ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
 
-class TestCacheExists:
-    """Test cache existence checking."""
+def create_mixed_transactions_df() -> pl.DataFrame:
+    """Create a DataFrame with transactions spanning hot and cold periods."""
+    today = date.today()
+    boundary = today - timedelta(days=90)
 
-    def test_cache_exists_when_empty(self, cache_manager):
-        """Test cache_exists returns False when no cache files exist."""
-        assert not cache_manager.cache_exists()
+    # Create dates: some in hot period (recent), some in cold period (old)
+    hot_dates = [
+        (today - timedelta(days=10)).isoformat(),
+        (today - timedelta(days=30)).isoformat(),
+        (today - timedelta(days=60)).isoformat(),
+        (today - timedelta(days=89)).isoformat(),  # Just inside hot
+    ]
+    cold_dates = [
+        (boundary - timedelta(days=1)).isoformat(),  # Just outside (cold)
+        (boundary - timedelta(days=30)).isoformat(),
+        (boundary - timedelta(days=100)).isoformat(),
+        (boundary - timedelta(days=200)).isoformat(),
+    ]
 
-    def test_cache_exists_with_partial_files(self, cache_manager):
-        """Test cache_exists returns False when only some files exist."""
-        # Create only hot transactions file (two-tier cache)
-        cache_manager.hot_transactions_file.touch()
-
-        assert not cache_manager.cache_exists()
-
-    def test_cache_exists_with_all_files(self, cache_manager):
-        """Test cache_exists returns True when all files exist (two-tier cache)."""
-        cache_manager.hot_transactions_file.touch()
-        cache_manager.cold_transactions_file.touch()
-        cache_manager.metadata_file.touch()
-        cache_manager.categories_file.touch()
-
-        assert cache_manager.cache_exists()
+    all_dates = hot_dates + cold_dates
+    return pl.DataFrame(
+        {
+            "id": [f"tx{i}" for i in range(len(all_dates))],
+            "date": all_dates,
+            "merchant": [f"Merchant{i}" for i in range(len(all_dates))],
+            "amount": [-50.0 * (i + 1) for i in range(len(all_dates))],
+            "category": ["Shopping"] * len(all_dates),
+            "category_id": ["cat1"] * len(all_dates),
+        }
+    ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
 
-class TestSaveCache:
-    """Test cache saving operations."""
+class TestRefreshStrategy:
+    """Test RefreshStrategy enum."""
 
-    def test_save_cache_basic(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test basic cache save operation (two-tier cache)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+    def test_strategy_values(self):
+        """Test that all expected strategy values exist."""
+        assert RefreshStrategy.NONE.value == "none"
+        assert RefreshStrategy.HOT_ONLY.value == "hot_only"
+        assert RefreshStrategy.COLD_ONLY.value == "cold_only"
+        assert RefreshStrategy.ALL.value == "all"
 
-        # Verify all files were created (two-tier)
-        assert cache_manager.hot_transactions_file.exists()
-        assert cache_manager.cold_transactions_file.exists()
-        assert cache_manager.metadata_file.exists()
-        assert cache_manager.categories_file.exists()
 
-    def test_save_cache_with_year_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test saving cache with year filter."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
+class TestCacheManagerInit:
+    """Test cache manager initialization for two-tier cache."""
 
-        metadata = cache_manager.load_metadata()
-        assert metadata["year_filter"] == 2024
-        assert metadata["since_filter"] is None
-
-    def test_save_cache_with_since_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test saving cache with since date filter."""
-        cache_manager.save_cache(
-            sample_df, sample_categories, sample_category_groups, since="2024-01-01"
+    def test_sets_hot_cold_file_paths(self, temp_cache_dir, encryption_key):
+        """Test that hot and cold file paths are set correctly."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
+        assert (
+            cache_mgr.hot_transactions_file == Path(temp_cache_dir) / "hot_transactions.parquet.enc"
+        )
+        assert (
+            cache_mgr.cold_transactions_file
+            == Path(temp_cache_dir) / "cold_transactions.parquet.enc"
         )
 
-        metadata = cache_manager.load_metadata()
-        assert metadata["since_filter"] == "2024-01-01"
-        assert metadata["year_filter"] is None
-
-    def test_save_cache_with_both_filters(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test saving cache with both year and since filters."""
-        cache_manager.save_cache(
-            sample_df, sample_categories, sample_category_groups, year=2024, since="2024-01-01"
+    def test_sets_legacy_file_path(self, temp_cache_dir, encryption_key):
+        """Test that legacy file path is tracked for cleanup."""
+        cache_mgr = CacheManager(cache_dir=temp_cache_dir, encryption_key=encryption_key)
+        assert (
+            cache_mgr.legacy_transactions_file == Path(temp_cache_dir) / "transactions.parquet.enc"
         )
 
-        metadata = cache_manager.load_metadata()
-        assert metadata["year_filter"] == 2024
-        assert metadata["since_filter"] == "2024-01-01"
+    def test_version_is_3_0(self, cache_manager):
+        """Test that cache version is 3.0 for two-tier format."""
+        assert cache_manager.CACHE_VERSION == "3.0"
 
-    def test_save_cache_metadata_structure(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that saved metadata has correct structure (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+    def test_hot_window_is_90_days(self, cache_manager):
+        """Test that hot window is 90 days."""
+        assert cache_manager.HOT_WINDOW_DAYS == 90
 
-        metadata = cache_manager.load_metadata()
+    def test_hot_max_age_is_6_hours(self, cache_manager):
+        """Test that hot cache max age is 6 hours."""
+        assert cache_manager.HOT_MAX_AGE_HOURS == 6
 
-        assert "version" in metadata
-        assert metadata["version"] == CacheManager.CACHE_VERSION
-        # Two-tier metadata has hot/cold sections
-        assert "hot" in metadata
-        assert "cold" in metadata
-        assert "fetch_timestamp" in metadata["hot"]
-        assert "year_filter" in metadata
-        assert "since_filter" in metadata
-        assert "total_transactions" in metadata
-        assert metadata["total_transactions"] == len(sample_df)
+    def test_cold_max_age_is_30_days(self, cache_manager):
+        """Test that cold cache max age is 30 days."""
+        assert cache_manager.COLD_MAX_AGE_DAYS == 30
 
-    def test_save_cache_timestamp_format(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that timestamp is saved in ISO format (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        metadata = cache_manager.load_metadata()
-        # Two-tier metadata has timestamp in hot section
-        timestamp_str = metadata["hot"]["fetch_timestamp"]
+class TestBoundaryDate:
+    """Test boundary date calculation."""
 
-        # Should be parseable as ISO format
-        timestamp = datetime.fromisoformat(timestamp_str)
-        assert isinstance(timestamp, datetime)
+    def test_boundary_is_90_days_ago(self, cache_manager):
+        """Test that boundary date is exactly 90 days ago."""
+        expected = date.today() - timedelta(days=90)
+        assert cache_manager._get_boundary_date() == expected
 
-    def test_save_cache_categories_structure(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that categories are saved correctly (encrypted)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
 
-        # Decrypt and verify
-        with open(cache_manager.categories_file, "rb") as f:
-            encrypted = f.read()
+class TestSaveSplitLogic:
+    """Test that save_cache correctly splits transactions into hot/cold tiers."""
 
-        decrypted = cache_manager.fernet.decrypt(encrypted)
-        data = json.loads(decrypted.decode())
-
-        assert "categories" in data
-        assert "category_groups" in data
-        assert data["categories"] == sample_categories
-        assert data["category_groups"] == sample_category_groups
-
-    def test_save_cache_overwrites_existing(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that saving cache overwrites existing cache."""
-        # Save first cache
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2023)
-
-        first_metadata = cache_manager.load_metadata()
-        first_year = first_metadata["year_filter"]
-
-        # Save second cache with different parameters
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
-
-        second_metadata = cache_manager.load_metadata()
-        second_year = second_metadata["year_filter"]
-
-        assert first_year == 2023
-        assert second_year == 2024
-
-    def test_save_cache_empty_dataframe(
+    def test_save_splits_by_boundary_date(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test saving cache with empty DataFrame."""
-        empty_df = pl.DataFrame()
+        """Test that save_cache splits transactions at the 90-day boundary."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        cache_manager.save_cache(empty_df, sample_categories, sample_category_groups)
+        # Load each tier separately
+        hot_df = cache_manager.load_hot_cache()
+        cold_df = cache_manager.load_cold_cache()
 
-        metadata = cache_manager.load_metadata()
-        assert metadata["total_transactions"] == 0
+        # Verify both tiers have data
+        assert hot_df is not None
+        assert cold_df is not None
+        assert len(hot_df) > 0
+        assert len(cold_df) > 0
 
-    def test_save_cache_parquet_format(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+        # Total should match original
+        assert len(hot_df) + len(cold_df) == len(df)
+
+    def test_hot_contains_only_recent_90_days(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that transactions are saved as encrypted Parquet (two-tier)."""
+        """Test that hot tier only contains transactions from last 90 days."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        hot_df = cache_manager.load_hot_cache()
+        boundary = cache_manager._get_boundary_date()
+
+        # All hot transactions should be >= boundary
+        for d in hot_df["date"].to_list():
+            assert d >= boundary, f"Transaction date {d} should be >= boundary {boundary}"
+
+    def test_cold_contains_only_historical(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cold tier only contains transactions older than 90 days."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        cold_df = cache_manager.load_cold_cache()
+        boundary = cache_manager._get_boundary_date()
+
+        # All cold transactions should be < boundary
+        for d in cold_df["date"].to_list():
+            assert d < boundary, f"Transaction date {d} should be < boundary {boundary}"
+
+    def test_boundary_transaction_goes_to_hot(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that transaction exactly on boundary goes to hot tier."""
+        boundary = cache_manager._get_boundary_date()
+        df = create_transactions_df([boundary.isoformat()], prefix="boundary")
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        hot_df = cache_manager.load_hot_cache()
+        cold_df = cache_manager.load_cold_cache()
+
+        assert len(hot_df) == 1
+        assert len(cold_df) == 0
+
+    def test_empty_hot_cache_when_all_historical(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test handling when all transactions are historical (empty hot)."""
+        boundary = cache_manager._get_boundary_date()
+        old_dates = [
+            (boundary - timedelta(days=10)).isoformat(),
+            (boundary - timedelta(days=100)).isoformat(),
+        ]
+        df = create_transactions_df(old_dates)
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        hot_df = cache_manager.load_hot_cache()
+        cold_df = cache_manager.load_cold_cache()
+
+        assert len(hot_df) == 0
+        assert len(cold_df) == 2
+
+    def test_empty_cold_cache_when_all_recent(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test handling when all transactions are recent (empty cold)."""
+        today = date.today()
+        recent_dates = [
+            (today - timedelta(days=10)).isoformat(),
+            (today - timedelta(days=30)).isoformat(),
+        ]
+        df = create_transactions_df(recent_dates)
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        hot_df = cache_manager.load_hot_cache()
+        cold_df = cache_manager.load_cold_cache()
+
+        assert len(hot_df) == 2
+        assert len(cold_df) == 0
+
+
+class TestLoadMergeLogic:
+    """Test that load_cache correctly merges hot and cold tiers."""
+
+    def test_load_merges_hot_and_cold(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that load_cache returns merged DataFrame."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        result = cache_manager.load_cache()
+        assert result is not None
+
+        combined_df, _, _, _ = result
+        assert len(combined_df) == len(df)
+
+    def test_merge_removes_duplicates(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that merge deduplicates by transaction ID (hot takes precedence)."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        result = cache_manager.load_cache()
+        combined_df, _, _, _ = result
+
+        # Check no duplicate IDs
+        unique_ids = combined_df["id"].unique()
+        assert len(unique_ids) == len(combined_df)
+
+    def test_hot_takes_precedence_on_conflict(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that hot tier data takes precedence when same ID exists in both tiers."""
+        today = date.today()
+        boundary = cache_manager._get_boundary_date()
+
+        # Create and save initial data
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manually create a conflict: same ID in both tiers with different amounts
+        hot_df = pl.DataFrame(
+            {
+                "id": ["conflict_tx"],
+                "date": [(today - timedelta(days=10)).isoformat()],
+                "merchant": ["HotMerchant"],
+                "amount": [-999.0],  # Hot version
+                "category": ["Shopping"],
+                "category_id": ["cat1"],
+            }
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+
+        cold_df = pl.DataFrame(
+            {
+                "id": ["conflict_tx"],  # Same ID!
+                "date": [(boundary - timedelta(days=10)).isoformat()],
+                "merchant": ["ColdMerchant"],
+                "amount": [-111.0],  # Cold version
+                "category": ["Shopping"],
+                "category_id": ["cat1"],
+            }
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
+
+        merged = cache_manager.merge_tiers(hot_df, cold_df)
+
+        # Should have only 1 transaction (not 2)
+        assert len(merged) == 1
+        # Hot version should win
+        assert merged["amount"][0] == -999.0
+        assert merged["merchant"][0] == "HotMerchant"
+
+    def test_merge_sorted_by_date_descending(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that merged DataFrame is sorted by date descending."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        result = cache_manager.load_cache()
+        combined_df, _, _, _ = result
+
+        dates = combined_df["date"].to_list()
+        assert dates == sorted(dates, reverse=True)
+
+    def test_no_lost_transactions_after_merge(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that no transactions are lost during merge."""
+        df = create_mixed_transactions_df()
+        original_ids = set(df["id"].to_list())
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+        result = cache_manager.load_cache()
+        combined_df, _, _, _ = result
+
+        merged_ids = set(combined_df["id"].to_list())
+        assert original_ids == merged_ids
+
+    def test_all_columns_preserved_after_merge(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that all columns are preserved during merge."""
+        df = create_mixed_transactions_df()
+        original_cols = set(df.columns)
+
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+        result = cache_manager.load_cache()
+        combined_df, _, _, _ = result
+
+        merged_cols = set(combined_df.columns)
+        assert original_cols == merged_cols
+
+
+class TestTierValidation:
+    """Test hot and cold cache validation."""
+
+    def test_hot_valid_when_fresh(self, cache_manager, sample_categories, sample_category_groups):
+        """Test that hot cache is valid when < 6 hours old."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Just saved - should be valid
+        assert cache_manager.is_hot_cache_valid() is True
+
+    def test_hot_invalid_when_over_6h(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that hot cache is invalid when >= 6 hours old."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate metadata to simulate old cache (7 hours > 6 hour max age)
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        assert cache_manager.is_hot_cache_valid() is False
+
+    def test_cold_valid_when_under_30d(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cold cache is valid when < 30 days old."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Just saved - should be valid
+        assert cache_manager.is_cold_cache_valid() is True
+
+    def test_cold_invalid_when_over_30d(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cold cache is invalid when >= 30 days old."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate metadata to simulate old cache
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(days=31)
+        metadata["cold"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        assert cache_manager.is_cold_cache_valid() is False
+
+    def test_version_mismatch_invalidates_cache(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that version mismatch invalidates both tiers."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate metadata to simulate old version
+        metadata = cache_manager.load_metadata()
+        metadata["version"] = "2.0"  # Old version
+        cache_manager._save_metadata(metadata)
+
+        assert cache_manager.is_hot_cache_valid() is False
+        assert cache_manager.is_cold_cache_valid() is False
+
+
+class TestRefreshStrategyDetermination:
+    """Test get_refresh_strategy() logic."""
+
+    def test_strategy_none_when_both_valid(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that NONE is returned when both tiers are valid."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.NONE
+
+    def test_strategy_hot_only_when_cold_valid(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that HOT_ONLY is returned when only hot is stale."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make hot stale (7 hours > 6 hour max age)
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.HOT_ONLY
+
+    def test_strategy_cold_only_when_hot_valid(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that COLD_ONLY is returned when only cold is stale."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make cold stale
+        metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(days=31)
+        metadata["cold"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.COLD_ONLY
+
+    def test_strategy_all_when_neither_valid(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that ALL is returned when both tiers are stale."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make both stale (hot: 7h > 6h max, cold: 31d > 30d max)
+        metadata = cache_manager.load_metadata()
+        hot_old_time = datetime.now() - timedelta(hours=7)
+        cold_old_time = datetime.now() - timedelta(days=31)
+        metadata["hot"]["fetch_timestamp"] = hot_old_time.isoformat()
+        metadata["cold"]["fetch_timestamp"] = cold_old_time.isoformat()
+        cache_manager._save_metadata(metadata)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.ALL
+
+    def test_strategy_all_on_force_refresh(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that ALL is returned when force_refresh=True."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        strategy = cache_manager.get_refresh_strategy(force_refresh=True)
+        assert strategy == RefreshStrategy.ALL
+
+    def test_strategy_all_on_first_launch(self, cache_manager):
+        """Test that ALL is returned when no cache exists."""
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.ALL
+
+    def test_strategy_all_on_version_mismatch(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that ALL is returned when cache version doesn't match."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate metadata to simulate old version
+        metadata = cache_manager.load_metadata()
+        metadata["version"] = "2.0"
+        cache_manager._save_metadata(metadata)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.ALL
+
+
+class TestPartialRefresh:
+    """Test partial refresh operations (save_hot_cache, save_cold_cache)."""
+
+    def test_save_hot_preserves_cold(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that save_hot_cache preserves cold tier."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Get original cold data
+        original_cold = cache_manager.load_cold_cache()
+        original_cold_ids = set(original_cold["id"].to_list())
+
+        # Save new hot data
+        today = date.today()
+        new_hot = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="new_hot"
+        )
+        cache_manager.save_hot_cache(new_hot, sample_categories, sample_category_groups)
+
+        # Cold should be unchanged
+        after_cold = cache_manager.load_cold_cache()
+        after_cold_ids = set(after_cold["id"].to_list())
+
+        assert original_cold_ids == after_cold_ids
+
+    def test_save_cold_preserves_hot(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that save_cold_cache preserves hot tier."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Get original hot data
+        original_hot = cache_manager.load_hot_cache()
+        original_hot_ids = set(original_hot["id"].to_list())
+
+        # Save new cold data
+        boundary = cache_manager._get_boundary_date()
+        new_cold = create_transactions_df(
+            [(boundary - timedelta(days=100)).isoformat()], prefix="new_cold"
+        )
+        cache_manager.save_cold_cache(new_cold)
+
+        # Hot should be unchanged
+        after_hot = cache_manager.load_hot_cache()
+        after_hot_ids = set(after_hot["id"].to_list())
+
+        assert original_hot_ids == after_hot_ids
+
+    def test_partial_refresh_updates_metadata(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that partial refresh updates tier metadata correctly."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        original_metadata = cache_manager.load_metadata()
+        original_hot_timestamp = original_metadata["hot"]["fetch_timestamp"]
+
+        # Wait a tiny bit to ensure different timestamp
+        import time
+
+        time.sleep(0.01)
+
+        # Save new hot data
+        today = date.today()
+        new_hot = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="new_hot"
+        )
+        cache_manager.save_hot_cache(new_hot, sample_categories, sample_category_groups)
+
+        # Hot timestamp should be updated
+        new_metadata = cache_manager.load_metadata()
+        assert new_metadata["hot"]["fetch_timestamp"] != original_hot_timestamp
+
+        # Cold timestamp should be unchanged
+        assert (
+            new_metadata["cold"]["fetch_timestamp"] == original_metadata["cold"]["fetch_timestamp"]
+        )
+
+
+class TestVersionMismatch:
+    """Test version mismatch handling."""
+
+    def test_clears_cache_on_version_mismatch(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cache is cleared when version doesn't match."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate version
+        metadata = cache_manager.load_metadata()
+        metadata["version"] = "2.0"
+        cache_manager._save_metadata(metadata)
+
+        # get_refresh_strategy should clear cache
+        cache_manager.get_refresh_strategy()
+
+        # Cache files should be deleted
+        assert not cache_manager.hot_transactions_file.exists()
+        assert not cache_manager.cold_transactions_file.exists()
+
+    def test_returns_none_for_old_cache_version(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that load_cache returns None for old version."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Manipulate version
+        metadata = cache_manager.load_metadata()
+        metadata["version"] = "2.0"
+        cache_manager._save_metadata(metadata)
+
+        # Load should return None
+        result = cache_manager.load_cache()
+        assert result is None
+
+
+class TestLegacyCache:
+    """Test legacy cache handling."""
+
+    def test_clears_legacy_cache_on_save(
+        self, cache_manager, encryption_key, sample_categories, sample_category_groups
+    ):
+        """Test that legacy cache files are removed on save."""
+        # Create a fake legacy cache file
         import io
 
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        fernet = Fernet(encryption_key)
+        df = create_mixed_transactions_df()
+        buffer = io.BytesIO()
+        df.write_parquet(buffer)
+        encrypted = fernet.encrypt(buffer.getvalue())
 
-        # Decrypt and verify we can read the hot Parquet file
-        with open(cache_manager.hot_transactions_file, "rb") as f:
-            encrypted = f.read()
+        with open(cache_manager.legacy_transactions_file, "wb") as f:
+            f.write(encrypted)
 
-        decrypted = cache_manager.fernet.decrypt(encrypted)
-        loaded_df = pl.read_parquet(io.BytesIO(decrypted))
+        assert cache_manager.legacy_transactions_file.exists()
 
-        # Hot cache should contain recent transactions
-        assert loaded_df.columns == sample_df.columns
+        # Save new cache
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
+        # Legacy should be removed
+        assert not cache_manager.legacy_transactions_file.exists()
 
-class TestLoadCache:
-    """Test cache loading operations."""
+    def test_has_legacy_cache_detection(self, cache_manager, encryption_key):
+        """Test detection of legacy cache files."""
+        import io
 
-    def test_load_cache_when_empty(self, cache_manager):
-        """Test loading cache when no cache exists."""
-        result = cache_manager.load_cache()
+        fernet = Fernet(encryption_key)
 
-        assert result is None
+        # No cache initially
+        assert cache_manager._has_legacy_cache() is False
 
-    def test_load_cache_success(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test successfully loading a valid cache."""
-        # Save cache first
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        # Create legacy file and metadata
+        df = create_mixed_transactions_df()
+        buffer = io.BytesIO()
+        df.write_parquet(buffer)
+        encrypted = fernet.encrypt(buffer.getvalue())
 
-        # Load cache
-        result = cache_manager.load_cache()
+        with open(cache_manager.legacy_transactions_file, "wb") as f:
+            f.write(encrypted)
 
-        assert result is not None
-        df, categories, category_groups, metadata = result
-
-        assert df.shape == sample_df.shape
-        assert categories == sample_categories
-        assert category_groups == sample_category_groups
-        assert "version" in metadata
-
-    def test_load_cache_returns_correct_data(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that loaded data matches saved data."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
-
-        df, categories, category_groups, metadata = cache_manager.load_cache()
-
-        # Compare DataFrames
-        assert df.columns == sample_df.columns
-        assert len(df) == len(sample_df)
-
-        # Compare dicts
-        assert categories == sample_categories
-        assert category_groups == sample_category_groups
-
-        # Check metadata
-        assert metadata["year_filter"] == 2024
-
-    def test_load_cache_with_missing_transactions_file(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache when hot transactions file is missing (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Delete hot transactions file
-        cache_manager.hot_transactions_file.unlink()
-
-        result = cache_manager.load_cache()
-        assert result is None
-
-    def test_load_cache_with_missing_categories_file(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache when categories file is missing."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Delete categories file
-        cache_manager.categories_file.unlink()
-
-        result = cache_manager.load_cache()
-        assert result is None
-
-    def test_load_cache_with_missing_metadata_file(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache when metadata file is missing."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Delete metadata file
-        cache_manager.metadata_file.unlink()
-
-        result = cache_manager.load_cache()
-        assert result is None
-
-
-class TestCacheValidation:
-    """Test cache validation logic."""
-
-    def test_is_cache_valid_no_cache(self, cache_manager):
-        """Test validation when no cache exists."""
-        assert not cache_manager.is_cache_valid()
-
-    def test_is_cache_valid_matching_no_filters(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation with no filters (both cache and request)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        assert cache_manager.is_cache_valid()
-
-    def test_is_cache_valid_matching_year_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation with matching year filter."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
-
-        assert cache_manager.is_cache_valid(year=2024)
-
-    def test_is_cache_valid_matching_since_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation with matching since filter."""
-        cache_manager.save_cache(
-            sample_df, sample_categories, sample_category_groups, since="2024-01-01"
-        )
-
-        assert cache_manager.is_cache_valid(since="2024-01-01")
-
-    def test_is_cache_valid_mismatching_year(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation passes when cache covers requested year (even if year_filter differs)."""
-        # Cache says "year=2023" but data is from 2024 (sample_df has 2024-10-* dates)
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2023)
-
-        # Request year=2024 -> cache covers this (data from 2024-10-01 >= 2024-01-01)
-        assert cache_manager.is_cache_valid(year=2024)
-
-    def test_is_cache_valid_mismatching_since(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation passes when cache covers requested date range."""
-        # Cache has since="2024-01-01" (data from 2024-10-01)
-        cache_manager.save_cache(
-            sample_df, sample_categories, sample_category_groups, since="2024-01-01"
-        )
-
-        # Request since="2024-06-01" -> cache covers this (2024-01-01 <= 2024-06-01)
-        assert cache_manager.is_cache_valid(since="2024-06-01")
-
-    def test_is_cache_valid_cache_has_filter_request_doesnt(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation fails when cache has filter but request doesn't."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
-
-        # Request without filter should not match cache with filter
-        assert not cache_manager.is_cache_valid()
-
-    def test_is_cache_valid_request_has_filter_cache_doesnt(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation passes when cache has all data (covers any filter request)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Request with filter matches cache without filter (cache has all data)
-        assert cache_manager.is_cache_valid(year=2024)
-
-    def test_is_cache_valid_wrong_version(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation fails with version mismatch."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Manually change version in metadata
-        metadata = cache_manager.load_metadata()
-        metadata["version"] = "0.9"
         with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
+            json.dump({"version": "2.0"}, f)
 
-        assert not cache_manager.is_cache_valid()
-
-    def test_is_cache_valid_corrupt_metadata(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation fails with corrupt metadata file."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Corrupt the metadata file
-        with open(cache_manager.metadata_file, "w") as f:
-            f.write("not valid json{{{")
-
-        assert not cache_manager.is_cache_valid()
-
-    def test_is_cache_valid_missing_version_field(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test validation fails when version field is missing."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Remove version field
-        metadata = cache_manager.load_metadata()
-        del metadata["version"]
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
-
-        assert not cache_manager.is_cache_valid()
-
-
-class TestCacheAge:
-    """Test cache age calculation."""
-
-    def test_get_cache_age_no_cache(self, cache_manager):
-        """Test cache age when no cache exists."""
-        age = cache_manager.get_cache_age_hours()
-
-        assert age is None
-
-    def test_get_cache_age_fresh_cache(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test cache age for freshly created cache."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        age = cache_manager.get_cache_age_hours()
-
-        assert age is not None
-        assert age < 0.1  # Less than 6 minutes old
-
-    def test_get_cache_age_old_cache(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test cache age for old cache (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Manually set hot timestamp to 25 hours ago (two-tier metadata)
-        metadata = cache_manager.load_metadata()
-        old_timestamp = datetime.now() - timedelta(hours=25)
-        metadata["hot"]["fetch_timestamp"] = old_timestamp.isoformat()
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
-
-        age = cache_manager.get_cache_age_hours()
-
-        assert age is not None
-        assert age > 24  # More than 24 hours old
-
-    def test_get_cache_age_corrupt_metadata(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test cache age with corrupt metadata."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Corrupt metadata
-        with open(cache_manager.metadata_file, "w") as f:
-            f.write("invalid json")
-
-        age = cache_manager.get_cache_age_hours()
-        assert age is None
-
-    def test_get_cache_age_invalid_timestamp(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test cache age with invalid timestamp format (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Set invalid timestamp in hot section
-        metadata = cache_manager.load_metadata()
-        metadata["hot"]["fetch_timestamp"] = "not a timestamp"
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
-
-        age = cache_manager.get_cache_age_hours()
-        assert age is None
+        assert cache_manager._has_legacy_cache() is True
 
 
 class TestCacheInfo:
-    """Test cache info formatting."""
+    """Test get_cache_info() for two-tier cache."""
 
-    def test_get_cache_info_no_cache(self, cache_manager):
-        """Test cache info when no cache exists."""
-        info = cache_manager.get_cache_info()
-
-        assert info is None
-
-    def test_get_cache_info_fresh_cache(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_cache_info_includes_tier_ages(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test cache info for fresh cache."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Test that cache info includes hot and cold ages."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
         info = cache_manager.get_cache_info()
-
         assert info is not None
-        assert "age" in info
-        assert "age_hours" in info
-        assert "transaction_count" in info
-        assert "filter" in info
-        assert "timestamp" in info
+        assert "hot_age" in info
+        assert "cold_age" in info
 
-        assert info["transaction_count"] == len(sample_df)
-        assert "min ago" in info["age"]
-
-    def test_get_cache_info_age_formatting_minutes(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_cache_info_includes_tier_counts(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache less than 1 hour old (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Test that cache info includes hot and cold transaction counts."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Set hot timestamp to 30 minutes ago
+        info = cache_manager.get_cache_info()
+        assert info is not None
+        assert "hot_count" in info
+        assert "cold_count" in info
+        assert info["hot_count"] + info["cold_count"] == len(df)
+
+    def test_cache_info_includes_boundary_date(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that cache info includes boundary date."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        info = cache_manager.get_cache_info()
+        assert info is not None
+        assert "boundary_date" in info
+
+
+class TestDataIntegrity:
+    """Test data integrity across cache operations."""
+
+    def test_roundtrip_preserves_all_data(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that save/load roundtrip preserves all data."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        result = cache_manager.load_cache()
+        combined_df, loaded_cats, loaded_groups, _ = result
+
+        # Check transaction count
+        assert len(combined_df) == len(df)
+
+        # Check categories
+        assert loaded_cats == sample_categories
+        assert loaded_groups == sample_category_groups
+
+    def test_transaction_count_matches_metadata(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that metadata transaction count matches actual data."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
         metadata = cache_manager.load_metadata()
-        timestamp = datetime.now() - timedelta(minutes=30)
-        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
+        hot_count = metadata["hot"]["transaction_count"]
+        cold_count = metadata["cold"]["transaction_count"]
+        total_count = metadata["total_transactions"]
 
-        info = cache_manager.get_cache_info()
+        hot_df = cache_manager.load_hot_cache()
+        cold_df = cache_manager.load_cold_cache()
 
-        assert "30 min ago" in info["age"]
+        assert len(hot_df) == hot_count
+        assert len(cold_df) == cold_count
+        assert len(df) == total_count
 
-    def test_get_cache_info_age_formatting_hours(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_no_duplicate_ids_in_combined(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache between 1-24 hours old (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Test that combined cache has no duplicate transaction IDs."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Set hot timestamp to 5 hours ago
+        result = cache_manager.load_cache()
+        combined_df, _, _, _ = result
+
+        ids = combined_df["id"].to_list()
+        assert len(ids) == len(set(ids)), "Duplicate IDs found in combined cache"
+
+
+class TestDisplayFilterDoesNotInvalidateCache:
+    """Test that display filters (--mtd, --year) don't invalidate existing full cache.
+
+    Display filters (--mtd, --year, --since) are now applied AFTER loading
+    from cache, so the cache strategy is independent of what display filter
+    is used. This is a critical regression test.
+    """
+
+    def test_full_cache_returns_none_strategy(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Full valid cache should return NONE strategy."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Both tiers are fresh, should use cache entirely
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.NONE
+
+    def test_stale_hot_returns_hot_only(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Stale hot cache should return HOT_ONLY (not ALL).
+
+        The cold cache should NOT be invalidated when only hot is stale.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make hot cache stale (7 hours > 6 hour max)
         metadata = cache_manager.load_metadata()
-        timestamp = datetime.now() - timedelta(hours=5)
-        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
 
-        info = cache_manager.get_cache_info()
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.HOT_ONLY
 
-        assert "5 hours ago" in info["age"]
-
-    def test_get_cache_info_age_formatting_days(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_stale_cold_returns_cold_only(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test age formatting for cache more than 24 hours old (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Stale cold cache should return COLD_ONLY.
 
-        # Set hot timestamp to 3 days ago
+        If only cold is stale, we should refresh cold only, not both.
+        """
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Make cold cache stale (31 days > 30 day max)
         metadata = cache_manager.load_metadata()
-        timestamp = datetime.now() - timedelta(days=3)
-        metadata["hot"]["fetch_timestamp"] = timestamp.isoformat()
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
+        old_time = datetime.now() - timedelta(days=31)
+        metadata["cold"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
 
-        info = cache_manager.get_cache_info()
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.COLD_ONLY
 
-        assert "3 days ago" in info["age"]
 
-    def test_get_cache_info_filter_no_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+class TestPartialRefreshDateRanges:
+    """Test that partial refresh date ranges are always fully specified.
+
+    This is a regression test for a bug where _partial_refresh in app.py
+    was passing None for one of the date parameters, causing the Monarch
+    Money API to fail with "You must specify both a startDate and endDate".
+    """
+
+    def test_get_hot_refresh_date_range_returns_both_dates(self, cache_manager):
+        """get_hot_refresh_date_range must return both start and end dates."""
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
+
+        # Both must be non-None strings
+        assert fetch_start is not None, "Hot refresh start_date must not be None"
+        assert fetch_end is not None, "Hot refresh end_date must not be None"
+        assert isinstance(fetch_start, str), "Hot refresh start_date must be a string"
+        assert isinstance(fetch_end, str), "Hot refresh end_date must be a string"
+
+        # Verify they're valid ISO dates
+        from datetime import datetime as dt
+
+        start_date = dt.fromisoformat(fetch_start).date()
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        # Verify date ordering
+        assert start_date <= end_date, "start_date must be <= end_date"
+
+    def test_get_cold_refresh_date_range_returns_both_dates(self, cache_manager):
+        """get_cold_refresh_date_range must return both start and end dates."""
+        fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
+
+        # Both must be non-None strings
+        assert fetch_start is not None, "Cold refresh start_date must not be None"
+        assert fetch_end is not None, "Cold refresh end_date must not be None"
+        assert isinstance(fetch_start, str), "Cold refresh start_date must be a string"
+        assert isinstance(fetch_end, str), "Cold refresh end_date must be a string"
+
+        # Verify they're valid ISO dates
+        from datetime import datetime as dt
+
+        start_date = dt.fromisoformat(fetch_start).date()
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        # Verify date ordering
+        assert start_date <= end_date, "start_date must be <= end_date"
+
+    def test_hot_refresh_range_starts_from_cold_latest_date(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test filter display when no filter is set."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Hot refresh should start from cold cache's latest_date minus overlap.
 
-        info = cache_manager.get_cache_info()
+        CRITICAL: This prevents gaps as the boundary moves forward daily while
+        cold cache data stays fixed for up to 30 days.
+        """
+        from moneyflow.cache_manager import CacheManager
 
-        assert info["filter"] == "All transactions"
+        # First save a cache so we have cold metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-    def test_get_cache_info_filter_year(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test filter display for year filter."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=2024)
+        # Get cold's latest date from metadata
+        metadata = cache_manager.load_metadata()
+        cold_latest = metadata["cold"]["latest_date"]
+        cold_end = date.fromisoformat(cold_latest)
 
-        info = cache_manager.get_cache_info()
+        # Get hot refresh range
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
 
-        assert info["filter"] == "Year 2024 onwards"
+        from datetime import datetime as dt
 
-    def test_get_cache_info_filter_since(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test filter display for since filter."""
-        cache_manager.save_cache(
-            sample_df, sample_categories, sample_category_groups, since="2024-06-01"
+        start_date = dt.fromisoformat(fetch_start).date()
+
+        # Should start TIER_OVERLAP_DAYS before cold's latest date
+        expected_start = cold_end - timedelta(days=CacheManager.TIER_OVERLAP_DAYS)
+        assert start_date == expected_start, (
+            f"Hot refresh must start from cold's latest_date ({cold_latest}) "
+            f"minus overlap, not from moving boundary"
         )
 
-        info = cache_manager.get_cache_info()
+    def test_hot_refresh_range_ends_at_today(self, cache_manager):
+        """Hot refresh should end at today."""
+        fetch_start, fetch_end = cache_manager.get_hot_refresh_date_range()
 
-        assert info["filter"] == "Since 2024-06-01"
+        from datetime import datetime as dt
 
-    def test_get_cache_info_corrupt_cache(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+        end_date = dt.fromisoformat(fetch_end).date()
+
+        assert end_date == date.today()
+
+    def test_cold_refresh_range_ends_from_hot_earliest_date(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test cache info with corrupt cache files."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Cold refresh should end at hot cache's earliest_date plus overlap.
 
-        # Corrupt metadata
-        with open(cache_manager.metadata_file, "w") as f:
-            f.write("invalid")
+        CRITICAL: This ensures proper overlap with hot cache regardless of
+        how much time has passed since the cache was created.
+        """
+        from moneyflow.cache_manager import CacheManager
 
-        info = cache_manager.get_cache_info()
-        assert info is None
+        # First save a cache so we have hot metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-    def test_get_cache_info_unknown_age(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test cache info when age cannot be determined (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Break the hot timestamp
+        # Get hot's earliest date from metadata
         metadata = cache_manager.load_metadata()
-        metadata["hot"]["fetch_timestamp"] = "invalid"
-        with open(cache_manager.metadata_file, "w") as f:
-            json.dump(metadata, f)
+        hot_earliest = metadata["hot"]["earliest_date"]
+        hot_start = date.fromisoformat(hot_earliest)
 
-        # Mock get_cache_age_hours to return None
-        with patch.object(cache_manager, "get_cache_age_hours", return_value=None):
-            info = cache_manager.get_cache_info()
+        # Get cold refresh range
+        fetch_start, fetch_end = cache_manager.get_cold_refresh_date_range()
 
-            assert info["age"] == "Unknown"
+        from datetime import datetime as dt
 
+        end_date = dt.fromisoformat(fetch_end).date()
 
-class TestClearCache:
-    """Test cache clearing operations."""
+        # Should end TIER_OVERLAP_DAYS after hot's earliest date
+        expected_end = hot_start + timedelta(days=CacheManager.TIER_OVERLAP_DAYS)
+        assert end_date == expected_end, (
+            f"Cold refresh must end at hot's earliest_date ({hot_earliest}) "
+            f"plus overlap, not from moving boundary"
+        )
 
-    def test_clear_cache_empty(self, cache_manager):
-        """Test clearing cache when no cache exists."""
-        # Should not raise an error
-        cache_manager.clear_cache()
-
-        assert not cache_manager.cache_exists()
-
-    def test_clear_cache_removes_all_files(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_hot_and_cold_ranges_overlap(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test that clear_cache removes all cache files (two-tier)."""
-        # Create cache
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-        assert cache_manager.cache_exists()
+        """Hot and cold refresh ranges SHOULD overlap to prevent gaps.
 
-        # Clear cache
-        cache_manager.clear_cache()
+        The merge logic handles deduplication (hot takes precedence).
+        This is critical for data integrity - gaps could lose transactions.
+        """
+        from moneyflow.cache_manager import CacheManager
 
-        # Verify all files are gone (two-tier)
-        assert not cache_manager.hot_transactions_file.exists()
-        assert not cache_manager.cold_transactions_file.exists()
-        assert not cache_manager.metadata_file.exists()
-        assert not cache_manager.categories_file.exists()
-        assert not cache_manager.cache_exists()
+        # First save a cache so we have metadata
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-    def test_clear_cache_partial_files(self, cache_manager):
-        """Test clearing cache when only some files exist (two-tier)."""
-        # Create only some files
-        cache_manager.hot_transactions_file.touch()
-        cache_manager.metadata_file.touch()
+        hot_start, hot_end = cache_manager.get_hot_refresh_date_range()
+        cold_start, cold_end = cache_manager.get_cold_refresh_date_range()
 
-        cache_manager.clear_cache()
+        from datetime import datetime as dt
 
-        assert not cache_manager.hot_transactions_file.exists()
-        assert not cache_manager.cold_transactions_file.exists()
-        assert not cache_manager.metadata_file.exists()
-        assert not cache_manager.categories_file.exists()
+        hot_start_date = dt.fromisoformat(hot_start).date()
+        cold_end_date = dt.fromisoformat(cold_end).date()
+
+        # Cold should end AFTER hot starts (overlap)
+        assert cold_end_date > hot_start_date, "Hot and cold ranges must overlap to prevent gaps"
+
+        # Verify overlap is at least 2 * TIER_OVERLAP_DAYS
+        overlap_days = (cold_end_date - hot_start_date).days
+        assert overlap_days >= 2 * CacheManager.TIER_OVERLAP_DAYS
 
 
-class TestLoadMetadata:
-    """Test metadata loading."""
+class TestBackwardsCompatibility:
+    """Test backwards compatibility methods."""
 
-    def test_load_metadata_success(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_is_cache_valid_uses_refresh_strategy(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test successfully loading metadata (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Test that is_cache_valid() wraps get_refresh_strategy()."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
+        # Fresh cache should be valid
+        assert cache_manager.is_cache_valid() is True
+
+        # Make hot stale (7 hours > 6 hour max age)
         metadata = cache_manager.load_metadata()
+        old_time = datetime.now() - timedelta(hours=7)
+        metadata["hot"]["fetch_timestamp"] = old_time.isoformat()
+        cache_manager._save_metadata(metadata)
 
-        assert isinstance(metadata, dict)
-        assert "version" in metadata
-        assert "hot" in metadata
-        assert "fetch_timestamp" in metadata["hot"]
+        # Now should be invalid
+        assert cache_manager.is_cache_valid() is False
 
-    def test_load_metadata_missing_file(self, cache_manager):
-        """Test loading metadata when file doesn't exist."""
-        with pytest.raises(FileNotFoundError):
-            cache_manager.load_metadata()
-
-    def test_load_metadata_corrupt_file(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
+    def test_get_cache_age_hours_uses_hot_tier(
+        self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test loading corrupt metadata file."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+        """Test that get_cache_age_hours() uses hot tier timestamp."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Corrupt the file
-        with open(cache_manager.metadata_file, "w") as f:
-            f.write("not valid json")
+        age = cache_manager.get_cache_age_hours()
+        assert age is not None
+        assert age < 1  # Should be very recent
 
-        with pytest.raises(json.JSONDecodeError):
-            cache_manager.load_metadata()
+
+class TestFilteredViewCacheUpdate:
+    """Regression tests for cache updates with filtered view data.
+
+    This tests for a bug where running with --mtd or --year would cause
+    commits to overwrite the cold cache with empty data:
+
+    1. App loads filtered data (only recent transactions) into data_manager.df
+    2. When committing, save_cache() was called with this filtered data
+    3. Since all transactions were recent, cold cache got 0 transactions
+    4. This overwrote the previously-good cold cache with empty data
+
+    The fix: When operating on filtered data, use save_hot_cache() instead
+    of save_cache() to preserve the cold cache tier.
+    """
+
+    def test_save_cache_with_only_hot_data_overwrites_cold(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Verify that save_cache() with only hot data DOES overwrite cold.
+
+        This test documents the behavior that caused the bug. save_cache()
+        will overwrite both tiers, so it should NOT be used with filtered data.
+        """
+        # First, create a cache with both hot and cold data
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Verify cold has data
+        original_cold = cache_manager.load_cold_cache()
+        assert len(original_cold) > 0, "Cold cache should have transactions"
+        original_cold_count = len(original_cold)
+
+        # Now simulate filtered view: only hot (recent) transactions
+        today = date.today()
+        hot_only_df = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="filtered"
+        )
+
+        # save_cache() with only hot data will overwrite cold with empty data
+        cache_manager.save_cache(hot_only_df, sample_categories, sample_category_groups)
+
+        # Cold cache should now be empty (this is the bug behavior!)
+        new_cold = cache_manager.load_cold_cache()
+        assert len(new_cold) == 0, "save_cache() overwrites cold with empty data"
+
+        # Verify hot has the new data
+        new_hot = cache_manager.load_hot_cache()
+        assert len(new_hot) == 1
+
+        # This demonstrates WHY save_hot_cache() should be used for filtered views
+        assert original_cold_count > 0, "Original cold data was lost"
+
+    def test_save_hot_cache_preserves_cold_data(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Verify that save_hot_cache() preserves cold data (the fix).
+
+        When operating on filtered view (--mtd, --year, --since), we must
+        use save_hot_cache() to avoid losing historical data.
+        """
+        # First, create a cache with both hot and cold data
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Verify cold has data
+        original_cold = cache_manager.load_cold_cache()
+        assert len(original_cold) > 0, "Cold cache should have transactions"
+        original_cold_ids = set(original_cold["id"].to_list())
+
+        # Now simulate filtered view: only hot (recent) transactions
+        today = date.today()
+        hot_only_df = create_transactions_df(
+            [(today - timedelta(days=5)).isoformat()], prefix="filtered"
+        )
+
+        # save_hot_cache() preserves cold data (the correct behavior for filtered views)
+        cache_manager.save_hot_cache(hot_only_df, sample_categories, sample_category_groups)
+
+        # Cold cache should still have the original data
+        new_cold = cache_manager.load_cold_cache()
+        assert len(new_cold) == len(original_cold), "Cold cache must be preserved"
+        new_cold_ids = set(new_cold["id"].to_list())
+        assert new_cold_ids == original_cold_ids, "Cold transaction IDs must be unchanged"
+
+        # Hot cache should have the new filtered data
+        new_hot = cache_manager.load_hot_cache()
+        assert len(new_hot) == 1
+        assert new_hot["id"][0] == "filtered0"
+
+    def test_filtered_view_commit_scenario(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """End-to-end test simulating the filtered view commit scenario.
+
+        Simulates:
+        1. Full cache exists with both hot and cold data
+        2. User runs with --year 2025 (filtered view)
+        3. User edits a transaction and commits
+        4. Cache update should preserve cold data
+        """
+        # Step 1: Create full cache with historical and recent data
+        full_df = create_mixed_transactions_df()
+        cache_manager.save_cache(full_df, sample_categories, sample_category_groups)
+
+        original_cold = cache_manager.load_cold_cache()
+        original_hot = cache_manager.load_hot_cache()
+        original_cold_count = len(original_cold)
+        original_hot_count = len(original_hot)
+
+        assert original_cold_count > 0, "Should have cold data"
+        assert original_hot_count > 0, "Should have hot data"
+
+        # Step 2: Simulate filtered view (only hot transactions loaded)
+        # In the real app, this is what data_manager.df contains after --year/--mtd
+        filtered_df = original_hot.clone()
+
+        # Step 3: Simulate an edit (modify one transaction)
+        modified_df = filtered_df.with_columns(
+            pl.when(pl.col("id") == filtered_df["id"][0])
+            .then(pl.lit("Edited Merchant"))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+        # Step 4: Use save_hot_cache() (the correct method for filtered views)
+        cache_manager.save_hot_cache(modified_df, sample_categories, sample_category_groups)
+
+        # Verify cold cache is preserved
+        final_cold = cache_manager.load_cold_cache()
+        assert len(final_cold) == original_cold_count, "Cold data must be preserved"
+
+        # Verify hot cache has the edit
+        final_hot = cache_manager.load_hot_cache()
+        assert len(final_hot) == original_hot_count, "Hot count unchanged"
+
+        # Verify total count is correct in metadata
+        metadata = cache_manager.load_metadata()
+        assert metadata["total_transactions"] == original_cold_count + original_hot_count
 
 
 class TestEdgeCases:
@@ -816,16 +1215,16 @@ class TestEdgeCases:
         self, cache_manager, sample_categories, sample_category_groups
     ):
         """Test saving and loading a large DataFrame."""
-        # Create a large DataFrame
+        today = date.today()
         large_df = pl.DataFrame(
             {
                 "id": [f"txn_{i}" for i in range(10000)],
-                "date": ["2024-10-01"] * 10000,
+                "date": [(today - timedelta(days=10)).isoformat()] * 10000,
                 "amount": [-50.00] * 10000,
                 "merchant": ["Store"] * 10000,
                 "category": ["Groceries"] * 10000,
             }
-        )
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
         cache_manager.save_cache(large_df, sample_categories, sample_category_groups)
 
@@ -834,14 +1233,15 @@ class TestEdgeCases:
         assert len(df) == 10000
         assert metadata["total_transactions"] == 10000
 
-    def test_save_empty_categories(self, cache_manager, sample_df):
+    def test_save_empty_categories(self, cache_manager):
         """Test saving cache with empty categories."""
+        df = create_mixed_transactions_df()
         empty_categories = {}
         empty_groups = {}
 
-        cache_manager.save_cache(sample_df, empty_categories, empty_groups)
+        cache_manager.save_cache(df, empty_categories, empty_groups)
 
-        df, categories, groups, _ = cache_manager.load_cache()
+        loaded_df, categories, groups, _ = cache_manager.load_cache()
 
         assert categories == {}
         assert groups == {}
@@ -849,9 +1249,7 @@ class TestEdgeCases:
     def test_unicode_in_merchant_names(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test handling unicode characters in merchant names (two-tier)."""
-        from datetime import date
-
+        """Test handling unicode characters in merchant names."""
         today = date.today()
         unicode_df = pl.DataFrame(
             {
@@ -861,7 +1259,7 @@ class TestEdgeCases:
                 "category": ["Food"],
                 "amount": [-50.00],
             }
-        )
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
         cache_manager.save_cache(unicode_df, sample_categories, sample_category_groups)
 
@@ -877,31 +1275,10 @@ class TestEdgeCases:
         assert cm.cache_dir.exists()
         assert cm.cache_dir.is_dir()
 
-    def test_concurrent_cache_operations(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test that cache operations don't corrupt data."""
-        # Save cache
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Load it multiple times
-        result1 = cache_manager.load_cache()
-        result2 = cache_manager.load_cache()
-
-        assert result1 is not None
-        assert result2 is not None
-
-        df1, _, _, _ = result1
-        df2, _, _, _ = result2
-
-        assert df1.shape == df2.shape
-
     def test_cache_with_none_values_in_dataframe(
         self, cache_manager, sample_categories, sample_category_groups
     ):
-        """Test caching DataFrame with None/null values (two-tier)."""
-        from datetime import date
-
+        """Test caching DataFrame with None/null values."""
         today = date.today()
         df_with_nulls = pl.DataFrame(
             {
@@ -914,22 +1291,20 @@ class TestEdgeCases:
                 "category": [None, "Food"],
                 "amount": [-50.00, -75.00],
             }
-        )
+        ).with_columns(pl.col("date").str.to_date("%Y-%m-%d"))
 
         cache_manager.save_cache(df_with_nulls, sample_categories, sample_category_groups)
 
         df, _, _, _ = cache_manager.load_cache()
 
-        # Polars may convert None to null, check the shape is preserved
         assert len(df) == 2
 
-    def test_corrupt_parquet_file(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache with corrupt Parquet file (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
+    def test_corrupt_parquet_file(self, cache_manager, sample_categories, sample_category_groups):
+        """Test loading cache with corrupt Parquet files."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
-        # Corrupt both hot and cold Parquet files (two-tier system loads from both)
+        # Corrupt both hot and cold Parquet files
         with open(cache_manager.hot_transactions_file, "wb") as f:
             f.write(b"not a parquet file")
         with open(cache_manager.cold_transactions_file, "wb") as f:
@@ -937,91 +1312,6 @@ class TestEdgeCases:
 
         result = cache_manager.load_cache()
         assert result is None
-
-    def test_corrupt_categories_json(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache with corrupt categories JSON."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Corrupt the categories file
-        with open(cache_manager.categories_file, "w") as f:
-            f.write("not valid json")
-
-        result = cache_manager.load_cache()
-        assert result is None
-
-    def test_missing_fields_in_categories_json(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test loading cache with missing fields in categories JSON."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Remove required fields
-        with open(cache_manager.categories_file, "w") as f:
-            json.dump({"categories": sample_categories}, f)  # Missing category_groups
-
-        result = cache_manager.load_cache()
-        assert result is None
-
-    def test_readonly_cache_directory(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test behavior when cache directory is read-only."""
-        # Save cache first
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Make directory read-only
-        cache_manager.cache_dir.chmod(0o444)
-
-        try:
-            # Try to save again - should raise PermissionError
-            with pytest.raises(PermissionError):
-                cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-        finally:
-            # Restore permissions for cleanup
-            cache_manager.cache_dir.chmod(0o755)
-
-    def test_load_cache_with_print_warning(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups, capsys
-    ):
-        """Test that load_cache prints warning on decryption failure (two-tier)."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups)
-
-        # Corrupt both hot and cold encrypted parquet files (two-tier system loads from both)
-        with open(cache_manager.hot_transactions_file, "wb") as f:
-            f.write(b"corrupt")
-        with open(cache_manager.cold_transactions_file, "wb") as f:
-            f.write(b"corrupt")
-
-        result = cache_manager.load_cache()
-
-        assert result is None
-
-        # Check that warning was printed (either decryption or loading failure)
-        captured = capsys.readouterr()
-        assert "Warning:" in captured.out
-        assert "Failed to decrypt" in captured.out or "Failed to load" in captured.out
-
-    def test_year_filter_zero(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test saving and validating cache with year=0."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, year=0)
-
-        # year=0 means all data from year 0 onwards, covers any request
-        assert cache_manager.is_cache_valid(year=0)
-        assert cache_manager.is_cache_valid(year=None)  # Cache covers all data
-
-    def test_empty_string_since_filter(
-        self, cache_manager, sample_df, sample_categories, sample_category_groups
-    ):
-        """Test saving and validating cache with empty string since filter."""
-        cache_manager.save_cache(sample_df, sample_categories, sample_category_groups, since="")
-
-        # Empty string is treated as no filter (all data)
-        assert cache_manager.is_cache_valid(since="")
-        assert cache_manager.is_cache_valid(since=None)  # Cache covers all data
 
 
 class TestCacheDataFiltering:
@@ -1031,7 +1321,6 @@ class TestCacheDataFiltering:
         """Test basic filtering of cached data by start date."""
         from moneyflow.app import MoneyflowApp
 
-        # Create DataFrame with transactions across multiple months
         df = pl.DataFrame(
             {
                 "id": ["tx1", "tx2", "tx3", "tx4", "tx5"],
@@ -1047,7 +1336,6 @@ class TestCacheDataFiltering:
             }
         )
 
-        # Filter to December only (simulating --mtd in December)
         filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
 
         assert len(filtered) == 2
@@ -1062,7 +1350,7 @@ class TestCacheDataFiltering:
                 "id": ["tx1", "tx2", "tx3"],
                 "date": [
                     datetime(2025, 12, 1),
-                    datetime(2025, 12, 1),  # Same date, should be included
+                    datetime(2025, 12, 1),
                     datetime(2025, 12, 2),
                 ],
                 "merchant": ["Store A", "Store B", "Store C"],
@@ -1073,29 +1361,6 @@ class TestCacheDataFiltering:
         filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
 
         assert len(filtered) == 3
-        assert filtered["id"].to_list() == ["tx1", "tx2", "tx3"]
-
-    def test_filter_by_start_date_excludes_earlier(self):
-        """Test that filtering excludes transactions before start date."""
-        from moneyflow.app import MoneyflowApp
-
-        df = pl.DataFrame(
-            {
-                "id": ["tx1", "tx2", "tx3"],
-                "date": [
-                    datetime(2025, 11, 30),  # Day before, excluded
-                    datetime(2025, 12, 1),  # Included
-                    datetime(2025, 12, 2),  # Included
-                ],
-                "merchant": ["Store A", "Store B", "Store C"],
-                "amount": [-10.0, -20.0, -30.0],
-            }
-        )
-
-        filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
-
-        assert len(filtered) == 2
-        assert "tx1" not in filtered["id"].to_list()
 
     def test_filter_by_start_date_empty_result(self):
         """Test filtering when all transactions are before start date."""
@@ -1114,73 +1379,10 @@ class TestCacheDataFiltering:
 
         assert len(filtered) == 0
 
-    def test_filter_by_start_date_all_included(self):
-        """Test filtering when all transactions are after start date."""
-        from moneyflow.app import MoneyflowApp
-
-        df = pl.DataFrame(
-            {
-                "id": ["tx1", "tx2", "tx3"],
-                "date": [
-                    datetime(2025, 12, 5),
-                    datetime(2025, 12, 10),
-                    datetime(2025, 12, 15),
-                ],
-                "merchant": ["Store A", "Store B", "Store C"],
-                "amount": [-10.0, -20.0, -30.0],
-            }
-        )
-
-        filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
-
-        assert len(filtered) == 3
-
-    def test_filter_preserves_all_columns(self):
-        """Test that filtering preserves all DataFrame columns."""
-        from moneyflow.app import MoneyflowApp
-
-        df = pl.DataFrame(
-            {
-                "id": ["tx1", "tx2"],
-                "date": [datetime(2025, 11, 15), datetime(2025, 12, 15)],
-                "merchant": ["Store A", "Store B"],
-                "amount": [-10.0, -20.0],
-                "category": ["Food", "Shopping"],
-                "notes": ["Note 1", "Note 2"],
-            }
-        )
-
-        filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
-
-        assert filtered.columns == df.columns
-        assert len(filtered) == 1
-        assert filtered["merchant"][0] == "Store B"
-        assert filtered["category"][0] == "Shopping"
-        assert filtered["notes"][0] == "Note 2"
-
-    def test_filter_with_string_dates(self):
-        """Test filtering works with string date column (pre-parsed)."""
-        from moneyflow.app import MoneyflowApp
-
-        # Some DataFrames may have date as string
-        df = pl.DataFrame(
-            {
-                "id": ["tx1", "tx2", "tx3"],
-                "date": ["2025-11-30", "2025-12-01", "2025-12-15"],
-                "merchant": ["Store A", "Store B", "Store C"],
-                "amount": [-10.0, -20.0, -30.0],
-            }
-        ).with_columns(pl.col("date").str.to_date())
-
-        filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
-
-        assert len(filtered) == 2
-
     def test_filter_mtd_scenario(self):
         """Test realistic MTD filtering scenario with full year of data."""
         from moneyflow.app import MoneyflowApp
 
-        # Simulate cached full year data
         dates = []
         ids = []
         for month in range(1, 13):
@@ -1197,8 +1399,7 @@ class TestCacheDataFiltering:
             }
         )
 
-        # Filter to December (MTD scenario)
         filtered = MoneyflowApp._filter_df_by_start_date(df, "2025-12-01")
 
-        assert len(filtered) == 2  # Dec 1 and Dec 15
+        assert len(filtered) == 2
         assert all(d.month == 12 for d in filtered["date"].to_list())

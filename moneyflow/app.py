@@ -889,8 +889,6 @@ class MoneyflowApp(App):
 
         # Get refresh strategy from cache manager
         strategy = self.cache_manager.get_refresh_strategy(
-            year=self.cache_year_filter,
-            since=self.cache_since_filter,
             force_refresh=self.force_refresh,
         )
         logger.debug(f"Cache refresh strategy: {strategy.value}")

@@ -32,8 +32,7 @@ class RefreshStrategy(Enum):
     NONE = "none"  # Both tiers valid, load entirely from cache
     HOT_ONLY = "hot_only"  # Refresh hot tier, keep cold from cache
     COLD_ONLY = "cold_only"  # Refresh cold tier, keep hot from cache
-    BOTH = "both"  # Refresh both tiers independently
-    ALL = "all"  # Force full refresh (--refresh flag or first launch)
+    ALL = "all"  # Full refresh (--refresh flag, first launch, or both tiers stale)
 
 
 class CacheManager:
@@ -221,18 +220,11 @@ class CacheManager:
         except Exception:
             return None
 
-    def get_refresh_strategy(
-        self,
-        year: Optional[int] = None,
-        since: Optional[str] = None,
-        force_refresh: bool = False,
-    ) -> RefreshStrategy:
+    def get_refresh_strategy(self, force_refresh: bool = False) -> RefreshStrategy:
         """
         Determine what data needs to be refreshed from API.
 
         Args:
-            year: Year filter from CLI (if any)
-            since: Since date filter from CLI (if any)
             force_refresh: If True, force full refresh (--refresh flag)
 
         Returns:
@@ -260,10 +252,6 @@ class CacheManager:
             self.clear_cache()
             return RefreshStrategy.ALL
 
-        # Check filter coverage
-        if not self._filter_covered(year, since):
-            return RefreshStrategy.ALL
-
         # Check each tier's validity
         hot_valid = self.is_hot_cache_valid()
         cold_valid = self.is_cold_cache_valid()
@@ -275,54 +263,8 @@ class CacheManager:
         elif not hot_valid and cold_valid:
             return RefreshStrategy.HOT_ONLY
         else:
-            return RefreshStrategy.BOTH
-
-    def _filter_covered(self, year: Optional[int], since: Optional[str]) -> bool:
-        """
-        Check if cached data covers the requested filter range.
-
-        Args:
-            year: Year filter from CLI
-            since: Since date filter from CLI
-
-        Returns:
-            True if cache covers the requested range
-        """
-        try:
-            metadata = self.load_metadata()
-            cached_year = metadata.get("year_filter")
-            cached_since = metadata.get("since_filter")
-
-            # Determine requested start date
-            requested_start = None
-            if since:
-                requested_start = since
-            elif year:
-                requested_start = f"{year}-01-01"
-
-            # Determine cached start date
-            cached_start = None
-            if cached_since:
-                cached_start = cached_since
-            elif cached_year:
-                cached_start = f"{cached_year}-01-01"
-
-            # Check coverage
-            if requested_start and cached_start:
-                # Cache must start at or before requested date
-                return cached_start <= requested_start
-            elif requested_start and not cached_start:
-                # Cache has all data, covers any filter
-                return True
-            elif not requested_start and cached_start:
-                # User wants all data but cache is filtered
-                return False
-
-            # Both None - full data requested and cached
-            return True
-
-        except Exception:
-            return False
+            # Both expired - do full refresh (simpler than coordinating two partial refreshes)
+            return RefreshStrategy.ALL
 
     def load_metadata(self) -> Dict[str, Any]:
         """Load cache metadata."""
@@ -615,7 +557,7 @@ class CacheManager:
         """Load only cold tier from cache."""
         return self._load_encrypted_parquet(self.cold_transactions_file)
 
-    def _merge_dataframes(
+    def merge_tiers(
         self, hot_df: Optional[pl.DataFrame], cold_df: Optional[pl.DataFrame]
     ) -> pl.DataFrame:
         """
@@ -646,12 +588,6 @@ class CacheManager:
         # Concatenate and sort
         combined = pl.concat([hot_df, cold_filtered])
         return combined.sort("date", descending=True)
-
-    def merge_tiers(
-        self, hot_df: Optional[pl.DataFrame], cold_df: Optional[pl.DataFrame]
-    ) -> pl.DataFrame:
-        """Public wrapper to merge cache tiers with deduplication (hot wins)."""
-        return self._merge_dataframes(hot_df, cold_df)
 
     def load_cache(self) -> Optional[Tuple[pl.DataFrame, Dict, Dict, Dict]]:
         """
@@ -684,7 +620,7 @@ class CacheManager:
                 return None
 
             # Merge with deduplication
-            combined_df = self._merge_dataframes(hot_df, cold_df)
+            combined_df = self.merge_tiers(hot_df, cold_df)
 
             # Load categories
             with open(self.categories_file, "rb") as f:
@@ -803,11 +739,11 @@ class CacheManager:
             return None
 
     # Backwards compatibility alias
-    def is_cache_valid(self, year: Optional[int] = None, since: Optional[str] = None) -> bool:
+    def is_cache_valid(self) -> bool:
         """
-        Check if cache is valid (backwards compatible method).
+        Check if cache is valid (both tiers fresh).
 
         Uses get_refresh_strategy internally - valid means NONE strategy.
         """
-        strategy = self.get_refresh_strategy(year=year, since=since)
+        strategy = self.get_refresh_strategy()
         return strategy == RefreshStrategy.NONE
