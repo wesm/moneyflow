@@ -1965,7 +1965,12 @@ class MoneyflowApp(App):
 
     def action_show_transaction_details(self) -> None:
         """Show detailed information about current transaction."""
-        if self.data_manager is None or self.state.view_mode != ViewMode.DETAIL:
+        # Must be in detail view showing actual transactions (not sub-grouped aggregates)
+        is_transaction_view = (
+            self.state.view_mode == ViewMode.DETAIL
+            and not self.state.sub_grouping_mode
+        )
+        if self.data_manager is None or not is_transaction_view:
             self.notify("Details only available in transaction view", timeout=2)
             return
 
@@ -2038,7 +2043,12 @@ class MoneyflowApp(App):
 
     def action_delete_transaction(self) -> None:
         """Delete current transaction with confirmation."""
-        if self.data_manager is None or self.state.view_mode != ViewMode.DETAIL:
+        # Must be in detail view showing actual transactions (not sub-grouped aggregates)
+        is_transaction_view = (
+            self.state.view_mode == ViewMode.DETAIL
+            and not self.state.sub_grouping_mode
+        )
+        if self.data_manager is None or not is_transaction_view:
             self.notify("Delete only works in transaction detail view", timeout=2)
             return
 
