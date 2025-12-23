@@ -12,6 +12,8 @@ All screens follow a consistent pattern:
 3. Dismiss with new value or None (if cancelled)
 """
 
+from typing import List
+
 import polars as pl
 from textual.app import ComposeResult
 from textual.containers import Container
@@ -21,6 +23,51 @@ from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ..formatters import ViewPresenter
+
+
+def filter_merchants(merchants: pl.Series, query: str, limit: int = 20) -> List[str]:
+    """
+    Filter merchant names by query string.
+
+    Performs case-insensitive substring matching, deduplicates,
+    sorts alphabetically, and limits results.
+
+    Args:
+        merchants: Polars Series of merchant names
+        query: Search query (case-insensitive substring match)
+        limit: Maximum number of results to return
+
+    Returns:
+        List of matching merchant names, sorted alphabetically
+    """
+    if query:
+        # literal=True treats the pattern as plain string, not regex
+        # This prevents special chars like * ? ( ) from causing errors
+        filtered = merchants.filter(
+            merchants.str.to_lowercase().str.contains(query.lower(), literal=True)
+        )
+    else:
+        filtered = merchants
+
+    return filtered.unique().sort().head(limit).to_list()
+
+
+def parse_merchant_option_id(option_id: str) -> tuple[bool, str]:
+    """
+    Parse a merchant option ID to determine if it's a new merchant.
+
+    Option IDs use a "__new__:" prefix to distinguish user-typed
+    merchants from existing ones in the suggestion list.
+
+    Args:
+        option_id: The option ID string
+
+    Returns:
+        Tuple of (is_new, merchant_name)
+    """
+    if option_id.startswith("__new__:"):
+        return True, option_id[8:]  # Remove "__new__:" prefix
+    return False, option_id
 
 
 class EditMerchantScreen(ModalScreen):
@@ -178,22 +225,11 @@ class EditMerchantScreen(ModalScreen):
         merchant_input = self.query_one("#merchant-input", Input)
         user_input = merchant_input.value.strip()
 
-        # Filter merchants using Polars for performance with large merchant lists
-        if query:
-            # Filter using Polars str.contains (much faster than Python loop for thousands of merchants)
-            # literal=True treats the pattern as a plain string, not regex
-            filtered = self.all_merchants.filter(
-                self.all_merchants.str.to_lowercase().str.contains(query.lower(), literal=True)
-            )
-        else:
-            filtered = self.all_merchants
-
-        # Deduplicate, sort, and limit using Polars operations (faster than Python)
-        top_matches = filtered.unique().sort().head(20)
-        matches_list = top_matches.to_list()
+        # Use extracted function for filtering (testable, handles regex escaping)
+        matches_list = filter_merchants(self.all_merchants, query, limit=20)
 
         # Update count
-        count_widget.update(f"{len(filtered)} matching merchants - ↑/↓=Navigate | Enter=Select")
+        count_widget.update(f"{len(matches_list)} matching merchants - ↑/↓=Navigate | Enter=Select")
 
         # Clear and rebuild
         option_list.clear_options()
@@ -229,22 +265,13 @@ class EditMerchantScreen(ModalScreen):
         """Handle merchant selection from suggestions."""
         if event.option.id:
             option_id = str(event.option.id)
-            # Check if this is a "create new" option
-            if option_id.startswith("__new__:"):
-                # Extract the actual merchant name after the prefix
-                new_merchant = option_id[8:]  # Remove "__new__:" prefix
-                # Don't queue no-op edit
-                if new_merchant == self.current_merchant:
-                    self.dismiss(None)
-                else:
-                    self.dismiss(new_merchant)
+            is_new, merchant_name = parse_merchant_option_id(option_id)
+
+            # Don't queue no-op edit
+            if merchant_name == self.current_merchant:
+                self.dismiss(None)
             else:
-                # Existing merchant selected
-                # Don't queue no-op edit
-                if option_id == self.current_merchant:
-                    self.dismiss(None)
-                else:
-                    self.dismiss(option_id)
+                self.dismiss(merchant_name)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "cancel-button":
