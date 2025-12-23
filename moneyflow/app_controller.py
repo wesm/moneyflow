@@ -1607,9 +1607,7 @@ class AppController:
                                 "skipping cache update to avoid corruption"
                             )
                         else:
-                            logger.info(
-                                "Filtered view detected - updating cached tiers with edits"
-                            )
+                            logger.info("Filtered view detected - updating cached tiers with edits")
                             updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
                                 hot_df,
                                 edits,

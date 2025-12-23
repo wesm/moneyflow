@@ -552,7 +552,9 @@ class TestCommitHandling:
             def save_cold_cache(self, cold_df):
                 self.saved_cold = cold_df
 
-            def save_cache(self, transactions_df, categories, category_groups, year=None, since=None):
+            def save_cache(
+                self, transactions_df, categories, category_groups, year=None, since=None
+            ):
                 self.saved_full = transactions_df
 
         full_df = controller.data_manager.df
@@ -586,9 +588,7 @@ class TestCommitHandling:
         assert len(stub_cache.saved_hot) == len(hot_df), "Hot tier should be preserved"
         assert stub_cache.saved_cold.equals(cold_df), "Cold tier should be preserved"
 
-        updated_merchant = (
-            stub_cache.saved_hot.filter(pl.col("id") == edit_id)["merchant"][0]
-        )
+        updated_merchant = stub_cache.saved_hot.filter(pl.col("id") == edit_id)["merchant"][0]
         assert updated_merchant == "Edited"
 
 

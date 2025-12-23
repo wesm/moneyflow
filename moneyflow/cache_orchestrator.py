@@ -14,7 +14,6 @@ from typing import Any, Callable, Optional, Tuple
 from .cache_manager import CacheManager, RefreshStrategy
 from .logging_config import get_logger
 
-
 StatusUpdate = Optional[Callable[[str], None]]
 NotifyFn = Optional[Callable[..., None]]
 
@@ -94,8 +93,7 @@ class CacheOrchestrator:
 
         # Check if we can use hot-only optimization
         hot_only_mode = (
-            self.is_within_hot_window(custom_start_date)
-            and self.cache_manager.is_hot_cache_valid()
+            self.is_within_hot_window(custom_start_date) and self.cache_manager.is_hot_cache_valid()
         )
 
         if strategy == RefreshStrategy.NONE or (
@@ -159,9 +157,7 @@ class CacheOrchestrator:
             else self.cache_manager.load_hot_cache()
         )
         if cached_df is None:
-            self.logger.warning(
-                f"Failed to load {tier_name} cache, falling back to full refresh"
-            )
+            self.logger.warning(f"Failed to load {tier_name} cache, falling back to full refresh")
             return None
 
         self.logger.info(f"Partial refresh: {strategy.value}")
