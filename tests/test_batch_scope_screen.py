@@ -1,7 +1,10 @@
 """Tests for BatchScopeScreen."""
 
+from typing import cast
+
 import pytest
 from textual.app import App, ComposeResult
+from textual.widgets import Button
 
 from moneyflow.screens.batch_scope_screen import BatchScopeScreen
 
@@ -43,7 +46,7 @@ class TestBatchScopeScreenDisplay:
             await pilot.pause()
 
             # Get the screen from app's screen stack
-            screen = app.screen
+            screen = cast(BatchScopeScreen, app.screen)
             # Check that merchant_name is displayed in the screen
             assert screen.merchant_name == "Amazon.com/abc"
 
@@ -65,7 +68,7 @@ class TestBatchScopeScreenDisplay:
             await pilot.pause()
             await pilot.pause()
 
-            screen = app.screen
+            screen = cast(BatchScopeScreen, app.screen)
             # Check that counts are stored correctly
             assert screen.selected_count == 5
             assert screen.total_count == 15
@@ -88,10 +91,10 @@ class TestBatchScopeScreenDisplay:
             await pilot.pause()
             await pilot.pause()
 
-            screen = app.screen
-            all_button = screen.query_one("#all")
-            selected_button = screen.query_one("#selected")
-            cancel_button = screen.query_one("#cancel")
+            screen = cast(BatchScopeScreen, app.screen)
+            all_button = cast(Button, screen.query_one("#all"))
+            selected_button = cast(Button, screen.query_one("#selected"))
+            cancel_button = cast(Button, screen.query_one("#cancel"))
 
             assert all_button is not None
             assert selected_button is not None
@@ -255,8 +258,8 @@ class TestBatchScopeScreenButtonLabels:
             await pilot.pause()
             await pilot.pause()
 
-            screen = app.screen
-            all_button = screen.query_one("#all")
+            screen = cast(BatchScopeScreen, app.screen)
+            all_button = cast(Button, screen.query_one("#all"))
             label = str(all_button.label)
             assert "25" in label
 
@@ -278,8 +281,8 @@ class TestBatchScopeScreenButtonLabels:
             await pilot.pause()
             await pilot.pause()
 
-            screen = app.screen
-            selected_button = screen.query_one("#selected")
+            screen = cast(BatchScopeScreen, app.screen)
+            selected_button = cast(Button, screen.query_one("#selected"))
             label = str(selected_button.label)
             assert "7" in label
 

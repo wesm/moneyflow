@@ -255,9 +255,34 @@ class CacheManager:
                     logger.debug(f"Cache sanity: missing cold.{field}")
                     return False
 
-            # Parse dates for remaining checks
-            hot_earliest = date.fromisoformat(hot_meta["earliest_date"])
-            cold_latest = date.fromisoformat(cold_meta["latest_date"])
+            hot_count = hot_meta.get("transaction_count", 0)
+            cold_count = cold_meta.get("transaction_count", 0)
+
+            # Parse dates only when tiers have data
+            hot_earliest = None
+            if hot_count > 0:
+                hot_earliest_str = hot_meta.get("earliest_date")
+                if not hot_earliest_str:
+                    logger.debug("Cache sanity: hot tier missing earliest_date")
+                    return False
+                hot_earliest = date.fromisoformat(hot_earliest_str)
+
+            cold_latest = None
+            if cold_count > 0:
+                cold_latest_str = cold_meta.get("latest_date")
+                if not cold_latest_str:
+                    logger.debug("Cache sanity: cold tier missing latest_date")
+                    return False
+                cold_latest = date.fromisoformat(cold_latest_str)
+
+            # If either tier is empty, skip overlap checks (nothing to reconcile)
+            if hot_count == 0 or cold_count == 0:
+                return True
+
+            if hot_earliest is None or cold_latest is None:
+                logger.debug("Cache sanity: missing tier dates for non-empty cache")
+                return False
+
             boundary = self._get_boundary_date()
 
             # Check 2: Cold cache should extend past the boundary (overlap)

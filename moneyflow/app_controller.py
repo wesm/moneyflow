@@ -1597,17 +1597,39 @@ class AppController:
             if self.cache_manager and cache_filters:
                 try:
                     if is_filtered_view:
-                        # When showing filtered data (--mtd, --year, --since),
-                        # data_manager.df only contains a subset of transactions.
-                        # Only update the hot cache to preserve the cold tier.
-                        logger.info(
-                            "Filtered view detected - using save_hot_cache to preserve cold cache"
-                        )
-                        self.cache_manager.save_hot_cache(
-                            hot_df=self.data_manager.df,
-                            categories=self.data_manager.categories,
-                            category_groups=self.data_manager.category_groups,
-                        )
+                        # Filtered views only hold a subset of transactions.
+                        # Merge edits into cached tiers to avoid overwriting data.
+                        hot_df = self.cache_manager.load_hot_cache()
+                        cold_df = self.cache_manager.load_cold_cache()
+                        if hot_df is None or cold_df is None:
+                            logger.warning(
+                                "Filtered view detected but cache tiers are unavailable; "
+                                "skipping cache update to avoid corruption"
+                            )
+                        else:
+                            logger.info(
+                                "Filtered view detected - updating cached tiers with edits"
+                            )
+                            updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                                hot_df,
+                                edits,
+                                self.data_manager.categories,
+                                self.data_manager.apply_category_groups,
+                                bulk_merchant_renames,
+                            )
+                            updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                                cold_df,
+                                edits,
+                                self.data_manager.categories,
+                                self.data_manager.apply_category_groups,
+                                bulk_merchant_renames,
+                            )
+                            self.cache_manager.save_hot_cache(
+                                hot_df=updated_hot,
+                                categories=self.data_manager.categories,
+                                category_groups=self.data_manager.category_groups,
+                            )
+                            self.cache_manager.save_cold_cache(cold_df=updated_cold)
                     else:
                         # Full data mode - safe to save both tiers
                         logger.debug("Full data mode - updating both cache tiers")

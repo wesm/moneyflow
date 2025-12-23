@@ -528,6 +528,69 @@ class TestCommitHandling:
         assert len(mock_view.table_updates) > 0, "View should be refreshed"
         mock_view.assert_force_rebuild(False)
 
+    async def test_filtered_view_updates_cached_tiers(self, controller):
+        """Filtered views should merge edits into cached tiers, not overwrite them."""
+        from moneyflow.state import TransactionEdit
+
+        class StubCacheManager:
+            def __init__(self, hot_df, cold_df):
+                self._hot_df = hot_df
+                self._cold_df = cold_df
+                self.saved_hot = None
+                self.saved_cold = None
+                self.saved_full = None
+
+            def load_hot_cache(self):
+                return self._hot_df.clone()
+
+            def load_cold_cache(self):
+                return self._cold_df.clone()
+
+            def save_hot_cache(self, hot_df, categories, category_groups):
+                self.saved_hot = hot_df
+
+            def save_cold_cache(self, cold_df):
+                self.saved_cold = cold_df
+
+            def save_cache(self, transactions_df, categories, category_groups, year=None, since=None):
+                self.saved_full = transactions_df
+
+        full_df = controller.data_manager.df
+        hot_df = full_df.head(2)
+        cold_df = full_df.tail(2)
+
+        edit_id = hot_df["id"][0]
+        old_merchant = hot_df["merchant"][0]
+        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        controller.data_manager.pending_edits = edits.copy()
+
+        # Simulate filtered view with only a subset of hot transactions
+        controller.data_manager.df = hot_df.head(1).clone()
+
+        stub_cache = StubCacheManager(hot_df, cold_df)
+        controller.cache_manager = stub_cache
+
+        saved_state = controller.state.save_view_state()
+        controller.handle_commit_result(
+            success_count=1,
+            failure_count=0,
+            edits=edits,
+            saved_state=saved_state,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
+        )
+
+        assert stub_cache.saved_full is None, "Filtered view should not overwrite full cache"
+        assert stub_cache.saved_hot is not None
+        assert stub_cache.saved_cold is not None
+        assert len(stub_cache.saved_hot) == len(hot_df), "Hot tier should be preserved"
+        assert stub_cache.saved_cold.equals(cold_df), "Cold tier should be preserved"
+
+        updated_merchant = (
+            stub_cache.saved_hot.filter(pl.col("id") == edit_id)["merchant"][0]
+        )
+        assert updated_merchant == "Edited"
+
 
 class TestEditQueueing:
     """

@@ -518,6 +518,36 @@ class TestRefreshStrategyDetermination:
         strategy = cache_manager.get_refresh_strategy()
         assert strategy == RefreshStrategy.NONE
 
+    def test_strategy_none_when_hot_empty(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Hot tier can be empty (all historical) and still be valid."""
+        boundary = cache_manager._get_boundary_date()
+        old_dates = [
+            (boundary - timedelta(days=10)).isoformat(),
+            (boundary - timedelta(days=120)).isoformat(),
+        ]
+        df = create_transactions_df(old_dates, prefix="cold_only")
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.NONE
+
+    def test_strategy_none_when_cold_empty(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Cold tier can be empty (all recent) and still be valid."""
+        today = date.today()
+        recent_dates = [
+            (today - timedelta(days=10)).isoformat(),
+            (today - timedelta(days=30)).isoformat(),
+        ]
+        df = create_transactions_df(recent_dates, prefix="hot_only")
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        strategy = cache_manager.get_refresh_strategy()
+        assert strategy == RefreshStrategy.NONE
+
     def test_strategy_hot_only_when_cold_valid(
         self, cache_manager, sample_categories, sample_category_groups
     ):
