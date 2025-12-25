@@ -57,6 +57,10 @@ class CacheManager:
     # This ensures no gaps when cold expires: after 30 days, the boundary
     # moves forward 30 days, but cold data still reaches the new boundary.
     COLD_SAVE_OVERLAP_DAYS = 30
+    # Overlap days when fetching tier data to handle timing/date variations
+    TIER_OVERLAP_DAYS = 7
+    # Max gap allowed between hot/cold tiers before triggering full refresh
+    GAP_TOLERANCE_DAYS = 7
 
     def __init__(self, cache_dir: Optional[str] = None, encryption_key: Optional[bytes] = None):
         """
@@ -94,9 +98,6 @@ class CacheManager:
         """Get the boundary date between hot and cold cache (90 days ago)."""
         return date.today() - timedelta(days=self.HOT_WINDOW_DAYS)
 
-    # Overlap days to fetch before cold's end date (ensures no gaps from timing/date changes)
-    TIER_OVERLAP_DAYS = 7
-
     def get_hot_refresh_date_range(self) -> tuple[str, str]:
         """Get the date range for refreshing the hot cache tier.
 
@@ -124,6 +125,7 @@ class CacheManager:
                 start = cold_end - timedelta(days=self.TIER_OVERLAP_DAYS)
                 return start.isoformat(), today.isoformat()
         except Exception:
+            # Metadata parsing failed; fall back to computed boundary below
             pass
 
         # Fallback only if no cold metadata (shouldn't happen in normal use)
@@ -154,6 +156,7 @@ class CacheManager:
                 end = (hot_start + timedelta(days=self.TIER_OVERLAP_DAYS)).isoformat()
                 return start, end
         except Exception:
+            # Metadata parsing failed; fall back to computed boundary below
             pass
 
         # Fallback only if no hot metadata
@@ -286,8 +289,8 @@ class CacheManager:
             boundary = self._get_boundary_date()
 
             # Check 2: Cold cache should extend past the boundary (overlap)
-            # Allow some tolerance (7 days) for edge cases
-            min_cold_latest = boundary - timedelta(days=7)
+            # Allow some tolerance for edge cases
+            min_cold_latest = boundary - timedelta(days=self.GAP_TOLERANCE_DAYS)
             if cold_latest < min_cold_latest:
                 logger.debug(
                     f"Cache sanity: cold latest ({cold_latest}) doesn't reach boundary "
@@ -297,8 +300,7 @@ class CacheManager:
 
             # Check 3: No gap between tiers
             # Hot should start at or before cold ends (with tolerance)
-            max_gap_days = 7
-            if hot_earliest > cold_latest + timedelta(days=max_gap_days):
+            if hot_earliest > cold_latest + timedelta(days=self.GAP_TOLERANCE_DAYS):
                 logger.debug(
                     f"Cache sanity: gap detected - hot starts at {hot_earliest}, "
                     f"cold ends at {cold_latest}"
