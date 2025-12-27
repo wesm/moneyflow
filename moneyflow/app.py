@@ -74,6 +74,9 @@ from .theme_manager import get_theme_css_paths, load_theme_from_config
 from .version import get_version
 from .widgets.help_screen import HelpScreen
 
+# Module-level logger
+logger = get_logger(__name__)
+
 
 class MoneyflowApp(App):
     """
@@ -225,6 +228,8 @@ class MoneyflowApp(App):
             self.backend = DemoBackend(start_year=start_year or 2023, years=3)
             version = get_version()
             self.title = f"moneyflow [{version}] [DEMO MODE]"
+            # Create demo Amazon database for Amazon linking feature demo
+            self._create_demo_amazon_db()
         else:
             # Backend will be set in initialize_data() based on credentials
             version = get_version()
@@ -251,6 +256,18 @@ class MoneyflowApp(App):
         self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
+
+        # Amazon match cache for lazy loading
+        # Key: transaction ID, Value: match status string ("✓", "~", "", or None if not searched)
+        self._amazon_match_cache: dict[str, Optional[str]] = {}
+        # Track which row indices have been loaded (for lazy loading)
+        self._amazon_rows_loaded: set[int] = set()
+        # Track current transaction IDs by row index (updated on refresh)
+        self._row_to_txn_id: dict[int, str] = {}
+        # Track if we're currently showing Amazon column
+        self._amazon_column_visible = False
+        # Amazon column index (set when table is rebuilt with Amazon column)
+        self._amazon_column_index: Optional[int] = None
 
     def compose(self) -> ComposeResult:
         """Compose the main UI."""
@@ -326,7 +343,9 @@ class MoneyflowApp(App):
         # Determine merchant cache directory
         if self.demo_mode:
             # Demo mode: use temp directory (don't pollute ~/.moneyflow)
-            merchant_cache_dir = "/tmp/moneyflow_demo"
+            import tempfile
+
+            merchant_cache_dir = str(Path(tempfile.gettempdir()) / "moneyflow_demo")
         elif profile_dir:
             # Multi-account mode: use profile directory to isolate merchant caches
             merchant_cache_dir = str(profile_dir)
@@ -1104,6 +1123,7 @@ class MoneyflowApp(App):
                     self.demo_mode = True
                     self.backend = DemoBackend(start_year=self.start_year or 2023, years=3)
                     self.title = "moneyflow [DEMO MODE]"
+                    self._create_demo_amazon_db()
                     loading_status.update("🎮 DEMO MODE - Loading sample data...")
                 else:
                     # Load account info to get backend_type
@@ -1336,7 +1356,38 @@ class MoneyflowApp(App):
             return
 
         # Delegate to controller - it handles all the business logic
+        # Note: controller.refresh_view() will call view.on_table_updated()
+        # which triggers handle_amazon_column_refresh() automatically
         self.controller.refresh_view(force_rebuild=force_rebuild)
+
+    def handle_amazon_column_refresh(self) -> None:
+        """
+        Handle Amazon column lazy loading after a table update.
+
+        Called by TextualViewPresenter.on_table_updated() after the controller
+        updates the table. This ensures Amazon match data is loaded regardless
+        of whether refresh_view() was called from the app or directly from
+        the controller (e.g., after a commit).
+        """
+        if self.controller is None:
+            return
+
+        # Check if Amazon column is being shown and handle lazy loading
+        self._amazon_column_visible = self.controller._showing_amazon_column
+
+        if self._amazon_column_visible:
+            table = self.query_one("#data-table", DataTable)
+            column_keys = list(table.columns.keys())
+            logger.debug(f"Amazon column check: column_keys={column_keys}")
+            self._amazon_column_index = (
+                column_keys.index("amazon") if "amazon" in column_keys else None
+            )
+            logger.debug(f"Amazon column index: {self._amazon_column_index}")
+
+            # Rows are always rebuilt, so reload Amazon match statuses each refresh.
+            self._on_amazon_view_refresh()
+        else:
+            self._amazon_column_index = None
 
     # Actions
     def action_view_merchants(self) -> None:
@@ -1553,7 +1604,9 @@ class MoneyflowApp(App):
         if new_query is not None:  # None means cancelled
             # Apply search via controller
             if new_query:
-                count = self.controller.apply_search(new_query)
+                # Search Amazon items for the query (may be slow)
+                amazon_match_ids = self._search_amazon_items_for_query(new_query)
+                count = self.controller.apply_search(new_query, amazon_match_ids)
                 self.notify(f"Search: '{new_query}' - {count} results", timeout=2)
             else:
                 self.controller.clear_search()
@@ -1841,6 +1894,23 @@ class MoneyflowApp(App):
             )
         )
 
+    def _get_demo_config_dir(self) -> Path:
+        """Get the config directory for demo mode (cross-platform temp dir)."""
+        import tempfile
+
+        return Path(tempfile.gettempdir()) / "moneyflow_demo"
+
+    def _create_demo_amazon_db(self) -> None:
+        """Create demo Amazon database with matching orders for demo transactions."""
+        from .demo_data_generator import create_demo_amazon_database
+
+        if not self.demo_mode or not isinstance(self.backend, DemoBackend):
+            return
+
+        # Use temp directory for demo mode to avoid polluting user's config
+        demo_config_dir = str(self._get_demo_config_dir())
+        create_demo_amazon_database(demo_config_dir, self.backend.transactions)
+
     def _find_amazon_matches(self, transaction: dict) -> tuple[list, bool]:
         """
         Find matching Amazon orders for a transaction.
@@ -1867,7 +1937,11 @@ class MoneyflowApp(App):
             txn_date = str(txn_date)
 
         # Initialize linker with config directory
-        config_dir = Path.home() / ".moneyflow"
+        # Use temp directory for demo mode
+        if self.demo_mode:
+            config_dir = self._get_demo_config_dir()
+        else:
+            config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
         linker = AmazonLinker(config_dir)
 
         # Only look up if merchant looks like Amazon
@@ -1884,6 +1958,248 @@ class MoneyflowApp(App):
         except Exception as e:
             logger.warning(f"Error finding Amazon matches: {e}")
             return [], True
+
+    def _format_amazon_match_status(self, matches: list) -> str:
+        """
+        Format Amazon match status for display in table column.
+
+        Args:
+            matches: List of AmazonOrderMatch objects
+
+        Returns:
+            Status indicator with first item name, e.g. "✓ Product Name" or "~ Product Name"
+        """
+        if not matches:
+            return ""
+
+        # Find the best match (prefer exact over fuzzy)
+        best_match = None
+        indicator = ""
+
+        for m in matches:
+            if m.confidence in ("high", "medium"):
+                best_match = m
+                indicator = "✓"
+                break
+            elif m.confidence == "likely" and best_match is None:
+                best_match = m
+                indicator = "~"
+
+        if not best_match:
+            return ""
+
+        # Get the first item name from the match
+        item_name = ""
+        if best_match.items and len(best_match.items) > 0:
+            item_name = best_match.items[0].get("name", "")
+
+        if not item_name:
+            return indicator
+
+        # Truncate item name to fit column (30 chars total, minus indicator and space)
+        max_name_len = 27  # 30 - 2 (indicator) - 1 (space)
+        if len(item_name) > max_name_len:
+            item_name = item_name[: max_name_len - 1] + "…"
+
+        return f"{indicator} {item_name}"
+
+    def _search_amazon_items_for_query(self, query: str) -> set[str]:
+        """
+        Search Amazon transactions for items matching a query string.
+
+        This is used by text search to include transactions where the Amazon
+        item name contains the search term.
+
+        Args:
+            query: Search query string (will be lowercased)
+
+        Returns:
+            Set of transaction IDs whose Amazon items match the query
+        """
+        from .amazon_linker import AmazonLinker
+
+        matching_ids: set[str] = set()
+        query_lower = query.lower()
+
+        # Get transactions with only time filter applied (not search filter)
+        if self.state.transactions_df is None or len(self.state.transactions_df) == 0:
+            return matching_ids
+
+        df = self.state.transactions_df
+
+        # Apply time filter only
+        if self.state.start_date and self.state.end_date:
+            import polars as pl
+
+            df = df.filter(
+                (pl.col("date") >= self.state.start_date) & (pl.col("date") <= self.state.end_date)
+            )
+
+        # Initialize linker (use temp directory for demo mode)
+        if self.demo_mode:
+            config_dir = self._get_demo_config_dir()
+        else:
+            config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
+        linker = AmazonLinker(config_dir)
+
+        # Check if there are any Amazon databases
+        if not linker.find_amazon_databases():
+            return matching_ids
+
+        # Find Amazon transactions
+        for row in df.iter_rows(named=True):
+            merchant = row.get("merchant", "")
+            if not linker.is_amazon_merchant(merchant):
+                continue
+
+            txn_id = row.get("id", "")
+            amount = row.get("amount", 0)
+            txn_date = row.get("date", "")
+
+            # Convert date to string
+            if hasattr(txn_date, "isoformat"):
+                txn_date = txn_date.isoformat()
+            else:
+                txn_date = str(txn_date)
+
+            # Search for matching orders
+            try:
+                matches = linker.find_matching_orders(
+                    amount=float(amount),
+                    transaction_date=txn_date,
+                    date_tolerance_days=7,
+                )
+
+                # Check if any item name contains the query
+                for match in matches:
+                    for item in match.items:
+                        item_name = item.get("name", "").lower()
+                        if query_lower in item_name:
+                            matching_ids.add(txn_id)
+                            break
+                    if txn_id in matching_ids:
+                        break
+
+            except Exception as e:
+                logger.warning(f"Error searching Amazon for txn {txn_id}: {e}")
+
+        return matching_ids
+
+    def _get_amazon_match_status(
+        self, txn_id: str, amount: float, date_str: str, merchant: str
+    ) -> str:
+        """
+        Get Amazon match status for a transaction, using cache when available.
+
+        Args:
+            txn_id: Transaction ID
+            amount: Transaction amount
+            date_str: Transaction date string
+            merchant: Merchant name
+
+        Returns:
+            Match status string ("✓", "~", or "")
+        """
+        # Check cache first
+        if txn_id in self._amazon_match_cache:
+            cached = self._amazon_match_cache[txn_id]
+            if cached is not None:
+                return cached
+
+        # Search for matches
+        matches, _ = self._find_amazon_matches(
+            {"merchant": merchant, "amount": amount, "date": date_str}
+        )
+
+        # Format and cache result
+        status = self._format_amazon_match_status(matches)
+        self._amazon_match_cache[txn_id] = status
+        return status
+
+    def _load_amazon_matches_for_rows(self, start_row: int, end_row: int) -> None:
+        """
+        Load Amazon matches for a range of rows and update table cells.
+
+        Args:
+            start_row: First row index to load
+            end_row: Last row index to load (exclusive)
+        """
+        logger.debug(
+            f"_load_amazon_matches_for_rows: start={start_row}, end={end_row}, "
+            f"visible={self._amazon_column_visible}, col_idx={self._amazon_column_index}"
+        )
+        if not self._amazon_column_visible or self._amazon_column_index is None:
+            logger.debug("Early return: column not visible or index is None")
+            return
+
+        if self.state.current_data is None:
+            logger.debug("Early return: no current_data")
+            return
+
+        table = self.query_one("#data-table", DataTable)
+        df = self.state.current_data
+
+        for row_idx in range(start_row, min(end_row, len(df))):
+            # Skip if already loaded
+            if row_idx in self._amazon_rows_loaded:
+                continue
+
+            # Get transaction data
+            if row_idx >= len(df):
+                break
+
+            row_data = df.row(row_idx, named=True)
+            txn_id = row_data["id"]
+            amount = row_data["amount"]
+            date_val = row_data["date"]
+            merchant = row_data["merchant"]
+
+            # Convert date to string
+            if hasattr(date_val, "isoformat"):
+                date_str = date_val.isoformat()
+            else:
+                date_str = str(date_val)
+
+            # Get match status
+            status = self._get_amazon_match_status(txn_id, amount, date_str, merchant)
+
+            # Update the cell
+            try:
+                table.update_cell_at((row_idx, self._amazon_column_index), status)
+                logger.debug(
+                    f"Updated cell ({row_idx}, {self._amazon_column_index}) with status: {status[:20] if status else '(empty)'}..."
+                )
+            except Exception as e:
+                logger.debug(f"Failed to update cell ({row_idx}, {self._amazon_column_index}): {e}")
+
+            # Mark as loaded
+            self._amazon_rows_loaded.add(row_idx)
+
+    def _on_amazon_view_refresh(self) -> None:
+        """Called when the view is refreshed with Amazon transactions."""
+        logger.debug(
+            f"_on_amazon_view_refresh: visible={self._amazon_column_visible}, "
+            f"col_idx={self._amazon_column_index}, data_len={len(self.state.current_data) if self.state.current_data is not None else 'None'}"
+        )
+        # Reset row tracking
+        self._amazon_rows_loaded.clear()
+        self._row_to_txn_id.clear()
+
+        # Update row-to-txn mapping and mark cached rows as already loaded
+        # (cached rows were rendered with cached values, no need to update them)
+        if self.state.current_data is not None:
+            for idx, row_data in enumerate(self.state.current_data.iter_rows(named=True)):
+                txn_id = row_data["id"]
+                self._row_to_txn_id[idx] = txn_id
+                # If this transaction is in cache, mark row as loaded
+                # (the cell was already rendered with the cached value)
+                if txn_id in self._amazon_match_cache:
+                    self._amazon_rows_loaded.add(idx)
+
+        # Load initial batch of matches for UNCACHED rows only
+        if self._amazon_column_visible:
+            logger.debug("Scheduling initial Amazon match load for rows 0-20")
+            self.set_timer(0.1, lambda: self._load_amazon_matches_for_rows(0, 20))
 
     def action_delete_transaction(self) -> None:
         """Delete current transaction with confirmation."""
@@ -2306,6 +2622,35 @@ class MoneyflowApp(App):
 
         if should_quit:
             self.exit()
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Handle row highlight (cursor movement)."""
+        logger.debug(f"Row highlighted: visible={self._amazon_column_visible}")
+        if not self._amazon_column_visible:
+            return
+
+        table = self.query_one("#data-table", DataTable)
+
+        # Calculate visible row range from scroll position and viewport height
+        # Each row is approximately 1 cell high (can be up to 2 for wrapped text)
+        row_height = 1
+        header_height = 1
+
+        # Get viewport height (number of visible rows)
+        viewport_height = table.size.height - header_height
+        if viewport_height <= 0:
+            viewport_height = 20  # Fallback
+
+        # Calculate first visible row from scroll position
+        first_visible = int(table.scroll_y / row_height)
+        last_visible = first_visible + viewport_height
+
+        # Add small buffer for smooth scrolling
+        start_row = max(0, first_visible - 2)
+        end_row = last_visible + 2
+
+        # Schedule loading to avoid blocking
+        self.set_timer(0.01, lambda: self._load_amazon_matches_for_rows(start_row, end_row))
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection (Enter key)."""

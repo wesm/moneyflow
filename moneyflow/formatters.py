@@ -533,12 +533,18 @@ class ViewPresenter:
 
         return PreparedView(columns=columns, rows=rows, empty=False)
 
+    # Maximum width for drilled-down column (reasonable limit to prevent excessive width)
+    MAX_DRILLED_COLUMN_WIDTH = 30
+
     @staticmethod
     def prepare_transaction_columns(
         sort_by: SortMode,
         sort_direction: SortDirection,
         column_config: Optional[Dict[str, Any]] = None,
         display_labels: Optional[Dict[str, str]] = None,
+        show_amazon_column: bool = False,
+        drilled_field: Optional[str] = None,
+        drilled_value: Optional[str] = None,
     ) -> list[ColumnSpec]:
         """
         Prepare column specifications for transaction detail view.
@@ -548,6 +554,10 @@ class ViewPresenter:
             sort_direction: Current sort direction
             column_config: Backend-specific config (widths, currency_symbol)
             display_labels: Optional backend-specific display labels
+            show_amazon_column: If True, include Amazon match status column
+            drilled_field: When drilled into a specific value, the field name
+                          ("merchant", "category", or "account")
+            drilled_value: When drilled, the value being shown (used to shrink column)
 
         Returns:
             List of column specifications for transaction view
@@ -564,8 +574,8 @@ class ViewPresenter:
         # Use defaults if not provided
         if column_config is None:
             column_config = {
-                "merchant_width_pct": 25,
-                "account_width_pct": 30,
+                "merchant_width_pct": 20,
+                "account_width_pct": 20,
                 "currency_symbol": "$",
             }
         if display_labels is None:
@@ -585,9 +595,31 @@ class ViewPresenter:
         merchant_label = display_labels.get("merchant", "Merchant")
         account_label = display_labels.get("account", "Account")
 
-        # Get custom widths
-        merchant_width = column_config.get("merchant_width_pct", 25)
-        account_width = column_config.get("account_width_pct", 30)
+        # Calculate shrink-to-fit width for drilled column
+        drilled_width: Optional[int] = None
+        if drilled_field and drilled_value:
+            # Width = length of value + 2 for padding, capped at MAX_DRILLED_COLUMN_WIDTH
+            drilled_width = min(len(drilled_value) + 2, ViewPresenter.MAX_DRILLED_COLUMN_WIDTH)
+
+        # Get custom widths - narrower merchant and account when Amazon column is shown
+        default_merchant_width = 15 if show_amazon_column else 20
+        merchant_width = column_config.get("merchant_width_pct", default_merchant_width)
+        if show_amazon_column and merchant_width > 15:
+            merchant_width = 15  # Force narrower when Amazon column is shown
+        # Shrink to fit when drilled into merchant
+        if drilled_field == "merchant" and drilled_width is not None:
+            merchant_width = drilled_width
+
+        default_account_width = 22
+        account_width = column_config.get("account_width_pct", default_account_width)
+        # Shrink to fit when drilled into account
+        if drilled_field == "account" and drilled_width is not None:
+            account_width = drilled_width
+
+        # Category width needs to fit "Business Electronics" = 20 chars + padding
+        category_width = 21
+        if drilled_field == "category" and drilled_width is not None:
+            category_width = drilled_width
 
         # Amount column label - right-aligned to match the values, includes currency
         amount_label = f"Amount ({currency_symbol}) {amount_arrow}".strip()
@@ -600,15 +632,25 @@ class ViewPresenter:
                 "key": "merchant",
                 "width": merchant_width,
             },
-            {"label": f"Category {category_arrow}".strip(), "key": "category", "width": 20},
+            {
+                "label": f"Category {category_arrow}".strip(),
+                "key": "category",
+                "width": category_width,
+            },
             {
                 "label": f"{account_label} {account_arrow}".strip(),
                 "key": "account",
                 "width": account_width,
             },
-            {"label": amount_label_text, "key": "amount", "width": None},  # Auto-size to content
-            {"label": "", "key": "flags", "width": 3},  # Flags column (✓ H *)
+            {"label": amount_label_text, "key": "amount", "width": 14},
         ]
+
+        # Add Amazon column before flags if enabled
+        if show_amazon_column:
+            columns.append({"label": "Amazon", "key": "amazon", "width": 40})
+
+        # Flags column always last
+        columns.append({"label": "", "key": "flags", "width": 3})  # Flags column (✓ H *)
 
         return columns
 
@@ -655,7 +697,9 @@ class ViewPresenter:
         df: pl.DataFrame,
         selected_ids: set[str],
         pending_edit_ids: set[str],
-    ) -> list[tuple[str, str, str, str, Union[str, Text], str]]:
+        include_amazon_placeholder: bool = False,
+        amazon_cache: Optional[dict[str, Optional[str]]] = None,
+    ) -> list[tuple]:
         """
         Format transaction DataFrame rows for display.
 
@@ -663,9 +707,12 @@ class ViewPresenter:
             df: Transaction DataFrame
             selected_ids: Set of selected transaction IDs
             pending_edit_ids: Set of transaction IDs with pending edits
+            include_amazon_placeholder: If True, add Amazon match column
+            amazon_cache: Optional cache of Amazon match results keyed by transaction ID.
+                If provided, cached values are used instead of "..." placeholder.
 
         Returns:
-            List of tuples (date, merchant, category, account, amount, flags)
+            List of tuples (date, merchant, category, account, amount, [amazon], flags)
 
         Examples:
             >>> df = pl.DataFrame({
@@ -681,7 +728,7 @@ class ViewPresenter:
             >>> rows[0][0]  # date
             '2025-01-15'
         """
-        rows: list[tuple[str, str, str, str, Union[str, Text], str]] = []
+        rows: list[tuple] = []
 
         for row_dict in df.iter_rows(named=True):
             date = str(row_dict["date"])
@@ -697,16 +744,34 @@ class ViewPresenter:
                 txn_id, selected_ids, hide_from_reports, pending_edit_ids
             )
 
-            rows.append(
-                (
-                    date,
-                    merchant,
-                    category,
-                    account,
-                    ViewPresenter.format_amount(amount, for_table=True),
-                    flags,
+            if include_amazon_placeholder:
+                # Use cached Amazon match result if available, otherwise placeholder
+                if amazon_cache is not None and txn_id in amazon_cache:
+                    amazon_status = amazon_cache[txn_id] or ""
+                else:
+                    amazon_status = "..."  # Will be lazy-loaded
+                rows.append(
+                    (
+                        date,
+                        merchant,
+                        category,
+                        account,
+                        ViewPresenter.format_amount(amount, for_table=True),
+                        amazon_status,
+                        flags,
+                    )
                 )
-            )
+            else:
+                rows.append(
+                    (
+                        date,
+                        merchant,
+                        category,
+                        account,
+                        ViewPresenter.format_amount(amount, for_table=True),
+                        flags,
+                    )
+                )
 
         return rows
 
@@ -719,6 +784,10 @@ class ViewPresenter:
         pending_edit_ids: set[str],
         column_config: Optional[Dict[str, Any]] = None,
         display_labels: Optional[Dict[str, str]] = None,
+        show_amazon_column: bool = False,
+        amazon_cache: Optional[dict[str, Optional[str]]] = None,
+        drilled_field: Optional[str] = None,
+        drilled_value: Optional[str] = None,
     ) -> PreparedView:
         """
         Prepare complete transaction detail view data.
@@ -729,6 +798,12 @@ class ViewPresenter:
             sort_direction: Sort direction
             selected_ids: Set of selected transaction IDs
             pending_edit_ids: Set of transaction IDs with pending edits
+            column_config: Backend-specific column configuration
+            display_labels: Backend-specific display labels
+            show_amazon_column: If True, include Amazon match status column
+            amazon_cache: Optional cache of Amazon match results keyed by transaction ID
+            drilled_field: When drilled into a specific value, the field name
+            drilled_value: When drilled, the value being shown (used to shrink column)
 
         Returns:
             PreparedView with columns and formatted rows
@@ -750,12 +825,24 @@ class ViewPresenter:
             False
         """
         columns = ViewPresenter.prepare_transaction_columns(
-            sort_by, sort_direction, column_config, display_labels
+            sort_by,
+            sort_direction,
+            column_config,
+            display_labels,
+            show_amazon_column,
+            drilled_field,
+            drilled_value,
         )
 
         if df.is_empty():
             return PreparedView(columns=columns, rows=[], empty=True)
 
-        rows = ViewPresenter.format_transaction_rows(df, selected_ids, pending_edit_ids)
+        rows = ViewPresenter.format_transaction_rows(
+            df,
+            selected_ids,
+            pending_edit_ids,
+            include_amazon_placeholder=show_amazon_column,
+            amazon_cache=amazon_cache,
+        )
 
         return PreparedView(columns=columns, rows=rows, empty=False)

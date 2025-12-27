@@ -142,6 +142,9 @@ uv run pytest -x
 # With coverage
 uv run pytest --cov --cov-report=html
 open htmlcov/index.html
+
+# Integration tests (Textual)
+uv run pytest -m integration tests/integration -v -o addopts=
 ```
 
 ## CI/CD

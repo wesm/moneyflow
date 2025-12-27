@@ -27,17 +27,23 @@ most personal finance platforms.
 
 ## Data Caching
 
-Speed up startup by caching transaction data locally.
+Transaction data is cached locally by default for fast startup. The cache is encrypted with the same key as your
+credentials.
 
-**Usage:**
+**Cache behavior:**
+
+- First run: Downloads all transactions from your backend
+- Subsequent runs: Uses cached data instantly
+- Cache auto-refreshes when you make edits that sync to the backend
+
+**Options:**
 
 ```bash
-moneyflow --cache              # Enable caching (uses ~/.moneyflow/cache/)
-moneyflow --cache ~/my-cache   # Custom cache location
-moneyflow --refresh            # Force refresh, skip cache
+moneyflow --refresh            # Force refresh from API (ignore cache)
+moneyflow --no-cache           # Disable caching entirely for this session
 ```
 
-**See:** [Caching Guide](caching.md) for details.
+**See:** [Caching Guide](caching.md) for details on cache location and management.
 
 ## Configuration Directory
 
@@ -49,7 +55,7 @@ All moneyflow configuration is stored in `~/.moneyflow/`:
 ├── credentials.enc    # Encrypted credentials
 ├── salt               # Encryption salt
 ├── merchants.json     # Merchant name cache
-├── cache/             # Transaction cache (if --cache enabled)
+├── cache/             # Encrypted transaction cache
 └── moneyflow.log      # Application logs
 ```
 

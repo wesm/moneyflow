@@ -142,18 +142,37 @@ Cancelled orders are automatically skipped during import.
 When you use Amazon mode alongside Monarch Money or YNAB, moneyflow can automatically link Amazon orders to
 transactions in your bank accounts.
 
-**How it works:**
+#### Amazon Column in Transaction View
 
-When viewing a transaction in Monarch or YNAB that has an Amazon-like merchant name (e.g., "Amazon.com",
-"AMZN MKTP US"), pressing ++i++ (Info) will:
+When viewing transactions where ALL merchants are Amazon-like (e.g., after searching for "Amazon" or drilling into
+Amazon), an **Amazon** column appears showing matched products:
 
-1. Search your Amazon database for matching orders
-2. Match by amount (within $0.02 tolerance) and date (within 7 days)
-3. Display matched orders at the top of the transaction details
+![Amazon matching column](../assets/screenshots/amazon-matching-column.svg)
 
-**Example:**
+The column shows:
 
-You have a $47.98 charge from "AMZN MKTP US" on your credit card. Pressing ++i++ shows:
+- **✓ Product Name** - Exact match found (amount matches within $0.02)
+- **~ Product Name** - Likely match found (fuzzy matching for gift card scenarios)
+- **...** - Still loading (matches are loaded lazily as you scroll)
+- *(blank)* - No matching order found
+
+#### Three-Pass Matching
+
+moneyflow uses intelligent matching to find the right Amazon order:
+
+1. **Exact Order Matching** - Transaction amount matches order total (within $0.02)
+2. **Fuzzy Matching** - For gift card scenarios where transaction < order total (within max($15, 10% of order))
+3. **Item-Level Matching** - When Amazon charges items separately, matches individual item amounts
+
+This handles common scenarios like:
+
+- Using a gift card for part of a purchase (shows as `~`)
+- Split charges where Amazon bills items separately
+- Multiple items in a single order
+
+#### Transaction Details View
+
+Press ++i++ on any Amazon transaction to see full order details:
 
 ```text
 Matching Amazon Orders
@@ -168,11 +187,16 @@ Date: 2025-01-10 | From: amazon
 
 The `*` indicates a high-confidence match (exact amount and close date).
 
+#### Searching by Product Name
+
+The text search (++slash++) also searches Amazon product names! Search for "kindle" to find all
+transactions where you purchased Kindle-related items, even if the merchant shows as "AMZN MKTP US".
+
 **Requirements:**
 
 - Import your Amazon purchase history first (`moneyflow amazon import`)
 - Transaction must have "amazon" or "amzn" in the merchant name
-- Amount and date must be within tolerance
+- Amount and date must be within tolerance (7 days)
 
 This feature helps you identify exactly what items were in each Amazon charge, making categorization easier.
 

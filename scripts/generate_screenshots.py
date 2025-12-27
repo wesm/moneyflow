@@ -108,7 +108,7 @@ class ScreenshotGenerator:
                 "Drilled into specific month",
                 self.screenshot_time_drill_month,
             ),
-            ("merchants-view", "Merchants view with Amazon", self.screenshot_merchants_with_amazon),
+            ("merchants-view", "Merchants view with Target", self.screenshot_merchants_with_target),
             ("drill-down-detail", "Drilled into merchant detail", self.screenshot_drill_down),
             ("detail-view-flags", "Detail view with flags", self.screenshot_detail_flags),
             (
@@ -131,6 +131,12 @@ class ScreenshotGenerator:
                 self.screenshot_bulk_edit_merchant,
             ),
             ("drill-down-edit-category", "Edit category", self.screenshot_edit_category),
+            (
+                "amazon-matching-column",
+                "Amazon transaction matching column",
+                self.screenshot_amazon_matching,
+            ),
+            ("filter-modal", "Filter settings modal", self.screenshot_filter_modal),
         ]
 
         for filename, description, generator in demo_screenshots:
@@ -417,8 +423,8 @@ class ScreenshotGenerator:
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
 
-    async def screenshot_merchants_with_amazon(self, filename: str, description: str):
-        """Screenshot: Merchants view with Amazon highlighted."""
+    async def screenshot_merchants_with_target(self, filename: str, description: str):
+        """Screenshot: Merchants view with Target highlighted."""
         print(f"  📸 {filename}.svg - {description}")
 
         app = MoneyflowApp()
@@ -428,8 +434,8 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view (default state)
-            # Navigate down to find Amazon (assuming it's in the list)
-            await pilot.press("down", "down")
+            # Navigate to Target (7 rows down)
+            await pilot.press(*(["down"] * 7))
             await pilot.pause(0.2)
             await self._save_screenshot(pilot, filename)
 
@@ -445,10 +451,10 @@ class ScreenshotGenerator:
             await pilot.pause(1.0)
             # Already in merchants view (default state)
 
-            # Scroll down to Amazon
-            await pilot.press(*(["down"] * 10))
+            # Navigate to Target (7 rows down)
+            await pilot.press(*(["down"] * 7))
 
-            # Select first merchant and drill down
+            # Drill down into Target
             await pilot.press("enter")
             await pilot.pause(0.5)
             await self._save_screenshot(pilot, filename)
@@ -524,8 +530,8 @@ class ScreenshotGenerator:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
 
-            # Scroll down to Amazon
-            await pilot.press(*(["down"] * 10))
+            # Navigate to Target (7 rows down)
+            await pilot.press(*(["down"] * 7))
             await pilot.press("enter")
             await pilot.pause(0.3)
 
@@ -545,12 +551,12 @@ class ScreenshotGenerator:
         async with app.run_test(size=(150, 30)) as pilot:
             await pilot.pause(1.0)
             # Already in merchants view, drill down
-            # Scroll down to Amazon
-            await pilot.press(*(["down"] * 10))
+            # Navigate to Target (7 rows down)
+            await pilot.press(*(["down"] * 7))
 
             await pilot.press("enter")
             await pilot.pause(0.3)
-            # Cycle grouping to account: MERCHANT → CATEGORY → GROUP → ACCOUNT
+            # Cycle grouping to account: CATEGORY → GROUP → ACCOUNT
             await pilot.press("g", "g", "g")
             await pilot.pause(0.3)
             await self._save_screenshot(pilot, filename)
@@ -567,10 +573,10 @@ class ScreenshotGenerator:
             await pilot.pause(1.0)
             # Already in merchants view
 
-            # Scroll down to Amazon
-            await pilot.press(*(["down"] * 10))
+            # Navigate to Target (7 rows down)
+            await pilot.press(*(["down"] * 7))
 
-            # Drill into merchant
+            # Drill into Target
             await pilot.press("enter")
             await pilot.pause(0.3)
 
@@ -699,6 +705,52 @@ class ScreenshotGenerator:
             await pilot.pause(0.3)
 
             await pilot.press("B", "u")
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_amazon_matching(self, filename: str, description: str):
+        """Screenshot: Amazon transaction matching column.
+
+        Shows the Amazon column that appears when viewing Amazon transactions,
+        with product names matched from the Amazon order database.
+        """
+        print(f"  📸 {filename}.svg - {description}")
+
+        # Create app with demo_mode in constructor so Amazon DB gets created
+        app = MoneyflowApp(demo_mode=True)
+
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(1.0)
+
+            # Navigate to Amazon (10th row, so press down 9 times from row 1)
+            await pilot.press(*(["down"] * 9))
+            await pilot.pause(0.1)
+
+            # Drill into Amazon merchant to see detail view with Amazon column
+            await pilot.press("enter")
+            await pilot.pause(1.5)  # Wait for Amazon column to load
+
+            # Scroll down a bit to show more transactions with matches
+            for _ in range(3):
+                await pilot.press("down")
+                await pilot.pause(0.1)
+
+            await self._save_screenshot(pilot, filename)
+
+    async def screenshot_filter_modal(self, filename: str, description: str):
+        """Screenshot: Filter settings modal."""
+        print(f"  📸 {filename}.svg - {description}")
+
+        app = MoneyflowApp()
+        app.demo_mode = True
+        app.backend = DemoBackend(start_year=2023, years=3)
+
+        async with app.run_test(size=(150, 30)) as pilot:
+            await pilot.pause(1.0)
+
+            # Open filter modal with 'f'
+            await pilot.press("f")
+            await pilot.pause(0.3)
+
             await self._save_screenshot(pilot, filename)
 
     async def screenshot_theme(self, theme_name: str):

@@ -248,8 +248,10 @@ YNAB only shows tokens once during generation. If you lose it:
 
 ### Slow startup
 
-Try filtering to recent data (`--year 2025`) or enable caching (`--cache`). See [CLI Options](../reference/cli.md)
-and [Caching](../config/caching.md) for details.
+Caching is enabled by default, so subsequent startups should be fast. If startup is slow:
+
+- Use `--year 2025` to limit data to the current year
+- Use `--refresh` to force a fresh download if cache seems stale
 
 ---
 

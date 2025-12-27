@@ -560,16 +560,36 @@ class DemoDataGenerator:
         num_trips = random.randint(4, 8)
         stores = [
             "Target",
+            "Target",  # Weight Target more heavily for better demo
             "Nordstrom",
             "Apple Store",
             "Best Buy",
             "IKEA",
         ]
 
+        # Target sells many categories - simulate realistic big-box retailer purchases
+        # Higher amounts to make Target appear near top of merchant list for demo screenshots
+        # Using existing category IDs from base_categories
+        target_categories = [
+            ("cat_groceries", 120, 300),  # Groceries
+            ("cat_shopping", 80, 250),  # General merchandise
+            ("cat_amazon", 60, 180),  # General shopping (reusing amazon category)
+            ("cat_streaming", 30, 80),  # Electronics/entertainment
+            ("cat_medical", 40, 100),  # Health/pharmacy items
+        ]
+
         for _ in range(num_trips):
             day = random.randint(1, 28)
             store = random.choice(stores)
-            amount = -random.uniform(50, 400)
+
+            if store == "Target":
+                # Target gets diverse categories
+                cat_id, min_amt, max_amt = random.choice(target_categories)
+                amount = -random.uniform(min_amt, max_amt)
+                category_id = cat_id
+            else:
+                amount = -random.uniform(50, 400)
+                category_id = "cat_shopping"
 
             transactions.append(
                 self._create_transaction(
@@ -578,7 +598,7 @@ class DemoDataGenerator:
                     day,
                     amount=amount,
                     merchant=store,
-                    category_id="cat_shopping",
+                    category_id=category_id,
                     account=random.choice(["Chase Sapphire Reserve", "Amex Platinum"]),
                 )
             )
@@ -787,3 +807,279 @@ def generate_demo_data(start_year: int = 2023, years: int = 3) -> tuple:
     """
     generator = DemoDataGenerator(start_year=start_year, years=years)
     return generator.generate_full_year()
+
+
+# Amazon order generation for demo mode
+DEMO_AMAZON_PRODUCTS = [
+    # Electronics & tech
+    ("Anker USB-C Cable 3-Pack", "B07THJGZ9Z"),
+    ("Kindle Paperwhite", "B08KTZ8249"),
+    ("Fire TV Stick 4K", "B08XVYZ1Y5"),
+    ("AirPods Pro 2nd Gen", "B0BDHWDR12"),
+    ("Logitech MX Master 3S Mouse", "B09HM94VDS"),
+    ("Samsung T7 Portable SSD 1TB", "B0874XN4D8"),
+    ("Anker PowerCore 20000", "B09VPHVT2Z"),
+    ("Apple Watch Band", "B07YKKBGL1"),
+    ("Belkin MagSafe Charger", "B09K3X4MB5"),
+    ("Echo Dot 5th Gen", "B09B8V1LZ3"),
+    # Home & kitchen
+    ("Instant Pot Duo 7-in-1", "B00FLYWNYQ"),
+    ("Ninja Blender", "B07SXVZQ6M"),
+    ("Keurig K-Slim Coffee Maker", "B083248S3B"),
+    ("Roomba Robot Vacuum", "B07XRPXHGM"),
+    ("Dyson V8 Cordless Vacuum", "B09B3W5F3F"),
+    ("Lodge Cast Iron Skillet", "B00006JSUB"),
+    ("KitchenAid Stand Mixer", "B0000645YO"),
+    ("Vitamix Blender", "B01M6WK8UP"),
+    ("Air Fryer XL", "B07GJBBGHG"),
+    ("Nespresso Vertuo Plus", "B01N2142DT"),
+    # Office & organization
+    ("Moleskine Classic Notebook 3-Pack", "B07CGFN2R9"),
+    ("Brother Label Maker", "B00ASBFBQ6"),
+    ("Desk Organizer Set", "B07PGZQM4Y"),
+    ("Blue Light Blocking Glasses", "B07VQF3KR4"),
+    ("Ergonomic Mouse Pad", "B01M11FLUJ"),
+    ("Monitor Stand Riser", "B074PFXGKL"),
+    ("USB Hub 7-Port", "B00XMD7KPU"),
+    ("Webcam HD 1080p", "B085XJXKRQ"),
+    # Health & personal care
+    ("Waterpik Water Flosser", "B07QNM1MQC"),
+    ("Philips Sonicare Toothbrush", "B078GVDB19"),
+    ("Fitbit Charge 5", "B09BXNVVLW"),
+    ("Vitamins D3 365-Count", "B00GB85TKC"),
+    ("First Aid Kit", "B000069EYA"),
+    ("Resistance Bands Set", "B07SXVBBQJ"),
+    # Clothing & accessories
+    ("Wool Socks 6-Pack", "B077TD3C2T"),
+    ("Leather Wallet RFID", "B07WMRNS4G"),
+    ("Sunglasses Polarized", "B01MUGYNLD"),
+    ("Running Shoes", "B08QGQKFDN"),
+    # Books & media
+    ("Atomic Habits", "B07RFSSYBH"),
+    ("Thinking Fast and Slow", "B00555X8OA"),
+    ("The Psychology of Money", "B084HJSJJ2"),
+    ("LEGO Architecture Set", "B083JTHPJQ"),
+    # Grocery & household
+    ("Bounty Paper Towels 12-Pack", "B07D22VZ5N"),
+    ("Tide Pods Laundry Detergent", "B01BUNHFQK"),
+    ("Glad Trash Bags 100-Count", "B00FOBVS0Q"),
+    ("Scotch-Brite Sponges 6-Pack", "B001KYQBX0"),
+]
+
+
+def generate_demo_amazon_orders(transactions: List[Dict]) -> List[Dict]:
+    """
+    Generate Amazon orders that match a subset of demo transactions.
+
+    Creates a mix of:
+    - Exact matches (transaction amount = order total)
+    - Fuzzy matches (order total > transaction, simulating gift card usage)
+    - Multi-item orders (single transaction = multiple items)
+    - Split charges (multiple transactions = single order)
+
+    Args:
+        transactions: List of demo transactions
+
+    Returns:
+        List of order dicts with structure:
+        {
+            "order_id": str,
+            "date": str (YYYY-MM-DD),
+            "items": [{"name": str, "amount": float, "quantity": int, "asin": str}]
+        }
+    """
+    random.seed(42)  # Reproducible for consistent demo experience
+
+    # Filter Amazon transactions
+    amazon_patterns = ["amazon", "amzn"]
+    amazon_txns = []
+    for t in transactions:
+        merchant = t.get("merchant", {})
+        # Handle both dict format (demo) and string format
+        if isinstance(merchant, dict):
+            merchant_name = merchant.get("name", "").lower()
+        else:
+            merchant_name = str(merchant).lower()
+        if any(p in merchant_name for p in amazon_patterns):
+            amazon_txns.append(t)
+
+    orders = []
+    order_counter = 1
+
+    # Group transactions by approximate date for variety
+    # Use about 70% of transactions for matches
+    sample_size = int(len(amazon_txns) * 0.7)
+    sampled_txns = random.sample(amazon_txns, min(sample_size, len(amazon_txns)))
+
+    for txn in sampled_txns:
+        order_id = f"111-{order_counter:07d}-{random.randint(1000000, 9999999)}"
+        order_counter += 1
+
+        txn_amount = abs(txn["amount"])
+        txn_date = txn["date"]
+
+        # Decide match type
+        match_type = random.random()
+
+        if match_type < 0.5:
+            # Exact match (50%): single item matching transaction
+            product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "date": txn_date,
+                    "items": [
+                        {
+                            "name": product_name,
+                            "amount": -txn_amount,
+                            "quantity": 1,
+                            "asin": asin,
+                        }
+                    ],
+                }
+            )
+
+        elif match_type < 0.7:
+            # Fuzzy match (20%): order total > transaction (gift card used)
+            # Gift card covers 5-12% of order
+            gift_card_percent = random.uniform(0.05, 0.12)
+            order_total = txn_amount / (1 - gift_card_percent)
+
+            product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "date": txn_date,
+                    "items": [
+                        {
+                            "name": product_name,
+                            "amount": round(-order_total, 2),
+                            "quantity": 1,
+                            "asin": asin,
+                        }
+                    ],
+                }
+            )
+
+        elif match_type < 0.9:
+            # Multi-item order (20%): 2-3 items totaling transaction amount
+            num_items = random.randint(2, 3)
+            remaining = txn_amount
+            items = []
+
+            for i in range(num_items):
+                product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+                if i == num_items - 1:
+                    # Last item gets remainder
+                    item_amount = remaining
+                else:
+                    item_amount = round(remaining * random.uniform(0.3, 0.5), 2)
+                    remaining -= item_amount
+
+                items.append(
+                    {
+                        "name": product_name,
+                        "amount": round(-item_amount, 2),
+                        "quantity": 1,
+                        "asin": asin,
+                    }
+                )
+
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "date": txn_date,
+                    "items": items,
+                }
+            )
+
+        else:
+            # Item-level match (10%): order has multiple items, transaction matches one item
+            num_items = random.randint(2, 4)
+            items = []
+
+            for i in range(num_items):
+                product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+                if i == 0:
+                    # First item matches transaction
+                    item_amount = txn_amount
+                else:
+                    # Other items have random amounts
+                    item_amount = round(random.uniform(15, 100), 2)
+
+                items.append(
+                    {
+                        "name": product_name,
+                        "amount": round(-item_amount, 2),
+                        "quantity": 1,
+                        "asin": asin,
+                    }
+                )
+
+            orders.append(
+                {
+                    "order_id": order_id,
+                    "date": txn_date,
+                    "items": items,
+                }
+            )
+
+    return orders
+
+
+def create_demo_amazon_database(config_dir: str, transactions: List[Dict]) -> None:
+    """
+    Create a demo Amazon database with orders matching demo transactions.
+
+    Args:
+        config_dir: Path to moneyflow config directory
+        transactions: List of demo transactions to generate orders for
+    """
+    import sqlite3
+    from pathlib import Path
+
+    # Create profiles directory structure
+    profiles_dir = Path(config_dir) / "profiles" / "amazon"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+
+    db_path = profiles_dir / "amazon.db"
+
+    # Generate matching orders
+    orders = generate_demo_amazon_orders(transactions)
+
+    # Create database
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            merchant TEXT NOT NULL,
+            amount REAL NOT NULL,
+            quantity INTEGER DEFAULT 1,
+            asin TEXT
+        )
+        """
+    )
+
+    # Insert orders
+    for order in orders:
+        for item in order["items"]:
+            conn.execute(
+                """
+                INSERT INTO transactions (order_id, date, merchant, amount, quantity, asin)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    order["order_id"],
+                    order["date"],
+                    item["name"],
+                    item["amount"],
+                    item["quantity"],
+                    item["asin"],
+                ),
+            )
+
+    conn.commit()
+    conn.close()

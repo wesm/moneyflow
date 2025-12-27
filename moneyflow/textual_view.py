@@ -33,13 +33,19 @@ class TextualViewPresenter(IViewPresenter):
         self, columns: List[Dict[str, Any]], rows: List[tuple], force_rebuild: bool = True
     ) -> None:
         """Update the main data table."""
+        import logging
+
+        logger = logging.getLogger(__name__)
+
         table = self.app.query_one("#data-table", DataTable)
 
         if force_rebuild:
             # Full rebuild - clear columns and rows
             table.clear(columns=True)
             # Add columns
+            logger.debug("Adding columns with widths:")
             for col in columns:
+                logger.debug(f"  {col['key']}: width={col['width']}")
                 table.add_column(col["label"], key=col["key"], width=col["width"])
         else:
             # Smooth update - preserve columns if they match, rebuild if they don't
@@ -92,3 +98,11 @@ class TextualViewPresenter(IViewPresenter):
             changes_widget.update(f"⚠ {count} pending change(s)")
         else:
             changes_widget.update("")
+
+    def on_table_updated(self) -> None:
+        """Called after table update to refresh Amazon column if needed."""
+        self.app.handle_amazon_column_refresh()
+
+    def get_amazon_cache(self) -> dict[str, str | None] | None:
+        """Get the Amazon match cache from the app."""
+        return self.app._amazon_match_cache

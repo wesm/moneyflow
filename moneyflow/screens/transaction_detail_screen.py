@@ -96,6 +96,12 @@ class TransactionDetailScreen(ModalScreen):
         margin-left: 2;
         margin-top: 1;
     }
+
+    .amazon-fuzzy-info {
+        color: $text-muted;
+        text-style: italic;
+        margin-left: 2;
+    }
     """
 
     def __init__(
@@ -190,8 +196,14 @@ class TransactionDetailScreen(ModalScreen):
             return
 
         for match in self.amazon_matches:
-            # Order header
-            confidence_marker = "*" if match.confidence == "high" else ""
+            # Order header with confidence marker
+            if match.confidence == "high":
+                confidence_marker = "*"
+            elif match.confidence == "likely":
+                confidence_marker = "~"
+            else:
+                confidence_marker = ""
+
             yield Label(
                 f"Order: {match.order_id}{confidence_marker}",
                 classes="amazon-order-header",
@@ -213,6 +225,14 @@ class TransactionDetailScreen(ModalScreen):
             # Total
             total_str = ViewPresenter.format_amount(match.total_amount)
             yield Static(f"Total: {total_str}", classes="amazon-total")
+
+            # For fuzzy matches, show the gift card info
+            if match.confidence == "likely" and match.amount_difference is not None:
+                gift_card_str = ViewPresenter.format_amount(-match.amount_difference)
+                yield Static(
+                    f"(Likely match: ~{gift_card_str} gift card used)",
+                    classes="amazon-fuzzy-info",
+                )
 
     def on_key(self, event: Key) -> None:
         """Handle keyboard shortcuts."""

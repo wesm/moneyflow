@@ -63,6 +63,14 @@ class MockViewPresenter(IViewPresenter):
         """Record pending changes update."""
         self.pending_changes.append(count)
 
+    def on_table_updated(self) -> None:
+        """No-op for mock - the real implementation triggers Amazon column refresh."""
+        pass
+
+    def get_amazon_cache(self) -> Optional[dict[str, Optional[str]]]:
+        """Return None - mock doesn't have Amazon cache."""
+        return None
+
     # Helper methods for test assertions
 
     def get_last_table_update(self) -> Optional[Dict[str, Any]]:

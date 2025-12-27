@@ -237,6 +237,61 @@ class TestDetailViewFiltering:
         assert update["row_count"] == 6  # Mock has 6 transactions
 
 
+class TestAmazonColumnVisibility:
+    """Tests for Amazon column visibility logic."""
+
+    def _get_amazon_merchant(self, controller) -> str:
+        merchants = controller.data_manager.df["merchant"].to_list()
+        for merchant in merchants:
+            if not merchant:
+                continue
+            merchant_lower = merchant.lower()
+            if "amazon" in merchant_lower or "amzn" in merchant_lower:
+                return merchant
+        raise AssertionError("Mock data is missing an Amazon merchant")
+
+    async def test_amazon_column_enabled_in_detail_view(self, controller, mock_view):
+        """Detail view should enable Amazon column when filtered to Amazon merchants."""
+        controller.state.view_mode = ViewMode.DETAIL
+        controller.state.selected_merchant = self._get_amazon_merchant(controller)
+
+        controller.refresh_view()
+
+        assert controller._showing_amazon_column is True
+        update = mock_view.get_last_table_update()
+        keys = [col["key"] for col in update["columns"]]
+        assert "amazon" in keys
+
+    async def test_amazon_column_resets_in_aggregate_view(self, controller, mock_view):
+        """Aggregate views should disable Amazon column."""
+        controller.state.view_mode = ViewMode.DETAIL
+        controller.state.selected_merchant = self._get_amazon_merchant(controller)
+        controller.refresh_view()
+        assert controller._showing_amazon_column is True
+
+        controller.state.view_mode = ViewMode.MERCHANT
+        controller.state.selected_merchant = None
+        controller.refresh_view()
+
+        assert controller._showing_amazon_column is False
+        update = mock_view.get_last_table_update()
+        keys = [col["key"] for col in update["columns"]]
+        assert "amazon" not in keys
+
+    async def test_amazon_column_disabled_in_subgroup_view(self, controller, mock_view):
+        """Sub-grouped views should not show Amazon column."""
+        controller.state.view_mode = ViewMode.DETAIL
+        controller.state.selected_merchant = self._get_amazon_merchant(controller)
+        controller.state.sub_grouping_mode = ViewMode.CATEGORY
+
+        controller.refresh_view()
+
+        assert controller._showing_amazon_column is False
+        update = mock_view.get_last_table_update()
+        keys = [col["key"] for col in update["columns"]]
+        assert "amazon" not in keys
+
+
 class TestStatsCalculation:
     """Test statistics calculation logic."""
 

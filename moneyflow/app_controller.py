@@ -21,10 +21,12 @@ from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import List, Optional
 
 import polars as pl
 
+from .amazon_linker import AmazonLinker
 from .commit_orchestrator import CommitOrchestrator
 from .data_manager import DataManager
 from .formatters import ViewPresenter
@@ -129,6 +131,35 @@ class AppController:
         self.data_manager = data_manager
         self.cache_manager = cache_manager
 
+        # Amazon linker for checking if transactions are Amazon-filtered
+        config_dir = Path.home() / ".moneyflow"
+        self._amazon_linker = AmazonLinker(config_dir)
+
+        # Track if current view shows Amazon column
+        self._showing_amazon_column = False
+
+    def _is_amazon_filtered_view(self, df: pl.DataFrame) -> bool:
+        """
+        Check if the given DataFrame represents an Amazon-filtered view.
+
+        Returns True if ALL transactions in the DataFrame are from Amazon merchants.
+        This is used to determine whether to show the Amazon match column.
+
+        Args:
+            df: Transaction DataFrame to check
+
+        Returns:
+            True if all merchants are Amazon merchants
+        """
+        if df.is_empty():
+            return False
+
+        if "merchant" not in df.columns:
+            return False
+
+        merchants = df["merchant"].to_list()
+        return self._amazon_linker.is_amazon_filtered_view(merchants)
+
     def _get_display_labels(self) -> dict:
         """Get display labels from backend, with safe fallback to defaults."""
         try:
@@ -159,8 +190,8 @@ class AppController:
         except (AttributeError, Exception):
             # Fallback to default widths if backend doesn't support it
             return {
-                "merchant_width_pct": 40,
-                "account_width_pct": 40,
+                "merchant_width_pct": 20,
+                "account_width_pct": 22,
                 "currency_symbol": "$",
             }
 
@@ -187,6 +218,9 @@ class AppController:
         """
         if self.data_manager is None or self.data_manager.df is None:
             return
+
+        # Default to hiding Amazon column; detail view may enable it.
+        self._showing_amazon_column = False
 
         # Validate sort field for current view type
         # Detail views (transaction lists) don't have a 'count' column
@@ -319,6 +353,26 @@ class AppController:
                 # Get pending edit IDs
                 pending_txn_ids = {edit.transaction_id for edit in self.data_manager.pending_edits}
 
+                # Check if we should show Amazon column
+                self._showing_amazon_column = self._is_amazon_filtered_view(txns)
+
+                # Get Amazon cache from view to avoid "..." flash for cached results
+                amazon_cache = self.view.get_amazon_cache() if self._showing_amazon_column else None
+
+                # Determine if drilled into a specific field (for shrink-to-fit column width)
+                # Note: group doesn't have its own column, so we don't shrink-to-fit for it
+                drilled_field = None
+                drilled_value = None
+                if self.state.selected_merchant:
+                    drilled_field = "merchant"
+                    drilled_value = self.state.selected_merchant
+                elif self.state.selected_category:
+                    drilled_field = "category"
+                    drilled_value = self.state.selected_category
+                elif self.state.selected_account:
+                    drilled_field = "account"
+                    drilled_value = self.state.selected_account
+
                 view_data = ViewPresenter.prepare_transaction_view(
                     txns,
                     self.state.sort_by,
@@ -327,6 +381,10 @@ class AppController:
                     pending_txn_ids,
                     column_config=self._get_column_config(),
                     display_labels=self._get_display_labels(),
+                    show_amazon_column=self._showing_amazon_column,
+                    amazon_cache=amazon_cache,
+                    drilled_field=drilled_field,
+                    drilled_value=drilled_value,
                 )
         else:
             return
@@ -349,6 +407,9 @@ class AppController:
         self.view.update_table(
             columns=view_data["columns"], rows=view_data["rows"], force_rebuild=force_rebuild
         )
+
+        # Notify view that table was updated (for lazy loading like Amazon column)
+        self.view.on_table_updated()
 
         # Update other UI elements
         self.view.update_breadcrumb(self.state.get_breadcrumb(self._get_display_labels()))
@@ -698,17 +759,18 @@ class AppController:
         return self.state.selected_ids
 
     # Search and filtering operations
-    def apply_search(self, query: str) -> int:
+    def apply_search(self, query: str, amazon_match_ids: Optional[set[str]] = None) -> int:
         """
         Apply search query.
 
         Args:
             query: Search query string
+            amazon_match_ids: Optional set of transaction IDs matching Amazon item search
 
         Returns:
             Count of filtered results
         """
-        self.state.set_search(query)
+        self.state.set_search(query, amazon_match_ids)
         self.refresh_view()
         filtered = self.state.get_filtered_df()
         return len(filtered) if filtered is not None else 0

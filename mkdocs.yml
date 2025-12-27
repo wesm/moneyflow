@@ -103,6 +103,10 @@ plugins:
       lang: en
   # - social  # Disabled - requires imaging dependencies (cairosvg, PIL)
 
+# Watch additional directories for live reload during development
+watch:
+  - docs/assets/screenshots
+
 nav:
   - Home:
     - Overview: index.md

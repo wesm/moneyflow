@@ -6,6 +6,7 @@ and produces correct output for all view types.
 """
 
 from datetime import date
+from typing import cast
 
 import polars as pl
 from rich.text import Text
@@ -497,6 +498,130 @@ class TestPrepareTransactionColumns:
         flags_col = [c for c in cols if c["key"] == "flags"][0]
         assert flags_col["label"] == ""
 
+    def test_amazon_column_not_shown_by_default(self):
+        """Amazon column should not be included by default."""
+        cols = ViewPresenter.prepare_transaction_columns(SortMode.DATE, SortDirection.DESC)
+
+        keys = [c["key"] for c in cols]
+        assert "amazon" not in keys
+        assert len(cols) == 6
+
+    def test_amazon_column_shown_when_enabled(self):
+        """Amazon column should be included when show_amazon_column=True."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE, SortDirection.DESC, show_amazon_column=True
+        )
+
+        keys = [c["key"] for c in cols]
+        assert "amazon" in keys
+        assert len(cols) == 7
+
+    def test_amazon_column_before_flags(self):
+        """Amazon column should appear before flags column."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE, SortDirection.DESC, show_amazon_column=True
+        )
+
+        keys = [c["key"] for c in cols]
+        amazon_idx = keys.index("amazon")
+        flags_idx = keys.index("flags")
+        assert amazon_idx == flags_idx - 1
+
+    def test_merchant_column_narrower_with_amazon(self):
+        """Merchant column should be narrower when Amazon column is shown."""
+        cols_normal = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE, SortDirection.DESC, show_amazon_column=False
+        )
+        cols_amazon = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE, SortDirection.DESC, show_amazon_column=True
+        )
+
+        merchant_normal = [c for c in cols_normal if c["key"] == "merchant"][0]
+        merchant_amazon = [c for c in cols_amazon if c["key"] == "merchant"][0]
+
+        assert merchant_amazon["width"] is not None
+        assert merchant_normal["width"] is not None
+        assert cast(int, merchant_amazon["width"]) < cast(int, merchant_normal["width"])
+
+    def test_amazon_column_width(self):
+        """Amazon column should have appropriate width."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE, SortDirection.DESC, show_amazon_column=True
+        )
+
+        amazon_col = [c for c in cols if c["key"] == "amazon"][0]
+        assert amazon_col["width"] == 40
+
+    def test_drilled_merchant_shrinks_column(self):
+        """Merchant column should shrink to fit drilled value."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE,
+            SortDirection.DESC,
+            drilled_field="merchant",
+            drilled_value="Amazon",
+        )
+
+        merchant_col = [c for c in cols if c["key"] == "merchant"][0]
+        # Width = len("Amazon") + 2 = 8
+        assert merchant_col["width"] == 8
+
+    def test_drilled_category_shrinks_column(self):
+        """Category column should shrink to fit drilled value."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE,
+            SortDirection.DESC,
+            drilled_field="category",
+            drilled_value="Groceries",
+        )
+
+        category_col = [c for c in cols if c["key"] == "category"][0]
+        # Width = len("Groceries") + 2 = 11
+        assert category_col["width"] == 11
+
+    def test_drilled_account_shrinks_column(self):
+        """Account column should shrink to fit drilled value."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE,
+            SortDirection.DESC,
+            drilled_field="account",
+            drilled_value="Chase Sapphire",
+        )
+
+        account_col = [c for c in cols if c["key"] == "account"][0]
+        # Width = len("Chase Sapphire") + 2 = 16
+        assert account_col["width"] == 16
+
+    def test_drilled_long_value_capped_at_max(self):
+        """Drilled column width should be capped at MAX_DRILLED_COLUMN_WIDTH."""
+        long_name = "A" * 50  # Much longer than max
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE,
+            SortDirection.DESC,
+            drilled_field="merchant",
+            drilled_value=long_name,
+        )
+
+        merchant_col = [c for c in cols if c["key"] == "merchant"][0]
+        # Width should be capped at MAX_DRILLED_COLUMN_WIDTH (30)
+        assert merchant_col["width"] == ViewPresenter.MAX_DRILLED_COLUMN_WIDTH
+
+    def test_non_drilled_columns_unaffected(self):
+        """Columns not being drilled should keep their default width."""
+        cols = ViewPresenter.prepare_transaction_columns(
+            SortMode.DATE,
+            SortDirection.DESC,
+            drilled_field="merchant",
+            drilled_value="Amazon",
+        )
+
+        # Category should keep default width (21 - fits "Business Electronics")
+        category_col = [c for c in cols if c["key"] == "category"][0]
+        assert category_col["width"] == 21
+
+        # Account should keep default width (20)
+        account_col = [c for c in cols if c["key"] == "account"][0]
+        assert account_col["width"] == 20
+
 
 class TestComputeTransactionFlags:
     """Tests for compute_transaction_flags method."""
@@ -734,6 +859,48 @@ class TestFormatTransactionRows:
         # Amount field is Text object when for_table=True
         assert hasattr(amount_field, "plain")
         assert amount_field.plain == "+5,000.00"  # type: ignore[union-attr]
+
+    def test_includes_amazon_placeholder_when_enabled(self):
+        """Should include Amazon placeholder column when include_amazon_placeholder=True."""
+        df = pl.DataFrame(
+            {
+                "id": ["txn1"],
+                "date": [date(2025, 1, 15)],
+                "merchant": ["Amazon"],
+                "category": ["Shopping"],
+                "account": ["Chase"],
+                "amount": [-99.99],
+                "hideFromReports": [False],
+            }
+        )
+
+        rows = ViewPresenter.format_transaction_rows(
+            df, set(), set(), include_amazon_placeholder=True
+        )
+
+        assert len(rows) == 1
+        assert len(rows[0]) == 7  # 6 normal + 1 amazon placeholder
+        assert rows[0][5] == "..."  # Amazon placeholder before flags
+        assert rows[0][6] == ""  # Flags still last
+
+    def test_no_amazon_placeholder_by_default(self):
+        """Should not include Amazon placeholder by default."""
+        df = pl.DataFrame(
+            {
+                "id": ["txn1"],
+                "date": [date(2025, 1, 15)],
+                "merchant": ["Amazon"],
+                "category": ["Shopping"],
+                "account": ["Chase"],
+                "amount": [-99.99],
+                "hideFromReports": [False],
+            }
+        )
+
+        rows = ViewPresenter.format_transaction_rows(df, set(), set())
+
+        assert len(rows) == 1
+        assert len(rows[0]) == 6  # Normal 6 columns
 
 
 class TestPrepareTransactionView:

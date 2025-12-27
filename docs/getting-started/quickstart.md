@@ -14,6 +14,8 @@ moneyflow --demo
 
 This loads synthetic spending data so you can explore all features risk-free.
 
+![Merchants view](../assets/screenshots/cycle-1-merchants.svg)
+
 **What you'll see:**
 
 - ~3,000 transactions across 3 years (2023-2025)
@@ -22,6 +24,26 @@ This loads synthetic spending data so you can explore all features risk-free.
 - All features enabled
 
 Press ++g++ to cycle through views, ++slash++ to search, ++q++ to quit.
+
+---
+
+## Explore the Views
+
+Press ++g++ to cycle through different aggregation views:
+
+<div class="screenshot-grid" markdown>
+
+![Categories view](../assets/screenshots/cycle-2-categories.svg)
+*Categories - See spending by category*
+
+![Time view](../assets/screenshots/cycle-5-time-years.svg)
+*Time - Analyze spending over time*
+
+</div>
+
+Press ++enter++ on any row to drill down into transaction details:
+
+![Drill down to transactions](../assets/screenshots/drill-down-detail.svg)
 
 ---
 
@@ -56,7 +78,9 @@ Choose your platform:
 moneyflow
 ```
 
-On first run, you'll be prompted for:
+On first run, you'll be prompted for credentials:
+
+![Monarch credentials](../assets/screenshots/monarch-credentials.svg)
 
 1. **Monarch Money email** - Your login email
 2. **Monarch Money password** - Your account password
@@ -68,62 +92,7 @@ On first run, you'll be prompted for:
 
     Choose something you'll remember - you'll need it each time you launch moneyflow.
 
-### Wait for Initial Data Load
-
-First run downloads all your transactions:
-
-- **Small accounts** (<1k transactions): ~10 seconds
-- **Medium accounts** (1k-10k): ~30 seconds
-- **Large accounts** (10k+): ~1-2 minutes
-
-!!! success "One-Time Download"
-    After the first load, all operations are instant! moneyflow works offline with your data cached locally.
-
-### Explore
-
-You're in! Here's what to try:
-
-- Press ++g++ to cycle views: Merchants, Categories, Groups, Accounts, Time
-- In Time view: Press ++t++ to cycle through Year, Month, and Day granularities
-- Press ++enter++ on any row to drill down
-- Press ++escape++ to go back
-- Press ++question++ for help
-
----
-
-## Common First Commands
-
-```bash
-# Fetch only current year from API (faster for large Monarch/YNAB accounts)
-moneyflow --year 2025
-
-# Enable caching for even faster startup next time
-moneyflow --cache
-
-# Fetch recent data + enable cache
-moneyflow --year 2025 --cache
-```
-
-!!! note
-    By default, all fetched data is shown in the view. Use TIME view to analyze specific periods.
-
----
-
-## Quick Edit Example
-
-Let's rename a merchant:
-
-1. Launch: `moneyflow`
-2. Press ++g++ until you see "Merchants" view
-3. Use arrow keys to find a merchant
-4. Press ++m++ to edit merchant name
-5. Type the new name, press ++enter++
-6. Press ++w++ to review changes
-7. Press ++enter++ to commit to your backend (Monarch/YNAB)
-
-Done! The change is now saved.
-
----
+Transactions are cached locally after the initial download for instant startup.
 
 ---
 
@@ -148,38 +117,50 @@ moneyflow
 
 On first run, you'll be prompted for:
 
+![YNAB credentials](../assets/screenshots/ynab-credentials.svg)
+
 1. **Backend selection** - Choose **YNAB**
 2. **Personal Access Token** - Paste the token from Step 1
 3. **Encryption password** - Create a NEW password to encrypt your stored credentials
-
-!!! tip "Encryption Password"
-    This is a **new password** just for moneyflow, not your YNAB password.
-
-    Choose something you'll remember - you'll need it each time you launch moneyflow.
 
 !!! info "Multiple Budgets"
     If you have multiple YNAB budgets, moneyflow will automatically use the first one. Multi-budget selection UI is
     not yet implemented.
 
-### Wait for Initial Data Load (YNAB)
+Transactions are cached locally after the initial download for instant startup.
 
-First run downloads all your transactions:
+---
 
-- **Small budgets** (<1k transactions): ~5 seconds
-- **Medium budgets** (1k-10k): ~15 seconds
-- **Large budgets** (10k+): ~30-60 seconds
+## Common First Commands
 
-!!! success "One-Time Download"
-    After the first load, all operations are instant! moneyflow works offline with your data cached locally.
+```bash
+# Fetch only current year from API (faster for large accounts)
+moneyflow --year 2025
 
-### Explore (YNAB)
+# Force refresh from API (ignore cache)
+moneyflow --refresh
+```
 
-You're in! Here's what to try:
+!!! note
+    Caching is enabled by default. Your transactions are stored in an encrypted local cache for fast startup.
+    Use `--refresh` to force a fresh download from your backend.
 
-- Press ++g++ to cycle views: Merchants, Categories, Groups, Accounts
-- Press ++enter++ on any row to drill down
-- Press ++escape++ to go back
-- Press ++question++ for help
+---
+
+## Quick Edit Example
+
+Let's rename a merchant:
+
+1. Press ++g++ until you see "Merchants" view
+2. Use arrow keys to find a merchant
+3. Press ++m++ to edit merchant name
+4. Type the new name, press ++enter++
+5. Press ++w++ to review changes
+6. Press ++enter++ to commit to your backend (Monarch/YNAB)
+
+![Edit merchant](../assets/screenshots/drill-down-bulk-edit-merchant.svg)
+
+Done! The change is now saved.
 
 ---
 

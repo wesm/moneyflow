@@ -89,32 +89,6 @@ Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamles
 
 ---
 
-## Core Workflows
-
-**View and analyze spending:**
-
-- ++g++ - Cycle between merchant/category/group/account views
-- ++u++ - Show all transactions details
-- ++slash++ - Search by merchant or category
-- ++arrow-left++ ++arrow-right++ - Navigate time periods
-
-**Edit transactions:**
-
-- ++m++ - Edit merchant
-- ++c++ - Edit category
-- ++h++ - Hide/unhide from aggregate totals and reports
-- ++space++ - Select multiple (for bulk operations)
-- ++ctrl++-++a++ - Select all in view (for bulk operations)
-
-**Review and save:**
-
-- ++w++ - Review pending changes
-- ++enter++ - Commit changes to backend
-
-[Full keyboard reference →](guide/keyboard-shortcuts.md)
-
----
-
 ## Platform Support
 
 **Currently supported:**

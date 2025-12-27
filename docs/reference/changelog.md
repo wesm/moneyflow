@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.0 - December 2025
+
+**New:**
+
+- **Encrypted caching enabled by default** - Transactions cached locally for instant startup; use `--no-cache` to disable
+- **Two-tier cache system** - Hot cache (last 90 days) refreshes after 6 hours; historical refreshes every 30 days
+- **7 built-in color themes** - Choose from default, berg, nord, gruvbox, dracula, monokai, or solarized-dark
+- **Amazon order linking** - View matching Amazon orders in transaction info modal (press `i`)
+- **YNAB budget selector** - Choose from multiple budgets when connecting YNAB accounts
+- **YNAB tracking account auto-hide** - Transactions from tracking accounts automatically hidden
+
+**Improved:**
+
+- Top Category % now excludes hidden transactions and uses absolute money flow
+- In/Out stats calculated using actual cash flow direction
+- `--mtd` and `--since` flags now filter cached data correctly
+
+---
+
 ## v0.7.0 - November 2025
 
 **New:**

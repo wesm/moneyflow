@@ -250,11 +250,11 @@ class FinanceBackend(ABC):
 
         Example:
             >>> backend.get_column_config()
-            {'merchant_width_pct': 40, 'account_width_pct': 40}
+            {'merchant_width_pct': 20, 'account_width_pct': 22}
         """
         return {
-            "merchant_width_pct": 40,  # Default 40% width
-            "account_width_pct": 40,  # Default 40% width
+            "merchant_width_pct": 20,  # Default width
+            "account_width_pct": 22,  # Default width
         }
 
     def get_currency_symbol(self) -> str:

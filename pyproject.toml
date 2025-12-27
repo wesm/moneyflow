@@ -27,7 +27,7 @@ classifiers = [
 
 dependencies = [
     "aiohttp>=3.8.4",
-    "click>=8.1.0",
+    "click>=8.1.0,<8.3.0",  # 8.3.0 breaks mkdocs live reload
     "gql>=3.4",
     "oathtool>=2.3.1",
     "polars>=0.19.0",

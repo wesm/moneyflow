@@ -12,7 +12,7 @@ This enables:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 NotificationSeverity = Literal["information", "warning", "error"]
 
@@ -78,3 +78,22 @@ class IViewPresenter(ABC):
     def update_pending_changes(self, count: int) -> None:
         """Update pending changes indicator (e.g., '⚠ 5 pending change(s)')."""
         pass
+
+    def on_table_updated(self) -> None:
+        """
+        Called after the table has been updated.
+
+        This hook allows the UI to perform post-update actions like
+        refreshing lazy-loaded content. Default implementation does nothing.
+        """
+        pass
+
+    def get_amazon_cache(self) -> Optional[dict[str, Optional[str]]]:
+        """
+        Get the Amazon match cache for use during row formatting.
+
+        Returns:
+            Cache dict mapping transaction ID to match status string,
+            or None if no cache is available.
+        """
+        return None

@@ -2,6 +2,8 @@
 
 Press `f` to open the filter settings modal.
 
+![Filter settings modal](../assets/screenshots/filter-modal.svg)
+
 ## Available Filters
 
 ### Show Transfers

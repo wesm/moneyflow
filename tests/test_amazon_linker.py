@@ -497,6 +497,43 @@ class TestAmazonOrderMatch:
         assert match.source_profile == "amazon-orders"
 
 
+class TestIsAmazonFilteredView:
+    """Tests for is_amazon_filtered_view method."""
+
+    def test_all_amazon_merchants(self, config_dir: Path) -> None:
+        """Should return True when all merchants are Amazon."""
+        linker = AmazonLinker(config_dir)
+
+        merchants = ["Amazon.com", "AMZN MKTP US", "Amazon Prime"]
+        assert linker.is_amazon_filtered_view(merchants) is True
+
+    def test_mixed_merchants(self, config_dir: Path) -> None:
+        """Should return False when merchants include non-Amazon."""
+        linker = AmazonLinker(config_dir)
+
+        merchants = ["Amazon.com", "Walmart", "AMZN MKTP US"]
+        assert linker.is_amazon_filtered_view(merchants) is False
+
+    def test_no_amazon_merchants(self, config_dir: Path) -> None:
+        """Should return False when no merchants are Amazon."""
+        linker = AmazonLinker(config_dir)
+
+        merchants = ["Walmart", "Target", "Best Buy"]
+        assert linker.is_amazon_filtered_view(merchants) is False
+
+    def test_empty_list(self, config_dir: Path) -> None:
+        """Should return False for empty list."""
+        linker = AmazonLinker(config_dir)
+
+        assert linker.is_amazon_filtered_view([]) is False
+
+    def test_single_amazon_merchant(self, config_dir: Path) -> None:
+        """Should return True for single Amazon merchant."""
+        linker = AmazonLinker(config_dir)
+
+        assert linker.is_amazon_filtered_view(["Amazon.com"]) is True
+
+
 class TestIsAmazonMerchant:
     """Tests for Amazon merchant name detection."""
 
@@ -739,3 +776,484 @@ class TestTransactionDetailScreenWithAmazon:
 
         assert screen.amazon_matches == []
         assert screen.amazon_searched is True
+
+
+class TestFuzzyMatching:
+    """Tests for fuzzy matching when gift cards reduce transaction amount."""
+
+    def test_fuzzy_match_when_transaction_less_than_order(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Should fuzzy match when transaction is less than order (gift card used)."""
+        # Order total is $50, but transaction is $40 (gift card covered $10)
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-40.00,  # Less than order (gift card used)
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].order_id == "113-1234567-8901234"
+        assert matches[0].confidence == "likely"
+        assert matches[0].amount_difference == 10.00  # Gift card amount
+
+    def test_fuzzy_match_requires_negative_transaction(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Positive transactions should not fuzzy match expense orders."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "Small Item", "amount": -8.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=1.00,  # Refund/credit
+            transaction_date="2025-01-10",
+        )
+
+        assert matches == []
+
+    def test_fuzzy_match_uses_max_of_15_or_10_percent(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Tolerance should be max($15, 10% of order amount)."""
+        # For a $200 order, tolerance should be $20 (10% > $15)
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {
+                            "name": "Expensive Item",
+                            "amount": -200.00,
+                            "quantity": 1,
+                            "asin": "B001",
+                        },
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+
+        # $15 difference should match (within 10% = $20 tolerance)
+        matches = linker.find_matching_orders(
+            amount=-185.00,
+            transaction_date="2025-01-10",
+        )
+        assert len(matches) == 1
+        assert matches[0].confidence == "likely"
+
+        # $25 difference should NOT match (exceeds 10% = $20 tolerance)
+        matches = linker.find_matching_orders(
+            amount=-175.00,
+            transaction_date="2025-01-10",
+        )
+        assert len(matches) == 0
+
+    def test_fuzzy_tolerance_minimum_15_dollars(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """For small orders, tolerance should be minimum $15."""
+        # For a $50 order, 10% = $5, but minimum is $15
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "Small Item", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+
+        # $12 difference should match (within $15 minimum tolerance)
+        matches = linker.find_matching_orders(
+            amount=-38.00,
+            transaction_date="2025-01-10",
+        )
+        assert len(matches) == 1
+        assert matches[0].confidence == "likely"
+
+    def test_no_fuzzy_match_when_exact_match_exists(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Exact matches should take priority over fuzzy matches."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-EXACT-1111111",
+                    "date": "2025-01-10",
+                    "items": [
+                        {
+                            "name": "Exact Match Item",
+                            "amount": -50.00,
+                            "quantity": 1,
+                            "asin": "B001",
+                        },
+                    ],
+                },
+                {
+                    "order_id": "113-FUZZY-2222222",
+                    "date": "2025-01-10",
+                    "items": [
+                        {
+                            "name": "Fuzzy Match Item",
+                            "amount": -55.00,
+                            "quantity": 1,
+                            "asin": "B002",
+                        },
+                    ],
+                },
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-50.00,  # Exact match exists
+            transaction_date="2025-01-10",
+        )
+
+        # Should only return the exact match, not the fuzzy one
+        assert len(matches) == 1
+        assert matches[0].order_id == "113-EXACT-1111111"
+        assert matches[0].confidence in ("high", "medium")  # Not "likely"
+
+    def test_no_fuzzy_match_when_transaction_greater_than_order(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Should NOT fuzzy match when transaction > order (wrong direction)."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -40.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-50.00,  # Greater than order (doesn't make sense for gift card)
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 0
+
+    def test_no_fuzzy_match_when_difference_exceeds_tolerance(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Should NOT fuzzy match when difference exceeds tolerance."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        # Difference of $25 exceeds max($15, 10% of $50 = $5) = $15
+        matches = linker.find_matching_orders(
+            amount=-25.00,
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 0
+
+    def test_fuzzy_match_confidence_is_likely(self, config_dir: Path, amazon_profile: Path) -> None:
+        """Fuzzy matches should have 'likely' confidence."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-45.00,  # $5 less than order
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].confidence == "likely"
+
+    def test_fuzzy_match_includes_amount_difference(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Fuzzy matches should include the amount difference."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -75.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-68.50,  # $6.50 less than order
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].amount_difference == 6.50
+
+    def test_fuzzy_match_sorted_by_date_proximity(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Fuzzy matches should be sorted by date proximity."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-FAR-1111111",
+                    "date": "2025-01-05",  # 6 days before transaction
+                    "items": [
+                        {"name": "Item Far", "amount": -50.00, "quantity": 1, "asin": "A001"},
+                    ],
+                },
+                {
+                    "order_id": "113-CLOSE-2222222",
+                    "date": "2025-01-10",  # 1 day before transaction
+                    "items": [
+                        {"name": "Item Close", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                },
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-45.00,  # Fuzzy match both
+            transaction_date="2025-01-11",
+        )
+
+        assert len(matches) == 2
+        # Closest date should be first
+        assert matches[0].order_id == "113-CLOSE-2222222"
+        assert matches[1].order_id == "113-FAR-1111111"
+
+    def test_fuzzy_match_sorted_by_amount_difference_when_dates_tied(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """When dates are tied, fuzzy matches should be sorted by amount difference."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-BIGGER-DIFF-111",
+                    "date": "2025-01-10",  # Same date
+                    "items": [
+                        {"name": "Big Diff Item", "amount": -60.00, "quantity": 1, "asin": "A001"},
+                    ],
+                },
+                {
+                    "order_id": "113-SMALLER-DIFF-222",
+                    "date": "2025-01-10",  # Same date
+                    "items": [
+                        {
+                            "name": "Small Diff Item",
+                            "amount": -52.00,
+                            "quantity": 1,
+                            "asin": "B001",
+                        },
+                    ],
+                },
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-50.00,  # Fuzzy match both: $2 diff vs $10 diff
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 2
+        # Smaller amount difference should be first
+        assert matches[0].order_id == "113-SMALLER-DIFF-222"
+        assert matches[0].amount_difference == 2.00
+        assert matches[1].order_id == "113-BIGGER-DIFF-111"
+        assert matches[1].amount_difference == 10.00
+
+    def test_exact_match_does_not_have_amount_difference(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Exact matches should not have amount_difference set."""
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-1234567-8901234",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -50.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-50.00,  # Exact match
+            transaction_date="2025-01-10",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].amount_difference is None
+
+
+class TestItemLevelMatching:
+    """Tests for item-level matching (third pass)."""
+
+    def test_item_match_when_order_total_differs(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Should match individual item when order total doesn't match."""
+        # Order with two items: TV ($800) and Soundbar ($300) = $1100 total
+        # Transaction for $800 matches just the TV item
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-SPLIT-1234567",
+                    "date": "2025-01-15",
+                    "items": [
+                        {
+                            "name": "65 Inch Smart TV",
+                            "amount": -800.00,
+                            "quantity": 1,
+                            "asin": "B0TV123",
+                        },
+                        {
+                            "name": "2.1 Soundbar System",
+                            "amount": -300.00,
+                            "quantity": 1,
+                            "asin": "B0SB456",
+                        },
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-800.00,
+            transaction_date="2025-01-16",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].order_id == "113-SPLIT-1234567"
+        assert matches[0].total_amount == -800.00
+        assert len(matches[0].items) == 1
+        assert matches[0].items[0]["name"] == "65 Inch Smart TV"
+        # Item match should have high/medium confidence, not "likely"
+        assert matches[0].confidence in ("high", "medium")
+        assert matches[0].amount_difference is None
+
+    def test_item_match_not_used_when_order_total_matches(
+        self, config_dir: Path, amazon_profile: Path
+    ) -> None:
+        """Should prefer order total match over item match."""
+        # Order with single item - order total equals item amount
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "113-SINGLE-1234567",
+                    "date": "2025-01-10",
+                    "items": [
+                        {"name": "USB Cable", "amount": -25.00, "quantity": 1, "asin": "B001"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-25.00,
+            transaction_date="2025-01-10",
+        )
+
+        # Should find exactly one match (order total match, not item match too)
+        assert len(matches) == 1
+        assert matches[0].confidence in ("high", "medium")
+
+    def test_item_match_returns_correct_item(self, config_dir: Path, amazon_profile: Path) -> None:
+        """Should return only the matching item, not all items in order."""
+        # Multi-item order where we match the soundbar
+        create_amazon_db(
+            amazon_profile,
+            [
+                {
+                    "order_id": "114-MULTI-1234567",
+                    "date": "2022-01-30",
+                    "items": [
+                        {"name": "TV", "amount": -800.00, "quantity": 1, "asin": "TV01"},
+                        {"name": "Soundbar", "amount": -200.00, "quantity": 1, "asin": "SB01"},
+                        {"name": "HDMI Cable", "amount": -15.00, "quantity": 1, "asin": "HD01"},
+                    ],
+                }
+            ],
+        )
+
+        linker = AmazonLinker(config_dir)
+        matches = linker.find_matching_orders(
+            amount=-200.00,
+            transaction_date="2022-01-30",
+        )
+
+        assert len(matches) == 1
+        assert matches[0].total_amount == -200.00
+        assert len(matches[0].items) == 1
+        assert matches[0].items[0]["name"] == "Soundbar"

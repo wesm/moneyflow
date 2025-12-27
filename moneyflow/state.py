@@ -158,6 +158,9 @@ class AppState:
 
     # Search/filter
     search_query: str = ""
+    amazon_search_ids: set[str] = dataclass_field(
+        default_factory=set
+    )  # Txn IDs matching Amazon search
     show_transfers: bool = False  # Whether to show Transfer category transactions
     show_hidden: bool = True  # Whether to show transactions hidden from reports
 
@@ -445,14 +448,16 @@ class AppState:
         """Get current navigation state for comparison."""
         return (self.get_navigation_depth(), self.sub_grouping_mode)
 
-    def set_search(self, query: str) -> None:
+    def set_search(self, query: str, amazon_match_ids: Optional[set[str]] = None) -> None:
         """
         Set search query and save current navigation state.
 
         Args:
             query: Search query string
+            amazon_match_ids: Optional set of transaction IDs matching Amazon item search
         """
         self.search_query = query
+        self.amazon_search_ids = amazon_match_ids or set()
         # Save navigation state when search is applied
         if query:
             self.search_navigation_state = self.get_navigation_state()
@@ -755,10 +760,14 @@ class AppState:
         # Apply search filter
         if self.search_query:
             query = self.search_query.lower()
-            df = df.filter(
-                pl.col("merchant").str.to_lowercase().str.contains(query)
-                | pl.col("category").str.to_lowercase().str.contains(query)
-            )
+            # Include matches from merchant, category, or Amazon item names
+            search_filter = pl.col("merchant").str.to_lowercase().str.contains(query) | pl.col(
+                "category"
+            ).str.to_lowercase().str.contains(query)
+            # Also include transactions matching Amazon item search
+            if self.amazon_search_ids:
+                search_filter = search_filter | pl.col("id").is_in(list(self.amazon_search_ids))
+            df = df.filter(search_filter)
 
         # Apply group filter (hide Transfers unless enabled)
         if not self.show_transfers:

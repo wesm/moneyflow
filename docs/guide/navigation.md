@@ -17,41 +17,41 @@ amount spent.
 <tr>
 <td width="50%">
 <strong>Merchant View</strong><br>
-<img src="../assets/screenshots/cycle-1-merchants.svg" width="100%"
+<img src="../../assets/screenshots/cycle-1-merchants.svg" width="100%"
 alt="Merchants view">
 </td>
 <td width="50%">
 <strong>Category View</strong><br>
-<img src="../assets/screenshots/cycle-2-categories.svg" width="100%"
+<img src="../../assets/screenshots/cycle-2-categories.svg" width="100%"
 alt="Categories view">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>Group View</strong><br>
-<img src="../assets/screenshots/cycle-3-groups.svg" width="100%" alt="Groups view">
+<img src="../../assets/screenshots/cycle-3-groups.svg" width="100%" alt="Groups view">
 </td>
 <td width="50%">
 <strong>Account View</strong><br>
-<img src="../assets/screenshots/cycle-4-accounts.svg" width="100%" alt="Accounts view">
+<img src="../../assets/screenshots/cycle-4-accounts.svg" width="100%" alt="Accounts view">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>TIME View (by Years)</strong><br>
-<img src="../assets/screenshots/cycle-5-time-years.svg" width="100%"
+<img src="../../assets/screenshots/cycle-5-time-years.svg" width="100%"
 alt="Time view by years">
 </td>
 <td width="50%">
 <strong>TIME View (by Months)</strong><br>
-<img src="../assets/screenshots/time-view-months.svg" width="100%"
+<img src="../../assets/screenshots/time-view-months.svg" width="100%"
 alt="Time view by months">
 </td>
 </tr>
 <tr>
 <td width="50%">
 <strong>TIME View (by Days)</strong><br>
-<img src="../assets/screenshots/time-view-days.svg" width="100%"
+<img src="../../assets/screenshots/time-view-days.svg" width="100%"
 alt="Time view by days">
 </td>
 <td width="50%">
@@ -126,18 +126,18 @@ To return to an aggregate view, press `g` or `Escape`.
 
 From any aggregate view, press `Enter` on a row to drill into it and see the individual transactions that make up that aggregate.
 
-![Merchant view with Amazon highlighted](../assets/screenshots/merchants-view.svg)
+![Merchant view with Target highlighted](../assets/screenshots/merchants-view.svg)
 
 **Example workflow:**
 
 1. **Start in Merchant view** - Press `g` if needed to cycle to Merchants
-2. **Navigate to "Amazon"** - Use arrow keys to move cursor
+2. **Navigate to "Target"** - Use arrow keys to move cursor
 3. **Press `Enter`** - Drill down to see transactions
-4. **View results** - All Amazon transactions displayed
+4. **View results** - All Target transactions displayed
 
-![Drilled down into Amazon - transaction detail view](../assets/screenshots/drill-down-detail.svg)
+![Drilled down into Target - transaction detail view](../assets/screenshots/drill-down-detail.svg)
 
-The breadcrumb shows your current path: `Merchants > Amazon`
+The breadcrumb shows your current path: `Merchants > Target`
 
 **Going back:**
 Press `Escape` to return to Merchant view with your cursor position and scroll restored.
@@ -147,23 +147,23 @@ Press `Escape` to return to Merchant view with your cursor position and scroll r
 Once you've drilled down into a specific item, press `g` to sub-group the filtered data by a different field.
 This allows you to analyze the same transactions from multiple perspectives without losing your filter context.
 
-**Example - Analyzing Amazon purchases:**
+**Example - Analyzing Target purchases:**
 
-1. **Drill into Amazon** - From Merchant view, press `Enter` on Amazon row
-2. **Press `g`** - View changes to `Merchants > Amazon (by Category)`
-   - Shows Amazon spending grouped by category
-3. **Press `g` again** - View changes to `Merchants > Amazon (by Group)`
-   - Shows Amazon spending grouped by category group
-4. **Press `g` again** - View changes to `Merchants > Amazon (by Account)`
-   - Shows which payment methods you use at Amazon
-5. **Press `g` again** - View changes to `Merchants > Amazon (by Year)`
-   - Shows Amazon spending trends over time (press `t` to cycle granularity)
+1. **Drill into Target** - From Merchant view, press `Enter` on Target row
+2. **Press `g`** - View changes to `Merchants > Target (by Category)`
+   - Shows Target spending grouped by category
+3. **Press `g` again** - View changes to `Merchants > Target (by Group)`
+   - Shows Target spending grouped by category group
+4. **Press `g` again** - View changes to `Merchants > Target (by Account)`
+   - Shows which payment methods you use at Target
+5. **Press `g` again** - View changes to `Merchants > Target (by Year)`
+   - Shows Target spending trends over time (press `t` to cycle granularity)
 6. **Press `g` again** - Returns to detail view
-   - Shows all Amazon transactions ungrouped
+   - Shows all Target transactions ungrouped
 
 ![Drilled into Merchant, grouped by Category](../assets/screenshots/merchants-drill-by-category.svg)
 
-![Drilled into Amazon, grouped by Account](../assets/screenshots/drill-down-group-by-account.svg)
+![Drilled into Target, grouped by Account](../assets/screenshots/drill-down-group-by-account.svg)
 
 Sub-grouping helps answer analytical questions like:
 
@@ -181,13 +181,13 @@ The field you're already filtered by is automatically excluded from the cycle to
 
 You can drill down from sub-grouped views to add another level of filtering, creating a multi-level filter hierarchy.
 
-**Example - Finding Amazon grocery transactions:**
+**Example - Finding Target grocery transactions:**
 
-1. **Drill into Amazon** - From Merchant view, press `Enter` on "Amazon"
+1. **Drill into Target** - From Merchant view, press `Enter` on "Target"
 2. **Sub-group by Category** - Press `g` repeatedly until breadcrumb shows "(by Category)"
 3. **Drill into Groceries** - Press `Enter` on the "Groceries" row
-4. **View results** - Breadcrumb shows: `Merchants > Amazon > Groceries`
-   - Now viewing only Amazon grocery transactions
+4. **View results** - Breadcrumb shows: `Merchants > Target > Groceries`
+   - Now viewing only Target grocery transactions
 
 ![Multi-level drill-down breadcrumb](../assets/screenshots/drill-down-multi-level.svg)
 
@@ -204,13 +204,13 @@ Press `Escape` to navigate backwards through your drill-down path, removing one 
 
 **Single-level drill-down with sub-grouping:**
 
-- From `Merchants > Amazon (by Category)`, press `Escape` to return to `Merchants > Amazon` (clears sub-grouping)
-- From `Merchants > Amazon`, press `Escape` to return to `Merchants` (clears merchant filter)
+- From `Merchants > Target (by Category)`, press `Escape` to return to `Merchants > Target` (clears sub-grouping)
+- From `Merchants > Target`, press `Escape` to return to `Merchants` (clears merchant filter)
 
 **Multi-level drill-down:**
 
-- From `Merchants > Amazon > Groceries`, press `Escape` to return to `Merchants > Amazon` (removes category filter)
-- From `Merchants > Amazon`, press `Escape` to return to `Merchants` (removes merchant filter)
+- From `Merchants > Target > Groceries`, press `Escape` to return to `Merchants > Target` (removes category filter)
+- From `Merchants > Target`, press `Escape` to return to `Merchants` (removes merchant filter)
 
 **With search active:**
 
@@ -267,12 +267,12 @@ From TIME view, press `Enter` on any year, month, or day to drill down and see o
 <tr>
 <td width="50%">
 <strong>Drilled Into Year</strong><br>
-<img src="../assets/screenshots/time-drill-down-year.svg" width="100%"
+<img src="../../assets/screenshots/time-drill-down-year.svg" width="100%"
 alt="Drilled into specific year">
 </td>
 <td width="50%">
 <strong>Drilled Into Month</strong><br>
-<img src="../assets/screenshots/time-drill-down-month.svg" width="100%"
+<img src="../../assets/screenshots/time-drill-down-month.svg" width="100%"
 alt="Drilled into specific month">
 </td>
 </tr>
