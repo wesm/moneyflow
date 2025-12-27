@@ -788,15 +788,15 @@ class AppState:
                 if self.selected_time_day is not None:
                     df = df.filter(pl.col("date").dt.day() == self.selected_time_day)
 
-        # Apply view-specific filters
+        # Apply view-specific filters (can have multiple levels in multi-level drill-down)
         if self.view_mode == ViewMode.DETAIL:
             if self.selected_merchant:
                 df = df.filter(pl.col("merchant") == self.selected_merchant)
-            elif self.selected_category:
+            if self.selected_category:
                 df = df.filter(pl.col("category") == self.selected_category)
-            elif self.selected_group:
+            if self.selected_group:
                 df = df.filter(pl.col("group") == self.selected_group)
-            elif self.selected_account:
+            if self.selected_account:
                 df = df.filter(pl.col("account") == self.selected_account)
 
         return df

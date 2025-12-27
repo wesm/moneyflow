@@ -551,6 +551,100 @@ class TestDataFiltering:
         assert all("Starbucks" in row["merchant"] for row in filtered.iter_rows(named=True))
         assert all(row["group"] != "Transfers" for row in filtered.iter_rows(named=True))
 
+    def test_get_filtered_df_multi_level_drill_down(self, app_state):
+        """Test multi-level drill-down filters all dimensions correctly.
+
+        Regression test: ensures stats (transaction count, in/out totals) are
+        calculated correctly for multi-level drill-downs like "Amazon > Groceries".
+        Previously, only the first filter was applied due to elif chain.
+        """
+        data = [
+            # Amazon Groceries transactions (should be included)
+            {
+                "id": "txn_1",
+                "date": date(2024, 1, 1),
+                "amount": -50.00,
+                "merchant": "Amazon",
+                "merchant_id": "merch_1",
+                "category": "Groceries",
+                "category_id": "cat_1",
+                "group": "Food & Dining",
+                "account": "Checking",
+                "account_id": "acc_1",
+                "notes": "",
+                "hideFromReports": False,
+                "pending": False,
+                "is_recurring": False,
+            },
+            {
+                "id": "txn_2",
+                "date": date(2024, 1, 15),
+                "amount": -75.00,
+                "merchant": "Amazon",
+                "merchant_id": "merch_1",
+                "category": "Groceries",
+                "category_id": "cat_1",
+                "group": "Food & Dining",
+                "account": "Checking",
+                "account_id": "acc_1",
+                "notes": "",
+                "hideFromReports": False,
+                "pending": False,
+                "is_recurring": False,
+            },
+            # Amazon Electronics (excluded - wrong category)
+            {
+                "id": "txn_3",
+                "date": date(2024, 1, 10),
+                "amount": -200.00,
+                "merchant": "Amazon",
+                "merchant_id": "merch_1",
+                "category": "Electronics",
+                "category_id": "cat_2",
+                "group": "Shopping",
+                "account": "Checking",
+                "account_id": "acc_1",
+                "notes": "",
+                "hideFromReports": False,
+                "pending": False,
+                "is_recurring": False,
+            },
+            # Target Groceries (excluded - wrong merchant)
+            {
+                "id": "txn_4",
+                "date": date(2024, 1, 20),
+                "amount": -100.00,
+                "merchant": "Target",
+                "merchant_id": "merch_2",
+                "category": "Groceries",
+                "category_id": "cat_1",
+                "group": "Food & Dining",
+                "account": "Checking",
+                "account_id": "acc_1",
+                "notes": "",
+                "hideFromReports": False,
+                "pending": False,
+                "is_recurring": False,
+            },
+        ]
+        app_state.transactions_df = pl.DataFrame(data)
+
+        # Simulate multi-level drill-down: Amazon > Groceries
+        app_state.view_mode = ViewMode.DETAIL
+        app_state.selected_merchant = "Amazon"
+        app_state.selected_category = "Groceries"
+
+        filtered = app_state.get_filtered_df()
+
+        # Should only get Amazon + Groceries transactions (2 out of 4)
+        assert len(filtered) == 2
+        assert all(row["merchant"] == "Amazon" for row in filtered.iter_rows(named=True))
+        assert all(row["category"] == "Groceries" for row in filtered.iter_rows(named=True))
+
+        # Verify the total matches expected (stats calculation uses this)
+        total = float(filtered["amount"].sum())
+        assert total == -125.00  # -50 + -75
+
 
 class TestNavigation:
     """Test navigation and drill-down functionality."""

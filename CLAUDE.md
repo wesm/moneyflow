@@ -2,17 +2,22 @@
 
 ## CRITICAL: Git Branch Management for AI Assistants
 
-**⚠️ NEVER change git branches or create new branches without explicit user permission.**
+**⚠️ NEVER change git branches, pull, or create new branches without explicit user permission.**
 
 - ✅ **ALWAYS ask before** `git checkout <branch>`
+- ✅ **ALWAYS ask before** `git pull` or `git fetch` followed by merge/rebase
 - ✅ **ALWAYS ask before** creating new branches
 - ✅ **Stay on the branch the user checked out** unless they explicitly ask you to switch
 - ❌ **NEVER run `git checkout` on your own**
+- ❌ **NEVER run `git pull` on your own**
 - ❌ **NEVER create branches autonomously**
+- ❌ **NEVER switch branches when starting a new task** - the user has already set up the branch
 
 **If you need to work on a different branch**, ask the user first:
 - "Should I switch to branch X to work on this?"
 - "Should I create a new branch for this feature?"
+
+**When the user says a PR is merged**, do NOT automatically checkout main and pull. Wait for explicit instructions.
 
 ## CRITICAL: Personal Data Protection
 
