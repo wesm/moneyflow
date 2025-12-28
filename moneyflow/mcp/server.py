@@ -432,6 +432,366 @@ def create_mcp_server(
             indent=2,
         )
 
+    # ========== CATEGORIZATION TOOLS ==========
+
+    @mcp.tool()
+    async def get_uncategorized_transactions(
+        limit: int = 100,
+        merchant: Optional[str] = None,
+    ) -> str:
+        """
+        Get transactions that need categorization.
+
+        Finds transactions with category "Uncategorized" that need to be assigned
+        to a proper category. Use this to identify items that need attention.
+
+        Args:
+            limit: Maximum number of transactions to return (default 100)
+            merchant: Optional filter by merchant name (contains, case-insensitive)
+
+        Returns:
+            JSON array of uncategorized transactions
+        """
+        await _ensure_initialized()
+
+        df = _state["transactions_df"]
+
+        # Filter to uncategorized
+        uncategorized = df.filter(
+            (pl.col("category") == "Uncategorized")
+            | (pl.col("category").is_null())
+            | (pl.col("category") == "")
+        )
+
+        if merchant:
+            uncategorized = uncategorized.filter(
+                pl.col("merchant").str.to_lowercase().str.contains(merchant.lower())
+            )
+
+        records = _df_to_records(uncategorized, limit=limit)
+        return json.dumps(
+            {
+                "total_uncategorized": len(uncategorized),
+                "showing": len(records),
+                "transactions": records,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    async def update_transaction_category(
+        transaction_id: str,
+        category_name: str,
+    ) -> str:
+        """
+        Update the category of a single transaction.
+
+        Changes the category assignment for a transaction. The change is
+        immediately committed to the backend API.
+
+        Args:
+            transaction_id: The unique ID of the transaction to update
+            category_name: The name of the category to assign (must be an existing category)
+
+        Returns:
+            JSON object with update status
+        """
+        await _ensure_initialized()
+
+        dm = _state["data_manager"]
+        df = _state["transactions_df"]
+        categories = _state["categories"]
+
+        # Find the category ID
+        category_id = None
+        for cat_id, cat_name in categories.items():
+            if cat_name.lower() == category_name.lower():
+                category_id = cat_id
+                break
+
+        if not category_id:
+            available = sorted(set(categories.values()))
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Category '{category_name}' not found",
+                    "available_categories": available[:50],  # Limit to avoid huge response
+                },
+                indent=2,
+            )
+
+        # Find the transaction
+        tx_rows = df.filter(pl.col("id") == transaction_id)
+        if len(tx_rows) == 0:
+            return json.dumps(
+                {"status": "error", "message": f"Transaction '{transaction_id}' not found"},
+                indent=2,
+            )
+
+        old_category = tx_rows["category"][0]
+
+        # Update via backend API
+        try:
+            await dm.mm.update_transaction(
+                transaction_id=transaction_id,
+                category_id=category_id,
+            )
+
+            # Update local DataFrame
+            _state["transactions_df"] = df.with_columns(
+                pl.when(pl.col("id") == transaction_id)
+                .then(pl.lit(category_name))
+                .otherwise(pl.col("category"))
+                .alias("category")
+            )
+
+            return json.dumps(
+                {
+                    "status": "success",
+                    "transaction_id": transaction_id,
+                    "old_category": old_category,
+                    "new_category": category_name,
+                },
+                indent=2,
+            )
+        except Exception as e:
+            return json.dumps(
+                {"status": "error", "message": f"Failed to update: {str(e)}"},
+                indent=2,
+            )
+
+    @mcp.tool()
+    async def batch_update_category(
+        transaction_ids: List[str],
+        category_name: str,
+    ) -> str:
+        """
+        Update the category for multiple transactions at once.
+
+        Applies the same category to all specified transactions. Changes are
+        immediately committed to the backend API.
+
+        Args:
+            transaction_ids: List of transaction IDs to update
+            category_name: The name of the category to assign
+
+        Returns:
+            JSON object with batch update results
+        """
+        await _ensure_initialized()
+
+        dm = _state["data_manager"]
+        df = _state["transactions_df"]
+        categories = _state["categories"]
+
+        # Find the category ID
+        category_id = None
+        for cat_id, cat_name in categories.items():
+            if cat_name.lower() == category_name.lower():
+                category_id = cat_id
+                break
+
+        if not category_id:
+            return json.dumps(
+                {"status": "error", "message": f"Category '{category_name}' not found"},
+                indent=2,
+            )
+
+        success_count = 0
+        failure_count = 0
+        errors = []
+
+        for tx_id in transaction_ids:
+            try:
+                await dm.mm.update_transaction(
+                    transaction_id=tx_id,
+                    category_id=category_id,
+                )
+                success_count += 1
+            except Exception as e:
+                failure_count += 1
+                errors.append({"transaction_id": tx_id, "error": str(e)})
+
+        # Update local DataFrame for successful updates
+        if success_count > 0:
+            successful_ids = [
+                tx_id for tx_id in transaction_ids if tx_id not in [e["transaction_id"] for e in errors]
+            ]
+            _state["transactions_df"] = df.with_columns(
+                pl.when(pl.col("id").is_in(successful_ids))
+                .then(pl.lit(category_name))
+                .otherwise(pl.col("category"))
+                .alias("category")
+            )
+
+        return json.dumps(
+            {
+                "status": "success" if failure_count == 0 else "partial",
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "new_category": category_name,
+                "errors": errors if errors else None,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    async def get_amazon_order_details(
+        transaction_id: str,
+    ) -> str:
+        """
+        Look up Amazon order details for a transaction.
+
+        For Amazon transactions, searches local Amazon order database to find
+        matching orders and show what items were purchased. This helps with
+        categorizing Amazon transactions by revealing the actual products.
+
+        Args:
+            transaction_id: The ID of the transaction to look up
+
+        Returns:
+            JSON object with Amazon order matches (items, prices, order IDs)
+        """
+        await _ensure_initialized()
+
+        from ..amazon_linker import AmazonLinker
+
+        df = _state["transactions_df"]
+        config_path = Path(_state["config_dir"]) if _state["config_dir"] else Path.home() / ".moneyflow"
+
+        # Find the transaction
+        tx_rows = df.filter(pl.col("id") == transaction_id)
+        if len(tx_rows) == 0:
+            return json.dumps(
+                {"status": "error", "message": f"Transaction '{transaction_id}' not found"},
+                indent=2,
+            )
+
+        tx = tx_rows.row(0, named=True)
+        merchant = tx.get("merchant", "")
+        amount = tx.get("amount", 0)
+        tx_date = tx.get("date")
+
+        # Create linker and search
+        linker = AmazonLinker(config_dir=config_path)
+
+        if not linker.is_amazon_merchant(merchant):
+            return json.dumps(
+                {
+                    "status": "not_amazon",
+                    "message": f"Transaction merchant '{merchant}' doesn't appear to be Amazon",
+                    "transaction": {
+                        "id": transaction_id,
+                        "merchant": merchant,
+                        "amount": _format_amount(amount),
+                        "date": str(tx_date),
+                    },
+                },
+                indent=2,
+            )
+
+        # Search for matching orders
+        matches = linker.find_matching_orders(
+            amount=amount,
+            transaction_date=str(tx_date),
+        )
+
+        if not matches:
+            return json.dumps(
+                {
+                    "status": "no_matches",
+                    "message": "No matching Amazon orders found in local database",
+                    "transaction": {
+                        "id": transaction_id,
+                        "merchant": merchant,
+                        "amount": _format_amount(amount),
+                        "date": str(tx_date),
+                    },
+                    "hint": "Make sure you've imported Amazon order history via the Amazon backend",
+                },
+                indent=2,
+            )
+
+        # Format matches
+        formatted_matches = []
+        for match in matches:
+            formatted_matches.append(
+                {
+                    "order_id": match.order_id,
+                    "order_date": match.order_date,
+                    "total_amount": _format_amount(match.total_amount),
+                    "confidence": match.confidence,
+                    "source_profile": match.source_profile,
+                    "items": [
+                        {
+                            "name": item.get("name", "Unknown"),
+                            "amount": _format_amount(item.get("amount", 0)),
+                            "quantity": item.get("quantity", 1),
+                        }
+                        for item in match.items
+                    ],
+                }
+            )
+
+        return json.dumps(
+            {
+                "status": "found",
+                "transaction": {
+                    "id": transaction_id,
+                    "merchant": merchant,
+                    "amount": _format_amount(amount),
+                    "date": str(tx_date),
+                    "current_category": tx.get("category", "Uncategorized"),
+                },
+                "amazon_matches": formatted_matches,
+            },
+            indent=2,
+        )
+
+    @mcp.tool()
+    async def get_transaction_details(
+        transaction_id: str,
+    ) -> str:
+        """
+        Get full details for a specific transaction.
+
+        Returns all available information about a transaction including
+        merchant, category, amount, date, account, and any notes.
+
+        Args:
+            transaction_id: The ID of the transaction
+
+        Returns:
+            JSON object with transaction details
+        """
+        await _ensure_initialized()
+
+        df = _state["transactions_df"]
+
+        tx_rows = df.filter(pl.col("id") == transaction_id)
+        if len(tx_rows) == 0:
+            return json.dumps(
+                {"status": "error", "message": f"Transaction '{transaction_id}' not found"},
+                indent=2,
+            )
+
+        tx = tx_rows.row(0, named=True)
+
+        return json.dumps(
+            {
+                "id": tx.get("id"),
+                "date": str(tx.get("date")),
+                "merchant": tx.get("merchant"),
+                "category": tx.get("category"),
+                "amount": tx.get("amount"),
+                "amount_formatted": _format_amount(tx.get("amount", 0)),
+                "account": tx.get("account"),
+                "notes": tx.get("notes"),
+                "is_hidden": tx.get("is_hidden", False),
+            },
+            indent=2,
+        )
+
     # ========== RESOURCES ==========
 
     @mcp.resource("moneyflow://account")
