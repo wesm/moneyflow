@@ -9,10 +9,15 @@ Security Considerations:
 - Uses the same credential system as the TUI (encrypted or plaintext)
 - No built-in authentication - relies on network-level security
 - Sensitive financial data is exposed - only run on trusted networks
+- Use --read-only mode when you only need to query data
+- HTTP transport should only be used over secure networks (e.g., Tailscale)
 
 Usage:
     # Run with stdio transport (for local Claude Desktop)
     python -m moneyflow.mcp
+
+    # Run in read-only mode (no modifications allowed)
+    python -m moneyflow.mcp --read-only
 
     # Or programmatically
     from moneyflow.mcp import run_mcp_server
@@ -29,10 +34,17 @@ import polars as pl
 
 logger = logging.getLogger(__name__)
 
+# Security: Maximum number of results to prevent memory issues
+MAX_LIMIT = 1000
+
+# Security: Maximum batch size to prevent abuse
+MAX_BATCH_SIZE = 100
+
 
 def create_mcp_server(
     account_id: Optional[str] = None,
     config_dir: Optional[str] = None,
+    read_only: bool = False,
 ):
     """
     Create and configure the MCP server for moneyflow.
@@ -40,6 +52,7 @@ def create_mcp_server(
     Args:
         account_id: The account ID to use. If None, uses the last active account.
         config_dir: Custom config directory. Defaults to ~/.moneyflow
+        read_only: If True, disable all write operations (category updates, etc.)
 
     Returns:
         Configured FastMCP server instance
@@ -62,6 +75,7 @@ def create_mcp_server(
         "initialized": False,
         "account_id": account_id,
         "config_dir": config_dir,
+        "read_only": read_only,
     }
 
     async def _ensure_initialized():
@@ -140,12 +154,17 @@ def create_mcp_server(
             return f"-${abs(amount):,.2f}"
         return f"${amount:,.2f}"
 
+    def _clamp_limit(limit: int) -> int:
+        """Clamp limit to MAX_LIMIT to prevent memory issues."""
+        return max(1, min(limit, MAX_LIMIT))
+
     def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
         """Convert DataFrame to list of records with formatting."""
         if len(df) == 0:
             return []
 
-        # Limit results
+        # Clamp and apply limit
+        limit = _clamp_limit(limit)
         if len(df) > limit:
             df = df.head(limit)
 
@@ -334,7 +353,7 @@ def create_mcp_server(
         Get all merchants with transaction counts.
 
         Args:
-            limit: Maximum number of merchants to return (default 100)
+            limit: Maximum number of merchants to return (default 100, max 1000)
 
         Returns:
             JSON array of merchants with transaction counts, sorted by frequency
@@ -342,6 +361,7 @@ def create_mcp_server(
         await _ensure_initialized()
 
         df = _state["transactions_df"]
+        limit = _clamp_limit(limit)
 
         merchant_counts = (
             df.group_by("merchant")
@@ -482,21 +502,33 @@ def create_mcp_server(
     async def update_transaction_category(
         transaction_id: str,
         category_name: str,
+        dry_run: bool = False,
     ) -> str:
         """
         Update the category of a single transaction.
 
         Changes the category assignment for a transaction. The change is
-        immediately committed to the backend API.
+        immediately committed to the backend API unless dry_run is True.
 
         Args:
             transaction_id: The unique ID of the transaction to update
             category_name: The name of the category to assign (must be an existing category)
+            dry_run: If True, validate and show what would change without committing
 
         Returns:
             JSON object with update status
         """
         await _ensure_initialized()
+
+        # Check read-only mode
+        if _state["read_only"] and not dry_run:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Server is in read-only mode. Use dry_run=True to preview changes.",
+                },
+                indent=2,
+            )
 
         dm = _state["data_manager"]
         df = _state["transactions_df"]
@@ -529,6 +561,25 @@ def create_mcp_server(
             )
 
         old_category = tx_rows["category"][0]
+        tx = tx_rows.row(0, named=True)
+
+        # Dry run - just show what would happen
+        if dry_run:
+            return json.dumps(
+                {
+                    "status": "dry_run",
+                    "message": "No changes made (dry run)",
+                    "would_update": {
+                        "transaction_id": transaction_id,
+                        "merchant": tx.get("merchant"),
+                        "amount": _format_amount(tx.get("amount", 0)),
+                        "date": str(tx.get("date")),
+                        "old_category": old_category,
+                        "new_category": category_name,
+                    },
+                },
+                indent=2,
+            )
 
         # Update via backend API
         try:
@@ -564,21 +615,43 @@ def create_mcp_server(
     async def batch_update_category(
         transaction_ids: List[str],
         category_name: str,
+        dry_run: bool = False,
     ) -> str:
         """
         Update the category for multiple transactions at once.
 
         Applies the same category to all specified transactions. Changes are
-        immediately committed to the backend API.
+        immediately committed to the backend API unless dry_run is True.
 
         Args:
-            transaction_ids: List of transaction IDs to update
+            transaction_ids: List of transaction IDs to update (max 100)
             category_name: The name of the category to assign
+            dry_run: If True, validate and show what would change without committing
 
         Returns:
             JSON object with batch update results
         """
         await _ensure_initialized()
+
+        # Check read-only mode
+        if _state["read_only"] and not dry_run:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Server is in read-only mode. Use dry_run=True to preview changes.",
+                },
+                indent=2,
+            )
+
+        # Enforce batch size limit
+        if len(transaction_ids) > MAX_BATCH_SIZE:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Batch size {len(transaction_ids)} exceeds maximum of {MAX_BATCH_SIZE}",
+                },
+                indent=2,
+            )
 
         dm = _state["data_manager"]
         df = _state["transactions_df"]
@@ -597,11 +670,50 @@ def create_mcp_server(
                 indent=2,
             )
 
+        # Find all transactions and validate they exist
+        found_transactions = []
+        not_found = []
+        for tx_id in transaction_ids:
+            tx_rows = df.filter(pl.col("id") == tx_id)
+            if len(tx_rows) == 0:
+                not_found.append(tx_id)
+            else:
+                tx = tx_rows.row(0, named=True)
+                found_transactions.append(
+                    {
+                        "transaction_id": tx_id,
+                        "merchant": tx.get("merchant"),
+                        "amount": _format_amount(tx.get("amount", 0)),
+                        "date": str(tx.get("date")),
+                        "old_category": tx.get("category"),
+                    }
+                )
+
+        # Dry run - just show what would happen
+        if dry_run:
+            return json.dumps(
+                {
+                    "status": "dry_run",
+                    "message": "No changes made (dry run)",
+                    "would_update": len(found_transactions),
+                    "not_found": len(not_found),
+                    "new_category": category_name,
+                    "transactions": found_transactions,
+                    "not_found_ids": not_found if not_found else None,
+                },
+                indent=2,
+            )
+
         success_count = 0
         failure_count = 0
         errors = []
 
         for tx_id in transaction_ids:
+            if tx_id in not_found:
+                failure_count += 1
+                errors.append({"transaction_id": tx_id, "error": "Transaction not found"})
+                continue
+
             try:
                 await dm.mm.update_transaction(
                     transaction_id=tx_id,
@@ -615,7 +727,9 @@ def create_mcp_server(
         # Update local DataFrame for successful updates
         if success_count > 0:
             successful_ids = [
-                tx_id for tx_id in transaction_ids if tx_id not in [e["transaction_id"] for e in errors]
+                tx_id
+                for tx_id in transaction_ids
+                if tx_id not in [e["transaction_id"] for e in errors]
             ]
             _state["transactions_df"] = df.with_columns(
                 pl.when(pl.col("id").is_in(successful_ids))
@@ -828,6 +942,7 @@ def run_mcp_server(
     account_id: Optional[str] = None,
     config_dir: Optional[str] = None,
     transport: str = "stdio",
+    read_only: bool = False,
 ):
     """
     Run the MCP server.
@@ -836,8 +951,9 @@ def run_mcp_server(
         account_id: Account ID to use (defaults to last active)
         config_dir: Custom config directory
         transport: Transport type - "stdio" or "streamable-http"
+        read_only: If True, disable all write operations
     """
-    mcp = create_mcp_server(account_id=account_id, config_dir=config_dir)
+    mcp = create_mcp_server(account_id=account_id, config_dir=config_dir, read_only=read_only)
     mcp.run(transport=transport)
 
 
