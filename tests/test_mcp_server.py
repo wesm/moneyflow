@@ -13,7 +13,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from moneyflow.mcp.server import MAX_BATCH_SIZE, MAX_LIMIT, create_mcp_server
+from moneyflow.mcp.server import ENV_PASSWORD, MAX_BATCH_SIZE, MAX_LIMIT, create_mcp_server
 
 # ============================================================================
 # Fixtures
@@ -187,6 +187,27 @@ class TestReadOnlyMode:
         # Both should be created successfully
         assert mcp_readonly is not None
         assert mcp_normal is not None
+
+
+# ============================================================================
+# Test: Encrypted Credentials Handling
+# ============================================================================
+
+
+class TestEncryptedCredentials:
+    """Tests for encrypted credentials handling."""
+
+    def test_env_password_constant_defined(self):
+        """ENV_PASSWORD constant should be defined."""
+        assert ENV_PASSWORD == "MONEYFLOW_PASSWORD"
+
+    def test_env_password_documented_in_help(self):
+        """Environment variable should be documented in CLI help."""
+        main_file = Path(__file__).parent.parent / "moneyflow" / "mcp" / "__main__.py"
+        content = main_file.read_text()
+
+        assert "MONEYFLOW_PASSWORD" in content
+        assert "Environment Variables:" in content
 
 
 # ============================================================================

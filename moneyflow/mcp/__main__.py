@@ -38,6 +38,11 @@ Security Note:
     For HTTP transport, ensure you're using a secure network like Tailscale.
     There is NO built-in authentication - anyone who can reach the server
     can access your financial data.
+
+Environment Variables:
+    MONEYFLOW_PASSWORD  Password for encrypted credentials (if account uses
+                        password protection). Required for encrypted accounts
+                        since MCP server cannot prompt interactively.
 """,
     )
 

@@ -26,6 +26,7 @@ Usage:
 
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -33,6 +34,9 @@ from typing import Any, Dict, List, Optional
 import polars as pl
 
 logger = logging.getLogger(__name__)
+
+# Environment variable for encrypted credential password
+ENV_PASSWORD = "MONEYFLOW_PASSWORD"
 
 # Security: Maximum number of results to prevent memory issues
 MAX_LIMIT = 1000
@@ -105,7 +109,27 @@ def create_mcp_server(
         if not cred_manager.credentials_exist():
             raise ValueError(f"No credentials found for account '{account.id}'")
 
-        creds, encryption_key = cred_manager.load_credentials()
+        # Check if credentials are encrypted
+        if cred_manager.is_encrypted():
+            # Try to get password from environment variable
+            encryption_password = os.environ.get(ENV_PASSWORD)
+            if not encryption_password:
+                raise ValueError(
+                    f"Account '{account.id}' uses encrypted credentials.\n\n"
+                    f"The MCP server cannot prompt for a password interactively.\n"
+                    f"Options:\n"
+                    f"  1. Set the {ENV_PASSWORD} environment variable:\n"
+                    f"     export {ENV_PASSWORD}='your-password'\n"
+                    f"     moneyflow-mcp\n\n"
+                    f"  2. Use an account with unencrypted credentials:\n"
+                    f"     Run 'moneyflow' and set up a new account without password protection\n"
+                )
+            creds, encryption_key = cred_manager.load_credentials(
+                encryption_password=encryption_password
+            )
+        else:
+            # Plaintext credentials - load directly
+            creds, encryption_key = cred_manager.load_credentials()
 
         # Create backend
         backend = get_backend(account.backend_type)
