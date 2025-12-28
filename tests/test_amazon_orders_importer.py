@@ -593,12 +593,13 @@ class TestAmazonNoEncryption:
         assert cache_mgr.fernet is None
         assert cache_mgr.encryption_key is None
 
-    def test_cache_manager_save_raises_without_encryption(
+    def test_cache_manager_saves_unencrypted_without_key(
         self, temp_config_dir, sample_orders_csv, temp_db
     ):
-        """CacheManager.save_cache should raise ValueError without encryption key."""
+        """CacheManager should save unencrypted cache when encryption key is None."""
+        from pathlib import Path
+
         import polars as pl
-        import pytest
 
         from moneyflow.cache_manager import CacheManager
 
@@ -609,9 +610,21 @@ class TestAmazonNoEncryption:
         categories = {"cat_1": "Category 1"}
         category_groups = {}
 
-        # Should raise ValueError, not crash with unclear error
-        with pytest.raises(ValueError, match="encryption key not set"):
-            cache_mgr.save_cache(df, categories, category_groups)
+        # Should save without encryption (no longer raises ValueError)
+        cache_mgr.save_cache(df, categories, category_groups)
+
+        # Verify unencrypted files were created (not .enc extension)
+        cache_dir = Path(temp_config_dir)
+        assert (cache_dir / "hot_transactions.parquet").exists()
+        assert (cache_dir / "categories.json").exists()
+        assert not (cache_dir / "hot_transactions.parquet.enc").exists()
+
+        # Verify we can load the cache back
+        result = cache_mgr.load_cache()
+        assert result is not None
+        loaded_df, loaded_categories, _, _ = result
+        assert len(loaded_df) == 1
+        assert loaded_categories == categories
 
     @pytest.mark.asyncio
     async def test_data_manager_works_without_cache(

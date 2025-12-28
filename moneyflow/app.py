@@ -461,7 +461,15 @@ class MoneyflowApp(App):
         logger.debug(f"Credentials exist: {cred_manager.credentials_exist()}")
 
         if cred_manager.credentials_exist():
-            # Show unlock screen
+            # Check if credentials are encrypted or plaintext
+            if cred_manager.is_plaintext():
+                # Plaintext credentials - load directly without unlock screen
+                logger.debug("Loading plaintext credentials (no encryption)")
+                creds, _ = cred_manager.load_credentials()
+                self.encryption_key = None  # No encryption key for plaintext
+                return creds
+
+            # Encrypted credentials - show unlock screen
             result = await self.push_screen(CredentialUnlockScreen(), wait_for_dismiss=True)
 
             if result is None:
@@ -593,7 +601,15 @@ class MoneyflowApp(App):
 
                 return account.id, profile_dir, creds
 
-            # Load existing credentials
+            # Check if credentials are plaintext (no encryption)
+            if cred_manager.is_plaintext():
+                # Plaintext credentials - load directly without unlock screen
+                logger.debug(f"Loading plaintext credentials for account {account.id}")
+                creds, _ = cred_manager.load_credentials()
+                self.encryption_key = None  # No encryption key for plaintext
+                return account.id, profile_dir, creds
+
+            # Encrypted credentials - show unlock screen
             creds = await self.push_screen(
                 CredentialUnlockScreen(profile_dir=profile_dir), wait_for_dismiss=True
             )

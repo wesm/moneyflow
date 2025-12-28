@@ -1,8 +1,12 @@
 """
 Secure credential management for finance backend authentication.
 
-Stores encrypted credentials in ~/.moneyflow/credentials.enc
-Uses Fernet symmetric encryption with a user-provided password.
+Supports two storage modes:
+1. Encrypted: Credentials stored in ~/.moneyflow/credentials.enc using
+   Fernet symmetric encryption with a user-provided password.
+2. Unencrypted: Credentials stored in ~/.moneyflow/credentials.json as
+   plaintext JSON with file permissions restricted to owner only.
+
 Supports multiple backends (Monarch Money, YNAB, etc.).
 """
 
@@ -11,7 +15,7 @@ import json
 import os
 from getpass import getpass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -20,15 +24,20 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 class CredentialManager:
     """
-    Manages encrypted credentials for finance backends.
+    Manages credentials for finance backends with optional encryption.
 
-    Supports two modes:
-    1. Multi-account mode (profile_dir specified):
-       Credentials stored in {profile_dir}/credentials.enc
+    Supports three modes:
+    1. Encrypted mode: Credentials stored in credentials.enc with Fernet encryption
+    2. Unencrypted mode: Credentials stored in credentials.json as plaintext
+    3. Auto-detect: Checks for existing credentials and determines mode
+
+    Also supports:
+    - Multi-account mode (profile_dir specified):
+       Credentials stored in {profile_dir}/credentials.{enc|json}
        Each account has isolated credentials/salt
 
-    2. Legacy mode (profile_dir=None):
-       Credentials stored in {config_dir}/credentials.enc
+    - Legacy mode (profile_dir=None):
+       Credentials stored in {config_dir}/credentials.{enc|json}
        Single account (backward compatible)
     """
 
@@ -57,6 +66,7 @@ class CredentialManager:
 
         self.storage_dir = storage_dir
         self.credentials_file = storage_dir / "credentials.enc"
+        self.plaintext_credentials_file = storage_dir / "credentials.json"
         self.salt_file = storage_dir / "salt"
 
         # Create storage directory if it doesn't exist
@@ -101,8 +111,24 @@ class CredentialManager:
             return salt
 
     def credentials_exist(self) -> bool:
-        """Check if credentials file exists."""
+        """Check if credentials file exists (encrypted or plaintext)."""
+        return self.credentials_file.exists() or self.plaintext_credentials_file.exists()
+
+    def is_encrypted(self) -> bool:
+        """Check if existing credentials are encrypted.
+
+        Returns:
+            True if encrypted credentials exist, False if plaintext or no credentials.
+        """
         return self.credentials_file.exists()
+
+    def is_plaintext(self) -> bool:
+        """Check if existing credentials are plaintext (unencrypted).
+
+        Returns:
+            True if plaintext credentials exist, False otherwise.
+        """
+        return self.plaintext_credentials_file.exists() and not self.credentials_file.exists()
 
     def save_credentials(
         self,
@@ -111,36 +137,24 @@ class CredentialManager:
         mfa_secret: str,
         encryption_password: Optional[str] = None,
         backend_type: str = "monarch",
+        use_encryption: bool = True,
     ) -> None:
         """
-        Save encrypted credentials to disk.
+        Save credentials to disk, optionally encrypted.
 
         Args:
             email: Backend account email
             password: Backend account password
             mfa_secret: OTP/TOTP secret for 2FA
             encryption_password: Password to encrypt credentials.
-                                If None, will prompt user.
+                                Required if use_encryption=True.
+                                If None and use_encryption=True, will prompt user.
             backend_type: Backend type (e.g., 'monarch', 'ynab').
                          Defaults to 'monarch' for backward compatibility.
+            use_encryption: If True, encrypt credentials with password.
+                           If False, store as plaintext JSON (default: True).
         """
-        # Get encryption password
-        if encryption_password is None:
-            print("Set a password to encrypt your credentials:")
-            encryption_password = getpass("Encryption password: ")
-            confirm = getpass("Confirm password: ")
-
-            if encryption_password != confirm:
-                raise ValueError("Passwords do not match!")
-
-        # Get or create salt
-        salt = self._get_or_create_salt()
-
-        # Derive encryption key
-        key = self._derive_key(encryption_password, salt)
-        fernet = Fernet(key)
-
-        # Prepare credentials (now includes backend_type)
+        # Prepare credentials
         credentials = {
             "email": email,
             "password": password,
@@ -148,37 +162,93 @@ class CredentialManager:
             "backend_type": backend_type,
         }
 
-        # Encrypt and save
-        encrypted = fernet.encrypt(json.dumps(credentials).encode())
+        if use_encryption:
+            # Get encryption password if not provided
+            if encryption_password is None:
+                print("Set a password to encrypt your credentials:")
+                encryption_password = getpass("Encryption password: ")
+                confirm = getpass("Confirm password: ")
 
-        with open(self.credentials_file, "wb") as f:
-            f.write(encrypted)
+                if encryption_password != confirm:
+                    raise ValueError("Passwords do not match!")
 
-        # Ensure only user can read
-        os.chmod(self.credentials_file, 0o600)
+            # Get or create salt
+            salt = self._get_or_create_salt()
 
-        print(f"✓ Credentials saved to {self.credentials_file}")
+            # Derive encryption key
+            key = self._derive_key(encryption_password, salt)
+            fernet = Fernet(key)
+
+            # Encrypt and save
+            encrypted = fernet.encrypt(json.dumps(credentials).encode())
+
+            with open(self.credentials_file, "wb") as f:
+                f.write(encrypted)
+
+            # Ensure only user can read
+            os.chmod(self.credentials_file, 0o600)
+
+            # Remove plaintext file if it exists (switching from plaintext to encrypted)
+            if self.plaintext_credentials_file.exists():
+                self.plaintext_credentials_file.unlink()
+
+            print(f"✓ Encrypted credentials saved to {self.credentials_file}")
+        else:
+            # Save as plaintext JSON with restricted permissions
+            with open(self.plaintext_credentials_file, "w") as f:
+                json.dump(credentials, f, indent=2)
+
+            # Ensure only user can read (important for plaintext!)
+            os.chmod(self.plaintext_credentials_file, 0o600)
+
+            # Remove encrypted file and salt if they exist (switching from encrypted to plaintext)
+            if self.credentials_file.exists():
+                self.credentials_file.unlink()
+            if self.salt_file.exists():
+                self.salt_file.unlink()
+
+            print(f"✓ Credentials saved to {self.plaintext_credentials_file}")
 
     def load_credentials(
         self, encryption_password: Optional[str] = None
-    ) -> tuple[Dict[str, str], bytes]:
+    ) -> Tuple[Dict[str, str], Optional[bytes]]:
         """
-        Load and decrypt credentials from disk.
+        Load credentials from disk (encrypted or plaintext).
+
+        Automatically detects whether credentials are encrypted or plaintext.
+        For encrypted credentials, requires encryption_password.
+        For plaintext credentials, encryption_password is ignored.
 
         Args:
             encryption_password: Password to decrypt credentials.
-                                If None, will prompt user.
+                                Required for encrypted credentials.
+                                If None and encrypted, will prompt user.
+                                Ignored for plaintext credentials.
 
         Returns:
             Tuple of:
             - Dictionary with 'email', 'password', 'mfa_secret', and 'backend_type' keys.
               For backward compatibility, 'backend_type' defaults to 'monarch' if not present.
-            - Encryption key (32-byte URL-safe base64-encoded) for use with cache encryption
+            - Encryption key (32-byte URL-safe base64-encoded) for use with cache encryption,
+              or None if credentials are plaintext.
 
         Raises:
             FileNotFoundError: If credentials file doesn't exist
-            ValueError: If password is incorrect
+            ValueError: If password is incorrect (encrypted mode only)
         """
+        # Check for plaintext credentials first
+        if self.plaintext_credentials_file.exists():
+            with open(self.plaintext_credentials_file, "r") as f:
+                credentials = json.load(f)
+
+            # Backward compatibility: add backend_type if not present
+            if "backend_type" not in credentials:
+                credentials["backend_type"] = "monarch"
+
+            # No encryption key for plaintext credentials
+            return credentials, None
+
+        # Check for encrypted credentials
         if not self.credentials_file.exists():
             raise FileNotFoundError(
                 f"Credentials file not found: {self.credentials_file}\n"
@@ -214,13 +284,24 @@ class CredentialManager:
             raise ValueError("Incorrect password!")
 
     def delete_credentials(self) -> None:
-        """Delete stored credentials."""
+        """Delete stored credentials (encrypted and/or plaintext)."""
+        deleted = False
+
         if self.credentials_file.exists():
             self.credentials_file.unlink()
-            print(f"✓ Credentials deleted from {self.credentials_file}")
+            print(f"✓ Encrypted credentials deleted from {self.credentials_file}")
+            deleted = True
+
+        if self.plaintext_credentials_file.exists():
+            self.plaintext_credentials_file.unlink()
+            print(f"✓ Plaintext credentials deleted from {self.plaintext_credentials_file}")
+            deleted = True
 
         if self.salt_file.exists():
             self.salt_file.unlink()
+
+        if not deleted:
+            print("No credentials found to delete.")
 
 
 def setup_credentials_interactive() -> None:
@@ -228,7 +309,7 @@ def setup_credentials_interactive() -> None:
     Interactive setup for storing finance backend credentials.
 
     This walks the user through selecting a backend and entering their credentials
-    with encryption setup.
+    with optional encryption.
     """
     print("=" * 70)
     print("Finance Backend Credential Setup")
@@ -257,9 +338,6 @@ def setup_credentials_interactive() -> None:
         print("Monarch Money Credential Setup")
         print("=" * 70)
         print()
-        print("This will securely store your Monarch Money credentials")
-        print("encrypted with a password of your choice.")
-        print()
         print("IMPORTANT: You'll need your 2FA/OTP secret key for automatic login.")
         print("This is the BASE32 secret shown when you first set up 2FA")
         print("(usually a long string like: JBSWY3DPEHPK3PXP)")
@@ -286,9 +364,6 @@ def setup_credentials_interactive() -> None:
         print("YNAB Credential Setup")
         print("=" * 70)
         print()
-        print("This will securely store your YNAB Personal Access Token")
-        print("encrypted with a password of your choice.")
-        print()
         print("How to get your YNAB Personal Access Token:")
         print("  1. Sign in to the YNAB web app")
         print("  2. Go to Account Settings → Developer Settings")
@@ -304,24 +379,56 @@ def setup_credentials_interactive() -> None:
         password = access_token
         mfa_secret = ""
 
+    # Ask about encryption
+    print()
+    print("=" * 70)
+    print("Security Options")
+    print("=" * 70)
+    print()
+    print("Would you like to password-protect your stored credentials?")
+    print()
+    print("  y = Yes, encrypt with a password (more secure)")
+    print("  n = No, store without encryption (more convenient)")
+    print()
+    print("Note: Either way, credentials are stored with restricted file permissions.")
+    print("Password protection adds an extra layer of security if someone gains")
+    print("access to your computer.")
+    print()
+
+    encrypt_choice = input("Password protect credentials? [n]: ").strip().lower() or "n"
+    use_encryption = encrypt_choice in ("y", "yes")
+
     # Save credentials with backend type
     manager = CredentialManager()
-    manager.save_credentials(email, password, mfa_secret, backend_type=backend_type)
+
+    if use_encryption:
+        # Let save_credentials prompt for the encryption password
+        manager.save_credentials(
+            email, password, mfa_secret, backend_type=backend_type, use_encryption=True
+        )
+        cred_file = manager.credentials_file
+        extra_step = "  2. You'll need to enter your encryption password each time"
+    else:
+        manager.save_credentials(
+            email, password, mfa_secret, backend_type=backend_type, use_encryption=False
+        )
+        cred_file = manager.plaintext_credentials_file
+        extra_step = "  2. No password needed - credentials load automatically"
 
     print()
     print("=" * 70)
     print("✓ Setup Complete!")
     print("=" * 70)
     print()
-    print("Your credentials are encrypted and stored at:")
-    print(f"  {manager.credentials_file}")
+    print("Your credentials are stored at:")
+    print(f"  {cred_file}")
     print()
     print("Next steps:")
     print("  1. Run the TUI: uv run moneyflow")
-    print("  2. You'll only need to enter your encryption password")
+    print(extra_step)
     print()
     print("To reset credentials:")
-    print(f"  rm {manager.credentials_file}")
+    print(f"  rm {cred_file}")
     print("  uv run moneyflow")
     print()
     print("=" * 70)

@@ -207,6 +207,31 @@ class CredentialSetupScreen(ModalScreen):
         margin-bottom: 1;
     }
 
+    #encryption-section {
+        margin-top: 1;
+        padding: 1;
+        border: dashed $text-muted;
+    }
+
+    #encryption-toggle-container {
+        layout: horizontal;
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    #encryption-toggle-label {
+        width: auto;
+        margin-right: 1;
+    }
+
+    .encryption-fields {
+        display: none;
+    }
+
+    .encryption-fields.visible {
+        display: block;
+    }
+
     #button-container {
         layout: horizontal;
         width: 100%;
@@ -244,12 +269,6 @@ class CredentialSetupScreen(ModalScreen):
             if self.backend_type == "ynab":
                 yield Label("🔐 YNAB Credential Setup", id="setup-title")
 
-                yield Static(
-                    "This will securely store your YNAB Personal Access Token\n"
-                    "encrypted with a password of your choice.",
-                    classes="setup-help",
-                )
-
                 yield Label("YNAB Personal Access Token:", classes="setup-label")
                 yield Static(
                     "Get this from: Account Settings → Developer Settings → New Token",
@@ -263,12 +282,6 @@ class CredentialSetupScreen(ModalScreen):
                 )
             else:
                 yield Label("🔐 Monarch Money Credential Setup", id="setup-title")
-
-                yield Static(
-                    "This will securely store your Monarch Money credentials\n"
-                    "encrypted with a password of your choice.",
-                    classes="setup-help",
-                )
 
                 yield Label("Monarch Money Email:", classes="setup-label")
                 yield Input(placeholder="your@email.com", id="email-input", classes="setup-input")
@@ -293,30 +306,57 @@ class CredentialSetupScreen(ModalScreen):
                     classes="setup-input",
                 )
 
-            yield Label("Encryption Password (for moneyflow):", classes="setup-label")
-            yield Static(
-                "Create a NEW password to encrypt your stored credentials", classes="setup-help"
-            )
-            yield Input(
-                placeholder="encryption password",
-                password=True,
-                id="encrypt-pass-input",
-                classes="setup-input",
-            )
+            # Encryption toggle section
+            with Container(id="encryption-section"):
+                yield Checkbox(
+                    "Password protect stored credentials",
+                    value=False,
+                    id="encryption-checkbox",
+                )
+                yield Static(
+                    "Adds an encryption layer. Uncheck for auto-login convenience.\n"
+                    "Either way, credentials have restricted file permissions.",
+                    classes="setup-help",
+                )
 
-            yield Label("Confirm Encryption Password:", classes="setup-label")
-            yield Input(
-                placeholder="confirm password",
-                password=True,
-                id="confirm-pass-input",
-                classes="setup-input",
-            )
+                # Encryption password fields (hidden by default)
+                with Container(id="encryption-fields", classes="encryption-fields"):
+                    yield Label("Encryption Password:", classes="setup-label")
+                    yield Input(
+                        placeholder="encryption password",
+                        password=True,
+                        id="encrypt-pass-input",
+                        classes="setup-input",
+                    )
+
+                    yield Label("Confirm Encryption Password:", classes="setup-label")
+                    yield Input(
+                        placeholder="confirm password",
+                        password=True,
+                        id="confirm-pass-input",
+                        classes="setup-input",
+                    )
 
             with Container(id="button-container"):
                 yield Button("Save Credentials", variant="primary", id="save-button")
                 yield Button("Exit", variant="default", id="exit-button")
 
             yield Label("", id="error-label")
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Toggle encryption password fields visibility."""
+        if event.checkbox.id == "encryption-checkbox":
+            encryption_fields = self.query_one("#encryption-fields", Container)
+            if event.value:
+                encryption_fields.add_class("visible")
+            else:
+                encryption_fields.remove_class("visible")
+                # Clear the encryption password fields when unchecked
+                try:
+                    self.query_one("#encrypt-pass-input", Input).value = ""
+                    self.query_one("#confirm-pass-input", Input).value = ""
+                except Exception:
+                    pass
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "exit-button":
@@ -330,18 +370,27 @@ class CredentialSetupScreen(ModalScreen):
         """Validate and save credentials."""
         error_label = self.query_one("#error-label", Label)
 
-        encrypt_pass = self.query_one("#encrypt-pass-input", Input).value
-        confirm_pass = self.query_one("#confirm-pass-input", Input).value
+        # Check if encryption is enabled
+        use_encryption = self.query_one("#encryption-checkbox", Checkbox).value
 
-        if encrypt_pass != confirm_pass:
-            error_label.update("❌ Encryption passwords do not match!")
-            return
+        encrypt_pass = ""
+        if use_encryption:
+            encrypt_pass = self.query_one("#encrypt-pass-input", Input).value
+            confirm_pass = self.query_one("#confirm-pass-input", Input).value
+
+            if encrypt_pass != confirm_pass:
+                error_label.update("❌ Encryption passwords do not match!")
+                return
+
+            if not encrypt_pass:
+                error_label.update("❌ Please enter an encryption password")
+                return
 
         if self.backend_type == "ynab":
             password = self.query_one("#password-input", Input).value.strip()
 
-            if not password or not encrypt_pass:
-                error_label.update("❌ Please fill in all fields")
+            if not password:
+                error_label.update("❌ Please enter your YNAB access token")
                 return
 
             email = ""
@@ -351,8 +400,8 @@ class CredentialSetupScreen(ModalScreen):
             password = self.query_one("#password-input", Input).value
             mfa_secret = self.query_one("#mfa-input", Input).value.strip().replace(" ", "").upper()
 
-            if not email or not password or not mfa_secret or not encrypt_pass:
-                error_label.update("❌ Please fill in all fields")
+            if not email or not password or not mfa_secret:
+                error_label.update("❌ Please fill in all credential fields")
                 return
 
             if "@" not in email:
@@ -369,13 +418,16 @@ class CredentialSetupScreen(ModalScreen):
                 email=email,
                 password=password,
                 mfa_secret=mfa_secret,
-                encryption_password=encrypt_pass,
+                encryption_password=encrypt_pass if use_encryption else None,
                 backend_type=self.backend_type,
+                use_encryption=use_encryption,
             )
 
             # Load credentials back to get the encryption key for cache encryption
-            _, encryption_key = cred_manager.load_credentials(encryption_password=encrypt_pass)
-            self.app.encryption_key = encryption_key
+            _, encryption_key = cred_manager.load_credentials(
+                encryption_password=encrypt_pass if use_encryption else None
+            )
+            self.app.encryption_key = encryption_key  # Will be None if unencrypted
 
             error_label.update("✅ Credentials saved! Loading app...")
 
