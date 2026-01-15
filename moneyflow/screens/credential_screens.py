@@ -210,26 +210,11 @@ class CredentialSetupScreen(ModalScreen):
     #encryption-section {
         margin-top: 1;
         padding: 1;
-        border: dashed $text-muted;
+        border: round $text-muted;
     }
 
-    #encryption-toggle-container {
-        layout: horizontal;
-        height: auto;
-        margin-bottom: 1;
-    }
-
-    #encryption-toggle-label {
-        width: auto;
-        margin-right: 1;
-    }
-
-    .encryption-fields {
+    #encryption-fields {
         display: none;
-    }
-
-    .encryption-fields.visible {
-        display: block;
     }
 
     #button-container {
@@ -348,9 +333,9 @@ class CredentialSetupScreen(ModalScreen):
         if event.checkbox.id == "encryption-checkbox":
             encryption_fields = self.query_one("#encryption-fields", Container)
             if event.value:
-                encryption_fields.add_class("visible")
+                encryption_fields.display = True
             else:
-                encryption_fields.remove_class("visible")
+                encryption_fields.display = False
                 # Clear the encryption password fields when unchecked
                 try:
                     self.query_one("#encrypt-pass-input", Input).value = ""
