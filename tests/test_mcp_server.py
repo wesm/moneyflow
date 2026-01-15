@@ -532,3 +532,84 @@ class TestIntegration:
         # Both should be created - the flag is stored internally
         assert mcp_ro is not None
         assert mcp_rw is not None
+
+
+# ============================================================================
+# Test: Tool Function Signatures
+# ============================================================================
+
+
+class TestToolFunctionSignatures:
+    """Tests that tool functions have valid signatures (no invalid parameters)."""
+
+    def test_fetch_all_data_signature(self):
+        """Verify fetch_all_data has the expected signature (no force_refresh)."""
+        import inspect
+        from moneyflow.data_manager import DataManager
+
+        sig = inspect.signature(DataManager.fetch_all_data)
+        param_names = list(sig.parameters.keys())
+
+        # fetch_all_data should NOT have force_refresh parameter
+        assert "force_refresh" not in param_names
+
+        # It should have these parameters
+        assert "self" in param_names
+        assert "start_date" in param_names
+        assert "end_date" in param_names
+        assert "progress_callback" in param_names
+
+    def test_refresh_data_does_not_use_invalid_params(self):
+        """Verify refresh_data tool doesn't use invalid parameters."""
+        # This test verifies our fix by checking the source code
+        import inspect
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # The refresh_data function should NOT call fetch_all_data(force_refresh=True)
+        # It should just call fetch_all_data() without that parameter
+        assert "force_refresh=True" not in source
+
+
+# ============================================================================
+# Test: Literal String Matching (Security)
+# ============================================================================
+
+
+class TestLiteralStringMatching:
+    """Tests that merchant filtering uses literal string matching, not regex."""
+
+    def test_merchant_filter_uses_literal_true(self):
+        """Verify merchant filters use literal=True to prevent regex injection."""
+        import inspect
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # All str.contains calls with merchant should use literal=True
+        # Count occurrences of the pattern
+        contains_calls = source.count(".str.contains(merchant")
+
+        # Each should have literal=True
+        literal_calls = source.count(".str.contains(merchant.lower(), literal=True)")
+
+        # All merchant contains calls should use literal=True
+        assert contains_calls == literal_calls
+        assert contains_calls >= 2  # At least get_transactions and get_uncategorized
+
+    def test_regex_characters_in_merchant_name(self, sample_transactions):
+        """Verify regex special characters in merchant don't cause regex matching."""
+        # This tests that a merchant name with regex characters
+        # would be treated literally, not as regex
+        merchant_with_regex = "Amazon.*"  # Would match everything in regex mode
+
+        # With literal=True, this should match literally
+        results = sample_transactions.filter(
+            pl.col("merchant").str.to_lowercase().str.contains(
+                merchant_with_regex.lower(), literal=True
+            )
+        )
+
+        # Should NOT match "Amazon" because we're looking for literal "amazon.*"
+        assert len(results) == 0

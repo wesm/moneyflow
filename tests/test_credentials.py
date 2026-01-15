@@ -588,3 +588,176 @@ class TestProfileDirectory:
         assert creds_business["backend_type"] == "monarch"
         assert creds_personal["email"] == "personal@example.com"
         assert creds_business["email"] == "business@example.com"
+
+
+# ============================================================================
+# Test: Plaintext Credentials
+# ============================================================================
+
+
+class TestPlaintextCredentials:
+    """Tests for plaintext (unencrypted) credential storage."""
+
+    def test_save_plaintext_credentials(self, credential_manager, temp_config_dir):
+        """Test saving credentials without encryption."""
+        credential_manager.save_credentials(
+            email="test@example.com",
+            password="test_password_123",
+            mfa_secret="TESTSECRET123456",
+            use_encryption=False,
+        )
+
+        # Should create plaintext file, not encrypted file
+        plaintext_file = temp_config_dir / "credentials.json"
+        encrypted_file = temp_config_dir / "credentials.enc"
+
+        assert plaintext_file.exists()
+        assert not encrypted_file.exists()
+
+    def test_plaintext_file_permissions(self, credential_manager, temp_config_dir):
+        """Test that plaintext credential file has restricted permissions."""
+        credential_manager.save_credentials(
+            email="test@example.com",
+            password="test_password_123",
+            mfa_secret="TESTSECRET123456",
+            use_encryption=False,
+        )
+
+        plaintext_file = temp_config_dir / "credentials.json"
+        stat_info = plaintext_file.stat()
+        # Should be owner read/write only (0600)
+        assert oct(stat_info.st_mode)[-3:] == "600"
+
+    def test_load_plaintext_credentials(self, credential_manager):
+        """Test loading plaintext credentials."""
+        credential_manager.save_credentials(
+            email="test@example.com",
+            password="test_password_123",
+            mfa_secret="TESTSECRET123456",
+            use_encryption=False,
+        )
+
+        creds, key = credential_manager.load_credentials()
+
+        assert creds["email"] == "test@example.com"
+        assert creds["password"] == "test_password_123"
+        assert creds["mfa_secret"] == "TESTSECRET123456"
+        # No encryption key for plaintext credentials
+        assert key is None
+
+    def test_is_encrypted_returns_false_for_plaintext(self, credential_manager):
+        """Test is_encrypted() returns False for plaintext credentials."""
+        credential_manager.save_credentials(
+            email="test@example.com",
+            password="test_password_123",
+            mfa_secret="TESTSECRET123456",
+            use_encryption=False,
+        )
+
+        assert not credential_manager.is_encrypted()
+        assert credential_manager.is_plaintext()
+
+    def test_is_encrypted_returns_true_for_encrypted(self, credential_manager):
+        """Test is_encrypted() returns True for encrypted credentials."""
+        credential_manager.save_credentials(
+            email="test@example.com",
+            password="test_password_123",
+            mfa_secret="TESTSECRET123456",
+            encryption_password="test_encrypt_pass",
+            use_encryption=True,
+        )
+
+        assert credential_manager.is_encrypted()
+        assert not credential_manager.is_plaintext()
+
+    def test_plaintext_removes_encrypted_on_save(self, credential_manager, temp_config_dir):
+        """Test saving plaintext removes existing encrypted credentials."""
+        # First save encrypted
+        credential_manager.save_credentials(
+            email="old@example.com",
+            password="old_pass",
+            mfa_secret="OLDSECRET",
+            encryption_password="encrypt_pass",
+            use_encryption=True,
+        )
+
+        encrypted_file = temp_config_dir / "credentials.enc"
+        assert encrypted_file.exists()
+
+        # Now save plaintext
+        credential_manager.save_credentials(
+            email="new@example.com",
+            password="new_pass",
+            mfa_secret="NEWSECRET",
+            use_encryption=False,
+        )
+
+        # Encrypted file should be removed
+        assert not encrypted_file.exists()
+        assert (temp_config_dir / "credentials.json").exists()
+
+
+class TestCredentialPrecedence:
+    """Tests for credential loading precedence when both files exist."""
+
+    def test_encrypted_takes_precedence_over_plaintext(self, credential_manager, temp_config_dir):
+        """Test that encrypted credentials are loaded when both exist."""
+        # Save plaintext first
+        credential_manager.save_credentials(
+            email="plaintext@example.com",
+            password="plaintext_pass",
+            mfa_secret="PLAINTEXTSECRET",
+            use_encryption=False,
+        )
+
+        # Manually create an encrypted file (simulating edge case)
+        # We need to use the save mechanism but then also create plaintext
+        credential_manager.save_credentials(
+            email="encrypted@example.com",
+            password="encrypted_pass",
+            mfa_secret="ENCRYPTEDSECRET",
+            encryption_password="test_pass",
+            use_encryption=True,
+        )
+
+        # Now manually recreate plaintext to have both files
+        plaintext_file = temp_config_dir / "credentials.json"
+        plaintext_file.write_text(json.dumps({
+            "email": "plaintext@example.com",
+            "password": "plaintext_pass",
+            "mfa_secret": "PLAINTEXTSECRET",
+            "backend_type": "monarch",
+        }))
+
+        # Both files should now exist
+        assert (temp_config_dir / "credentials.enc").exists()
+        assert plaintext_file.exists()
+
+        # Loading should prefer encrypted
+        creds, key = credential_manager.load_credentials(encryption_password="test_pass")
+
+        assert creds["email"] == "encrypted@example.com"
+        assert key is not None  # Should have encryption key
+
+    def test_is_plaintext_false_when_both_exist(self, credential_manager, temp_config_dir):
+        """Test is_plaintext() returns False when both encrypted and plaintext exist."""
+        # Create encrypted file
+        credential_manager.save_credentials(
+            email="encrypted@example.com",
+            password="encrypted_pass",
+            mfa_secret="ENCRYPTEDSECRET",
+            encryption_password="test_pass",
+            use_encryption=True,
+        )
+
+        # Manually create plaintext file too
+        plaintext_file = temp_config_dir / "credentials.json"
+        plaintext_file.write_text(json.dumps({
+            "email": "plaintext@example.com",
+            "password": "plaintext_pass",
+            "mfa_secret": "PLAINTEXTSECRET",
+        }))
+
+        # is_plaintext should return False because encrypted exists
+        assert credential_manager.is_encrypted()
+        assert not credential_manager.is_plaintext()

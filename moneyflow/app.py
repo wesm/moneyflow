@@ -361,9 +361,10 @@ class MoneyflowApp(App):
             backend_type=backend_type,
         )
 
-        # Initialize cache manager (only if encryption key available)
-        # Backends like Amazon don't have encryption keys and don't need caching
-        if self.cache_path is not None and self.encryption_key is not None:
+        # Initialize cache manager for backends that support caching
+        # cache_path is None for backends like Amazon that don't need caching
+        # encryption_key can be None for plaintext credentials (CacheManager supports both modes)
+        if self.cache_path is not None:
             # Determine cache directory
             if self.cache_path == "":
                 # Default cache location - use profile-specific or legacy location

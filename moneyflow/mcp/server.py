@@ -275,7 +275,7 @@ def create_mcp_server(
         if category:
             df = df.filter(pl.col("category") == category)
         if merchant:
-            df = df.filter(pl.col("merchant").str.to_lowercase().str.contains(merchant.lower()))
+            df = df.filter(pl.col("merchant").str.to_lowercase().str.contains(merchant.lower(), literal=True))
         if min_amount is not None:
             df = df.filter(pl.col("amount") >= min_amount)
         if max_amount is not None:
@@ -460,8 +460,8 @@ def create_mcp_server(
 
         dm = _state["data_manager"]
 
-        # Force refresh from API
-        df, categories, category_groups = await dm.fetch_all_data(force_refresh=True)
+        # Fetch fresh data from API (DataManager doesn't use cache)
+        df, categories, category_groups = await dm.fetch_all_data()
 
         _state["transactions_df"] = df
         _state["categories"] = categories
@@ -509,7 +509,7 @@ def create_mcp_server(
 
         if merchant:
             uncategorized = uncategorized.filter(
-                pl.col("merchant").str.to_lowercase().str.contains(merchant.lower())
+                pl.col("merchant").str.to_lowercase().str.contains(merchant.lower(), literal=True)
             )
 
         records = _df_to_records(uncategorized, limit=limit)

@@ -236,8 +236,13 @@ class CredentialManager:
             FileNotFoundError: If credentials file doesn't exist
             ValueError: If password is incorrect (encrypted mode only)
         """
-        # Check for plaintext credentials first
-        if self.plaintext_credentials_file.exists():
+        # Prefer encrypted credentials when both exist (security-first approach)
+        # This matches the is_encrypted() / is_plaintext() method semantics
+        if self.credentials_file.exists():
+            # Load encrypted credentials
+            pass  # Fall through to encrypted loading below
+        elif self.plaintext_credentials_file.exists():
+            # Only use plaintext if no encrypted file exists
             with open(self.plaintext_credentials_file, "r") as f:
                 credentials = json.load(f)
 
@@ -247,9 +252,7 @@ class CredentialManager:
 
             # No encryption key for plaintext credentials
             return credentials, None
-
-        # Check for encrypted credentials
-        if not self.credentials_file.exists():
+        else:
             raise FileNotFoundError(
                 f"Credentials file not found: {self.credentials_file}\n"
                 "Run with --setup-credentials to create one."
