@@ -210,7 +210,7 @@ class CredentialSetupScreen(ModalScreen):
     #encryption-section {
         margin-top: 1;
         padding: 1;
-        border: round $text-muted;
+        border: round $primary;
     }
 
     #encryption-fields {

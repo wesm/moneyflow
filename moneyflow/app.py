@@ -304,8 +304,7 @@ class MoneyflowApp(App):
             self.query_one("#loading", LoadingIndicator).display = False
             self.query_one("#loading-status", Static).display = False
 
-            # Attempt to use saved session or show login prompt
-            # Must run in a worker to use push_screen with wait_for_dismiss
+            # Start data initialization in a worker
             self.run_worker(self.initialize_data(), exclusive=True)
         except Exception as e:
             # Try to show error to user
