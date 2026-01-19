@@ -15,6 +15,7 @@ This ensures sensitive financial data is protected at rest.
 import io
 import json
 import logging
+import os
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -24,6 +25,32 @@ import polars as pl
 from cryptography.fernet import Fernet, InvalidToken
 
 logger = logging.getLogger(__name__)
+
+
+def _secure_write_file(path: Path, data: bytes, mode: str = "wb") -> None:
+    """
+    Write data to a file with restrictive permissions (0o600) from creation.
+
+    This avoids the chmod race condition where a file is created with default
+    permissions and then chmod'd, leaving a window where others could read it.
+
+    Args:
+        path: Path to write to
+        data: Data to write (bytes for 'wb', will be encoded for 'w')
+        mode: 'wb' for binary, 'w' for text
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(fd, mode) as f:
+            if mode == "w" and isinstance(data, bytes):
+                f.write(data.decode())
+            elif mode == "wb" and isinstance(data, str):
+                f.write(data.encode())
+            else:
+                f.write(data)
+    except Exception:
+        raise
 
 
 class RefreshStrategy(Enum):
@@ -382,28 +409,24 @@ class CacheManager:
             return json.load(f)
 
     def _save_metadata(self, metadata: Dict[str, Any]) -> None:
-        """Save cache metadata."""
-        with open(self.metadata_file, "w") as f:
-            json.dump(metadata, f, indent=2)
+        """Save cache metadata with secure permissions."""
+        json_data = json.dumps(metadata, indent=2)
+        _secure_write_file(self.metadata_file, json_data, "w")
 
     def _save_parquet(self, df: pl.DataFrame, file_path: Path) -> None:
         """Save DataFrame as Parquet file (encrypted or plain based on mode)."""
+        # Always write to buffer first, then use secure write
+        buffer = io.BytesIO()
+        df.write_parquet(buffer)
+        parquet_bytes = buffer.getvalue()
+
         if self.is_encrypted:
             # Encrypted mode
-            buffer = io.BytesIO()
-            df.write_parquet(buffer)
-            parquet_bytes = buffer.getvalue()
             encrypted_parquet = self.fernet.encrypt(parquet_bytes)
-
-            with open(file_path, "wb") as f:
-                f.write(encrypted_parquet)
+            _secure_write_file(file_path, encrypted_parquet, "wb")
         else:
-            # Unencrypted mode - write directly
-            df.write_parquet(file_path)
-            # Restrict file permissions (only owner can read/write)
-            import os
-
-            os.chmod(file_path, 0o600)
+            # Unencrypted mode - write with secure permissions from creation
+            _secure_write_file(file_path, parquet_bytes, "wb")
 
     def _load_parquet(self, file_path: Path) -> Optional[pl.DataFrame]:
         """Load DataFrame from Parquet file (encrypted or plain based on mode)."""
@@ -460,21 +483,15 @@ class CacheManager:
             "categories": categories,
             "category_groups": category_groups,
         }
+        categories_json = json.dumps(cache_data, indent=2)
 
         if self.is_encrypted:
             # Encrypted mode
-            categories_json = json.dumps(cache_data, indent=2)
             encrypted_categories = self.fernet.encrypt(categories_json.encode())
-            with open(self.categories_file, "wb") as f:
-                f.write(encrypted_categories)
+            _secure_write_file(self.categories_file, encrypted_categories, "wb")
         else:
-            # Unencrypted mode - write as plain JSON
-            import os
-
-            with open(self.categories_file, "w") as f:
-                json.dump(cache_data, f, indent=2)
-            # Restrict file permissions
-            os.chmod(self.categories_file, 0o600)
+            # Unencrypted mode - write with secure permissions from creation
+            _secure_write_file(self.categories_file, categories_json, "w")
 
     def save_cache(
         self,

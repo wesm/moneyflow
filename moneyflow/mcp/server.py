@@ -525,7 +525,8 @@ def create_mcp_server(
     @mcp.tool()
     async def update_transaction_category(
         transaction_id: str,
-        category_name: str,
+        category_name: Optional[str] = None,
+        category_id: Optional[str] = None,
         dry_run: bool = False,
     ) -> str:
         """
@@ -536,13 +537,36 @@ def create_mcp_server(
 
         Args:
             transaction_id: The unique ID of the transaction to update
-            category_name: The name of the category to assign (must be an existing category)
+            category_name: The name of the category to assign (use category_id if names are ambiguous)
+            category_id: The ID of the category to assign (preferred for disambiguation)
             dry_run: If True, validate and show what would change without committing
+
+        Note: Provide either category_name or category_id, not both. Use category_id
+        when multiple categories share the same name.
 
         Returns:
             JSON object with update status
         """
         await _ensure_initialized()
+
+        # Validate parameters
+        if not category_name and not category_id:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Either category_name or category_id must be provided",
+                },
+                indent=2,
+            )
+
+        if category_name and category_id:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Provide either category_name or category_id, not both",
+                },
+                indent=2,
+            )
 
         # Check read-only mode
         if _state["read_only"] and not dry_run:
@@ -558,23 +582,56 @@ def create_mcp_server(
         df = _state["transactions_df"]
         categories = _state["categories"]
 
-        # Find the category ID
-        category_id = None
-        for cat_id, cat_name in categories.items():
-            if cat_name.lower() == category_name.lower():
-                category_id = cat_id
-                break
+        # Resolve category - by ID or by name
+        if category_id:
+            # Direct ID lookup
+            if category_id not in categories:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Category ID '{category_id}' not found",
+                    },
+                    indent=2,
+                )
+            resolved_category_id = category_id
+        else:
+            # Name lookup with duplicate detection
+            matching_categories = [
+                (cat_id, cat_name)
+                for cat_id, cat_name in categories.items()
+                if cat_name.lower() == category_name.lower()
+            ]
 
-        if not category_id:
-            available = sorted(set(categories.values()))
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": f"Category '{category_name}' not found",
-                    "available_categories": available[:50],  # Limit to avoid huge response
-                },
-                indent=2,
-            )
+            if not matching_categories:
+                available = sorted(set(categories.values()))
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Category '{category_name}' not found",
+                        "available_categories": available[:50],
+                    },
+                    indent=2,
+                )
+
+            if len(matching_categories) > 1:
+                # Multiple categories with same name - require ID for disambiguation
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Multiple categories named '{category_name}' exist. "
+                        "Please use category_id parameter instead.",
+                        "matching_categories": [
+                            {"id": cat_id, "name": cat_name}
+                            for cat_id, cat_name in matching_categories
+                        ],
+                    },
+                    indent=2,
+                )
+
+            resolved_category_id = matching_categories[0][0]
+
+        # Get the resolved category name
+        resolved_category_name = categories[resolved_category_id]
 
         # Find the transaction
         tx_rows = df.filter(pl.col("id") == transaction_id)
@@ -599,7 +656,7 @@ def create_mcp_server(
                         "amount": _format_amount(tx.get("amount", 0)),
                         "date": str(tx.get("date")),
                         "old_category": old_category,
-                        "new_category": category_name,
+                        "new_category": resolved_category_name,
                     },
                 },
                 indent=2,
@@ -609,13 +666,13 @@ def create_mcp_server(
         try:
             await dm.mm.update_transaction(
                 transaction_id=transaction_id,
-                category_id=category_id,
+                category_id=resolved_category_id,
             )
 
             # Update local DataFrame
             _state["transactions_df"] = df.with_columns(
                 pl.when(pl.col("id") == transaction_id)
-                .then(pl.lit(category_name))
+                .then(pl.lit(resolved_category_name))
                 .otherwise(pl.col("category"))
                 .alias("category")
             )
@@ -625,7 +682,7 @@ def create_mcp_server(
                     "status": "success",
                     "transaction_id": transaction_id,
                     "old_category": old_category,
-                    "new_category": category_name,
+                    "new_category": resolved_category_name,
                 },
                 indent=2,
             )
