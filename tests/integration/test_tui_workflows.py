@@ -11,11 +11,11 @@ with mock backends. They catch issues like:
 All tests use tmp_path to avoid polluting production ~/.moneyflow directory.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from textual.widgets import DataTable
+from textual.containers import Container
+from textual.widgets import Checkbox, DataTable
 
 from moneyflow.app import MoneyflowApp
 from moneyflow.screens.account_selector_screen import AccountSelectorScreen
@@ -58,19 +58,19 @@ class TestScreenCSSValidation:
         assert screen is not None
         # If we get here, CSS parsed successfully
 
-    def test_credential_setup_screen_css_parses(self):
+    def test_credential_setup_screen_css_parses(self, tmp_path):
         """CredentialSetupScreen CSS should parse without errors."""
-        screen = CredentialSetupScreen(backend_type="monarch", profile_dir=Path("/tmp/test"))
+        screen = CredentialSetupScreen(backend_type="monarch", profile_dir=tmp_path)
         assert screen is not None
 
-    def test_credential_setup_screen_ynab_css_parses(self):
+    def test_credential_setup_screen_ynab_css_parses(self, tmp_path):
         """CredentialSetupScreen for YNAB should parse without errors."""
-        screen = CredentialSetupScreen(backend_type="ynab", profile_dir=Path("/tmp/test"))
+        screen = CredentialSetupScreen(backend_type="ynab", profile_dir=tmp_path)
         assert screen is not None
 
-    def test_credential_unlock_screen_css_parses(self):
+    def test_credential_unlock_screen_css_parses(self, tmp_path):
         """CredentialUnlockScreen CSS should parse without errors."""
-        screen = CredentialUnlockScreen(profile_dir=Path("/tmp/test"))
+        screen = CredentialUnlockScreen(profile_dir=tmp_path)
         assert screen is not None
 
     def test_quit_confirmation_screen_css_parses(self):
@@ -248,7 +248,7 @@ class TestAccountSelectionWorkflow:
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             # Push the account selector screen
             screen = AccountSelectorScreen(config_dir=str(tmp_path))
@@ -265,7 +265,7 @@ class TestAccountSelectionWorkflow:
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = AccountSelectorScreen(config_dir=str(tmp_path))
             app.push_screen(screen)
@@ -286,12 +286,17 @@ class TestAccountSelectionWorkflow:
 # ============================================================================
 
 
-async def _wait_for_app_ready(app, pilot, attempts=40):
-    """Wait for app to initialize (theme CSS loaded)."""
+async def _wait_for_app_ready(app, pilot, attempts=40) -> bool:
+    """Wait for app to initialize (theme CSS loaded).
+
+    Returns True if app became ready, False on timeout.
+    Callers should assert the return value to catch initialization failures.
+    """
     for _ in range(attempts):
         if app.controller is not None and app.state.current_data is not None:
-            return
+            return True
         await pilot.pause()
+    return False
 
 
 class TestCredentialSetupWorkflow:
@@ -299,12 +304,12 @@ class TestCredentialSetupWorkflow:
 
     @pytest.mark.integration
     async def test_credential_setup_screen_mounts(self, tmp_path):
-        """Credential setup screen should mount without errors."""
+        """Credential setup screen should mount with expected widgets."""
         app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize (loads theme CSS)
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = CredentialSetupScreen(
                 backend_type="monarch",
@@ -316,15 +321,24 @@ class TestCredentialSetupWorkflow:
             # Screen should be displayed (pushed onto stack)
             assert isinstance(app.screen, CredentialSetupScreen)
 
+            # Verify key widgets are present
+            email_input = screen.query("#email-input")
+            assert len(list(email_input)) == 1, "Email input should be present"
+
+            password_input = screen.query("#password-input")
+            assert len(list(password_input)) == 1, "Password input should be present"
+
+            encryption_checkbox = screen.query("#encryption-checkbox")
+            assert len(list(encryption_checkbox)) == 1, "Encryption checkbox should be present"
+
     @pytest.mark.integration
     async def test_credential_setup_encryption_toggle(self, tmp_path):
-        """Encryption checkbox should toggle password fields."""
-
+        """Encryption checkbox should toggle password fields visibility."""
         app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize (loads theme CSS)
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = CredentialSetupScreen(
                 backend_type="monarch",
@@ -337,6 +351,30 @@ class TestCredentialSetupWorkflow:
             # Screen should be displayed
             assert isinstance(app.screen, CredentialSetupScreen)
 
+            # Get encryption checkbox and fields
+            checkbox = screen.query_one("#encryption-checkbox", Checkbox)
+            encryption_fields = screen.query_one("#encryption-fields", Container)
+
+            # By default, encryption is unchecked (for auto-login convenience)
+            assert checkbox.value is False, "Encryption should be disabled by default"
+            assert encryption_fields.display is False, "Encryption fields should be hidden"
+
+            # Toggle checkbox on to enable encryption
+            checkbox.toggle()
+            await pilot.pause()
+
+            # Fields should now be visible
+            assert checkbox.value is True, "Encryption should be enabled after toggle"
+            assert encryption_fields.display is True, "Encryption fields should be visible"
+
+            # Toggle checkbox back off
+            checkbox.toggle()
+            await pilot.pause()
+
+            # Fields should be hidden again
+            assert checkbox.value is False, "Encryption should be disabled"
+            assert encryption_fields.display is False, "Encryption fields should be hidden again"
+
     @pytest.mark.integration
     async def test_backend_selection_screen_mounts(self, tmp_path):
         """Backend selection screen should mount without errors."""
@@ -344,7 +382,7 @@ class TestCredentialSetupWorkflow:
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize (loads theme CSS)
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = BackendSelectionScreen()
             app.push_screen(screen)
@@ -399,7 +437,7 @@ class TestEditWorkflow:
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = SelectCategoryScreen(
                 categories={
@@ -420,7 +458,7 @@ class TestEditWorkflow:
 
         async with app.run_test() as pilot:
             # Wait for app to fully initialize
-            await _wait_for_app_ready(app, pilot)
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
 
             screen = EditMerchantScreen(
                 current_merchant="Test Store",
@@ -437,30 +475,24 @@ class TestEditWorkflow:
 # ============================================================================
 
 
-class TestMockBackendIntegration:
-    """Test app functionality with mock backends."""
-
-    @pytest.fixture
-    def mock_backend(self):
-        """Create a mock backend for testing."""
-        from tests.mock_backend import MockMonarchMoney
-        return MockMonarchMoney()
+class TestDemoModeDataLoading:
+    """Test app data loading in demo mode."""
 
     @pytest.mark.integration
-    async def test_app_loads_with_mock_backend(self, tmp_path, mock_backend):
-        """App should load data from mock backend."""
-        # This test verifies the integration between app and backend
-        # without making real API calls
-
+    async def test_demo_mode_populates_state_data(self, tmp_path):
+        """Demo mode should populate app state with sample data."""
         app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
 
         async with app.run_test() as pilot:
             # Wait for demo mode to initialize
+            ready = False
             for _ in range(40):
                 if app.controller is not None and app.state.current_data is not None:
+                    ready = True
                     break
                 await pilot.pause()
 
+            assert ready, "App failed to initialize in demo mode"
             # App should have data
             assert app.state.current_data is not None
             assert len(app.state.current_data) > 0
