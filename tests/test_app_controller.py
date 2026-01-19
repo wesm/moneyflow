@@ -57,7 +57,7 @@ class TestViewRefresh:
         # Should have updated table
         assert len(mock_view.table_updates) == 1
         update = mock_view.get_last_table_update()
-        assert update["column_count"] == 5  # Merchant, Count, Total, Top Category, Flags
+        assert update["column_count"] == 6  # Merchant, Count, Total, %, Top Category, Flags
         assert update["row_count"] > 0  # Should have data
 
     async def test_refresh_view_with_force_rebuild_true(self, controller, mock_view):
@@ -123,13 +123,14 @@ class TestViewModes:
         controller.refresh_view()
 
         update = mock_view.get_last_table_update()
-        assert update["column_count"] == 5
-        # Columns should be: Merchant, Count, Total, Top Category, Flags
+        assert update["column_count"] == 6
+        # Columns should be: Merchant, Count, Total, %, Top Category, Flags
         assert update["columns"][0]["key"] == "merchant"
         assert update["columns"][1]["key"] == "count"
         assert update["columns"][2]["key"] == "total"
-        assert update["columns"][3]["key"] == "top_category_display"
-        assert update["columns"][4]["key"] == "flags"
+        assert update["columns"][3]["key"] == "pct"
+        assert update["columns"][4]["key"] == "top_category_display"
+        assert update["columns"][5]["key"] == "flags"
 
     async def test_category_view(self, controller, mock_view):
         """Test category aggregation view."""
@@ -138,7 +139,7 @@ class TestViewModes:
         controller.refresh_view()
 
         update = mock_view.get_last_table_update()
-        assert update["column_count"] == 4
+        assert update["column_count"] == 5  # Category, Count, Total, %, Flags
         assert update["columns"][0]["key"] == "category"
 
     async def test_detail_view(self, controller, mock_view):

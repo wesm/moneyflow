@@ -305,6 +305,7 @@ class ViewPresenter:
             },
             {"label": f"Count {count_arrow}".strip(), "key": "count", "width": 10},
             {"label": total_label_text, "key": "total", "width": None},  # Auto-size to content
+            {"label": "%", "key": "pct", "width": 6},  # Percentage of total
         ]
 
         # Add top category column for merchant view
@@ -398,6 +399,14 @@ class ViewPresenter:
 
         rows: list[tuple] = []
 
+        # Compute separate totals for income (positive) and expenses (negative)
+        if not df.is_empty():
+            total_income = df.filter(pl.col("total") > 0)["total"].sum()
+            total_expenses = abs(df.filter(pl.col("total") < 0)["total"].sum())
+        else:
+            total_income = 0.0
+            total_expenses = 0.0
+
         for row_dict in df.iter_rows(named=True):
             # Get the name from first column (merchant/category/group/account/time_period_display)
             name = str(row_dict.get(df.columns[0], "Unknown") or "Unknown")
@@ -429,11 +438,29 @@ class ViewPresenter:
             if name in groups_with_pending_edits:
                 flags += "*"
 
+            # Calculate percentage relative to income or expense total
+            # Income (positive) shown in green, expenses in standard color
+            if total > 0:
+                # Income: percentage of total income
+                if total_income > 0:
+                    pct = total / total_income * 100
+                    pct_display: Union[str, Text] = Text(f"{pct:.1f}%", style="green")
+                else:
+                    pct_display = Text("0.0%", style="green")
+            else:
+                # Expense: percentage of total expenses
+                if total_expenses > 0:
+                    pct = abs(total) / total_expenses * 100
+                    pct_display = f"{pct:.1f}%"
+                else:
+                    pct_display = "0.0%"
+
             # Build base row data
-            row_data = [
+            row_data: list[Union[str, Text]] = [
                 name,
                 str(count),
                 ViewPresenter.format_amount(total, for_table=True),
+                pct_display,
             ]
 
             # Add top category for merchant view
