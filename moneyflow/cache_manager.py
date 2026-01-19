@@ -16,7 +16,6 @@ import io
 import json
 import logging
 import os
-import shutil
 import tempfile
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -412,7 +411,7 @@ class CacheManager:
                 # Stream write directly to temp file (no memory buffering)
                 df.write_parquet(temp_path)
                 # Atomic rename to final location
-                shutil.move(temp_path, file_path)
+                os.replace(temp_path, file_path)
             except Exception:
                 if fd >= 0:
                     try:

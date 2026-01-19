@@ -6,7 +6,6 @@ avoiding race conditions where files briefly have default permissions.
 """
 
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Union
@@ -75,12 +74,15 @@ def secure_atomic_write(path: Path, data: bytes) -> None:
     fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_")
     try:
         os.fchmod(fd, 0o600)
-        os.write(fd, data)
-        os.close(fd)
-        fd = -1  # Mark as closed
+        # Use fdopen for proper write handling (handles short writes, interrupts)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        fd = -1  # Mark as closed (fdopen took ownership)
 
-        # Atomic rename
-        shutil.move(temp_path, path)
+        # Atomic rename - os.replace is guaranteed atomic on same filesystem
+        os.replace(temp_path, path)
     except Exception:
         if fd >= 0:
             try:

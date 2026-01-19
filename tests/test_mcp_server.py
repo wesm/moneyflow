@@ -692,3 +692,284 @@ class TestUpdateTransactionCategoryParams:
         assert "for cat_id, cat_name in matching_categories" in source
         assert '"id": cat_id' in source
         assert '"name": cat_name' in source
+
+
+# ============================================================================
+# Functional Tests: update_transaction_category
+# ============================================================================
+
+
+class TestUpdateTransactionCategoryFunctional:
+    """Functional tests that actually call the MCP tool and verify responses."""
+
+    @pytest.fixture
+    def mock_account(self):
+        """Create a mock account object with required attributes."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            id="test-account",
+            name="Test Account",
+            backend_type="demo",
+            budget_id=None,
+        )
+
+    @pytest.fixture
+    def categories_with_duplicates(self):
+        """Categories with duplicate names for disambiguation testing."""
+        return {
+            "cat1": "Shopping",
+            "cat2": "Food & Drink",
+            "cat3": "Groceries",
+            "cat4": "Shopping",  # Duplicate name!
+            "cat5": "Uncategorized",
+        }
+
+    @pytest.mark.asyncio
+    async def test_missing_both_params_returns_error(
+        self, sample_transactions, sample_categories, mock_account
+    ):
+        """Should return error when neither category_name nor category_id is provided."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        # Patch imports at their source modules (they're imported inside create_mcp_server)
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            # Set up account manager mock
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+
+            # Set up credential manager mock
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
+                None,
+            )
+
+            # Set up backend mock
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            # Set up data manager mock
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(
+                return_value=(sample_transactions, sample_categories, {})
+            )
+            mock_dm_cls.return_value = mock_dm
+
+            # Create server with mocked dependencies
+            mcp = create_mcp_server()
+
+            # Call the tool without category_name or category_id
+            result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "tx1", "dry_run": True},
+            )
+
+            # Parse response
+            content_list, extras = result
+            response_text = content_list[0].text
+            response = json.loads(response_text)
+
+            # Verify error response
+            assert response["status"] == "error"
+            assert "Either category_name or category_id must be provided" in response["message"]
+
+    @pytest.mark.asyncio
+    async def test_both_params_returns_error(
+        self, sample_transactions, sample_categories, mock_account
+    ):
+        """Should return error when both category_name and category_id are provided."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
+                None,
+            )
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(
+                return_value=(sample_transactions, sample_categories, {})
+            )
+            mock_dm_cls.return_value = mock_dm
+
+            mcp = create_mcp_server()
+
+            # Call with both params
+            result = await mcp.call_tool(
+                "update_transaction_category",
+                {
+                    "transaction_id": "tx1",
+                    "category_name": "Shopping",
+                    "category_id": "cat1",
+                    "dry_run": True,
+                },
+            )
+
+            content_list, extras = result
+            response = json.loads(content_list[0].text)
+
+            assert response["status"] == "error"
+            assert "Provide either category_name or category_id, not both" in response["message"]
+
+    @pytest.mark.asyncio
+    async def test_duplicate_names_returns_disambiguation_error(
+        self, sample_transactions, categories_with_duplicates, mock_account
+    ):
+        """Should return error with matching IDs when category name is ambiguous."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
+                None,
+            )
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(
+                return_value=(sample_transactions, categories_with_duplicates, {})
+            )
+            mock_dm_cls.return_value = mock_dm
+
+            mcp = create_mcp_server()
+
+            # Call with duplicate category name
+            result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "tx1", "category_name": "Shopping", "dry_run": True},
+            )
+
+            content_list, extras = result
+            response = json.loads(content_list[0].text)
+
+            assert response["status"] == "error"
+            assert "Multiple categories named 'Shopping' exist" in response["message"]
+            assert "matching_categories" in response
+            assert len(response["matching_categories"]) == 2
+
+            # Verify both IDs are included
+            matching_ids = {c["id"] for c in response["matching_categories"]}
+            assert "cat1" in matching_ids
+            assert "cat4" in matching_ids
+
+    @pytest.mark.asyncio
+    async def test_category_id_bypasses_name_lookup(
+        self, sample_transactions, categories_with_duplicates, mock_account
+    ):
+        """Should successfully use category_id even when names are duplicate."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
+                None,
+            )
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(
+                return_value=(sample_transactions, categories_with_duplicates, {})
+            )
+            mock_dm_cls.return_value = mock_dm
+
+            mcp = create_mcp_server()
+
+            # Call with specific category_id (should work despite duplicate names)
+            result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "tx1", "category_id": "cat4", "dry_run": True},
+            )
+
+            content_list, extras = result
+            response = json.loads(content_list[0].text)
+
+            # Should succeed as dry_run
+            assert response["status"] == "dry_run"
+            assert response["would_update"]["new_category"] == "Shopping"
+
+    @pytest.mark.asyncio
+    async def test_invalid_category_id_returns_error(
+        self, sample_transactions, sample_categories, mock_account
+    ):
+        """Should return error when category_id doesn't exist."""
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
+                None,
+            )
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(
+                return_value=(sample_transactions, sample_categories, {})
+            )
+            mock_dm_cls.return_value = mock_dm
+
+            mcp = create_mcp_server()
+
+            # Call with nonexistent category_id
+            result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "tx1", "category_id": "nonexistent", "dry_run": True},
+            )
+
+            content_list, extras = result
+            response = json.loads(content_list[0].text)
+
+            assert response["status"] == "error"
+            assert "Category ID 'nonexistent' not found" in response["message"]
