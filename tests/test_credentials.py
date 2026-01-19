@@ -722,12 +722,16 @@ class TestCredentialPrecedence:
 
         # Now manually recreate plaintext to have both files
         plaintext_file = temp_config_dir / "credentials.json"
-        plaintext_file.write_text(json.dumps({
-            "email": "plaintext@example.com",
-            "password": "plaintext_pass",
-            "mfa_secret": "PLAINTEXTSECRET",
-            "backend_type": "monarch",
-        }))
+        plaintext_file.write_text(
+            json.dumps(
+                {
+                    "email": "plaintext@example.com",
+                    "password": "plaintext_pass",
+                    "mfa_secret": "PLAINTEXTSECRET",
+                    "backend_type": "monarch",
+                }
+            )
+        )
 
         # Both files should now exist
         assert (temp_config_dir / "credentials.enc").exists()
@@ -752,11 +756,15 @@ class TestCredentialPrecedence:
 
         # Manually create plaintext file too
         plaintext_file = temp_config_dir / "credentials.json"
-        plaintext_file.write_text(json.dumps({
-            "email": "plaintext@example.com",
-            "password": "plaintext_pass",
-            "mfa_secret": "PLAINTEXTSECRET",
-        }))
+        plaintext_file.write_text(
+            json.dumps(
+                {
+                    "email": "plaintext@example.com",
+                    "password": "plaintext_pass",
+                    "mfa_secret": "PLAINTEXTSECRET",
+                }
+            )
+        )
 
         # is_plaintext should return False because encrypted exists
         assert credential_manager.is_encrypted()

@@ -21,33 +21,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-
-def _secure_write_file(path: Path, data: bytes, mode: str = "wb") -> None:
-    """
-    Write data to a file with restrictive permissions (0o600) from creation.
-
-    This avoids the chmod race condition where a file is created with default
-    permissions and then chmod'd, leaving a window where others could read it.
-
-    Args:
-        path: Path to write to
-        data: Data to write (bytes for 'wb', will be encoded for 'w')
-        mode: 'wb' for binary, 'w' for text
-    """
-    # O_WRONLY: write only, O_CREAT: create if not exists, O_TRUNC: truncate if exists
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    fd = os.open(path, flags, 0o600)
-    try:
-        with os.fdopen(fd, mode) as f:
-            if mode == "w" and isinstance(data, bytes):
-                f.write(data.decode())
-            elif mode == "wb" and isinstance(data, str):
-                f.write(data.encode())
-            else:
-                f.write(data)
-    except Exception:
-        # fd is closed by os.fdopen even on error, but re-raise
-        raise
+from .file_utils import secure_write_file
 
 
 class CredentialManager:
@@ -132,7 +106,7 @@ class CredentialManager:
                 return f.read()
         else:
             salt = os.urandom(16)
-            _secure_write_file(self.salt_file, salt, "wb")
+            secure_write_file(self.salt_file, salt, "wb")
             return salt
 
     def credentials_exist(self) -> bool:
@@ -206,7 +180,7 @@ class CredentialManager:
 
             # Encrypt and save with secure permissions from creation
             encrypted = fernet.encrypt(json.dumps(credentials).encode())
-            _secure_write_file(self.credentials_file, encrypted, "wb")
+            secure_write_file(self.credentials_file, encrypted, "wb")
 
             # Remove plaintext file if it exists (switching from plaintext to encrypted)
             if self.plaintext_credentials_file.exists():
@@ -216,7 +190,7 @@ class CredentialManager:
         else:
             # Save as plaintext JSON with secure permissions from creation
             json_data = json.dumps(credentials, indent=2)
-            _secure_write_file(self.plaintext_credentials_file, json_data, "w")
+            secure_write_file(self.plaintext_credentials_file, json_data, "w")
 
             # Remove encrypted file and salt if they exist (switching from encrypted to plaintext)
             if self.credentials_file.exists():

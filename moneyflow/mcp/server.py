@@ -275,7 +275,9 @@ def create_mcp_server(
         if category:
             df = df.filter(pl.col("category") == category)
         if merchant:
-            df = df.filter(pl.col("merchant").str.to_lowercase().str.contains(merchant.lower(), literal=True))
+            df = df.filter(
+                pl.col("merchant").str.to_lowercase().str.contains(merchant.lower(), literal=True)
+            )
         if min_amount is not None:
             df = df.filter(pl.col("amount") >= min_amount)
         if max_amount is not None:
@@ -852,7 +854,9 @@ def create_mcp_server(
         from ..amazon_linker import AmazonLinker
 
         df = _state["transactions_df"]
-        config_path = Path(_state["config_dir"]) if _state["config_dir"] else Path.home() / ".moneyflow"
+        config_path = (
+            Path(_state["config_dir"]) if _state["config_dir"] else Path.home() / ".moneyflow"
+        )
 
         # Find the transaction
         tx_rows = df.filter(pl.col("id") == transaction_id)

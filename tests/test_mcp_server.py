@@ -27,9 +27,7 @@ def sample_transactions():
     return pl.DataFrame(
         {
             "id": ["tx1", "tx2", "tx3", "tx4", "tx5"],
-            "date": [
-                today - timedelta(days=i) for i in range(5)
-            ],
+            "date": [today - timedelta(days=i) for i in range(5)],
             "merchant": ["Amazon", "Starbucks", "Amazon", "Walmart", "Target"],
             "category": ["Shopping", "Food & Drink", "Uncategorized", "Groceries", "Shopping"],
             "amount": [-50.00, -5.50, -125.00, -75.00, -30.00],
@@ -456,10 +454,7 @@ class TestSpendingSummary:
     def test_groups_by_category(self, sample_transactions):
         """Summary should group transactions by category."""
         expenses = sample_transactions.filter(pl.col("amount") < 0)
-        summary = (
-            expenses.group_by("category")
-            .agg([pl.col("amount").sum().alias("total")])
-        )
+        summary = expenses.group_by("category").agg([pl.col("amount").sum().alias("total")])
 
         assert len(summary) > 0
         assert "Shopping" in summary["category"].to_list()
@@ -545,6 +540,7 @@ class TestToolFunctionSignatures:
     def test_fetch_all_data_signature(self):
         """Verify fetch_all_data has the expected signature (no force_refresh)."""
         import inspect
+
         from moneyflow.data_manager import DataManager
 
         sig = inspect.signature(DataManager.fetch_all_data)
@@ -563,6 +559,7 @@ class TestToolFunctionSignatures:
         """Verify refresh_data tool doesn't use invalid parameters."""
         # This test verifies our fix by checking the source code
         import inspect
+
         from moneyflow.mcp.server import create_mcp_server
 
         source = inspect.getsource(create_mcp_server)
@@ -583,6 +580,7 @@ class TestLiteralStringMatching:
     def test_merchant_filter_uses_literal_true(self):
         """Verify merchant filters use literal=True to prevent regex injection."""
         import inspect
+
         from moneyflow.mcp.server import create_mcp_server
 
         source = inspect.getsource(create_mcp_server)
@@ -606,10 +604,91 @@ class TestLiteralStringMatching:
 
         # With literal=True, this should match literally
         results = sample_transactions.filter(
-            pl.col("merchant").str.to_lowercase().str.contains(
-                merchant_with_regex.lower(), literal=True
-            )
+            pl.col("merchant")
+            .str.to_lowercase()
+            .str.contains(merchant_with_regex.lower(), literal=True)
         )
 
         # Should NOT match "Amazon" because we're looking for literal "amazon.*"
         assert len(results) == 0
+
+
+# ============================================================================
+# Test: update_transaction_category Tool Parameter Validation
+# ============================================================================
+
+
+class TestUpdateTransactionCategoryParams:
+    """Tests for update_transaction_category parameter validation and disambiguation."""
+
+    @pytest.fixture
+    def categories_with_duplicates(self):
+        """Categories with duplicate names (can happen across groups/backends)."""
+        return {
+            "cat1": "Shopping",
+            "cat2": "Food & Drink",
+            "cat3": "Groceries",
+            "cat4": "Shopping",  # Duplicate name!
+            "cat5": "Uncategorized",
+        }
+
+    def test_update_category_requires_name_or_id(self):
+        """Should error when neither category_name nor category_id is provided."""
+        import inspect
+
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # Should contain validation for missing params
+        assert "Either category_name or category_id must be provided" in source
+
+    def test_update_category_rejects_both_params(self):
+        """Should error when both category_name and category_id are provided."""
+        import inspect
+
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # Should contain validation for both params
+        assert "Provide either category_name or category_id, not both" in source
+
+    def test_update_category_detects_duplicate_names(self):
+        """Should detect and report duplicate category names."""
+        import inspect
+
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # Should contain duplicate detection logic
+        assert "Multiple categories named" in source
+        assert "Please use category_id parameter instead" in source
+        assert "matching_categories" in source
+
+    def test_update_category_supports_category_id(self):
+        """Should support direct category_id lookup."""
+        import inspect
+
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # Should have category_id parameter and direct lookup
+        assert "category_id: Optional[str]" in source
+        assert "resolved_category_id = category_id" in source
+        assert "Category ID" in source
+
+    def test_duplicate_name_returns_all_matching_ids(self):
+        """When names are ambiguous, error should include all matching IDs."""
+        import inspect
+
+        from moneyflow.mcp.server import create_mcp_server
+
+        source = inspect.getsource(create_mcp_server)
+
+        # Should build list of matching categories with IDs
+        assert "for cat_id, cat_name in matching_categories" in source
+        assert '"id": cat_id' in source
+        assert '"name": cat_name' in source

@@ -109,14 +109,17 @@ class TestScreenCSSValidation:
     def test_duplicates_screen_css_parses(self):
         """DuplicatesScreen CSS should parse without errors."""
         import polars as pl
-        empty_df = pl.DataFrame({
-            "id": [],
-            "date": [],
-            "merchant": [],
-            "amount": [],
-            "category": [],
-            "account": [],
-        })
+
+        empty_df = pl.DataFrame(
+            {
+                "id": [],
+                "date": [],
+                "merchant": [],
+                "amount": [],
+                "category": [],
+                "account": [],
+            }
+        )
         mock_app = MagicMock()
         screen = DuplicatesScreen(
             duplicates_df=empty_df,

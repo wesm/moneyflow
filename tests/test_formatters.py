@@ -257,10 +257,20 @@ class TestFormatAggregationRows:
         # Grand total = 150 + 80 = 230
         # Whole Foods: 150 / 230 = 65.2%, Starbucks: 80 / 230 = 34.8%
         assert normalize_row(rows[0]) == (
-            "Whole Foods", "10", "-150.00", "65.2%", "Groceries 100%", ""
+            "Whole Foods",
+            "10",
+            "-150.00",
+            "65.2%",
+            "Groceries 100%",
+            "",
         )
         assert normalize_row(rows[1]) == (
-            "Starbucks", "20", "-80.00", "34.8%", "Coffee Shops 85%", ""
+            "Starbucks",
+            "20",
+            "-80.00",
+            "34.8%",
+            "Coffee Shops 85%",
+            "",
         )
 
     def test_formats_category_rows(self):
@@ -479,7 +489,12 @@ class TestPrepareAggregationView:
         assert view["columns"][0]["label"] == "Merchant"
         # Grand total = 1234.56 + 89.70 = 1324.26, Amazon: 93.2%
         assert normalize_row(view["rows"][0]) == (
-            "Amazon", "50", "-1,234.56", "93.2%", "Shopping 90%", ""
+            "Amazon",
+            "50",
+            "-1,234.56",
+            "93.2%",
+            "Shopping 90%",
+            "",
         )
 
     def test_empty_dataframe_view(self):

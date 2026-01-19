@@ -16,6 +16,8 @@ import io
 import json
 import logging
 import os
+import shutil
+import tempfile
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -24,33 +26,9 @@ from typing import Any, Dict, Optional, Tuple
 import polars as pl
 from cryptography.fernet import Fernet, InvalidToken
 
+from .file_utils import secure_write_file
+
 logger = logging.getLogger(__name__)
-
-
-def _secure_write_file(path: Path, data: bytes, mode: str = "wb") -> None:
-    """
-    Write data to a file with restrictive permissions (0o600) from creation.
-
-    This avoids the chmod race condition where a file is created with default
-    permissions and then chmod'd, leaving a window where others could read it.
-
-    Args:
-        path: Path to write to
-        data: Data to write (bytes for 'wb', will be encoded for 'w')
-        mode: 'wb' for binary, 'w' for text
-    """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    fd = os.open(path, flags, 0o600)
-    try:
-        with os.fdopen(fd, mode) as f:
-            if mode == "w" and isinstance(data, bytes):
-                f.write(data.decode())
-            elif mode == "wb" and isinstance(data, str):
-                f.write(data.encode())
-            else:
-                f.write(data)
-    except Exception:
-        raise
 
 
 class RefreshStrategy(Enum):
@@ -411,22 +389,41 @@ class CacheManager:
     def _save_metadata(self, metadata: Dict[str, Any]) -> None:
         """Save cache metadata with secure permissions."""
         json_data = json.dumps(metadata, indent=2)
-        _secure_write_file(self.metadata_file, json_data, "w")
+        secure_write_file(self.metadata_file, json_data, "w")
 
     def _save_parquet(self, df: pl.DataFrame, file_path: Path) -> None:
         """Save DataFrame as Parquet file (encrypted or plain based on mode)."""
-        # Always write to buffer first, then use secure write
-        buffer = io.BytesIO()
-        df.write_parquet(buffer)
-        parquet_bytes = buffer.getvalue()
-
         if self.is_encrypted:
-            # Encrypted mode
+            # Encrypted mode - must buffer to encrypt
+            buffer = io.BytesIO()
+            df.write_parquet(buffer)
+            parquet_bytes = buffer.getvalue()
             encrypted_parquet = self.fernet.encrypt(parquet_bytes)
-            _secure_write_file(file_path, encrypted_parquet, "wb")
+            secure_write_file(file_path, encrypted_parquet, "wb")
         else:
-            # Unencrypted mode - write with secure permissions from creation
-            _secure_write_file(file_path, parquet_bytes, "wb")
+            # Unencrypted mode - use streaming write with atomic rename for security
+            # Write to temp file with secure permissions, then atomic rename
+            dir_path = file_path.parent
+            fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_parquet_")
+            try:
+                os.fchmod(fd, 0o600)
+                os.close(fd)
+                fd = -1  # Mark as closed
+                # Stream write directly to temp file (no memory buffering)
+                df.write_parquet(temp_path)
+                # Atomic rename to final location
+                shutil.move(temp_path, file_path)
+            except Exception:
+                if fd >= 0:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise
 
     def _load_parquet(self, file_path: Path) -> Optional[pl.DataFrame]:
         """Load DataFrame from Parquet file (encrypted or plain based on mode)."""
@@ -488,10 +485,10 @@ class CacheManager:
         if self.is_encrypted:
             # Encrypted mode
             encrypted_categories = self.fernet.encrypt(categories_json.encode())
-            _secure_write_file(self.categories_file, encrypted_categories, "wb")
+            secure_write_file(self.categories_file, encrypted_categories, "wb")
         else:
             # Unencrypted mode - write with secure permissions from creation
-            _secure_write_file(self.categories_file, categories_json, "w")
+            secure_write_file(self.categories_file, categories_json, "w")
 
     def save_cache(
         self,
