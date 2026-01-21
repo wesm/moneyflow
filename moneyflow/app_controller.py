@@ -1651,11 +1651,10 @@ class AppController:
                     bulk_merchant_renames,
                 )
 
-            # Clear pending edits on success
-            self.data_manager.pending_edits.clear()
-            logger.info("Cleared pending edits")
-
             # Update cache with edited data (if caching is enabled)
+            # NOTE: Must happen BEFORE clearing pending_edits because `edits` parameter
+            # is the same list object (passed by reference), so clearing pending_edits
+            # would empty the edits list before we can use it for cache updates!
             if self.cache_manager and cache_filters:
                 try:
                     if is_filtered_view:
@@ -1664,10 +1663,54 @@ class AppController:
                         hot_df = self.cache_manager.load_hot_cache()
                         cold_df = self.cache_manager.load_cold_cache()
                         if hot_df is None or cold_df is None:
+                            # This can happen if cache files don't exist, are corrupted,
+                            # or encryption mode changed since they were created.
+                            # We'll try to recover by applying edits to whichever tier
+                            # loaded successfully, and preserve the other.
                             logger.warning(
-                                "Filtered view detected but cache tiers are unavailable; "
-                                "skipping cache update to avoid corruption"
+                                "Filtered view: cache tier(s) unavailable (hot=%s, cold=%s). "
+                                "Attempting partial update to preserve edits.",
+                                hot_df is not None,
+                                cold_df is not None,
                             )
+                            if hot_df is not None:
+                                updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                                    hot_df,
+                                    edits,
+                                    self.data_manager.categories,
+                                    self.data_manager.apply_category_groups,
+                                    bulk_merchant_renames,
+                                )
+                                self.cache_manager.save_hot_cache(
+                                    hot_df=updated_hot,
+                                    categories=self.data_manager.categories,
+                                    category_groups=self.data_manager.category_groups,
+                                )
+                                logger.info("Updated hot cache with edits (cold unavailable)")
+                            if cold_df is not None:
+                                updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                                    cold_df,
+                                    edits,
+                                    self.data_manager.categories,
+                                    self.data_manager.apply_category_groups,
+                                    bulk_merchant_renames,
+                                )
+                                self.cache_manager.save_cold_cache(cold_df=updated_cold)
+                                logger.info("Updated cold cache with edits (hot unavailable)")
+                            if hot_df is None and cold_df is None:
+                                # Neither tier available - cache is likely corrupted or missing
+                                # Save current view data as last resort
+                                logger.error(
+                                    "Neither cache tier could be loaded! "
+                                    "Saving current view data - historical transactions may be lost."
+                                )
+                                self.cache_manager.save_cache(
+                                    transactions_df=self.data_manager.df,
+                                    categories=self.data_manager.categories,
+                                    category_groups=self.data_manager.category_groups,
+                                    year=cache_filters.get("year"),
+                                    since=cache_filters.get("since"),
+                                )
                         else:
                             logger.info("Filtered view detected - updating cached tiers with edits")
                             updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
@@ -1703,6 +1746,10 @@ class AppController:
                 except Exception as e:
                     # Cache update failed - not critical, just log
                     logger.warning(f"Cache update failed: {e}", exc_info=True)
+
+            # Clear pending edits on success (after cache update to preserve edits list)
+            self.data_manager.pending_edits.clear()
+            logger.info("Cleared pending edits")
 
             # Refresh to show updated data (smooth update)
             # Note: View already restored in app.py before commit started

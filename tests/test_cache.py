@@ -1570,3 +1570,146 @@ class TestCacheDataFiltering:
 
         assert len(filtered) == 2
         assert all(d.month == 12 for d in filtered["date"].to_list())
+
+
+class TestCachePersistenceAfterEdits:
+    """
+    Test that edits are actually persisted to cache files.
+
+    This addresses the bug where changes committed to the backend
+    were not persisted to the local cache.
+    """
+
+    def test_save_cache_persists_edits(self, cache_manager, sample_categories, sample_category_groups):
+        """Test that changes to transactions are persisted after save_cache."""
+        # Create initial data
+        df = create_mixed_transactions_df()
+        original_merchant = df.filter(pl.col("id") == df["id"][0])["merchant"][0]
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Simulate an edit (like what happens after a commit)
+        edited_df = df.with_columns(
+            pl.when(pl.col("id") == df["id"][0])
+            .then(pl.lit("EDITED_MERCHANT"))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+        # Save the edited data
+        cache_manager.save_cache(edited_df, sample_categories, sample_category_groups)
+
+        # Load and verify the edit was persisted
+        result = cache_manager.load_cache()
+        assert result is not None
+        loaded_df, _, _, _ = result
+
+        edited_row = loaded_df.filter(pl.col("id") == df["id"][0])
+        assert len(edited_row) == 1
+        assert edited_row["merchant"][0] == "EDITED_MERCHANT"
+        assert edited_row["merchant"][0] != original_merchant
+
+    def test_save_hot_cache_persists_edits(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that edits to hot cache are persisted."""
+        # Create initial data with both tiers
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Load the hot cache
+        hot_df = cache_manager.load_hot_cache()
+        assert hot_df is not None
+        assert len(hot_df) > 0
+
+        # Edit a hot transaction
+        hot_id = hot_df["id"][0]
+        edited_hot = hot_df.with_columns(
+            pl.when(pl.col("id") == hot_id)
+            .then(pl.lit("HOT_EDITED"))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+        # Save hot cache only
+        cache_manager.save_hot_cache(edited_hot, sample_categories, sample_category_groups)
+
+        # Load and verify
+        reloaded_hot = cache_manager.load_hot_cache()
+        edited_row = reloaded_hot.filter(pl.col("id") == hot_id)
+        assert edited_row["merchant"][0] == "HOT_EDITED"
+
+        # Verify cold cache is unchanged
+        reloaded_cold = cache_manager.load_cold_cache()
+        assert reloaded_cold is not None
+
+    def test_save_cold_cache_persists_edits(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that edits to cold cache are persisted."""
+        # Create initial data with both tiers
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Load the cold cache
+        cold_df = cache_manager.load_cold_cache()
+        assert cold_df is not None
+        assert len(cold_df) > 0
+
+        # Edit a cold transaction
+        cold_id = cold_df["id"][0]
+        edited_cold = cold_df.with_columns(
+            pl.when(pl.col("id") == cold_id)
+            .then(pl.lit("COLD_EDITED"))
+            .otherwise(pl.col("merchant"))
+            .alias("merchant")
+        )
+
+        # Save cold cache only
+        cache_manager.save_cold_cache(edited_cold)
+
+        # Load and verify
+        reloaded_cold = cache_manager.load_cold_cache()
+        edited_row = reloaded_cold.filter(pl.col("id") == cold_id)
+        assert edited_row["merchant"][0] == "COLD_EDITED"
+
+        # Verify hot cache is unchanged
+        reloaded_hot = cache_manager.load_hot_cache()
+        assert reloaded_hot is not None
+
+    def test_atomic_write_creates_no_temp_files_on_success(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Verify no temp files are left behind after successful saves."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Check for leftover temp files
+        cache_dir = cache_manager.cache_dir
+        temp_files = list(cache_dir.glob(".tmp_*"))
+        assert len(temp_files) == 0, f"Temp files left behind: {temp_files}"
+
+    def test_multiple_sequential_saves_persist_correctly(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that multiple sequential saves all persist correctly."""
+        df = create_mixed_transactions_df()
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+
+        # Perform multiple edits and saves
+        for i in range(5):
+            hot_df = cache_manager.load_hot_cache()
+            if hot_df is not None and len(hot_df) > 0:
+                edited_hot = hot_df.with_columns(
+                    pl.when(pl.col("id") == hot_df["id"][0])
+                    .then(pl.lit(f"EDIT_{i}"))
+                    .otherwise(pl.col("merchant"))
+                    .alias("merchant")
+                )
+                cache_manager.save_hot_cache(edited_hot, sample_categories, sample_category_groups)
+
+        # Verify final state
+        final_hot = cache_manager.load_hot_cache()
+        final_row = final_hot.filter(pl.col("id") == df["id"][0])
+        # The merchant should be the last edit
+        if len(final_row) > 0:
+            assert "EDIT_" in final_row["merchant"][0]

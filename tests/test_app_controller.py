@@ -647,6 +647,123 @@ class TestCommitHandling:
         updated_merchant = stub_cache.saved_hot.filter(pl.col("id") == edit_id)["merchant"][0]
         assert updated_merchant == "Edited"
 
+    async def test_filtered_view_partial_cache_update_when_cold_unavailable(self, controller):
+        """When cold cache is unavailable, hot should still be updated."""
+        from moneyflow.state import TransactionEdit
+
+        class StubCacheManager:
+            def __init__(self, hot_df):
+                self._hot_df = hot_df
+                self.saved_hot = None
+                self.saved_cold = None
+                self.saved_full = None
+
+            def load_hot_cache(self):
+                return self._hot_df.clone() if self._hot_df is not None else None
+
+            def load_cold_cache(self):
+                return None  # Simulate cold cache unavailable
+
+            def save_hot_cache(self, hot_df, categories, category_groups):
+                self.saved_hot = hot_df
+
+            def save_cold_cache(self, cold_df):
+                self.saved_cold = cold_df
+
+            def save_cache(
+                self, transactions_df, categories, category_groups, year=None, since=None
+            ):
+                self.saved_full = transactions_df
+
+        full_df = controller.data_manager.df
+        hot_df = full_df.head(3)
+
+        edit_id = hot_df["id"][0]
+        old_merchant = hot_df["merchant"][0]
+        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        controller.data_manager.pending_edits = edits.copy()
+        controller.data_manager.df = hot_df.head(1).clone()
+
+        stub_cache = StubCacheManager(hot_df)
+        controller.cache_manager = stub_cache
+
+        saved_state = controller.state.save_view_state()
+        controller.handle_commit_result(
+            success_count=1,
+            failure_count=0,
+            edits=edits,
+            saved_state=saved_state,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
+        )
+
+        # Hot should be saved with edits, cold should not be touched
+        assert stub_cache.saved_hot is not None, "Hot cache should be updated"
+        assert stub_cache.saved_cold is None, "Cold cache should not be updated (was unavailable)"
+        assert stub_cache.saved_full is None, "Full cache should not be called"
+
+        updated_merchant = stub_cache.saved_hot.filter(pl.col("id") == edit_id)["merchant"][0]
+        assert updated_merchant == "Edited"
+
+    async def test_filtered_view_partial_cache_update_when_hot_unavailable(self, controller):
+        """When hot cache is unavailable, cold should still be updated."""
+        from moneyflow.state import TransactionEdit
+
+        class StubCacheManager:
+            def __init__(self, cold_df):
+                self._cold_df = cold_df
+                self.saved_hot = None
+                self.saved_cold = None
+                self.saved_full = None
+
+            def load_hot_cache(self):
+                return None  # Simulate hot cache unavailable
+
+            def load_cold_cache(self):
+                return self._cold_df.clone() if self._cold_df is not None else None
+
+            def save_hot_cache(self, hot_df, categories, category_groups):
+                self.saved_hot = hot_df
+
+            def save_cold_cache(self, cold_df):
+                self.saved_cold = cold_df
+
+            def save_cache(
+                self, transactions_df, categories, category_groups, year=None, since=None
+            ):
+                self.saved_full = transactions_df
+
+        full_df = controller.data_manager.df
+        cold_df = full_df.tail(3)
+
+        # Edit a transaction that's in cold cache
+        edit_id = cold_df["id"][0]
+        old_merchant = cold_df["merchant"][0]
+        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "ColdEdited", datetime.now())]
+        controller.data_manager.pending_edits = edits.copy()
+        controller.data_manager.df = cold_df.head(1).clone()
+
+        stub_cache = StubCacheManager(cold_df)
+        controller.cache_manager = stub_cache
+
+        saved_state = controller.state.save_view_state()
+        controller.handle_commit_result(
+            success_count=1,
+            failure_count=0,
+            edits=edits,
+            saved_state=saved_state,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
+        )
+
+        # Cold should be saved with edits, hot should not be touched
+        assert stub_cache.saved_cold is not None, "Cold cache should be updated"
+        assert stub_cache.saved_hot is None, "Hot cache should not be updated (was unavailable)"
+        assert stub_cache.saved_full is None, "Full cache should not be called"
+
+        updated_merchant = stub_cache.saved_cold.filter(pl.col("id") == edit_id)["merchant"][0]
+        assert updated_merchant == "ColdEdited"
+
 
 class TestEditQueueing:
     """
