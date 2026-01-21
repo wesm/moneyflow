@@ -1580,7 +1580,9 @@ class TestCachePersistenceAfterEdits:
     were not persisted to the local cache.
     """
 
-    def test_save_cache_persists_edits(self, cache_manager, sample_categories, sample_category_groups):
+    def test_save_cache_persists_edits(
+        self, cache_manager, sample_categories, sample_category_groups
+    ):
         """Test that changes to transactions are persisted after save_cache."""
         # Create initial data
         df = create_mixed_transactions_df()

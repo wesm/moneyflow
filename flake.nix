@@ -92,8 +92,8 @@
           format = "wheel";
 
           src = pkgs.fetchurl {
-            url = "https://files.pythonhosted.org/packages/50/0c/f545d60ff7f5616e7212a4edea8f974e486a3887628c0e5a9fa82263e586/typing_inspection-0.4.0-py3-none-any.whl";
-            hash = "sha256-XMRjKFQVAWTwVf7J/dKxcBD7cgDXUV5FuNh+XPERjUA=";
+            url = "https://files.pythonhosted.org/packages/31/08/aa4fdfb71f7de5176385bd9e90852eaf6b5d622735020ad600f2bab54385/typing_inspection-0.4.0-py3-none-any.whl";
+            hash = "sha256-UOclWfzSpjZ6Gfen5hDmr8ufrJQMZQKQ7tiT1hOGgy8=";
           };
 
           dependencies = with pythonPackages; [ typing-extensions ];
