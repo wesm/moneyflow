@@ -764,6 +764,66 @@ class TestCommitHandling:
         updated_merchant = stub_cache.saved_cold.filter(pl.col("id") == edit_id)["merchant"][0]
         assert updated_merchant == "ColdEdited"
 
+    async def test_filtered_view_both_tiers_unavailable_does_not_corrupt_cache(self, controller):
+        """When both cache tiers are unavailable, we should NOT write partial data.
+
+        In filtered view, data_manager.df only contains the filtered subset.
+        Writing it as the full cache would lose historical transactions.
+        Instead, we just log an error - edits are saved to backend.
+        """
+        from moneyflow.state import TransactionEdit
+
+        class StubCacheManager:
+            def __init__(self):
+                self.saved_hot = None
+                self.saved_cold = None
+                self.saved_full = None
+
+            def load_hot_cache(self):
+                return None  # Both tiers unavailable
+
+            def load_cold_cache(self):
+                return None  # Both tiers unavailable
+
+            def save_hot_cache(self, hot_df, categories, category_groups):
+                self.saved_hot = hot_df
+
+            def save_cold_cache(self, cold_df):
+                self.saved_cold = cold_df
+
+            def save_cache(
+                self, transactions_df, categories, category_groups, year=None, since=None
+            ):
+                self.saved_full = transactions_df
+
+        # Set up a filtered view with only partial data
+        full_df = controller.data_manager.df
+        filtered_df = full_df.head(1)  # Only 1 transaction (simulates MTD filter)
+
+        edit_id = filtered_df["id"][0]
+        old_merchant = filtered_df["merchant"][0]
+        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        controller.data_manager.pending_edits = edits.copy()
+        controller.data_manager.df = filtered_df.clone()
+
+        stub_cache = StubCacheManager()
+        controller.cache_manager = stub_cache
+
+        saved_state = controller.state.save_view_state()
+        controller.handle_commit_result(
+            success_count=1,
+            failure_count=0,
+            edits=edits,
+            saved_state=saved_state,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
+        )
+
+        # CRITICAL: No cache writes should happen to avoid data loss
+        assert stub_cache.saved_hot is None, "Hot cache should NOT be written"
+        assert stub_cache.saved_cold is None, "Cold cache should NOT be written"
+        assert stub_cache.saved_full is None, "Full cache should NOT be written (would lose data)"
+
 
 class TestEditQueueing:
     """

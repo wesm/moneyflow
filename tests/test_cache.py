@@ -1697,21 +1697,26 @@ class TestCachePersistenceAfterEdits:
         df = create_mixed_transactions_df()
         cache_manager.save_cache(df, sample_categories, sample_category_groups)
 
+        # Get an ID that's definitely in the hot cache
+        hot_df = cache_manager.load_hot_cache()
+        assert hot_df is not None and len(hot_df) > 0, "Hot cache should have data"
+        target_id = hot_df["id"][0]
+
         # Perform multiple edits and saves
         for i in range(5):
             hot_df = cache_manager.load_hot_cache()
-            if hot_df is not None and len(hot_df) > 0:
-                edited_hot = hot_df.with_columns(
-                    pl.when(pl.col("id") == hot_df["id"][0])
-                    .then(pl.lit(f"EDIT_{i}"))
-                    .otherwise(pl.col("merchant"))
-                    .alias("merchant")
-                )
-                cache_manager.save_hot_cache(edited_hot, sample_categories, sample_category_groups)
+            edited_hot = hot_df.with_columns(
+                pl.when(pl.col("id") == target_id)
+                .then(pl.lit(f"EDIT_{i}"))
+                .otherwise(pl.col("merchant"))
+                .alias("merchant")
+            )
+            cache_manager.save_hot_cache(edited_hot, sample_categories, sample_category_groups)
 
-        # Verify final state
+        # Verify final state - should be the last edit (EDIT_4)
         final_hot = cache_manager.load_hot_cache()
-        final_row = final_hot.filter(pl.col("id") == df["id"][0])
-        # The merchant should be the last edit
-        if len(final_row) > 0:
-            assert "EDIT_" in final_row["merchant"][0]
+        final_row = final_hot.filter(pl.col("id") == target_id)
+        assert len(final_row) == 1, f"Target ID {target_id} should exist in hot cache"
+        assert final_row["merchant"][0] == "EDIT_4", (
+            f"Expected merchant to be 'EDIT_4', got '{final_row['merchant'][0]}'"
+        )
