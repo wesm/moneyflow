@@ -54,7 +54,7 @@
 
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/e1/9b/a181f281f65d776426002f330c31849b86b31fc9d848db62e16f03ff739f/httpx_sse-0.4.0-py3-none-any.whl";
-            hash = "sha256-RLZL45Ho5mHLFiDGJI0oDuFqNNdoiWRDGIlEFJpE9Zo=";
+            hash = "sha256-8ymvbq5X6qK9/ZYrQlJHZK9oB16oc3Ci3pIK9TQeMY8=";
           };
 
           dependencies = with pythonPackages; [ httpx ];
@@ -67,7 +67,7 @@
 
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/b4/46/93416fdae86d40879714f72956ac14df9c7b76f7d41a4d68aa9f71a0028b/pydantic_settings-2.7.1-py3-none-any.whl";
-            hash = "sha256-XG7Ir+EJ5dFk1NZp26rdJWUOGSrHGSXJlYNmjRCXaek=";
+            hash = "sha256-WQvp5uJNBtszpCYoKe3vaCUA7wCFZalpxz051fi/s/0=";
           };
 
           dependencies = with pythonPackages; [ pydantic python-dotenv ];
@@ -80,7 +80,7 @@
 
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/d9/e0/5b8bd393f27f4a62461c5cf2479c75a2cc2ffa330976f9f00f5f6e4f50eb/sse_starlette-2.2.1-py3-none-any.whl";
-            hash = "sha256-zW7dH2dQWCobFKPVBcWK4Q6e/mS1RPy15dDbsP5mPW8=";
+            hash = "sha256-ZBCj07oMiednXUwnOjAdZGScA6XvHKEB8QtH+JX9Dpk=";
           };
 
           dependencies = with pythonPackages; [ starlette anyio ];
@@ -93,7 +93,7 @@
 
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/50/0c/f545d60ff7f5616e7212a4edea8f974e486a3887628c0e5a9fa82263e586/typing_inspection-0.4.0-py3-none-any.whl";
-            hash = "sha256-YQTO0U8h5JwRKQFsVMSbzY8Cw7BRuDgk5GwnfbLZVic=";
+            hash = "sha256-XMRjKFQVAWTwVf7J/dKxcBD7cgDXUV5FuNh+XPERjUA=";
           };
 
           dependencies = with pythonPackages; [ typing-extensions ];
@@ -106,7 +106,7 @@
 
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/e2/fc/6dc7659c2ae5ddf280477011f4213a74f806862856b796ef08f028e664bf/mcp-1.25.0-py3-none-any.whl";
-            hash = "sha256-s3w4FEpmZq3d8oAHcQnJdueYfaiKCaYmJiGYGE8pchE=";
+            hash = "sha256-s3w4FEpmat0IYmFMx57Cdul9cqqMom1iKBjU4ni5cho=";
           };
 
           dependencies = with pythonPackages; [
