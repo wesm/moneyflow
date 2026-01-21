@@ -1698,18 +1698,15 @@ class AppController:
                                 self.cache_manager.save_cold_cache(cold_df=updated_cold)
                                 logger.info("Updated cold cache with edits (hot unavailable)")
                             if hot_df is None and cold_df is None:
-                                # Neither tier available - cache is likely corrupted or missing
-                                # Save current view data as last resort
+                                # Neither tier available - cache is corrupted or missing.
+                                # In filtered view, data_manager.df only contains the filtered
+                                # subset, so we CANNOT safely save it as the full cache (would
+                                # lose historical data). Just log the error - edits are already
+                                # saved to backend, so next --refresh will restore consistency.
                                 logger.error(
-                                    "Neither cache tier could be loaded! "
-                                    "Saving current view data - historical transactions may be lost."
-                                )
-                                self.cache_manager.save_cache(
-                                    transactions_df=self.data_manager.df,
-                                    categories=self.data_manager.categories,
-                                    category_groups=self.data_manager.category_groups,
-                                    year=cache_filters.get("year"),
-                                    since=cache_filters.get("since"),
+                                    "Neither cache tier could be loaded in filtered view! "
+                                    "Cache may be corrupted. Edits saved to backend but not to "
+                                    "local cache. Use --refresh to rebuild cache from backend."
                                 )
                         else:
                             logger.info("Filtered view detected - updating cached tiers with edits")
