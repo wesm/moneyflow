@@ -1,0 +1,75 @@
+#!/bin/bash
+# Generate a changelog since the last release using codex
+# Usage: ./scripts/changelog.sh [version] [start_tag] [extra_instructions]
+# If version is not provided, uses "NEXT" as placeholder
+# If start_tag is "-" or empty, auto-detects the previous tag
+
+set -e
+
+VERSION="${1:-NEXT}"
+START_TAG="$2"
+EXTRA_INSTRUCTIONS="$3"
+
+# Determine the starting point
+if [ -n "$START_TAG" ] && [ "$START_TAG" != "-" ]; then
+    # Use provided start tag
+    RANGE="$START_TAG..HEAD"
+    echo "Generating changelog from $START_TAG to HEAD..." >&2
+else
+    # Auto-detect previous tag
+    PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+    if [ -z "$PREV_TAG" ]; then
+        # No previous tag, use first commit
+        FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+        RANGE="$FIRST_COMMIT..HEAD"
+        echo "No previous release found. Generating changelog for all commits..." >&2
+    else
+        RANGE="$PREV_TAG..HEAD"
+        echo "Generating changelog from $PREV_TAG to HEAD..." >&2
+    fi
+fi
+
+# Get commit log for changelog generation
+COMMITS=$(git log $RANGE --pretty=format:"- %s (%h)" --no-merges)
+DIFF_STAT=$(git diff --stat $RANGE)
+
+if [ -z "$COMMITS" ]; then
+    echo "No commits since $PREV_TAG" >&2
+    exit 0
+fi
+
+# Use codex to generate the changelog
+echo "Using codex to generate changelog..." >&2
+
+TMPFILE=$(mktemp)
+trap 'rm -f "$TMPFILE"' EXIT
+
+codex exec --skip-git-repo-check --sandbox read-only -c reasoning_effort=high -o "$TMPFILE" - >/dev/null <<EOF
+You are generating a changelog for roborev version $VERSION.
+
+IMPORTANT: Do NOT use any tools. Do NOT run any shell commands. Do NOT search or read any files.
+All the information you need is provided below. Simply analyze the commit messages and output the changelog.
+
+Here are the commits since the last release:
+$COMMITS
+
+Here's the diff summary:
+$DIFF_STAT
+
+Please generate a concise, user-focused changelog. Group changes into sections like:
+- New Features
+- Improvements
+- Bug Fixes
+
+Focus on user-visible changes. Skip internal refactoring unless it affects users.
+Keep descriptions brief (one line each). Use present tense.
+Do NOT mention bugs that were introduced and fixed within this same release cycle.
+${EXTRA_INSTRUCTIONS:+
+
+When writing the changelog, look for these features or improvements in the commit log above: $EXTRA_INSTRUCTIONS
+Do NOT search files, read code, or do any analysis outside of the commit log provided above.
+Do NOT search for .roborev.toml or any other files. .roborev.toml is simply a feature of the project mentioned in commits.}
+Output ONLY the changelog content, no preamble.
+EOF
+
+cat "$TMPFILE"
