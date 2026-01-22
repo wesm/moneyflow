@@ -1,0 +1,150 @@
+/* Terminal/Dark theme customizations for moneyflow docs */
+
+:root {
+  /* Terminal color palette */
+  --terminal-bg: #0a0e14;
+  --terminal-fg: #b3b1ad;
+  --terminal-accent: #39bae6;
+  --terminal-green: #59c2ff;
+  --terminal-purple: #b77ee0;
+  --terminal-pink: #ff8f40;
+}
+
+/* Hero section with terminal aesthetic */
+.md-typeset .hero {
+  background: linear-gradient(135deg, var(--terminal-bg) 0%, #1a1f2e 100%);
+  padding: 4rem 2rem;
+  border-radius: 8px;
+  border: 1px solid rgba(57, 186, 230, 0.2);
+  margin: 2rem 0;
+  text-align: center;
+}
+
+.md-typeset .hero h1 {
+  font-size: 3.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--terminal-accent), var(--terminal-purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-bottom: 1rem;
+}
+
+.md-typeset .hero .tagline {
+  font-size: 1.5rem;
+  color: var(--terminal-green);
+  font-family: 'Fira Code', monospace;
+  margin-bottom: 2rem;
+}
+
+/* Terminal window effect for code blocks */
+.md-typeset pre {
+  background-color: var(--terminal-bg);
+  border: 1px solid rgba(57, 186, 230, 0.3);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.md-typeset code {
+  background-color: rgba(57, 186, 230, 0.1);
+  color: var(--terminal-accent);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: 'Fira Code', monospace;
+}
+
+/* Feature grid */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.feature-card {
+  background: rgba(57, 186, 230, 0.05);
+  border: 1px solid rgba(57, 186, 230, 0.2);
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.feature-card:hover {
+  border-color: var(--terminal-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(57, 186, 230, 0.2);
+}
+
+.feature-card h3 {
+  color: var(--terminal-accent);
+  margin-top: 0;
+  font-family: 'Fira Code', monospace;
+}
+
+/* Install command highlight */
+.install-command {
+  background: linear-gradient(135deg, rgba(57, 186, 230, 0.1), rgba(183, 126, 224, 0.1));
+  border-left: 4px solid var(--terminal-accent);
+  padding: 1.5rem;
+  border-radius: 4px;
+  margin: 2rem 0;
+  font-family: 'Fira Code', monospace;
+  font-size: 1.1rem;
+}
+
+/* Keyboard shortcut styling */
+.md-typeset kbd {
+  background-color: rgba(57, 186, 230, 0.2);
+  border: 1px solid var(--terminal-accent);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  color: var(--terminal-accent);
+  font-family: 'Fira Code', monospace;
+  padding: 0.2em 0.5em;
+  font-size: 0.9em;
+}
+
+/* Custom admonitions for terminal aesthetic */
+.md-typeset .admonition.terminal {
+  border-left: 4px solid var(--terminal-accent);
+  background-color: rgba(10, 14, 20, 0.6);
+}
+
+/* Screenshot placeholder styling */
+.screenshot {
+  border: 2px solid rgba(57, 186, 230, 0.3);
+  border-radius: 8px;
+  margin: 2rem 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* Stats/metrics display */
+.metrics {
+  display: flex;
+  justify-content: space-around;
+  margin: 2rem 0;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.metric {
+  text-align: center;
+  padding: 1rem;
+  background: rgba(57, 186, 230, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(57, 186, 230, 0.2);
+  min-width: 150px;
+}
+
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: var(--terminal-accent);
+  font-family: 'Fira Code', monospace;
+}
+
+.metric-label {
+  font-size: 0.9rem;
+  color: var(--terminal-fg);
+  margin-top: 0.5rem;
+}

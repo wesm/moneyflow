@@ -1,0 +1,374 @@
+/* moneyflow documentation styles */
+
+/* Hero section - tight spacing */
+.md-typeset h1:first-child {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 3rem;
+  font-weight: 700;
+}
+
+.md-typeset h1 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.md-typeset h1:first-child + p strong {
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset h1 + p + p {
+  margin-bottom: 1.5rem;
+  font-size: 1.05rem;
+  line-height: 1.6;
+}
+
+.hero-support {
+  font-size: 0.9rem;
+  color: var(--md-default-fg-color--light);
+  margin: 0.75rem 0 1.5rem 0 !important;
+}
+
+.md-typeset img[alt*="moneyflow"] {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  margin: 0.5rem 0 0.5rem 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+/* Tighten spacing around hero */
+.md-typeset h1:first-child ~ hr:first-of-type {
+  margin-top: 1.5rem;
+}
+
+/* Feature grid */
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.feature-card {
+  padding: 1.25rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+  background: var(--md-code-bg-color);
+}
+
+.feature-card h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--md-primary-fg-color);
+}
+
+.feature-card p {
+  margin-bottom: 0;
+  color: var(--md-default-fg-color--light);
+  line-height: 1.6;
+}
+
+/* Screenshot grid - side by side screenshots with captions */
+.screenshot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin: 1rem 0 1.5rem 0;
+}
+
+.screenshot-grid img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.screenshot-grid em {
+  display: block;
+  text-align: center;
+  margin-top: 0.5rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 76.1875em) {
+  .screenshot-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Buttons */
+.md-button {
+  border-radius: 6px;
+  font-weight: 500;
+  padding: 0.625rem 1.25rem;
+  transition: all 0.2s ease;
+}
+
+.md-button--primary {
+  background-color: var(--md-primary-fg-color);
+}
+
+.md-button--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Typography improvements - much tighter spacing */
+.md-typeset h2 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  padding-bottom: 0.4rem;
+}
+
+.md-typeset h3 {
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.md-typeset hr {
+  margin: 1rem 0;
+}
+
+.md-typeset p {
+  margin-bottom: 0.75rem;
+}
+
+/* Code blocks */
+.md-typeset code {
+  padding: 0.1em 0.4em;
+  background-color: var(--md-code-bg-color);
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+/* Remove excessive animations */
+* {
+  transition: none;
+}
+
+.md-button, .feature-card {
+  transition: all 0.2s ease;
+}
+
+/* Table styling - compact and sleek */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  border-collapse: collapse;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-code-bg-color);
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset table:not([class]) td {
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: var(--md-code-bg-color);
+}
+
+/* Hide "Table of contents" heading in right sidebar */
+.md-sidebar--secondary .md-sidebar__scrollwrap .md-sidebar__inner > .md-nav > .md-nav__title {
+  display: none;
+}
+
+/* Lightbox styles - all screen sizes */
+/* Make images appear clickable */
+.md-content img.lightbox-enabled {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Desktop hover effect */
+@media (min-width: 76.1875em) {
+  .md-content img.lightbox-enabled:hover {
+    transform: scale(1.02);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+  }
+}
+
+/* Lightbox overlay */
+#lightbox-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.95);
+  z-index: 10000;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#lightbox-overlay.active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+}
+
+/* Lightbox content container */
+.lightbox-content {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+/* Lightbox image container */
+#lightbox-image-container {
+  max-width: 60vw;
+  max-height: 65vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Lightbox image */
+#lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* Close button */
+#lightbox-close {
+  position: fixed;
+  top: 2rem;
+  right: 2rem;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 40px;
+  cursor: pointer;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  line-height: 1;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+  z-index: 10001;
+}
+
+#lightbox-close:hover,
+#lightbox-close:active {
+  opacity: 1;
+}
+
+/* Caption */
+.lightbox-caption {
+  color: white;
+  text-align: center;
+  margin-top: 0;
+  font-size: 0.9rem;
+  max-width: 90%;
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 76.1875em) {
+  #lightbox-overlay {
+    background-color: rgba(0, 0, 0, 0.98);
+  }
+
+  #lightbox-image-container {
+    max-width: 68vw;
+    max-height: 56vh;
+  }
+
+  #lightbox-close {
+    top: 10px;
+    right: 10px;
+    font-size: 50px;
+    width: 50px;
+    height: 50px;
+    background-color: rgba(0, 0, 0, 0.5);
+    border-radius: 50%;
+  }
+
+  .lightbox-caption {
+    font-size: 0.8rem;
+    padding: 0 1rem;
+  }
+}
+
+/* Mobile optimizations */
+@media (max-width: 76.1875em) {
+  /* Smaller hero title on mobile */
+  .md-typeset h1:first-child {
+    font-size: 2rem;
+  }
+
+  .md-typeset h1:first-child + p strong {
+    font-size: 1.1rem;
+  }
+
+  /* Stack feature cards on mobile */
+  .feature-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .feature-card {
+    padding: 1rem;
+  }
+
+  /* More compact spacing on mobile */
+  .md-typeset h2 {
+    margin-top: 1.25rem;
+    font-size: 1.5rem;
+  }
+
+  .md-typeset h3 {
+    margin-top: 0.75rem;
+    font-size: 1.2rem;
+  }
+
+  /* Ensure code blocks don't overflow */
+  .md-typeset pre {
+    font-size: 0.75rem;
+  }
+
+  /* Make tables scrollable on mobile */
+  .md-typeset table:not([class]) {
+    display: block;
+    overflow-x: auto;
+    font-size: 0.75rem;
+  }
+
+  .md-typeset table:not([class]) th,
+  .md-typeset table:not([class]) td {
+    padding: 0.3rem 0.5rem;
+    white-space: nowrap;
+  }
+}

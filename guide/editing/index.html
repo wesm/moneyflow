@@ -1,0 +1,2306 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Track your moneyflow - A powerful terminal UI for personal finance management">
+      
+      
+        <meta name="author" content="Wes McKinney">
+      
+      
+        <link rel="canonical" href="https://moneyflow.dev/guide/editing/">
+      
+      
+        <link rel="prev" href="../navigation/">
+      
+      
+        <link rel="next" href="../filters/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Editing Transactions - moneyflow</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+      <link rel="stylesheet" href="../../stylesheets/terminal.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#editing-transactions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="moneyflow" class="md-header__button md-logo" aria-label="moneyflow" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 15h2c0 1.08 1.37 2 3 2s3-.92 3-2c0-1.1-1.04-1.5-3.24-2.03C9.64 12.44 7 11.78 7 9c0-1.79 1.47-3.31 3.5-3.82V3h3v2.18C15.53 5.69 17 7.21 17 9h-2c0-1.08-1.37-2-3-2s-3 .92-3 2c0 1.1 1.04 1.5 3.24 2.03C14.36 11.56 17 12.22 17 15c0 1.79-1.47 3.31-3.5 3.82V21h-3v-2.18C8.47 18.31 7 16.79 7 15"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            moneyflow
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Editing Transactions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/wesm/moneyflow" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    wesm/moneyflow
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../.." class="md-tabs__link">
+          
+  
+  
+  Home
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/installation/" class="md-tabs__link">
+          
+  
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../navigation/" class="md-tabs__link">
+          
+  
+  
+  User Guide
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../config/themes/" class="md-tabs__link">
+          
+  
+  
+  Configuration
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../reference/cli/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../development/developing/" class="md-tabs__link">
+          
+  
+  
+  Development
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="moneyflow" class="md-nav__button md-logo" aria-label="moneyflow" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 15h2c0 1.08 1.37 2 3 2s3-.92 3-2c0-1.1-1.04-1.5-3.24-2.03C9.64 12.44 7 11.78 7 9c0-1.79 1.47-3.31 3.5-3.82V3h3v2.18C15.53 5.69 17 7.21 17 9h-2c0-1.08-1.37-2-3-2s-3 .92-3 2c0 1.1 1.04 1.5 3.24 2.03C14.36 11.56 17 12.22 17 15c0 1.79-1.47 3.31-3.5 3.82V21h-3v-2.18C8.47 18.31 7 16.79 7 15"/></svg>
+
+    </a>
+    moneyflow
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/wesm/moneyflow" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    wesm/moneyflow
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Home
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    User Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../navigation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Navigation & Search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editing Transactions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Editing Transactions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#single-transaction-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Transaction Edits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Single Transaction Edits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#edit-merchant-modal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit Merchant Modal
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-select-in-detail-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Select in Detail View
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-Select in Detail View">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-recategorize-3-transactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Recategorize 3 transactions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bulk-edit-from-aggregate-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bulk Edit from Aggregate Views
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bulk Edit from Aggregate Views">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#single-group-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Group Edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-rename-a-merchant-all-transactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Rename a merchant (all transactions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-select-groups-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Select Groups (NEW!)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-recategorize-multiple-merchants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Recategorize multiple merchants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workflow Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clean-up-all-coffee-purchases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clean Up All Coffee Purchases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recategorize-online-shopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recategorize Online Shopping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analyze-then-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyze Then Edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#undo-pending-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Undo Pending Edits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review-before-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Before Commit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../filters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Filters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../keyboard-shortcuts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Keyboard Shortcuts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monarch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monarch Money
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ynab/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    YNAB
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../amazon-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Amazon Mode
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Configuration
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/themes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Themes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../categories/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Categories
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/caching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Caching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../config/advanced/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Advanced Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Options
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/developing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Developing moneyflow
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#single-transaction-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Transaction Edits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Single Transaction Edits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#edit-merchant-modal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit Merchant Modal
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-select-in-detail-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Select in Detail View
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-Select in Detail View">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-recategorize-3-transactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Recategorize 3 transactions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bulk-edit-from-aggregate-views" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bulk Edit from Aggregate Views
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bulk Edit from Aggregate Views">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#single-group-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Single Group Edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-rename-a-merchant-all-transactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Rename a merchant (all transactions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-select-groups-new" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Select Groups (NEW!)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-recategorize-multiple-merchants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Recategorize multiple merchants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Workflow Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clean-up-all-coffee-purchases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clean Up All Coffee Purchases
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recategorize-online-shopping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recategorize Online Shopping
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analyze-then-edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analyze Then Edit
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#undo-pending-edits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Undo Pending Edits
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#review-before-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review Before Commit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tips" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tips
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="editing-transactions">Editing Transactions</h1>
+<p>Learn how to efficiently edit your transactions in moneyflow using keyboard-driven bulk operations.</p>
+<h2 id="single-transaction-edits">Single Transaction Edits</h2>
+<p>In detail view, edit individual transactions:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="keys"><kbd class="key-m">M</kbd></span></td>
+<td>Edit merchant name</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-c">C</kbd></span></td>
+<td>Edit category</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-h">H</kbd></span></td>
+<td>Hide/unhide from reports</td>
+</tr>
+<tr>
+<td><span class="keys"><kbd class="key-x">X</kbd></span></td>
+<td>Delete transaction (with confirmation)</td>
+</tr>
+</tbody>
+</table>
+<p>The cursor stays in place after editing, so you can quickly edit multiple transactions by pressing the same key repeatedly.</p>
+<p>All edits are queued (not committed immediately) so you can review them before saving.</p>
+<p><strong>Note:</strong> Delete is different - it executes immediately after confirmation (not queued). This is because deletion is
+irreversible and should be done carefully.</p>
+<h3 id="edit-merchant-modal">Edit Merchant Modal</h3>
+<p>When you press <span class="keys"><kbd class="key-m">M</kbd></span> to edit a merchant, the edit modal shows:</p>
+<ol>
+<li><strong>Input field</strong> with the current merchant name (pre-filled)</li>
+<li><strong>Autocomplete suggestions</strong> showing existing merchants that match your typing</li>
+<li><strong>Your exact input as "create new" option</strong> - displayed in quotes: <code>"Your Input"</code></li>
+</ol>
+<p><strong>Selecting existing merchants:</strong></p>
+<ul>
+<li>Type to filter the list of existing merchants</li>
+<li>If exactly one match: press <code>Enter</code> to auto-select it</li>
+<li>If multiple matches: use arrow keys to select, then <code>Enter</code></li>
+</ul>
+<p><strong>Creating new merchants:</strong></p>
+<ul>
+<li>Your typed input always appears in the list as <code>"Your Input"</code> (in quotes)</li>
+<li>Press down arrow to navigate to this option</li>
+<li>Press <code>Enter</code> to create a new merchant with exactly that name</li>
+</ul>
+<p><strong>Example workflow - Consolidating "Amazon" merchants:</strong></p>
+<p>Scenario: You have "Amazon.com", "AMZN Mktp US", and want to rename both to "Amazon"</p>
+<ol>
+<li>Navigate to first Amazon transaction, press <span class="keys"><kbd class="key-m">M</kbd></span></li>
+<li>Type "Amazon" → see:</li>
+<li>"Amazon.com" (existing match)</li>
+<li><code>"Amazon"</code> (create new)</li>
+<li>Press down arrow twice → highlights <code>"Amazon"</code></li>
+<li>Press <code>Enter</code> → creates new merchant "Amazon"</li>
+<li>Navigate to next transaction, press <span class="keys"><kbd class="key-m">M</kbd></span></li>
+<li>Type "Amazon" → now see:</li>
+<li>"Amazon" (existing - the one you just created)</li>
+<li>"Amazon.com" (existing)</li>
+<li><code>"Amazon"</code> (create new - but you want the existing one now)</li>
+<li>Press <code>Enter</code> → auto-selects existing "Amazon" merchant</li>
+</ol>
+<p>This workflow gives you precise control over merchant names while making it easy to select existing ones.</p>
+<!-- TODO: Add screenshot of edit merchant modal showing autocomplete list with "create new" option -->
+
+<h2 id="multi-select-in-detail-view">Multi-Select in Detail View</h2>
+<p>Select multiple transactions to edit them all at once:</p>
+<p><img alt="Multi-select transactions with checkmarks" src="../../assets/screenshots/drill-down-detail-multi-select.svg" /></p>
+<ol>
+<li>Press <span class="keys"><kbd class="key-space">Space</kbd></span> on each transaction you want to edit</li>
+<li>A <code>✓</code> checkmark appears</li>
+<li>Press <span class="keys"><kbd class="key-m">M</kbd></span> to rename merchant for all selected</li>
+<li>Or press <span class="keys"><kbd class="key-c">C</kbd></span> to recategorize all selected</li>
+<li>Or press <span class="keys"><kbd class="key-h">H</kbd></span> to hide/unhide all selected</li>
+<li>Or press <span class="keys"><kbd class="key-x">X</kbd></span> to delete all selected (with confirmation)</li>
+</ol>
+<h3 id="example-recategorize-3-transactions">Example: Recategorize 3 transactions</h3>
+<ol>
+<li>Navigate to transactions</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on transaction 1 → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on transaction 2 → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on transaction 3 → ✓</li>
+<li>Press <span class="keys"><kbd class="key-c">C</kbd></span> → Select category modal</li>
+<li>Choose category → All 3 transactions queued for update</li>
+</ol>
+<h2 id="bulk-edit-from-aggregate-views">Bulk Edit from Aggregate Views</h2>
+<h3 id="single-group-edit">Single Group Edit</h3>
+<p>From any aggregate view (Merchants, Categories, Groups, Accounts), press <span class="keys"><kbd class="key-m">M</kbd></span>, <span class="keys"><kbd class="key-c">C</kbd></span>, or <span class="keys"><kbd class="key-h">H</kbd></span> to edit ALL
+transactions in that group:</p>
+<p><img alt="Bulk edit merchant modal" src="../../assets/screenshots/drill-down-bulk-edit-merchant.svg" /></p>
+<h3 id="example-rename-a-merchant-all-transactions">Example: Rename a merchant (all transactions)</h3>
+<ol>
+<li>Press <span class="keys"><kbd class="key-g">G</kbd></span> until "Merchants" view</li>
+<li>Navigate to "AMZN*ABC123"</li>
+<li>Press <span class="keys"><kbd class="key-m">M</kbd></span> → Edit merchant modal</li>
+<li>Type "Amazon" and press <span class="keys"><kbd class="key-enter">Enter</kbd></span></li>
+<li>ALL transactions for that merchant are renamed</li>
+</ol>
+<p><img alt="Edit category selection" src="../../assets/screenshots/drill-down-edit-category.svg" /></p>
+<h3 id="multi-select-groups-new">Multi-Select Groups (NEW!)</h3>
+<p>You can now select <strong>multiple groups</strong> and bulk edit all their transactions at once:</p>
+<h3 id="example-recategorize-multiple-merchants">Example: Recategorize multiple merchants</h3>
+<ol>
+<li>Press <span class="keys"><kbd class="key-g">G</kbd></span> until "Merchants" view</li>
+<li>Press <span class="keys"><kbd class="key-space">Space</kbd></span> on "Amazon" → ✓ appears</li>
+<li>Press <span class="keys"><kbd class="key-space">Space</kbd></span> on "Walmart" → ✓ appears</li>
+<li>Press <span class="keys"><kbd class="key-space">Space</kbd></span> on "Target" → ✓ appears</li>
+<li>Press <span class="keys"><kbd class="key-c">C</kbd></span> → Edit category modal</li>
+<li>Select "Shopping" → ALL transactions from all 3 merchants recategorized!</li>
+</ol>
+<!-- TODO: Add screenshot of multiple selected merchants with ✓ marks -->
+
+<p><strong>Available bulk operations:</strong></p>
+<ul>
+<li><span class="keys"><kbd class="key-m">M</kbd></span> - Rename merchant for all transactions in selected groups</li>
+<li><span class="keys"><kbd class="key-c">C</kbd></span> - Change category for all transactions in selected groups</li>
+<li><span class="keys"><kbd class="key-h">H</kbd></span> - Hide/unhide all transactions in selected groups from reports</li>
+</ul>
+<p>This works in <strong>all aggregate views</strong>:</p>
+<ul>
+<li><strong>Merchants view</strong> - Select multiple merchants, edit all their transactions</li>
+<li><strong>Categories view</strong> - Select multiple categories, edit all their transactions</li>
+<li><strong>Groups view</strong> - Select multiple groups, edit all their transactions</li>
+<li><strong>Accounts view</strong> - Select multiple accounts, edit all their transactions</li>
+<li><strong>Sub-grouped views</strong> - Select multiple sub-groups, edit all their transactions</li>
+</ul>
+<p><strong>Visual indicators:</strong></p>
+<ul>
+<li><code>✓</code> - Group is selected</li>
+<li><code>*</code> - Group has pending edits</li>
+<li><code>✓*</code> - Group is selected AND has pending edits</li>
+</ul>
+<!-- TODO: Add screenshot showing ✓ and * indicators in same view -->
+
+<h2 id="workflow-examples">Workflow Examples</h2>
+<h3 id="clean-up-all-coffee-purchases">Clean Up All Coffee Purchases</h3>
+<p><strong>Goal:</strong> Rename all coffee-related merchants to consistent names</p>
+<ol>
+<li>Press <span class="keys"><kbd class="key-slash">/</kbd></span> → search "coffee"</li>
+<li>Merchants view shows filtered results</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "STARBUCKS*123" → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "Starbucks Coffee" → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "SBUX*456" → ✓</li>
+<li>Press <span class="keys"><kbd class="key-m">M</kbd></span> → Edit merchant</li>
+<li>Type "Starbucks" → All renamed</li>
+<li><span class="keys"><kbd class="key-escape">Esc</kbd></span> → Clear search</li>
+<li>See consolidated "Starbucks" merchant</li>
+</ol>
+<!-- TODO: Add before/after screenshots of merchant cleanup -->
+
+<h3 id="recategorize-online-shopping">Recategorize Online Shopping</h3>
+<p><strong>Goal:</strong> Move Amazon, eBay, and Etsy to "Online Shopping" category</p>
+<ol>
+<li><span class="keys"><kbd class="key-g">G</kbd></span> to Merchants view</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "Amazon" → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "eBay" → ✓</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> on "Etsy" → ✓</li>
+<li>Press <span class="keys"><kbd class="key-c">C</kbd></span> → Edit category</li>
+<li>Type "online" to filter → Select "Online Shopping"</li>
+<li>All transactions from 3 merchants updated</li>
+</ol>
+<h3 id="analyze-then-edit">Analyze Then Edit</h3>
+<p><strong>Goal:</strong> Find expensive groceries from specific stores</p>
+<ol>
+<li><span class="keys"><kbd class="key-g">G</kbd></span> to Categories → <span class="keys"><kbd class="key-enter">Enter</kbd></span> on "Groceries"</li>
+<li><span class="keys"><kbd class="key-g">G</kbd></span> to see "(by Merchant)"</li>
+<li><span class="keys"><kbd class="key-space">Space</kbd></span> select expensive merchants</li>
+<li>Press <span class="keys"><kbd class="key-c">C</kbd></span> to recategorize to "Dining Out" (maybe they weren't groceries)</li>
+</ol>
+<h2 id="undo-pending-edits">Undo Pending Edits</h2>
+<p>Made a mistake while queueing edits? Press <code>u</code> to undo the most recent pending edit.</p>
+<p><strong>How it works:</strong></p>
+<ul>
+<li><strong>Removes last edit</strong> - Edits are undone in reverse order (last in, first out)</li>
+<li><strong>Press multiple times</strong> - Each <code>u</code> press removes one more edit</li>
+<li><strong>Preserves position</strong> - Cursor and scroll stay where they are</li>
+<li><strong>Shows feedback</strong> - Notification displays: "Undone {Field} edit (N remaining)"</li>
+<li><strong>Pending only</strong> - Committed changes cannot be undone</li>
+</ul>
+<p><strong>Example workflow:</strong></p>
+<ol>
+<li><strong>Edit merchant</strong> - Change transaction 1 merchant → queued</li>
+<li><strong>Edit merchant</strong> - Change transaction 2 merchant → queued</li>
+<li><strong>Edit category</strong> - Change transaction 3 category → queued</li>
+<li><strong>Press <code>u</code></strong> - Undoes category edit (most recent)</li>
+<li><strong>Press <code>u</code></strong> - Undoes merchant edit on transaction 2</li>
+<li><strong>Press <code>u</code></strong> - Undoes merchant edit on transaction 1</li>
+</ol>
+<p><strong>When to use:</strong></p>
+<p>This is useful when you've queued multiple edits and realize one was a mistake,
+without having to discard all your pending changes.</p>
+<h2 id="review-before-commit">Review Before Commit</h2>
+<p>All edits are queued locally until you commit:</p>
+<ol>
+<li>Press <span class="keys"><kbd class="key-w">W</kbd></span> to review all pending changes</li>
+<li>See table showing: Type | Transaction | Field | Old Value → New Value</li>
+<li>Press <span class="keys"><kbd class="key-enter">Enter</kbd></span> to commit</li>
+<li>Or press <span class="keys"><kbd class="key-escape">Esc</kbd></span> to cancel and return without committing</li>
+</ol>
+<!-- TODO: Add screenshot of review changes screen -->
+
+<p>The <code>*</code> indicator shows which transactions/groups have pending edits before you commit.
+If you need to remove edits before reviewing, use <code>u</code> to undo them one by one.</p>
+<h2 id="tips">Tips</h2>
+<div class="admonition tip">
+<p class="admonition-title">Multi-Select Strategy</p>
+<ul>
+<li>Use <span class="keys"><kbd class="key-space">Space</kbd></span> liberally - select all items you want to change</li>
+<li>Edit once instead of editing each item individually</li>
+<li>Especially powerful for cleaning up messy merchant names</li>
+</ul>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Combine with Search</p>
+<ul>
+<li>Search to filter</li>
+<li>Multi-select from results</li>
+<li>Bulk edit</li>
+<li>Clear search to see full results</li>
+</ul>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Aggregate View Power</p>
+<ul>
+<li>Select entire groups (merchants/categories) with one <span class="keys"><kbd class="key-space">Space</kbd></span></li>
+<li>Edit hundreds of transactions across multiple groups in seconds</li>
+<li>Much faster than selecting individual transactions</li>
+</ul>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Visual Feedback</p>
+<ul>
+<li><code>✓</code> shows what you've selected</li>
+<li><code>*</code> shows what has pending edits</li>
+<li>Both can appear together: <code>✓*</code></li>
+<li>Review screen shows all changes before committing</li>
+</ul>
+</div>
+<h2 id="summary">Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Context</th>
+<th>Key</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Any view</td>
+<td><span class="keys"><kbd class="key-space">Space</kbd></span></td>
+<td>Select current row</td>
+</tr>
+<tr>
+<td>Detail view</td>
+<td><span class="keys"><kbd class="key-m">M</kbd></span> / <span class="keys"><kbd class="key-c">C</kbd></span> / <span class="keys"><kbd class="key-h">H</kbd></span></td>
+<td>Edit selected transaction(s)</td>
+</tr>
+<tr>
+<td>Detail view</td>
+<td><span class="keys"><kbd class="key-x">X</kbd></span></td>
+<td>Delete selected transaction(s)</td>
+</tr>
+<tr>
+<td>Aggregate view</td>
+<td><span class="keys"><kbd class="key-m">M</kbd></span> / <span class="keys"><kbd class="key-c">C</kbd></span></td>
+<td>Edit transactions in current group</td>
+</tr>
+<tr>
+<td>Aggregate view (multi-select)</td>
+<td><span class="keys"><kbd class="key-m">M</kbd></span> / <span class="keys"><kbd class="key-c">C</kbd></span></td>
+<td>Edit transactions in ALL selected groups</td>
+</tr>
+<tr>
+<td>Any view</td>
+<td><span class="keys"><kbd class="key-u">U</kbd></span></td>
+<td>Undo most recent pending edit</td>
+</tr>
+<tr>
+<td>Any view</td>
+<td><span class="keys"><kbd class="key-w">W</kbd></span></td>
+<td>Review pending changes</td>
+</tr>
+<tr>
+<td>Review screen</td>
+<td><span class="keys"><kbd class="key-enter">Enter</kbd></span></td>
+<td>Commit all changes</td>
+</tr>
+<tr>
+<td>Review screen</td>
+<td><span class="keys"><kbd class="key-escape">Esc</kbd></span></td>
+<td>Cancel (keep edits queued)</td>
+</tr>
+</tbody>
+</table>
+<p>Multi-select works consistently across all views for maximum productivity.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2025 Wes McKinney
+    </div>
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/wesm/moneyflow" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://pypi.org/project/moneyflow/" target="_blank" rel="noopener" title="pypi.org" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.instant", "navigation.tracking", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "search.suggest", "search.highlight", "search.share", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": "0.9.1"}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/lightbox.js"></script>
+      
+    
+  </body>
+</html>
