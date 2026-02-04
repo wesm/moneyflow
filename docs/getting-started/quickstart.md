@@ -61,16 +61,33 @@ Choose your platform:
 !!! tip "New to Monarch Money?"
     Get **50% off your first year** with this [special offer link](https://monarchmoney.sjv.io/3JGDYA).
 
-### Step 1: Get Your 2FA Secret
+### Step 1: Use Direct Sign-In (Not Apple/Google)
+
+Moneyflow authentication will not work with an account using Apple/Google Sign-In even if you create a password and set up MFA for that account. You must use direct sign-in (an email and password).
+
+Follow the instructions [in this article.](https://help.monarch.com/hc/en-us/articles/4432419860244-Switch-to-Direct-Sign-In-or-Disconnect-Your-Apple-Google-Sign-In)
+
+!!! warning "Do not lose access to your Monarch account!"
+    If you want to use the same email that you have linked with Google/Apple, the best way to do so is to:
+    
+    1. Add another direct email address and password (credential #2)
+    2. Test that you can login to Monarch with credentials #2
+    3. After you have verified that the new credentials work, you can unlink credential #1 and/or remove it
+    4. Add credentials #1 back without linking to Google/Apple
+    5. Test credential #1 again and you can choose to keep or remove credential #2  
+
+
+### Step 2: Get Your MFA Secret
 
 !!! warning "Important: Do this BEFORE running moneyflow"
-    You'll need your 2FA/TOTP secret key. Here's how to get it:
+    You'll need your MFA (multi-factor authentication) secret key. Here's how to get it:
 
     1. Log into [Monarch Money](https://monarchmoney.sjv.io/3JGDYA) on the web
     2. Go to **Settings** → **Security**
-    3. **Disable** 2FA, then **re-enable** it
+    3. If multifactor authentication is enabled, **disable it first**, then **re-enable** it to be able to retrieve your MFA secret key
     4. When shown the QR code, click **"Can't scan?"** or **"Manual entry"**
-    5. Copy the secret key (looks like: `JBSWY3DPEHPK3PXP`)
+    5. Copy the MFA secret key, it's a 32 character alphanumeric string (looks something like: `XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX`)
+    6. Finish the MFA setup by confirming the MFA code with your favorite authentication app
 
 ### Launch moneyflow
 
@@ -84,7 +101,7 @@ On first run, you'll be prompted for credentials:
 
 1. **Monarch Money email** - Your login email
 2. **Monarch Money password** - Your account password
-3. **2FA Secret** - The secret key from Step 1
+3. **MFA Secret** - The secret key from Step 2
 4. **Encryption password** - Create a NEW password to encrypt your stored credentials
 
 !!! tip "Encryption Password"
