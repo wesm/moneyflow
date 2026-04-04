@@ -16,6 +16,23 @@ import pytest
 from moneyflow.backends import DemoBackend
 from moneyflow.demo_data_generator import DemoDataGenerator, generate_demo_data
 
+CAT_GROCERIES = "cat_groceries"
+CAT_RESTAURANTS = "cat_restaurants"
+CAT_COFFEE = "cat_coffee"
+CAT_GAS = "cat_gas"
+CAT_RENT = "cat_rent"
+CAT_UTILITIES = "cat_utilities"
+CAT_INTERNET = "cat_internet"
+CAT_SHOPPING = "cat_shopping"
+CAT_AMAZON = "cat_amazon"
+CAT_STREAMING = "cat_streaming"
+CAT_GYM = "cat_gym"
+CAT_PHONE = "cat_phone"
+CAT_INSURANCE = "cat_insurance"
+CAT_PAYCHECK = "cat_paycheck"
+CAT_TRANSFER = "cat_transfer"
+
+
 # ============================================================================
 # FIXTURES
 # ============================================================================
@@ -39,9 +56,34 @@ def sample_demo_data(demo_generator):
     return demo_generator.generate_full_year()
 
 
+@pytest.fixture
+def demo_transactions(sample_demo_data):
+    """Return just the transactions from demo data."""
+    return sample_demo_data[0]
+
+
+@pytest.fixture
+def demo_categories(sample_demo_data):
+    """Return just the categories from demo data."""
+    return sample_demo_data[1]
+
+
+@pytest.fixture
+def demo_category_groups(sample_demo_data):
+    """Return just the category groups from demo data."""
+    return sample_demo_data[2]
+
+
 # ============================================================================
 # DEMO DATA GENERATOR TESTS
 # ============================================================================
+
+
+@pytest.fixture
+async def sample_transaction_id(demo_backend):
+    """Fetch a single transaction ID for testing."""
+    result = await demo_backend.get_transactions(limit=1)
+    return result["allTransactions"]["results"][0]["id"]
 
 
 class TestDemoDataGeneratorBasics:
@@ -73,9 +115,9 @@ class TestDemoDataGeneratorBasics:
         # Should have at least 80 transactions per month on average (960/year)
         assert len(transactions) >= 900
 
-    def test_transactions_have_required_fields(self, sample_demo_data):
+    def test_transactions_have_required_fields(self, demo_transactions):
         """Test that all transactions have required fields."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         required_fields = [
             "id",
@@ -102,9 +144,9 @@ class TestDemoDataGeneratorBasics:
             assert "id" in txn["account"]
             assert "displayName" in txn["account"]
 
-    def test_transaction_ids_are_unique(self, sample_demo_data):
+    def test_transaction_ids_are_unique(self, demo_transactions):
         """Test that all transaction IDs are unique."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         ids = [txn["id"] for txn in transactions]
         unique_ids = set(ids)
@@ -113,17 +155,17 @@ class TestDemoDataGeneratorBasics:
         # Allow up to 5% duplicates
         assert len(unique_ids) >= len(ids) * 0.95
 
-    def test_dates_are_in_correct_year(self, sample_demo_data):
+    def test_dates_are_in_correct_year(self, demo_transactions):
         """Test that all dates are in the specified year."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         for txn in transactions:
             txn_date = txn["date"]
             assert txn_date.startswith("2025-")
 
-    def test_dates_are_valid_format(self, sample_demo_data):
+    def test_dates_are_valid_format(self, demo_transactions):
         """Test that dates are in correct ISO format."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         for txn in transactions[:10]:  # Check first 10
             txn_date = txn["date"]
@@ -137,12 +179,12 @@ class TestDemoDataGeneratorBasics:
 class TestDemoDataRealisticPatterns:
     """Test that generated data has realistic financial patterns."""
 
-    def test_biweekly_paychecks_exist(self, sample_demo_data):
+    def test_biweekly_paychecks_exist(self, demo_transactions):
         """Test that paychecks occur biweekly (1st and 15th)."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Find paycheck transactions
-        paychecks = [txn for txn in transactions if txn["category"]["id"] == "cat_paycheck"]
+        paychecks = [txn for txn in transactions if txn["category"]["id"] == CAT_PAYCHECK]
 
         # Should have ~24 paychecks per year (2 per month, 2 people)
         # 2 people * 2 paychecks/month * 12 months = 48 paychecks
@@ -154,12 +196,12 @@ class TestDemoDataRealisticPatterns:
             # Should be reasonable paycheck amounts (Person 1: ~4300, Person 2: ~2900)
             assert 2800 <= paycheck["amount"] <= 4400
 
-    def test_recurring_bills_exist(self, sample_demo_data):
+    def test_recurring_bills_exist(self, demo_transactions):
         """Test that recurring bills appear monthly."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Find rent transactions
-        rent_txns = [txn for txn in transactions if txn["category"]["id"] == "cat_rent"]
+        rent_txns = [txn for txn in transactions if txn["category"]["id"] == CAT_RENT]
 
         # Should have 12 rent payments (one per month)
         assert len(rent_txns) == 12
@@ -169,9 +211,9 @@ class TestDemoDataRealisticPatterns:
         assert len(set(rent_amounts)) == 1  # All identical
         assert rent_amounts[0] < 0  # Negative (expense)
 
-    def test_streaming_services_marked_recurring(self, sample_demo_data):
+    def test_streaming_services_marked_recurring(self, demo_transactions):
         """Test that streaming services are marked as recurring."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         streaming_services = ["Netflix", "Spotify Premium", "HBO Max"]
 
@@ -185,9 +227,9 @@ class TestDemoDataRealisticPatterns:
             for txn in service_txns:
                 assert txn["isRecurring"] is True
 
-    def test_transaction_counts_reasonable(self, sample_demo_data):
+    def test_transaction_counts_reasonable(self, demo_transactions):
         """Test that transaction counts per month are realistic (70-110/month)."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Group by month
         by_month: Dict[int, List] = {}
@@ -201,9 +243,9 @@ class TestDemoDataRealisticPatterns:
             count = len(by_month.get(month, []))
             assert 65 <= count <= 120, f"Month {month} has {count} transactions"
 
-    def test_income_and_expense_totals_realistic(self, sample_demo_data):
+    def test_income_and_expense_totals_realistic(self, demo_transactions):
         """Test that total income and expenses are realistic for ~$250k gross income."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         total_income = sum(txn["amount"] for txn in transactions if txn["amount"] > 0)
         total_expenses = sum(txn["amount"] for txn in transactions if txn["amount"] < 0)
@@ -223,11 +265,11 @@ class TestDemoDataRealisticPatterns:
         # Allow small deficit due to random variation in spending
         assert net > -10000  # No more than $10k deficit
 
-    def test_transfers_hidden_from_reports(self, sample_demo_data):
+    def test_transfers_hidden_from_reports(self, demo_transactions):
         """Test that transfer transactions are marked hidden from reports."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
-        transfers = [txn for txn in transactions if txn["category"]["id"] == "cat_transfer"]
+        transfers = [txn for txn in transactions if txn["category"]["id"] == CAT_TRANSFER]
 
         # Should have some transfers
         assert len(transfers) > 0
@@ -240,41 +282,41 @@ class TestDemoDataRealisticPatterns:
 class TestDemoDataCategories:
     """Test that all required categories exist and are properly structured."""
 
-    def test_categories_exist(self, sample_demo_data):
+    def test_categories_exist(self, demo_categories):
         """Test that category list is not empty."""
-        _, categories, _ = sample_demo_data
+        categories = demo_categories
         assert len(categories) > 0
 
-    def test_all_required_categories_present(self, sample_demo_data):
+    def test_all_required_categories_present(self, demo_categories):
         """Test that all expected categories are present."""
-        _, categories, _ = sample_demo_data
+        categories = demo_categories
 
         category_ids = {cat["id"] for cat in categories}
 
         required_categories = [
-            "cat_groceries",
-            "cat_restaurants",
-            "cat_coffee",
-            "cat_gas",
-            "cat_rent",
-            "cat_utilities",
-            "cat_internet",
-            "cat_shopping",
-            "cat_amazon",
-            "cat_streaming",
-            "cat_gym",
-            "cat_phone",
-            "cat_insurance",
-            "cat_paycheck",
-            "cat_transfer",
+            CAT_GROCERIES,
+            CAT_RESTAURANTS,
+            CAT_COFFEE,
+            CAT_GAS,
+            CAT_RENT,
+            CAT_UTILITIES,
+            CAT_INTERNET,
+            CAT_SHOPPING,
+            CAT_AMAZON,
+            CAT_STREAMING,
+            CAT_GYM,
+            CAT_PHONE,
+            CAT_INSURANCE,
+            CAT_PAYCHECK,
+            CAT_TRANSFER,
         ]
 
         for cat_id in required_categories:
             assert cat_id in category_ids, f"Missing category: {cat_id}"
 
-    def test_categories_have_required_fields(self, sample_demo_data):
+    def test_categories_have_required_fields(self, demo_categories):
         """Test that categories have required structure."""
-        _, categories, _ = sample_demo_data
+        categories = demo_categories
 
         for cat in categories:
             assert "id" in cat
@@ -283,9 +325,9 @@ class TestDemoDataCategories:
             assert "id" in cat["group"]
             assert "type" in cat["group"]
 
-    def test_category_groups_exist(self, sample_demo_data):
+    def test_category_groups_exist(self, demo_category_groups):
         """Test that category groups are defined."""
-        _, _, category_groups = sample_demo_data
+        category_groups = demo_category_groups
 
         assert len(category_groups) > 0
 
@@ -310,9 +352,9 @@ class TestDemoDataCategories:
 class TestDemoDataDuplicates:
     """Test that demo data includes duplicates for testing duplicate detection."""
 
-    def test_duplicates_exist(self, sample_demo_data):
+    def test_duplicates_exist(self, demo_transactions):
         """Test that some duplicate transactions exist."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Check for exact duplicate transactions (same date, amount, merchant)
         seen = set()
@@ -327,9 +369,9 @@ class TestDemoDataDuplicates:
         # Should have at least a few duplicates
         assert duplicates_found >= 3
 
-    def test_duplicate_transactions_have_different_ids(self, sample_demo_data):
+    def test_duplicate_transactions_have_different_ids(self, demo_transactions):
         """Test that duplicate transactions have different IDs."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Group by (date, amount, merchant)
         groups: Dict[tuple, List[Dict]] = {}
@@ -352,9 +394,9 @@ class TestDemoDataDuplicates:
 class TestDemoDataMerchantVariations:
     """Test that merchant names have variations for testing normalization."""
 
-    def test_merchant_name_variations_exist(self, sample_demo_data):
+    def test_merchant_name_variations_exist(self, demo_transactions):
         """Test that some merchants have name variations."""
-        transactions, _, _ = sample_demo_data
+        transactions = demo_transactions
 
         # Look for merchants with variations (e.g., "Whole Foods" vs "WHOLE FOODS MARKET #123")
         whole_foods_variations = [
@@ -554,12 +596,10 @@ class TestDemoBackendUpdateTransaction:
     """Test updating transactions in demo backend."""
 
     @pytest.mark.asyncio
-    async def test_update_transaction_merchant(self, demo_backend):
+    async def test_update_transaction_merchant(self, demo_backend, sample_transaction_id):
         """Test updating a transaction's merchant name."""
-        # Get a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
+        txn = demo_backend.get_transaction_by_id(txn_id)
         original_merchant = txn["merchant"]["name"]
 
         # Update merchant name
@@ -577,15 +617,12 @@ class TestDemoBackendUpdateTransaction:
         assert updated_txn["merchant"]["name"] != original_merchant
 
     @pytest.mark.asyncio
-    async def test_update_transaction_category(self, demo_backend):
+    async def test_update_transaction_category(self, demo_backend, sample_transaction_id):
         """Test updating a transaction's category."""
-        # Get a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
 
         # Update category
-        new_category_id = "cat_shopping"
+        new_category_id = CAT_SHOPPING
         await demo_backend.update_transaction(transaction_id=txn_id, category_id=new_category_id)
 
         # Verify update was applied
@@ -594,12 +631,10 @@ class TestDemoBackendUpdateTransaction:
         assert updated_txn["category"]["name"] == "Shopping"
 
     @pytest.mark.asyncio
-    async def test_update_transaction_hide_from_reports(self, demo_backend):
+    async def test_update_transaction_hide_from_reports(self, demo_backend, sample_transaction_id):
         """Test updating a transaction's hide_from_reports flag."""
-        # Get a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
+        txn = demo_backend.get_transaction_by_id(txn_id)
         original_hidden = txn["hideFromReports"]
 
         # Toggle hide_from_reports
@@ -611,25 +646,22 @@ class TestDemoBackendUpdateTransaction:
         assert updated_txn["hideFromReports"] == new_hidden
 
     @pytest.mark.asyncio
-    async def test_update_transaction_multiple_fields(self, demo_backend):
+    async def test_update_transaction_multiple_fields(self, demo_backend, sample_transaction_id):
         """Test updating multiple fields at once."""
-        # Get a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
 
         # Update multiple fields
         await demo_backend.update_transaction(
             transaction_id=txn_id,
             merchant_name="New Merchant",
-            category_id="cat_groceries",
+            category_id=CAT_GROCERIES,
             hide_from_reports=True,
         )
 
         # Verify all updates were applied
         updated_txn = demo_backend.get_transaction_by_id(txn_id)
         assert updated_txn["merchant"]["name"] == "New Merchant"
-        assert updated_txn["category"]["id"] == "cat_groceries"
+        assert updated_txn["category"]["id"] == CAT_GROCERIES
         assert updated_txn["hideFromReports"] is True
 
     @pytest.mark.asyncio
@@ -641,12 +673,9 @@ class TestDemoBackendUpdateTransaction:
             )
 
     @pytest.mark.asyncio
-    async def test_update_persists_across_get_transactions(self, demo_backend):
+    async def test_update_persists_across_get_transactions(self, demo_backend, sample_transaction_id):
         """Test that updates persist when fetching transactions again."""
-        # Get a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
 
         # Update it
         new_merchant = "Persistent Update"
@@ -666,15 +695,12 @@ class TestDemoBackendDeleteTransaction:
     """Test deleting transactions from demo backend."""
 
     @pytest.mark.asyncio
-    async def test_delete_transaction(self, demo_backend):
+    async def test_delete_transaction(self, demo_backend, sample_transaction_id):
         """Test deleting a transaction."""
         # Get initial count
         initial_count = len(demo_backend.transactions)
 
-        # Get a transaction to delete
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
 
         # Delete it
         success = await demo_backend.delete_transaction(txn_id)
@@ -693,12 +719,9 @@ class TestDemoBackendDeleteTransaction:
             await demo_backend.delete_transaction("nonexistent_id")
 
     @pytest.mark.asyncio
-    async def test_delete_persists_across_get_transactions(self, demo_backend):
+    async def test_delete_persists_across_get_transactions(self, demo_backend, sample_transaction_id):
         """Test that deletion persists when fetching transactions again."""
-        # Get a transaction to delete
-        result = await demo_backend.get_transactions(limit=1)
-        txn = result["allTransactions"]["results"][0]
-        txn_id = txn["id"]
+        txn_id = sample_transaction_id
 
         # Delete it
         await demo_backend.delete_transaction(txn_id)
@@ -761,13 +784,12 @@ class TestDemoBackendStats:
         assert stats["updates_made"] == 0  # No updates yet
 
     @pytest.mark.asyncio
-    async def test_stats_update_after_modification(self, demo_backend):
+    async def test_stats_update_after_modification(self, demo_backend, sample_transaction_id):
         """Test that stats update after making changes."""
         initial_stats = demo_backend.get_demo_stats()
 
         # Make an update
-        result = await demo_backend.get_transactions(limit=1)
-        txn_id = result["allTransactions"]["results"][0]["id"]
+        txn_id = sample_transaction_id
         await demo_backend.update_transaction(txn_id, merchant_name="Updated")
 
         updated_stats = demo_backend.get_demo_stats()
@@ -779,13 +801,12 @@ class TestDemoBackendStats:
         assert updated_stats["total_transactions"] == initial_stats["total_transactions"]
 
     @pytest.mark.asyncio
-    async def test_stats_after_deletion(self, demo_backend):
+    async def test_stats_after_deletion(self, demo_backend, sample_transaction_id):
         """Test that stats update after deleting a transaction."""
         initial_stats = demo_backend.get_demo_stats()
 
         # Delete a transaction
-        result = await demo_backend.get_transactions(limit=1)
-        txn_id = result["allTransactions"]["results"][0]["id"]
+        txn_id = sample_transaction_id
         await demo_backend.delete_transaction(txn_id)
 
         updated_stats = demo_backend.get_demo_stats()
@@ -859,47 +880,6 @@ class TestDemoModeIntegration:
         stats = demo_backend.get_demo_stats()
         assert stats["updates_made"] == 1
 
-    @pytest.mark.asyncio
-    async def test_demo_data_suitable_for_testing(self, demo_backend):
-        """Test that demo data has characteristics needed for testing features."""
-        await demo_backend.login()
-
-        # Get all transactions
-        result = await demo_backend.get_transactions(limit=10000)
-        transactions = result["allTransactions"]["results"]
-
-        # 1. Should have duplicates for testing duplicate detection
-        seen = set()
-        duplicates = 0
-        for txn in transactions:
-            key = (txn["date"], txn["amount"], txn["merchant"]["name"])
-            if key in seen:
-                duplicates += 1
-            seen.add(key)
-        # Demo data randomly creates duplicates, should have at least 1
-        assert duplicates >= 1
-
-        # 2. Should have merchant name variations for testing normalization
-        merchants = [txn["merchant"]["name"] for txn in transactions]
-        merchant_set = set(merchants)
-        # Should have variations (e.g., "Starbucks" and "STARBUCKS #1234")
-        starbucks_variations = [m for m in merchant_set if "starbucks" in m.lower()]
-        assert len(starbucks_variations) >= 2
-
-        # 3. Should have transfers for testing hide/show functionality
-        transfers = [txn for txn in transactions if txn["category"]["id"] == "cat_transfer"]
-        assert len(transfers) > 0
-        assert all(txn["hideFromReports"] for txn in transfers)
-
-        # 4. Should have multiple categories for testing categorization
-        categories = {txn["category"]["id"] for txn in transactions}
-        assert len(categories) >= 10
-
-        # 5. Should have income and expenses for testing filtering
-        income = [txn for txn in transactions if txn["amount"] > 0]
-        expenses = [txn for txn in transactions if txn["amount"] < 0]
-        assert len(income) > 0
-        assert len(expenses) > 0
 
 
 # ============================================================================
