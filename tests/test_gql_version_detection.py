@@ -12,6 +12,10 @@ matrix to test against multiple gql versions (3.4.0, 3.5.0, 4.0.0, 4.2.0, etc.)
 """
 
 import inspect
+import sys
+from unittest.mock import patch
+
+import pytest
 
 from moneyflow.monarchmoney import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_version
 
@@ -19,44 +23,32 @@ from moneyflow.monarchmoney import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_
 class TestParseGqlVersion:
     """Test gql version string parsing."""
 
-    def test_parse_standard_version(self):
-        """Test parsing standard semantic version strings."""
-        assert _parse_gql_version("3.5.0") == (3, 5, 0)
-        assert _parse_gql_version("4.0.0") == (4, 0, 0)
-        assert _parse_gql_version("4.2.0") == (4, 2, 0)
-        assert _parse_gql_version("3.4.1") == (3, 4, 1)
-
-    def test_parse_beta_version(self):
-        """Test parsing beta versions (e.g., 4.2.0b0)."""
-        assert _parse_gql_version("4.2.0b0") == (4, 2, 0)
-        assert _parse_gql_version("3.5.0b1") == (3, 5, 0)
-        assert _parse_gql_version("4.0.0b2") == (4, 0, 0)
-
-    def test_parse_alpha_version(self):
-        """Test parsing alpha versions (e.g., 4.0.0a1)."""
-        assert _parse_gql_version("4.0.0a1") == (4, 0, 0)
-        assert _parse_gql_version("3.6.0a0") == (3, 6, 0)
-
-    def test_parse_rc_version(self):
-        """Test parsing release candidate versions (e.g., 4.0.0rc1)."""
-        assert _parse_gql_version("4.0.0rc1") == (4, 0, 0)
-        assert _parse_gql_version("3.5.0rc2") == (3, 5, 0)
-
-    def test_parse_version_with_build_metadata(self):
-        """Test parsing versions with build metadata (e.g., 3.5.0+local)."""
-        assert _parse_gql_version("3.5.0+local") == (3, 5, 0)
-        assert _parse_gql_version("4.0.0+build123") == (4, 0, 0)
-        assert _parse_gql_version("4.2.0b0+git.abc123") == (4, 2, 0)
-
-    def test_parse_short_version(self):
-        """Test parsing versions with missing minor/patch components."""
-        assert _parse_gql_version("3") == (3, 0, 0)
-        assert _parse_gql_version("4.0") == (4, 0, 0)
-
-    def test_parse_version_with_extra_parts(self):
-        """Test that extra parts beyond major.minor.patch are ignored."""
-        assert _parse_gql_version("3.5.0.0") == (3, 5, 0)
-        assert _parse_gql_version("4.0.0.1.2") == (4, 0, 0)
+    @pytest.mark.parametrize(
+        "version_str, expected",
+        [
+            ("3.5.0", (3, 5, 0)),
+            ("4.0.0", (4, 0, 0)),
+            ("4.2.0", (4, 2, 0)),
+            ("3.4.1", (3, 4, 1)),
+            ("4.2.0b0", (4, 2, 0)),
+            ("3.5.0b1", (3, 5, 0)),
+            ("4.0.0b2", (4, 0, 0)),
+            ("4.0.0a1", (4, 0, 0)),
+            ("3.6.0a0", (3, 6, 0)),
+            ("4.0.0rc1", (4, 0, 0)),
+            ("3.5.0rc2", (3, 5, 0)),
+            ("3.5.0+local", (3, 5, 0)),
+            ("4.0.0+build123", (4, 0, 0)),
+            ("4.2.0b0+git.abc123", (4, 2, 0)),
+            ("3", (3, 0, 0)),
+            ("4.0", (4, 0, 0)),
+            ("3.5.0.0", (3, 5, 0)),
+            ("4.0.0.1.2", (4, 0, 0)),
+        ],
+    )
+    def test_parse_gql_version(self, version_str, expected):
+        """Test parsing various semantic version strings."""
+        assert _parse_gql_version(version_str) == expected
 
 
 class TestVersionComparison:
@@ -137,48 +129,38 @@ class TestActualGqlLibrary:
         3. Detection correctly identifies v3 vs v4+
         4. Detection matches actual API signature
         """
-        try:
-            import gql
-            from gql import Client
-            from gql.transport.aiohttp import AIOHTTPTransport
+        gql = pytest.importorskip("gql")
+        from gql import Client
 
-            # Get actual version
-            actual_version = gql.__version__
-            parsed_version = _parse_gql_version(actual_version)
-            detected_v4_plus = _detect_gql_v4_plus()
+        # Get actual version
+        actual_version = gql.__version__
+        parsed_version = _parse_gql_version(actual_version)
+        detected_v4_plus = _detect_gql_v4_plus()
 
-            # Verify detection matches version number
-            expected_v4_plus = parsed_version >= (4, 0, 0)
-            assert detected_v4_plus == expected_v4_plus, (
-                f"Version detection mismatch: gql {actual_version} parsed as {parsed_version}, expected GQL_V4_PLUS={expected_v4_plus} but got {detected_v4_plus}"
+        # Verify detection matches version number
+        expected_v4_plus = parsed_version >= (4, 0, 0)
+        assert detected_v4_plus == expected_v4_plus, (
+            f"Version detection mismatch: gql {actual_version} parsed as {parsed_version}, expected GQL_V4_PLUS={expected_v4_plus} but got {detected_v4_plus}"
+        )
+
+        # Verify detection matches actual API signature
+        sig = inspect.signature(Client.execute_async)
+        params = list(sig.parameters.keys())
+        first_param = params[1] if params and params[0] == "self" else params[0]
+
+        if detected_v4_plus:
+            assert first_param == "request", (
+                f"gql {actual_version} detected as v4+ but execute_async first param is '{first_param}' (expected 'request')"
+            )
+        else:
+            assert first_param == "document", (
+                f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
             )
 
-            # Verify detection matches actual API signature
-            transport = AIOHTTPTransport(url="https://example.com/graphql")
-            client = Client(transport=transport, fetch_schema_from_transport=False)
-            sig = inspect.signature(client.execute_async)
-            first_param = list(sig.parameters.keys())[0]
-
-            if detected_v4_plus:
-                assert first_param == "request", (
-                    f"gql {actual_version} detected as v4+ but execute_async first param is '{first_param}' (expected 'request')"
-                )
-            else:
-                assert first_param == "document", (
-                    f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
-                )
-
-            # Print success message for visibility in test output
-            print(
-                f"\n✓ gql {actual_version}: parsed as {parsed_version}, "
-                f"GQL_V4_PLUS={detected_v4_plus}, "
-                f"execute_async({first_param}=...)"
-            )
-
-        except ImportError:
-            # If gql is not installed, detection should return False
+    def test_detect_gql_v4_plus_without_gql(self):
+        """Test detection behavior when gql is not installed."""
+        with patch.dict(sys.modules, {"gql": None}):
             assert _detect_gql_v4_plus() is False
-            print("\n✓ gql not installed: GQL_V4_PLUS=False (expected)")
 
     def test_global_constant_matches_detection(self):
         """Test that the global GQL_V4_PLUS constant matches runtime detection."""
