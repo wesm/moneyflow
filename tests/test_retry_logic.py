@@ -10,6 +10,7 @@ These tests ensure that the retry mechanism handles:
 """
 
 import asyncio
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -20,302 +21,227 @@ class TestRetryLogic:
     """Test retry_with_backoff function with various failure scenarios."""
 
     @pytest.mark.asyncio
-    async def test_successful_on_first_attempt(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_successful_on_first_attempt(self, mock_sleep):
         """Test operation succeeds on first try (no retry needed)."""
-        call_count = [0]
-
-        async def successful_operation():
-            call_count[0] += 1
-            return "success"
+        operation = AsyncMock(return_value="success")
 
         result = await retry_with_backoff(
-            operation=successful_operation,
+            operation=operation,
             operation_name="Test operation",
             max_retries=3,
             initial_wait=0.1,  # Fast for testing
         )
 
         assert result == "success"
-        assert call_count[0] == 1  # Only called once
+        assert operation.call_count == 1  # Only called once
+        mock_sleep.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_retry_after_transient_failure(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_after_transient_failure(self, mock_sleep):
         """Test successful retry after one transient failure."""
-        call_count = [0]
-
-        async def flaky_operation():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("Transient failure")
-            return "success after retry"
+        operation = AsyncMock(side_effect=[Exception("Transient failure"), "success after retry"])
 
         result = await retry_with_backoff(
-            operation=flaky_operation,
+            operation=operation,
             operation_name="Flaky operation",
             max_retries=3,
             initial_wait=0.01,  # Fast for testing
         )
 
         assert result == "success after retry"
-        assert call_count[0] == 2  # Called twice (1 failure + 1 success)
+        assert operation.call_count == 2  # Called twice (1 failure + 1 success)
+        mock_sleep.assert_called_once_with(0.01)
 
     @pytest.mark.asyncio
-    async def test_retry_after_multiple_failures(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_retry_after_multiple_failures(self, mock_sleep):
         """Test successful retry after multiple transient failures."""
-        call_count = [0]
-
-        async def very_flaky_operation():
-            call_count[0] += 1
-            if call_count[0] <= 3:
-                raise Exception(f"Failure {call_count[0]}")
-            return "finally succeeded"
+        operation = AsyncMock(
+            side_effect=[
+                Exception("Failure 1"),
+                Exception("Failure 2"),
+                Exception("Failure 3"),
+                "finally succeeded"
+            ]
+        )
 
         result = await retry_with_backoff(
-            operation=very_flaky_operation,
+            operation=operation,
             operation_name="Very flaky operation",
             max_retries=5,
             initial_wait=0.01,  # Fast for testing
         )
 
         assert result == "finally succeeded"
-        assert call_count[0] == 4  # 3 failures + 1 success
+        assert operation.call_count == 4  # 3 failures + 1 success
+        assert mock_sleep.call_count == 3
+        mock_sleep.assert_has_calls([call(0.01), call(0.02), call(0.04)])
 
     @pytest.mark.asyncio
-    async def test_all_retries_exhausted(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_all_retries_exhausted(self, mock_sleep):
         """Test that exception is raised when all retries are exhausted."""
-        call_count = [0]
-
-        async def always_failing_operation():
-            call_count[0] += 1
-            raise Exception(f"Permanent failure (attempt {call_count[0]})")
+        operation = AsyncMock(side_effect=Exception("Permanent failure"))
 
         with pytest.raises(Exception, match="Permanent failure"):
             await retry_with_backoff(
-                operation=always_failing_operation,
+                operation=operation,
                 operation_name="Always failing",
                 max_retries=3,
                 initial_wait=0.01,
             )
 
-        assert call_count[0] == 3  # All 3 attempts made
+        assert operation.call_count == 3  # All 3 attempts made
+        assert mock_sleep.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_user_cancellation(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep")
+    async def test_user_cancellation(self, mock_sleep):
         """Test that user can cancel retry with Ctrl-C (raises RetryAborted)."""
-        call_count = [0]
-
-        async def operation_that_gets_cancelled():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                # First attempt fails
-                raise Exception("Initial failure")
-            # Should never get here - will be cancelled during wait
-            return "shouldn't happen"
-
-        async def cancelling_operation():
-            """Simulate user pressing Ctrl-C during retry wait."""
-            # Start the retry operation
-            task = asyncio.create_task(
-                retry_with_backoff(
-                    operation=operation_that_gets_cancelled,
-                    operation_name="Operation",
-                    max_retries=5,
-                    initial_wait=0.5,  # Long enough to cancel
-                )
-            )
-
-            # Give it time to fail once and start waiting
-            await asyncio.sleep(0.05)
-
-            # Simulate Ctrl-C
-            task.cancel()
-
-            # Wait for the task
-            await task
+        mock_sleep.side_effect = asyncio.CancelledError
+        operation = AsyncMock(side_effect=Exception("Initial failure"))
 
         # Should raise RetryAborted when cancelled
         with pytest.raises(RetryAborted, match="User cancelled Operation"):
-            await cancelling_operation()
+            await retry_with_backoff(
+                operation=operation,
+                operation_name="Operation",
+                max_retries=5,
+                initial_wait=0.5,
+            )
 
         # Should have called once, failed, then been cancelled during wait
-        assert call_count[0] == 1
+        assert operation.call_count == 1
+        mock_sleep.assert_called_once_with(0.5)
 
     @pytest.mark.asyncio
-    async def test_exponential_backoff_timing(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_exponential_backoff_timing(self, mock_sleep):
         """Test that wait times increase exponentially."""
-        call_count = [0]
-        retry_times = []
-
-        async def failing_operation():
-            call_count[0] += 1
-            if call_count[0] <= 3:
-                raise Exception("Keep failing")
-            return "done"
-
-        def on_retry_callback(attempt: int, wait_seconds: float):
-            """Record retry timing."""
-            retry_times.append((attempt, wait_seconds))
+        operation = AsyncMock(
+            side_effect=[Exception("Keep failing"), Exception("Keep failing"), Exception("Keep failing"), "done"]
+        )
+        mock_callback = Mock()
 
         await retry_with_backoff(
-            operation=failing_operation,
+            operation=operation,
             operation_name="Backoff test",
             max_retries=5,
             initial_wait=0.05,  # 50ms for faster tests
-            on_retry=on_retry_callback,
+            on_retry=mock_callback,
         )
 
         # Should have 3 retries (attempts 1, 2, 3)
-        assert len(retry_times) == 3
-
-        # Check exponential backoff: 0.05s, 0.1s, 0.2s
-        assert retry_times[0] == (1, 0.05)  # 0.05 * 2^0 = 0.05
-        assert retry_times[1] == (2, 0.1)  # 0.05 * 2^1 = 0.1
-        assert retry_times[2] == (3, 0.2)  # 0.05 * 2^2 = 0.2
+        assert mock_callback.call_count == 3
+        mock_callback.assert_has_calls([
+            call(1, 0.05),
+            call(2, 0.1),
+            call(3, 0.2)
+        ])
+        mock_sleep.assert_has_calls([call(0.05), call(0.1), call(0.2)])
 
     @pytest.mark.asyncio
-    async def test_on_retry_callback_invoked(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_on_retry_callback_invoked(self, mock_sleep):
         """Test that on_retry callback is called for each retry."""
-        call_count = [0]
-        callback_invocations = []
-
-        async def failing_twice():
-            call_count[0] += 1
-            if call_count[0] <= 2:
-                raise Exception(f"Failure {call_count[0]}")
-            return "success"
-
-        def callback(attempt: int, wait_seconds: float):
-            callback_invocations.append((attempt, wait_seconds))
+        operation = AsyncMock(side_effect=[Exception("Failure 1"), Exception("Failure 2"), "success"])
+        mock_callback = Mock()
 
         await retry_with_backoff(
-            operation=failing_twice,
+            operation=operation,
             operation_name="Test",
             max_retries=5,
             initial_wait=0.1,
-            on_retry=callback,
+            on_retry=mock_callback,
         )
 
         # Should have been called twice (after first and second failures)
-        assert len(callback_invocations) == 2
-        assert callback_invocations[0][0] == 1  # First retry
-        assert callback_invocations[1][0] == 2  # Second retry
+        assert mock_callback.call_count == 2
+        mock_callback.assert_has_calls([call(1, 0.1), call(2, 0.2)])
 
     @pytest.mark.asyncio
-    async def test_on_retry_callback_not_called_on_first_success(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_on_retry_callback_not_called_on_first_success(self, mock_sleep):
         """Test that callback is NOT called if operation succeeds immediately."""
-        callback_called = [False]
-
-        async def immediate_success():
-            return "success"
-
-        def callback(attempt: int, wait_seconds: float):
-            callback_called[0] = True
+        operation = AsyncMock(return_value="success")
+        mock_callback = Mock()
 
         await retry_with_backoff(
-            operation=immediate_success,
+            operation=operation,
             operation_name="Test",
             max_retries=3,
             initial_wait=0.1,
-            on_retry=callback,
+            on_retry=mock_callback,
         )
 
-        assert not callback_called[0]  # Should never be called
+        mock_callback.assert_not_called()  # Should never be called
 
     @pytest.mark.asyncio
-    async def test_auth_error_detection(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_auth_error_detection(self, mock_sleep):
         """Test that 401/unauthorized errors are properly detected."""
-        call_count = [0]
-
-        async def auth_error_operation():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("401 Unauthorized")
-            return "success after auth"
+        operation = AsyncMock(side_effect=[Exception("401 Unauthorized"), "success after auth"])
 
         result = await retry_with_backoff(
-            operation=auth_error_operation,
+            operation=operation,
             operation_name="Auth test",
             max_retries=3,
             initial_wait=0.01,
         )
 
         assert result == "success after auth"
-        assert call_count[0] == 2
+        assert operation.call_count == 2
 
+    @pytest.mark.parametrize("max_retries", [1, 7])
     @pytest.mark.asyncio
-    async def test_max_retries_configurable(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_max_retries_configurable(self, mock_sleep, max_retries):
         """Test that max_retries parameter is respected."""
-        call_count = [0]
+        operation = AsyncMock(side_effect=Exception("Fail"))
 
-        async def always_fail():
-            call_count[0] += 1
-            raise Exception("Fail")
-
-        # Test with max_retries=1
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="Fail"):
             await retry_with_backoff(
-                operation=always_fail, operation_name="Test", max_retries=1, initial_wait=0.01
+                operation=operation, operation_name="Test", max_retries=max_retries, initial_wait=0.01
             )
 
-        assert call_count[0] == 1
-
-        # Test with max_retries=7
-        call_count[0] = 0
-        with pytest.raises(Exception):
-            await retry_with_backoff(
-                operation=always_fail, operation_name="Test", max_retries=7, initial_wait=0.01
-            )
-
-        assert call_count[0] == 7
+        assert operation.call_count == max_retries
+        assert mock_sleep.call_count == max_retries - 1
 
     @pytest.mark.asyncio
-    async def test_initial_wait_configurable(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_initial_wait_configurable(self, mock_sleep):
         """Test that initial_wait parameter is respected."""
-        retry_waits = []
-
-        async def failing_operation():
-            raise Exception("Fail")
-
-        def callback(attempt: int, wait_seconds: float):
-            retry_waits.append(wait_seconds)
+        operation = AsyncMock(side_effect=Exception("Fail"))
+        mock_callback = Mock()
 
         # Custom initial wait of 0.05 seconds (50ms)
         with pytest.raises(Exception):
             await retry_with_backoff(
-                operation=failing_operation,
+                operation=operation,
                 operation_name="Test",
                 max_retries=2,
                 initial_wait=0.05,
-                on_retry=callback,
+                on_retry=mock_callback,
             )
 
         # Should have 1 retry (attempt 1)
-        assert len(retry_waits) == 1
-        assert retry_waits[0] == 0.05  # 0.05 * 2^0 = 0.05
+        mock_callback.assert_called_once_with(1, 0.05)
+        mock_sleep.assert_called_once_with(0.05)
 
     @pytest.mark.asyncio
-    async def test_actual_wait_occurs(self):
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
+    async def test_actual_wait_occurs(self, mock_sleep):
         """Test that retry actually waits (not just calculates wait time)."""
-        import time
-
-        call_count = [0]
-        start_time = time.time()
-
-        async def failing_operation():
-            call_count[0] += 1
-            if call_count[0] == 1:
-                raise Exception("Fail once")
-            return "success"
+        operation = AsyncMock(side_effect=[Exception("Fail once"), "success"])
 
         result = await retry_with_backoff(
-            operation=failing_operation,
+            operation=operation,
             operation_name="Wait test",
             max_retries=2,
             initial_wait=0.1,  # 100ms wait
         )
 
-        elapsed = time.time() - start_time
-
         assert result == "success"
-        # Should have waited at least 100ms
-        assert elapsed >= 0.1
+        mock_sleep.assert_called_once_with(0.1)
