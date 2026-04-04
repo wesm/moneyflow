@@ -312,4 +312,3 @@ class TestBackendIntegration:
 
         # Should use default location
         assert backend.client._session_file == ".mm/mm_session.pickle"
-

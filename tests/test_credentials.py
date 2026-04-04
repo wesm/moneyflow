@@ -558,7 +558,9 @@ class TestPlaintextCredentials:
 
     def test_save_plaintext_credentials(self, credential_manager, temp_config_dir, default_creds):
         """Test saving credentials without encryption."""
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
 
         # Should create plaintext file, not encrypted file
         plaintext_file = temp_config_dir / "credentials.json"
@@ -569,7 +571,9 @@ class TestPlaintextCredentials:
 
     def test_plaintext_file_permissions(self, credential_manager, temp_config_dir, default_creds):
         """Test that plaintext credential file has restricted permissions."""
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
 
         plaintext_file = temp_config_dir / "credentials.json"
         stat_info = plaintext_file.stat()
@@ -578,7 +582,9 @@ class TestPlaintextCredentials:
 
     def test_load_plaintext_credentials(self, credential_manager, default_creds):
         """Test loading plaintext credentials."""
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
 
         creds, key = credential_manager.load_credentials()
 
@@ -590,7 +596,9 @@ class TestPlaintextCredentials:
 
     def test_is_encrypted_returns_false_for_plaintext(self, credential_manager, default_creds):
         """Test is_encrypted() returns False for plaintext credentials."""
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
 
         assert not credential_manager.is_encrypted()
         assert credential_manager.is_plaintext()
@@ -613,7 +621,9 @@ class TestPlaintextCredentials:
         assert encrypted_file.exists()
 
         # Now save plaintext
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
 
         # Encrypted file should be removed
         assert not encrypted_file.exists()
@@ -629,7 +639,12 @@ class TestCredentialPrecedence:
         """Test that encrypted credentials are loaded when both exist."""
         # Save plaintext first
         credential_manager.save_credentials(
-            **{**default_creds, "email": "plaintext@example.com", "encryption_password": None, "use_encryption": False}
+            **{
+                **default_creds,
+                "email": "plaintext@example.com",
+                "encryption_password": None,
+                "use_encryption": False,
+            }
         )
 
         # Manually create an encrypted file (simulating edge case)
@@ -702,7 +717,9 @@ class TestCredentialsFilePermissions:
 
     def test_plaintext_credentials_have_secure_permissions(self, credential_manager, default_creds):
         """Plaintext credentials should have 0o600 permissions."""
-        credential_manager.save_credentials(**{**default_creds, "encryption_password": None, "use_encryption": False})
+        credential_manager.save_credentials(
+            **{**default_creds, "encryption_password": None, "use_encryption": False}
+        )
         plaintext_file = credential_manager.storage_dir / "credentials.json"
         assert_file_permissions(plaintext_file, "600")
 
