@@ -3,8 +3,8 @@
 from typing import cast
 
 import pytest
-from textual.app import App, ComposeResult
-from textual.widgets import Button
+from textual.app import App
+from textual.widgets import Button, Label, Static
 
 from moneyflow.screens.batch_scope_screen import BatchScopeScreen
 
@@ -21,77 +21,62 @@ def test_app():
     return MinimalApp()
 
 
+@pytest.fixture
+def capture():
+    """Fixture to capture screen dismiss callbacks."""
+    container = {"result": None}
+
+    def callback(value):
+        container["result"] = value
+
+    return container, callback
+
+
 class TestBatchScopeScreenDisplay:
     """Test BatchScopeScreen displays correctly."""
 
-    async def test_screen_displays_merchant_name(self):
+    async def test_screen_displays_merchant_name(self, test_app):
         """Test screen shows the merchant name being renamed."""
-
-        class AppWithScreen(App):
-            def compose(self) -> ComposeResult:
-                return []
-
-            async def on_mount(self):
-                screen = BatchScopeScreen(
-                    merchant_name="Amazon.com/abc",
-                    selected_count=3,
-                    total_count=10,
-                )
-                self.install_screen(screen, "test_screen")
-                self.push_screen("test_screen")
-
-        app = AppWithScreen()
-        async with app.run_test() as pilot:
-            await pilot.pause()
+        async with test_app.run_test() as pilot:
+            screen = BatchScopeScreen(
+                merchant_name="Amazon.com/abc",
+                selected_count=3,
+                total_count=10,
+            )
+            test_app.push_screen(screen)
             await pilot.pause()
 
-            # Get the screen from app's screen stack
-            screen = cast(BatchScopeScreen, app.screen)
-            # Check that merchant_name is displayed in the screen
-            assert screen.merchant_name == "Amazon.com/abc"
+            # Find the specific label rendering the text
+            title_label = cast(Label, screen.query_one("#batch-scope-title"))
+            assert "Amazon.com/abc" in str(title_label.render())
 
-    async def test_screen_displays_counts(self):
+    async def test_screen_displays_counts(self, test_app):
         """Test screen shows selected and total counts."""
-
-        class AppWithScreen(App):
-            async def on_mount(self):
-                screen = BatchScopeScreen(
-                    merchant_name="Test Merchant",
-                    selected_count=5,
-                    total_count=15,
-                )
-                self.install_screen(screen, "test_screen")
-                self.push_screen("test_screen")
-
-        app = AppWithScreen()
-        async with app.run_test() as pilot:
-            await pilot.pause()
+        async with test_app.run_test() as pilot:
+            screen = BatchScopeScreen(
+                merchant_name="Test Merchant",
+                selected_count=5,
+                total_count=15,
+            )
+            test_app.push_screen(screen)
             await pilot.pause()
 
-            screen = cast(BatchScopeScreen, app.screen)
-            # Check that counts are stored correctly
-            assert screen.selected_count == 5
-            assert screen.total_count == 15
+            message_static = cast(Static, screen.query_one("#batch-scope-message"))
+            rendered_text = str(message_static.render())
+            assert "5" in rendered_text
+            assert "15" in rendered_text
 
-    async def test_screen_has_three_buttons(self):
+    async def test_screen_has_three_buttons(self, test_app):
         """Test screen has all required buttons."""
-
-        class AppWithScreen(App):
-            async def on_mount(self):
-                screen = BatchScopeScreen(
-                    merchant_name="Test",
-                    selected_count=2,
-                    total_count=8,
-                )
-                self.install_screen(screen, "test_screen")
-                self.push_screen("test_screen")
-
-        app = AppWithScreen()
-        async with app.run_test() as pilot:
-            await pilot.pause()
+        async with test_app.run_test() as pilot:
+            screen = BatchScopeScreen(
+                merchant_name="Test",
+                selected_count=2,
+                total_count=8,
+            )
+            test_app.push_screen(screen)
             await pilot.pause()
 
-            screen = cast(BatchScopeScreen, app.screen)
             all_button = cast(Button, screen.query_one("#all"))
             selected_button = cast(Button, screen.query_one("#selected"))
             cancel_button = cast(Button, screen.query_one("#cancel"))
@@ -104,184 +89,138 @@ class TestBatchScopeScreenDisplay:
 class TestBatchScopeScreenDismiss:
     """Test BatchScopeScreen dismiss returns correct values."""
 
-    async def test_all_button_returns_all(self, test_app):
+    async def test_all_button_returns_all(self, test_app, capture):
         """Test clicking 'Rename all' returns 'all'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.click("#all")
             await pilot.pause()
 
-            assert result == "all"
+            assert result["result"] == "all"
 
-    async def test_selected_button_returns_selected(self, test_app):
+    async def test_selected_button_returns_selected(self, test_app, capture):
         """Test clicking 'Rename selected only' returns 'selected'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.click("#selected")
             await pilot.pause()
 
-            assert result == "selected"
+            assert result["result"] == "selected"
 
-    async def test_cancel_button_returns_cancel(self, test_app):
+    async def test_cancel_button_returns_cancel(self, test_app, capture):
         """Test clicking 'Cancel' returns 'cancel'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.click("#cancel")
             await pilot.pause()
 
-            assert result == "cancel"
+            assert result["result"] == "cancel"
 
-    async def test_escape_key_returns_cancel(self, test_app):
+    async def test_escape_key_returns_cancel(self, test_app, capture):
         """Test pressing Escape returns 'cancel'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.press("escape")
             await pilot.pause()
 
-            assert result == "cancel"
+            assert result["result"] == "cancel"
 
-    async def test_key_1_returns_all(self, test_app):
+    async def test_key_1_returns_all(self, test_app, capture):
         """Test pressing '1' returns 'all'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.press("1")
             await pilot.pause()
 
-            assert result == "all"
+            assert result["result"] == "all"
 
-    async def test_key_2_returns_selected(self, test_app):
+    async def test_key_2_returns_selected(self, test_app, capture):
         """Test pressing '2' returns 'selected'."""
-        result = None
-
-        def capture_result(value):
-            nonlocal result
-            result = value
-
+        result, callback = capture
         async with test_app.run_test() as pilot:
             screen = BatchScopeScreen(
                 merchant_name="Test",
                 selected_count=2,
                 total_count=10,
             )
-            test_app.push_screen(screen, callback=capture_result)
+            test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
             await pilot.press("2")
             await pilot.pause()
 
-            assert result == "selected"
+            assert result["result"] == "selected"
 
 
 class TestBatchScopeScreenButtonLabels:
     """Test button labels display counts correctly."""
 
-    async def test_all_button_shows_total_count(self):
+    async def test_all_button_shows_total_count(self, test_app):
         """Test 'Rename all' button shows total count."""
-
-        class AppWithScreen(App):
-            async def on_mount(self):
-                screen = BatchScopeScreen(
-                    merchant_name="Test",
-                    selected_count=3,
-                    total_count=25,
-                )
-                self.install_screen(screen, "test_screen")
-                self.push_screen("test_screen")
-
-        app = AppWithScreen()
-        async with app.run_test() as pilot:
-            await pilot.pause()
+        async with test_app.run_test() as pilot:
+            screen = BatchScopeScreen(
+                merchant_name="Test",
+                selected_count=3,
+                total_count=25,
+            )
+            test_app.push_screen(screen)
             await pilot.pause()
 
-            screen = cast(BatchScopeScreen, app.screen)
             all_button = cast(Button, screen.query_one("#all"))
             label = str(all_button.label)
             assert "25" in label
 
-    async def test_selected_button_shows_selected_count(self):
+    async def test_selected_button_shows_selected_count(self, test_app):
         """Test 'Rename selected only' button shows selected count."""
-
-        class AppWithScreen(App):
-            async def on_mount(self):
-                screen = BatchScopeScreen(
-                    merchant_name="Test",
-                    selected_count=7,
-                    total_count=50,
-                )
-                self.install_screen(screen, "test_screen")
-                self.push_screen("test_screen")
-
-        app = AppWithScreen()
-        async with app.run_test() as pilot:
-            await pilot.pause()
+        async with test_app.run_test() as pilot:
+            screen = BatchScopeScreen(
+                merchant_name="Test",
+                selected_count=7,
+                total_count=50,
+            )
+            test_app.push_screen(screen)
             await pilot.pause()
 
-            screen = cast(BatchScopeScreen, app.screen)
             selected_button = cast(Button, screen.query_one("#selected"))
             label = str(selected_button.label)
             assert "7" in label
