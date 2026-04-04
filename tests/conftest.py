@@ -5,8 +5,11 @@ This module provides reusable fixtures and test data for the test suite,
 including sample transactions, categories, and mock backends.
 """
 
+import contextlib
+import sqlite3
 from datetime import date
-from typing import Union
+from pathlib import Path
+from typing import TypedDict, Union
 
 import polars as pl
 import pytest
@@ -20,6 +23,69 @@ from tests.mock_backend import MockMonarchMoney
 # ============================================================================
 # TEST HELPER FUNCTIONS
 # ============================================================================
+
+
+class AmazonItem(TypedDict):
+    name: str
+    amount: float
+    quantity: int
+    asin: str
+
+
+class AmazonOrder(TypedDict):
+    order_id: str
+    date: str
+    items: list[AmazonItem]
+
+
+def _create_amazon_db(profile_dir: Path, orders: list[AmazonOrder]) -> None:
+    """Helper to create a mock Amazon database for testing."""
+    db_path = profile_dir / "amazon.db"
+    with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        with conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS transactions (
+                    id TEXT PRIMARY KEY,
+                    date TEXT NOT NULL,
+                    merchant TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'Uncategorized',
+                    category_id TEXT NOT NULL DEFAULT 'cat_uncategorized',
+                    amount REAL NOT NULL,
+                    quantity INTEGER NOT NULL,
+                    asin TEXT NOT NULL,
+                    order_id TEXT NOT NULL,
+                    account TEXT NOT NULL,
+                    order_status TEXT,
+                    shipment_status TEXT,
+                    notes TEXT,
+                    hideFromReports INTEGER DEFAULT 0,
+                    imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            rows = []
+            for order in orders:
+                order_id = order["order_id"]
+                order_date = order["date"]
+                for item in order["items"]:
+                    clean_order = order_id.replace("-", "").replace(" ", "")
+                    txn_id = f"amz_{item['asin']}_{clean_order}"
+                    rows.append((
+                        txn_id, order_date, item["name"], item["amount"],
+                        item["quantity"], item["asin"], order_id, order_id,
+                        "Closed", "Delivered"
+                    ))
+
+            conn.executemany(
+                """
+                INSERT INTO transactions
+                (id, date, merchant, amount, quantity, asin, order_id, account, order_status, shipment_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows
+            )
 
 
 def expected_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
