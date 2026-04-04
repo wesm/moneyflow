@@ -15,16 +15,43 @@ from moneyflow.formatters import ViewPresenter
 from moneyflow.state import SortDirection, SortMode
 
 
-def normalize_label(label):
+def normalize_label(label: str | Text) -> str:
     """Convert Text label to plain string for comparison."""
-    from rich.text import Text
-
-    return label.plain if isinstance(label, Text) else label
+    return label.plain if isinstance(label, Text) else str(label)
 
 
 def normalize_row(row: tuple) -> tuple:
     """Convert Text objects in row to plain strings for comparison."""
     return tuple(item.plain if isinstance(item, Text) else item for item in row)
+
+
+def get_column(cols: list[dict], key: str) -> dict:
+    """Get a column dictionary by key."""
+    return next(c for c in cols if c["key"] == key)
+
+
+def create_txn_df(**kwargs) -> pl.DataFrame:
+    """Create a default transaction DataFrame for testing."""
+    defaults = {
+        "id": ["txn1"],
+        "date": [date(2025, 1, 15)],
+        "merchant": ["Amazon"],
+        "category": ["Shopping"],
+        "account": ["Chase"],
+        "amount": [-99.99],
+        "hideFromReports": [False],
+    }
+    defaults.update(kwargs)
+    return pl.DataFrame(defaults)
+
+
+# Constants for transaction row indices
+TXN_DATE_IDX = 0
+TXN_MERCHANT_IDX = 1
+TXN_CATEGORY_IDX = 2
+TXN_ACCOUNT_IDX = 3
+TXN_AMOUNT_IDX = 4
+TXN_FLAGS_IDX = 5
 
 
 class TestSortArrow:
@@ -521,7 +548,7 @@ class TestPrepareAggregationView:
         )
 
         # Find the Total column
-        total_col = [c for c in view["columns"] if c["key"] == "total"][0]
+        total_col = get_column(view["columns"], "total")
         assert "↓" in total_col["label"]
 
 
@@ -547,21 +574,21 @@ class TestPrepareTransactionColumns:
         """Should show arrow on merchant column when sorted by merchant."""
         cols = ViewPresenter.prepare_transaction_columns(SortMode.MERCHANT, SortDirection.ASC)
 
-        merchant_col = [c for c in cols if c["key"] == "merchant"][0]
+        merchant_col = get_column(cols, "merchant")
         assert "↑" in merchant_col["label"]
 
     def test_amount_sort_indicator(self):
         """Should show arrow on amount column when sorted by amount."""
         cols = ViewPresenter.prepare_transaction_columns(SortMode.AMOUNT, SortDirection.DESC)
 
-        amount_col = [c for c in cols if c["key"] == "amount"][0]
+        amount_col = get_column(cols, "amount")
         assert "↓" in amount_col["label"]
 
     def test_flags_column_empty_label(self):
         """Flags column should have empty label."""
         cols = ViewPresenter.prepare_transaction_columns(SortMode.DATE, SortDirection.DESC)
 
-        flags_col = [c for c in cols if c["key"] == "flags"][0]
+        flags_col = get_column(cols, "flags")
         assert flags_col["label"] == ""
 
     def test_amazon_column_not_shown_by_default(self):
@@ -615,7 +642,7 @@ class TestPrepareTransactionColumns:
             SortMode.DATE, SortDirection.DESC, show_amazon_column=True
         )
 
-        amazon_col = [c for c in cols if c["key"] == "amazon"][0]
+        amazon_col = get_column(cols, "amazon")
         assert amazon_col["width"] == 40
 
     def test_drilled_merchant_shrinks_column(self):
@@ -627,7 +654,7 @@ class TestPrepareTransactionColumns:
             drilled_value="Amazon",
         )
 
-        merchant_col = [c for c in cols if c["key"] == "merchant"][0]
+        merchant_col = get_column(cols, "merchant")
         # Width = len("Amazon") + 2 = 8
         assert merchant_col["width"] == 8
 
@@ -640,7 +667,7 @@ class TestPrepareTransactionColumns:
             drilled_value="Groceries",
         )
 
-        category_col = [c for c in cols if c["key"] == "category"][0]
+        category_col = get_column(cols, "category")
         # Width = len("Groceries") + 2 = 11
         assert category_col["width"] == 11
 
@@ -653,7 +680,7 @@ class TestPrepareTransactionColumns:
             drilled_value="Chase Sapphire",
         )
 
-        account_col = [c for c in cols if c["key"] == "account"][0]
+        account_col = get_column(cols, "account")
         # Width = len("Chase Sapphire") + 2 = 16
         assert account_col["width"] == 16
 
@@ -667,7 +694,7 @@ class TestPrepareTransactionColumns:
             drilled_value=long_name,
         )
 
-        merchant_col = [c for c in cols if c["key"] == "merchant"][0]
+        merchant_col = get_column(cols, "merchant")
         # Width should be capped at MAX_DRILLED_COLUMN_WIDTH (30)
         assert merchant_col["width"] == ViewPresenter.MAX_DRILLED_COLUMN_WIDTH
 
@@ -681,11 +708,11 @@ class TestPrepareTransactionColumns:
         )
 
         # Category should keep default width (21 - fits "Business Electronics")
-        category_col = [c for c in cols if c["key"] == "category"][0]
+        category_col = get_column(cols, "category")
         assert category_col["width"] == 21
 
         # Account should keep default width (20)
-        account_col = [c for c in cols if c["key"] == "account"][0]
+        account_col = get_column(cols, "account")
         assert account_col["width"] == 20
 
 
@@ -733,17 +760,7 @@ class TestFormatTransactionRows:
 
     def test_formats_basic_transaction(self):
         """Should format basic transaction row."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
@@ -778,167 +795,79 @@ class TestFormatTransactionRows:
 
     def test_includes_selected_flag(self):
         """Should include ✓ flag for selected transactions."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         rows = ViewPresenter.format_transaction_rows(df, {"txn1"}, set())
 
-        assert rows[0][5] == "✓"  # Flags column
+        assert rows[0][TXN_FLAGS_IDX] == "✓"  # Flags column
 
     def test_includes_hidden_flag(self):
         """Should include H flag for hidden transactions."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [True],
-            }
-        )
+        df = create_txn_df(hideFromReports=[True])
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][5] == "H"
+        assert rows[0][TXN_FLAGS_IDX] == "H"
 
     def test_includes_pending_edit_flag(self):
         """Should include * flag for transactions with pending edits."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         rows = ViewPresenter.format_transaction_rows(df, set(), {"txn1"})
 
-        assert rows[0][5] == "*"
+        assert rows[0][TXN_FLAGS_IDX] == "*"
 
     def test_all_flags_combined_in_row(self):
         """Should show all flags for a transaction."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [True],
-            }
-        )
+        df = create_txn_df(hideFromReports=[True])
 
         rows = ViewPresenter.format_transaction_rows(df, {"txn1"}, {"txn1"})
 
-        assert rows[0][5] == "✓H*"
+        assert rows[0][TXN_FLAGS_IDX] == "✓H*"
 
     def test_handles_null_merchant(self):
         """Should show 'Unknown' for null merchant."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": [None],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df(merchant=[None])
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][1] == "Unknown"
+        assert rows[0][TXN_MERCHANT_IDX] == "Unknown"
 
     def test_handles_null_category(self):
         """Should show 'Uncategorized' for null category."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": [None],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df(category=[None])
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        assert rows[0][2] == "Uncategorized"
+        assert rows[0][TXN_CATEGORY_IDX] == "Uncategorized"
 
     def test_formats_large_amount(self):
         """Should format large amounts with commas."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["BigPurchase"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-12345.67],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df(merchant=["BigPurchase"], amount=[-12345.67])
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        amount_field = rows[0][4]
+        amount_field = rows[0][TXN_AMOUNT_IDX]
         # Amount field is Text object when for_table=True
         assert hasattr(amount_field, "plain")
-        assert amount_field.plain == "-12,345.67"  # type: ignore[union-attr]
+        amount_text = cast(Text, amount_field)
+        assert amount_text.plain == "-12,345.67"
 
     def test_formats_positive_amount(self):
         """Should format positive amounts (income)."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Employer"],
-                "category": ["Paycheck"],
-                "account": ["Chase"],
-                "amount": [5000.00],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df(merchant=["Employer"], category=["Paycheck"], amount=[5000.00])
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
-        amount_field = rows[0][4]
+        amount_field = rows[0][TXN_AMOUNT_IDX]
         # Amount field is Text object when for_table=True
         assert hasattr(amount_field, "plain")
-        assert amount_field.plain == "+5,000.00"  # type: ignore[union-attr]
+        amount_text = cast(Text, amount_field)
+        assert amount_text.plain == "+5,000.00"
 
     def test_includes_amazon_placeholder_when_enabled(self):
         """Should include Amazon placeholder column when include_amazon_placeholder=True."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         rows = ViewPresenter.format_transaction_rows(
             df, set(), set(), include_amazon_placeholder=True
@@ -951,17 +880,7 @@ class TestFormatTransactionRows:
 
     def test_no_amazon_placeholder_by_default(self):
         """Should not include Amazon placeholder by default."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         rows = ViewPresenter.format_transaction_rows(df, set(), set())
 
@@ -1029,24 +948,14 @@ class TestPrepareTransactionView:
 
     def test_sort_indicators_in_headers(self):
         """Should include sort indicators in column headers."""
-        df = pl.DataFrame(
-            {
-                "id": ["txn1"],
-                "date": [date(2025, 1, 15)],
-                "merchant": ["Amazon"],
-                "category": ["Shopping"],
-                "account": ["Chase"],
-                "amount": [-99.99],
-                "hideFromReports": [False],
-            }
-        )
+        df = create_txn_df()
 
         view = ViewPresenter.prepare_transaction_view(
             df, SortMode.AMOUNT, SortDirection.ASC, set(), set()
         )
 
         # Find amount column and check for arrow
-        amount_col = [c for c in view["columns"] if c["key"] == "amount"][0]
+        amount_col = get_column(view["columns"], "amount")
         assert "↑" in amount_col["label"]
 
 
