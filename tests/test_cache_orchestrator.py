@@ -5,7 +5,8 @@ These validate normal-use cache behavior without running the UI.
 """
 
 import base64
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import polars as pl
 import pytest
@@ -69,43 +70,47 @@ def create_transactions_df(dates: list[str], prefix: str) -> pl.DataFrame:
     )
 
 
-class DummyDataManager:
-    def __init__(self, categories, category_groups):
-        self.categories = categories
-        self.category_groups = category_groups
-        self.all_merchants = []
-        self.fetch_calls = []
-        self._fetch_df = None
+@pytest.fixture
+def mock_data_manager(sample_categories, sample_category_groups):
+    dm = MagicMock()
+    dm.apply_category_groups.side_effect = lambda df: df
+    dm.refresh_merchant_cache = AsyncMock(return_value=["Amazon", "Whole Foods"])
+    dm.fetch_all_data = AsyncMock(
+        return_value=(None, sample_categories, sample_category_groups)
+    )
+    return dm
 
-    def apply_category_groups(self, df: pl.DataFrame) -> pl.DataFrame:
-        return df
 
-    async def refresh_merchant_cache(self, force: bool = False):
-        return ["Amazon", "Whole Foods"]
+@pytest.fixture
+def test_dates():
+    today = date.today()
+    boundary = today - timedelta(days=CacheManager.HOT_WINDOW_DAYS)
+    return {
+        "hot_recent": (today - timedelta(days=5)).isoformat(),
+        "hot_boundary": (boundary + timedelta(days=1)).isoformat(),
+        "cold_boundary": (boundary - timedelta(days=1)).isoformat(),
+        "cold_old": (today - timedelta(days=120)).isoformat(),
+        "hot_new": (today - timedelta(days=3)).isoformat(),
+        "cold_new": (today - timedelta(days=200)).isoformat(),
+        "custom_start": (today - timedelta(days=7)).isoformat(),
+    }
 
-    def set_fetch_result(self, df: pl.DataFrame):
-        self._fetch_df = df
 
-    async def fetch_all_data(self, start_date=None, end_date=None, progress_callback=None):
-        self.fetch_calls.append((start_date, end_date))
-        return self._fetch_df, self.categories, self.category_groups
+@pytest.fixture
+def setup_orchestrator(cache_manager, mock_data_manager, sample_categories, sample_category_groups):
+    def _setup(dates, prefix="tx"):
+        df = create_transactions_df(dates, prefix)
+        cache_manager.save_cache(df, sample_categories, sample_category_groups)
+        return CacheOrchestrator(cache_manager, mock_data_manager), df
+
+    return _setup
 
 
 @pytest.mark.asyncio
 async def test_check_and_load_cache_returns_full_cache(
-    cache_manager, sample_categories, sample_category_groups
+    setup_orchestrator, test_dates, sample_categories, sample_category_groups
 ):
-    today = date.today()
-    boundary = today - timedelta(days=CacheManager.HOT_WINDOW_DAYS)
-    dates = [
-        (boundary - timedelta(days=1)).isoformat(),
-        (boundary + timedelta(days=1)).isoformat(),
-    ]
-    df = create_transactions_df(dates, "tx")
-    cache_manager.save_cache(df, sample_categories, sample_category_groups)
-
-    dm = DummyDataManager(sample_categories, sample_category_groups)
-    orchestrator = CacheOrchestrator(cache_manager, dm)
+    orchestrator, df = setup_orchestrator([test_dates["cold_boundary"], test_dates["hot_boundary"]])
 
     status = []
     data, strategy = await orchestrator.check_and_load_cache(
@@ -124,29 +129,18 @@ async def test_check_and_load_cache_returns_full_cache(
 
 @pytest.mark.asyncio
 async def test_check_and_load_cache_hot_only_mode(
-    cache_manager, sample_categories, sample_category_groups
+    setup_orchestrator, cache_manager, test_dates
 ):
-    today = date.today()
-    boundary = today - timedelta(days=CacheManager.HOT_WINDOW_DAYS)
-    dates = [
-        (today - timedelta(days=5)).isoformat(),
-        (boundary + timedelta(days=1)).isoformat(),
-        (boundary - timedelta(days=1)).isoformat(),
-    ]
-    df = create_transactions_df(dates, "tx")
-    cache_manager.save_cache(df, sample_categories, sample_category_groups)
+    orchestrator, df = setup_orchestrator(
+        [test_dates["hot_recent"], test_dates["hot_boundary"], test_dates["cold_boundary"]]
+    )
 
-    metadata = cache_manager.load_metadata()
-    metadata["cold"]["fetch_timestamp"] = (datetime.now() - timedelta(days=40)).isoformat()
-    cache_manager._save_metadata(metadata)
-
-    dm = DummyDataManager(sample_categories, sample_category_groups)
-    orchestrator = CacheOrchestrator(cache_manager, dm)
+    cache_manager.expire_cache_for_testing("cold", days_old=40)
 
     hot_df = cache_manager.load_hot_cache()
     data, strategy = await orchestrator.check_and_load_cache(
         force_refresh=False,
-        custom_start_date=(today - timedelta(days=7)).isoformat(),
+        custom_start_date=test_dates["custom_start"],
         status_update=None,
     )
 
@@ -158,21 +152,14 @@ async def test_check_and_load_cache_hot_only_mode(
 
 @pytest.mark.asyncio
 async def test_partial_refresh_hot_only_updates_hot(
-    cache_manager, sample_categories, sample_category_groups
+    setup_orchestrator, cache_manager, mock_data_manager, sample_categories, sample_category_groups, test_dates
 ):
-    today = date.today()
-    dates = [
-        (today - timedelta(days=5)).isoformat(),
-        (today - timedelta(days=120)).isoformat(),
-    ]
-    df = create_transactions_df(dates, "tx")
-    cache_manager.save_cache(df, sample_categories, sample_category_groups)
+    orchestrator, _ = setup_orchestrator([test_dates["hot_recent"], test_dates["cold_old"]])
 
-    dm = DummyDataManager(sample_categories, sample_category_groups)
-    orchestrator = CacheOrchestrator(cache_manager, dm)
-
-    new_hot_df = create_transactions_df([(today - timedelta(days=3)).isoformat()], "new")
-    dm.set_fetch_result(new_hot_df)
+    new_hot_df = create_transactions_df([test_dates["hot_new"]], "new")
+    mock_data_manager.fetch_all_data = AsyncMock(
+        return_value=(new_hot_df, sample_categories, sample_category_groups)
+    )
 
     result = await orchestrator.partial_refresh(
         strategy=RefreshStrategy.HOT_ONLY,
@@ -182,31 +169,26 @@ async def test_partial_refresh_hot_only_updates_hot(
 
     assert result is not None
     merged_df, _, _ = result
-    assert len(merged_df) >= len(new_hot_df)
+
+    saved_cold = cache_manager.load_cold_cache()
+    expected_len = len(saved_cold) + len(new_hot_df)
+    assert len(merged_df) == expected_len
 
     saved_hot = cache_manager.load_hot_cache()
-    saved_cold = cache_manager.load_cold_cache()
     assert len(saved_hot) == len(new_hot_df)
     assert saved_cold is not None and len(saved_cold) > 0
 
 
 @pytest.mark.asyncio
 async def test_partial_refresh_cold_only_updates_cold(
-    cache_manager, sample_categories, sample_category_groups
+    setup_orchestrator, cache_manager, mock_data_manager, sample_categories, sample_category_groups, test_dates
 ):
-    today = date.today()
-    dates = [
-        (today - timedelta(days=5)).isoformat(),
-        (today - timedelta(days=120)).isoformat(),
-    ]
-    df = create_transactions_df(dates, "tx")
-    cache_manager.save_cache(df, sample_categories, sample_category_groups)
+    orchestrator, _ = setup_orchestrator([test_dates["hot_recent"], test_dates["cold_old"]])
 
-    dm = DummyDataManager(sample_categories, sample_category_groups)
-    orchestrator = CacheOrchestrator(cache_manager, dm)
-
-    new_cold_df = create_transactions_df([(today - timedelta(days=200)).isoformat()], "cold")
-    dm.set_fetch_result(new_cold_df)
+    new_cold_df = create_transactions_df([test_dates["cold_new"]], "cold")
+    mock_data_manager.fetch_all_data = AsyncMock(
+        return_value=(new_cold_df, sample_categories, sample_category_groups)
+    )
 
     result = await orchestrator.partial_refresh(
         strategy=RefreshStrategy.COLD_ONLY,
@@ -216,9 +198,11 @@ async def test_partial_refresh_cold_only_updates_cold(
 
     assert result is not None
     merged_df, _, _ = result
-    assert len(merged_df) >= len(new_cold_df)
 
     saved_hot = cache_manager.load_hot_cache()
+    expected_len = len(saved_hot) + len(new_cold_df)
+    assert len(merged_df) == expected_len
+
     saved_cold = cache_manager.load_cold_cache()
     assert saved_hot is not None and len(saved_hot) > 0
     assert len(saved_cold) == len(new_cold_df)

@@ -385,6 +385,13 @@ class CacheManager:
         with open(self.metadata_file, "r") as f:
             return json.load(f)
 
+    def expire_cache_for_testing(self, tier: str, days_old: int) -> None:
+        """Expire a cache tier for testing purposes."""
+        metadata = self.load_metadata()
+        if tier in metadata:
+            metadata[tier]["fetch_timestamp"] = (datetime.now() - timedelta(days=days_old)).isoformat()
+            self._save_metadata(metadata)
+
     def _save_metadata(self, metadata: Dict[str, Any]) -> None:
         """Save cache metadata with secure permissions."""
         json_data = json.dumps(metadata, indent=2)
