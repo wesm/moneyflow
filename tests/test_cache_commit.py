@@ -61,28 +61,31 @@ class TestCacheAndCommit:
         assert failure == 0
         assert len(logged_in_mock_mm.update_calls) == 6
 
-    async def test_commit_handles_not_logged_in(self, data_manager, mock_mm):
+    async def test_commit_handles_not_logged_in(self, mock_mm, tmp_path):
         """
         Test error handling when backend is NOT logged in.
 
         This might be the root cause - backend not properly authenticated
         when loading from cache.
         """
+        from moneyflow.data_manager import DataManager
+
+        # We need mock_mm to behave like a real backend that requires auth
+        def mock_update(*args, **kwargs):
+            if not mock_mm.is_logged_in:
+                raise Exception("401 Unauthorized")
+            return {"status": "success"}
+
+        mock_mm.update_transaction = AsyncMock(side_effect=mock_update)
+
         # Don't login - simulate the bug scenario
-        # mock_mm.login() NOT called
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
         edits = [TransactionEdit("txn_1", "merchant", "Old", "New", FIXED_TIME)]
 
-        # This should either:
-        # 1. Fail with clear error
-        # 2. Auto-login and succeed
-        success, failure, _ = await data_manager.commit_pending_edits(edits)
-
-        # Record what happens for analysis
-        # In real backend, not being logged in would cause 401 errors
-        # In mock, it should still work (mock doesn't require auth)
-        assert success == 1
-        assert failure == 0
+        # With new logic: if ALL commits fail with 401, exception is raised
+        with pytest.raises(Exception, match="401 Unauthorized"):
+            await dm.commit_pending_edits(edits)
 
     async def test_commit_with_session_expiration_during_cache(
         self, data_manager, logged_in_mock_mm
