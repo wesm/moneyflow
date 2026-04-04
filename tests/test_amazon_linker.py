@@ -147,7 +147,9 @@ class TestAmazonLinkerFindDatabases:
         assert len(databases) == 1
         assert databases[0] == db_path
 
-    def test_find_database_in_amazon_profile_without_dash(self, config_dir: Path, linker: AmazonLinker) -> None:
+    def test_find_database_in_amazon_profile_without_dash(
+        self, config_dir: Path, linker: AmazonLinker
+    ) -> None:
         """Should find database in profile named exactly 'amazon' (no dash suffix)."""
         profiles_dir = config_dir / "profiles"
         profile_dir = profiles_dir / "amazon"
@@ -234,7 +236,9 @@ class TestAmazonLinkerMatching:
         """Should match orders within date tolerance."""
         create_amazon_db(amazon_profile, [make_order(amount=-12.99)])
 
-        matches = linker.find_matching_orders(amount=-12.99, transaction_date="2025-01-15", date_tolerance_days=7)
+        matches = linker.find_matching_orders(
+            amount=-12.99, transaction_date="2025-01-15", date_tolerance_days=7
+        )
 
         assert len(matches) == 1
 
@@ -242,7 +246,9 @@ class TestAmazonLinkerMatching:
         """Should not match orders outside date tolerance."""
         create_amazon_db(amazon_profile, [make_order(amount=-12.99)])
 
-        matches = linker.find_matching_orders(amount=-12.99, transaction_date="2025-01-20", date_tolerance_days=7)
+        matches = linker.find_matching_orders(
+            amount=-12.99, transaction_date="2025-01-20", date_tolerance_days=7
+        )
 
         assert len(matches) == 0
 
@@ -267,8 +273,20 @@ class TestAmazonLinkerMatching:
         create_amazon_db(
             amazon_profile,
             [
-                make_order(amount=-25.00, order_id="113-1111111-1111111", date="2025-01-10", name="Item A", asin="A001"),
-                make_order(amount=-25.00, order_id="113-2222222-2222222", date="2025-01-12", name="Item B", asin="B001"),
+                make_order(
+                    amount=-25.00,
+                    order_id="113-1111111-1111111",
+                    date="2025-01-10",
+                    name="Item A",
+                    asin="A001",
+                ),
+                make_order(
+                    amount=-25.00,
+                    order_id="113-2222222-2222222",
+                    date="2025-01-12",
+                    name="Item B",
+                    asin="B001",
+                ),
             ],
         )
 
@@ -276,13 +294,27 @@ class TestAmazonLinkerMatching:
 
         assert len(matches) == 2
 
-    def test_matches_sorted_by_date_proximity(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_matches_sorted_by_date_proximity(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should sort matches by date proximity (closest first)."""
         create_amazon_db(
             amazon_profile,
             [
-                make_order(amount=-25.00, order_id="113-FAR-1111111", date="2025-01-05", name="Item Far", asin="A001"),
-                make_order(amount=-25.00, order_id="113-CLOSE-2222222", date="2025-01-10", name="Item Close", asin="B001"),
+                make_order(
+                    amount=-25.00,
+                    order_id="113-FAR-1111111",
+                    date="2025-01-05",
+                    name="Item Far",
+                    asin="A001",
+                ),
+                make_order(
+                    amount=-25.00,
+                    order_id="113-CLOSE-2222222",
+                    date="2025-01-10",
+                    name="Item Close",
+                    asin="B001",
+                ),
             ],
         )
 
@@ -298,11 +330,17 @@ class TestAmazonLinkerMatching:
 
         profile1 = profiles_dir / "amazon-personal"
         profile1.mkdir(parents=True)
-        create_amazon_db(profile1, [make_order(amount=-30.00, order_id="113-1111111-1111111", name="Item 1", asin="A001")])
+        create_amazon_db(
+            profile1,
+            [make_order(amount=-30.00, order_id="113-1111111-1111111", name="Item 1", asin="A001")],
+        )
 
         profile2 = profiles_dir / "amazon-wife"
         profile2.mkdir(parents=True)
-        create_amazon_db(profile2, [make_order(amount=-30.00, order_id="113-2222222-2222222", name="Item 2", asin="B001")])
+        create_amazon_db(
+            profile2,
+            [make_order(amount=-30.00, order_id="113-2222222-2222222", name="Item 2", asin="B001")],
+        )
 
         matches = linker.find_matching_orders(amount=-30.00, transaction_date="2025-01-10")
 
@@ -364,7 +402,9 @@ class TestIsAmazonFilteredView:
             (["Amazon.com"], True),
         ],
     )
-    def test_amazon_filtered_view(self, linker: AmazonLinker, merchants: list[str], expected: bool) -> None:
+    def test_amazon_filtered_view(
+        self, linker: AmazonLinker, merchants: list[str], expected: bool
+    ) -> None:
         """Should correctly identify amazon filtered views."""
         assert linker.is_amazon_filtered_view(merchants) is expected
 
@@ -390,7 +430,9 @@ class TestIsAmazonMerchant:
             (None, False),
         ],
     )
-    def test_amazon_merchant_detection(self, linker: AmazonLinker, merchant: str, expected: bool) -> None:
+    def test_amazon_merchant_detection(
+        self, linker: AmazonLinker, merchant: str, expected: bool
+    ) -> None:
         """Should detect various Amazon merchant name patterns."""
         assert linker.is_amazon_merchant(merchant) is expected
 
@@ -428,9 +470,13 @@ class TestEdgeCases:
         matches = linker.find_matching_orders(amount=-9999.99, transaction_date="2025-01-10")
         assert len(matches) == 1
 
-    def test_special_characters_in_product_name(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_special_characters_in_product_name(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should handle special characters in product names."""
-        create_amazon_db(amazon_profile, [make_order(amount=-12.99, name="USB-C Cable (3-Pack) - 6ft & 10ft")])
+        create_amazon_db(
+            amazon_profile, [make_order(amount=-12.99, name="USB-C Cable (3-Pack) - 6ft & 10ft")]
+        )
         matches = linker.find_matching_orders(amount=-12.99, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].items[0]["name"] == "USB-C Cable (3-Pack) - 6ft & 10ft"
@@ -448,7 +494,9 @@ class TestEdgeCases:
 class TestFuzzyMatching:
     """Tests for fuzzy matching when gift cards reduce transaction amount."""
 
-    def test_fuzzy_match_when_transaction_less_than_order(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_when_transaction_less_than_order(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should fuzzy match when transaction is less than order (gift card used)."""
         create_amazon_db(amazon_profile, [make_order(amount=-50.00)])
         matches = linker.find_matching_orders(amount=-40.00, transaction_date="2025-01-10")
@@ -457,13 +505,17 @@ class TestFuzzyMatching:
         assert matches[0].confidence == "likely"
         assert matches[0].amount_difference == 10.00
 
-    def test_fuzzy_match_requires_negative_transaction(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_requires_negative_transaction(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Positive transactions should not fuzzy match expense orders."""
         create_amazon_db(amazon_profile, [make_order(amount=-8.00, name="Small Item")])
         matches = linker.find_matching_orders(amount=1.00, transaction_date="2025-01-10")
         assert matches == []
 
-    def test_fuzzy_match_uses_max_of_15_or_10_percent(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_uses_max_of_15_or_10_percent(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Tolerance should be max($15, 10% of order amount)."""
         create_amazon_db(amazon_profile, [make_order(amount=-200.00, name="Expensive Item")])
 
@@ -474,20 +526,29 @@ class TestFuzzyMatching:
         matches = linker.find_matching_orders(amount=-175.00, transaction_date="2025-01-10")
         assert len(matches) == 0
 
-    def test_fuzzy_tolerance_minimum_15_dollars(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_tolerance_minimum_15_dollars(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """For small orders, tolerance should be minimum $15."""
         create_amazon_db(amazon_profile, [make_order(amount=-50.00, name="Small Item")])
         matches = linker.find_matching_orders(amount=-38.00, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].confidence == "likely"
 
-    def test_no_fuzzy_match_when_exact_match_exists(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_no_fuzzy_match_when_exact_match_exists(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Exact matches should take priority over fuzzy matches."""
         create_amazon_db(
             amazon_profile,
             [
                 make_order(amount=-50.00, order_id="113-EXACT-1111111", name="Exact Match Item"),
-                make_order(amount=-55.00, order_id="113-FUZZY-2222222", name="Fuzzy Match Item", asin="B002"),
+                make_order(
+                    amount=-55.00,
+                    order_id="113-FUZZY-2222222",
+                    name="Fuzzy Match Item",
+                    asin="B002",
+                ),
             ],
         )
         matches = linker.find_matching_orders(amount=-50.00, transaction_date="2025-01-10")
@@ -495,39 +556,61 @@ class TestFuzzyMatching:
         assert matches[0].order_id == "113-EXACT-1111111"
         assert matches[0].confidence in ("high", "medium")
 
-    def test_no_fuzzy_match_when_transaction_greater_than_order(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_no_fuzzy_match_when_transaction_greater_than_order(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should NOT fuzzy match when transaction > order (wrong direction)."""
         create_amazon_db(amazon_profile, [make_order(amount=-40.00)])
         matches = linker.find_matching_orders(amount=-50.00, transaction_date="2025-01-10")
         assert len(matches) == 0
 
-    def test_no_fuzzy_match_when_difference_exceeds_tolerance(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_no_fuzzy_match_when_difference_exceeds_tolerance(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should NOT fuzzy match when difference exceeds tolerance."""
         create_amazon_db(amazon_profile, [make_order(amount=-50.00)])
         matches = linker.find_matching_orders(amount=-25.00, transaction_date="2025-01-10")
         assert len(matches) == 0
 
-    def test_fuzzy_match_confidence_is_likely(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_confidence_is_likely(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Fuzzy matches should have 'likely' confidence."""
         create_amazon_db(amazon_profile, [make_order(amount=-50.00)])
         matches = linker.find_matching_orders(amount=-45.00, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].confidence == "likely"
 
-    def test_fuzzy_match_includes_amount_difference(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_includes_amount_difference(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Fuzzy matches should include the amount difference."""
         create_amazon_db(amazon_profile, [make_order(amount=-75.00)])
         matches = linker.find_matching_orders(amount=-68.50, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].amount_difference == 6.50
 
-    def test_fuzzy_match_sorted_by_date_proximity(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_sorted_by_date_proximity(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Fuzzy matches should be sorted by date proximity."""
         create_amazon_db(
             amazon_profile,
             [
-                make_order(amount=-50.00, order_id="113-FAR-1111111", date="2025-01-05", name="Item Far", asin="A001"),
-                make_order(amount=-50.00, order_id="113-CLOSE-2222222", date="2025-01-10", name="Item Close", asin="B001"),
+                make_order(
+                    amount=-50.00,
+                    order_id="113-FAR-1111111",
+                    date="2025-01-05",
+                    name="Item Far",
+                    asin="A001",
+                ),
+                make_order(
+                    amount=-50.00,
+                    order_id="113-CLOSE-2222222",
+                    date="2025-01-10",
+                    name="Item Close",
+                    asin="B001",
+                ),
             ],
         )
         matches = linker.find_matching_orders(amount=-45.00, transaction_date="2025-01-11")
@@ -535,13 +618,27 @@ class TestFuzzyMatching:
         assert matches[0].order_id == "113-CLOSE-2222222"
         assert matches[1].order_id == "113-FAR-1111111"
 
-    def test_fuzzy_match_sorted_by_amount_difference_when_dates_tied(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_fuzzy_match_sorted_by_amount_difference_when_dates_tied(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """When dates are tied, fuzzy matches should be sorted by amount difference."""
         create_amazon_db(
             amazon_profile,
             [
-                make_order(amount=-60.00, order_id="113-BIGGER-DIFF-111", date="2025-01-10", name="Big Diff Item", asin="A001"),
-                make_order(amount=-52.00, order_id="113-SMALLER-DIFF-222", date="2025-01-10", name="Small Diff Item", asin="B001"),
+                make_order(
+                    amount=-60.00,
+                    order_id="113-BIGGER-DIFF-111",
+                    date="2025-01-10",
+                    name="Big Diff Item",
+                    asin="A001",
+                ),
+                make_order(
+                    amount=-52.00,
+                    order_id="113-SMALLER-DIFF-222",
+                    date="2025-01-10",
+                    name="Small Diff Item",
+                    asin="B001",
+                ),
             ],
         )
         matches = linker.find_matching_orders(amount=-50.00, transaction_date="2025-01-10")
@@ -551,7 +648,9 @@ class TestFuzzyMatching:
         assert matches[1].order_id == "113-BIGGER-DIFF-111"
         assert matches[1].amount_difference == 10.00
 
-    def test_exact_match_does_not_have_amount_difference(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_exact_match_does_not_have_amount_difference(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Exact matches should not have amount_difference set."""
         create_amazon_db(amazon_profile, [make_order(amount=-50.00)])
         matches = linker.find_matching_orders(amount=-50.00, transaction_date="2025-01-10")
@@ -562,7 +661,9 @@ class TestFuzzyMatching:
 class TestItemLevelMatching:
     """Tests for item-level matching (third pass)."""
 
-    def test_item_match_when_order_total_differs(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_item_match_when_order_total_differs(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should match individual item when order total doesn't match."""
         create_amazon_db(
             amazon_profile,
@@ -571,9 +672,19 @@ class TestItemLevelMatching:
                     order_id="113-SPLIT-1234567",
                     date="2025-01-15",
                     items=[
-                        {"name": "65 Inch Smart TV", "amount": -800.00, "quantity": 1, "asin": "B0TV123"},
-                        {"name": "2.1 Soundbar System", "amount": -300.00, "quantity": 1, "asin": "B0SB456"},
-                    ]
+                        {
+                            "name": "65 Inch Smart TV",
+                            "amount": -800.00,
+                            "quantity": 1,
+                            "asin": "B0TV123",
+                        },
+                        {
+                            "name": "2.1 Soundbar System",
+                            "amount": -300.00,
+                            "quantity": 1,
+                            "asin": "B0SB456",
+                        },
+                    ],
                 )
             ],
         )
@@ -586,14 +697,18 @@ class TestItemLevelMatching:
         assert matches[0].confidence in ("high", "medium")
         assert matches[0].amount_difference is None
 
-    def test_item_match_not_used_when_order_total_matches(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_item_match_not_used_when_order_total_matches(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should prefer order total match over item match."""
         create_amazon_db(amazon_profile, [make_order(amount=-25.00, order_id="113-SINGLE-1234567")])
         matches = linker.find_matching_orders(amount=-25.00, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].confidence in ("high", "medium")
 
-    def test_item_match_returns_correct_item(self, amazon_profile: Path, linker: AmazonLinker) -> None:
+    def test_item_match_returns_correct_item(
+        self, amazon_profile: Path, linker: AmazonLinker
+    ) -> None:
         """Should return only the matching item, not all items in order."""
         create_amazon_db(
             amazon_profile,
@@ -605,7 +720,7 @@ class TestItemLevelMatching:
                         {"name": "TV", "amount": -800.00, "quantity": 1, "asin": "TV01"},
                         {"name": "Soundbar", "amount": -200.00, "quantity": 1, "asin": "SB01"},
                         {"name": "HDMI Cable", "amount": -15.00, "quantity": 1, "asin": "HD01"},
-                    ]
+                    ],
                 )
             ],
         )
