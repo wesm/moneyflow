@@ -44,9 +44,9 @@ def setup_view(controller, mode, selected_keys=None, selected_ids=None, **state_
     for k, v in state_kwargs.items():
         setattr(controller.state, k, v)
     controller.refresh_view()
-    if selected_keys:
+    if selected_keys is not None:
         controller.state.selected_group_keys = set(selected_keys)
-    if selected_ids:
+    if selected_ids is not None:
         controller.state.selected_ids = set(selected_ids)
 
 
