@@ -264,11 +264,11 @@ class TestLoginErrorHandling:
         ):
             mock_api.side_effect = Exception("401 Unauthorized")
             mock_login.return_value = None
-            
+
             async def fake_login(*args, **kwargs):
                 mm_with_session.set_token("new-fresh-token")
                 return None
-                
+
             mock_login.side_effect = fake_login
 
             # Should detect stale session via API call, delete it, and retry

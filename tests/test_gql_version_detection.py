@@ -169,6 +169,7 @@ class TestActualGqlLibrary:
         client = Client(
             transport=transport,
             fetch_schema_from_transport=False,
+            execute_timeout=10,
         )
         assert client is not None
 

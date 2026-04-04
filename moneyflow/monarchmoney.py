@@ -30,7 +30,7 @@ from gql import Client, gql
 from gql.transport.aiohttp import AIOHTTPTransport
 from graphql import DocumentNode
 
-from .gql_version import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_version
+from .gql_version import GQL_V4_PLUS
 
 AUTH_HEADER_KEY = "authorization"
 CSRF_KEY = "csrftoken"
