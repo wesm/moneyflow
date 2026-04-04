@@ -17,7 +17,8 @@ from moneyflow.state import SortDirection, SortMode
 
 def normalize_label(label: str | Text) -> str:
     """Convert Text label to plain string for comparison."""
-    return label.plain if isinstance(label, Text) else str(label)
+    assert isinstance(label, (str, Text)), f"Expected str or Text, got {type(label).__name__}"
+    return label.plain if isinstance(label, Text) else label
 
 
 def normalize_row(row: tuple) -> tuple:
