@@ -1,6 +1,9 @@
 """Tests for credential migration from single-account to multi-account."""
 
+import json
+
 import pytest
+import yaml
 
 from moneyflow.account_manager import AccountManager
 from moneyflow.credentials import CredentialManager
@@ -21,6 +24,43 @@ def temp_config_dir(tmp_path):
     return config_dir
 
 
+@pytest.fixture
+def account_manager(temp_config_dir):
+    """Fixture to provide a standard AccountManager setup."""
+    return AccountManager(config_dir=temp_config_dir)
+
+
+@pytest.fixture
+def legacy_credentials(temp_config_dir):
+    """Fixture to provide a standard legacy credential setup."""
+    legacy_cred = CredentialManager(config_dir=temp_config_dir)
+    legacy_cred.save_credentials(
+        email="test@example.com",
+        password="pass",
+        mfa_secret="secret",
+        encryption_password="encrypt",
+    )
+    return legacy_cred
+
+
+@pytest.fixture
+def legacy_amazon_db(temp_config_dir):
+    """Fixture to provide a standard legacy amazon.db setup."""
+    amazon_db = temp_config_dir / "amazon.db"
+    amazon_db.write_text("fake database content")
+    return amazon_db
+
+
+@pytest.fixture
+def legacy_config_yaml(temp_config_dir):
+    """Fixture to provide a standard legacy config.yaml setup."""
+    config_path = temp_config_dir / "config.yaml"
+    categories = {"Food": ["Groceries"], "Shopping": ["Clothing"]}
+    with open(config_path, "w") as f:
+        yaml.dump({"version": 1, "fetched_categories": categories}, f)
+    return config_path
+
+
 class TestCheckMigrationNeeded:
     """Tests for checking if migration is needed."""
 
@@ -30,34 +70,15 @@ class TestCheckMigrationNeeded:
 
         assert needed is False
 
-    def test_migration_needed_when_legacy_credentials_exist(self, temp_config_dir):
+    def test_migration_needed_when_legacy_credentials_exist(self, temp_config_dir, legacy_credentials):
         """Test that migration needed when legacy credentials exist."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         needed = check_migration_needed(config_dir=temp_config_dir)
 
         assert needed is True
 
-    def test_no_migration_when_profiles_already_exist(self, temp_config_dir):
+    def test_no_migration_when_profiles_already_exist(self, temp_config_dir, legacy_credentials, account_manager):
         """Test that migration skipped if profiles already configured."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Create a profile account
-        account_manager = AccountManager(config_dir=temp_config_dir)
         account_manager.create_account("Test Account", "monarch")
 
         # Should not migrate because profiles already exist
@@ -69,24 +90,14 @@ class TestCheckMigrationNeeded:
 class TestMigrateLegacyCredentials:
     """Tests for migrating legacy credentials."""
 
-    def test_migrate_creates_default_account(self, temp_config_dir):
+    def test_migrate_creates_default_account(self, temp_config_dir, legacy_credentials, account_manager):
         """Test that migration creates a 'default' account."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Migrate
         migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
 
         assert migrated is True
 
         # Verify default account was created
-        account_manager = AccountManager(config_dir=temp_config_dir)
         accounts = account_manager.list_accounts()
 
         assert len(accounts) == 1
@@ -94,17 +105,8 @@ class TestMigrateLegacyCredentials:
         assert accounts[0].name == "Default Account"
         assert accounts[0].backend_type == "monarch"
 
-    def test_migrate_moves_credentials_to_profile(self, temp_config_dir):
+    def test_migrate_moves_credentials_to_profile(self, temp_config_dir, legacy_credentials):
         """Test that migration moves credentials.enc to profile directory."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Verify legacy files exist
         assert (temp_config_dir / "credentials.enc").exists()
         assert (temp_config_dir / "salt").exists()
@@ -147,20 +149,9 @@ class TestMigrateLegacyCredentials:
         assert creds["mfa_secret"] == "SECRET123"
         assert creds["backend_type"] == "monarch"
 
-    def test_migrate_moves_merchant_cache(self, temp_config_dir):
+    def test_migrate_moves_merchant_cache(self, temp_config_dir, legacy_credentials):
         """Test that migration moves merchants.json to profile directory."""
-        # Create legacy credentials and merchant cache
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Create merchant cache
-        import json
-
         merchant_cache = temp_config_dir / "merchants.json"
         merchant_cache.write_text(
             json.dumps(
@@ -186,17 +177,8 @@ class TestMigrateLegacyCredentials:
         data = json.loads(profile_merchant_cache.read_text())
         assert data["merchants"] == ["Amazon", "Starbucks"]
 
-    def test_migrate_moves_cache_directory(self, temp_config_dir):
+    def test_migrate_moves_cache_directory(self, temp_config_dir, legacy_credentials):
         """Test that migration moves cache/ directory to profile."""
-        # Create legacy setup
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Create cache directory with files
         cache_dir = temp_config_dir / "cache"
         cache_dir.mkdir()
@@ -215,17 +197,8 @@ class TestMigrateLegacyCredentials:
         assert (profile_cache / "transactions.parquet").exists()
         assert (profile_cache / "metadata.json").exists()
 
-    def test_dry_run_does_not_modify_files(self, temp_config_dir):
+    def test_dry_run_does_not_modify_files(self, temp_config_dir, legacy_credentials):
         """Test that dry_run mode doesn't modify any files."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Run dry_run
         result = migrate_legacy_credentials(config_dir=temp_config_dir, dry_run=True)
 
@@ -245,19 +218,9 @@ class TestMigrateLegacyCredentials:
 
         assert result is False
 
-    def test_migration_with_existing_profiles_returns_false(self, temp_config_dir):
+    def test_migration_with_existing_profiles_returns_false(self, temp_config_dir, legacy_credentials, account_manager):
         """Test migration skipped if profiles already exist."""
-        # Create legacy credentials
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="legacy@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Create an existing profile
-        account_manager = AccountManager(config_dir=temp_config_dir)
         account_manager.create_account("Existing Account", "monarch")
 
         # Try to migrate - should be skipped
@@ -272,17 +235,8 @@ class TestMigrateLegacyCredentials:
 class TestMigrationEdgeCases:
     """Test edge cases in migration."""
 
-    def test_migration_with_only_credentials_no_cache(self, temp_config_dir):
+    def test_migration_with_only_credentials_no_cache(self, temp_config_dir, legacy_credentials):
         """Test migration works with only credentials, no merchant cache."""
-        # Create only credentials (no merchants.json or cache/)
-        legacy_cred = CredentialManager(config_dir=temp_config_dir)
-        legacy_cred.save_credentials(
-            email="test@example.com",
-            password="pass",
-            mfa_secret="secret",
-            encryption_password="encrypt",
-        )
-
         # Migrate
         result = migrate_legacy_credentials(config_dir=temp_config_dir)
 
@@ -316,24 +270,15 @@ class TestCheckAmazonMigrationNeeded:
 
         assert needed is False
 
-    def test_migration_needed_when_legacy_db_exists(self, temp_config_dir):
+    def test_migration_needed_when_legacy_db_exists(self, temp_config_dir, legacy_amazon_db):
         """Test that migration needed when legacy amazon.db exists."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         needed = check_amazon_migration_needed(config_dir=temp_config_dir)
 
         assert needed is True
 
-    def test_no_migration_when_amazon_account_already_exists(self, temp_config_dir):
+    def test_no_migration_when_amazon_account_already_exists(self, temp_config_dir, legacy_amazon_db, account_manager):
         """Test that migration skipped if Amazon account already configured."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         # Create an Amazon account
-        account_manager = AccountManager(config_dir=temp_config_dir)
         account_manager.create_account("Amazon Orders", "amazon")
 
         # Should not migrate because Amazon account already exists
@@ -345,19 +290,14 @@ class TestCheckAmazonMigrationNeeded:
 class TestMigrateLegacyAmazonDb:
     """Tests for migrating legacy Amazon database."""
 
-    def test_migrate_creates_amazon_account(self, temp_config_dir):
+    def test_migrate_creates_amazon_account(self, temp_config_dir, legacy_amazon_db, account_manager):
         """Test that migration creates an 'amazon' account."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         # Migrate
         migrated = migrate_legacy_amazon_db(config_dir=temp_config_dir)
 
         assert migrated is True
 
         # Verify amazon account was created
-        account_manager = AccountManager(config_dir=temp_config_dir)
         accounts = account_manager.list_accounts()
 
         assert len(accounts) == 1
@@ -389,19 +329,15 @@ class TestMigrateLegacyAmazonDb:
         # Verify content preserved
         assert profile_db.read_text() == test_content
 
-    def test_dry_run_does_not_modify_files(self, temp_config_dir):
+    def test_dry_run_does_not_modify_files(self, temp_config_dir, legacy_amazon_db):
         """Test that dry_run mode doesn't modify any files."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         # Run dry_run
         result = migrate_legacy_amazon_db(config_dir=temp_config_dir, dry_run=True)
 
         assert result is True  # Migration would be performed
 
         # Verify legacy file still exists
-        assert amazon_db.exists()
+        assert legacy_amazon_db.exists()
 
         # Verify profile directory not created
         profile_dir = temp_config_dir / "profiles" / "amazon"
@@ -413,14 +349,9 @@ class TestMigrateLegacyAmazonDb:
 
         assert result is False
 
-    def test_migration_with_existing_amazon_account_returns_false(self, temp_config_dir):
+    def test_migration_with_existing_amazon_account_returns_false(self, temp_config_dir, legacy_amazon_db, account_manager):
         """Test migration skipped if Amazon account already exists."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         # Create an existing Amazon account
-        account_manager = AccountManager(config_dir=temp_config_dir)
         account_manager.create_account("My Amazon", "amazon")
 
         # Try to migrate - should be skipped
@@ -429,16 +360,11 @@ class TestMigrateLegacyAmazonDb:
         assert result is False
 
         # Legacy database should still exist (not moved)
-        assert amazon_db.exists()
+        assert legacy_amazon_db.exists()
 
-    def test_migration_works_with_other_accounts_present(self, temp_config_dir):
+    def test_migration_works_with_other_accounts_present(self, temp_config_dir, legacy_amazon_db, account_manager):
         """Test that Amazon migration works even if other accounts exist."""
-        # Create legacy amazon.db
-        amazon_db = temp_config_dir / "amazon.db"
-        amazon_db.write_text("fake database content")
-
         # Create a Monarch account
-        account_manager = AccountManager(config_dir=temp_config_dir)
         account_manager.create_account("My Monarch", "monarch")
 
         # Migration should still work
@@ -466,8 +392,6 @@ class TestMigrateGlobalCategoriesToProfiles:
 
     def test_no_migration_when_no_fetched_categories(self, temp_config_dir):
         """Test no migration when global config has no fetched_categories."""
-        import yaml
-
         config_path = temp_config_dir / "config.yaml"
         with open(config_path, "w") as f:
             yaml.dump({"version": 1, "other_setting": "value"}, f)
@@ -476,34 +400,16 @@ class TestMigrateGlobalCategoriesToProfiles:
 
         assert result is False
 
-    def test_no_migration_when_no_profiles(self, temp_config_dir):
+    def test_no_migration_when_no_profiles(self, temp_config_dir, legacy_config_yaml):
         """Test no migration when no profiles exist."""
-        import yaml
-
-        config_path = temp_config_dir / "config.yaml"
-        categories = {"Food": ["Groceries"], "Shopping": ["Clothing"]}
-        with open(config_path, "w") as f:
-            yaml.dump({"version": 1, "fetched_categories": categories}, f)
-
         result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
 
         assert result is False
 
-    def test_migrates_to_monarch_profile(self, temp_config_dir):
+    def test_migrates_to_monarch_profile(self, temp_config_dir, legacy_config_yaml, account_manager):
         """Test categories migrated to Monarch profile."""
-        import yaml
-
-        from moneyflow.account_manager import AccountManager
-
-        # Create global config with categories
-        config_path = temp_config_dir / "config.yaml"
-        categories = {"Food": ["Groceries"], "Shopping": ["Clothing"]}
-        with open(config_path, "w") as f:
-            yaml.dump({"version": 1, "fetched_categories": categories}, f)
-
         # Create Monarch account
-        account_mgr = AccountManager(config_dir=temp_config_dir)
-        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_manager.create_account("Monarch", "monarch", account_id="monarch1")
 
         # Migrate
         result = migrate_global_categories_to_profiles(config_dir=temp_config_dir)
@@ -519,14 +425,10 @@ class TestMigrateGlobalCategoriesToProfiles:
         with open(profile_config_path, "r") as f:
             profile_config = yaml.safe_load(f)
 
-        assert profile_config["fetched_categories"] == categories
+        assert profile_config["fetched_categories"] == {"Food": ["Groceries"], "Shopping": ["Clothing"]}
 
-    def test_removes_categories_from_global_config(self, temp_config_dir):
+    def test_removes_categories_from_global_config(self, temp_config_dir, account_manager):
         """Test that migration removes fetched_categories from global config."""
-        import yaml
-
-        from moneyflow.account_manager import AccountManager
-
         # Create global config with categories and other settings
         config_path = temp_config_dir / "config.yaml"
         global_config = {
@@ -538,8 +440,7 @@ class TestMigrateGlobalCategoriesToProfiles:
             yaml.dump(global_config, f)
 
         # Create account
-        account_mgr = AccountManager(config_dir=temp_config_dir)
-        account_mgr.create_account("Monarch", "monarch")
+        account_manager.create_account("Monarch", "monarch")
 
         # Migrate
         migrate_global_categories_to_profiles(config_dir=temp_config_dir)
@@ -552,12 +453,8 @@ class TestMigrateGlobalCategoriesToProfiles:
         assert updated_config["other_setting"] == "keep_me"
         assert updated_config["version"] == 1
 
-    def test_skips_amazon_profiles(self, temp_config_dir):
+    def test_skips_amazon_profiles(self, temp_config_dir, account_manager):
         """Test that Amazon profiles are skipped during migration."""
-        import yaml
-
-        from moneyflow.account_manager import AccountManager
-
         # Create global config with categories
         config_path = temp_config_dir / "config.yaml"
         categories = {"Food": ["Groceries"]}
@@ -565,9 +462,8 @@ class TestMigrateGlobalCategoriesToProfiles:
             yaml.dump({"version": 1, "fetched_categories": categories}, f)
 
         # Create Amazon and Monarch accounts
-        account_mgr = AccountManager(config_dir=temp_config_dir)
-        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
-        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+        account_manager.create_account("Monarch", "monarch", account_id="monarch1")
+        account_manager.create_account("Amazon", "amazon", account_id="amazon")
 
         # Migrate
         migrate_global_categories_to_profiles(config_dir=temp_config_dir)
@@ -585,12 +481,8 @@ class TestMigrateGlobalCategoriesToProfiles:
                 amazon_data = yaml.safe_load(f)
             assert "fetched_categories" not in amazon_data
 
-    def test_preserves_existing_profile_categories(self, temp_config_dir):
+    def test_preserves_existing_profile_categories(self, temp_config_dir, account_manager):
         """Test that migration doesn't overwrite existing profile categories."""
-        import yaml
-
-        from moneyflow.account_manager import AccountManager
-
         # Create global config
         config_path = temp_config_dir / "config.yaml"
         global_cats = {"Global": ["G1"]}
@@ -598,8 +490,7 @@ class TestMigrateGlobalCategoriesToProfiles:
             yaml.dump({"version": 1, "fetched_categories": global_cats}, f)
 
         # Create account with existing categories
-        account_mgr = AccountManager(config_dir=temp_config_dir)
-        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_manager.create_account("Monarch", "monarch", account_id="monarch1")
 
         profile_dir = temp_config_dir / "profiles" / "monarch1"
         existing_cats = {"Existing": ["E1"]}
@@ -617,12 +508,8 @@ class TestMigrateGlobalCategoriesToProfiles:
 
         assert profile_config["fetched_categories"] == existing_cats
 
-    def test_dry_run_does_not_modify_files(self, temp_config_dir):
+    def test_dry_run_does_not_modify_files(self, temp_config_dir, account_manager):
         """Test dry run doesn't modify any files."""
-        import yaml
-
-        from moneyflow.account_manager import AccountManager
-
         # Create global config
         config_path = temp_config_dir / "config.yaml"
         categories = {"Food": ["Groceries"]}
@@ -630,8 +517,7 @@ class TestMigrateGlobalCategoriesToProfiles:
             yaml.dump({"version": 1, "fetched_categories": categories}, f)
 
         # Create account
-        account_mgr = AccountManager(config_dir=temp_config_dir)
-        account_mgr.create_account("Monarch", "monarch")
+        account_manager.create_account("Monarch", "monarch")
 
         # Dry run
         result = migrate_global_categories_to_profiles(config_dir=temp_config_dir, dry_run=True)
