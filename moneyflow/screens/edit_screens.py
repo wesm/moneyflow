@@ -70,6 +70,27 @@ def parse_merchant_option_id(option_id: str) -> tuple[bool, str]:
     return False, option_id
 
 
+def validate_merchant_name(new_name: str, current_name: str | None = None) -> str | None:
+    """
+    Validate and normalize a new merchant name.
+
+    Args:
+        new_name: The user-provided merchant name
+        current_name: Optional current name to check for no-op edits
+
+    Returns:
+        The validated string, or None if invalid or unchanged.
+    """
+    if not new_name:
+        return None
+    validated = new_name.strip()
+    if not validated:
+        return None
+    if current_name is not None and validated == current_name:
+        return None
+    return validated
+
+
 class EditMerchantScreen(ModalScreen):
     """
     Modal screen for editing merchant names with autocomplete suggestions.
@@ -277,11 +298,8 @@ class EditMerchantScreen(ModalScreen):
         if event.button.id == "cancel-button":
             self.dismiss(None)
         elif event.button.id == "save-button":
-            new_merchant = self.query_one("#merchant-input", Input).value.strip()
-            if new_merchant and new_merchant != self.current_merchant:
-                self.dismiss(new_merchant)
-            else:
-                self.dismiss(None)
+            new_merchant = self.query_one("#merchant-input", Input).value
+            self.dismiss(validate_merchant_name(new_merchant, self.current_merchant))
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle Enter key in input - auto-select first existing match if any exist."""

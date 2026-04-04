@@ -12,7 +12,34 @@ from datetime import datetime
 
 import polars as pl
 
+from moneyflow.screens.edit_screens import parse_merchant_option_id, validate_merchant_name
 from moneyflow.state import TransactionEdit
+
+
+async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, expected_path):
+    dm.pending_edits.append(
+        TransactionEdit(
+            transaction_id=txn_id,
+            field=field,
+            old_value=old_val,
+            new_value=new_val,
+            timestamp=datetime.now(),
+        )
+    )
+    success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
+    assert success == 1
+    assert failure == 0
+    updated = mock_mm.get_transaction_by_id(txn_id)
+    assert type(updated) is dict
+
+    val = updated
+    for key in expected_path:
+        val = val[key]
+    assert val == new_val
+
+
+def get_test_transaction(df, index=0):
+    return df.row(index, named=True)
 
 
 class TestBulkMerchantEdit:
@@ -99,30 +126,13 @@ class TestIndividualEdits:
         """Test editing merchant for a single transaction."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         old_merchant = txn["merchant"]
         new_merchant = "Corrected Merchant Name"
 
-        # Queue edit
-        dm.pending_edits.append(
-            TransactionEdit(
-                transaction_id=txn["id"],
-                field="merchant",
-                old_value=old_merchant,
-                new_value=new_merchant,
-                timestamp=datetime.now(),
-            )
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", old_merchant, new_merchant, ["merchant", "name"]
         )
-
-        # Commit
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        assert failure == 0
-
-        # Verify
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
 
     async def test_edit_merchant_detail_view_with_multiselect(
         self, loaded_data_manager, mock_mm, app_state
@@ -167,7 +177,7 @@ class TestIndividualEdits:
         """Test changing category for a transaction."""
         dm, df, categories, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         old_category_id = txn["category_id"]
 
         # Find a different category
@@ -179,50 +189,20 @@ class TestIndividualEdits:
 
         assert new_category_id is not None
 
-        # Queue edit
-        dm.pending_edits.append(
-            TransactionEdit(
-                transaction_id=txn["id"],
-                field="category",
-                old_value=old_category_id,
-                new_value=new_category_id,
-                timestamp=datetime.now(),
-            )
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "category", old_category_id, new_category_id, ["category", "id"]
         )
-
-        # Commit
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        assert failure == 0
-
-        # Verify
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["category"]["id"] == new_category_id
 
     async def test_edit_single_transaction_in_detail_view(self, loaded_data_manager, mock_mm):
         """Test editing single transaction without multiselect."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         new_merchant = "New Merchant"
 
-        # Edit without multiselect
-        dm.pending_edits.append(
-            TransactionEdit(
-                transaction_id=txn["id"],
-                field="merchant",
-                old_value=txn["merchant"],
-                new_value=new_merchant,
-                timestamp=datetime.now(),
-            )
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", txn["merchant"], new_merchant, ["merchant", "name"]
         )
-
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
 
 
 class TestMultiSelect:
@@ -303,27 +283,15 @@ class TestEditValidation:
 
     async def test_empty_merchant_name_rejected(self):
         """Test that empty merchant names are not accepted."""
-        # This would be handled by the EditMerchantScreen
-        # If user submits empty string, modal returns None
-        new_value = ""  # Empty
-
-        # Modal should not return empty string
-        result = new_value.strip() if new_value.strip() else None
-        assert result is None
+        assert validate_merchant_name("") is None
 
     async def test_unchanged_merchant_name_no_edit(self):
         """Test that unchanged name doesn't create edit."""
-        current = "Amazon"
-        new_value = "Amazon"  # Same
-
-        # Modal should return None if unchanged
-        result = new_value if new_value != current else None
-        assert result is None
+        assert validate_merchant_name("Amazon", "Amazon") is None
 
     async def test_commit_with_no_edits_succeeds(self, data_manager):
         """Test that committing with empty edits list works."""
         success, failure, _ = await data_manager.commit_pending_edits([])
-
         assert success == 0
         assert failure == 0
 
@@ -339,7 +307,7 @@ class TestDataFrameUpdates:
         dm.df = df
 
         # Get original merchant name
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         txn_id = txn["id"]
         old_merchant = txn["merchant"]
         new_merchant = "Updated Merchant Name"
@@ -380,7 +348,7 @@ class TestDataFrameUpdates:
         dm.df = df
 
         # Get a transaction and its current hideFromReports status
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         txn_id = txn["id"]
         old_hidden = txn.get("hideFromReports", False)
         new_hidden = not old_hidden
@@ -422,93 +390,56 @@ class TestEdgeCase:
         """Test that special characters in merchant names work."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         new_merchant = "Trader Joe's & Co. (Main St.)"
 
-        dm.pending_edits.append(
-            TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", txn["merchant"], new_merchant, ["merchant", "name"]
         )
-
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
 
     async def test_edit_merchant_with_unicode(self, loaded_data_manager, mock_mm):
         """Test that unicode characters in merchant names work."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         new_merchant = "Café René"
 
-        dm.pending_edits.append(
-            TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", txn["merchant"], new_merchant, ["merchant", "name"]
         )
-
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
 
     async def test_edit_merchant_to_empty_string_validation(self):
         """Test that empty merchant name is rejected by validation logic."""
-        # This simulates the validation that should happen in the UI layer
-        # before an edit is created
-        user_input = ""  # Empty string
-
-        # Validation logic: strip and reject if empty
-        validated = user_input.strip()
-        should_create_edit = len(validated) > 0
-
-        assert not should_create_edit, "Empty merchant name should be rejected"
+        assert validate_merchant_name("") is None
 
     async def test_edit_merchant_to_whitespace_only_validation(self):
         """Test that whitespace-only merchant name is rejected."""
-        user_input = "   "  # Only spaces
-
-        validated = user_input.strip()
-        should_create_edit = len(validated) > 0
-
-        assert not should_create_edit, "Whitespace-only merchant name should be rejected"
+        assert validate_merchant_name("   ") is None
 
     async def test_edit_merchant_to_very_long_name(self, loaded_data_manager, mock_mm):
         """Test that very long merchant names (>100 chars) are handled."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         # Create a 150 character merchant name
         new_merchant = "A" * 150
 
-        dm.pending_edits.append(
-            TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
-        )
-
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
         # Should succeed - the API should handle length validation
-        assert success == 1
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", txn["merchant"], new_merchant, ["merchant", "name"]
+        )
 
     async def test_edit_merchant_with_max_reasonable_length(self, loaded_data_manager, mock_mm):
         """Test merchant name at max reasonable length (100 chars)."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         # Exactly 100 characters
         new_merchant = "A" * 100
 
-        dm.pending_edits.append(
-            TransactionEdit(txn["id"], "merchant", txn["merchant"], new_merchant, datetime.now())
+        await commit_and_verify_edit(
+            dm, mock_mm, txn["id"], "merchant", txn["merchant"], new_merchant, ["merchant", "name"]
         )
-
-        success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
-
-        assert success == 1
-        updated = mock_mm.get_transaction_by_id(txn["id"])
-        assert updated["merchant"]["name"] == new_merchant
 
     async def test_multiselect_with_some_invalid_transaction_ids(self, data_manager, mock_mm):
         """Test bulk edit with mix of valid and invalid transaction IDs."""
@@ -541,7 +472,7 @@ class TestEdgeCase:
         """Test that recategorizing with invalid category ID fails gracefully."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         invalid_category_id = "cat_nonexistent_12345"
 
         dm.pending_edits.append(
@@ -562,7 +493,7 @@ class TestEdgeCase:
         """Test multiple edits to the same transaction in the same batch."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
 
         # Create multiple edits to the same transaction
         # This could happen if user changes merchant, then category, then merchant again
@@ -630,7 +561,7 @@ class TestEdgeCase:
         """Test that edits handle None/null values appropriately."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
 
         # Try to edit with None value (should be skipped or rejected)
         edit = TransactionEdit(
@@ -651,7 +582,7 @@ class TestEdgeCase:
         """Test editing multiple fields on same transaction works correctly."""
         dm, df, _, _ = loaded_data_manager
 
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         new_merchant = "Updated Merchant"
         new_category_id = "cat_restaurants"
 
@@ -681,7 +612,7 @@ class TestEdgeCase:
         dm, df, _, _ = loaded_data_manager
 
         # First hide a transaction
-        txn = df.row(0, named=True)
+        txn = get_test_transaction(df, 0)
         hide_edit = TransactionEdit(txn["id"], "hide_from_reports", False, True, datetime.now())
 
         await dm.commit_pending_edits([hide_edit])
@@ -709,103 +640,56 @@ class TestMerchantCreation:
 
     def test_user_input_always_available_as_option(self):
         """Test that user input is always available as a 'create new' option."""
-        # This tests the new behavior where the user can always create a merchant
-        # matching their exact input, even if there's a partial match
-
-        # Simulate: User types "Starbucks" and there's a match "Starbucks Coffee"
+        # This tests the representation of the option id
         user_input = "Starbucks"
-        existing_merchants = ["Starbucks Coffee", "Starbucks Reserve", "Coffee Shop"]
-
-        # Filter for matches
-        matches = [m for m in existing_merchants if user_input.lower() in m.lower()]
-        assert len(matches) == 2  # Two partial matches
-
-        # The modal should show:
-        # 1. "Starbucks Coffee" (existing match)
-        # 2. "Starbucks Reserve" (existing match)
-        # 3. "Starbucks" (create new - user's exact input)
-
-        # Verify we can add the user input as an option
-        # In the actual implementation, this is added with id="__new__:Starbucks"
-        create_new_option = f'"{user_input}"'
-        assert create_new_option == '"Starbucks"'
+        option_id = f"__new__:{user_input}"
+        is_new, name = parse_merchant_option_id(option_id)
+        assert is_new is True
+        assert name == "Starbucks"
 
     def test_create_new_option_format(self):
         """Test that create new option is formatted with quotes."""
         user_inputs = [
-            ("Amazon", '"Amazon"'),
-            ("Whole Foods", '"Whole Foods"'),
-            ("CVS Pharmacy", '"CVS Pharmacy"'),
+            ("Amazon", "Amazon"),
+            ("Whole Foods", "Whole Foods"),
+            ("CVS Pharmacy", "CVS Pharmacy"),
         ]
 
         for user_input, expected_display in user_inputs:
-            create_new_display = f'"{user_input}"'
-            assert create_new_display == expected_display
+            option_id = f"__new__:{user_input}"
+            is_new, name = parse_merchant_option_id(option_id)
+            assert is_new is True
+            assert name == expected_display
 
     def test_create_new_id_format(self):
         """Test that create new option has correct ID format."""
         user_input = "New Merchant"
         option_id = f"__new__:{user_input}"
 
-        assert option_id == "__new__:New Merchant"
-        assert option_id.startswith("__new__:")
-
-        # Test extraction
-        if option_id.startswith("__new__:"):
-            extracted = option_id[8:]  # Remove "__new__:" prefix
-            assert extracted == user_input
+        is_new, name = parse_merchant_option_id(option_id)
+        assert is_new is True
+        assert name == "New Merchant"
 
     def test_auto_select_existing_match_with_create_new_present(self):
         """Test that Enter still auto-selects existing match when create new is present."""
-        # Scenario: User types "Amazon" and there's exactly one match "Amazon.com"
-        # Options shown:
-        # 1. "Amazon.com" (existing match)
-        # 2. "Amazon" (create new)
-        #
-        # Expected: Enter should auto-select "Amazon.com" (first existing match)
-        # User can press down arrow twice to select "Amazon" (create new)
-
-        # Simulate the options
         options = [
-            {"id": "Amazon.com", "is_new": False},  # Existing match
-            {"id": "__new__:Amazon", "is_new": True},  # Create new
+            {"id": "Amazon.com", "is_new": False},
+            {"id": "__new__:Amazon", "is_new": True},
         ]
-
-        # Count existing matches
         existing_matches = [opt for opt in options if not opt["is_new"]]
         assert len(existing_matches) == 1
-
-        # With exactly 1 existing match, Enter should select it
-        first_existing = existing_matches[0]
-        assert first_existing["id"] == "Amazon.com"
+        assert existing_matches[0]["id"] == "Amazon.com"
 
     def test_auto_select_first_match_with_multiple_existing_matches(self):
         """Test that Enter auto-selects first match even with multiple matches."""
-        # Scenario: User types "Star" and there are multiple matches
-        # Options shown (in order):
-        # 1. "Star Market" (first alphabetically - existing)
-        # 2. "Star" (create new)
-        # 3. "Starbucks" (existing)
-        # 4. "Starbucks Coffee" (existing)
-        #
-        # Expected: Enter should auto-select "Star Market" (first existing match)
-        # To create new "Star", user must arrow down to position 2
-
         options = [
-            {"id": "Star Market", "is_new": False},  # First alphabetically
+            {"id": "Star Market", "is_new": False},
             {"id": "__new__:Star", "is_new": True},
             {"id": "Starbucks", "is_new": False},
             {"id": "Starbucks Coffee", "is_new": False},
         ]
 
-        # Find first existing match
-        first_existing = None
-        for opt in options:
-            if not opt["is_new"]:
-                first_existing = opt
-                break
-
-        # With multiple existing matches, Enter should select the first one
+        first_existing = next((opt for opt in options if not opt["is_new"]), None)
         assert first_existing is not None
         assert first_existing["id"] == "Star Market"
 
@@ -818,6 +702,6 @@ class TestMerchantCreation:
         ]
 
         for option_id, expected_name in test_cases:
-            if option_id.startswith("__new__:"):
-                extracted = option_id[8:]
-                assert extracted == expected_name
+            is_new, name = parse_merchant_option_id(option_id)
+            assert is_new is True
+            assert name == expected_name
