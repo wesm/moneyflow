@@ -9,17 +9,33 @@ Covers:
 
 import os
 import pickle
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from moneyflow.backends import MonarchBackend
 from moneyflow.monarchmoney import (
     LoginFailedException,
     MonarchMoney,
     RequireMFAException,
 )
+
+
+@pytest.fixture
+def profile_dir(tmp_path):
+    return tmp_path / "test-profile"
+
+
+@pytest.fixture
+def mm(profile_dir):
+    return MonarchMoney(profile_dir=str(profile_dir))
+
+
+@pytest.fixture
+def mm_with_session(mm):
+    mm.set_token("test-token")
+    mm.save_session()
+    return mm
 
 
 class TestSessionFilePlacement:
@@ -54,271 +70,201 @@ class TestSessionFilePlacement:
 class TestSessionSaveLoad:
     """Test session save/load with profile directories."""
 
-    def test_save_session_creates_profile_directory(self):
+    def test_save_session_creates_profile_directory(self, mm, profile_dir):
         """Test that saving session creates profile .mm directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        # Set a token and save
+        mm.set_token("test-token-123")
+        mm.save_session()
 
-            # Set a token and save
-            mm.set_token("test-token-123")
-            mm.save_session()
+        # Verify directory and file exist
+        session_dir = profile_dir / ".mm"
+        session_file = session_dir / "mm_session.pickle"
 
-            # Verify directory and file exist
-            session_dir = profile_dir / ".mm"
-            session_file = session_dir / "mm_session.pickle"
+        assert session_dir.exists()
+        assert session_file.exists()
 
-            assert session_dir.exists()
-            assert session_file.exists()
+        # Verify content
+        with open(session_file, "rb") as f:
+            data = pickle.load(f)
+        assert data["token"] == "test-token-123"
 
-            # Verify content
-            with open(session_file, "rb") as f:
-                data = pickle.load(f)
-            assert data["token"] == "test-token-123"
-
-    def test_load_session_from_profile_dir(self):
+    def test_load_session_from_profile_dir(self, mm, profile_dir):
         """Test loading session from profile directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            session_dir = profile_dir / ".mm"
-            session_dir.mkdir(parents=True)
+        session_dir = profile_dir / ".mm"
+        session_dir.mkdir(parents=True)
 
-            # Create a session file manually
-            session_file = session_dir / "mm_session.pickle"
-            with open(session_file, "wb") as f:
-                pickle.dump({"token": "saved-token-456"}, f)
+        # Create a session file manually
+        session_file = session_dir / "mm_session.pickle"
+        with open(session_file, "wb") as f:
+            pickle.dump({"token": "saved-token-456"}, f)
 
-            # Load session
-            mm = MonarchMoney(profile_dir=str(profile_dir))
-            mm.load_session()
+        # Load session
+        mm.load_session()
 
-            assert mm.token == "saved-token-456"
-            assert mm._headers["Authorization"] == "Token saved-token-456"
+        assert mm.token == "saved-token-456"
+        assert mm._headers["Authorization"] == "Token saved-token-456"
 
 
 class TestSessionCleanup:
     """Test session cleanup on errors."""
 
-    def test_delete_session_removes_file(self):
+    def test_delete_session_removes_file(self, mm_with_session, profile_dir):
         """Test that delete_session removes the session file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_file = profile_dir / ".mm" / "mm_session.pickle"
+        assert session_file.exists()
 
-            # Create session file
-            mm.set_token("test-token")
-            mm.save_session()
+        # Delete session
+        mm_with_session.delete_session()
 
-            session_file = profile_dir / ".mm" / "mm_session.pickle"
-            assert session_file.exists()
+        # Verify file removed
+        assert not session_file.exists()
 
-            # Delete session
-            mm.delete_session()
-
-            # Verify file removed
-            assert not session_file.exists()
-
-    def test_delete_session_removes_empty_directory(self):
+    def test_delete_session_removes_empty_directory(self, mm_with_session, profile_dir):
         """Test that delete_session removes empty .mm directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_dir = profile_dir / ".mm"
+        assert session_dir.exists()
 
-            # Create session file
-            mm.set_token("test-token")
-            mm.save_session()
+        # Delete session
+        mm_with_session.delete_session()
 
-            session_dir = profile_dir / ".mm"
-            assert session_dir.exists()
+        # Verify directory removed (was empty after deleting session file)
+        assert not session_dir.exists()
 
-            # Delete session
-            mm.delete_session()
-
-            # Verify directory removed (was empty after deleting session file)
-            assert not session_dir.exists()
-
-    def test_delete_session_keeps_nonempty_directory(self):
+    def test_delete_session_keeps_nonempty_directory(self, mm_with_session, profile_dir):
         """Test that delete_session keeps .mm directory if it has other files."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_dir = profile_dir / ".mm"
 
-            # Create session file
-            mm.set_token("test-token")
-            mm.save_session()
+        # Add another file to the directory
+        other_file = session_dir / "other.txt"
+        other_file.write_text("keep this")
 
-            session_dir = profile_dir / ".mm"
+        # Delete session
+        mm_with_session.delete_session()
 
-            # Add another file to the directory
-            other_file = session_dir / "other.txt"
-            other_file.write_text("keep this")
+        # Verify directory still exists (has other files)
+        assert session_dir.exists()
+        assert other_file.exists()
+        assert not (session_dir / "mm_session.pickle").exists()
 
-            # Delete session
-            mm.delete_session()
-
-            # Verify directory still exists (has other files)
-            assert session_dir.exists()
-            assert other_file.exists()
-
-    def test_delete_session_handles_missing_file(self):
+    def test_delete_session_handles_missing_file(self, mm):
         """Test that delete_session handles missing file gracefully."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
-
-            # Try to delete non-existent session (should not raise)
-            mm.delete_session()  # No error
+        # Try to delete non-existent session (should not raise)
+        mm.delete_session()  # No error
 
 
 class TestLoginErrorHandling:
     """Test login error handling and session cleanup."""
 
     @pytest.mark.asyncio
-    async def test_login_deletes_session_on_failure(self):
+    async def test_login_deletes_session_on_failure(self, mm_with_session, profile_dir):
         """Test that failed login deletes the session file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_file = profile_dir / ".mm" / "mm_session.pickle"
+        assert session_file.exists()
 
-            # Create an existing (stale) session
-            mm.set_token("old-token")
-            mm.save_session()
+        # Mock _login_user to fail
+        with patch.object(mm_with_session, "_login_user", new_callable=AsyncMock) as mock_login:
+            mock_login.side_effect = LoginFailedException("Invalid credentials")
 
-            session_file = profile_dir / ".mm" / "mm_session.pickle"
-            assert session_file.exists()
-
-            # Mock _login_user to fail
-            with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
-                mock_login.side_effect = LoginFailedException("Invalid credentials")
-
-                # Attempt login (should fail and delete session)
-                with pytest.raises(LoginFailedException):
-                    await mm.login(
-                        email="test@example.com",
-                        password="wrong",
-                        use_saved_session=False,
-                    )
-
-                # Verify session file deleted
-                assert not session_file.exists()
-
-    @pytest.mark.asyncio
-    async def test_login_deletes_session_on_mfa_required(self):
-        """Test that MFA requirement deletes the session file."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
-
-            # Create an existing session
-            mm.set_token("old-token")
-            mm.save_session()
-
-            session_file = profile_dir / ".mm" / "mm_session.pickle"
-            assert session_file.exists()
-
-            # Mock _login_user to require MFA
-            with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
-                mock_login.side_effect = RequireMFAException("MFA required")
-
-                # Attempt login (should fail and delete session)
-                with pytest.raises(RequireMFAException):
-                    await mm.login(
-                        email="test@example.com",
-                        password="password",
-                        use_saved_session=False,
-                    )
-
-                # Verify session file deleted
-                assert not session_file.exists()
-
-    @pytest.mark.asyncio
-    async def test_login_retries_on_corrupt_session(self):
-        """Test that corrupt session is deleted and login retries."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
-
-            # Create corrupt session file
-            session_dir = profile_dir / ".mm"
-            session_dir.mkdir(parents=True)
-            session_file = session_dir / "mm_session.pickle"
-            session_file.write_text("corrupt data not pickle")
-
-            assert session_file.exists()
-
-            # Mock _login_user to succeed
-            with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
-                mock_login.return_value = None  # Success
-                mm.set_token("new-token")  # Simulate successful login
-
-                # Attempt login with use_saved_session=True
-                # Should detect corrupt session, delete it, and retry
-                await mm.login(
+            # Attempt login (should fail and delete session)
+            with pytest.raises(LoginFailedException):
+                await mm_with_session.login(
                     email="test@example.com",
-                    password="password",
-                    use_saved_session=True,
+                    password="wrong",
+                    use_saved_session=False,
                 )
 
-                # Verify it attempted fresh login after corrupt session
-                mock_login.assert_called_once()
+            # Verify session file deleted
+            assert not session_file.exists()
 
     @pytest.mark.asyncio
-    async def test_login_validates_session_with_api_call(self):
+    async def test_login_deletes_session_on_mfa_required(self, mm_with_session, profile_dir):
+        """Test that MFA requirement deletes the session file."""
+        session_file = profile_dir / ".mm" / "mm_session.pickle"
+        assert session_file.exists()
+
+        # Mock _login_user to require MFA
+        with patch.object(mm_with_session, "_login_user", new_callable=AsyncMock) as mock_login:
+            mock_login.side_effect = RequireMFAException("MFA required")
+
+            # Attempt login (should fail and delete session)
+            with pytest.raises(RequireMFAException):
+                await mm_with_session.login(
+                    email="test@example.com",
+                    password="password",
+                    use_saved_session=False,
+                )
+
+            # Verify session file deleted
+            assert not session_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_login_retries_on_corrupt_session(self, mm, profile_dir):
+        """Test that corrupt session is deleted and login retries."""
+        # Create corrupt session file
+        session_dir = profile_dir / ".mm"
+        session_dir.mkdir(parents=True)
+        session_file = session_dir / "mm_session.pickle"
+        session_file.write_text("corrupt data not pickle")
+
+        assert session_file.exists()
+
+        # Mock _login_user to succeed
+        with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
+            mock_login.return_value = None  # Success
+            mm.set_token("new-token")  # Simulate successful login
+
+            # Attempt login with use_saved_session=True
+            # Should detect corrupt session, delete it, and retry
+            await mm.login(
+                email="test@example.com",
+                password="password",
+                use_saved_session=True,
+            )
+
+            # Verify it attempted fresh login after corrupt session
+            mock_login.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_login_validates_session_with_api_call(self, mm_with_session, profile_dir):
         """Test that saved session is validated by making an API call."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_file = profile_dir / ".mm" / "mm_session.pickle"
+        assert session_file.exists()
 
-            # Create a valid session file
-            mm.set_token("saved-token")
-            mm.save_session()
+        # Mock get_subscription_details to succeed (session is valid)
+        with patch.object(mm_with_session, "get_subscription_details", new_callable=AsyncMock) as mock_api:
+            mock_api.return_value = {"subscription": {}}
 
-            session_file = profile_dir / ".mm" / "mm_session.pickle"
-            assert session_file.exists()
+            # Login should use saved session and validate it
+            await mm_with_session.login(use_saved_session=True)
 
-            # Mock get_subscription_details to succeed (session is valid)
-            with patch.object(mm, "get_subscription_details", new_callable=AsyncMock) as mock_api:
-                mock_api.return_value = {"subscription": {}}
-
-                # Login should use saved session and validate it
-                await mm.login(use_saved_session=True)
-
-                # Verify API call was made to validate session
-                mock_api.assert_called_once()
+            # Verify API call was made to validate session
+            mock_api.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_login_deletes_stale_session_on_api_failure(self):
+    async def test_login_deletes_stale_session_on_api_failure(self, mm_with_session, profile_dir):
         """Test that stale session (API rejects) is deleted and login retries."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            profile_dir = Path(tmpdir) / "test-profile"
-            mm = MonarchMoney(profile_dir=str(profile_dir))
+        session_file = profile_dir / ".mm" / "mm_session.pickle"
+        assert session_file.exists()
 
-            # Create a session file (simulating stale/expired token)
-            mm.set_token("expired-token")
-            mm.save_session()
+        # Mock get_subscription_details to fail (session expired)
+        # Mock _login_user to succeed on fresh login
+        with patch.object(mm_with_session, "get_subscription_details", new_callable=AsyncMock) as mock_api, \
+             patch.object(mm_with_session, "_login_user", new_callable=AsyncMock) as mock_login:
+            mock_api.side_effect = Exception("401 Unauthorized")
+            mock_login.return_value = None
+            mm_with_session.set_token("new-fresh-token")
 
-            session_file = profile_dir / ".mm" / "mm_session.pickle"
-            assert session_file.exists()
+            # Should detect stale session via API call, delete it, and retry
+            await mm_with_session.login(
+                email="test@example.com",
+                password="password",
+                use_saved_session=True,
+            )
 
-            # Mock get_subscription_details to fail (session expired)
-            # Mock _login_user to succeed on fresh login
-            with patch.object(mm, "get_subscription_details", new_callable=AsyncMock) as mock_api:
-                with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
-                    mock_api.side_effect = Exception("401 Unauthorized")
-                    mock_login.return_value = None
-                    mm.set_token("new-fresh-token")
-
-                    # Should detect stale session via API call, delete it, and retry
-                    await mm.login(
-                        email="test@example.com",
-                        password="password",
-                        use_saved_session=True,
-                    )
-
-                    # Verify API validation was attempted
-                    mock_api.assert_called_once()
-                    # Verify fresh login was performed
-                    mock_login.assert_called_once()
+            # Verify API validation was attempted
+            mock_api.assert_called_once()
+            # Verify fresh login was performed
+            mock_login.assert_called_once()
 
 
 class TestBackendIntegration:
@@ -326,8 +272,6 @@ class TestBackendIntegration:
 
     def test_monarch_backend_with_profile_dir(self):
         """Test that MonarchBackend passes profile_dir to MonarchMoney."""
-        from moneyflow.backends import MonarchBackend
-
         profile_dir = "/home/user/.moneyflow/profiles/test"
         backend = MonarchBackend(profile_dir=profile_dir)
 
@@ -336,8 +280,6 @@ class TestBackendIntegration:
 
     def test_monarch_backend_without_profile_dir(self):
         """Test MonarchBackend without profile_dir uses default location."""
-        from moneyflow.backends import MonarchBackend
-
         backend = MonarchBackend()
 
         # Should use default location
