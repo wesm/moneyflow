@@ -59,6 +59,47 @@ def assert_edits_queued(controller, count, field, expected_value=None):
         assert all(e.new_value == expected_value for e in edits)
 
 
+class TestSetupViewHelper:
+    """Test the setup_view test helper itself to prevent regressions."""
+
+    async def test_setup_view_empty_selected_keys(self, edit_controller):
+        """Test that explicitly passing an empty list for selected_keys clears the selection."""
+        controller = edit_controller
+        
+        # Set some initial state
+        controller.state.selected_group_keys = {"Amazon", "Walmart"}
+        
+        # Call with empty list
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=[])
+        
+        assert controller.state.selected_group_keys == set()
+
+    async def test_setup_view_empty_selected_ids(self, edit_controller):
+        """Test that explicitly passing an empty list for selected_ids clears the selection."""
+        controller = edit_controller
+        
+        # Set some initial state
+        controller.state.selected_ids = {1, 2, 3}
+        
+        # Call with empty list
+        setup_view(controller, ViewMode.DETAIL, selected_ids=[])
+        
+        assert controller.state.selected_ids == set()
+
+    async def test_setup_view_none_preserves_selection(self, edit_controller):
+        """Test that passing None preserves the existing selection."""
+        controller = edit_controller
+        
+        controller.state.selected_group_keys = {"Amazon"}
+        controller.state.selected_ids = {1, 2}
+        
+        # Call with None implicitly
+        setup_view(controller, ViewMode.MERCHANT)
+        
+        assert controller.state.selected_group_keys == {"Amazon"}
+        assert controller.state.selected_ids == {1, 2}
+
+
 class TestDetermineEditContext:
     """Test that edit context is correctly determined for all view states."""
 
