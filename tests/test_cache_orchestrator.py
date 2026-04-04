@@ -75,9 +75,7 @@ def mock_data_manager(sample_categories, sample_category_groups):
     dm = MagicMock()
     dm.apply_category_groups.side_effect = lambda df: df
     dm.refresh_merchant_cache = AsyncMock(return_value=["Amazon", "Whole Foods"])
-    dm.fetch_all_data = AsyncMock(
-        return_value=(None, sample_categories, sample_category_groups)
-    )
+    dm.fetch_all_data = AsyncMock(return_value=(None, sample_categories, sample_category_groups))
     return dm
 
 
@@ -128,9 +126,7 @@ async def test_check_and_load_cache_returns_full_cache(
 
 
 @pytest.mark.asyncio
-async def test_check_and_load_cache_hot_only_mode(
-    setup_orchestrator, cache_manager, test_dates
-):
+async def test_check_and_load_cache_hot_only_mode(setup_orchestrator, cache_manager, test_dates):
     orchestrator, df = setup_orchestrator(
         [test_dates["hot_recent"], test_dates["hot_boundary"], test_dates["cold_boundary"]]
     )
@@ -152,7 +148,12 @@ async def test_check_and_load_cache_hot_only_mode(
 
 @pytest.mark.asyncio
 async def test_partial_refresh_hot_only_updates_hot(
-    setup_orchestrator, cache_manager, mock_data_manager, sample_categories, sample_category_groups, test_dates
+    setup_orchestrator,
+    cache_manager,
+    mock_data_manager,
+    sample_categories,
+    sample_category_groups,
+    test_dates,
 ):
     orchestrator, _ = setup_orchestrator([test_dates["hot_recent"], test_dates["cold_old"]])
 
@@ -181,7 +182,12 @@ async def test_partial_refresh_hot_only_updates_hot(
 
 @pytest.mark.asyncio
 async def test_partial_refresh_cold_only_updates_cold(
-    setup_orchestrator, cache_manager, mock_data_manager, sample_categories, sample_category_groups, test_dates
+    setup_orchestrator,
+    cache_manager,
+    mock_data_manager,
+    sample_categories,
+    sample_category_groups,
+    test_dates,
 ):
     orchestrator, _ = setup_orchestrator([test_dates["hot_recent"], test_dates["cold_old"]])
 

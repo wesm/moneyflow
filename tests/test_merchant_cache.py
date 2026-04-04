@@ -24,7 +24,9 @@ async def dm(mock_mm, temp_merchant_cache_dir, tmp_path):
     """Provide DataManager with temporary merchant cache and isolated config."""
     await mock_mm.login()
     # Use tmp_path for config_dir to avoid modifying user's ~/.moneyflow/config.yaml
-    dm_instance = DataManager(mock_mm, config_dir=str(tmp_path), merchant_cache_dir=temp_merchant_cache_dir)
+    dm_instance = DataManager(
+        mock_mm, config_dir=str(tmp_path), merchant_cache_dir=temp_merchant_cache_dir
+    )
     return dm_instance
 
 

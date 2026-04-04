@@ -125,9 +125,7 @@ class TestEditNotifications:
         assert "Press w" in msg
 
     def test_bulk_edit_category_queued(self):
-        msg, _, _ = NotificationHelper.bulk_edit_category_queued(
-            50, "Food & Dining", "Groceries"
-        )
+        msg, _, _ = NotificationHelper.bulk_edit_category_queued(50, "Food & Dining", "Groceries")
         assert "50 transactions" in msg
         assert "Food & Dining" in msg
         assert "Groceries" in msg
@@ -201,9 +199,7 @@ class TestSearchAndFilterNotifications:
         assert "cleared" in msg
 
     def test_filters_applied(self):
-        msg, _, _ = NotificationHelper.filters_applied(
-            ["hidden items shown", "transfers excluded"]
-        )
+        msg, _, _ = NotificationHelper.filters_applied(["hidden items shown", "transfers excluded"])
         assert "hidden items shown" in msg
         assert "transfers excluded" in msg
 
@@ -283,18 +279,24 @@ class TestTupleStructure:
 class TestMessageQuality:
     """Test notification message quality and consistency."""
 
-    @pytest.mark.parametrize("msg", [
-        NotificationHelper.commit_success(1)[0],
-        NotificationHelper.no_duplicates()[0],
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            NotificationHelper.commit_success(1)[0],
+            NotificationHelper.no_duplicates()[0],
+        ],
+    )
     def test_success_messages_use_checkmark(self, msg):
         """Success messages should use ✅ emoji."""
         assert "✅" in msg, f"Success message missing checkmark: {msg}"
 
-    @pytest.mark.parametrize("msg", [
-        NotificationHelper.commit_error("test")[0],
-        NotificationHelper.commit_partial(1, 1)[0],
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            NotificationHelper.commit_error("test")[0],
+            NotificationHelper.commit_partial(1, 1)[0],
+        ],
+    )
     def test_error_messages_use_x(self, msg):
         """Error messages should use ❌ emoji."""
         assert "❌" in msg, f"Error message missing X: {msg}"
@@ -304,11 +306,14 @@ class TestMessageQuality:
         msg = NotificationHelper.retry_waiting(1, 60.0)[0]
         assert "⚠" in msg
 
-    @pytest.mark.parametrize("msg", [
-        NotificationHelper.merchant_changed()[0],
-        NotificationHelper.edit_queued(1)[0],
-        NotificationHelper.refresh_needed()[0],
-    ])
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            NotificationHelper.merchant_changed()[0],
+            NotificationHelper.edit_queued(1)[0],
+            NotificationHelper.refresh_needed()[0],
+        ],
+    )
     def test_action_prompts_mention_key(self, msg):
         """Messages prompting action should mention the key."""
         # Should mention a key or keyboard shortcut

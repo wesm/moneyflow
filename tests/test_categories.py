@@ -69,14 +69,10 @@ class TestLoadCustomCategories:
 
     def test_loads_valid_config_yaml(self, tmp_path):
         """Should load valid config.yaml with categories section."""
-        create_yaml_config(tmp_path, {
-            "version": 1,
-            "categories": {
-                "add_to_groups": {
-                    "Business": ["Custom Category 1"]
-                }
-            }
-        })
+        create_yaml_config(
+            tmp_path,
+            {"version": 1, "categories": {"add_to_groups": {"Business": ["Custom Category 1"]}}},
+        )
 
         config = load_custom_categories(str(tmp_path))
         assert config is not None
@@ -107,12 +103,7 @@ class TestLoadCustomCategories:
 
     def test_handles_config_yaml_without_categories_section(self, tmp_path):
         """Should handle config.yaml without categories section."""
-        create_yaml_config(tmp_path, {
-            "version": 1,
-            "settings": {
-                "default_view": "merchant"
-            }
-        })
+        create_yaml_config(tmp_path, {"version": 1, "settings": {"default_view": "merchant"}})
 
         config = load_custom_categories(str(tmp_path))
         assert config is None  # No categories section
@@ -256,13 +247,16 @@ class TestGetEffectiveCategoryGroups:
 
     def test_uses_fetched_categories_when_present(self, tmp_path):
         """Should use fetched_categories from config when present (new behavior)."""
-        create_yaml_config(tmp_path, {
-            "version": 1,
-            "fetched_categories": {
-                "Travel": ["Airfare", "Hotel"],
-                "Business": ["Accounting", "Consulting"]
-            }
-        })
+        create_yaml_config(
+            tmp_path,
+            {
+                "version": 1,
+                "fetched_categories": {
+                    "Travel": ["Airfare", "Hotel"],
+                    "Business": ["Accounting", "Consulting"],
+                },
+            },
+        )
 
         groups = get_effective_category_groups(str(tmp_path))
 

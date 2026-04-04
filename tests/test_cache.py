@@ -1561,13 +1561,16 @@ def assert_secure_permissions(file_path):
     """Helper to assert files are created with 0o600 permissions."""
     import os
     import stat
+
     assert file_path.exists()
     mode = stat.S_IMODE(os.stat(file_path).st_mode)
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
 
+
 @pytest.fixture
 def unencrypted_cache_manager(temp_cache_dir):
     return CacheManager(cache_dir=temp_cache_dir, encryption_key=None)
+
 
 @pytest.fixture
 def dummy_df():
@@ -1582,22 +1585,29 @@ def dummy_df():
         }
     )
 
+
 class TestCacheFilePermissions:
     """Tests that cache files are created with secure permissions."""
 
-    def test_unencrypted_cache_metadata_has_secure_permissions(self, unencrypted_cache_manager, dummy_df, temp_cache_dir):
+    def test_unencrypted_cache_metadata_has_secure_permissions(
+        self, unencrypted_cache_manager, dummy_df, temp_cache_dir
+    ):
         """Unencrypted cache metadata should have 0o600 permissions."""
         unencrypted_cache_manager.save_cache(dummy_df, {}, {})
         assert_secure_permissions(Path(temp_cache_dir) / "cache_metadata.json")
 
-    def test_unencrypted_parquet_has_secure_permissions(self, unencrypted_cache_manager, dummy_df, temp_cache_dir):
+    def test_unencrypted_parquet_has_secure_permissions(
+        self, unencrypted_cache_manager, dummy_df, temp_cache_dir
+    ):
         """Unencrypted parquet files should have 0o600 permissions."""
         unencrypted_cache_manager.save_cache(dummy_df, {}, {})
         hot_file = Path(temp_cache_dir) / "hot_transactions.parquet"
         if hot_file.exists():
             assert_secure_permissions(hot_file)
 
-    def test_unencrypted_categories_has_secure_permissions(self, unencrypted_cache_manager, dummy_df, temp_cache_dir):
+    def test_unencrypted_categories_has_secure_permissions(
+        self, unencrypted_cache_manager, dummy_df, temp_cache_dir
+    ):
         """Unencrypted categories file should have 0o600 permissions."""
         unencrypted_cache_manager.save_cache(dummy_df, {"cat1": "Test"}, {"grp1": "TestGroup"})
         assert_secure_permissions(Path(temp_cache_dir) / "categories.json")

@@ -37,11 +37,13 @@ class MockBackendNoBatch:
 
 class MockBackendNoCount:
     """Mock backend without get_transaction_count_by_merchant."""
+
     pass
 
 
 class MockBackendWithCount:
     """Mock backend that returns specific counts."""
+
     def __init__(self, count_mapping=None):
         self.count_mapping = count_mapping or {}
 
@@ -49,6 +51,7 @@ class MockBackendWithCount:
         if isinstance(self.count_mapping, dict):
             return self.count_mapping.get(merchant_name, 0)
         return self.count_mapping
+
 
 def make_transaction(**overrides):
     base = {
@@ -64,7 +67,6 @@ def make_transaction(**overrides):
         "isRecurring": False,
     }
     return {**base, **overrides}
-
 
 
 class TestDataFetching:
@@ -612,7 +614,9 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_unknown_category_group(self, data_manager):
         """Test transaction with category not in group mapping."""
-        transactions = [make_transaction(category={"id": "cat_unknown", "name": "Unknown Category XYZ"})]
+        transactions = [
+            make_transaction(category={"id": "cat_unknown", "name": "Unknown Category XYZ"})
+        ]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
         # Apply grouping (now done separately)
@@ -1430,7 +1434,9 @@ class TestCheckBatchScope:
 
     async def test_check_batch_scope_multiple_rename_groups(self, data_manager, monkeypatch):
         """Test check_batch_scope handles multiple merchant rename groups."""
-        monkeypatch.setattr(data_manager, "mm", MockBackendWithCount({"Amazon.com/abc": 5, "Starbucks #123": 3}))
+        monkeypatch.setattr(
+            data_manager, "mm", MockBackendWithCount({"Amazon.com/abc": 5, "Starbucks #123": 3})
+        )
 
         edits = [
             TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),

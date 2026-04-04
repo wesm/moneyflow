@@ -23,6 +23,7 @@ from .mock_view import MockViewPresenter
 
 class ConfigurableStubCacheManager:
     """Reusable stub for testing cache tier availability."""
+
     def __init__(self, hot_df=None, cold_df=None):
         self._hot_df = hot_df
         self._cold_df = cold_df
@@ -468,7 +469,7 @@ class TestCommitHandling:
             failure_count=failure_count,
             edits=edits,
             saved_state=saved_state,
-            **kwargs
+            **kwargs,
         )
 
     async def test_all_commits_succeed_applies_edits(self, controller, mock_view):
@@ -596,8 +597,12 @@ class TestCommitHandling:
         controller.cache_manager = stub_cache
 
         self._simulate_commit(
-            controller, edits, success_count=1, failure_count=0,
-            cache_filters={"year": None, "since": None}, is_filtered_view=True
+            controller,
+            edits,
+            success_count=1,
+            failure_count=0,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
         )
 
         assert stub_cache.saved_full is None, "Filtered view should not overwrite full cache"
@@ -624,8 +629,12 @@ class TestCommitHandling:
         controller.cache_manager = stub_cache
 
         self._simulate_commit(
-            controller, edits, success_count=1, failure_count=0,
-            cache_filters={"year": None, "since": None}, is_filtered_view=True
+            controller,
+            edits,
+            success_count=1,
+            failure_count=0,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
         )
 
         # Hot should be saved with edits, cold should not be touched
@@ -652,8 +661,12 @@ class TestCommitHandling:
         controller.cache_manager = stub_cache
 
         self._simulate_commit(
-            controller, edits, success_count=1, failure_count=0,
-            cache_filters={"year": None, "since": None}, is_filtered_view=True
+            controller,
+            edits,
+            success_count=1,
+            failure_count=0,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
         )
 
         # Cold should be saved with edits, hot should not be touched
@@ -685,8 +698,12 @@ class TestCommitHandling:
         controller.cache_manager = stub_cache
 
         self._simulate_commit(
-            controller, edits, success_count=1, failure_count=0,
-            cache_filters={"year": None, "since": None}, is_filtered_view=True
+            controller,
+            edits,
+            success_count=1,
+            failure_count=0,
+            cache_filters={"year": None, "since": None},
+            is_filtered_view=True,
         )
 
         # CRITICAL: No cache writes should happen to avoid data loss

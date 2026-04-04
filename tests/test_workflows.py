@@ -391,8 +391,12 @@ class TestUndoPendingEdits:
         base_time = datetime.now()
         edits = [
             TransactionEdit("txn_1", "merchant", "Old1", "New1", base_time),
-            TransactionEdit("txn_2", "category", "cat_old", "cat_new", base_time + timedelta(seconds=1)),
-            TransactionEdit("txn_3", "hide_from_reports", False, True, base_time + timedelta(seconds=2)),
+            TransactionEdit(
+                "txn_2", "category", "cat_old", "cat_new", base_time + timedelta(seconds=1)
+            ),
+            TransactionEdit(
+                "txn_3", "hide_from_reports", False, True, base_time + timedelta(seconds=2)
+            ),
         ]
         data_manager.pending_edits = edits.copy()
 
@@ -421,8 +425,12 @@ class TestUndoPendingEdits:
 
         base_time = datetime.now()
         edit1 = TransactionEdit("txn_1", "merchant", "Old1", "New1", base_time)
-        edit2 = TransactionEdit("txn_2", "merchant", "Old2", "New2", base_time + timedelta(seconds=1))
-        edit3 = TransactionEdit("txn_3", "merchant", "Old3", "New3", base_time + timedelta(seconds=2))
+        edit2 = TransactionEdit(
+            "txn_2", "merchant", "Old2", "New2", base_time + timedelta(seconds=1)
+        )
+        edit3 = TransactionEdit(
+            "txn_3", "merchant", "Old3", "New3", base_time + timedelta(seconds=2)
+        )
 
         data_manager.pending_edits = [edit1, edit2, edit3]
 
@@ -470,7 +478,6 @@ class TestBulkUndo:
     def test_undo_bulk_edit_removes_all_edits_at_once(self, data_manager):
         """Test that undoing a bulk edit removes all edits from that batch."""
 
-
         # Simulate bulk edit: 5 merchant edits queued at same timestamp
         timestamp = datetime.now()
         bulk_edits = [
@@ -487,7 +494,6 @@ class TestBulkUndo:
 
     def test_undo_preserves_earlier_bulk_edits(self, data_manager):
         """Test that undo only removes the most recent bulk edit batch."""
-
 
         # First bulk edit: 3 edits at timestamp T
         timestamp1 = datetime.now()
@@ -516,7 +522,6 @@ class TestBulkUndo:
 
     def test_undo_single_edit_after_bulk_edit(self, data_manager):
         """Test that single edit after bulk edit is undone separately."""
-
 
         # Bulk edit: 5 edits
         timestamp1 = datetime.now()

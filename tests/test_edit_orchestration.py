@@ -155,7 +155,12 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Drill into Amazon, sub-group by category
-        setup_view(controller, ViewMode.DETAIL, selected_merchant="Amazon", sub_grouping_mode=ViewMode.CATEGORY)
+        setup_view(
+            controller,
+            ViewMode.DETAIL,
+            selected_merchant="Amazon",
+            sub_grouping_mode=ViewMode.CATEGORY,
+        )
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -170,7 +175,13 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Drill into Amazon, sub-group by category, select 3 categories
-        setup_view(controller, ViewMode.DETAIL, selected_keys=["Groceries", "Electronics", "Books"], selected_merchant="Amazon", sub_grouping_mode=ViewMode.CATEGORY)
+        setup_view(
+            controller,
+            ViewMode.DETAIL,
+            selected_keys=["Groceries", "Electronics", "Books"],
+            selected_merchant="Amazon",
+            sub_grouping_mode=ViewMode.CATEGORY,
+        )
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -255,13 +266,18 @@ class TestEditContextValidation:
 
         assert context.group_field is None
 
-    @pytest.mark.parametrize("view_mode,expected_field", [
-        (ViewMode.MERCHANT, "merchant"),
-        (ViewMode.CATEGORY, "category"),
-        (ViewMode.GROUP, "group"),
-        (ViewMode.ACCOUNT, "account"),
-    ])
-    async def test_group_field_set_for_aggregate_views(self, edit_controller, view_mode, expected_field):
+    @pytest.mark.parametrize(
+        "view_mode,expected_field",
+        [
+            (ViewMode.MERCHANT, "merchant"),
+            (ViewMode.CATEGORY, "category"),
+            (ViewMode.GROUP, "group"),
+            (ViewMode.ACCOUNT, "account"),
+        ],
+    )
+    async def test_group_field_set_for_aggregate_views(
+        self, edit_controller, view_mode, expected_field
+    ):
         """Aggregate views should have group_field."""
         controller = edit_controller
 

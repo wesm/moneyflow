@@ -389,7 +389,9 @@ class CacheManager:
         """Expire a cache tier for testing purposes."""
         metadata = self.load_metadata()
         if tier in metadata:
-            metadata[tier]["fetch_timestamp"] = (datetime.now() - timedelta(days=days_old)).isoformat()
+            metadata[tier]["fetch_timestamp"] = (
+                datetime.now() - timedelta(days=days_old)
+            ).isoformat()
             self._save_metadata(metadata)
 
     def _save_metadata(self, metadata: Dict[str, Any]) -> None:

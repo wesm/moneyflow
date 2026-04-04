@@ -158,13 +158,39 @@ class TestPreviousPeriod:
     @pytest.mark.parametrize(
         "start_date, end_date, expected_start, expected_end, expected_desc",
         [
-            (date(2025, 1, 1), date(2025, 12, 31), date(2024, 1, 1), date(2024, 12, 31), "Year 2024"),
-            (date(2025, 3, 1), date(2025, 3, 31), date(2025, 2, 1), date(2025, 2, 28), "February 2025"),
-            (date(2025, 1, 1), date(2025, 1, 31), date(2024, 12, 1), date(2024, 12, 31), "December 2024"),
-            (date(2024, 3, 1), date(2024, 3, 31), date(2024, 2, 1), date(2024, 2, 29), None),  # Leap year
+            (
+                date(2025, 1, 1),
+                date(2025, 12, 31),
+                date(2024, 1, 1),
+                date(2024, 12, 31),
+                "Year 2024",
+            ),
+            (
+                date(2025, 3, 1),
+                date(2025, 3, 31),
+                date(2025, 2, 1),
+                date(2025, 2, 28),
+                "February 2025",
+            ),
+            (
+                date(2025, 1, 1),
+                date(2025, 1, 31),
+                date(2024, 12, 1),
+                date(2024, 12, 31),
+                "December 2024",
+            ),
+            (
+                date(2024, 3, 1),
+                date(2024, 3, 31),
+                date(2024, 2, 1),
+                date(2024, 2, 29),
+                None,
+            ),  # Leap year
         ],
     )
-    def test_previous_period(self, start_date, end_date, expected_start, expected_end, expected_desc):
+    def test_previous_period(
+        self, start_date, end_date, expected_start, expected_end, expected_desc
+    ):
         """Should correctly navigate to the previous period."""
         range_obj = TimeNavigator.previous_period(start_date, end_date)
 
@@ -180,12 +206,48 @@ class TestNextPeriod:
     @pytest.mark.parametrize(
         "start_date, end_date, expected_start, expected_end, expected_desc",
         [
-            (date(2025, 1, 1), date(2025, 12, 31), date(2026, 1, 1), date(2026, 12, 31), "Year 2026"),
-            (date(2025, 1, 1), date(2025, 1, 31), date(2025, 2, 1), date(2025, 2, 28), "February 2025"),
-            (date(2025, 12, 1), date(2025, 12, 31), date(2026, 1, 1), date(2026, 1, 31), "January 2026"),
-            (date(2024, 1, 1), date(2024, 1, 31), date(2024, 2, 1), date(2024, 2, 29), None),  # Leap year
-            (date(2025, 4, 1), date(2025, 4, 30), date(2025, 5, 1), date(2025, 5, 31), None),  # 30 to 31
-            (date(2025, 5, 1), date(2025, 5, 31), date(2025, 6, 1), date(2025, 6, 30), None),  # 31 to 30
+            (
+                date(2025, 1, 1),
+                date(2025, 12, 31),
+                date(2026, 1, 1),
+                date(2026, 12, 31),
+                "Year 2026",
+            ),
+            (
+                date(2025, 1, 1),
+                date(2025, 1, 31),
+                date(2025, 2, 1),
+                date(2025, 2, 28),
+                "February 2025",
+            ),
+            (
+                date(2025, 12, 1),
+                date(2025, 12, 31),
+                date(2026, 1, 1),
+                date(2026, 1, 31),
+                "January 2026",
+            ),
+            (
+                date(2024, 1, 1),
+                date(2024, 1, 31),
+                date(2024, 2, 1),
+                date(2024, 2, 29),
+                None,
+            ),  # Leap year
+            (
+                date(2025, 4, 1),
+                date(2025, 4, 30),
+                date(2025, 5, 1),
+                date(2025, 5, 31),
+                None,
+            ),  # 30 to 31
+            (
+                date(2025, 5, 1),
+                date(2025, 5, 31),
+                date(2025, 6, 1),
+                date(2025, 6, 30),
+                None,
+            ),  # 31 to 30
         ],
     )
     def test_next_period(self, start_date, end_date, expected_start, expected_end, expected_desc):

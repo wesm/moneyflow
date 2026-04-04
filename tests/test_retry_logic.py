@@ -63,7 +63,7 @@ class TestRetryLogic:
                 Exception("Failure 1"),
                 Exception("Failure 2"),
                 Exception("Failure 3"),
-                "finally succeeded"
+                "finally succeeded",
             ]
         )
 
@@ -121,7 +121,12 @@ class TestRetryLogic:
     async def test_exponential_backoff_timing(self, mock_sleep):
         """Test that wait times increase exponentially."""
         operation = AsyncMock(
-            side_effect=[Exception("Keep failing"), Exception("Keep failing"), Exception("Keep failing"), "done"]
+            side_effect=[
+                Exception("Keep failing"),
+                Exception("Keep failing"),
+                Exception("Keep failing"),
+                "done",
+            ]
         )
         mock_callback = Mock()
 
@@ -135,18 +140,16 @@ class TestRetryLogic:
 
         # Should have 3 retries (attempts 1, 2, 3)
         assert mock_callback.call_count == 3
-        mock_callback.assert_has_calls([
-            call(1, 0.05),
-            call(2, 0.1),
-            call(3, 0.2)
-        ])
+        mock_callback.assert_has_calls([call(1, 0.05), call(2, 0.1), call(3, 0.2)])
         mock_sleep.assert_has_calls([call(0.05), call(0.1), call(0.2)])
 
     @pytest.mark.asyncio
     @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
     async def test_on_retry_callback_invoked(self, mock_sleep):
         """Test that on_retry callback is called for each retry."""
-        operation = AsyncMock(side_effect=[Exception("Failure 1"), Exception("Failure 2"), "success"])
+        operation = AsyncMock(
+            side_effect=[Exception("Failure 1"), Exception("Failure 2"), "success"]
+        )
         mock_callback = Mock()
 
         await retry_with_backoff(
@@ -203,7 +206,10 @@ class TestRetryLogic:
 
         with pytest.raises(Exception, match="Fail"):
             await retry_with_backoff(
-                operation=operation, operation_name="Test", max_retries=max_retries, initial_wait=0.01
+                operation=operation,
+                operation_name="Test",
+                max_retries=max_retries,
+                initial_wait=0.01,
             )
 
         assert operation.call_count == max_retries

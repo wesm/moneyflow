@@ -55,7 +55,11 @@ def get_transaction_count(backend, **kwargs):
     """Helper to get transaction counts with optional filtering."""
     conn = backend._get_connection()
     conditions = " AND ".join(f"{k} = ?" for k in kwargs)
-    query = f"SELECT COUNT(*) FROM transactions WHERE {conditions}" if conditions else "SELECT COUNT(*) FROM transactions"
+    query = (
+        f"SELECT COUNT(*) FROM transactions WHERE {conditions}"
+        if conditions
+        else "SELECT COUNT(*) FROM transactions"
+    )
     try:
         return conn.execute(query, tuple(kwargs.values())).fetchone()[0]
     finally:
@@ -65,11 +69,19 @@ def get_transaction_count(backend, **kwargs):
 def insert_test_transaction(backend, **kwargs):
     """Helper to insert a transaction into the DB directly."""
     defaults = {
-        "id": "test_id", "date": "2025-01-01", "merchant": "Test",
-        "category": "Uncategorized", "category_id": "cat_uncategorized",
-        "amount": -10.0, "quantity": 1, "asin": "B001", "order_id": "order1",
-        "account": "order1", "order_status": "Closed",
-        "shipment_status": "Shipped", "hideFromReports": 0
+        "id": "test_id",
+        "date": "2025-01-01",
+        "merchant": "Test",
+        "category": "Uncategorized",
+        "category_id": "cat_uncategorized",
+        "amount": -10.0,
+        "quantity": 1,
+        "asin": "B001",
+        "order_id": "order1",
+        "account": "order1",
+        "order_status": "Closed",
+        "shipment_status": "Shipped",
+        "hideFromReports": 0,
     }
     data = {**defaults, **kwargs}
 
@@ -77,7 +89,9 @@ def insert_test_transaction(backend, **kwargs):
     columns = ", ".join(data.keys())
     placeholders = ", ".join("?" for _ in data)
     try:
-        conn.execute(f"INSERT INTO transactions ({columns}) VALUES ({placeholders})", tuple(data.values()))
+        conn.execute(
+            f"INSERT INTO transactions ({columns}) VALUES ({placeholders})", tuple(data.values())
+        )
         conn.commit()
     finally:
         conn.close()
@@ -176,17 +190,17 @@ class TestImportFiltering:
 
     def test_import_skips_cancelled_orders(self, populated_backend):
         """Test that cancelled orders are skipped."""
-        count = get_transaction_count(populated_backend, order_status='Cancelled')
+        count = get_transaction_count(populated_backend, order_status="Cancelled")
         assert count == 0
 
     def test_import_includes_new_orders(self, populated_backend):
         """Test that New (pending) orders are imported."""
-        count = get_transaction_count(populated_backend, order_status='New')
+        count = get_transaction_count(populated_backend, order_status="New")
         assert count == 1  # Test Product 4 Pending
 
     def test_import_includes_closed_orders(self, populated_backend):
         """Test that Closed orders are imported."""
-        count = get_transaction_count(populated_backend, order_status='Closed')
+        count = get_transaction_count(populated_backend, order_status="Closed")
         assert count == 2  # Test Products 1 and 2
 
 
@@ -326,11 +340,7 @@ class TestTransactionUpdates:
         backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Import a test transaction first
-        insert_test_transaction(
-            backend,
-            id="amz_B001_order1",
-            merchant="Old Name"
-        )
+        insert_test_transaction(backend, id="amz_B001_order1", merchant="Old Name")
 
         # Update merchant name
         await backend.update_transaction("amz_B001_order1", merchant_name="New Name")
@@ -350,12 +360,7 @@ class TestTransactionUpdates:
         backend = AmazonBackend(temp_db, config_dir=temp_config_dir)
 
         # Insert test transaction
-        insert_test_transaction(
-            backend,
-            id="amz_B001_order1",
-            merchant="Apples",
-            amount=-5.0
-        )
+        insert_test_transaction(backend, id="amz_B001_order1", merchant="Apples", amount=-5.0)
 
         # Update category
         await backend.update_transaction("amz_B001_order1", category_id="cat_groceries")
@@ -381,7 +386,7 @@ class TestTransactionUpdates:
             id="amz_B001_order1",
             merchant="Test Item",
             category="Groceries",
-            category_id="cat_groceries"
+            category_id="cat_groceries",
         )
 
         # Fetch transactions
@@ -423,7 +428,9 @@ class TestEndToEndDataFetch:
     async def test_fetch_respects_date_filters(self, populated_backend):
         """Test that date filtering works correctly."""
         # Fetch with date filter
-        result = await populated_backend.get_transactions(start_date="2025-10-12", end_date="2025-10-13")
+        result = await populated_backend.get_transactions(
+            start_date="2025-10-12", end_date="2025-10-13"
+        )
 
         # Should get 2 transactions in this date range
         transactions = result["allTransactions"]["results"]

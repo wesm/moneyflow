@@ -673,7 +673,9 @@ class TestDemoBackendUpdateTransaction:
             )
 
     @pytest.mark.asyncio
-    async def test_update_persists_across_get_transactions(self, demo_backend, sample_transaction_id):
+    async def test_update_persists_across_get_transactions(
+        self, demo_backend, sample_transaction_id
+    ):
         """Test that updates persist when fetching transactions again."""
         txn_id = sample_transaction_id
 
@@ -719,7 +721,9 @@ class TestDemoBackendDeleteTransaction:
             await demo_backend.delete_transaction("nonexistent_id")
 
     @pytest.mark.asyncio
-    async def test_delete_persists_across_get_transactions(self, demo_backend, sample_transaction_id):
+    async def test_delete_persists_across_get_transactions(
+        self, demo_backend, sample_transaction_id
+    ):
         """Test that deletion persists when fetching transactions again."""
         txn_id = sample_transaction_id
 
@@ -879,7 +883,6 @@ class TestDemoModeIntegration:
         # 8. Check stats
         stats = demo_backend.get_demo_stats()
         assert stats["updates_made"] == 1
-
 
 
 # ============================================================================

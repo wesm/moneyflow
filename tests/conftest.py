@@ -72,11 +72,20 @@ def _create_amazon_db(profile_dir: Path, orders: list[AmazonOrder]) -> None:
                 for item in order["items"]:
                     clean_order = order_id.replace("-", "").replace(" ", "")
                     txn_id = f"amz_{item['asin']}_{clean_order}"
-                    rows.append((
-                        txn_id, order_date, item["name"], item["amount"],
-                        item["quantity"], item["asin"], order_id, order_id,
-                        "Closed", "Delivered"
-                    ))
+                    rows.append(
+                        (
+                            txn_id,
+                            order_date,
+                            item["name"],
+                            item["amount"],
+                            item["quantity"],
+                            item["asin"],
+                            order_id,
+                            order_id,
+                            "Closed",
+                            "Delivered",
+                        )
+                    )
 
             conn.executemany(
                 """
@@ -84,7 +93,7 @@ def _create_amazon_db(profile_dir: Path, orders: list[AmazonOrder]) -> None:
                 (id, date, merchant, amount, quantity, asin, order_id, account, order_status, shipment_status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                rows
+                rows,
             )
 
 

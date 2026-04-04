@@ -16,6 +16,7 @@ from moneyflow.state import TransactionEdit
 
 FIXED_TIME = datetime(2026, 4, 4)
 
+
 @pytest.fixture
 async def logged_in_mock_mm(mock_mm):
     """Fixture that provides a logged-in mock backend."""
@@ -83,7 +84,9 @@ class TestCacheAndCommit:
         assert success == 1
         assert failure == 0
 
-    async def test_commit_with_session_expiration_during_cache(self, data_manager, logged_in_mock_mm):
+    async def test_commit_with_session_expiration_during_cache(
+        self, data_manager, logged_in_mock_mm
+    ):
         """
         Test that session expiration is handled during commit.
 
@@ -117,7 +120,9 @@ class TestCommitFailureDoesNotCorruptLocalState:
     apply edits to the local DataFrame, making it appear changes succeeded.
     """
 
-    async def test_partial_commit_failure_keeps_pending_edits(self, data_manager, logged_in_mock_mm):
+    async def test_partial_commit_failure_keeps_pending_edits(
+        self, data_manager, logged_in_mock_mm
+    ):
         """Failed commits should keep edits in pending list, not clear them."""
         # Make all updates fail
         logged_in_mock_mm.update_transaction = AsyncMock(side_effect=Exception("Network timeout"))
@@ -156,7 +161,9 @@ class TestCommitFailureDoesNotCorruptLocalState:
         data_manager.df = original_df.clone()
 
         # Make all commits fail
-        logged_in_mock_mm.update_transaction = AsyncMock(side_effect=Exception("Connection timeout"))
+        logged_in_mock_mm.update_transaction = AsyncMock(
+            side_effect=Exception("Connection timeout")
+        )
 
         edits = [
             TransactionEdit("txn_1", "merchant", "OldMerchant1", "NewMerchant1", FIXED_TIME),

@@ -70,13 +70,17 @@ class TestCheckMigrationNeeded:
 
         assert needed is False
 
-    def test_migration_needed_when_legacy_credentials_exist(self, temp_config_dir, legacy_credentials):
+    def test_migration_needed_when_legacy_credentials_exist(
+        self, temp_config_dir, legacy_credentials
+    ):
         """Test that migration needed when legacy credentials exist."""
         needed = check_migration_needed(config_dir=temp_config_dir)
 
         assert needed is True
 
-    def test_no_migration_when_profiles_already_exist(self, temp_config_dir, legacy_credentials, account_manager):
+    def test_no_migration_when_profiles_already_exist(
+        self, temp_config_dir, legacy_credentials, account_manager
+    ):
         """Test that migration skipped if profiles already configured."""
         # Create a profile account
         account_manager.create_account("Test Account", "monarch")
@@ -90,7 +94,9 @@ class TestCheckMigrationNeeded:
 class TestMigrateLegacyCredentials:
     """Tests for migrating legacy credentials."""
 
-    def test_migrate_creates_default_account(self, temp_config_dir, legacy_credentials, account_manager):
+    def test_migrate_creates_default_account(
+        self, temp_config_dir, legacy_credentials, account_manager
+    ):
         """Test that migration creates a 'default' account."""
         # Migrate
         migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
@@ -218,7 +224,9 @@ class TestMigrateLegacyCredentials:
 
         assert result is False
 
-    def test_migration_with_existing_profiles_returns_false(self, temp_config_dir, legacy_credentials, account_manager):
+    def test_migration_with_existing_profiles_returns_false(
+        self, temp_config_dir, legacy_credentials, account_manager
+    ):
         """Test migration skipped if profiles already exist."""
         # Create an existing profile
         account_manager.create_account("Existing Account", "monarch")
@@ -276,7 +284,9 @@ class TestCheckAmazonMigrationNeeded:
 
         assert needed is True
 
-    def test_no_migration_when_amazon_account_already_exists(self, temp_config_dir, legacy_amazon_db, account_manager):
+    def test_no_migration_when_amazon_account_already_exists(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
         """Test that migration skipped if Amazon account already configured."""
         # Create an Amazon account
         account_manager.create_account("Amazon Orders", "amazon")
@@ -290,7 +300,9 @@ class TestCheckAmazonMigrationNeeded:
 class TestMigrateLegacyAmazonDb:
     """Tests for migrating legacy Amazon database."""
 
-    def test_migrate_creates_amazon_account(self, temp_config_dir, legacy_amazon_db, account_manager):
+    def test_migrate_creates_amazon_account(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
         """Test that migration creates an 'amazon' account."""
         # Migrate
         migrated = migrate_legacy_amazon_db(config_dir=temp_config_dir)
@@ -349,7 +361,9 @@ class TestMigrateLegacyAmazonDb:
 
         assert result is False
 
-    def test_migration_with_existing_amazon_account_returns_false(self, temp_config_dir, legacy_amazon_db, account_manager):
+    def test_migration_with_existing_amazon_account_returns_false(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
         """Test migration skipped if Amazon account already exists."""
         # Create an existing Amazon account
         account_manager.create_account("My Amazon", "amazon")
@@ -362,7 +376,9 @@ class TestMigrateLegacyAmazonDb:
         # Legacy database should still exist (not moved)
         assert legacy_amazon_db.exists()
 
-    def test_migration_works_with_other_accounts_present(self, temp_config_dir, legacy_amazon_db, account_manager):
+    def test_migration_works_with_other_accounts_present(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
         """Test that Amazon migration works even if other accounts exist."""
         # Create a Monarch account
         account_manager.create_account("My Monarch", "monarch")
@@ -406,7 +422,9 @@ class TestMigrateGlobalCategoriesToProfiles:
 
         assert result is False
 
-    def test_migrates_to_monarch_profile(self, temp_config_dir, legacy_config_yaml, account_manager):
+    def test_migrates_to_monarch_profile(
+        self, temp_config_dir, legacy_config_yaml, account_manager
+    ):
         """Test categories migrated to Monarch profile."""
         # Create Monarch account
         account_manager.create_account("Monarch", "monarch", account_id="monarch1")
@@ -425,7 +443,10 @@ class TestMigrateGlobalCategoriesToProfiles:
         with open(profile_config_path, "r") as f:
             profile_config = yaml.safe_load(f)
 
-        assert profile_config["fetched_categories"] == {"Food": ["Groceries"], "Shopping": ["Clothing"]}
+        assert profile_config["fetched_categories"] == {
+            "Food": ["Groceries"],
+            "Shopping": ["Clothing"],
+        }
 
     def test_removes_categories_from_global_config(self, temp_config_dir, account_manager):
         """Test that migration removes fetched_categories from global config."""

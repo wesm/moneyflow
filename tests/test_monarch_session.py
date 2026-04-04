@@ -231,7 +231,9 @@ class TestLoginErrorHandling:
         assert session_file.exists()
 
         # Mock get_subscription_details to succeed (session is valid)
-        with patch.object(mm_with_session, "get_subscription_details", new_callable=AsyncMock) as mock_api:
+        with patch.object(
+            mm_with_session, "get_subscription_details", new_callable=AsyncMock
+        ) as mock_api:
             mock_api.return_value = {"subscription": {}}
 
             # Login should use saved session and validate it
@@ -248,8 +250,12 @@ class TestLoginErrorHandling:
 
         # Mock get_subscription_details to fail (session expired)
         # Mock _login_user to succeed on fresh login
-        with patch.object(mm_with_session, "get_subscription_details", new_callable=AsyncMock) as mock_api, \
-             patch.object(mm_with_session, "_login_user", new_callable=AsyncMock) as mock_login:
+        with (
+            patch.object(
+                mm_with_session, "get_subscription_details", new_callable=AsyncMock
+            ) as mock_api,
+            patch.object(mm_with_session, "_login_user", new_callable=AsyncMock) as mock_login,
+        ):
             mock_api.side_effect = Exception("401 Unauthorized")
             mock_login.return_value = None
             mm_with_session.set_token("new-fresh-token")
