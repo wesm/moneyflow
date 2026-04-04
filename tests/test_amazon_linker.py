@@ -466,7 +466,7 @@ class TestFuzzyMatching:
     def test_fuzzy_match_uses_max_of_15_or_10_percent(self, amazon_profile: Path, linker: AmazonLinker) -> None:
         """Tolerance should be max($15, 10% of order amount)."""
         create_amazon_db(amazon_profile, [make_order(amount=-200.00, name="Expensive Item")])
-        
+
         matches = linker.find_matching_orders(amount=-185.00, transaction_date="2025-01-10")
         assert len(matches) == 1
         assert matches[0].confidence == "likely"

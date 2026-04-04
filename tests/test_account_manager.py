@@ -1,6 +1,5 @@
 """Tests for account manager - multi-account profile management."""
 
-from datetime import datetime
 from pathlib import Path
 
 import pytest
