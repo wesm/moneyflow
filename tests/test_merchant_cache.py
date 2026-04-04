@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from moneyflow.cache_orchestrator import CacheOrchestrator
 from moneyflow.data_manager import DataManager
 
 
@@ -220,7 +221,8 @@ class TestMerchantAutocomplete:
         dm._save_merchant_cache(["Cached Only"])
 
         # Load the cache properly via public method instead of directly mutating state
-        dm.all_merchants = await dm.refresh_merchant_cache(force=False)
+        orchestrator = CacheOrchestrator(cache_manager=None, data_manager=dm)
+        await orchestrator.load_merchant_cache()
 
         all_merchants = dm.get_all_merchants_for_autocomplete()
 
