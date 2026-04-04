@@ -97,7 +97,7 @@ class TestRetryLogic:
         assert mock_sleep.call_count == 2
 
     @pytest.mark.asyncio
-    @patch("moneyflow.retry_logic.asyncio.sleep")
+    @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
     async def test_user_cancellation(self, mock_sleep):
         """Test that user can cancel retry with Ctrl-C (raises RetryAborted)."""
         mock_sleep.side_effect = asyncio.CancelledError
