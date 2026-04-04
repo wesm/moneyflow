@@ -667,3 +667,23 @@ class TestCredentialPrecedence:
         # is_plaintext should return False because encrypted exists
         assert credential_manager.is_encrypted()
         assert not credential_manager.is_plaintext()
+
+
+class TestCredentialsFilePermissions:
+    """Tests that credential files are created with secure permissions."""
+
+    def test_encrypted_credentials_have_secure_permissions(self, credential_manager, default_creds):
+        """Encrypted credentials should have 0o600 permissions."""
+        credential_manager.save_credentials(**{**default_creds, "use_encryption": True})
+        assert_file_permissions(credential_manager.credentials_file, "600")
+
+    def test_plaintext_credentials_have_secure_permissions(self, credential_manager, default_creds):
+        """Plaintext credentials should have 0o600 permissions."""
+        credential_manager.save_credentials(**{**default_creds, "use_encryption": False})
+        plaintext_file = credential_manager.storage_dir / "credentials.json"
+        assert_file_permissions(plaintext_file, "600")
+
+    def test_salt_file_has_secure_permissions(self, credential_manager, default_creds):
+        """Salt file should have 0o600 permissions."""
+        credential_manager.save_credentials(**{**default_creds, "use_encryption": True})
+        assert_file_permissions(credential_manager.salt_file, "600")

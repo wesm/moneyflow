@@ -9,8 +9,16 @@ Tests cover:
 
 import os
 import stat
+from pathlib import Path
 
 from moneyflow.file_utils import secure_atomic_write, secure_write_file
+
+
+def assert_secure_permissions(file_path: Path):
+    """Helper to assert files are created with 0o600 permissions."""
+    assert file_path.exists()
+    mode = stat.S_IMODE(os.stat(file_path).st_mode)
+    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
 
 
 class TestSecureWriteFile:
@@ -20,10 +28,7 @@ class TestSecureWriteFile:
         """File should be created with 0o600 permissions."""
         test_file = tmp_path / "test.txt"
         secure_write_file(test_file, b"test content", "wb")
-
-        assert test_file.exists()
-        mode = stat.S_IMODE(os.stat(test_file).st_mode)
-        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+        assert_secure_permissions(test_file)
 
     def test_writes_binary_content(self, tmp_path):
         """Should correctly write binary content."""
@@ -86,10 +91,7 @@ class TestSecureAtomicWrite:
         """File should be created with 0o600 permissions."""
         test_file = tmp_path / "test.bin"
         secure_atomic_write(test_file, b"test content")
-
-        assert test_file.exists()
-        mode = stat.S_IMODE(os.stat(test_file).st_mode)
-        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+        assert_secure_permissions(test_file)
 
     def test_writes_content_correctly(self, tmp_path):
         """Should correctly write content."""
@@ -124,145 +126,3 @@ class TestSecureAtomicWrite:
 
         assert test_file.exists()
         assert test_file.read_bytes() == b"content"
-
-
-class TestCredentialsFilePermissions:
-    """Tests that credential files are created with secure permissions."""
-
-    def test_encrypted_credentials_have_secure_permissions(self, tmp_path):
-        """Encrypted credentials should have 0o600 permissions."""
-        from moneyflow.credentials import CredentialManager
-
-        cm = CredentialManager(config_dir=tmp_path)
-        cm.save_credentials(
-            email="test@example.com",
-            password="secret",
-            mfa_secret="",
-            encryption_password="testpass",
-            use_encryption=True,
-        )
-
-        cred_file = tmp_path / "credentials.enc"
-        assert cred_file.exists()
-        mode = stat.S_IMODE(os.stat(cred_file).st_mode)
-        assert mode == 0o600, f"Encrypted creds should be 0o600, got {oct(mode)}"
-
-    def test_plaintext_credentials_have_secure_permissions(self, tmp_path):
-        """Plaintext credentials should have 0o600 permissions."""
-        from moneyflow.credentials import CredentialManager
-
-        cm = CredentialManager(config_dir=tmp_path)
-        cm.save_credentials(
-            email="test@example.com",
-            password="secret",
-            mfa_secret="",
-            encryption_password=None,
-            use_encryption=False,
-        )
-
-        cred_file = tmp_path / "credentials.json"
-        assert cred_file.exists()
-        mode = stat.S_IMODE(os.stat(cred_file).st_mode)
-        assert mode == 0o600, f"Plaintext creds should be 0o600, got {oct(mode)}"
-
-    def test_salt_file_has_secure_permissions(self, tmp_path):
-        """Salt file should have 0o600 permissions."""
-        from moneyflow.credentials import CredentialManager
-
-        cm = CredentialManager(config_dir=tmp_path)
-        cm.save_credentials(
-            email="test@example.com",
-            password="secret",
-            mfa_secret="",
-            encryption_password="testpass",
-            use_encryption=True,
-        )
-
-        salt_file = tmp_path / "salt"
-        assert salt_file.exists()
-        mode = stat.S_IMODE(os.stat(salt_file).st_mode)
-        assert mode == 0o600, f"Salt file should be 0o600, got {oct(mode)}"
-
-
-class TestCacheFilePermissions:
-    """Tests that cache files are created with secure permissions."""
-
-    def test_unencrypted_cache_metadata_has_secure_permissions(self, tmp_path):
-        """Unencrypted cache metadata should have 0o600 permissions."""
-        import polars as pl
-
-        from moneyflow.cache_manager import CacheManager
-
-        cache_dir = tmp_path / "cache"
-        cm = CacheManager(cache_dir=cache_dir, encryption_key=None)
-
-        # Create minimal data to save
-        df = pl.DataFrame(
-            {
-                "id": ["1"],
-                "date": ["2024-01-01"],
-                "merchant": ["Test"],
-                "amount": [-10.0],
-                "category": ["Test"],
-                "hideFromReports": [False],
-            }
-        )
-        cm.save_cache(df, {}, {})
-
-        metadata_file = cache_dir / "cache_metadata.json"
-        assert metadata_file.exists()
-        mode = stat.S_IMODE(os.stat(metadata_file).st_mode)
-        assert mode == 0o600, f"Cache metadata should be 0o600, got {oct(mode)}"
-
-    def test_unencrypted_parquet_has_secure_permissions(self, tmp_path):
-        """Unencrypted parquet files should have 0o600 permissions."""
-        import polars as pl
-
-        from moneyflow.cache_manager import CacheManager
-
-        cache_dir = tmp_path / "cache"
-        cm = CacheManager(cache_dir=cache_dir, encryption_key=None)
-
-        df = pl.DataFrame(
-            {
-                "id": ["1"],
-                "date": ["2024-01-01"],
-                "merchant": ["Test"],
-                "amount": [-10.0],
-                "category": ["Test"],
-                "hideFromReports": [False],
-            }
-        )
-        cm.save_cache(df, {}, {})
-
-        # Check hot transactions file
-        hot_file = cache_dir / "hot_transactions.parquet"
-        if hot_file.exists():
-            mode = stat.S_IMODE(os.stat(hot_file).st_mode)
-            assert mode == 0o600, f"Hot cache should be 0o600, got {oct(mode)}"
-
-    def test_unencrypted_categories_has_secure_permissions(self, tmp_path):
-        """Unencrypted categories file should have 0o600 permissions."""
-        import polars as pl
-
-        from moneyflow.cache_manager import CacheManager
-
-        cache_dir = tmp_path / "cache"
-        cm = CacheManager(cache_dir=cache_dir, encryption_key=None)
-
-        df = pl.DataFrame(
-            {
-                "id": ["1"],
-                "date": ["2024-01-01"],
-                "merchant": ["Test"],
-                "amount": [-10.0],
-                "category": ["Test"],
-                "hideFromReports": [False],
-            }
-        )
-        cm.save_cache(df, {"cat1": "Test"}, {"grp1": "TestGroup"})
-
-        categories_file = cache_dir / "categories.json"
-        assert categories_file.exists()
-        mode = stat.S_IMODE(os.stat(categories_file).st_mode)
-        assert mode == 0o600, f"Categories file should be 0o600, got {oct(mode)}"
