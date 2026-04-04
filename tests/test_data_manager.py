@@ -417,6 +417,15 @@ class TestFiltering:
 
         assert len(results) == len(df)
 
+    async def test_search_transactions_regex_literal(self, loaded_data_manager):
+        """Test search with regex metacharacters treats them literally."""
+        dm, df, _, _ = loaded_data_manager
+
+        # Data contains "Amazon" but not "Amazon.*"
+        results = dm.search_transactions(df, "Amazon.*")
+
+        assert len(results) == 0
+
 
 class TestCommitEdits:
     """Test committing pending edits to the API."""

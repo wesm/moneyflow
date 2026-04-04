@@ -47,6 +47,7 @@ def mcp_server_factory(mock_account):
     """Fixture that yields a factory to create an MCP server with mocked dependencies."""
 
     def _factory(transactions, categories):
+        from moneyflow.data_manager import DataManager as RealDataManager
         with (
             patch("moneyflow.account_manager.AccountManager") as mock_am,
             patch("moneyflow.credentials.CredentialManager") as mock_cm,
@@ -70,12 +71,7 @@ def mcp_server_factory(mock_account):
             mock_dm.fetch_all_data = AsyncMock(return_value=(transactions, categories, {}))
 
             def mock_search(df, query):
-                query_lower = query.lower()
-                return df.filter(
-                    pl.col("merchant").str.to_lowercase().str.contains(query_lower, literal=True)
-                    | pl.col("category").str.to_lowercase().str.contains(query_lower, literal=True)
-                    | pl.col("notes").str.to_lowercase().str.contains(query_lower, literal=True)
-                )
+                return RealDataManager.search_transactions(mock_dm, df, query)
 
             mock_dm.search_transactions.side_effect = mock_search
 
