@@ -10,6 +10,63 @@ from moneyflow.data_manager import DataManager
 from moneyflow.state import TimeGranularity, TransactionEdit
 
 
+class MockBackendWithFailingBatch:
+    """Mock backend where batch_update_merchant always fails."""
+
+    def __init__(self, mm):
+        self.mm = mm
+
+    def batch_update_merchant(self, old_name, new_name):
+        return {"success": False, "message": "Simulated batch failure"}
+
+    async def update_transaction(self, **kwargs):
+        return await self.mm.update_transaction(**kwargs)
+
+
+class MockBackendNoBatch:
+    """Mock backend without batch update support."""
+
+    def __init__(self):
+        self.update_calls = []
+
+    async def update_transaction(self, **kwargs):
+        self.update_calls.append(kwargs)
+        # Keep consistent with original inline mock
+        return {"updateTransaction": {"transaction": {"id": kwargs["transaction_id"]}}}
+
+
+class MockBackendNoCount:
+    """Mock backend without get_transaction_count_by_merchant."""
+    pass
+
+
+class MockBackendWithCount:
+    """Mock backend that returns specific counts."""
+    def __init__(self, count_mapping=None):
+        self.count_mapping = count_mapping or {}
+
+    def get_transaction_count_by_merchant(self, merchant_name):
+        if isinstance(self.count_mapping, dict):
+            return self.count_mapping.get(merchant_name, 0)
+        return self.count_mapping
+
+def make_transaction(**overrides):
+    base = {
+        "id": "txn_1",
+        "date": "2024-10-01",
+        "amount": -50.00,
+        "merchant": {"id": "merch_1", "name": "Store"},
+        "category": {"id": "cat_1", "name": "Groceries"},
+        "account": {"id": "acc_1", "displayName": "Checking"},
+        "notes": "",
+        "hideFromReports": False,
+        "pending": False,
+        "isRecurring": False,
+    }
+    return {**base, **overrides}
+
+
+
 class TestDataFetching:
     """Test data fetching from API."""
 
@@ -472,20 +529,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_none_merchant(self, data_manager):
         """Test transaction with None merchant field."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": None,  # None merchant
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": "test",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(merchant=None, notes="test")]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -494,20 +538,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_empty_merchant_name(self, data_manager):
         """Test transaction with empty merchant name."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": ""},  # Empty name
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": None,
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(merchant={"id": "merch_1", "name": ""}, notes=None)]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -516,20 +547,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_none_category(self, data_manager):
         """Test transaction with None category field."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": None,  # None category
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": "",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(category=None)]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
         # Apply grouping (now done separately)
@@ -541,20 +559,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_empty_category_name(self, data_manager):
         """Test transaction with empty category name."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_1", "name": ""},  # Empty name
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": "",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(category={"id": "cat_1", "name": ""})]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -563,20 +568,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_none_account(self, data_manager):
         """Test transaction with None account field."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": None,  # None account
-                "notes": "",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(account=None)]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -585,20 +577,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_empty_account_name(self, data_manager):
         """Test transaction with empty account display name."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": {"id": "acc_1", "displayName": ""},  # Empty name
-                "notes": "",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(account={"id": "acc_1", "displayName": ""})]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -607,20 +586,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_none_notes(self, data_manager):
         """Test transaction with None notes field."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": None,  # None notes
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(notes=None)]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -629,17 +595,12 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_missing_optional_fields(self, data_manager):
         """Test transaction with missing optional fields."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_1", "name": "Groceries"},
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                # Missing notes, hideFromReports, pending, isRecurring
-            }
-        ]
+        transactions = [make_transaction()]
+        # Remove optional fields to test missing fields
+        del transactions[0]["notes"]
+        del transactions[0]["hideFromReports"]
+        del transactions[0]["pending"]
+        del transactions[0]["isRecurring"]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
 
@@ -651,20 +612,7 @@ class TestEdgeCases:
 
     async def test_transactions_to_dataframe_unknown_category_group(self, data_manager):
         """Test transaction with category not in group mapping."""
-        transactions = [
-            {
-                "id": "txn_1",
-                "date": "2024-10-01",
-                "amount": -50.00,
-                "merchant": {"id": "merch_1", "name": "Store"},
-                "category": {"id": "cat_unknown", "name": "Unknown Category XYZ"},
-                "account": {"id": "acc_1", "displayName": "Checking"},
-                "notes": "",
-                "hideFromReports": False,
-                "pending": False,
-                "isRecurring": False,
-            }
-        ]
+        transactions = [make_transaction(category={"id": "cat_unknown", "name": "Unknown Category XYZ"})]
 
         df = data_manager._transactions_to_dataframe(transactions, {})
         # Apply grouping (now done separately)
@@ -934,25 +882,11 @@ class TestBatchMerchantOptimization:
         assert mock_mm.get_transaction_by_id("txn_1")["category"]["id"] == "cat_shopping"
         assert mock_mm.get_transaction_by_id("txn_2")["hideFromReports"] is True
 
-    async def test_batch_update_fallback_on_failure(self, data_manager, mock_mm):
+    async def test_batch_update_fallback_on_failure(self, data_manager, mock_mm, monkeypatch):
         """Test fallback to individual updates when batch update fails."""
         # Add transactions first
         txn_id_1 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
         txn_id_2 = mock_mm.add_test_transaction(merchant={"id": "m1", "name": "Amazon.com/abc"})
-
-        # Create a mock backend that will fail batch updates
-        class MockBackendWithFailingBatch:
-            """Mock backend where batch_update_merchant always fails."""
-
-            def __init__(self, mm):
-                self.mm = mm
-
-            def batch_update_merchant(self, old_name, new_name):
-                return {"success": False, "message": "Simulated batch failure"}
-
-            async def update_transaction(self, **kwargs):
-                return await self.mm.update_transaction(**kwargs)
-
         # Wrap the mock backend
         original_mm = data_manager.mm
         wrapped_mm = MockBackendWithFailingBatch(original_mm)
@@ -962,7 +896,7 @@ class TestBatchMerchantOptimization:
             if not hasattr(wrapped_mm, attr) and not attr.startswith("_"):
                 setattr(wrapped_mm, attr, getattr(original_mm, attr))
 
-        data_manager.mm = wrapped_mm
+        monkeypatch.setattr(data_manager, "mm", wrapped_mm)
 
         # Create edits using the actual transaction IDs
         edits = [
@@ -980,9 +914,6 @@ class TestBatchMerchantOptimization:
 
         # Verify individual transaction updates were made (fallback path)
         assert len(original_mm.update_calls) == 2
-
-        # Restore original backend
-        data_manager.mm = original_mm
 
     async def test_batch_update_with_nonexistent_merchant(self, data_manager, mock_mm):
         """Test batch update gracefully handles nonexistent merchant names."""
@@ -1010,24 +941,10 @@ class TestBatchMerchantOptimization:
         # Verify individual transaction updates were made (fallback path)
         assert len(mock_mm.update_calls) == 2
 
-    async def test_no_batch_update_for_backends_without_support(self, data_manager):
+    async def test_no_batch_update_for_backends_without_support(self, data_manager, monkeypatch):
         """Test that backends without batch_update_merchant use individual updates."""
-
-        # Create a mock backend without batch_update_merchant
-        class MockBackendNoBatch:
-            """Mock backend without batch update support."""
-
-            def __init__(self):
-                self.update_calls = []
-
-            async def update_transaction(self, **kwargs):
-                self.update_calls.append(kwargs)
-                return {"updateTransaction": {"transaction": {"id": kwargs["transaction_id"]}}}
-
-        # Replace backend
-        original_mm = data_manager.mm
         no_batch_mm = MockBackendNoBatch()
-        data_manager.mm = no_batch_mm
+        monkeypatch.setattr(data_manager, "mm", no_batch_mm)
 
         # Create edits
         edits = [
@@ -1041,9 +958,6 @@ class TestBatchMerchantOptimization:
         assert success == 2
         assert failure == 0
         assert len(no_batch_mm.update_calls) == 2
-
-        # Restore original backend
-        data_manager.mm = original_mm
 
 
 class TestFetchTransactionsPagination:
@@ -1475,15 +1389,9 @@ class TestCheckBatchScope:
 
         assert result == {}
 
-    async def test_check_batch_scope_backend_without_support(self, data_manager):
+    async def test_check_batch_scope_backend_without_support(self, data_manager, monkeypatch):
         """Test check_batch_scope returns empty when backend doesn't support counting."""
-
-        # Create a mock backend without get_transaction_count_by_merchant
-        class MockBackendNoCount:
-            pass
-
-        original_mm = data_manager.mm
-        data_manager.mm = MockBackendNoCount()
+        monkeypatch.setattr(data_manager, "mm", MockBackendNoCount())
 
         edits = [
             TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
@@ -1493,19 +1401,9 @@ class TestCheckBatchScope:
 
         assert result == {}
 
-        # Restore
-        data_manager.mm = original_mm
-
-    async def test_check_batch_scope_count_equals_selected(self, data_manager):
+    async def test_check_batch_scope_count_equals_selected(self, data_manager, monkeypatch):
         """Test check_batch_scope returns empty when total equals selected."""
-
-        # Create mock backend that returns exact count
-        class MockBackendWithCount:
-            def get_transaction_count_by_merchant(self, merchant_name):
-                return 2  # Same as selected
-
-        original_mm = data_manager.mm
-        data_manager.mm = MockBackendWithCount()
+        monkeypatch.setattr(data_manager, "mm", MockBackendWithCount({"Amazon.com/abc": 2}))
 
         edits = [
             TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
@@ -1516,19 +1414,9 @@ class TestCheckBatchScope:
 
         assert result == {}
 
-        # Restore
-        data_manager.mm = original_mm
-
-    async def test_check_batch_scope_count_more_than_selected(self, data_manager):
+    async def test_check_batch_scope_count_more_than_selected(self, data_manager, monkeypatch):
         """Test check_batch_scope returns mismatch when total > selected."""
-
-        # Create mock backend that returns higher count
-        class MockBackendWithCount:
-            def get_transaction_count_by_merchant(self, merchant_name):
-                return 5  # More than selected (2)
-
-        original_mm = data_manager.mm
-        data_manager.mm = MockBackendWithCount()
+        monkeypatch.setattr(data_manager, "mm", MockBackendWithCount({"Amazon.com/abc": 5}))
 
         edits = [
             TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
@@ -1540,23 +1428,9 @@ class TestCheckBatchScope:
         assert ("Amazon.com/abc", "Amazon") in result
         assert result[("Amazon.com/abc", "Amazon")] == {"selected": 2, "total": 5}
 
-        # Restore
-        data_manager.mm = original_mm
-
-    async def test_check_batch_scope_multiple_rename_groups(self, data_manager):
+    async def test_check_batch_scope_multiple_rename_groups(self, data_manager, monkeypatch):
         """Test check_batch_scope handles multiple merchant rename groups."""
-
-        # Create mock backend that returns different counts per merchant
-        class MockBackendWithCount:
-            def get_transaction_count_by_merchant(self, merchant_name):
-                if merchant_name == "Amazon.com/abc":
-                    return 5
-                elif merchant_name == "Starbucks #123":
-                    return 3  # Same as selected, no mismatch
-                return 0
-
-        original_mm = data_manager.mm
-        data_manager.mm = MockBackendWithCount()
+        monkeypatch.setattr(data_manager, "mm", MockBackendWithCount({"Amazon.com/abc": 5, "Starbucks #123": 3}))
 
         edits = [
             TransactionEdit("txn_1", "merchant", "Amazon.com/abc", "Amazon", datetime.now()),
@@ -1574,9 +1448,6 @@ class TestCheckBatchScope:
 
         # Starbucks should NOT have mismatch (3 total == 3 selected)
         assert ("Starbucks #123", "Starbucks") not in result
-
-        # Restore
-        data_manager.mm = original_mm
 
 
 class TestSkipBatchFor:
