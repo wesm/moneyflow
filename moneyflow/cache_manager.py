@@ -385,7 +385,7 @@ class CacheManager:
         with open(self.metadata_file, "r") as f:
             return json.load(f)
 
-    def expire_cache_for_testing(self, tier: str, days_old: int) -> None:
+    def _expire_cache_for_testing(self, tier: str, days_old: int) -> None:
         """Expire a cache tier for testing purposes."""
         metadata = self.load_metadata()
         if tier in metadata:

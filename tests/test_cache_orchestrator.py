@@ -6,7 +6,7 @@ These validate normal-use cache behavior without running the UI.
 
 import base64
 from datetime import date, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, create_autospec
 
 import polars as pl
 import pytest
@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from moneyflow.cache_manager import CacheManager, RefreshStrategy
 from moneyflow.cache_orchestrator import CacheOrchestrator
+from moneyflow.data_manager import DataManager
 
 
 @pytest.fixture
@@ -72,7 +73,7 @@ def create_transactions_df(dates: list[str], prefix: str) -> pl.DataFrame:
 
 @pytest.fixture
 def mock_data_manager(sample_categories, sample_category_groups):
-    dm = MagicMock()
+    dm = create_autospec(DataManager, instance=True)
     dm.apply_category_groups.side_effect = lambda df: df
     dm.refresh_merchant_cache = AsyncMock(return_value=["Amazon", "Whole Foods"])
     dm.fetch_all_data = AsyncMock(return_value=(None, sample_categories, sample_category_groups))
@@ -127,11 +128,11 @@ async def test_check_and_load_cache_returns_full_cache(
 
 @pytest.mark.asyncio
 async def test_check_and_load_cache_hot_only_mode(setup_orchestrator, cache_manager, test_dates):
-    orchestrator, df = setup_orchestrator(
+    orchestrator, _ = setup_orchestrator(
         [test_dates["hot_recent"], test_dates["hot_boundary"], test_dates["cold_boundary"]]
     )
 
-    cache_manager.expire_cache_for_testing("cold", days_old=40)
+    cache_manager._expire_cache_for_testing("cold", days_old=40)
 
     hot_df = cache_manager.load_hot_cache()
     data, strategy = await orchestrator.check_and_load_cache(
