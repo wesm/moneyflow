@@ -31,7 +31,11 @@ def make_edit(tx_id: str, field: str, old: Any, new: Any) -> TransactionEdit:
 
 def assert_cell(df: pl.DataFrame, row_id: str, col: str, expected: Any):
     """Helper for verbose Polars assertions."""
-    assert df.filter(pl.col("id") == row_id)[col][0] == expected
+    val = df.filter(pl.col("id") == row_id)[col][0]
+    if isinstance(expected, bool):
+        assert val is expected, f"Expected {expected} (bool), got {val} ({type(val)})"
+    else:
+        assert val == expected
 
 
 @pytest.fixture
