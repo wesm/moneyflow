@@ -17,16 +17,14 @@ from moneyflow.state import TransactionEdit
 
 
 async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, expected_path):
-    dm.pending_edits.append(
-        TransactionEdit(
-            transaction_id=txn_id,
-            field=field,
-            old_value=old_val,
-            new_value=new_val,
-            timestamp=datetime.now(),
-        )
+    edit = TransactionEdit(
+        transaction_id=txn_id,
+        field=field,
+        old_value=old_val,
+        new_value=new_val,
+        timestamp=datetime.now(),
     )
-    success, failure, _ = await dm.commit_pending_edits(dm.pending_edits)
+    success, failure, _ = await dm.commit_pending_edits([edit])
     assert success == 1
     assert failure == 0
     updated = mock_mm.get_transaction_by_id(txn_id)
@@ -679,6 +677,49 @@ class TestMerchantCreation:
         existing_matches = [opt for opt in options if not opt["is_new"]]
         assert len(existing_matches) == 1
         assert existing_matches[0]["id"] == "Amazon.com"
+
+    async def test_update_suggestions_inserts_new_option(self):
+        """Test that _update_suggestions actually inserts the user input as a 'create new' option."""
+        from textual.app import App
+        from textual.widgets import OptionList, Input
+        from moneyflow.screens.edit_screens import EditMerchantScreen
+
+        class DummyApp(App):
+            def compose(self):
+                import polars as pl
+                yield EditMerchantScreen(
+                    current_merchant="Old Merchant",
+                    all_merchants=["Amazon", "Whole Foods"],
+                    transaction_details={"id": "123", "amount": 10.0},
+                    transaction_count=1,
+                )
+
+        app = DummyApp()
+        async with app.run_test() as pilot:
+            screen = app.query_one(EditMerchantScreen)
+            merchant_input = screen.query_one("#merchant-input", Input)
+            
+            # Simulate typing a brand new merchant
+            merchant_input.value = "New Coffee Shop"
+            await screen._update_suggestions("new coffee shop")
+            
+            option_list = screen.query_one("#suggestions", OptionList)
+            
+            # "new coffee shop" shouldn't match Amazon or Whole Foods.
+            assert option_list.option_count == 1
+            opt = option_list.get_option_at_index(0)
+            assert str(opt.id) == "__new__:New Coffee Shop"
+            assert str(opt.prompt) == '"New Coffee Shop"'
+            
+            # Now simulate typing a partial match to an existing one
+            merchant_input.value = "ama"
+            await screen._update_suggestions("ama")
+            
+            # "Amazon" matches. First item should be Amazon, second should be "__new__:ama"
+            assert option_list.option_count == 2
+            assert str(option_list.get_option_at_index(0).id) == "Amazon"
+            assert str(option_list.get_option_at_index(1).id) == "__new__:ama"
+            assert str(option_list.get_option_at_index(1).prompt) == '"ama"'
 
     def test_auto_select_first_match_with_multiple_existing_matches(self):
         """Test that Enter auto-selects first match even with multiple matches."""
