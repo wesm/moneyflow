@@ -224,6 +224,12 @@ class TestLoginErrorHandling:
             # Verify it attempted fresh login after corrupt session
             mock_login.assert_called_once()
 
+            # Verify the corrupt session file was recreated and contains the new token
+            assert session_file.exists()
+            with open(session_file, "rb") as f:
+                data = pickle.load(f)
+            assert data.get("token") == "new-token"
+
     @pytest.mark.asyncio
     async def test_login_validates_session_with_api_call(self, mm_with_session, profile_dir):
         """Test that saved session is validated by making an API call."""
@@ -258,7 +264,12 @@ class TestLoginErrorHandling:
         ):
             mock_api.side_effect = Exception("401 Unauthorized")
             mock_login.return_value = None
-            mm_with_session.set_token("new-fresh-token")
+            
+            async def fake_login(*args, **kwargs):
+                mm_with_session.set_token("new-fresh-token")
+                return None
+                
+            mock_login.side_effect = fake_login
 
             # Should detect stale session via API call, delete it, and retry
             await mm_with_session.login(
@@ -271,6 +282,12 @@ class TestLoginErrorHandling:
             mock_api.assert_called_once()
             # Verify fresh login was performed
             mock_login.assert_called_once()
+
+            # Verify the stale session file was replaced with the new token
+            assert session_file.exists()
+            with open(session_file, "rb") as f:
+                data = pickle.load(f)
+            assert data.get("token") == "new-fresh-token"
 
 
 class TestBackendIntegration:
@@ -290,3 +307,4 @@ class TestBackendIntegration:
 
         # Should use default location
         assert backend.client._session_file == ".mm/mm_session.pickle"
+
