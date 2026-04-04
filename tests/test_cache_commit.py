@@ -81,7 +81,7 @@ class TestCacheAndCommit:
         # Don't login - simulate the bug scenario
         dm = DataManager(mock_mm, config_dir=str(tmp_path))
 
-        edits = [TransactionEdit("txn_1", "notes", "Old", "New", FIXED_TIME)]
+        edits = [TransactionEdit("txn_1", "category", "Old", "New", FIXED_TIME)]
 
         # With new logic: if ALL commits fail with 401, exception is raised
         with pytest.raises(Exception, match="401 Unauthorized"):
