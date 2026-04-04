@@ -45,6 +45,48 @@ MAX_LIMIT = 1000
 MAX_BATCH_SIZE = 100
 
 
+def _format_amount(amount: float) -> str:
+    """Format amount as currency string."""
+    if amount < 0:
+        return f"-${abs(amount):,.2f}"
+    return f"${amount:,.2f}"
+
+
+def _clamp_limit(limit: int) -> int:
+    """Clamp limit to MAX_LIMIT to prevent memory issues."""
+    return max(1, min(limit, MAX_LIMIT))
+
+
+def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
+    """Convert DataFrame to list of records with formatting."""
+    if len(df) == 0:
+        return []
+
+    # Clamp and apply limit
+    limit = _clamp_limit(limit)
+    if len(df) > limit:
+        df = df.head(limit)
+
+    records = []
+    for row in df.iter_rows(named=True):
+        record = {
+            "id": row.get("id", ""),
+            "date": str(row.get("date", "")),
+            "merchant": row.get("merchant", ""),
+            "category": row.get("category", ""),
+            "amount": row.get("amount", 0),
+            "amount_formatted": _format_amount(row.get("amount", 0)),
+            "account": row.get("account", ""),
+        }
+        if row.get("notes"):
+            record["notes"] = row["notes"]
+        if row.get("is_hidden"):
+            record["is_hidden"] = True
+        records.append(record)
+
+    return records
+
+
 def create_mcp_server(
     account_id: Optional[str] = None,
     config_dir: Optional[str] = None,
@@ -171,45 +213,6 @@ def create_mcp_server(
         _state["account"] = account
 
         logger.info(f"Loaded {len(df)} transactions")
-
-    def _format_amount(amount: float) -> str:
-        """Format amount as currency string."""
-        if amount < 0:
-            return f"-${abs(amount):,.2f}"
-        return f"${amount:,.2f}"
-
-    def _clamp_limit(limit: int) -> int:
-        """Clamp limit to MAX_LIMIT to prevent memory issues."""
-        return max(1, min(limit, MAX_LIMIT))
-
-    def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
-        """Convert DataFrame to list of records with formatting."""
-        if len(df) == 0:
-            return []
-
-        # Clamp and apply limit
-        limit = _clamp_limit(limit)
-        if len(df) > limit:
-            df = df.head(limit)
-
-        records = []
-        for row in df.iter_rows(named=True):
-            record = {
-                "id": row.get("id", ""),
-                "date": str(row.get("date", "")),
-                "merchant": row.get("merchant", ""),
-                "category": row.get("category", ""),
-                "amount": row.get("amount", 0),
-                "amount_formatted": _format_amount(row.get("amount", 0)),
-                "account": row.get("account", ""),
-            }
-            if row.get("notes"):
-                record["notes"] = row["notes"]
-            if row.get("is_hidden"):
-                record["is_hidden"] = True
-            records.append(record)
-
-        return records
 
     # ========== TOOLS ==========
 

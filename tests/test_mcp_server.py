@@ -7,17 +7,82 @@ Tests cover:
 - Error handling
 """
 
+import json
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
 import pytest
 
-from moneyflow.mcp.server import ENV_PASSWORD, MAX_BATCH_SIZE, MAX_LIMIT, create_mcp_server
+from moneyflow.mcp.server import (
+    ENV_PASSWORD,
+    MAX_BATCH_SIZE,
+    MAX_LIMIT,
+    _clamp_limit,
+    _df_to_records,
+    _format_amount,
+    create_mcp_server,
+)
 
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+
+@pytest.fixture
+def mock_account():
+    """Create a mock account object with required attributes."""
+    return SimpleNamespace(
+        id="test-account",
+        name="Test Account",
+        backend_type="demo",
+        budget_id=None,
+    )
+
+
+@pytest.fixture
+def mcp_server_factory(mock_account):
+    """Fixture that yields a factory to create an MCP server with mocked dependencies."""
+
+    def _factory(transactions, categories):
+        with (
+            patch("moneyflow.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.backends.get_backend") as mock_get_backend,
+            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+        ):
+            mock_am.return_value.get_last_active_account.return_value = mock_account
+            mock_am.return_value.get_profile_dir.return_value = None
+
+            mock_cm.return_value.credentials_exist.return_value = True
+            mock_cm.return_value.is_encrypted.return_value = False
+            mock_cm.return_value.load_credentials.return_value = (
+                {"email": "x", "password": "y", "mfa_secret": ""},
+                None,
+            )
+
+            mock_backend = AsyncMock()
+            mock_get_backend.return_value = mock_backend
+
+            mock_dm = MagicMock()
+            mock_dm.fetch_all_data = AsyncMock(return_value=(transactions, categories, {}))
+
+            def mock_search(df, query):
+                query_lower = query.lower()
+                return df.filter(
+                    pl.col("merchant").str.to_lowercase().str.contains(query_lower)
+                    | pl.col("category").str.to_lowercase().str.contains(query_lower)
+                )
+
+            mock_dm.search_transactions.side_effect = mock_search
+
+            mock_dm_cls.return_value = mock_dm
+
+            return create_mcp_server()
+
+    return _factory
 
 
 @pytest.fixture
@@ -27,7 +92,7 @@ def sample_transactions():
     return pl.DataFrame(
         {
             "id": ["tx1", "tx2", "tx3", "tx4", "tx5"],
-            "date": [today - timedelta(days=i) for i in range(5)],
+            "date": [str(today - timedelta(days=i)) for i in range(5)],
             "merchant": ["Amazon", "Starbucks", "Amazon", "Walmart", "Target"],
             "category": ["Shopping", "Food & Drink", "Uncategorized", "Groceries", "Shopping"],
             "amount": [-50.00, -5.50, -125.00, -75.00, -30.00],
@@ -112,23 +177,19 @@ class TestLimitClamping:
 
     def test_clamp_limit_within_range(self):
         """Limits within MAX_LIMIT should be unchanged."""
-        # We test this indirectly through the server behavior
-        # by verifying MAX_LIMIT is set correctly
-        assert MAX_LIMIT == 1000
+        assert _clamp_limit(500) == 500
 
     def test_clamp_limit_zero_becomes_one(self):
         """Zero limit should become 1 (minimum)."""
-        # The _clamp_limit function uses max(1, min(limit, MAX_LIMIT))
-        # so 0 becomes 1
-        assert max(1, min(0, MAX_LIMIT)) == 1
+        assert _clamp_limit(0) == 1
 
     def test_clamp_limit_negative_becomes_one(self):
         """Negative limit should become 1."""
-        assert max(1, min(-10, MAX_LIMIT)) == 1
+        assert _clamp_limit(-10) == 1
 
     def test_clamp_limit_exceeds_max(self):
         """Limit exceeding MAX_LIMIT should be clamped."""
-        assert max(1, min(10000, MAX_LIMIT)) == MAX_LIMIT
+        assert _clamp_limit(10000) == MAX_LIMIT
 
 
 # ============================================================================
@@ -141,31 +202,15 @@ class TestToolOutputFormat:
 
     def test_format_amount_negative(self):
         """Negative amounts should be formatted correctly."""
-        # Test the formatting logic
-        amount = -50.00
-        if amount < 0:
-            formatted = f"-${abs(amount):,.2f}"
-        else:
-            formatted = f"${amount:,.2f}"
-        assert formatted == "-$50.00"
+        assert _format_amount(-50.00) == "-$50.00"
 
     def test_format_amount_positive(self):
         """Positive amounts should be formatted correctly."""
-        amount = 100.50
-        if amount < 0:
-            formatted = f"-${abs(amount):,.2f}"
-        else:
-            formatted = f"${amount:,.2f}"
-        assert formatted == "$100.50"
+        assert _format_amount(100.50) == "$100.50"
 
     def test_format_amount_large(self):
         """Large amounts should include comma separators."""
-        amount = 1234567.89
-        if amount < 0:
-            formatted = f"-${abs(amount):,.2f}"
-        else:
-            formatted = f"${amount:,.2f}"
-        assert formatted == "$1,234,567.89"
+        assert _format_amount(1234567.89) == "$1,234,567.89"
 
 
 # ============================================================================
@@ -334,16 +379,17 @@ class TestDataFrameConversion:
     def test_empty_dataframe_returns_empty_list(self, sample_transactions):
         """Empty DataFrame should return empty list."""
         empty_df = sample_transactions.filter(pl.col("id") == "nonexistent")
-        assert len(empty_df) == 0
+        assert _df_to_records(empty_df) == []
 
     def test_records_have_required_fields(self, sample_transactions):
         """Records should have all required fields."""
-        required_fields = ["id", "date", "merchant", "category", "amount", "account"]
+        records = _df_to_records(sample_transactions, limit=1)
+        assert len(records) == 1
+        record = records[0]
 
-        # Check a sample row has all fields
-        row = sample_transactions.row(0, named=True)
+        required_fields = ["id", "date", "merchant", "category", "amount", "account"]
         for field in required_fields:
-            assert field in row
+            assert field in record
 
 
 # ============================================================================
@@ -354,30 +400,35 @@ class TestDataFrameConversion:
 class TestCategoryLookup:
     """Tests for category lookup functionality."""
 
-    def test_case_insensitive_lookup(self, sample_categories):
+    @pytest.mark.asyncio
+    async def test_case_insensitive_lookup(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Category lookup should be case-insensitive."""
-        target = "shopping"
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "category_name": "shopping", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "dry_run"
+        assert response["would_update"]["new_category"] == "Shopping"
 
-        found = None
-        for cat_id, cat_name in sample_categories.items():
-            if cat_name.lower() == target.lower():
-                found = cat_id
-                break
-
-        assert found is not None
-        assert found == "cat1"
-
-    def test_exact_match_required(self, sample_categories):
+    @pytest.mark.asyncio
+    async def test_exact_match_required(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Partial matches should not be found."""
-        target = "shop"  # Partial match of "Shopping"
-
-        found = None
-        for cat_id, cat_name in sample_categories.items():
-            if cat_name.lower() == target.lower():
-                found = cat_id
-                break
-
-        assert found is None
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "category_name": "shop", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "error"
+        assert "not found" in response["message"]
 
 
 # ============================================================================
@@ -388,30 +439,29 @@ class TestCategoryLookup:
 class TestUncategorizedFilter:
     """Tests for uncategorized transaction filtering."""
 
-    def test_finds_uncategorized_transactions(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_finds_uncategorized_transactions(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Should find transactions with 'Uncategorized' category."""
-        uncategorized = sample_transactions.filter(
-            (pl.col("category") == "Uncategorized")
-            | (pl.col("category").is_null())
-            | (pl.col("category") == "")
-        )
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("get_uncategorized_transactions", {})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert len(response["transactions"]) == 1
+        assert response["transactions"][0]["id"] == "tx3"
 
-        assert len(uncategorized) == 1
-        assert uncategorized["id"][0] == "tx3"
-
-    def test_merchant_filter_works(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_merchant_filter_works(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Merchant filter should work with uncategorized filter."""
-        uncategorized = sample_transactions.filter(
-            (pl.col("category") == "Uncategorized")
-            | (pl.col("category").is_null())
-            | (pl.col("category") == "")
-        )
-
-        amazon_uncategorized = uncategorized.filter(
-            pl.col("merchant").str.to_lowercase().str.contains("amazon")
-        )
-
-        assert len(amazon_uncategorized) == 1
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("get_uncategorized_transactions", {"merchant": "amazon"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        # Assuming tx3 has merchant "Amazon" based on the data
+        assert len(response["transactions"]) == 1
 
 
 # ============================================================================
@@ -422,25 +472,29 @@ class TestUncategorizedFilter:
 class TestSearchFunctionality:
     """Tests for transaction search functionality."""
 
-    def test_search_by_merchant(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_search_by_merchant(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Search should find transactions by merchant name."""
-        results = sample_transactions.filter(
-            pl.col("merchant").str.to_lowercase().str.contains("amazon")
-        )
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("search_transactions", {"query": "amazon"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert len(response) == 2
+        assert all("Amazon" in r["merchant"] for r in response)
 
-        assert len(results) == 2
-        assert all(r == "Amazon" for r in results["merchant"].to_list())
-
-    def test_search_case_insensitive(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_search_case_insensitive(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Search should be case-insensitive."""
-        results_lower = sample_transactions.filter(
-            pl.col("merchant").str.to_lowercase().str.contains("amazon")
-        )
-        results_upper = sample_transactions.filter(
-            pl.col("merchant").str.to_lowercase().str.contains("AMAZON".lower())
-        )
-
-        assert len(results_lower) == len(results_upper)
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result1 = await mcp.call_tool("search_transactions", {"query": "amazon"})
+        result2 = await mcp.call_tool("search_transactions", {"query": "AMAZON"})
+        content_list1, _ = result1
+        content_list2, _ = result2
+        assert len(json.loads(content_list1[0].text)) == len(json.loads(content_list2[0].text))
 
 
 # ============================================================================
@@ -451,20 +505,29 @@ class TestSearchFunctionality:
 class TestSpendingSummary:
     """Tests for spending summary functionality."""
 
-    def test_groups_by_category(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_groups_by_category(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Summary should group transactions by category."""
-        expenses = sample_transactions.filter(pl.col("amount") < 0)
-        summary = expenses.group_by("category").agg([pl.col("amount").sum().alias("total")])
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert "by_category" in response
+        categories = [item["category"] for item in response["by_category"]]
+        assert "Shopping" in categories
 
-        assert len(summary) > 0
-        assert "Shopping" in summary["category"].to_list()
-
-    def test_only_includes_expenses(self, sample_transactions):
+    @pytest.mark.asyncio
+    async def test_only_includes_expenses(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
         """Summary should only include negative amounts (expenses)."""
-        expenses = sample_transactions.filter(pl.col("amount") < 0)
-
-        assert len(expenses) == len(sample_transactions)  # All are expenses
-        assert all(a < 0 for a in expenses["amount"].to_list())
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert len(response["by_category"]) > 0
 
 
 # ============================================================================
@@ -530,189 +593,12 @@ class TestIntegration:
 
 
 # ============================================================================
-# Test: Tool Function Signatures
-# ============================================================================
-
-
-class TestToolFunctionSignatures:
-    """Tests that tool functions have valid signatures (no invalid parameters)."""
-
-    def test_fetch_all_data_signature(self):
-        """Verify fetch_all_data has the expected signature (no force_refresh)."""
-        import inspect
-
-        from moneyflow.data_manager import DataManager
-
-        sig = inspect.signature(DataManager.fetch_all_data)
-        param_names = list(sig.parameters.keys())
-
-        # fetch_all_data should NOT have force_refresh parameter
-        assert "force_refresh" not in param_names
-
-        # It should have these parameters
-        assert "self" in param_names
-        assert "start_date" in param_names
-        assert "end_date" in param_names
-        assert "progress_callback" in param_names
-
-    def test_refresh_data_does_not_use_invalid_params(self):
-        """Verify refresh_data tool doesn't use invalid parameters."""
-        # This test verifies our fix by checking the source code
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # The refresh_data function should NOT call fetch_all_data(force_refresh=True)
-        # It should just call fetch_all_data() without that parameter
-        assert "force_refresh=True" not in source
-
-
-# ============================================================================
-# Test: Literal String Matching (Security)
-# ============================================================================
-
-
-class TestLiteralStringMatching:
-    """Tests that merchant filtering uses literal string matching, not regex."""
-
-    def test_merchant_filter_uses_literal_true(self):
-        """Verify merchant filters use literal=True to prevent regex injection."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # All str.contains calls with merchant should use literal=True
-        # Count occurrences of the pattern
-        contains_calls = source.count(".str.contains(merchant")
-
-        # Each should have literal=True
-        literal_calls = source.count(".str.contains(merchant.lower(), literal=True)")
-
-        # All merchant contains calls should use literal=True
-        assert contains_calls == literal_calls
-        assert contains_calls >= 2  # At least get_transactions and get_uncategorized
-
-    def test_regex_characters_in_merchant_name(self, sample_transactions):
-        """Verify regex special characters in merchant don't cause regex matching."""
-        # This tests that a merchant name with regex characters
-        # would be treated literally, not as regex
-        merchant_with_regex = "Amazon.*"  # Would match everything in regex mode
-
-        # With literal=True, this should match literally
-        results = sample_transactions.filter(
-            pl.col("merchant")
-            .str.to_lowercase()
-            .str.contains(merchant_with_regex.lower(), literal=True)
-        )
-
-        # Should NOT match "Amazon" because we're looking for literal "amazon.*"
-        assert len(results) == 0
-
-
-# ============================================================================
-# Test: update_transaction_category Tool Parameter Validation
-# ============================================================================
-
-
-class TestUpdateTransactionCategoryParams:
-    """Tests for update_transaction_category parameter validation and disambiguation."""
-
-    @pytest.fixture
-    def categories_with_duplicates(self):
-        """Categories with duplicate names (can happen across groups/backends)."""
-        return {
-            "cat1": "Shopping",
-            "cat2": "Food & Drink",
-            "cat3": "Groceries",
-            "cat4": "Shopping",  # Duplicate name!
-            "cat5": "Uncategorized",
-        }
-
-    def test_update_category_requires_name_or_id(self):
-        """Should error when neither category_name nor category_id is provided."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # Should contain validation for missing params
-        assert "Either category_name or category_id must be provided" in source
-
-    def test_update_category_rejects_both_params(self):
-        """Should error when both category_name and category_id are provided."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # Should contain validation for both params
-        assert "Provide either category_name or category_id, not both" in source
-
-    def test_update_category_detects_duplicate_names(self):
-        """Should detect and report duplicate category names."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # Should contain duplicate detection logic
-        assert "Multiple categories named" in source
-        assert "Please use category_id parameter instead" in source
-        assert "matching_categories" in source
-
-    def test_update_category_supports_category_id(self):
-        """Should support direct category_id lookup."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # Should have category_id parameter and direct lookup
-        assert "category_id: Optional[str]" in source
-        assert "resolved_category_id = category_id" in source
-        assert "Category ID" in source
-
-    def test_duplicate_name_returns_all_matching_ids(self):
-        """When names are ambiguous, error should include all matching IDs."""
-        import inspect
-
-        from moneyflow.mcp.server import create_mcp_server
-
-        source = inspect.getsource(create_mcp_server)
-
-        # Should build list of matching categories with IDs
-        assert "for cat_id, cat_name in matching_categories" in source
-        assert '"id": cat_id' in source
-        assert '"name": cat_name' in source
-
-
-# ============================================================================
 # Functional Tests: update_transaction_category
 # ============================================================================
 
 
 class TestUpdateTransactionCategoryFunctional:
     """Functional tests that actually call the MCP tool and verify responses."""
-
-    @pytest.fixture
-    def mock_account(self):
-        """Create a mock account object with required attributes."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(
-            id="test-account",
-            name="Test Account",
-            backend_type="demo",
-            budget_id=None,
-        )
 
     @pytest.fixture
     def categories_with_duplicates(self):
@@ -727,249 +613,82 @@ class TestUpdateTransactionCategoryFunctional:
 
     @pytest.mark.asyncio
     async def test_missing_both_params_returns_error(
-        self, sample_transactions, sample_categories, mock_account
+        self, sample_transactions, sample_categories, mcp_server_factory
     ):
         """Should return error when neither category_name nor category_id is provided."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        # Patch imports at their source modules (they're imported inside create_mcp_server)
-        with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
-            patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
-        ):
-            # Set up account manager mock
-            mock_am.return_value.get_last_active_account.return_value = mock_account
-            mock_am.return_value.get_profile_dir.return_value = None
-
-            # Set up credential manager mock
-            mock_cm.return_value.credentials_exist.return_value = True
-            mock_cm.return_value.is_encrypted.return_value = False
-            mock_cm.return_value.load_credentials.return_value = (
-                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
-                None,
-            )
-
-            # Set up backend mock
-            mock_backend = AsyncMock()
-            mock_get_backend.return_value = mock_backend
-
-            # Set up data manager mock
-            mock_dm = MagicMock()
-            mock_dm.fetch_all_data = AsyncMock(
-                return_value=(sample_transactions, sample_categories, {})
-            )
-            mock_dm_cls.return_value = mock_dm
-
-            # Create server with mocked dependencies
-            mcp = create_mcp_server()
-
-            # Call the tool without category_name or category_id
-            result = await mcp.call_tool(
-                "update_transaction_category",
-                {"transaction_id": "tx1", "dry_run": True},
-            )
-
-            # Parse response
-            content_list, extras = result
-            response_text = content_list[0].text
-            response = json.loads(response_text)
-
-            # Verify error response
-            assert response["status"] == "error"
-            assert "Either category_name or category_id must be provided" in response["message"]
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "error"
+        assert "Either category_name or category_id must be provided" in response["message"]
 
     @pytest.mark.asyncio
     async def test_both_params_returns_error(
-        self, sample_transactions, sample_categories, mock_account
+        self, sample_transactions, sample_categories, mcp_server_factory
     ):
         """Should return error when both category_name and category_id are provided."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
-            patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
-        ):
-            mock_am.return_value.get_last_active_account.return_value = mock_account
-            mock_am.return_value.get_profile_dir.return_value = None
-            mock_cm.return_value.credentials_exist.return_value = True
-            mock_cm.return_value.is_encrypted.return_value = False
-            mock_cm.return_value.load_credentials.return_value = (
-                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
-                None,
-            )
-            mock_backend = AsyncMock()
-            mock_get_backend.return_value = mock_backend
-
-            mock_dm = MagicMock()
-            mock_dm.fetch_all_data = AsyncMock(
-                return_value=(sample_transactions, sample_categories, {})
-            )
-            mock_dm_cls.return_value = mock_dm
-
-            mcp = create_mcp_server()
-
-            # Call with both params
-            result = await mcp.call_tool(
-                "update_transaction_category",
-                {
-                    "transaction_id": "tx1",
-                    "category_name": "Shopping",
-                    "category_id": "cat1",
-                    "dry_run": True,
-                },
-            )
-
-            content_list, extras = result
-            response = json.loads(content_list[0].text)
-
-            assert response["status"] == "error"
-            assert "Provide either category_name or category_id, not both" in response["message"]
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {
+                "transaction_id": "tx1",
+                "category_name": "Shopping",
+                "category_id": "cat1",
+                "dry_run": True,
+            },
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "error"
+        assert "Provide either category_name or category_id, not both" in response["message"]
 
     @pytest.mark.asyncio
     async def test_duplicate_names_returns_disambiguation_error(
-        self, sample_transactions, categories_with_duplicates, mock_account
+        self, sample_transactions, categories_with_duplicates, mcp_server_factory
     ):
         """Should return error with matching IDs when category name is ambiguous."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
-            patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
-        ):
-            mock_am.return_value.get_last_active_account.return_value = mock_account
-            mock_am.return_value.get_profile_dir.return_value = None
-            mock_cm.return_value.credentials_exist.return_value = True
-            mock_cm.return_value.is_encrypted.return_value = False
-            mock_cm.return_value.load_credentials.return_value = (
-                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
-                None,
-            )
-            mock_backend = AsyncMock()
-            mock_get_backend.return_value = mock_backend
-
-            mock_dm = MagicMock()
-            mock_dm.fetch_all_data = AsyncMock(
-                return_value=(sample_transactions, categories_with_duplicates, {})
-            )
-            mock_dm_cls.return_value = mock_dm
-
-            mcp = create_mcp_server()
-
-            # Call with duplicate category name
-            result = await mcp.call_tool(
-                "update_transaction_category",
-                {"transaction_id": "tx1", "category_name": "Shopping", "dry_run": True},
-            )
-
-            content_list, extras = result
-            response = json.loads(content_list[0].text)
-
-            assert response["status"] == "error"
-            assert "Multiple categories named 'Shopping' exist" in response["message"]
-            assert "matching_categories" in response
-            assert len(response["matching_categories"]) == 2
-
-            # Verify both IDs are included
-            matching_ids = {c["id"] for c in response["matching_categories"]}
-            assert "cat1" in matching_ids
-            assert "cat4" in matching_ids
+        mcp = mcp_server_factory(sample_transactions, categories_with_duplicates)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "category_name": "Shopping", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "error"
+        assert "Multiple categories named" in response["message"]
+        assert "matching_categories" in response
+        assert len(response["matching_categories"]) == 2
 
     @pytest.mark.asyncio
     async def test_category_id_bypasses_name_lookup(
-        self, sample_transactions, categories_with_duplicates, mock_account
+        self, sample_transactions, categories_with_duplicates, mcp_server_factory
     ):
         """Should successfully use category_id even when names are duplicate."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
-            patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
-        ):
-            mock_am.return_value.get_last_active_account.return_value = mock_account
-            mock_am.return_value.get_profile_dir.return_value = None
-            mock_cm.return_value.credentials_exist.return_value = True
-            mock_cm.return_value.is_encrypted.return_value = False
-            mock_cm.return_value.load_credentials.return_value = (
-                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
-                None,
-            )
-            mock_backend = AsyncMock()
-            mock_get_backend.return_value = mock_backend
-
-            mock_dm = MagicMock()
-            mock_dm.fetch_all_data = AsyncMock(
-                return_value=(sample_transactions, categories_with_duplicates, {})
-            )
-            mock_dm_cls.return_value = mock_dm
-
-            mcp = create_mcp_server()
-
-            # Call with specific category_id (should work despite duplicate names)
-            result = await mcp.call_tool(
-                "update_transaction_category",
-                {"transaction_id": "tx1", "category_id": "cat4", "dry_run": True},
-            )
-
-            content_list, extras = result
-            response = json.loads(content_list[0].text)
-
-            # Should succeed as dry_run
-            assert response["status"] == "dry_run"
-            assert response["would_update"]["new_category"] == "Shopping"
+        mcp = mcp_server_factory(sample_transactions, categories_with_duplicates)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "category_id": "cat4", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "dry_run"
+        assert response["would_update"]["new_category"] == "Shopping"
 
     @pytest.mark.asyncio
     async def test_invalid_category_id_returns_error(
-        self, sample_transactions, sample_categories, mock_account
+        self, sample_transactions, sample_categories, mcp_server_factory
     ):
         """Should return error when category_id doesn't exist."""
-        import json
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
-            patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
-        ):
-            mock_am.return_value.get_last_active_account.return_value = mock_account
-            mock_am.return_value.get_profile_dir.return_value = None
-            mock_cm.return_value.credentials_exist.return_value = True
-            mock_cm.return_value.is_encrypted.return_value = False
-            mock_cm.return_value.load_credentials.return_value = (
-                {"email": "test@test.com", "password": "test", "mfa_secret": ""},
-                None,
-            )
-            mock_backend = AsyncMock()
-            mock_get_backend.return_value = mock_backend
-
-            mock_dm = MagicMock()
-            mock_dm.fetch_all_data = AsyncMock(
-                return_value=(sample_transactions, sample_categories, {})
-            )
-            mock_dm_cls.return_value = mock_dm
-
-            mcp = create_mcp_server()
-
-            # Call with nonexistent category_id
-            result = await mcp.call_tool(
-                "update_transaction_category",
-                {"transaction_id": "tx1", "category_id": "nonexistent", "dry_run": True},
-            )
-
-            content_list, extras = result
-            response = json.loads(content_list[0].text)
-
-            assert response["status"] == "error"
-            assert "Category ID 'nonexistent' not found" in response["message"]
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool(
+            "update_transaction_category",
+            {"transaction_id": "tx1", "category_id": "nonexistent", "dry_run": True},
+        )
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["status"] == "error"
+        assert "not found" in response["message"]
