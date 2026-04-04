@@ -460,7 +460,14 @@ class TestCommitHandling:
     commits failed. These tests ensure it stays fixed.
     """
 
-    def _simulate_commit(self, controller, edits, success_count, failure_count, **kwargs):
+    def _simulate_commit(
+        self,
+        controller,
+        edits,
+        success_count,
+        failure_count,
+        **kwargs,
+    ):
         controller.data_manager.pending_edits = edits.copy()
         controller.state.view_mode = ViewMode.DETAIL
         saved_state = controller.state.save_view_state()
@@ -589,7 +596,15 @@ class TestCommitHandling:
 
         edit_id = hot_df["id"][0]
         old_merchant = hot_df["merchant"][0]
-        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        edits = [
+            TransactionEdit(
+                edit_id,
+                "merchant",
+                old_merchant,
+                "Edited",
+                datetime.now(),
+            )
+        ]
         # Simulate filtered view with only a subset of hot transactions
         controller.data_manager.df = hot_df.head(1).clone()
 
@@ -622,7 +637,15 @@ class TestCommitHandling:
 
         edit_id = hot_df["id"][0]
         old_merchant = hot_df["merchant"][0]
-        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        edits = [
+            TransactionEdit(
+                edit_id,
+                "merchant",
+                old_merchant,
+                "Edited",
+                datetime.now(),
+            )
+        ]
         controller.data_manager.df = hot_df.head(1).clone()
 
         stub_cache = ConfigurableStubCacheManager(hot_df=hot_df, cold_df=None)
@@ -654,7 +677,15 @@ class TestCommitHandling:
         # Edit a transaction that's in cold cache
         edit_id = cold_df["id"][0]
         old_merchant = cold_df["merchant"][0]
-        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "ColdEdited", datetime.now())]
+        edits = [
+            TransactionEdit(
+                edit_id,
+                "merchant",
+                old_merchant,
+                "ColdEdited",
+                datetime.now(),
+            )
+        ]
         controller.data_manager.df = cold_df.head(1).clone()
 
         stub_cache = ConfigurableStubCacheManager(hot_df=None, cold_df=cold_df)
@@ -691,7 +722,15 @@ class TestCommitHandling:
 
         edit_id = filtered_df["id"][0]
         old_merchant = filtered_df["merchant"][0]
-        edits = [TransactionEdit(edit_id, "merchant", old_merchant, "Edited", datetime.now())]
+        edits = [
+            TransactionEdit(
+                edit_id,
+                "merchant",
+                old_merchant,
+                "Edited",
+                datetime.now(),
+            )
+        ]
         controller.data_manager.df = filtered_df.clone()
 
         stub_cache = ConfigurableStubCacheManager(hot_df=None, cold_df=None)
