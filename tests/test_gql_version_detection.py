@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-from moneyflow.monarchmoney import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_version
+from moneyflow.gql_version import GQL_V4_PLUS, _detect_gql_v4_plus, _parse_gql_version
 
 
 class TestParseGqlVersion:
@@ -156,6 +156,21 @@ class TestActualGqlLibrary:
             assert first_param == "document", (
                 f"gql {actual_version} detected as v3.x but execute_async first param is '{first_param}' (expected 'document')"
             )
+
+        # Verify that Client and AIOHTTPTransport can be constructed
+        # using the exact keyword arguments production uses.
+        from gql.transport.aiohttp import AIOHTTPTransport
+
+        transport = AIOHTTPTransport(
+            url="https://api.monarchmoney.com/graphql",
+            headers={"authorization": "Token dummy"},
+            timeout=10,
+        )
+        client = Client(
+            transport=transport,
+            fetch_schema_from_transport=False,
+        )
+        assert client is not None
 
     def test_detect_gql_v4_plus_without_gql(self):
         """Test detection behavior when gql is not installed."""
