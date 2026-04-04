@@ -47,7 +47,6 @@ def mcp_server_factory(mock_account):
     """Fixture that yields a factory to create an MCP server with mocked dependencies."""
 
     def _factory(transactions, categories):
-        from moneyflow.data_manager import DataManager as RealDataManager
         with (
             patch("moneyflow.account_manager.AccountManager") as mock_am,
             patch("moneyflow.credentials.CredentialManager") as mock_cm,
@@ -71,7 +70,13 @@ def mcp_server_factory(mock_account):
             mock_dm.fetch_all_data = AsyncMock(return_value=(transactions, categories, {}))
 
             def mock_search(df, query):
-                return RealDataManager.search_transactions(mock_dm, df, query)
+                """Simple case-insensitive substring filter for MCP wiring tests."""
+                q = query.lower()
+                return df.filter(
+                    pl.col("merchant").str.to_lowercase().str.contains(q, literal=True)
+                    | pl.col("category").str.to_lowercase().str.contains(q, literal=True)
+                    | pl.col("notes").str.to_lowercase().str.contains(q, literal=True)
+                )
 
             mock_dm.search_transactions.side_effect = mock_search
 
@@ -503,17 +508,6 @@ class TestSearchFunctionality:
         content_list1, _ = result1
         content_list2, _ = result2
         assert len(json.loads(content_list1[0].text)) == len(json.loads(content_list2[0].text))
-
-    @pytest.mark.asyncio
-    async def test_search_literal_matching(
-        self, mcp_server_factory, sample_transactions, sample_categories
-    ):
-        """Search should use literal matching and not treat query as regex."""
-        mcp = mcp_server_factory(sample_transactions, sample_categories)
-        result = await mcp.call_tool("search_transactions", {"query": "Amazon.*"})
-        content_list, _ = result
-        response = json.loads(content_list[0].text)
-        assert len(response) == 0
 
 
 # ============================================================================

@@ -421,10 +421,14 @@ class TestFiltering:
         """Test search with regex metacharacters treats them literally."""
         dm, df, _, _ = loaded_data_manager
 
-        # Data contains "Amazon" but not "Amazon.*"
-        results = dm.search_transactions(df, "Amazon.*")
+        # Positive control: plain "Amazon" matches
+        results = dm.search_transactions(df, "Amazon")
+        assert len(results) > 0
 
-        assert len(results) == 0
+        # Regex metacharacters must be treated as literal text
+        for pattern in ["Amazon.*", "Amazon.+", "Ama(zon)", "[A]mazon", "Amazon$", "^Amazon"]:
+            results = dm.search_transactions(df, pattern)
+            assert len(results) == 0, f"Expected 0 results for literal {pattern!r}"
 
 
 class TestCommitEdits:
