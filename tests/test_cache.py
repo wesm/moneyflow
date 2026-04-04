@@ -1602,8 +1602,8 @@ class TestCacheFilePermissions:
         """Unencrypted parquet files should have 0o600 permissions."""
         unencrypted_cache_manager.save_cache(dummy_df, {}, {})
         hot_file = Path(temp_cache_dir) / "hot_transactions.parquet"
-        if hot_file.exists():
-            assert_secure_permissions(hot_file)
+        assert hot_file.exists(), "Expected hot_transactions.parquet to be created"
+        assert_secure_permissions(hot_file)
 
     def test_unencrypted_categories_has_secure_permissions(
         self, unencrypted_cache_manager, dummy_df, temp_cache_dir
