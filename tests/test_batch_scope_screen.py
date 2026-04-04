@@ -63,8 +63,7 @@ class TestBatchScopeScreenDisplay:
 
             message_static = cast(Static, screen.query_one("#batch-scope-message"))
             rendered_text = str(message_static.render())
-            assert "5" in rendered_text
-            assert "15" in rendered_text
+            assert "You selected 5 transaction(s), but 15 exist with this payee." in rendered_text
 
     async def test_screen_has_three_buttons(self, test_app):
         """Test screen has all required buttons."""
