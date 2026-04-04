@@ -884,6 +884,34 @@ class TestDemoModeIntegration:
         stats = demo_backend.get_demo_stats()
         assert stats["updates_made"] == 1
 
+    @pytest.mark.asyncio
+    async def test_demo_data_suitable_for_testing(self, demo_backend):
+        """Test that get_transactions returns a diverse set of transactions suitable for testing."""
+        # Fetch a large number of transactions to ensure we get a good sample
+        result = await demo_backend.get_transactions(limit=500)
+        transactions = result["allTransactions"]["results"]
+
+        # Verify we got a decent amount
+        assert len(transactions) > 100
+
+        categories = set()
+        has_income = False
+        has_expense = False
+
+        for txn in transactions:
+            categories.add(txn["category"]["id"])
+            if txn["amount"] > 0:
+                has_income = True
+            elif txn["amount"] < 0:
+                has_expense = True
+
+        # Ensure category diversity (should have multiple distinct categories)
+        assert len(categories) >= 10
+
+        # Ensure both income and expense are present
+        assert has_income is True
+        assert has_expense is True
+
 
 # ============================================================================
 # STANDALONE FUNCTION TESTS
