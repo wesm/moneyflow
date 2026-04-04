@@ -681,12 +681,12 @@ class TestMerchantCreation:
     async def test_update_suggestions_inserts_new_option(self):
         """Test that _update_suggestions actually inserts the user input as a 'create new' option."""
         from textual.app import App
-        from textual.widgets import OptionList, Input
+        from textual.widgets import Input, OptionList
+
         from moneyflow.screens.edit_screens import EditMerchantScreen
 
         class DummyApp(App):
             def compose(self):
-                import polars as pl
                 yield EditMerchantScreen(
                     current_merchant="Old Merchant",
                     all_merchants=["Amazon", "Whole Foods"],
@@ -695,26 +695,26 @@ class TestMerchantCreation:
                 )
 
         app = DummyApp()
-        async with app.run_test() as pilot:
+        async with app.run_test():
             screen = app.query_one(EditMerchantScreen)
             merchant_input = screen.query_one("#merchant-input", Input)
-            
+
             # Simulate typing a brand new merchant
             merchant_input.value = "New Coffee Shop"
             await screen._update_suggestions("new coffee shop")
-            
+
             option_list = screen.query_one("#suggestions", OptionList)
-            
+
             # "new coffee shop" shouldn't match Amazon or Whole Foods.
             assert option_list.option_count == 1
             opt = option_list.get_option_at_index(0)
             assert str(opt.id) == "__new__:New Coffee Shop"
             assert str(opt.prompt) == '"New Coffee Shop"'
-            
+
             # Now simulate typing a partial match to an existing one
             merchant_input.value = "ama"
             await screen._update_suggestions("ama")
-            
+
             # "Amazon" matches. First item should be Amazon, second should be "__new__:ama"
             assert option_list.option_count == 2
             assert str(option_list.get_option_at_index(0).id) == "Amazon"
