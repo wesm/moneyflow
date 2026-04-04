@@ -74,6 +74,7 @@ def mcp_server_factory(mock_account):
                 return df.filter(
                     pl.col("merchant").str.to_lowercase().str.contains(query_lower, literal=True)
                     | pl.col("category").str.to_lowercase().str.contains(query_lower, literal=True)
+                    | pl.col("notes").str.to_lowercase().str.contains(query_lower, literal=True)
                 )
 
             mock_dm.search_transactions.side_effect = mock_search

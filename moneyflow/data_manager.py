@@ -1062,9 +1062,9 @@ class DataManager:
 
         query_lower = query.lower()
         return df.filter(
-            pl.col("merchant").str.to_lowercase().str.contains(query_lower)
-            | pl.col("category").str.to_lowercase().str.contains(query_lower)
-            | pl.col("notes").str.to_lowercase().str.contains(query_lower)
+            pl.col("merchant").str.to_lowercase().str.contains(query_lower, literal=True)
+            | pl.col("category").str.to_lowercase().str.contains(query_lower, literal=True)
+            | pl.col("notes").str.to_lowercase().str.contains(query_lower, literal=True)
         )
 
     async def check_batch_scope(self, edits: List[Any]) -> Dict[Tuple[str, str], Dict[str, int]]:
