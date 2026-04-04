@@ -114,7 +114,7 @@ class TestRetryLogic:
 
         # Should have called once, failed, then been cancelled during wait
         assert operation.call_count == 1
-        mock_sleep.assert_called_once_with(0.5)
+        mock_sleep.assert_awaited_once_with(0.5)
 
     @pytest.mark.asyncio
     @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
