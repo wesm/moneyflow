@@ -38,6 +38,9 @@ class TestEditMerchantParams:
             bulk_summary={"total_amount": -250.50},
         )
 
+        assert params["current_merchant"] == "Amazon"
+        assert params["transaction_count"] == 15
+        assert params["all_merchants"] == ["Amazon"]
         assert params["bulk_summary"]["total_amount"] == -250.50
 
     def test_with_txn_details(self):
@@ -48,6 +51,9 @@ class TestEditMerchantParams:
             txn_details={"date": "2025-10-14", "amount": -42.99, "category": "Shopping"},
         )
 
+        assert params["current_merchant"] == "Amazon"
+        assert params["transaction_count"] == 1
+        assert params["all_merchants"] == ["Amazon"]
         assert params["txn_details"]["date"] == "2025-10-14"
         assert params["txn_details"]["amount"] == -42.99
         assert params["txn_details"]["category"] == "Shopping"
@@ -62,6 +68,9 @@ class TestEditMerchantParams:
             txn_details={"date": "2025-10-14", "amount": -100.0},
         )
 
+        assert params["current_merchant"] == "Test"
+        assert params["transaction_count"] == 1
+        assert params["all_merchants"] == ["Test"]
         assert "bulk_summary" in params
         assert "txn_details" in params
 
