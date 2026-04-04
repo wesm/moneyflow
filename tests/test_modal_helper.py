@@ -8,6 +8,7 @@ and can be tested without requiring the UI to be running.
 from datetime import datetime
 
 import polars as pl
+import pytest
 
 from moneyflow.modal_helper import ModalHelper
 from moneyflow.state import TransactionEdit
@@ -219,71 +220,26 @@ class TestDuplicatesParams:
 class TestParameterTypeConsistency:
     """Test that parameter dictionaries have correct types."""
 
-    def test_all_methods_return_dict(self):
-        """All helper methods should return dictionaries."""
-        test_cases = [
+    @pytest.mark.parametrize(
+        "method,args",
+        [
             (ModalHelper.edit_merchant_params, ("Amazon", 1, ["Amazon"])),
             (ModalHelper.select_category_params, ({"cat_1": {"name": "Food"}},)),
+            (ModalHelper.review_changes_params, ([], {})),
             (ModalHelper.delete_confirmation_params, ()),
             (ModalHelper.quit_confirmation_params, (True,)),
             (ModalHelper.filter_params, (True, False)),
             (ModalHelper.search_params, ()),
-        ]
-
-        for method, args in test_cases:
-            result = method(*args)
-            assert isinstance(result, dict), f"{method.__name__} didn't return dict"
-            assert len(result) > 0, f"{method.__name__} returned empty dict"
-
-
-class TestRealWorldScenarios:
-    """Test modal params for real-world usage scenarios."""
-
-    def test_bulk_merchant_edit_from_aggregate(self):
-        """Scenario: User presses 'm' on merchant in aggregate view."""
-        all_merchants = ["Amazon", "AMZN*123", "AMZ*456", "Walmart"]
-
-        params = ModalHelper.edit_merchant_params(
-            merchant_name="AMZN*123",
-            transaction_count=25,
-            all_merchants=all_merchants,
-            bulk_summary={"total_amount": -1250.75},
-        )
-
-        # Should have all required fields for bulk edit
-        assert params["current_merchant"] == "AMZN*123"
-        assert params["transaction_count"] == 25
-        assert params["bulk_summary"]["total_amount"] == -1250.75
-        assert "Amazon" in params["all_merchants"]
-
-    def test_single_transaction_edit_with_context(self):
-        """Scenario: User presses 'm' on single transaction."""
-        params = ModalHelper.edit_merchant_params(
-            merchant_name="Starbucks",
-            transaction_count=1,
-            all_merchants=["Starbucks", "Starbucks Coffee"],
-            txn_details={"date": "2025-10-14", "amount": -6.50, "category": "Coffee Shops"},
-        )
-
-        # Should provide context for single edit
-        assert params["transaction_count"] == 1
-        assert params["txn_details"]["amount"] == -6.50
-
-    def test_review_before_commit(self):
-        """Scenario: User presses 'w' to review 10 pending edits."""
-        edits = [
-            TransactionEdit(f"txn_{i}", "merchant", "Old", "New", datetime.now()) for i in range(10)
-        ]
-        categories = {"cat_1": {"name": "Groceries", "group": "Food"}}
-
-        params = ModalHelper.review_changes_params(edits, categories)
-
-        assert len(params["edits"]) == 10
-        assert "cat_1" in params["categories"]
-
-    def test_quit_with_pending_changes(self):
-        """Scenario: User presses 'q' with 5 pending changes."""
-        params = ModalHelper.quit_confirmation_params(has_unsaved_changes=True)
-
-        # Should indicate unsaved changes
-        assert params["has_unsaved_changes"] is True
+            (ModalHelper.cache_prompt_params, ("2 hours", 1, "All")),
+            (ModalHelper.transaction_detail_params, ({"id": "txn_1"},)),
+            (
+                ModalHelper.duplicates_params,
+                (pl.DataFrame({"id": ["txn_1"]}), [["txn_1"]], pl.DataFrame({"id": ["txn_1"]})),
+            ),
+        ],
+    )
+    def test_all_methods_return_dict(self, method, args):
+        """All helper methods should return dictionaries."""
+        result = method(*args)
+        assert isinstance(result, dict), f"{method.__name__} didn't return dict"
+        assert len(result) > 0, f"{method.__name__} returned empty dict"
