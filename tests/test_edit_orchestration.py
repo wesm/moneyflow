@@ -38,6 +38,27 @@ async def edit_controller(mock_mm, tmp_path):
     return controller
 
 
+def setup_view(controller, mode, selected_keys=None, selected_ids=None, **state_kwargs):
+    """Helper to configure view state and refresh view."""
+    controller.state.view_mode = mode
+    for k, v in state_kwargs.items():
+        setattr(controller.state, k, v)
+    controller.refresh_view()
+    if selected_keys:
+        controller.state.selected_group_keys = set(selected_keys)
+    if selected_ids:
+        controller.state.selected_ids = set(selected_ids)
+
+
+def assert_edits_queued(controller, count, field, expected_value=None):
+    """Helper to verify the last N pending edits match expectations."""
+    edits = controller.data_manager.pending_edits[-count:] if count > 0 else []
+    assert len(edits) == count
+    assert all(e.field == field for e in edits)
+    if expected_value is not None:
+        assert all(e.new_value == expected_value for e in edits)
+
+
 class TestDetermineEditContext:
     """Test that edit context is correctly determined for all view states."""
 
@@ -46,9 +67,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Merchant view with cursor on Amazon
-        controller.state.view_mode = ViewMode.MERCHANT
-        # Prepare aggregated data
-        controller.refresh_view()
+        setup_view(controller, ViewMode.MERCHANT)
 
         # Simulate cursor on first row
         assert controller.state.current_data is not None
@@ -71,11 +90,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Merchant view with 3 merchants selected
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
-
-        # Multi-select some merchants
-        controller.state.selected_group_keys = {"Amazon", "Walmart", "Target"}
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=["Amazon", "Walmart", "Target"])
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -97,8 +112,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Detail view
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # Get current transaction
         current_row = controller.state.current_data.row(0, named=True)
@@ -118,12 +132,14 @@ class TestDetermineEditContext:
         """Detail view, multi-select 5 transactions, press m."""
         controller = edit_controller
 
-        # Setup: Detail view with 5 transactions selected
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        # Setup: Detail view with up to 5 transactions selected
+        setup_view(controller, ViewMode.DETAIL)
 
-        # Select 5 transactions
-        txn_ids = controller.state.current_data["id"].head(5).to_list()
+        available_rows = len(controller.state.current_data)
+        select_count = min(5, available_rows)
+        assert select_count > 1, "Mock data must contain multiple rows for multi-select tests"
+
+        txn_ids = controller.state.current_data["id"].head(select_count).to_list()
         controller.state.selected_ids = set(txn_ids)
 
         # Determine edit context
@@ -131,18 +147,15 @@ class TestDetermineEditContext:
 
         assert context.mode == EditMode.DETAIL_MULTI
         assert context.is_multi_select is True
-        assert context.transaction_count == 5
-        assert len(context.transactions) == 5
+        assert context.transaction_count == select_count
+        assert len(context.transactions) == select_count
 
     async def test_subgrouped_view_single_group(self, edit_controller):
         """Drilled into merchant, sub-grouped by category, press m on one category."""
         controller = edit_controller
 
         # Setup: Drill into Amazon, sub-group by category
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.state.selected_merchant = "Amazon"
-        controller.state.sub_grouping_mode = ViewMode.CATEGORY
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL, selected_merchant="Amazon", sub_grouping_mode=ViewMode.CATEGORY)
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -157,13 +170,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Drill into Amazon, sub-group by category, select 3 categories
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.state.selected_merchant = "Amazon"
-        controller.state.sub_grouping_mode = ViewMode.CATEGORY
-        controller.refresh_view()
-
-        # Multi-select some sub-groups
-        controller.state.selected_group_keys = {"Groceries", "Electronics", "Books"}
+        setup_view(controller, ViewMode.DETAIL, selected_keys=["Groceries", "Electronics", "Books"], selected_merchant="Amazon", sub_grouping_mode=ViewMode.CATEGORY)
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -177,8 +184,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Category view
-        controller.state.view_mode = ViewMode.CATEGORY
-        controller.refresh_view()
+        setup_view(controller, ViewMode.CATEGORY)
 
         current_row = controller.state.current_data.row(0, named=True)
         category_name = current_row["category"]
@@ -196,9 +202,7 @@ class TestDetermineEditContext:
         controller = edit_controller
 
         # Setup: Merchant view but select non-existent merchants
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
-        controller.state.selected_group_keys = {"NonExistent1", "NonExistent2"}
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=["NonExistent1", "NonExistent2"])
 
         # Determine edit context
         context = controller.determine_edit_context("merchant", cursor_row=0)
@@ -215,9 +219,7 @@ class TestEditContextValidation:
         """Multi-select should have special current_value."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
-        controller.state.selected_group_keys = {"Amazon", "Walmart"}
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=["Amazon", "Walmart"])
 
         context = controller.determine_edit_context("merchant", cursor_row=0)
 
@@ -228,45 +230,46 @@ class TestEditContextValidation:
         """Transaction count should match actual DataFrame length."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
-        # Select specific number of transactions (use 5, mock data has 6 total)
-        txn_ids = controller.state.current_data["id"].head(5).to_list()
+        # Select specific number of transactions (use up to 5)
+        available_rows = len(controller.state.current_data)
+        select_count = min(5, available_rows)
+        assert select_count > 1, "Mock data must contain multiple rows for multi-select tests"
+
+        txn_ids = controller.state.current_data["id"].head(select_count).to_list()
         controller.state.selected_ids = set(txn_ids)
 
         context = controller.determine_edit_context("merchant", cursor_row=0)
 
-        assert context.transaction_count == 5
-        assert len(context.transactions) == 5
+        assert context.transaction_count == select_count
+        assert len(context.transactions) == select_count
 
     async def test_group_field_none_for_detail_views(self, edit_controller):
         """Detail views should not have group_field."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         context = controller.determine_edit_context("merchant", cursor_row=0)
 
         assert context.group_field is None
 
-    async def test_group_field_set_for_aggregate_views(self, edit_controller):
+    @pytest.mark.parametrize("view_mode,expected_field", [
+        (ViewMode.MERCHANT, "merchant"),
+        (ViewMode.CATEGORY, "category"),
+        (ViewMode.GROUP, "group"),
+        (ViewMode.ACCOUNT, "account"),
+    ])
+    async def test_group_field_set_for_aggregate_views(self, edit_controller, view_mode, expected_field):
         """Aggregate views should have group_field."""
         controller = edit_controller
 
-        for view_mode, expected_field in [
-            (ViewMode.MERCHANT, "merchant"),
-            (ViewMode.CATEGORY, "category"),
-            (ViewMode.GROUP, "group"),
-            (ViewMode.ACCOUNT, "account"),
-        ]:
-            controller.state.view_mode = view_mode
-            controller.refresh_view()
+        setup_view(controller, view_mode)
 
-            context = controller.determine_edit_context("merchant", cursor_row=0)
+        context = controller.determine_edit_context("merchant", cursor_row=0)
 
-            assert context.group_field == expected_field
+        assert context.group_field == expected_field
 
 
 class TestEditMerchantExecution:
@@ -277,8 +280,7 @@ class TestEditMerchantExecution:
         controller = edit_controller
 
         # Setup: Merchant view
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
+        setup_view(controller, ViewMode.MERCHANT)
 
         # Get initial count
         initial_pending = len(controller.data_manager.pending_edits)
@@ -289,18 +291,15 @@ class TestEditMerchantExecution:
         # Verify edits were queued
         assert count > 0
         assert len(controller.data_manager.pending_edits) == initial_pending + count
-        # All edits should be merchant edits
-        new_edits = controller.data_manager.pending_edits[initial_pending:]
-        assert all(e.field == "merchant" for e in new_edits)
-        assert all(e.new_value == "Amazon.com" for e in new_edits)
+
+        assert_edits_queued(controller, count, "merchant", "Amazon.com")
 
     async def test_edit_merchant_detail_single(self, edit_controller):
         """Test editing single transaction in detail view."""
         controller = edit_controller
 
         # Setup: Detail view
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # Get current merchant
         current_row = controller.state.current_data.row(0, named=True)
@@ -320,29 +319,28 @@ class TestEditMerchantExecution:
         """Test editing multiple selected transactions."""
         controller = edit_controller
 
-        # Setup: Detail view with 3 transactions selected
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        # Setup: Detail view with up to 3 transactions selected
+        setup_view(controller, ViewMode.DETAIL)
 
-        txn_ids = controller.state.current_data["id"].head(3).to_list()
+        available_rows = len(controller.state.current_data)
+        select_count = min(3, available_rows)
+        assert select_count > 1, "Mock data must contain multiple rows for multi-select tests"
+
+        txn_ids = controller.state.current_data["id"].head(select_count).to_list()
         controller.state.selected_ids = set(txn_ids)
 
         # Execute edit
         count = controller.edit_merchant_current_selection("Bulk Merchant", cursor_row=0)
 
-        # Verify 3 edits queued
-        assert count == 3
-        # Check last 3 edits
-        last_3 = controller.data_manager.pending_edits[-3:]
-        assert all(e.field == "merchant" for e in last_3)
-        assert all(e.new_value == "Bulk Merchant" for e in last_3)
+        # Verify edits queued
+        assert count == select_count
+        assert_edits_queued(controller, count, "merchant", "Bulk Merchant")
 
     async def test_edit_merchant_validation_empty_string(self, edit_controller):
         """Test that empty merchant name is rejected."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         initial_count = len(controller.data_manager.pending_edits)
 
@@ -357,8 +355,7 @@ class TestEditMerchantExecution:
         """Test that whitespace-only merchant name is rejected."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         initial_count = len(controller.data_manager.pending_edits)
 
@@ -374,8 +371,7 @@ class TestEditMerchantExecution:
         controller = edit_controller
 
         # Setup: Detail view
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # Get current merchant
         current_row = controller.state.current_data.row(0, named=True)
@@ -395,20 +391,14 @@ class TestEditMerchantExecution:
         controller = edit_controller
 
         # Setup: Merchant view with 2 merchants selected
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
-
-        controller.state.selected_group_keys = {"Amazon", "Walmart"}
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=["Amazon", "Walmart"])
 
         # Execute edit
         count = controller.edit_merchant_current_selection("Consolidated Merchant", cursor_row=0)
 
         # Should edit transactions from both merchants
         assert count > 0
-        # All should be merchant edits with new value
-        last_n = controller.data_manager.pending_edits[-count:]
-        assert all(e.field == "merchant" for e in last_n)
-        assert all(e.new_value == "Consolidated Merchant" for e in last_n)
+        assert_edits_queued(controller, count, "merchant", "Consolidated Merchant")
 
     async def test_edit_merchant_preserves_cursor_position(self, edit_controller):
         """Test that edit operation doesn't require cursor management (controller responsibility)."""
@@ -417,8 +407,7 @@ class TestEditMerchantExecution:
         # This test verifies that the controller method is pure business logic
         # It shouldn't touch cursor position - that's UI layer responsibility
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # Execute edit
         count = controller.edit_merchant_current_selection("Test Merchant", cursor_row=0)
@@ -435,8 +424,7 @@ class TestToggleHideExecution:
         """Test hiding single transaction in detail view."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         initial_pending = len(controller.data_manager.pending_edits)
 
@@ -446,48 +434,47 @@ class TestToggleHideExecution:
         assert count == 1
         assert was_undo is False
         assert len(controller.data_manager.pending_edits) == initial_pending + 1
-        # Should be hide_from_reports edit
-        assert controller.data_manager.pending_edits[-1].field == "hide_from_reports"
+        assert_edits_queued(controller, 1, "hide_from_reports")
 
     async def test_toggle_hide_multi_select(self, edit_controller):
         """Test hiding multiple selected transactions."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
-        # Select 3 transactions
-        txn_ids = controller.state.current_data["id"].head(3).to_list()
+        available_rows = len(controller.state.current_data)
+        select_count = min(3, available_rows)
+        assert select_count > 1, "Mock data must contain multiple rows for multi-select tests"
+
+        # Select transactions
+        txn_ids = controller.state.current_data["id"].head(select_count).to_list()
         controller.state.selected_ids = set(txn_ids)
 
         # Toggle hide
         count, was_undo = controller.toggle_hide_current_selection(cursor_row=0)
 
-        assert count == 3
+        assert count == select_count
         assert was_undo is False
-        # Should have 3 hide toggles
-        last_3 = controller.data_manager.pending_edits[-3:]
-        assert all(e.field == "hide_from_reports" for e in last_3)
+        assert_edits_queued(controller, select_count, "hide_from_reports")
 
     async def test_toggle_hide_aggregate_view(self, edit_controller):
         """Test hiding all transactions in a merchant group."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
+        setup_view(controller, ViewMode.MERCHANT)
 
         # Toggle hide on first merchant
         count, was_undo = controller.toggle_hide_current_selection(cursor_row=0)
 
         assert count > 0
         assert was_undo is False
+        assert_edits_queued(controller, count, "hide_from_reports")
 
     async def test_toggle_hide_twice_detects_undo(self, edit_controller):
         """Test that toggling hide twice on same transaction undoes the first."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # First toggle: queue hide edit
         count1, was_undo1 = controller.toggle_hide_current_selection(cursor_row=0)
@@ -508,8 +495,7 @@ class TestToggleHideExecution:
         """Test that hiding a group twice undoes all edits in that group."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
+        setup_view(controller, ViewMode.MERCHANT)
 
         initial_pending = len(controller.data_manager.pending_edits)
 
@@ -532,8 +518,7 @@ class TestToggleHideExecution:
         """Test that hiding different groups doesn't trigger undo."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
+        setup_view(controller, ViewMode.MERCHANT)
 
         initial_pending = len(controller.data_manager.pending_edits)
 
@@ -553,8 +538,7 @@ class TestToggleHideExecution:
         """Test that partial pending edits don't trigger undo."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.DETAIL
-        controller.refresh_view()
+        setup_view(controller, ViewMode.DETAIL)
 
         # Manually add pending edit for first transaction
         txn_id = controller.state.current_data["id"][0]
@@ -566,8 +550,12 @@ class TestToggleHideExecution:
             TransactionEdit(txn_id, "hide_from_reports", False, True, datetime.now())
         )
 
-        # Select 2 transactions (first one has pending, second doesn't)
-        txn_ids = controller.state.current_data["id"].head(2).to_list()
+        available_rows = len(controller.state.current_data)
+        select_count = min(2, available_rows)
+        assert select_count > 1, "Mock data must contain multiple rows for multi-select tests"
+
+        # Select transactions (first one has pending, second doesn't)
+        txn_ids = controller.state.current_data["id"].head(select_count).to_list()
         controller.state.selected_ids = set(txn_ids)
 
         # Toggle: should NOT be undo (not all have pending)
@@ -575,17 +563,14 @@ class TestToggleHideExecution:
 
         assert was_undo is False  # Not all had pending, so not an undo
         # Should queue toggles for both
-        assert count == 2
+        assert count == select_count
 
     async def test_toggle_hide_empty_transactions_returns_zero(self, edit_controller):
         """Test graceful handling of empty transaction set."""
         controller = edit_controller
 
-        controller.state.view_mode = ViewMode.MERCHANT
-        controller.refresh_view()
-
         # Select non-existent merchants
-        controller.state.selected_group_keys = {"NonExistent"}
+        setup_view(controller, ViewMode.MERCHANT, selected_keys=["NonExistent"])
 
         count, was_undo = controller.toggle_hide_current_selection(cursor_row=0)
 
