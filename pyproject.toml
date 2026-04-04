@@ -65,6 +65,7 @@ dev = [
     "textual-dev>=1.0.0",
     "ruff>=0.1.0",
     "pyright>=1.1.350",
+    "freezegun>=1.5.5",
 ]
 docs = [
     "mkdocs>=1.5.0",

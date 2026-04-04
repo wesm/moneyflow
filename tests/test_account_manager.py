@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 
 from moneyflow.account_manager import Account, AccountManager, AccountRegistry
 
@@ -20,6 +21,15 @@ def temp_config_dir(tmp_path):
 def account_manager(temp_config_dir):
     """Create AccountManager instance with temp directory."""
     return AccountManager(config_dir=temp_config_dir)
+
+
+@pytest.fixture
+def populated_manager(account_manager):
+    """Create an AccountManager with a few pre-populated accounts."""
+    account_manager.create_account("First", "monarch")
+    account_manager.create_account("Second", "ynab")
+    account_manager.create_account("Third", "amazon")
+    return account_manager
 
 
 class TestAccount:
@@ -351,8 +361,6 @@ class TestCreateAccount:
 
     def test_account_from_dict_with_budget_id(self):
         """Test that Account can be reconstructed from dict with budget_id."""
-        from moneyflow.account_manager import Account
-
         data = {
             "id": "ynab-test",
             "name": "Test YNAB",
@@ -367,8 +375,6 @@ class TestCreateAccount:
 
     def test_account_from_dict_without_budget_id(self):
         """Test that Account can be reconstructed from dict without budget_id."""
-        from moneyflow.account_manager import Account
-
         data = {
             "id": "monarch-test",
             "name": "Test Monarch",
@@ -417,20 +423,17 @@ class TestDeleteAccount:
 
         assert success is False
 
-    def test_delete_updates_last_active(self, account_manager):
+    def test_delete_updates_last_active(self, populated_manager):
         """Test that deleting last active account updates last_active."""
-        _acc1 = account_manager.create_account("First", "monarch")
-        acc2 = account_manager.create_account("Second", "ynab")
+        # amazon-third is last active because it was created last
+        registry = populated_manager.load_registry()
+        assert registry.last_active_account == "amazon-third"
 
-        # acc2 is last active
-        registry = account_manager.load_registry()
-        assert registry.last_active_account == "ynab-second"
+        # Delete amazon-third
+        populated_manager.delete_account("amazon-third")
 
-        # Delete acc2
-        account_manager.delete_account(acc2.id)
-
-        # Should fall back to acc1
-        registry = account_manager.load_registry()
+        # Should fall back to monarch-first (the first account in the list)
+        registry = populated_manager.load_registry()
         assert registry.last_active_account == "monarch-first"
 
     def test_delete_last_account_clears_last_active(self, account_manager):
@@ -482,40 +485,35 @@ class TestListAccounts:
         assert len(accounts) == 1
         assert accounts[0].id == created.id
 
-    def test_list_accounts_sorted_by_last_used(self, account_manager):
+    def test_list_accounts_sorted_by_last_used(self, populated_manager):
         """Test that accounts are sorted by last_used (most recent first)."""
-        acc1 = account_manager.create_account("First", "monarch")
-        _acc2 = account_manager.create_account("Second", "ynab")
-        _acc3 = account_manager.create_account("Third", "amazon")
-
         # Update last_used timestamps
-        account_manager.update_last_used(acc1.id)  # Most recent
-        # _acc2 and _acc3 have no last_used yet
+        populated_manager.update_last_used("monarch-first")  # Most recent
+        # others have no last_used yet
 
-        accounts = account_manager.list_accounts()
+        accounts = populated_manager.list_accounts()
 
-        # acc1 should be first (most recent), others in original order
-        assert accounts[0].id == acc1.id
+        # monarch-first should be first (most recent), others in original order
+        assert accounts[0].id == "monarch-first"
         assert accounts[0].last_used is not None
 
-    def test_list_accounts_never_used_accounts_at_end(self, account_manager):
+    def test_list_accounts_never_used_accounts_at_end(self, populated_manager):
         """Test that never-used accounts (last_used=None) appear after used ones."""
-        acc1 = account_manager.create_account("Never Used", "monarch")
-        acc2 = account_manager.create_account("Recently Used", "ynab")
+        # Mark ynab-second as used
+        populated_manager.update_last_used("ynab-second")
 
-        # Mark acc2 as used
-        account_manager.update_last_used(acc2.id)
+        accounts = populated_manager.list_accounts()
 
-        accounts = account_manager.list_accounts()
-
-        # acc2 (used) should come before acc1 (never used)
-        assert accounts[0].id == acc2.id
-        assert accounts[1].id == acc1.id
+        # ynab-second (used) should come before monarch-first (never used)
+        assert accounts[0].id == "ynab-second"
+        assert accounts[1].id == "monarch-first"
+        assert accounts[2].id == "amazon-third"
 
 
 class TestUpdateLastUsed:
     """Tests for updating last_used timestamp."""
 
+    @freeze_time("2026-04-04 12:00:00")
     def test_update_last_used(self, account_manager):
         """Test updating last_used timestamp."""
         account = account_manager.create_account("Test", "monarch")
@@ -528,10 +526,7 @@ class TestUpdateLastUsed:
 
         # Reload and check
         updated = account_manager.get_account(account.id)
-        assert updated.last_used is not None
-        # Should be recent timestamp (within last second)
-        timestamp = datetime.fromisoformat(updated.last_used)
-        assert (datetime.now() - timestamp).seconds < 2
+        assert updated.last_used == "2026-04-04T12:00:00"
 
     def test_update_last_used_updates_last_active(self, account_manager):
         """Test that update_last_used also updates last_active_account."""
@@ -583,67 +578,56 @@ class TestGetLastActiveAccount:
 
         assert account is None
 
-    def test_get_last_active_uses_last_active_field(self, account_manager):
+    def test_get_last_active_uses_last_active_field(self, populated_manager):
         """Test that last active account is retrieved correctly."""
-        acc1 = account_manager.create_account("First", "monarch")
-        _acc2 = account_manager.create_account("Second", "ynab")
+        # Update monarch-first to make it last active
+        populated_manager.update_last_used("monarch-first")
 
-        # Update acc1 to make it last active
-        account_manager.update_last_used(acc1.id)
-
-        last_active = account_manager.get_last_active_account()
+        last_active = populated_manager.get_last_active_account()
 
         assert last_active is not None
-        assert last_active.id == acc1.id
+        assert last_active.id == "monarch-first"
 
-    def test_get_last_active_falls_back_to_first(self, account_manager):
+    def test_get_last_active_falls_back_to_first(self, populated_manager):
         """Test that if no last_active set, returns first account."""
-        # Create account but manually clear last_active
-        account_manager.create_account("Test", "monarch")
-
-        registry = account_manager.load_registry()
+        registry = populated_manager.load_registry()
         registry.last_active_account = None
-        account_manager.save_registry(registry)
+        populated_manager.save_registry(registry)
 
         # Should fall back to first account
-        last_active = account_manager.get_last_active_account()
+        last_active = populated_manager.get_last_active_account()
 
         assert last_active is not None
-        assert last_active.id == "monarch-test"
+        assert last_active.id == "monarch-first"
 
 
 class TestEndToEndScenarios:
     """End-to-end integration tests."""
 
-    def test_full_account_lifecycle(self, account_manager):
+    def test_full_account_lifecycle(self, populated_manager):
         """Test complete account lifecycle: create, use, delete."""
-        # Create accounts
-        acc1 = account_manager.create_account("Personal Checking", "monarch")
-        _acc2 = account_manager.create_account("Business Account", "monarch")
-        _acc3 = account_manager.create_account("YNAB Budget", "ynab")
-
         # List all
-        accounts = account_manager.list_accounts()
+        accounts = populated_manager.list_accounts()
         assert len(accounts) == 3
 
-        # Use acc1
-        account_manager.update_last_used(acc1.id)
+        # Use monarch-first
+        populated_manager.update_last_used("monarch-first")
 
         # Verify it's now last active
-        last_active = account_manager.get_last_active_account()
-        assert last_active.id == acc1.id
+        last_active = populated_manager.get_last_active_account()
+        assert last_active.id == "monarch-first"
 
-        # Delete acc1
-        account_manager.delete_account(acc1.id)
+        # Delete monarch-first
+        populated_manager.delete_account("monarch-first")
 
         # Verify deleted
-        accounts = account_manager.list_accounts()
+        accounts = populated_manager.list_accounts()
         assert len(accounts) == 2
-        assert not any(acc.id == acc1.id for acc in accounts)
+        assert not any(acc.id == "monarch-first" for acc in accounts)
 
         # Last active should have changed
-        registry = account_manager.load_registry()
-        assert registry.last_active_account != acc1.id
+        registry = populated_manager.load_registry()
+        assert registry.last_active_account != "monarch-first"
 
     def test_multiple_backends_same_type(self, account_manager):
         """Test creating multiple accounts of the same backend type."""
