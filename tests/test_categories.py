@@ -4,6 +4,10 @@ Tests for category configuration system.
 Tests the category loading, merging, and customization logic.
 """
 
+import pytest
+import yaml
+
+from moneyflow.account_manager import AccountManager
 from moneyflow.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
@@ -15,6 +19,13 @@ from moneyflow.categories import (
     merge_category_groups,
     save_categories_to_profile,
 )
+
+
+def create_yaml_config(directory, data):
+    """Helper to write YAML configuration files."""
+    config_file = directory / "config.yaml"
+    with open(config_file, "w") as f:
+        yaml.dump(data, f)
 
 
 class TestDefaultCategoryGroups:
@@ -58,16 +69,14 @@ class TestLoadCustomCategories:
 
     def test_loads_valid_config_yaml(self, tmp_path):
         """Should load valid config.yaml with categories section."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
-version: 1
-categories:
-  add_to_groups:
-    Business:
-      - Custom Category 1
-"""
-        )
+        create_yaml_config(tmp_path, {
+            "version": 1,
+            "categories": {
+                "add_to_groups": {
+                    "Business": ["Custom Category 1"]
+                }
+            }
+        })
 
         config = load_custom_categories(str(tmp_path))
         assert config is not None
@@ -75,8 +84,7 @@ categories:
 
     def test_rejects_wrong_version(self, tmp_path):
         """Should reject unsupported version."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text("version: 999\n")
+        create_yaml_config(tmp_path, {"version": 999})
 
         config = load_custom_categories(str(tmp_path))
         assert config is None
@@ -99,14 +107,12 @@ categories:
 
     def test_handles_config_yaml_without_categories_section(self, tmp_path):
         """Should handle config.yaml without categories section."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
-version: 1
-settings:
-  default_view: merchant
-"""
-        )
+        create_yaml_config(tmp_path, {
+            "version": 1,
+            "settings": {
+                "default_view": "merchant"
+            }
+        })
 
         config = load_custom_categories(str(tmp_path))
         assert config is None  # No categories section
@@ -250,19 +256,13 @@ class TestGetEffectiveCategoryGroups:
 
     def test_uses_fetched_categories_when_present(self, tmp_path):
         """Should use fetched_categories from config when present (new behavior)."""
-        config_file = tmp_path / "config.yaml"
-        config_file.write_text(
-            """
-version: 1
-fetched_categories:
-  Travel:
-    - Airfare
-    - Hotel
-  Business:
-    - Accounting
-    - Consulting
-"""
-        )
+        create_yaml_config(tmp_path, {
+            "version": 1,
+            "fetched_categories": {
+                "Travel": ["Airfare", "Hotel"],
+                "Business": ["Accounting", "Consulting"]
+            }
+        })
 
         groups = get_effective_category_groups(str(tmp_path))
 
@@ -345,19 +345,15 @@ class TestProfileLocalCategories:
         profile_dir.mkdir(parents=True)
 
         # Create config with other keys
-        import yaml
-
-        config_path = profile_dir / "config.yaml"
         existing_config = {"version": 1, "custom_setting": "value", "another_key": 123}
-
-        with open(config_path, "w") as f:
-            yaml.dump(existing_config, f)
+        create_yaml_config(profile_dir, existing_config)
 
         # Save categories
         test_categories = {"Food": ["Groceries"]}
         save_categories_to_profile(test_categories, profile_dir)
 
         # Load and verify other keys preserved
+        config_path = profile_dir / "config.yaml"
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
@@ -409,6 +405,15 @@ class TestGetProfileCategoryGroups:
 class TestAmazonCategoryInheritance:
     """Tests for Amazon category inheritance logic."""
 
+    @pytest.fixture
+    def mock_accounts(self, tmp_path):
+        """Fixture that creates standard mock accounts."""
+        account_mgr = AccountManager(config_dir=tmp_path)
+        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
+        account_mgr.create_account("YNAB", "ynab", account_id="ynab1")
+        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+        return tmp_path
+
     def test_amazon_uses_own_config_if_exists(self, tmp_path):
         """Test Amazon uses its own config if present."""
         amazon_dir = tmp_path / "profiles" / "amazon"
@@ -430,16 +435,12 @@ class TestAmazonCategoryInheritance:
 
     def test_amazon_inherits_from_explicit_source(self, tmp_path):
         """Test Amazon inherits from amazon_categories_source in global config."""
-        import yaml
-
         config_dir = tmp_path
         amazon_dir = tmp_path / "profiles" / "amazon"
         monarch_dir = tmp_path / "profiles" / "monarch1"
 
         # Set up global config
-        global_config = {"version": 1, "amazon_categories_source": "monarch1"}
-        with open(tmp_path / "config.yaml", "w") as f:
-            yaml.dump(global_config, f)
+        create_yaml_config(tmp_path, {"version": 1, "amazon_categories_source": "monarch1"})
 
         # Create Monarch categories
         monarch_cats = {"Monarch Group": ["Cat1", "Cat2"]}
@@ -454,8 +455,6 @@ class TestAmazonCategoryInheritance:
 
     def test_amazon_auto_inherits_from_single_profile(self, tmp_path):
         """Test Amazon auto-inherits when only one other profile exists."""
-        from moneyflow.account_manager import AccountManager
-
         config_dir = tmp_path
         amazon_dir = tmp_path / "profiles" / "amazon"
         monarch_dir = tmp_path / "profiles" / "monarch1"
@@ -476,20 +475,11 @@ class TestAmazonCategoryInheritance:
 
         assert result == monarch_cats
 
-    def test_amazon_uses_defaults_with_multiple_profiles(self, tmp_path):
+    def test_amazon_uses_defaults_with_multiple_profiles(self, mock_accounts):
         """Test Amazon uses defaults when multiple other profiles exist."""
-        from moneyflow.account_manager import AccountManager
-
-        config_dir = tmp_path
-        amazon_dir = tmp_path / "profiles" / "amazon"
-        monarch_dir = tmp_path / "profiles" / "monarch1"
-        ynab_dir = tmp_path / "profiles" / "ynab1"
-
-        # Create accounts
-        account_mgr = AccountManager(config_dir=config_dir)
-        account_mgr.create_account("Monarch", "monarch", account_id="monarch1")
-        account_mgr.create_account("YNAB", "ynab", account_id="ynab1")
-        account_mgr.create_account("Amazon", "amazon", account_id="amazon")
+        amazon_dir = mock_accounts / "profiles" / "amazon"
+        monarch_dir = mock_accounts / "profiles" / "monarch1"
+        ynab_dir = mock_accounts / "profiles" / "ynab1"
 
         # Create different categories for each
         save_categories_to_profile({"Monarch": ["M1"]}, monarch_dir)
@@ -497,7 +487,7 @@ class TestAmazonCategoryInheritance:
 
         # Amazon should use defaults (can't pick between 2 profiles)
         result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
+            profile_dir=amazon_dir, config_dir=str(mock_accounts), backend_type="amazon"
         )
 
         assert result == DEFAULT_CATEGORY_GROUPS
@@ -524,11 +514,7 @@ class TestGetAmazonCategorySource:
 
     def test_returns_none_when_setting_not_present(self, tmp_path):
         """Test returns None when setting not in config."""
-        import yaml
-
-        config_path = tmp_path / "config.yaml"
-        with open(config_path, "w") as f:
-            yaml.dump({"version": 1, "other_setting": "value"}, f)
+        create_yaml_config(tmp_path, {"version": 1, "other_setting": "value"})
 
         result = get_amazon_category_source(config_dir=str(tmp_path))
 
@@ -536,11 +522,7 @@ class TestGetAmazonCategorySource:
 
     def test_returns_profile_id_when_configured(self, tmp_path):
         """Test returns profile ID when configured."""
-        import yaml
-
-        config_path = tmp_path / "config.yaml"
-        with open(config_path, "w") as f:
-            yaml.dump({"version": 1, "amazon_categories_source": "monarch1"}, f)
+        create_yaml_config(tmp_path, {"version": 1, "amazon_categories_source": "monarch1"})
 
         result = get_amazon_category_source(config_dir=str(tmp_path))
 
