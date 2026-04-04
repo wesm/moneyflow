@@ -211,7 +211,12 @@ class TestLoginErrorHandling:
         # Mock _login_user to succeed
         with patch.object(mm, "_login_user", new_callable=AsyncMock) as mock_login:
             mock_login.return_value = None  # Success
-            mm.set_token("new-token")  # Simulate successful login
+
+            async def fake_login(*args, **kwargs):
+                mm.set_token("new-token")
+                return None
+
+            mock_login.side_effect = fake_login
 
             # Attempt login with use_saved_session=True
             # Should detect corrupt session, delete it, and retry
