@@ -1,5 +1,9 @@
+from pathlib import Path
+
+
 def refactor_test():
-    with open("tests/test_mcp_server.py", "r") as f:
+    test_file = Path(__file__).resolve().parent.parent.parent / "tests" / "test_mcp_server.py"
+    with open(test_file, "r") as f:
         lines = f.readlines()
 
     cutoff_index = 0
@@ -116,7 +120,7 @@ class TestUpdateTransactionCategoryFunctional:
         assert response["status"] == "error"
         assert "not found" in response["message"]
 """
-    with open("tests/test_mcp_server.py", "w") as f:
+    with open(test_file, "w") as f:
         f.write(new_content + new_block)
 
 

@@ -1,5 +1,9 @@
+from pathlib import Path
+
+
 def fix_tests():
-    with open("tests/test_mcp_server.py", "r") as f:
+    test_file = Path(__file__).resolve().parent.parent.parent / "tests" / "test_mcp_server.py"
+    with open(test_file, "r") as f:
         content = f.read()
 
     # 1. Fix sample_transactions to use string dates
@@ -27,26 +31,7 @@ def fix_tests():
             mock_dm_cls.return_value = mock_dm"""
     content = content.replace(old_mock_dm, new_mock_dm)
 
-    # 3. Fix TestUncategorizedFilter assertions
-    content = content.replace(
-        'assert len(response) == 1\n        assert response[0]["id"] == "tx3"',
-        'assert len(response["transactions"]) == 1\n        assert response["transactions"][0]["id"] == "tx3"',
-    )
-    content = content.replace(
-        "assert len(response) == 1\n\n", 'assert len(response["transactions"]) == 1\n\n'
-    )
-
-    # 4. Fix TestSearchFunctionality assertions
-    content = content.replace(
-        'assert len(response) == 2\n        assert all("Amazon" in r["merchant"] for r in response)',
-        'assert len(response["transactions"]) == 2\n        assert all("Amazon" in r["merchant"] for r in response["transactions"])',
-    )
-    content = content.replace(
-        "assert len(json.loads(content_list1[0].text)) == len(json.loads(content_list2[0].text))",
-        'assert len(json.loads(content_list1[0].text)["transactions"]) == len(json.loads(content_list2[0].text)["transactions"])',
-    )
-
-    with open("tests/test_mcp_server.py", "w") as f:
+    with open(test_file, "w") as f:
         f.write(content)
 
 

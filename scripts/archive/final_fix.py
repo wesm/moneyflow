@@ -1,5 +1,9 @@
+from pathlib import Path
+
+
 def final_fix():
-    with open("tests/test_mcp_server.py", "r") as f:
+    test_file = Path(__file__).resolve().parent.parent.parent / "tests" / "test_mcp_server.py"
+    with open(test_file, "r") as f:
         content = f.read()
 
     # Revert TestSearchFunctionality assertions to use list
@@ -21,7 +25,7 @@ def final_fix():
         'assert len(response["summary"]) > 0', 'assert len(response["by_category"]) > 0'
     )
 
-    with open("tests/test_mcp_server.py", "w") as f:
+    with open(test_file, "w") as f:
         f.write(content)
 
 
