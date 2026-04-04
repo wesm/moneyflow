@@ -36,8 +36,9 @@ class TestFilterMerchants:
     def test_empty_query_returns_all(self, sample_merchants):
         """Empty query should return all merchants (deduplicated)."""
         result = filter_merchants(sample_merchants, "")
-        # Should have 9 unique merchants (amazon and Amazon are different)
-        assert len(result) == 9
+        # Calculate expected length dynamically based on unique values
+        expected_length = len(set(sample_merchants.to_list()))
+        assert len(result) == expected_length
 
     def test_case_insensitive_matching(self, sample_merchants):
         """Search should be case-insensitive."""
@@ -68,9 +69,9 @@ class TestFilterMerchants:
         result = filter_merchants(sample_merchants, "", limit=3)
         assert len(result) == 3
 
-    def test_regex_special_chars_escaped(self):
-        """Special regex characters should not cause errors."""
-        merchants = pl.Series(
+    @pytest.fixture
+    def special_char_merchants(self) -> pl.Series:
+        return pl.Series(
             "merchant",
             [
                 "* Beacon Coffee & Pantry",
@@ -82,13 +83,20 @@ class TestFilterMerchants:
             ],
         )
 
-        # These would cause regex errors without literal=True
-        assert len(filter_merchants(merchants, "*")) == 1
-        assert len(filter_merchants(merchants, "(")) == 1
-        assert len(filter_merchants(merchants, "?")) == 1
-        assert len(filter_merchants(merchants, "+")) == 2
-        assert len(filter_merchants(merchants, "[")) == 1
-        assert len(filter_merchants(merchants, ".")) == 2  # matches (Main St.) and $5.99
+    @pytest.mark.parametrize(
+        "query, expected_count",
+        [
+            ("*", 1),
+            ("(", 1),
+            ("?", 1),
+            ("+", 2),
+            ("[", 1),
+            (".", 2),
+        ],
+    )
+    def test_regex_special_chars_escaped(self, special_char_merchants, query, expected_count):
+        """Special regex characters should not cause errors."""
+        assert len(filter_merchants(special_char_merchants, query)) == expected_count
 
     def test_no_matches_returns_empty(self, sample_merchants):
         """Query with no matches should return empty list."""
@@ -99,32 +107,18 @@ class TestFilterMerchants:
 class TestParseMerchantOptionId:
     """Tests for the parse_merchant_option_id function."""
 
-    def test_new_merchant_prefix(self):
-        """Should detect __new__: prefix and extract merchant name."""
-        is_new, name = parse_merchant_option_id("__new__:My New Store")
-        assert is_new is True
-        assert name == "My New Store"
+    @pytest.mark.parametrize(
+        "option_id, expected_is_new, expected_name",
+        [
+            ("__new__:My New Store", True, "My New Store"),
+            ("Amazon", False, "Amazon"),
+            ("__new__:Store & Café (Main)", True, "Store & Café (Main)"),
+            ("__new__:", True, ""),
+            ("Store __new__: Location", False, "Store __new__: Location"),
+        ],
+    )
+    def test_parse_merchant_option_id(self, option_id, expected_is_new, expected_name):
+        is_new, name = parse_merchant_option_id(option_id)
 
-    def test_existing_merchant(self):
-        """Should return False for existing merchants."""
-        is_new, name = parse_merchant_option_id("Amazon")
-        assert is_new is False
-        assert name == "Amazon"
-
-    def test_new_merchant_with_special_chars(self):
-        """Should handle special characters in new merchant names."""
-        is_new, name = parse_merchant_option_id("__new__:Store & Café (Main)")
-        assert is_new is True
-        assert name == "Store & Café (Main)"
-
-    def test_empty_new_merchant(self):
-        """Should handle empty merchant name after prefix."""
-        is_new, name = parse_merchant_option_id("__new__:")
-        assert is_new is True
-        assert name == ""
-
-    def test_prefix_in_middle_not_treated_as_new(self):
-        """__new__: in middle of string should not be treated as new."""
-        is_new, name = parse_merchant_option_id("Store __new__: Location")
-        assert is_new is False
-        assert name == "Store __new__: Location"
+        assert is_new is expected_is_new
+        assert name == expected_name
