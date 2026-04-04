@@ -279,7 +279,7 @@ class TestDuplicatePayeeDetection:
         create_test_transaction(source_name, -10.00)
 
         # Create target payee via transaction
-        target_txn = create_test_transaction(target_name, -20.00)
+        create_test_transaction(target_name, -20.00)
 
         # Mock _find_or_create_payee to simulate duplicate target payees
         original_find = ynab_client._find_or_create_payee

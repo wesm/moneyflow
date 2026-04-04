@@ -216,10 +216,10 @@ class TestMerchantAutocomplete:
     async def test_autocomplete_works_without_df(self, dm):
         """Test that autocomplete works with only cached merchants (no df loaded)."""
         dm._save_merchant_cache(["Cached Only"])
-        
+
         # Load the cache properly via public method instead of directly mutating state
         dm.all_merchants = await dm.refresh_merchant_cache(force=False)
-        
+
         all_merchants = dm.get_all_merchants_for_autocomplete()
 
         assert all_merchants == ["Cached Only"]
@@ -247,7 +247,7 @@ class TestMerchantCacheIntegration:
         # First fetch
         await dm.fetch_all_data()
         first_merchants = dm.all_merchants.copy()
-        
+
         spy = mocker.spy(mock_mm, "get_all_merchants")
 
         # Second fetch (cache should be fresh)

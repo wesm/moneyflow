@@ -11,6 +11,7 @@ These tests verify that the full chain of operations works correctly:
 from datetime import datetime, timedelta
 
 import polars as pl
+
 from moneyflow.state import TransactionEdit, ViewMode
 
 
