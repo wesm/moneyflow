@@ -221,7 +221,7 @@ class TestSaveSplitLogic:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that hot tier only contains transactions from last 90 days."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         hot_df = cache_manager.load_hot_cache()
         boundary = cache_manager._get_boundary_date()
@@ -234,7 +234,7 @@ class TestSaveSplitLogic:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cold tier contains historical data plus 30-day overlap."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         cold_df = cache_manager.load_cold_cache()
         boundary = cache_manager._get_boundary_date()
@@ -356,7 +356,7 @@ class TestLoadMergeLogic:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that merge deduplicates by transaction ID (hot takes precedence)."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         result = cache_manager.load_cache()
         combined_df, _, _, _ = result
@@ -369,7 +369,7 @@ class TestLoadMergeLogic:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that hot tier data takes precedence when same ID exists in both tiers."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         today = date.today()
         boundary = cache_manager._get_boundary_date()
 
@@ -410,7 +410,7 @@ class TestLoadMergeLogic:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that merged DataFrame is sorted by date descending."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         result = cache_manager.load_cache()
         combined_df, _, _, _ = result
@@ -454,7 +454,7 @@ class TestTierValidation:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that hot cache is valid when < 6 hours old."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Just saved - should be valid
         assert cache_manager.is_hot_cache_valid() is True
@@ -463,7 +463,7 @@ class TestTierValidation:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that hot cache is invalid when >= 6 hours old."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate metadata to simulate old cache (7 hours > 6 hour max age)
         age_cache_tier(cache_manager, "hot", timedelta(hours=7))
@@ -474,7 +474,7 @@ class TestTierValidation:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cold cache is valid when < 30 days old."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Just saved - should be valid
         assert cache_manager.is_cold_cache_valid() is True
@@ -483,7 +483,7 @@ class TestTierValidation:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cold cache is invalid when >= 30 days old."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate metadata to simulate old cache
         age_cache_tier(cache_manager, "cold", timedelta(days=31))
@@ -494,7 +494,7 @@ class TestTierValidation:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that version mismatch invalidates both tiers."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate metadata to simulate old version
         metadata = cache_manager.load_metadata()
@@ -512,7 +512,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that NONE is returned when both tiers are valid."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         strategy = cache_manager.get_refresh_strategy()
         assert strategy == RefreshStrategy.NONE
@@ -551,7 +551,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that HOT_ONLY is returned when only hot is stale."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Make hot stale (7 hours > 6 hour max age)
         age_cache_tier(cache_manager, "hot", timedelta(hours=7))
@@ -563,7 +563,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that COLD_ONLY is returned when only cold is stale."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Make cold stale
         age_cache_tier(cache_manager, "cold", timedelta(days=31))
@@ -575,7 +575,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that ALL is returned when both tiers are stale."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Make both stale (hot: 7h > 6h max, cold: 31d > 30d max)
         age_cache_tier(cache_manager, "hot", timedelta(hours=7))
@@ -588,7 +588,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that ALL is returned when force_refresh=True."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         strategy = cache_manager.get_refresh_strategy(force_refresh=True)
         assert strategy == RefreshStrategy.ALL
@@ -602,7 +602,7 @@ class TestRefreshStrategyDetermination:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that ALL is returned when cache version doesn't match."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate metadata to simulate old version
         metadata = cache_manager.load_metadata()
@@ -620,7 +620,7 @@ class TestPartialRefresh:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that save_hot_cache preserves cold tier."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Get original cold data
         original_cold = cache_manager.load_cold_cache()
@@ -643,7 +643,7 @@ class TestPartialRefresh:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that save_cold_cache preserves hot tier."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Get original hot data
         original_hot = cache_manager.load_hot_cache()
@@ -666,7 +666,7 @@ class TestPartialRefresh:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that partial refresh updates tier metadata correctly."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         original_metadata = cache_manager.load_metadata()
         # timestamp taken after explicit modification
@@ -699,7 +699,7 @@ class TestVersionMismatch:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cache is cleared when version doesn't match."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate version
         metadata = cache_manager.load_metadata()
@@ -717,7 +717,7 @@ class TestVersionMismatch:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that load_cache returns None for old version."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Manipulate version
         metadata = cache_manager.load_metadata()
@@ -736,7 +736,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that properly saved cache passes sanity check."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         metadata = cache_manager.load_metadata()
         assert cache_manager._is_cache_structure_valid(metadata)
@@ -745,7 +745,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that missing hot metadata field triggers refresh."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Remove a required field
         metadata = cache_manager.load_metadata()
@@ -760,7 +760,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that missing cold metadata field triggers refresh."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Remove a required field
         metadata = cache_manager.load_metadata()
@@ -773,7 +773,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cold cache not extending to boundary triggers refresh."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Set cold latest_date to way before boundary
         metadata = cache_manager.load_metadata()
@@ -789,7 +789,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that gap between hot and cold tiers triggers refresh."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Create a gap: hot starts way after cold ends
         metadata = cache_manager.load_metadata()
@@ -805,7 +805,7 @@ class TestCacheSanityCheck:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that small gaps (within tolerance) pass sanity check."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Create a small gap within tolerance
         metadata = cache_manager.load_metadata()
@@ -876,7 +876,7 @@ class TestCacheInfo:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cache info includes hot and cold ages."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         info = cache_manager.get_cache_info()
         assert info is not None
@@ -900,7 +900,7 @@ class TestCacheInfo:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that cache info includes boundary date."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         info = cache_manager.get_cache_info()
         assert info is not None
@@ -948,7 +948,7 @@ class TestDataIntegrity:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that combined cache has no duplicate transaction IDs."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         result = cache_manager.load_cache()
         combined_df, _, _, _ = result
@@ -969,7 +969,7 @@ class TestDisplayFilterDoesNotInvalidateCache:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Full valid cache should return NONE strategy."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Both tiers are fresh, should use cache entirely
         strategy = cache_manager.get_refresh_strategy()
@@ -982,7 +982,7 @@ class TestDisplayFilterDoesNotInvalidateCache:
 
         The cold cache should NOT be invalidated when only hot is stale.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Make hot cache stale (7 hours > 6 hour max)
         age_cache_tier(cache_manager, "hot", timedelta(hours=7))
@@ -997,7 +997,7 @@ class TestDisplayFilterDoesNotInvalidateCache:
 
         If only cold is stale, we should refresh cold only, not both.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Make cold cache stale (31 days > 30 day max)
         age_cache_tier(cache_manager, "cold", timedelta(days=31))
@@ -1056,7 +1056,7 @@ class TestPartialRefreshDateRanges:
         CRITICAL: This prevents gaps as the boundary moves forward daily while
         cold cache data stays fixed for up to 30 days.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # First save a cache so we have cold metadata
 
         # Get cold's latest date from metadata
@@ -1092,7 +1092,7 @@ class TestPartialRefreshDateRanges:
         CRITICAL: This ensures proper overlap with hot cache regardless of
         how much time has passed since the cache was created.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # First save a cache so we have hot metadata
 
         # Get hot's earliest date from metadata
@@ -1120,7 +1120,7 @@ class TestPartialRefreshDateRanges:
         The merge logic handles deduplication (hot takes precedence).
         This is critical for data integrity - gaps could lose transactions.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # First save a cache so we have metadata
 
         hot_start, hot_end = cache_manager.get_hot_refresh_date_range()
@@ -1144,7 +1144,7 @@ class TestBackwardsCompatibility:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that is_cache_valid() wraps get_refresh_strategy()."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Fresh cache should be valid
         assert cache_manager.is_cache_valid() is True
@@ -1159,7 +1159,7 @@ class TestBackwardsCompatibility:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that get_cache_age_hours() uses hot tier timestamp."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         age = cache_manager.get_cache_age_hours()
         assert age is not None
@@ -1189,7 +1189,7 @@ class TestFilteredViewCacheUpdate:
         This test documents the behavior that caused the bug. save_cache()
         will overwrite both tiers, so it should NOT be used with filtered data.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # First, create a cache with both hot and cold data
 
         # Verify cold has data
@@ -1225,7 +1225,7 @@ class TestFilteredViewCacheUpdate:
         When operating on filtered view (--mtd, --year, --since), we must
         use save_hot_cache() to avoid losing historical data.
         """
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # First, create a cache with both hot and cold data
 
         # Verify cold has data
@@ -1399,7 +1399,7 @@ class TestEdgeCases:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test loading cache with corrupt Parquet files."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Corrupt both hot and cold Parquet files
         with open(cache_manager.hot_transactions_file, "wb") as f:
@@ -1453,7 +1453,7 @@ class TestCachePersistenceAfterEdits:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that edits to hot cache are persisted."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # Create initial data with both tiers
 
         # Load the hot cache
@@ -1486,7 +1486,7 @@ class TestCachePersistenceAfterEdits:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that edits to cold cache are persisted."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
         # Create initial data with both tiers
 
         # Load the cold cache
@@ -1519,7 +1519,7 @@ class TestCachePersistenceAfterEdits:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Verify no temp files are left behind after successful saves."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Check for leftover temp files
         cache_dir = cache_manager.cache_dir
@@ -1530,7 +1530,7 @@ class TestCachePersistenceAfterEdits:
         self, populated_cache_manager, sample_categories, sample_category_groups
     ):
         """Test that multiple sequential saves all persist correctly."""
-        cache_manager, df = populated_cache_manager
+        cache_manager, _ = populated_cache_manager
 
         # Get an ID that's definitely in the hot cache
         hot_df = cache_manager.load_hot_cache()
