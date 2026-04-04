@@ -8,9 +8,10 @@ These tests verify that the full chain of operations works correctly:
 4. Backend state is updated correctly
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import polars as pl
+from moneyflow.state import TransactionEdit, ViewMode
 
 
 class TestMerchantEditWorkflow:
@@ -49,7 +50,7 @@ class TestMerchantEditWorkflow:
         app_state.clear_pending_edits()
         assert len(app_state.pending_edits) == 0
 
-    async def test_undo_merchant_edit(self, loaded_data_manager, app_state):
+    def test_undo_merchant_edit(self, loaded_data_manager, app_state):
         """Test undoing a merchant edit."""
         dm, df, _, _ = loaded_data_manager
 
@@ -204,7 +205,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_sub_grouped_view_has_aggregate_columns(self, loaded_data_manager, app_state):
         """Verify sub-grouped views show aggregate data, not transaction details."""
-        from moneyflow.state import ViewMode
 
         dm, df, _, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -228,7 +228,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_edit_category_from_sub_grouped_by_category(self, loaded_data_manager, app_state):
         """Test editing category from a sub-grouped-by-category view."""
-        from moneyflow.state import ViewMode
 
         dm, df, categories, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -246,7 +245,6 @@ class TestSubGroupedEditWorkflow:
         # Simulate selecting first category row
         first_category = agg.row(0, named=True)
         category_name = first_category["category"]
-        first_category["category_id"]
 
         # Find transactions in this category within the merchant
         txns_to_edit = filtered.filter(pl.col("category") == category_name)
@@ -257,7 +255,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_edit_merchant_from_sub_grouped_by_category(self, loaded_data_manager, app_state):
         """Test editing merchant from a sub-grouped-by-category view."""
-        from moneyflow.state import ViewMode
 
         dm, df, _, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -286,7 +283,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_edit_from_sub_grouped_by_group(self, loaded_data_manager, app_state):
         """Test editing from sub-grouped-by-group view."""
-        from moneyflow.state import ViewMode
 
         dm, df, _, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -308,7 +304,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_edit_from_sub_grouped_by_account(self, loaded_data_manager, app_state):
         """Test editing from sub-grouped-by-account view."""
-        from moneyflow.state import ViewMode
 
         dm, df, _, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -330,7 +325,6 @@ class TestSubGroupedEditWorkflow:
 
     def test_edit_from_sub_grouped_by_merchant(self, loaded_data_manager, app_state):
         """Test editing from sub-grouped-by-merchant view (drilled into category)."""
-        from moneyflow.state import ViewMode
 
         dm, df, _, _ = loaded_data_manager
         app_state.transactions_df = df
@@ -366,7 +360,6 @@ class TestErrorHandling:
 
     async def test_commit_with_invalid_transaction_id(self, data_manager, app_state):
         """Test that commits handle invalid transaction IDs gracefully."""
-        from moneyflow.state import TransactionEdit
 
         # Add edit with non-existent transaction ID
         edits = [
@@ -390,67 +383,65 @@ class TestErrorHandling:
 class TestUndoPendingEdits:
     """Test undoing pending edits functionality."""
 
-    async def test_undo_removes_most_recent_edit(self, data_manager):
+    def test_undo_removes_most_recent_edit(self, data_manager):
         """Test that undo removes the most recent (last) pending edit."""
-        from moneyflow.state import TransactionEdit
 
         # Queue three edits
+        base_time = datetime.now()
         edits = [
-            TransactionEdit("txn_1", "merchant", "Old1", "New1", datetime.now()),
-            TransactionEdit("txn_2", "category", "cat_old", "cat_new", datetime.now()),
-            TransactionEdit("txn_3", "hide_from_reports", False, True, datetime.now()),
+            TransactionEdit("txn_1", "merchant", "Old1", "New1", base_time),
+            TransactionEdit("txn_2", "category", "cat_old", "cat_new", base_time + timedelta(seconds=1)),
+            TransactionEdit("txn_3", "hide_from_reports", False, True, base_time + timedelta(seconds=2)),
         ]
         data_manager.pending_edits = edits.copy()
 
         # Undo (should remove last edit - txn_3)
-        removed = data_manager.pending_edits.pop()
+        removed = data_manager.undo_last_batch()[0]
 
         assert removed.transaction_id == "txn_3"
         assert len(data_manager.pending_edits) == 2
         assert data_manager.pending_edits[0].transaction_id == "txn_1"
         assert data_manager.pending_edits[1].transaction_id == "txn_2"
 
-    async def test_undo_with_single_edit(self, data_manager):
+    def test_undo_with_single_edit(self, data_manager):
         """Test undoing when there's only one pending edit."""
-        from moneyflow.state import TransactionEdit
 
         data_manager.pending_edits = [
             TransactionEdit("txn_1", "merchant", "Old", "New", datetime.now())
         ]
 
-        removed = data_manager.pending_edits.pop()
+        removed = data_manager.undo_last_batch()[0]
 
         assert removed.transaction_id == "txn_1"
         assert len(data_manager.pending_edits) == 0
 
-    async def test_undo_preserves_earlier_edits(self, data_manager):
+    def test_undo_preserves_earlier_edits(self, data_manager):
         """Test that undo only removes the last edit, preserving earlier ones."""
-        from moneyflow.state import TransactionEdit
 
-        edit1 = TransactionEdit("txn_1", "merchant", "Old1", "New1", datetime.now())
-        edit2 = TransactionEdit("txn_2", "merchant", "Old2", "New2", datetime.now())
-        edit3 = TransactionEdit("txn_3", "merchant", "Old3", "New3", datetime.now())
+        base_time = datetime.now()
+        edit1 = TransactionEdit("txn_1", "merchant", "Old1", "New1", base_time)
+        edit2 = TransactionEdit("txn_2", "merchant", "Old2", "New2", base_time + timedelta(seconds=1))
+        edit3 = TransactionEdit("txn_3", "merchant", "Old3", "New3", base_time + timedelta(seconds=2))
 
         data_manager.pending_edits = [edit1, edit2, edit3]
 
         # First undo
-        data_manager.pending_edits.pop()
+        data_manager.undo_last_batch()
         assert len(data_manager.pending_edits) == 2
         assert data_manager.pending_edits[0] == edit1
         assert data_manager.pending_edits[1] == edit2
 
         # Second undo
-        data_manager.pending_edits.pop()
+        data_manager.undo_last_batch()
         assert len(data_manager.pending_edits) == 1
         assert data_manager.pending_edits[0] == edit1
 
         # Third undo
-        data_manager.pending_edits.pop()
+        data_manager.undo_last_batch()
         assert len(data_manager.pending_edits) == 0
 
-    async def test_undo_different_field_types(self, data_manager):
+    def test_undo_different_field_types(self, data_manager):
         """Test undoing different types of edits."""
-        from moneyflow.state import TransactionEdit
 
         merchant_edit = TransactionEdit("txn_1", "merchant", "Old", "New", datetime.now())
         category_edit = TransactionEdit("txn_2", "category", "cat_1", "cat_2", datetime.now())
@@ -458,28 +449,26 @@ class TestUndoPendingEdits:
 
         # Test undo merchant edit
         data_manager.pending_edits = [merchant_edit]
-        removed = data_manager.pending_edits.pop()
+        removed = data_manager.undo_last_batch()[0]
         assert removed.field == "merchant"
 
         # Test undo category edit
         data_manager.pending_edits = [category_edit]
-        removed = data_manager.pending_edits.pop()
+        removed = data_manager.undo_last_batch()[0]
         assert removed.field == "category"
 
         # Test undo hide edit
         data_manager.pending_edits = [hide_edit]
-        removed = data_manager.pending_edits.pop()
+        removed = data_manager.undo_last_batch()[0]
         assert removed.field == "hide_from_reports"
 
 
 class TestBulkUndo:
     """Test undoing bulk edit operations."""
 
-    async def test_undo_bulk_edit_removes_all_edits_at_once(self, data_manager):
+    def test_undo_bulk_edit_removes_all_edits_at_once(self, data_manager):
         """Test that undoing a bulk edit removes all edits from that batch."""
-        from datetime import datetime
 
-        from moneyflow.state import TransactionEdit
 
         # Simulate bulk edit: 5 merchant edits queued at same timestamp
         timestamp = datetime.now()
@@ -489,27 +478,15 @@ class TestBulkUndo:
         data_manager.pending_edits = bulk_edits.copy()
 
         # Simulate undo - should remove all 5 edits (same timestamp)
-        last_timestamp = data_manager.pending_edits[-1].timestamp
-        edits_to_undo = []
-        for i in range(len(data_manager.pending_edits) - 1, -1, -1):
-            edit = data_manager.pending_edits[i]
-            if edit.timestamp == last_timestamp:
-                edits_to_undo.append(edit)
-            else:
-                break
-
-        for edit in edits_to_undo:
-            data_manager.pending_edits.remove(edit)
+        edits_to_undo = data_manager.undo_last_batch()
 
         # Verify all 5 edits were undone
         assert len(edits_to_undo) == 5
         assert len(data_manager.pending_edits) == 0
 
-    async def test_undo_preserves_earlier_bulk_edits(self, data_manager):
+    def test_undo_preserves_earlier_bulk_edits(self, data_manager):
         """Test that undo only removes the most recent bulk edit batch."""
-        from datetime import datetime, timedelta
 
-        from moneyflow.state import TransactionEdit
 
         # First bulk edit: 3 edits at timestamp T
         timestamp1 = datetime.now()
@@ -528,17 +505,7 @@ class TestBulkUndo:
         data_manager.pending_edits = first_batch + second_batch
 
         # Undo should remove only second_batch (most recent timestamp)
-        last_timestamp = data_manager.pending_edits[-1].timestamp
-        edits_to_undo = []
-        for i in range(len(data_manager.pending_edits) - 1, -1, -1):
-            edit = data_manager.pending_edits[i]
-            if edit.timestamp == last_timestamp:
-                edits_to_undo.append(edit)
-            else:
-                break
-
-        for edit in edits_to_undo:
-            data_manager.pending_edits.remove(edit)
+        edits_to_undo = data_manager.undo_last_batch()
 
         # Verify only second batch was undone
         assert len(edits_to_undo) == 4
@@ -546,11 +513,9 @@ class TestBulkUndo:
         # First batch should remain
         assert all(e.timestamp == timestamp1 for e in data_manager.pending_edits)
 
-    async def test_undo_single_edit_after_bulk_edit(self, data_manager):
+    def test_undo_single_edit_after_bulk_edit(self, data_manager):
         """Test that single edit after bulk edit is undone separately."""
-        from datetime import datetime, timedelta
 
-        from moneyflow.state import TransactionEdit
 
         # Bulk edit: 5 edits
         timestamp1 = datetime.now()
@@ -565,33 +530,13 @@ class TestBulkUndo:
         data_manager.pending_edits = bulk_edits + [single_edit]
 
         # First undo: should remove only the single edit
-        last_timestamp = data_manager.pending_edits[-1].timestamp
-        edits_to_undo = []
-        for i in range(len(data_manager.pending_edits) - 1, -1, -1):
-            edit = data_manager.pending_edits[i]
-            if edit.timestamp == last_timestamp:
-                edits_to_undo.append(edit)
-            else:
-                break
-
-        for edit in edits_to_undo:
-            data_manager.pending_edits.remove(edit)
+        edits_to_undo = data_manager.undo_last_batch()
 
         assert len(edits_to_undo) == 1
         assert len(data_manager.pending_edits) == 5
 
         # Second undo: should remove all 5 bulk edits
-        last_timestamp = data_manager.pending_edits[-1].timestamp
-        edits_to_undo = []
-        for i in range(len(data_manager.pending_edits) - 1, -1, -1):
-            edit = data_manager.pending_edits[i]
-            if edit.timestamp == last_timestamp:
-                edits_to_undo.append(edit)
-            else:
-                break
-
-        for edit in edits_to_undo:
-            data_manager.pending_edits.remove(edit)
+        edits_to_undo = data_manager.undo_last_batch()
 
         assert len(edits_to_undo) == 5
         assert len(data_manager.pending_edits) == 0

@@ -1121,6 +1121,30 @@ class DataManager:
 
         return result
 
+    def undo_last_batch(self) -> List[Any]:
+        """
+        Undo the last batch of edits (edits with the exact same timestamp).
+        
+        Returns:
+            List of edits that were undone (in reverse chronological order of removal)
+        """
+        if not self.pending_edits:
+            return []
+            
+        last_timestamp = self.pending_edits[-1].timestamp
+        edits_to_undo = []
+        for i in range(len(self.pending_edits) - 1, -1, -1):
+            edit = self.pending_edits[i]
+            if edit.timestamp == last_timestamp:
+                edits_to_undo.append(edit)
+            else:
+                break
+                
+        for edit in edits_to_undo:
+            self.pending_edits.remove(edit)
+            
+        return edits_to_undo
+
     async def commit_pending_edits(
         self, edits: List[Any], skip_batch_for: Optional[Set[Tuple[str, str]]] = None
     ) -> Tuple[int, int, Set[Tuple[str, str]]]:

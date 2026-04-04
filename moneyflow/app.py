@@ -1473,24 +1473,12 @@ class MoneyflowApp(App):
         # Save cursor and scroll position
         saved_position = self._save_table_position()
 
-        # Get the timestamp of the most recent edit
+        # Get the timestamp of the most recent edit for notification
         last_edit = self.data_manager.pending_edits[-1]
-        last_timestamp = last_edit.timestamp
+        field_name = last_edit.field.replace("_", " ").title()
 
-        # Count how many edits from the end have the same timestamp (bulk edit batch)
-        # Bulk edits are queued in a single operation, so they have the same timestamp
-        edits_to_undo = []
-        for i in range(len(self.data_manager.pending_edits) - 1, -1, -1):
-            edit = self.data_manager.pending_edits[i]
-            if edit.timestamp == last_timestamp:
-                edits_to_undo.append(edit)
-            else:
-                # Different timestamp - stop here
-                break
-
-        # Remove all edits from this batch (reverse order since we found them backwards)
-        for edit in edits_to_undo:
-            self.data_manager.pending_edits.remove(edit)
+        # Undo the last batch of edits
+        edits_to_undo = self.data_manager.undo_last_batch()
 
         # Refresh view to update indicators
         self.refresh_view(force_rebuild=False)
@@ -1501,7 +1489,6 @@ class MoneyflowApp(App):
         # Show notification with what was undone
         count_undone = len(edits_to_undo)
         count_remaining = len(self.data_manager.pending_edits)
-        field_name = last_edit.field.replace("_", " ").title()
 
         if count_undone == 1:
             self.notify(
