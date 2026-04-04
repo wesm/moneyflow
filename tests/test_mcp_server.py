@@ -72,8 +72,8 @@ def mcp_server_factory(mock_account):
             def mock_search(df, query):
                 query_lower = query.lower()
                 return df.filter(
-                    pl.col("merchant").str.to_lowercase().str.contains(query_lower)
-                    | pl.col("category").str.to_lowercase().str.contains(query_lower)
+                    pl.col("merchant").str.to_lowercase().str.contains(query_lower, literal=True)
+                    | pl.col("category").str.to_lowercase().str.contains(query_lower, literal=True)
                 )
 
             mock_dm.search_transactions.side_effect = mock_search
@@ -91,14 +91,14 @@ def sample_transactions():
     today = date.today()
     return pl.DataFrame(
         {
-            "id": ["tx1", "tx2", "tx3", "tx4", "tx5"],
-            "date": [str(today - timedelta(days=i)) for i in range(5)],
-            "merchant": ["Amazon", "Starbucks", "Amazon", "Walmart", "Target"],
-            "category": ["Shopping", "Food & Drink", "Uncategorized", "Groceries", "Shopping"],
-            "amount": [-50.00, -5.50, -125.00, -75.00, -30.00],
-            "account": ["Chase", "Chase", "Chase", "Chase", "Chase"],
-            "notes": [None, "Morning coffee", None, None, None],
-            "is_hidden": [False, False, False, False, False],
+            "id": ["tx1", "tx2", "tx3", "tx4", "tx5", "tx6", "tx7"],
+            "date": [str(today - timedelta(days=i)) for i in range(7)],
+            "merchant": ["Amazon", "Starbucks", "Amazon", "Walmart", "Target", "Shell", "Paycheck"],
+            "category": ["Shopping", "Food & Drink", "Uncategorized", "Groceries", "Shopping", "Uncategorized", "Income"],
+            "amount": [-50.00, -5.50, -125.00, -75.00, -30.00, -45.00, 2000.00],
+            "account": ["Chase", "Chase", "Chase", "Chase", "Chase", "Chase", "Chase"],
+            "notes": [None, "Morning coffee", None, None, None, "Gas", "Salary"],
+            "is_hidden": [False, False, False, False, False, False, False],
         }
     )
 
@@ -112,6 +112,7 @@ def sample_categories():
         "cat3": "Groceries",
         "cat4": "Entertainment",
         "cat5": "Uncategorized",
+        "cat6": "Income",
     }
 
 
@@ -448,8 +449,9 @@ class TestUncategorizedFilter:
         result = await mcp.call_tool("get_uncategorized_transactions", {})
         content_list, _ = result
         response = json.loads(content_list[0].text)
-        assert len(response["transactions"]) == 1
+        assert len(response["transactions"]) == 2
         assert response["transactions"][0]["id"] == "tx3"
+        assert response["transactions"][1]["id"] == "tx6"
 
     @pytest.mark.asyncio
     async def test_merchant_filter_works(
@@ -460,8 +462,9 @@ class TestUncategorizedFilter:
         result = await mcp.call_tool("get_uncategorized_transactions", {"merchant": "amazon"})
         content_list, _ = result
         response = json.loads(content_list[0].text)
-        # Assuming tx3 has merchant "Amazon" based on the data
         assert len(response["transactions"]) == 1
+        assert response["transactions"][0]["id"] == "tx3"
+        assert response["transactions"][0]["merchant"] == "Amazon"
 
 
 # ============================================================================
@@ -496,6 +499,17 @@ class TestSearchFunctionality:
         content_list2, _ = result2
         assert len(json.loads(content_list1[0].text)) == len(json.loads(content_list2[0].text))
 
+    @pytest.mark.asyncio
+    async def test_search_literal_matching(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        """Search should use literal matching and not treat query as regex."""
+        mcp = mcp_server_factory(sample_transactions, sample_categories)
+        result = await mcp.call_tool("search_transactions", {"query": "Amazon.*"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert len(response) == 0
+
 
 # ============================================================================
 # Test: Spending Summary
@@ -528,6 +542,8 @@ class TestSpendingSummary:
         content_list, _ = result
         response = json.loads(content_list[0].text)
         assert len(response["by_category"]) > 0
+        categories = [item["category"] for item in response["by_category"]]
+        assert "Income" not in categories
 
 
 # ============================================================================
