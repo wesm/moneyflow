@@ -31,7 +31,7 @@ class YNABClient:
         self._cache_params: Optional[Dict[str, Any]] = None
         self._account_cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._payee_cache: Optional[List[Any]] = None
-        self._category_cache: Optional[Dict[str, Any]] = None
+        self._category_cache: Optional[Any] = None
 
     @property
     def _transactions_api(self) -> ynab.TransactionsApi:
@@ -777,7 +777,7 @@ class YNABClient:
         # Find all payees with matching name
         # Note: Linear search is intentional - we need ALL matches to detect duplicates
         # Using a dict would only find one match and miss duplicate detection
-        matching_payees = [p for p in self._payee_cache if p.name == merchant_name]
+        matching_payees = [p for p in (self._payee_cache or []) if p.name == merchant_name]
 
         if not matching_payees:
             return {

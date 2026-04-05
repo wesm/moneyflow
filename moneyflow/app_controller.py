@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import polars as pl
+from moneyflow.formatters import PreparedView
 
 from .amazon_linker import AmazonLinker
 from .commit_orchestrator import apply_edits_to_dataframe
@@ -331,7 +332,7 @@ class AppController:
 
         return txns
 
-    def _prepare_subgroup_view(self, txns: pl.DataFrame) -> dict:
+    def _prepare_subgroup_view(self, txns: pl.DataFrame) -> PreparedView:
         """Prepare view data for sub-grouping (aggregated drill-down)."""
         # Show aggregated view within drill-down
         if self.state.sub_grouping_mode == ViewMode.TIME:
@@ -389,7 +390,7 @@ class AppController:
             sort_column=self.state.sort_column,
         )
 
-    def _prepare_detail_view(self, txns: pl.DataFrame) -> dict:
+    def _prepare_detail_view(self, txns: pl.DataFrame) -> PreparedView:
         """Prepare normal transaction detail view."""
         # Sort
         if not txns.is_empty():
@@ -441,7 +442,7 @@ class AppController:
             drilled_value=drilled_value,
         )
 
-    def _prepare_aggregate_view(self, view_mode: ViewMode):
+    def _prepare_aggregate_view(self, view_mode: ViewMode) -> Optional[PreparedView]:
         """
         Prepare aggregated view data (merchant, category, group, or account).
 

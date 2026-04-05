@@ -13,7 +13,8 @@ This enables:
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Literal, TypedDict
+from typing import List, TypedDict
+
 
 class NotificationSeverity(str, Enum):
     INFO = "information"
