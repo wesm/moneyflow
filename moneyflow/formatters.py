@@ -6,7 +6,6 @@ completely decoupled from UI framework (Textual). All functions are
 fully typed and testable.
 """
 
-from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
 import polars as pl
@@ -45,7 +44,6 @@ class TransactionFlags(TypedDict):
     has_pending_edit: bool
 
 
-@dataclass(frozen=True)
 class ViewPresenter:
     """
     Handles presentation logic for different views.
@@ -62,6 +60,15 @@ class ViewPresenter:
         "account": "account",
         "time_period": "time_period_display",
     }
+
+    @staticmethod
+    def _is_column_applicable(col_config: Any, group_by_field: str) -> bool:
+        if not col_config.view_modes:
+            return True
+        return any(
+            ViewPresenter._VIEW_MODE_TO_FIELD.get(mode) == group_by_field
+            for mode in col_config.view_modes
+        )
 
     @staticmethod
     def format_amount(amount: float, for_table: bool = False) -> Union[str, Text]:
@@ -98,6 +105,32 @@ class ViewPresenter:
             else:
                 return Text(formatted, justify="right")
         return formatted
+
+    @staticmethod
+    def _format_row_time_period(row_dict: dict) -> str:
+        year = row_dict.get("year")
+        month = row_dict.get("month")
+        day = row_dict.get("day")
+        from .state import TimeGranularity
+
+        if day:
+            granularity = TimeGranularity.DAY
+        elif month:
+            granularity = TimeGranularity.MONTH
+        else:
+            granularity = TimeGranularity.YEAR
+        return ViewPresenter.format_time_period(year, month, day, granularity)
+
+    @staticmethod
+    def _format_percentage(
+        total: float, total_income: float, total_expenses: float
+    ) -> Union[str, Text]:
+        if total > 0:
+            pct = (total / total_income * 100) if total_income > 0 else 0.0
+            return Text(f"{pct:.1f}%", style="green")
+
+        pct = (abs(total) / total_expenses * 100) if total_expenses > 0 else 0.0
+        return f"{pct:.1f}%"
 
     @staticmethod
     def format_time_period(
@@ -316,20 +349,7 @@ class ViewPresenter:
         if computed_columns:
             for col_config in computed_columns:
                 # Only add if this column applies to current view
-                if (
-                    not col_config.view_modes
-                    or ViewPresenter._VIEW_MODE_TO_FIELD.get(
-                        col_config.view_modes[0] if col_config.view_modes else ""
-                    )
-                    == group_by_field
-                    or (
-                        col_config.view_modes
-                        and any(
-                            ViewPresenter._VIEW_MODE_TO_FIELD.get(mode) == group_by_field
-                            for mode in col_config.view_modes
-                        )
-                    )
-                ):
+                if ViewPresenter._is_column_applicable(col_config, group_by_field):
                     # Check if we're sorting by this computed column
                     col_arrow = ""
                     if sort_column and sort_column == col_config.name:
@@ -413,20 +433,7 @@ class ViewPresenter:
 
             # Special formatting for time periods
             if group_by_field == "time_period_display":
-                # Format time period nicely: "2024" or "Mar 2024"
-                year = row_dict.get("year")
-                month = row_dict.get("month")
-                day = row_dict.get("day")
-                # Determine granularity from whether month/day are present
-                from .state import TimeGranularity
-
-                if day:
-                    granularity = TimeGranularity.DAY
-                elif month:
-                    granularity = TimeGranularity.MONTH
-                else:
-                    granularity = TimeGranularity.YEAR
-                name = ViewPresenter.format_time_period(year, month, day, granularity)
+                name = ViewPresenter._format_row_time_period(row_dict)
 
             count = row_dict["count"]
             total = row_dict["total"]
@@ -438,22 +445,7 @@ class ViewPresenter:
             if name in groups_with_pending_edits:
                 flags += "*"
 
-            # Calculate percentage relative to income or expense total
-            # Income (positive) shown in green, expenses in standard color
-            if total > 0:
-                # Income: percentage of total income
-                if total_income > 0:
-                    pct = total / total_income * 100
-                    pct_display: Union[str, Text] = Text(f"{pct:.1f}%", style="green")
-                else:
-                    pct_display = Text("0.0%", style="green")
-            else:
-                # Expense: percentage of total expenses
-                if total_expenses > 0:
-                    pct = abs(total) / total_expenses * 100
-                    pct_display = f"{pct:.1f}%"
-                else:
-                    pct_display = "0.0%"
+            pct_display = ViewPresenter._format_percentage(total, total_income, total_expenses)
 
             # Build base row data
             row_data: list[Union[str, Text]] = [
@@ -474,10 +466,7 @@ class ViewPresenter:
             if computed_columns:
                 for col_config in computed_columns:
                     # Only include if this column applies to current view
-                    if not col_config.view_modes or any(
-                        ViewPresenter._VIEW_MODE_TO_FIELD.get(mode) == group_by_field
-                        for mode in col_config.view_modes
-                    ):
+                    if ViewPresenter._is_column_applicable(col_config, group_by_field):
                         value = row_dict.get(col_config.name)
                         # Format using custom formatter if provided
                         if value is not None and col_config.formatter:
@@ -771,34 +760,22 @@ class ViewPresenter:
                 txn_id, selected_ids, hide_from_reports, pending_edit_ids
             )
 
+            row_data = [
+                date,
+                merchant,
+                category,
+                account,
+                ViewPresenter.format_amount(amount, for_table=True),
+            ]
             if include_amazon_placeholder:
-                # Use cached Amazon match result if available, otherwise placeholder
                 if amazon_cache is not None and txn_id in amazon_cache:
                     amazon_status = amazon_cache[txn_id] or ""
                 else:
-                    amazon_status = "..."  # Will be lazy-loaded
-                rows.append(
-                    (
-                        date,
-                        merchant,
-                        category,
-                        account,
-                        ViewPresenter.format_amount(amount, for_table=True),
-                        amazon_status,
-                        flags,
-                    )
-                )
-            else:
-                rows.append(
-                    (
-                        date,
-                        merchant,
-                        category,
-                        account,
-                        ViewPresenter.format_amount(amount, for_table=True),
-                        flags,
-                    )
-                )
+                    amazon_status = "..."
+                row_data.append(amazon_status)
+            row_data.append(flags)
+
+            rows.append(tuple(row_data))
 
         return rows
 
