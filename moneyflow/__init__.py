@@ -5,12 +5,9 @@ A terminal-based interface for fast transaction management.
 Supports multiple finance platforms including Monarch Money.
 """
 
-from importlib.metadata import PackageNotFoundError, version
+from .version import get_version
 
-try:
-    __version__ = version("moneyflow")
-except PackageNotFoundError:
-    __version__ = "unknown"
+__version__ = get_version()
 
 from .backends import DemoBackend, FinanceBackend, MonarchBackend, get_backend
 from .data_manager import DataManager
