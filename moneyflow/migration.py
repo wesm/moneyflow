@@ -13,6 +13,29 @@ import yaml
 
 from .account_manager import AccountManager
 
+CREDENTIALS_FILE = "credentials.enc"
+AMAZON_DB_FILE = "amazon.db"
+CONFIG_FILE = "config.yaml"
+
+
+def _resolve_config_dir(config_dir: Optional[Path] = None) -> Path:
+    return Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+
+
+def _load_yaml(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r") as f:
+            return yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def _save_yaml(path: Path, data: dict) -> None:
+    with open(path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
 
 def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
     """
@@ -37,13 +60,10 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
         # Perform migration
         migrate_legacy_credentials()
     """
-    if config_dir is None:
-        config_dir = Path.home() / ".moneyflow"
-    else:
-        config_dir = Path(config_dir)
+    config_dir = _resolve_config_dir(config_dir)
 
     # Check if legacy credentials exist
-    legacy_cred_file = config_dir / "credentials.enc"
+    legacy_cred_file = config_dir / CREDENTIALS_FILE
     legacy_salt_file = config_dir / "salt"
     legacy_merchant_cache = config_dir / "merchants.json"
 
@@ -76,7 +96,7 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     profile_dir = account_manager.get_profile_dir(default_account.id)
 
     # Step 3: Move credentials and salt to profile directory
-    shutil.move(str(legacy_cred_file), str(profile_dir / "credentials.enc"))
+    shutil.move(str(legacy_cred_file), str(profile_dir / CREDENTIALS_FILE))
 
     if legacy_salt_file.exists():
         shutil.move(str(legacy_salt_file), str(profile_dir / "salt"))
@@ -116,13 +136,10 @@ def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = 
         # Perform migration
         migrate_legacy_amazon_db()
     """
-    if config_dir is None:
-        config_dir = Path.home() / ".moneyflow"
-    else:
-        config_dir = Path(config_dir)
+    config_dir = _resolve_config_dir(config_dir)
 
     # Check if legacy amazon.db exists
-    legacy_amazon_db = config_dir / "amazon.db"
+    legacy_amazon_db = config_dir / AMAZON_DB_FILE
 
     if not legacy_amazon_db.exists():
         # No legacy Amazon database to migrate
@@ -154,7 +171,7 @@ def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = 
     profile_dir = account_manager.get_profile_dir(amazon_account.id)
 
     # Step 3: Move amazon.db to profile directory
-    shutil.move(str(legacy_amazon_db), str(profile_dir / "amazon.db"))
+    shutil.move(str(legacy_amazon_db), str(profile_dir / AMAZON_DB_FILE))
 
     return True
 
@@ -202,78 +219,57 @@ def migrate_global_categories_to_profiles(
         True if migration was performed (or would be performed in dry_run),
         False if no migration needed
     """
-    if config_dir is None:
-        config_dir = Path.home() / ".moneyflow"
-    else:
-        config_dir = Path(config_dir)
+    config_dir = _resolve_config_dir(config_dir)
 
-    global_config_path = config_dir / "config.yaml"
+    global_config_path = config_dir / CONFIG_FILE
 
     # Check if global config has fetched_categories
     if not global_config_path.exists():
         return False
 
-    try:
-        with open(global_config_path, "r") as f:
-            global_config = yaml.safe_load(f)
-
-        if not global_config or "fetched_categories" not in global_config:
-            # No categories to migrate
-            return False
-
-        fetched_categories = global_config["fetched_categories"]
-
-    except Exception:
-        # Can't read config, nothing to migrate
+    global_config = _load_yaml(global_config_path)
+    if not global_config or "fetched_categories" not in global_config:
         return False
+
+    fetched_categories = global_config["fetched_categories"]
 
     # Get all existing profiles
     account_manager = AccountManager(config_dir=config_dir)
     accounts = account_manager.list_accounts()
 
-    if not accounts:
-        # No profiles to migrate to
+    target_profiles = [acc for acc in accounts if acc.backend_type != "amazon"]
+    if not target_profiles:
         return False
 
     if dry_run:
-        return True
+        # Validate at least one profile actually needs the categories
+        for account in target_profiles:
+            profile_config = _load_yaml(account_manager.get_profile_dir(account.id) / CONFIG_FILE)
+            if "fetched_categories" not in profile_config:
+                return True
+        return False
 
     # Migrate categories to each profile's config.yaml
     migrated_count = 0
-    for account in accounts:
-        # Skip Amazon profiles - they will inherit
-        if account.backend_type == "amazon":
-            continue
-
+    for account in target_profiles:
         profile_dir = account_manager.get_profile_dir(account.id)
-        profile_config_path = profile_dir / "config.yaml"
+        profile_config_path = profile_dir / CONFIG_FILE
 
         # Load or create profile config
-        if profile_config_path.exists():
-            try:
-                with open(profile_config_path, "r") as f:
-                    profile_config = yaml.safe_load(f) or {}
-            except Exception:
-                profile_config = {}
-        else:
-            profile_config = {}
+        profile_config = _load_yaml(profile_config_path)
 
         # Only migrate if profile doesn't already have categories
         if "fetched_categories" not in profile_config:
             profile_config["version"] = 1
             profile_config["fetched_categories"] = fetched_categories
 
-            with open(profile_config_path, "w") as f:
-                yaml.dump(profile_config, f, default_flow_style=False, sort_keys=False)
-
+            _save_yaml(profile_config_path, profile_config)
             migrated_count += 1
 
     if migrated_count > 0:
         # Remove fetched_categories from global config (keep other settings)
         global_config.pop("fetched_categories", None)
-
-        with open(global_config_path, "w") as f:
-            yaml.dump(global_config, f, default_flow_style=False, sort_keys=False)
+        _save_yaml(global_config_path, global_config)
 
     return migrated_count > 0
 
