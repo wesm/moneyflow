@@ -1,5 +1,5 @@
 """
-Unit tests for ModalHelper.
+Unit tests for modal_helper functions.
 
 These tests verify that modal parameter preparation logic is correct
 and can be tested without requiring the UI to be running.
@@ -10,7 +10,18 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from moneyflow.modal_helper import ModalHelper
+from moneyflow.modal_helper import (
+    get_cache_prompt_params,
+    get_delete_confirmation_params,
+    get_duplicates_params,
+    get_edit_merchant_params,
+    get_filter_params,
+    get_quit_confirmation_params,
+    get_review_changes_params,
+    get_search_params,
+    get_select_category_params,
+    get_transaction_detail_params,
+)
 from moneyflow.state import TransactionEdit
 
 
@@ -18,7 +29,7 @@ class TestEditMerchantParams:
     """Test parameters for Edit Merchant modal."""
 
     def test_basic_params(self):
-        params = ModalHelper.edit_merchant_params(
+        params = get_edit_merchant_params(
             merchant_name="Amazon",
             transaction_count=5,
             all_merchants=["Amazon", "Walmart", "Target"],
@@ -31,7 +42,7 @@ class TestEditMerchantParams:
         assert "txn_details" not in params
 
     def test_with_bulk_summary(self):
-        params = ModalHelper.edit_merchant_params(
+        params = get_edit_merchant_params(
             merchant_name="Amazon",
             transaction_count=15,
             all_merchants=["Amazon"],
@@ -44,7 +55,7 @@ class TestEditMerchantParams:
         assert params["bulk_summary"]["total_amount"] == -250.50
 
     def test_with_txn_details(self):
-        params = ModalHelper.edit_merchant_params(
+        params = get_edit_merchant_params(
             merchant_name="Amazon",
             transaction_count=1,
             all_merchants=["Amazon"],
@@ -60,7 +71,7 @@ class TestEditMerchantParams:
 
     def test_both_bulk_and_details(self):
         """Can include both bulk summary and transaction details."""
-        params = ModalHelper.edit_merchant_params(
+        params = get_edit_merchant_params(
             merchant_name="Test",
             transaction_count=1,
             all_merchants=["Test"],
@@ -84,7 +95,7 @@ class TestSelectCategoryParams:
             "cat_2": {"name": "Gas", "group": "Automotive"},
         }
 
-        params = ModalHelper.select_category_params(categories)
+        params = get_select_category_params(categories)
 
         assert params["categories"] == categories
         assert params["current_category_id"] is None
@@ -93,12 +104,12 @@ class TestSelectCategoryParams:
     def test_with_current_category(self):
         categories = {"cat_1": {"name": "Groceries"}}
 
-        params = ModalHelper.select_category_params(categories, current_category_id="cat_1")
+        params = get_select_category_params(categories, current_category_id="cat_1")
 
         assert params["current_category_id"] == "cat_1"
 
     def test_with_txn_details(self):
-        params = ModalHelper.select_category_params(
+        params = get_select_category_params(
             categories={},
             current_category_id="cat_1",
             txn_details={"date": "2025-10-14", "amount": -25.0, "merchant": "Safeway"},
@@ -117,7 +128,7 @@ class TestReviewChangesParams:
         ]
         categories = {"cat_1": {"name": "Food"}, "cat_2": {"name": "Gas"}}
 
-        params = ModalHelper.review_changes_params(edits, categories)
+        params = get_review_changes_params(edits, categories)
 
         assert params["edits"] == edits
         assert params["categories"] == categories
@@ -127,11 +138,11 @@ class TestDeleteConfirmationParams:
     """Test parameters for Delete Confirmation modal."""
 
     def test_default_single_transaction(self):
-        params = ModalHelper.delete_confirmation_params()
+        params = get_delete_confirmation_params()
         assert params["transaction_count"] == 1
 
     def test_multiple_transactions(self):
-        params = ModalHelper.delete_confirmation_params(transaction_count=10)
+        params = get_delete_confirmation_params(transaction_count=10)
         assert params["transaction_count"] == 10
 
 
@@ -139,11 +150,11 @@ class TestQuitConfirmationParams:
     """Test parameters for Quit Confirmation modal."""
 
     def test_with_unsaved_changes(self):
-        params = ModalHelper.quit_confirmation_params(has_unsaved_changes=True)
+        params = get_quit_confirmation_params(has_unsaved_changes=True)
         assert params["has_unsaved_changes"] is True
 
     def test_without_unsaved_changes(self):
-        params = ModalHelper.quit_confirmation_params(has_unsaved_changes=False)
+        params = get_quit_confirmation_params(has_unsaved_changes=False)
         assert params["has_unsaved_changes"] is False
 
 
@@ -151,7 +162,7 @@ class TestFilterParams:
     """Test parameters for Filter Settings modal."""
 
     def test_basic_params(self):
-        params = ModalHelper.filter_params(show_transfers=True, show_hidden=False)
+        params = get_filter_params(show_transfers=True, show_hidden=False)
 
         assert params["show_transfers"] is True
         assert params["show_hidden"] is False
@@ -161,11 +172,11 @@ class TestSearchParams:
     """Test parameters for Search modal."""
 
     def test_default_empty_query(self):
-        params = ModalHelper.search_params()
+        params = get_search_params()
         assert params["current_query"] == ""
 
     def test_with_existing_query(self):
-        params = ModalHelper.search_params(current_query="Amazon")
+        params = get_search_params(current_query="Amazon")
         assert params["current_query"] == "Amazon"
 
 
@@ -173,7 +184,7 @@ class TestCachePromptParams:
     """Test parameters for Cache Prompt modal."""
 
     def test_basic_params(self):
-        params = ModalHelper.cache_prompt_params(
+        params = get_cache_prompt_params(
             age="2 hours ago", transaction_count=1500, filter_desc="All transactions"
         )
 
@@ -194,7 +205,7 @@ class TestTransactionDetailParams:
             "category": "Coffee Shops",
         }
 
-        params = ModalHelper.transaction_detail_params(txn)
+        params = get_transaction_detail_params(txn)
 
         assert params["transaction"] == txn
 
@@ -219,7 +230,7 @@ class TestDuplicatesParams:
 
         groups = [["txn_1", "txn_2"]]
 
-        params = ModalHelper.duplicates_params(duplicates_df, groups, all_txns_df)
+        params = get_duplicates_params(duplicates_df, groups, all_txns_df)
 
         assert params["duplicates"].equals(duplicates_df)
         assert params["groups"] == groups
@@ -232,17 +243,17 @@ class TestParameterTypeConsistency:
     @pytest.mark.parametrize(
         "method,args",
         [
-            (ModalHelper.edit_merchant_params, ("Amazon", 1, ["Amazon"])),
-            (ModalHelper.select_category_params, ({"cat_1": {"name": "Food"}},)),
-            (ModalHelper.review_changes_params, ([], {})),
-            (ModalHelper.delete_confirmation_params, ()),
-            (ModalHelper.quit_confirmation_params, (True,)),
-            (ModalHelper.filter_params, (True, False)),
-            (ModalHelper.search_params, ()),
-            (ModalHelper.cache_prompt_params, ("2 hours", 1, "All")),
-            (ModalHelper.transaction_detail_params, ({"id": "txn_1"},)),
+            (get_edit_merchant_params, ("Amazon", 1, ["Amazon"])),
+            (get_select_category_params, ({"cat_1": {"name": "Food"}},)),
+            (get_review_changes_params, ([], {})),
+            (get_delete_confirmation_params, ()),
+            (get_quit_confirmation_params, (True,)),
+            (get_filter_params, (True, False)),
+            (get_search_params, ()),
+            (get_cache_prompt_params, ("2 hours", 1, "All")),
+            (get_transaction_detail_params, ({"id": "txn_1"},)),
             (
-                ModalHelper.duplicates_params,
+                get_duplicates_params,
                 (pl.DataFrame({"id": ["txn_1"]}), [["txn_1"]], pl.DataFrame({"id": ["txn_1"]})),
             ),
         ],
