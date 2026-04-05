@@ -651,6 +651,7 @@ class TestMerchantCreation:
                     transaction_details={"id": "123", "amount": 10.0},
                     transaction_count=1,
                 )
+
         return DummyApp()
 
     async def test_create_new_merchant_option_and_ordering(self):
@@ -658,13 +659,14 @@ class TestMerchantCreation:
         from textual.widgets import Input, OptionList
 
         app = self.get_app_with_screen(all_merchants=["Amazon", "Amazon.com", "Amazon UK"])
-        async with app.run_test():
+        async with app.run_test() as pilot:
             screen = app.query_one("EditMerchantScreen")
             merchant_input = screen.query_one("#merchant-input", Input)
 
             # Simulate typing a brand new merchant
             merchant_input.value = "New Coffee Shop"
-            await screen._update_suggestions("new coffee shop")
+            merchant_input.post_message(Input.Changed(merchant_input, "New Coffee Shop"))
+            await pilot.pause()
 
             option_list = screen.query_one("#suggestions", OptionList)
             assert option_list.option_count == 1
@@ -674,7 +676,8 @@ class TestMerchantCreation:
 
             # Simulate typing a partial match to an existing one
             merchant_input.value = "Ama"
-            await screen._update_suggestions("ama")
+            merchant_input.post_message(Input.Changed(merchant_input, "Ama"))
+            await pilot.pause()
 
             # Should have multiple options: First match, __new__, then rest of matches
             assert option_list.option_count == 4
@@ -687,7 +690,7 @@ class TestMerchantCreation:
             # Remaining matches
             remaining = [
                 str(option_list.get_option_at_index(2).id),
-                str(option_list.get_option_at_index(3).id)
+                str(option_list.get_option_at_index(3).id),
             ]
             assert "Amazon.com" in remaining
             assert "Amazon UK" in remaining
@@ -696,17 +699,21 @@ class TestMerchantCreation:
         """Test that Enter auto-selects the first existing match even when a create-new option is present."""
         from textual.widgets import Input
 
-        app = self.get_app_with_screen(all_merchants=["Star Market", "Starbucks", "Starbucks Coffee"])
+        app = self.get_app_with_screen(
+            all_merchants=["Star Market", "Starbucks", "Starbucks Coffee"]
+        )
         async with app.run_test() as pilot:
             screen = app.query_one("EditMerchantScreen")
             merchant_input = screen.query_one("#merchant-input", Input)
 
             # Type partial match that generates matches and a "create new"
             merchant_input.value = "Star"
-            await screen._update_suggestions("star")
+            merchant_input.post_message(Input.Changed(merchant_input, "Star"))
+            await pilot.pause()
 
             # Mock dismiss to intercept the selected value
             dismiss_value = None
+
             def mock_dismiss(result=None):
                 nonlocal dismiss_value
                 dismiss_value = result
