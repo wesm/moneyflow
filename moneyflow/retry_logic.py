@@ -6,6 +6,7 @@ with intelligent retry behavior.
 """
 
 import asyncio
+import random
 from typing import Awaitable, Callable, Optional, TypeVar
 
 from .logging_config import get_logger
@@ -27,6 +28,7 @@ async def retry_with_backoff(
     max_retries: int = 5,
     initial_wait: float = 60.0,
     on_retry: Optional[Callable[[int, float], None]] = None,
+    retryable_exceptions: tuple[type[Exception], ...] = (Exception,),
 ) -> T:
     """
     Retry an async operation with exponential backoff.
@@ -37,6 +39,7 @@ async def retry_with_backoff(
         max_retries: Maximum number of retry attempts
         initial_wait: Initial wait time in seconds (doubles each retry)
         on_retry: Optional callback(attempt_num, wait_seconds) to notify UI
+        retryable_exceptions: Tuple of exceptions to catch and retry
 
     Returns:
         Result from successful operation
@@ -52,8 +55,6 @@ async def retry_with_backoff(
         ...     max_retries=5
         ... )
     """
-    last_error = None
-
     for attempt in range(max_retries):
         try:
             logger.info(f"Attempting {operation_name} (attempt {attempt + 1}/{max_retries})")
@@ -62,17 +63,18 @@ async def retry_with_backoff(
                 logger.info(f"{operation_name} succeeded after {attempt + 1} attempts")
             return result
 
-        except Exception as e:
-            last_error = e
+        except retryable_exceptions as e:
             logger.warning(f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}")
 
             # Don't retry on last attempt
             if attempt == max_retries - 1:
                 logger.error(f"{operation_name} failed after {max_retries} attempts")
-                break
+                raise
 
-            # Calculate wait time with exponential backoff
-            wait_seconds = initial_wait * (2**attempt)
+            # Calculate wait time with exponential backoff, max wait cap, and jitter
+            max_wait = 300.0  # Cap at 5 minutes
+            wait_seconds = min(initial_wait * (2**attempt), max_wait)
+            wait_seconds *= random.uniform(0.8, 1.2)  # +/- 20% jitter
 
             # Notify UI if callback provided
             if on_retry:
@@ -83,12 +85,9 @@ async def retry_with_backoff(
             # Wait with ability to cancel
             try:
                 await asyncio.sleep(wait_seconds)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as ce:
                 logger.info(f"{operation_name} retry cancelled by user")
-                raise RetryAborted(f"User cancelled {operation_name}")
+                raise RetryAborted(f"User cancelled {operation_name}") from ce
 
-    # All retries exhausted - last_error will always be set since we enter the loop
-    if last_error is not None:
-        raise last_error
-    else:
-        raise Exception(f"{operation_name} failed after {max_retries} attempts")
+    # Should never be reached due to 'raise' on last attempt in except block
+    raise Exception(f"{operation_name} failed unexpectedly")

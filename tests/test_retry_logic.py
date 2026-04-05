@@ -20,6 +20,12 @@ from moneyflow.retry_logic import RetryAborted, retry_with_backoff
 class TestRetryLogic:
     """Test retry_with_backoff function with various failure scenarios."""
 
+    @pytest.fixture(autouse=True)
+    def mock_random_uniform(self):
+        with patch("moneyflow.retry_logic.random.uniform", return_value=1.0):
+            yield
+
+
     @pytest.mark.asyncio
     @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
     async def test_successful_on_first_attempt(self, mock_sleep):
