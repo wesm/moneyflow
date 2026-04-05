@@ -356,16 +356,18 @@ class DuplicatesScreen(Screen):
                 # Update our local full_df
                 self.full_df = self.full_df.filter(~pl.col("id").is_in(deleted_ids))
 
-                # Rebuild duplicates_df by filtering out rows where either id_1 or id_2 was deleted
-                self.duplicates_df = self.duplicates_df.filter(
-                    ~(pl.col("id_1").is_in(deleted_ids) | pl.col("id_2").is_in(deleted_ids))
-                )
+                # Rebuild duplicates_df by filtering out deleted IDs from the groups
+                self.duplicates_df = self.duplicates_df.with_columns(
+                    pl.col("ids").list.eval(pl.element().filter(~pl.element().is_in(deleted_ids)))
+                ).filter(pl.col("ids").list.len() > 1)
 
                 # Rebuild duplicate groups using remaining duplicates
                 if not self.duplicates_df.is_empty():
                     self.duplicate_groups = DuplicateDetector.get_duplicate_groups(
                         self.full_df, self.duplicates_df
                     )
+                else:
+                    self.duplicate_groups = []
 
             # Clear selection and completely rebuild table
             self.selected_ids.clear()

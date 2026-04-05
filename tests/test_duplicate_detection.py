@@ -299,7 +299,7 @@ class TestEdgeCases:
         df = pl.DataFrame(data)
 
         # These will NOT be detected as duplicates (30 days apart)
-        duplicates = DuplicateDetector.find_duplicates(df, date_tolerance_days=0)
+        duplicates = DuplicateDetector.find_duplicates(df)
         assert duplicates.is_empty()
 
         # With date tolerance they COULD be detected, but that's not realistic
