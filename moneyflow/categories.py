@@ -417,3 +417,45 @@ def get_profile_category_groups(
     logger.info("Using built-in default categories")
     return DEFAULT_CATEGORY_GROUPS
 
+
+def format_categories_yaml(category_groups: Dict[str, List[str]]) -> str:
+    """Format category groups as YAML string."""
+    lines = []
+    lines.append("# Current category hierarchy")
+    lines.append("# Copy sections below into your config.yaml under 'categories:'\n")
+
+    for group_name in sorted(category_groups.keys()):
+        categories_list = category_groups[group_name]
+        # Use quotes if group name has special chars
+        if " " in group_name or "&" in group_name:
+            lines.append(f'  "{group_name}":')
+        else:
+            lines.append(f"  {group_name}:")
+        for cat in sorted(categories_list):
+            # Use quotes if category has special chars
+            if " " in cat or "&" in cat:
+                lines.append(f'    - "{cat}"')
+            else:
+                lines.append(f"    - {cat}")
+        lines.append("")  # Blank line between groups
+
+    return "\n".join(lines)
+
+
+def format_categories_readable(category_groups: Dict[str, List[str]]) -> str:
+    """Format category groups as human-readable string."""
+    lines = []
+    lines.append("Current Category Hierarchy")
+    lines.append("=" * 60)
+
+    total_cats = sum(len(cats) for cats in category_groups.values())
+    lines.append(f"Total: {len(category_groups)} groups, {total_cats} categories\n")
+
+    for group_name in sorted(category_groups.keys()):
+        categories_list = category_groups[group_name]
+        lines.append(f"\n{group_name} ({len(categories_list)} categories):")
+        for cat in sorted(categories_list):
+            lines.append(f"  - {cat}")
+
+    return "\n".join(lines)
+

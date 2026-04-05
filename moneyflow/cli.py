@@ -162,18 +162,20 @@ def amazon(ctx, db_path, config_dir):
     Run 'moneyflow amazon' to launch the UI.
     Use subcommands for import/status operations.
     """
-    # Store db_path and config_dir in context for subcommands
+    # Store backend and profile config in context for subcommands
     ctx.ensure_object(dict)
-    ctx.obj["db_path"] = db_path
-    ctx.obj["config_dir"] = config_dir
+
+    backend, cfg_dir, prof_dir = _get_amazon_backend_with_profile_support(
+        db_path=db_path, config_dir=config_dir
+    )
+
+    ctx.obj["backend"] = backend
+    ctx.obj["config_dir"] = cfg_dir
+    ctx.obj["profile_dir"] = prof_dir
 
     # If no subcommand, launch the UI
     if ctx.invoked_subcommand is None:
         from moneyflow.app import launch_amazon_mode
-
-        backend, config_dir, amazon_profile_dir = _get_amazon_backend_with_profile_support(
-            db_path=db_path, config_dir=config_dir
-        )
 
         # Check if database exists
         if not backend.db_path.exists():
@@ -194,7 +196,7 @@ def amazon(ctx, db_path, config_dir):
 
         # Launch the UI
         launch_amazon_mode(
-            db_path=str(backend.db_path), config_dir=config_dir, profile_dir=amazon_profile_dir
+            db_path=str(backend.db_path), config_dir=cfg_dir, profile_dir=prof_dir
         )
 
 
@@ -218,12 +220,7 @@ def amazon_import(ctx, orders_dir, force):
     click.echo(f"Importing Amazon orders from {orders_dir}...")
 
     try:
-        db_path = ctx.obj.get("db_path")
-        config_dir = ctx.obj.get("config_dir")
-
-        backend, config_dir, amazon_profile_dir = _get_amazon_backend_with_profile_support(
-            db_path=db_path, config_dir=config_dir
-        )
+        backend = ctx.obj["backend"]
         stats = import_amazon_orders(orders_dir, backend=backend, force=force)
 
         click.echo("\n✓ Import complete!")
@@ -266,12 +263,7 @@ def amazon_import(ctx, orders_dir, force):
 @click.pass_context
 def amazon_status(ctx):
     """Show Amazon database status and import history."""
-    db_path = ctx.obj.get("db_path")
-    config_dir = ctx.obj.get("config_dir")
-
-    backend, config_dir, amazon_profile_dir = _get_amazon_backend_with_profile_support(
-        db_path=db_path, config_dir=config_dir
-    )
+    backend = ctx.obj["backend"]
 
     # Check if database exists
     if not backend.db_path.exists():
@@ -337,47 +329,21 @@ def categories_dump(config_dir, format):
     Default output is YAML format (copy-pastable into config.yaml under 'categories:').
     Use --format=readable for human-readable format with counts.
     """
-    from moneyflow.categories import get_effective_category_groups
+    from moneyflow.categories import (
+        format_categories_readable,
+        format_categories_yaml,
+        get_effective_category_groups,
+    )
 
     try:
         category_groups = get_effective_category_groups(config_dir)
 
         if format == "yaml":
-            # Output as valid YAML (copy-pastable)
-            click.echo("# Current category hierarchy")
-            click.echo("# Copy sections below into your config.yaml under 'categories:'\n")
-
-            # Output in YAML format
-            for group_name in sorted(category_groups.keys()):
-                categories_list = category_groups[group_name]
-                # Use quotes if group name has special chars
-                if " " in group_name or "&" in group_name:
-                    click.echo(f'  "{group_name}":')
-                else:
-                    click.echo(f"  {group_name}:")
-                for cat in sorted(categories_list):
-                    # Use quotes if category has special chars
-                    if " " in cat or "&" in cat:
-                        click.echo(f'    - "{cat}"')
-                    else:
-                        click.echo(f"    - {cat}")
-                click.echo()  # Blank line between groups
-
+            output = format_categories_yaml(category_groups)
         else:
-            # Readable format with counts
-            click.echo("Current Category Hierarchy")
-            click.echo("=" * 60)
+            output = format_categories_readable(category_groups)
 
-            # Count total categories
-            total_cats = sum(len(cats) for cats in category_groups.values())
-            click.echo(f"Total: {len(category_groups)} groups, {total_cats} categories\n")
-
-            # Display each group
-            for group_name in sorted(category_groups.keys()):
-                categories_list = category_groups[group_name]
-                click.echo(f"\n{group_name} ({len(categories_list)} categories):")
-                for cat in sorted(categories_list):
-                    click.echo(f"  - {cat}")
+        click.echo(output)
 
         # Show config file location
         if config_dir:
@@ -421,108 +387,55 @@ def categories_audit(config_dir, cache_dir):
     Useful for identifying category mismatches after backend changes
     or for validating Amazon mode category mappings.
     """
-    from pathlib import Path
-
-    import polars as pl
-
-    from .cache_manager import CacheManager
-    from .categories import get_effective_category_groups
-
-    if config_dir is None:
-        config_dir = str(Path.home() / ".moneyflow")
-
-    if cache_dir is None:
-        cache_dir = str(Path.home() / ".moneyflow" / "cache")
-
-    # Load category structure from config
-    category_groups = get_effective_category_groups(config_dir)
-
-    # Build set of all known categories
-    known_categories = set()
-    for group_name, categories in category_groups.items():
-        known_categories.update(categories)
-
-    click.echo(f"Loaded {len(known_categories)} categories from config")
-    click.echo("Checking cached transaction data...\n")
-
-    # Load encryption key from credentials
-    from .credentials import CredentialManager
-
-    config_path = Path(config_dir) if config_dir else None
-    cred_manager = CredentialManager(config_dir=config_path)
-
-    if not cred_manager.credentials_exist():
-        click.echo("❌ No credentials found. Please run moneyflow first to set up credentials.")
-        return
+    from moneyflow.auditor import AuditError, run_category_audit
 
     try:
-        # Load credentials to get encryption key
-        _, encryption_key = cred_manager.load_credentials()
-    except ValueError:
-        click.echo("❌ Incorrect password!")
-        return
+        unknown_categories, unused_categories, stats = run_category_audit(config_dir, cache_dir)
+
+        click.echo(f"Loaded {stats['known_categories_count']} categories from config")
+        click.echo("Checking cached transaction data...\n")
+
+        # Results
+        click.echo("📊 Audit Results\n")
+        click.echo(f"Total transactions: {stats['total_transactions']:,}")
+        click.echo(f"Unique categories in data: {stats['unique_categories_in_data']}")
+        click.echo(f"Known categories in config: {stats['known_categories_in_config']}\n")
+
+        if unknown_categories:
+            click.echo(
+                f"⚠️  Found {len(unknown_categories)} categories in transactions NOT in config.yaml:\n"
+            )
+            for cat in sorted(unknown_categories.keys()):
+                count = unknown_categories[cat]
+                click.echo(f"  • {cat} ({count:,} transactions)")
+            click.echo()
+        else:
+            click.echo("✅ All transaction categories are defined in config.yaml\n")
+
+        if unused_categories:
+            click.echo(
+                f"ℹ️  Found {len(unused_categories)} categories in config NOT used in transactions:\n"
+            )
+            for cat in sorted(list(unused_categories)[:10]):  # Show first 10
+                click.echo(f"  • {cat}")
+            if len(unused_categories) > 10:
+                click.echo(f"  ... and {len(unused_categories) - 10} more")
+            click.echo()
+
+        # Summary
+        if unknown_categories:
+            click.echo("💡 Action: Unknown categories may indicate:")
+            click.echo("   - New categories added to your backend that haven't synced")
+            click.echo("   - Data quality issues")
+            click.echo("   - Categories that need to be added to config.yaml")
+            click.echo("\n   Restart moneyflow to refresh categories from backend")
+        else:
+            click.echo("✅ Category audit passed - all categories accounted for!")
+
+    except AuditError as e:
+        click.echo(f"❌ {e}")
     except Exception as e:
-        click.echo(f"❌ Failed to load credentials: {e}")
-        return
-
-    # Try to load cached data with encryption key
-    cache_manager = CacheManager(cache_dir=cache_dir, encryption_key=encryption_key)
-    cached_data = cache_manager.load_cache()
-
-    if not cached_data:
-        click.echo("❌ No cached data found.")
-        click.echo("\nRun moneyflow first to create encrypted cache:")
-        click.echo("  $ moneyflow")
-        return
-
-    df, _, _, _ = cached_data
-
-    # Find unique categories in transactions
-    transaction_categories = set(df["category"].unique().to_list())
-
-    # Find categories in transactions but not in config
-    unknown_categories = transaction_categories - known_categories
-
-    # Find categories in config but not in transactions
-    unused_categories = known_categories - transaction_categories
-
-    # Results
-    click.echo("📊 Audit Results\n")
-    click.echo(f"Total transactions: {len(df):,}")
-    click.echo(f"Unique categories in data: {len(transaction_categories)}")
-    click.echo(f"Known categories in config: {len(known_categories)}\n")
-
-    if unknown_categories:
-        click.echo(
-            f"⚠️  Found {len(unknown_categories)} categories in transactions NOT in config.yaml:\n"
-        )
-        for cat in sorted(unknown_categories):
-            # Count how many transactions have this category
-            count = df.filter(pl.col("category") == cat).shape[0]
-            click.echo(f"  • {cat} ({count:,} transactions)")
-        click.echo()
-    else:
-        click.echo("✅ All transaction categories are defined in config.yaml\n")
-
-    if unused_categories:
-        click.echo(
-            f"ℹ️  Found {len(unused_categories)} categories in config NOT used in transactions:\n"
-        )
-        for cat in sorted(list(unused_categories)[:10]):  # Show first 10
-            click.echo(f"  • {cat}")
-        if len(unused_categories) > 10:
-            click.echo(f"  ... and {len(unused_categories) - 10} more")
-        click.echo()
-
-    # Summary
-    if unknown_categories:
-        click.echo("💡 Action: Unknown categories may indicate:")
-        click.echo("   - New categories added to your backend that haven't synced")
-        click.echo("   - Data quality issues")
-        click.echo("   - Categories that need to be added to config.yaml")
-        click.echo("\n   Restart moneyflow to refresh categories from backend")
-    else:
-        click.echo("✅ Category audit passed - all categories accounted for!")
+        click.echo(f"❌ {e}")
 
 
 if __name__ == "__main__":
