@@ -165,9 +165,13 @@ def amazon(ctx, db_path, config_dir):
     # Store backend and profile config in context for subcommands
     ctx.ensure_object(dict)
 
-    backend, cfg_dir, prof_dir = _get_amazon_backend_with_profile_support(
-        db_path=db_path, config_dir=config_dir
-    )
+    try:
+        backend, cfg_dir, prof_dir = _get_amazon_backend_with_profile_support(
+            db_path=db_path, config_dir=config_dir
+        )
+    except Exception as e:
+        click.echo(f"Initialization failed: {e}", err=True)
+        raise click.Abort()
 
     ctx.obj["backend"] = backend
     ctx.obj["config_dir"] = cfg_dir
