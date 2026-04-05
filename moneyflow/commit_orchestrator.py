@@ -93,6 +93,7 @@ def apply_category_edit(
     transaction_id: str,
     new_category_id: str,
     category_name: str,
+    category_group: str,
 ) -> pl.DataFrame:
     """
     Apply category edit to DataFrame.
@@ -102,9 +103,10 @@ def apply_category_edit(
         transaction_id: ID of transaction to update
         new_category_id: New category ID
         category_name: New category name (looked up from categories dict)
+        category_group: New category group (looked up from categories dict)
 
     Returns:
-        Updated DataFrame with category_id and category updated
+        Updated DataFrame with category_id, category, and group updated
 
     Examples:
         >>> df = pl.DataFrame({
@@ -114,10 +116,12 @@ def apply_category_edit(
         ...     "group": ["Old Group"]
         ... })
         >>> updated = apply_category_edit(
-        ...     df, "txn1", "cat2", "New Category"
+        ...     df, "txn1", "cat2", "New Category", "New Group"
         ... )
         >>> updated["category"][0]
         'New Category'
+        >>> updated["group"][0]
+        'New Group'
     """
     return df.with_columns(
         pl.when(pl.col("id") == transaction_id)
@@ -128,7 +132,12 @@ def apply_category_edit(
         pl.when(pl.col("id") == transaction_id)
         .then(pl.lit(category_name))
         .otherwise(pl.col("category"))
-        .alias("category")
+        .alias("category"),
+
+        pl.when(pl.col("id") == transaction_id)
+        .then(pl.lit(category_group))
+        .otherwise(pl.col("group"))
+        .alias("group")
     )
 
 
@@ -210,9 +219,11 @@ def apply_edit_to_dataframe(
                     df, edit.transaction_id, edit.new_value
                 )
         case "category":
-            cat_name = categories.get(edit.new_value, {}).get("name", "Unknown")
+            cat = categories.get(edit.new_value, {})
+            cat_name = cat.get("name", "Unknown")
+            cat_group = cat.get("group", "Unknown")
             return apply_category_edit(
-                df, edit.transaction_id, edit.new_value, cat_name
+                df, edit.transaction_id, edit.new_value, cat_name, cat_group
             )
         case "hide_from_reports":
             return apply_hide_from_reports_edit(

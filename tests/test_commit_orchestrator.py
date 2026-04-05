@@ -184,30 +184,28 @@ class TestApplyCategoryEdit:
         )
 
         updated = apply_category_edit(
-            df, "txn1", "cat3", "New Category"
+            df, "txn1", "cat3", "New Category", "New Group"
         )
 
         assert_cell(updated, "txn1", "category_id", "cat3")
         assert_cell(updated, "txn1", "category", "New Category")
+        assert_cell(updated, "txn1", "group", "New Group")
         # txn2 unchanged
         assert_cell(updated, "txn2", "category_id", "cat2")
         assert_cell(updated, "txn2", "category", "Dining")
+        assert_cell(updated, "txn2", "group", "Food")
 
-    def test_does_not_call_apply_groups_func(self):
-        """Should call apply_groups_func to update groups."""
+    def test_updates_group_based_on_passed_value(self):
+        """Should update group using the value passed into apply_category_edit."""
         df = pl.DataFrame(
             {"id": ["txn1"], "category_id": ["cat1"], "category": ["Old"], "group": ["OldGroup"]}
         )
 
-        def mock_apply_groups(df):
-            # Simulate updating groups based on category
-            return df.with_columns(pl.lit("NewGroup").alias("group"))
-
         updated = apply_category_edit(
-            df, "txn1", "cat2", "New"
+            df, "txn1", "cat2", "New", "NewGroup"
         )
 
-        assert updated["group"][0] == "OldGroup"
+        assert updated["group"][0] == "NewGroup"
 
     def test_preserves_other_columns(self):
         """Should not modify unrelated columns."""
@@ -223,7 +221,7 @@ class TestApplyCategoryEdit:
         )
 
         updated = apply_category_edit(
-            df, "txn1", "cat2", "New"
+            df, "txn1", "cat2", "New", "NewGroup"
         )
 
         assert updated["merchant"][0] == "Amazon"
@@ -303,7 +301,7 @@ class TestApplyEditToDataframe:
         edit = make_edit("txn1", "category", "cat1", "cat2")
 
         updated = apply_edit_to_dataframe(
-            df, edit, categories, noop_apply_groups
+            df, edit, categories
         )
 
         assert updated["category_id"][0] == "cat2"
