@@ -5,6 +5,7 @@ Links Monarch/YNAB transactions to Amazon orders by matching amount and date.
 Searches Amazon profile databases for orders that match a given transaction.
 """
 
+import contextlib
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -212,14 +213,13 @@ class AmazonLinker:
 
         for db_path in databases:
             try:
-                matches = self._search_database(
+                matches = self._find_exact_matches(
                     db_path=db_path,
                     amount=amount,
                     amount_tolerance=amount_tolerance,
                     start_date=start_date,
                     end_date=end_date,
                     txn_date=txn_date,
-                    fuzzy_mode=False,
                 )
                 all_matches.extend(matches)
             except Exception as e:
@@ -230,14 +230,12 @@ class AmazonLinker:
         if not all_matches:
             for db_path in databases:
                 try:
-                    matches = self._search_database(
+                    matches = self._find_fuzzy_matches(
                         db_path=db_path,
                         amount=amount,
-                        amount_tolerance=amount_tolerance,
                         start_date=start_date,
                         end_date=end_date,
                         txn_date=txn_date,
-                        fuzzy_mode=True,
                     )
                     all_matches.extend(matches)
                 except Exception as e:
@@ -277,7 +275,43 @@ class AmazonLinker:
         """Parse a date string to date object."""
         return datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    def _search_database(
+    @contextlib.contextmanager
+    def _get_connection(self, db_path: Path):
+        conn = None
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            with contextlib.closing(conn):
+                yield conn
+        except sqlite3.DatabaseError as e:
+            logger.warning(f"Database error reading {db_path}: {e}")
+            yield None
+
+    def _calculate_confidence(self, days_diff: int, amount_diff: float = 0.0) -> str:
+        """Calculate confidence based on date and amount proximity."""
+        if amount_diff < 0.01 and days_diff <= 2:
+            return "high"
+        return "medium"
+
+    def _get_orders_in_range(self, conn: sqlite3.Connection, start_date: date, end_date: date) -> List[sqlite3.Row]:
+        """Fetch orders within the given date range."""
+        query = """
+            SELECT
+                order_id,
+                MIN(date) as order_date,
+                SUM(amount) as total_amount,
+                GROUP_CONCAT(id) as item_ids
+            FROM transactions
+            WHERE date >= ? AND date <= ?
+            GROUP BY order_id
+        """
+        cursor = conn.execute(
+            query,
+            (start_date.isoformat(), end_date.isoformat()),
+        )
+        return cursor.fetchall()
+
+    def _find_exact_matches(
         self,
         db_path: Path,
         amount: float,
@@ -285,117 +319,87 @@ class AmazonLinker:
         start_date: date,
         end_date: date,
         txn_date: date,
-        fuzzy_mode: bool = False,
     ) -> List[AmazonOrderMatch]:
-        """
-        Search a single Amazon database for matching orders.
-
-        Args:
-            db_path: Path to Amazon database
-            amount: Amount to match
-            amount_tolerance: Amount tolerance
-            start_date: Start of date range
-            end_date: End of date range
-            txn_date: Transaction date (for confidence calculation)
-            fuzzy_mode: If True, use relaxed matching for gift card scenarios
-
-        Returns:
-            List of matching orders from this database
-        """
+        """Search for exact order-level matches in a database."""
         matches = []
         profile_name = db_path.parent.name
 
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+        with self._get_connection(db_path) as conn:
+            if not conn:
+                return []
 
-            # Query to aggregate orders and filter by date range
-            # We'll do amount filtering in Python for flexibility
-            query = """
-                SELECT
-                    order_id,
-                    MIN(date) as order_date,
-                    SUM(amount) as total_amount,
-                    GROUP_CONCAT(id) as item_ids
-                FROM transactions
-                WHERE date >= ? AND date <= ?
-                GROUP BY order_id
-            """
+            rows = self._get_orders_in_range(conn, start_date, end_date)
+            for row in rows:
+                order_total = row["total_amount"]
+                if abs(order_total - amount) > amount_tolerance:
+                    continue
 
-            cursor = conn.execute(
-                query,
-                (start_date.isoformat(), end_date.isoformat()),
-            )
+                items = self._fetch_order_items(conn, row["order_id"])
 
-            for row in cursor:
+                # Determine confidence
+                order_date = self._parse_date(row["order_date"])
+                days_diff = abs((order_date - txn_date).days)
+                amount_diff = abs(order_total - amount)
+
+                confidence = self._calculate_confidence(days_diff, amount_diff)
+
+                match = AmazonOrderMatch(
+                    order_id=row["order_id"],
+                    order_date=row["order_date"],
+                    total_amount=round(order_total, 2),
+                    items=items,
+                    confidence=confidence,
+                    source_profile=profile_name,
+                )
+                matches.append(match)
+
+        return matches
+
+    def _find_fuzzy_matches(
+        self,
+        db_path: Path,
+        amount: float,
+        start_date: date,
+        end_date: date,
+        txn_date: date,
+    ) -> List[AmazonOrderMatch]:
+        """Search for fuzzy order-level matches in a database (e.g. gift card used)."""
+        matches = []
+        profile_name = db_path.parent.name
+
+        with self._get_connection(db_path) as conn:
+            if not conn:
+                return []
+
+            rows = self._get_orders_in_range(conn, start_date, end_date)
+            for row in rows:
                 order_total = row["total_amount"]
 
-                if fuzzy_mode:
-                    # Fuzzy matching only applies to expense transactions.
-                    if amount >= 0 or order_total >= 0:
-                        continue
+                # Fuzzy matching only applies to expense transactions.
+                if amount >= 0 or order_total >= 0:
+                    continue
 
-                    # Fuzzy matching: transaction amount should be less than order
-                    # (gift card covered part of the order)
-                    # For negative amounts: transaction > order_total (less negative)
-                    # e.g., order_total = -50, amount = -40 means $10 gift card used
-                    difference = amount - order_total  # Will be positive if gift card used
+                difference = amount - order_total
 
-                    if difference <= 0:
-                        # Transaction is >= order total, not a gift card scenario
-                        continue
+                if difference <= 0:
+                    continue
 
-                    fuzzy_tolerance = self._calculate_fuzzy_tolerance(order_total)
-                    if difference > fuzzy_tolerance:
-                        # Difference exceeds tolerance
-                        continue
+                fuzzy_tolerance = self._calculate_fuzzy_tolerance(order_total)
+                if difference > fuzzy_tolerance:
+                    continue
 
-                    # Fetch item details for this order
-                    items = self._fetch_order_items(conn, row["order_id"])
+                items = self._fetch_order_items(conn, row["order_id"])
 
-                    match = AmazonOrderMatch(
-                        order_id=row["order_id"],
-                        order_date=row["order_date"],
-                        total_amount=round(order_total, 2),
-                        items=items,
-                        confidence="likely",
-                        source_profile=profile_name,
-                        amount_difference=round(difference, 2),
-                    )
-                    matches.append(match)
-                else:
-                    # Exact matching (original behavior)
-                    if abs(order_total - amount) > amount_tolerance:
-                        continue
-
-                    # Fetch item details for this order
-                    items = self._fetch_order_items(conn, row["order_id"])
-
-                    # Determine confidence
-                    order_date = self._parse_date(row["order_date"])
-                    days_diff = abs((order_date - txn_date).days)
-                    amount_diff = abs(order_total - amount)
-
-                    if amount_diff < 0.01 and days_diff <= 2:
-                        confidence = "high"
-                    else:
-                        confidence = "medium"
-
-                    match = AmazonOrderMatch(
-                        order_id=row["order_id"],
-                        order_date=row["order_date"],
-                        total_amount=round(order_total, 2),
-                        items=items,
-                        confidence=confidence,
-                        source_profile=profile_name,
-                    )
-                    matches.append(match)
-
-            conn.close()
-
-        except sqlite3.DatabaseError as e:
-            logger.warning(f"Database error reading {db_path}: {e}")
-            return []
+                match = AmazonOrderMatch(
+                    order_id=row["order_id"],
+                    order_date=row["order_date"],
+                    total_amount=round(order_total, 2),
+                    items=items,
+                    confidence="likely",
+                    source_profile=profile_name,
+                    amount_difference=round(difference, 2),
+                )
+                matches.append(match)
 
         return matches
 
@@ -420,18 +424,7 @@ class AmazonLinker:
             (order_id,),
         )
 
-        items = []
-        for row in cursor:
-            items.append(
-                {
-                    "name": row["name"],
-                    "amount": row["amount"],
-                    "quantity": row["quantity"],
-                    "asin": row["asin"],
-                }
-            )
-
-        return items
+        return [dict(row) for row in cursor]
 
     def _search_database_items(
         self,
@@ -463,9 +456,9 @@ class AmazonLinker:
         matches = []
         profile_name = db_path.parent.name
 
-        try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
+        with self._get_connection(db_path) as conn:
+            if not conn:
+                return []
 
             # Query individual items (not grouped by order)
             query = """
@@ -491,11 +484,7 @@ class AmazonLinker:
                 item_date = self._parse_date(row["date"])
                 days_diff = abs((item_date - txn_date).days)
 
-                # Determine confidence based on date proximity
-                if days_diff <= 2:
-                    confidence = "high"
-                else:
-                    confidence = "medium"
+                confidence = self._calculate_confidence(days_diff)
 
                 item = {
                     "name": row["name"],
@@ -513,11 +502,5 @@ class AmazonLinker:
                     source_profile=profile_name,
                 )
                 matches.append(match)
-
-            conn.close()
-
-        except sqlite3.DatabaseError as e:
-            logger.warning(f"Database error reading {db_path}: {e}")
-            return []
 
         return matches
