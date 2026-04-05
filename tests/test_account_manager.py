@@ -91,25 +91,25 @@ class TestAccountRegistry:
         """Test creating empty registry."""
         registry = AccountRegistry()
 
-        assert registry.accounts == []
+        assert registry.accounts == {}
         assert registry.last_active_account is None
 
     def test_registry_to_dict(self):
         """Test registry serialization."""
-        accounts = [
-            Account(
+        accounts = {
+            "acc1": Account(
                 id="acc1",
                 name="Account 1",
                 backend_type="monarch",
                 created_at="2025-11-07T12:00:00Z",
             ),
-            Account(
+            "acc2": Account(
                 id="acc2",
                 name="Account 2",
                 backend_type="ynab",
                 created_at="2025-11-07T13:00:00Z",
             ),
-        ]
+        }
         registry = AccountRegistry(accounts=accounts, last_active_account="acc1")
 
         data = registry.to_dict()
@@ -136,7 +136,7 @@ class TestAccountRegistry:
         registry = AccountRegistry.from_dict(data)
 
         assert len(registry.accounts) == 1
-        assert registry.accounts[0].id == "test-account"
+        assert registry.accounts["test-account"].id == "test-account"
         assert registry.last_active_account == "test-account"
 
 
@@ -173,27 +173,27 @@ class TestLoadSaveRegistry:
         registry = account_manager.load_registry()
 
         assert isinstance(registry, AccountRegistry)
-        assert registry.accounts == []
+        assert registry.accounts == {}
         assert registry.last_active_account is None
 
     def test_save_and_load_registry(self, account_manager):
         """Test saving and loading registry."""
         # Create registry with accounts
-        accounts = [
-            Account(
+        accounts = {
+            "monarch-test": Account(
                 id="monarch-test",
                 name="Monarch Test",
                 backend_type="monarch",
                 created_at="2025-11-07T12:00:00Z",
             ),
-            Account(
+            "ynab-test": Account(
                 id="ynab-test",
                 name="YNAB Test",
                 backend_type="ynab",
                 created_at="2025-11-07T13:00:00Z",
                 last_used="2025-11-07T14:00:00Z",
             ),
-        ]
+        }
         registry = AccountRegistry(accounts=accounts, last_active_account="ynab-test")
 
         # Save registry
@@ -207,9 +207,9 @@ class TestLoadSaveRegistry:
         loaded = account_manager.load_registry()
 
         assert len(loaded.accounts) == 2
-        assert loaded.accounts[0].id == "monarch-test"
-        assert loaded.accounts[1].id == "ynab-test"
-        assert loaded.accounts[1].last_used == "2025-11-07T14:00:00Z"
+        assert loaded.accounts["monarch-test"].id == "monarch-test"
+        assert loaded.accounts["ynab-test"].id == "ynab-test"
+        assert loaded.accounts["ynab-test"].last_used == "2025-11-07T14:00:00Z"
         assert loaded.last_active_account == "ynab-test"
 
     def test_load_registry_corrupt_file(self, account_manager):
@@ -222,7 +222,7 @@ class TestLoadSaveRegistry:
         registry = account_manager.load_registry()
 
         assert isinstance(registry, AccountRegistry)
-        assert registry.accounts == []
+        assert registry.accounts == {}
 
 
 class TestGenerateAccountId:
@@ -291,7 +291,7 @@ class TestCreateAccount:
         # Verify added to registry
         registry = account_manager.load_registry()
         assert len(registry.accounts) == 1
-        assert registry.accounts[0].id == "monarch-personal"
+        assert registry.accounts["monarch-personal"].id == "monarch-personal"
         assert registry.last_active_account == "monarch-personal"
 
     def test_create_account_with_custom_id(self, account_manager):

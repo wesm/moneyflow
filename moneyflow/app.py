@@ -691,10 +691,8 @@ class MoneyflowApp(App):
             if budget_id:
                 account.budget_id = budget_id
                 registry = account_manager.load_registry()
-                for i, acc in enumerate(registry.accounts):
-                    if acc.id == account.id:
-                        registry.accounts[i] = account
-                        break
+                if account.id in registry.accounts:
+                    registry.accounts[account.id] = account
                 account_manager.save_registry(registry)
 
             return budget_id

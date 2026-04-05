@@ -103,6 +103,9 @@ class TestMigrateLegacyCredentials:
 
         assert migrated is True
 
+        # Reload registry cache
+        account_manager._registry = account_manager.load_registry()
+
         # Verify default account was created
         accounts = account_manager.list_accounts()
 
@@ -309,7 +312,8 @@ class TestMigrateLegacyAmazonDb:
 
         assert migrated is True
 
-        # Verify amazon account was created
+        # Reload registry to get changes made by migration
+        account_manager._registry = account_manager.load_registry()
         accounts = account_manager.list_accounts()
 
         assert len(accounts) == 1
@@ -387,6 +391,9 @@ class TestMigrateLegacyAmazonDb:
         result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
 
         assert result is True
+
+        # Reload registry cache
+        account_manager._registry = account_manager.load_registry()
 
         # Should now have 2 accounts
         accounts = account_manager.list_accounts()

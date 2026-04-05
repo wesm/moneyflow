@@ -15,12 +15,14 @@ Account metadata is stored in ~/.moneyflow/accounts.json
 """
 
 import json
+import logging
 import re
+import shutil
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 BackendType = Literal["monarch", "ynab", "amazon", "demo"]
 
@@ -40,9 +42,9 @@ class Account:
     last_used: Optional[str] = None  # ISO timestamp when last accessed
     budget_id: Optional[str] = None  # For YNAB: the specific budget ID to use
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result = {
+        result: Dict[str, Any] = {
             "id": self.id,
             "name": self.name,
             "backend_type": self.backend_type,
@@ -54,7 +56,7 @@ class Account:
         return result
 
     @staticmethod
-    def from_dict(data: Dict) -> "Account":
+    def from_dict(data: Dict[str, Any]) -> "Account":
         """Create Account from dictionary."""
         return Account(
             id=data["id"],
@@ -74,21 +76,25 @@ class AccountRegistry:
     Stored in ~/.moneyflow/accounts.json
     """
 
-    accounts: List[Account] = dataclass_field(default_factory=list)
+    accounts: Dict[str, Account] = dataclass_field(default_factory=dict)
     last_active_account: Optional[str] = None  # Account ID
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            "accounts": [acc.to_dict() for acc in self.accounts],
+            "accounts": [acc.to_dict() for acc in self.accounts.values()],
             "last_active_account": self.last_active_account,
         }
 
     @staticmethod
-    def from_dict(data: Dict) -> "AccountRegistry":
+    def from_dict(data: Dict[str, Any]) -> "AccountRegistry":
         """Create AccountRegistry from dictionary."""
+        accounts = {
+            acc_data["id"]: Account.from_dict(acc_data)
+            for acc_data in data.get("accounts", [])
+        }
         return AccountRegistry(
-            accounts=[Account.from_dict(acc) for acc in data.get("accounts", [])],
+            accounts=accounts,
             last_active_account=data.get("last_active_account"),
         )
 
@@ -118,6 +124,8 @@ class AccountManager:
         # Create directories if they don't exist
         self.config_dir.mkdir(mode=0o700, exist_ok=True)
         self.profiles_dir.mkdir(mode=0o700, exist_ok=True)
+        
+        self._registry = self.load_registry()
 
     def load_registry(self) -> AccountRegistry:
         """
@@ -135,20 +143,21 @@ class AccountManager:
             return AccountRegistry.from_dict(data)
         except (json.JSONDecodeError, KeyError) as e:
             # Corrupt registry - start fresh but log warning
-            import logging
-
             logging.warning(f"Corrupt accounts.json, starting fresh: {e}")
             return AccountRegistry()
 
-    def save_registry(self, registry: AccountRegistry) -> None:
+    def save_registry(self, registry: Optional[AccountRegistry] = None) -> None:
         """
         Save account registry to disk.
 
         Args:
-            registry: AccountRegistry to save
+            registry: AccountRegistry to save (optional, uses self._registry if not provided)
         """
+        if registry is not None:
+            self._registry = registry
+
         with open(self.accounts_file, "w") as f:
-            json.dump(registry.to_dict(), f, indent=2)
+            json.dump(self._registry.to_dict(), f, indent=2)
 
         # Ensure only user can read
         self.accounts_file.chmod(0o600)
@@ -163,12 +172,6 @@ class AccountManager:
 
         Returns:
             Account ID (e.g., "monarch-personal", "ynab-budget-2025")
-
-        Examples:
-            >>> AccountManager.generate_account_id("monarch", "Personal")
-            'monarch-personal'
-            >>> AccountManager.generate_account_id("ynab", "Budget 2025")
-            'ynab-budget-2025'
         """
         # Normalize account name to lowercase, replace spaces/special chars with hyphens
         normalized = account_name.lower()
@@ -178,16 +181,12 @@ class AccountManager:
         # Combine backend type + normalized name
         account_id = f"{backend_type}-{normalized}"
 
-        # Ensure uniqueness by appending number if needed
-        registry = self.load_registry()
-        existing_ids = {acc.id for acc in registry.accounts}
-
-        if account_id not in existing_ids:
+        if account_id not in self._registry.accounts:
             return account_id
 
         # Append number to make unique
         counter = 2
-        while f"{account_id}-{counter}" in existing_ids:
+        while f"{account_id}-{counter}" in self._registry.accounts:
             counter += 1
 
         return f"{account_id}-{counter}"
@@ -201,28 +200,13 @@ class AccountManager:
     ) -> Account:
         """
         Create a new account profile.
-
-        Args:
-            name: User-friendly display name
-            backend_type: Backend type (monarch, ynab, amazon, demo)
-            account_id: Optional custom ID (generated if not provided)
-            budget_id: Optional budget ID for YNAB accounts
-
-        Returns:
-            Created Account object
-
-        Raises:
-            ValueError: If account ID already exists
         """
-        # Load current registry
-        registry = self.load_registry()
-
         # Generate ID if not provided
         if account_id is None:
             account_id = self.generate_account_id(backend_type, name)
 
         # Check for duplicates
-        if any(acc.id == account_id for acc in registry.accounts):
+        if account_id in self._registry.accounts:
             raise ValueError(f"Account ID '{account_id}' already exists")
 
         # Create profile directory
@@ -240,47 +224,32 @@ class AccountManager:
         )
 
         # Add to registry and save
-        registry.accounts.append(account)
-        registry.last_active_account = account_id
-        self.save_registry(registry)
+        self._registry.accounts[account_id] = account
+        self._registry.last_active_account = account_id
+        self.save_registry()
 
         return account
 
     def delete_account(self, account_id: str) -> bool:
         """
         Delete an account profile and all its data.
-
-        Args:
-            account_id: Account ID to delete
-
-        Returns:
-            True if deleted, False if account not found
-
-        Warning:
-            This permanently deletes credentials, cache, and merchant data!
         """
-        registry = self.load_registry()
-
-        # Find account
-        account = next((acc for acc in registry.accounts if acc.id == account_id), None)
-        if account is None:
+        if account_id not in self._registry.accounts:
             return False
 
         # Remove from registry
-        registry.accounts = [acc for acc in registry.accounts if acc.id != account_id]
+        del self._registry.accounts[account_id]
 
         # Update last_active if we deleted it
-        if registry.last_active_account == account_id:
+        if self._registry.last_active_account == account_id:
             # Set to first remaining account or None
-            registry.last_active_account = registry.accounts[0].id if registry.accounts else None
+            self._registry.last_active_account = next(iter(self._registry.accounts)) if self._registry.accounts else None
 
-        self.save_registry(registry)
+        self.save_registry()
 
         # Delete profile directory and all contents
         profile_dir = self.get_profile_dir(account_id)
         if profile_dir.exists():
-            import shutil
-
             shutil.rmtree(profile_dir)
 
         return True
@@ -288,79 +257,48 @@ class AccountManager:
     def get_account(self, account_id: str) -> Optional[Account]:
         """
         Get account by ID.
-
-        Args:
-            account_id: Account ID to retrieve
-
-        Returns:
-            Account object or None if not found
         """
-        registry = self.load_registry()
-        return next((acc for acc in registry.accounts if acc.id == account_id), None)
+        return self._registry.accounts.get(account_id)
 
     def list_accounts(self) -> List[Account]:
         """
         List all configured accounts.
-
-        Returns:
-            List of Account objects sorted by last_used (most recent first)
         """
-        registry = self.load_registry()
-
         # Sort by last_used (None values go to end)
         def sort_key(acc: Account):
             if acc.last_used is None:
                 return ""  # Empty string sorts before ISO timestamps
             return acc.last_used
 
-        return sorted(registry.accounts, key=sort_key, reverse=True)
+        return sorted(self._registry.accounts.values(), key=sort_key, reverse=True)
 
     def update_last_used(self, account_id: str) -> None:
         """
         Update last_used timestamp for an account.
-
-        Args:
-            account_id: Account ID to update
         """
-        registry = self.load_registry()
+        account = self._registry.accounts.get(account_id)
+        if account:
+            account.last_used = datetime.now().isoformat()
 
-        # Find and update account
-        for account in registry.accounts:
-            if account.id == account_id:
-                account.last_used = datetime.now().isoformat()
-                break
-
-        # Update last active
-        registry.last_active_account = account_id
-
-        self.save_registry(registry)
+            # Update last active
+            self._registry.last_active_account = account_id
+            self.save_registry()
 
     def get_profile_dir(self, account_id: str) -> Path:
         """
         Get profile directory path for an account.
-
-        Args:
-            account_id: Account ID
-
-        Returns:
-            Path to profile directory (may not exist yet)
         """
         return self.profiles_dir / account_id
 
     def get_last_active_account(self) -> Optional[Account]:
         """
         Get the last active account.
-
-        Returns:
-            Account object or None if no accounts configured
         """
-        registry = self.load_registry()
-
-        if registry.last_active_account:
-            return self.get_account(registry.last_active_account)
+        if self._registry.last_active_account:
+            return self.get_account(self._registry.last_active_account)
 
         # Fall back to first account if no last_active set
-        if registry.accounts:
-            return registry.accounts[0]
+        if self._registry.accounts:
+            return next(iter(self._registry.accounts.values()))
 
         return None
