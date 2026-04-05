@@ -8,9 +8,9 @@ Each function/constant provides a tuple of (message, severity, timeout) that can
 unpacked and passed to the Textual notify() method.
 """
 
-from typing import Literal
 
-NotificationSeverity = Literal["information", "warning", "error"]
+from moneyflow.view_interface import NotificationSeverity
+
 NotificationTuple = tuple[str, NotificationSeverity, int]
 
 # ==================== Commit & Save ====================

@@ -7,12 +7,12 @@ dependencies.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import List
 
 from textual.message import Message
 from textual.widgets import DataTable, Static
 
-from .view_interface import IViewPresenter, NotificationSeverity
+from .view_interface import IViewPresenter, NotificationSeverity, TableColumn
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class TextualViewPresenter(IViewPresenter):
         self.app = app
 
     def update_table(
-        self, columns: List[Dict[str, Any]], rows: List[tuple], force_rebuild: bool = True
+        self, columns: List[TableColumn], rows: List[tuple], force_rebuild: bool = True
     ) -> None:
         """Update the main data table."""
         table = self.app.query_one("#data-table", DataTable)
@@ -109,7 +109,3 @@ class TextualViewPresenter(IViewPresenter):
     def on_table_updated(self) -> None:
         """Called after table update to refresh Amazon column if needed."""
         self.app.post_message(TableUpdated())
-
-    def get_amazon_cache(self) -> dict[str, str | None] | None:
-        """Get the Amazon match cache from the app."""
-        return self.app.amazon_match_cache

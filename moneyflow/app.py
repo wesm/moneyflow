@@ -818,13 +818,6 @@ class MoneyflowApp(App):
         # which triggers on_table_updated() automatically via message
         self.controller.refresh_view(force_rebuild=force_rebuild)
 
-    @property
-    def amazon_match_cache(self) -> dict[str, str | None]:
-        """Get the Amazon match cache from the presentation layer."""
-        if hasattr(self, "amazon_presentation"):
-            return getattr(self.amazon_presentation, "_cache", {})
-        return {}
-
     def on_table_updated(self, event) -> None:
         """
         Handle Amazon column lazy loading after a table update.

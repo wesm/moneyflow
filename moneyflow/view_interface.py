@@ -12,9 +12,19 @@ This enables:
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Literal, Optional
+from enum import Enum
+from typing import Any, Dict, List, Literal, TypedDict
 
-NotificationSeverity = Literal["information", "warning", "error"]
+class NotificationSeverity(str, Enum):
+    INFO = "information"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class TableColumn(TypedDict):
+    label: str
+    key: str
+    width: int
 
 
 class IViewPresenter(ABC):
@@ -28,7 +38,7 @@ class IViewPresenter(ABC):
 
     @abstractmethod
     def update_table(
-        self, columns: List[Dict[str, Any]], rows: List[tuple], force_rebuild: bool = True
+        self, columns: List[TableColumn], rows: List[tuple], force_rebuild: bool = True
     ) -> None:
         """
         Update the main data table.
@@ -47,7 +57,7 @@ class IViewPresenter(ABC):
 
     @abstractmethod
     def show_notification(
-        self, message: str, severity: NotificationSeverity = "information", timeout: int = 3
+        self, message: str, severity: NotificationSeverity = NotificationSeverity.INFO, timeout: int = 3
     ) -> None:
         """
         Show a notification to the user.
@@ -79,21 +89,12 @@ class IViewPresenter(ABC):
         """Update pending changes indicator (e.g., '⚠ 5 pending change(s)')."""
         pass
 
+    @abstractmethod
     def on_table_updated(self) -> None:
         """
         Called after the table has been updated.
 
         This hook allows the UI to perform post-update actions like
-        refreshing lazy-loaded content. Default implementation does nothing.
+        refreshing lazy-loaded content.
         """
         pass
-
-    def get_amazon_cache(self) -> Optional[dict[str, Optional[str]]]:
-        """
-        Get the Amazon match cache for use during row formatting.
-
-        Returns:
-            Cache dict mapping transaction ID to match status string,
-            or None if no cache is available.
-        """
-        return None

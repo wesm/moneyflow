@@ -134,6 +134,7 @@ class AppController:
         # Amazon linker for checking if transactions are Amazon-filtered
         config_dir = Path.home() / ".moneyflow"
         self._amazon_linker = AmazonLinker(config_dir)
+        self.amazon_match_cache: dict[str, Optional[str]] = {}
 
         # Track if current view shows Amazon column
         self._showing_amazon_column = False
@@ -409,8 +410,8 @@ class AppController:
         # Check if we should show Amazon column
         self._showing_amazon_column = self._is_amazon_filtered_view(txns)
 
-        # Get Amazon cache from view to avoid "..." flash for cached results
-        amazon_cache = self.view.get_amazon_cache() if self._showing_amazon_column else None
+        # Get Amazon cache to avoid "..." flash for cached results
+        amazon_cache = self.amazon_match_cache if self._showing_amazon_column else None
 
         # Determine if drilled into a specific field (for shrink-to-fit column width)
         # Note: group doesn't have its own column, so we don't shrink-to-fit for it

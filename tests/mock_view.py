@@ -7,7 +7,7 @@ controller calls the right view methods with the right arguments.
 
 from typing import Any, Dict, List, Optional
 
-from moneyflow.view_interface import IViewPresenter, NotificationSeverity
+from moneyflow.view_interface import IViewPresenter, NotificationSeverity, TableColumn
 
 
 class MockViewPresenter(IViewPresenter):
@@ -28,7 +28,7 @@ class MockViewPresenter(IViewPresenter):
         self.pending_changes = []  # List of pending change counts
 
     def update_table(
-        self, columns: List[Dict[str, Any]], rows: List[tuple], force_rebuild: bool = True
+        self, columns: List[TableColumn], rows: List[tuple], force_rebuild: bool = True
     ) -> None:
         """Record table update."""
         self.table_updates.append(
@@ -66,10 +66,6 @@ class MockViewPresenter(IViewPresenter):
     def on_table_updated(self) -> None:
         """No-op for mock - the real implementation triggers Amazon column refresh."""
         pass
-
-    def get_amazon_cache(self) -> Optional[dict[str, Optional[str]]]:
-        """Return None - mock doesn't have Amazon cache."""
-        return None
 
     # Helper methods for test assertions
 
