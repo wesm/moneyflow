@@ -815,14 +815,21 @@ class MoneyflowApp(App):
 
         # Delegate to controller - it handles all the business logic
         # Note: controller.refresh_view() will call view.on_table_updated()
-        # which triggers handle_amazon_column_refresh() automatically
+        # which triggers on_table_updated() automatically via message
         self.controller.refresh_view(force_rebuild=force_rebuild)
 
-    def handle_amazon_column_refresh(self) -> None:
+    @property
+    def amazon_match_cache(self) -> dict[str, str | None]:
+        """Get the Amazon match cache from the presentation layer."""
+        if hasattr(self, "amazon_presentation"):
+            return getattr(self.amazon_presentation, "_cache", {})
+        return {}
+
+    def on_table_updated(self, event) -> None:
         """
         Handle Amazon column lazy loading after a table update.
 
-        Called by TextualViewPresenter.on_table_updated() after the controller
+        Called by TextualViewPresenter posting TableUpdated message after the controller
         updates the table. This ensures Amazon match data is loaded regardless
         of whether refresh_view() was called from the app or directly from
         the controller (e.g., after a commit).
