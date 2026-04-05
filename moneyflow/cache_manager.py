@@ -192,6 +192,7 @@ class CacheManager:
 
         # Storage setup
         self.is_encrypted = encryption_key is not None
+        self._encryption_key = encryption_key
         if self.is_encrypted:
             self.storage = EncryptedStorage(encryption_key)
             self.hot_transactions_file = self.cache_dir / "hot_transactions.parquet.enc"
@@ -209,16 +210,31 @@ class CacheManager:
         # Unencrypted metadata for fast validation
         self.metadata_file = self.cache_dir / "cache_metadata.json"
 
+    @property
+    def encryption_key(self) -> Optional[bytes]:
+        """Backward compatibility: Get the encryption key if encrypted."""
+        return self._encryption_key
+
+    @property
+    def fernet(self) -> Optional[Any]:
+        """Backward compatibility: Get the Fernet cipher if encrypted."""
+        if self.is_encrypted and hasattr(self.storage, "fernet"):
+            return getattr(self.storage, "fernet")
+        return None
+
     def _get_boundary_date(self) -> date:
         """Get the boundary date between hot and cold cache (90 days ago)."""
         return date.today() - timedelta(days=self.HOT_WINDOW_DAYS)
 
     def _get_safe_metadata(self) -> Dict[str, Any]:
-        """Safely load metadata, returning default if missing or invalid."""
+        """Safely load metadata, returning empty dict if missing or invalid."""
         try:
-            return self.load_metadata()
+            metadata = self.load_metadata()
+            if not isinstance(metadata, dict):
+                return {}
+            return metadata
         except (FileNotFoundError, json.JSONDecodeError):
-            return {"version": self.CACHE_VERSION}
+            return {}
 
     def get_hot_refresh_date_range(self) -> tuple[str, str]:
         """Get the date range for refreshing the hot cache tier.

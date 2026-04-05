@@ -1410,6 +1410,21 @@ class TestEdgeCases:
         result = cache_manager.load_cache()
         assert result is None
 
+    def test_malformed_metadata_returns_empty(
+        self, populated_cache_manager, sample_categories, sample_category_groups
+    ):
+        """Test that malformed metadata (e.g. valid JSON array instead of dict) returns empty/clears cache."""
+        cache_manager, _ = populated_cache_manager
+
+        # Write valid JSON but malformed type
+        with open(cache_manager.metadata_file, "w") as f:
+            f.write("[]")
+
+        result = cache_manager.load_cache()
+        # Cache should be cleared and return None
+        assert result is None
+        assert not cache_manager.metadata_file.exists()
+
 
 class TestCachePersistenceAfterEdits:
     """
