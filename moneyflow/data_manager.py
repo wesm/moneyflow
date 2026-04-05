@@ -204,6 +204,10 @@ class DataManager:
 
         return merchants
 
+    async def initialize_merchants(self, force: bool = False) -> None:
+        """Initialize the merchant cache list."""
+        self.all_merchants = await self.refresh_merchant_cache(force=force)
+
     def get_all_merchants_for_autocomplete(self) -> List[str]:
         """
         Get merged list of cached merchants + merchants from loaded transactions.
