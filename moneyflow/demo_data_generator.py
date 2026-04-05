@@ -16,6 +16,16 @@ from moneyflow.categories import DEFAULT_CATEGORY_GROUPS
 class DemoDataGenerator:
     """Generate realistic synthetic financial data."""
 
+    ACCOUNT_MAP = {
+        "Chase Checking": {"id": "acc_chase_checking", "displayName": "Chase Checking"},
+        "Chase Savings": {"id": "acc_chase_savings", "displayName": "Chase Savings"},
+        "Chase Sapphire Reserve": {
+            "id": "acc_chase_sapphire",
+            "displayName": "Chase Sapphire Reserve",
+        },
+        "Amex Platinum": {"id": "acc_amex_platinum", "displayName": "Amex Platinum"},
+    }
+
     def __init__(self, start_year: int = 2023, years: int = 3, seed: int = 42):
         """
         Initialize data generator.
@@ -29,6 +39,7 @@ class DemoDataGenerator:
         self.years = years
         random.seed(seed)
         self.transaction_counter = 1000
+        self.category_map = {}
 
     def generate_full_year(self) -> tuple[List[Dict], List[Dict], List[Dict]]:
         """
@@ -193,6 +204,7 @@ class DemoDataGenerator:
                     {"id": cat_id, "name": cat_name, "group": {"id": group_id, "type": group_type}}
                 )
 
+        self.category_map = {cat["id"]: cat["name"] for cat in base_categories}
         return base_categories
 
     def _generate_transactions(self) -> List[Dict]:
@@ -376,140 +388,106 @@ class DemoDataGenerator:
 
         return transactions
 
-    def _generate_groceries(self, year: int, month: int) -> List[Dict]:
-        """Generate grocery shopping transactions."""
+    def _generate_random_transactions(
+        self,
+        year: int,
+        month: int,
+        count_range: tuple[int, int],
+        merchants: List[str],
+        amount_range: tuple[float, float],
+        category_id: str,
+        accounts: List[str],
+    ) -> List[Dict]:
+        """Generate random transactions based on ranges."""
         transactions = []
-
-        # 8-12 grocery trips per month
-        num_trips = random.randint(8, 12)
-        grocery_stores = [
-            "Whole Foods Market",
-            "WHOLE FOODS MARKET #123",  # Name variation for testing
-            "Trader Joe's",
-            "Safeway",
-        ]
-
-        for _ in range(num_trips):
-            day = random.randint(1, 28)
-            store = random.choice(grocery_stores)
-            amount = -random.uniform(60, 180)
-
+        for _ in range(random.randint(*count_range)):
             transactions.append(
                 self._create_transaction(
                     year,
                     month,
-                    day,
-                    amount=amount,
-                    merchant=store,
-                    category_id="cat_groceries",
-                    account=random.choice(["Chase Checking", "Chase Sapphire Reserve"]),
+                    random.randint(1, 28),
+                    amount=-random.uniform(*amount_range),
+                    merchant=random.choice(merchants),
+                    category_id=category_id,
+                    account=random.choice(accounts),
                 )
             )
-
         return transactions
+
+    def _generate_groceries(self, year: int, month: int) -> List[Dict]:
+        """Generate grocery shopping transactions."""
+        return self._generate_random_transactions(
+            year,
+            month,
+            (8, 12),
+            ["Whole Foods Market", "WHOLE FOODS MARKET #123", "Trader Joe's", "Safeway"],
+            (60.0, 180.0),
+            "cat_groceries",
+            ["Chase Checking", "Chase Sapphire Reserve"],
+        )
 
     def _generate_restaurants(self, year: int, month: int) -> List[Dict]:
         """Generate restaurant transactions."""
-        transactions = []
-
-        # 12-18 restaurant visits per month
-        num_visits = random.randint(12, 18)
-        restaurants = [
-            "Chipotle Mexican Grill",
-            "Shake Shack",
-            "The French Laundry",
-            "Local Bistro",
-            "Sushi Bar",
-            "Italian Restaurant",
-            "Thai Kitchen",
-        ]
-
-        for _ in range(num_visits):
-            day = random.randint(1, 28)
-            restaurant = random.choice(restaurants)
-            # Weekend dinners more expensive
-            if day % 7 in [5, 6]:  # Rough weekend approximation
-                amount = -random.uniform(60, 150)
-            else:
-                amount = -random.uniform(25, 80)
-
-            transactions.append(
-                self._create_transaction(
-                    year,
-                    month,
-                    day,
-                    amount=amount,
-                    merchant=restaurant,
-                    category_id="cat_restaurants",
-                    account="Chase Sapphire Reserve",  # Get points on dining
-                )
-            )
-
-        return transactions
+        # Weekend logic simplified by blending average amount range across all days
+        return self._generate_random_transactions(
+            year,
+            month,
+            (12, 18),
+            [
+                "Chipotle Mexican Grill",
+                "Shake Shack",
+                "The French Laundry",
+                "Local Bistro",
+                "Sushi Bar",
+                "Italian Restaurant",
+                "Thai Kitchen",
+            ],
+            (25.0, 100.0),
+            "cat_restaurants",
+            ["Chase Sapphire Reserve"],
+        )
 
     def _generate_coffee(self, year: int, month: int) -> List[Dict]:
         """Generate coffee shop transactions."""
-        transactions = []
-
-        # 15-25 coffee purchases per month
-        num_visits = random.randint(15, 25)
-        coffee_shops = [
-            "Starbucks",
-            "STARBUCKS #1234",  # Name variation
-            "Blue Bottle Coffee",
-            "Local Coffee Shop",
-            "Peet's Coffee",
-        ]
-
-        for _ in range(num_visits):
-            day = random.randint(1, 28)
-            shop = random.choice(coffee_shops)
-            amount = -random.uniform(4.50, 12.00)
-
-            transactions.append(
-                self._create_transaction(
-                    year,
-                    month,
-                    day,
-                    amount=amount,
-                    merchant=shop,
-                    category_id="cat_coffee",
-                    account=random.choice(["Chase Checking", "Chase Sapphire Reserve"]),
-                )
-            )
-
-        return transactions
+        return self._generate_random_transactions(
+            year,
+            month,
+            (15, 25),
+            [
+                "Starbucks",
+                "STARBUCKS #1234",
+                "Blue Bottle Coffee",
+                "Local Coffee Shop",
+                "Peet's Coffee",
+            ],
+            (4.50, 12.00),
+            "cat_coffee",
+            ["Chase Checking", "Chase Sapphire Reserve"],
+        )
 
     def _generate_gas(self, year: int, month: int) -> List[Dict]:
         """Generate gas station transactions."""
-        transactions = []
+        return self._generate_random_transactions(
+            year,
+            month,
+            (4, 6),
+            ["Shell", "Chevron", "76 Gas Station"],
+            (45.0, 75.0),
+            "cat_gas",
+            ["Chase Sapphire Reserve"],
+        )
 
-        # 4-6 fillups per month
-        num_fillups = random.randint(4, 6)
-        gas_stations = [
-            "Shell",
-            "Chevron",
-            "76 Gas Station",
-        ]
-
-        for _ in range(num_fillups):
-            day = random.randint(1, 28)
-            station = random.choice(gas_stations)
-            amount = -random.uniform(45, 75)
-
-            transactions.append(
-                self._create_transaction(
-                    year,
-                    month,
-                    day,
-                    amount=amount,
-                    merchant=station,
-                    category_id="cat_gas",
-                    account="Chase Sapphire Reserve",
-                )
-            )
-
-        return transactions
+    def _generate_entertainment(self, year: int, month: int) -> List[Dict]:
+        """Generate entertainment transactions."""
+        return self._generate_random_transactions(
+            year,
+            month,
+            (2, 5),
+            ["AMC Theaters", "Concert Venue", "Museum", "Theater", "Sports Event"],
+            (30.0, 200.0),
+            "cat_streaming",
+            ["Chase Sapphire Reserve"],
+        )
 
     def _generate_amazon(self, year: int, month: int) -> List[Dict]:
         """Generate Amazon purchases with name variations."""
@@ -600,39 +578,6 @@ class DemoDataGenerator:
                     merchant=store,
                     category_id=category_id,
                     account=random.choice(["Chase Sapphire Reserve", "Amex Platinum"]),
-                )
-            )
-
-        return transactions
-
-    def _generate_entertainment(self, year: int, month: int) -> List[Dict]:
-        """Generate entertainment transactions."""
-        transactions = []
-
-        # 2-5 entertainment expenses per month
-        num_events = random.randint(2, 5)
-        venues = [
-            "AMC Theaters",
-            "Concert Venue",
-            "Museum",
-            "Theater",
-            "Sports Event",
-        ]
-
-        for _ in range(num_events):
-            day = random.randint(1, 28)
-            venue = random.choice(venues)
-            amount = -random.uniform(30, 200)
-
-            transactions.append(
-                self._create_transaction(
-                    year,
-                    month,
-                    day,
-                    amount=amount,
-                    merchant=venue,
-                    category_id="cat_streaming",
-                    account="Chase Sapphire Reserve",
                 )
             )
 
@@ -733,21 +678,10 @@ class DemoDataGenerator:
         """Create a single transaction."""
         txn_id = self._generate_id()
 
-        # Map account name to ID
-        account_map = {
-            "Chase Checking": {"id": "acc_chase_checking", "displayName": "Chase Checking"},
-            "Chase Savings": {"id": "acc_chase_savings", "displayName": "Chase Savings"},
-            "Chase Sapphire Reserve": {
-                "id": "acc_chase_sapphire",
-                "displayName": "Chase Sapphire Reserve",
-            },
-            "Amex Platinum": {"id": "acc_amex_platinum", "displayName": "Amex Platinum"},
-        }
+        account_info = self.ACCOUNT_MAP.get(account, {"id": "acc_unknown", "displayName": account})
 
-        account_info = account_map.get(account, {"id": "acc_unknown", "displayName": account})
-
-        # Find category name from ID
-        category_names = {
+        # Fallback category names just in case category_map is not populated
+        fallback_names = {
             "cat_groceries": "Groceries",
             "cat_restaurants": "Restaurants & Bars",
             "cat_coffee": "Coffee Shops",
@@ -768,6 +702,10 @@ class DemoDataGenerator:
             "cat_transfer": "Transfer",
         }
 
+        category_name = getattr(self, "category_map", {}).get(
+            category_id, fallback_names.get(category_id, "Uncategorized")
+        )
+
         return {
             "id": txn_id,
             "date": f"{year}-{month:02d}-{min(day, 28):02d}",
@@ -778,7 +716,7 @@ class DemoDataGenerator:
             },
             "category": {
                 "id": category_id,
-                "name": category_names.get(category_id, "Uncategorized"),
+                "name": category_name,
             },
             "account": account_info,
             "notes": "",
@@ -867,6 +805,90 @@ DEMO_AMAZON_PRODUCTS = [
 ]
 
 
+def _create_exact_match(order_id: str, txn: Dict) -> Dict:
+    product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+    return {
+        "order_id": order_id,
+        "date": txn["date"],
+        "items": [
+            {
+                "name": product_name,
+                "amount": -abs(txn["amount"]),
+                "quantity": 1,
+                "asin": asin,
+            }
+        ],
+    }
+
+
+def _create_fuzzy_match(order_id: str, txn: Dict) -> Dict:
+    gift_card_percent = random.uniform(0.05, 0.12)
+    order_total = abs(txn["amount"]) / (1 - gift_card_percent)
+    product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+    return {
+        "order_id": order_id,
+        "date": txn["date"],
+        "items": [
+            {
+                "name": product_name,
+                "amount": round(-order_total, 2),
+                "quantity": 1,
+                "asin": asin,
+            }
+        ],
+    }
+
+
+def _create_multi_item_match(order_id: str, txn: Dict) -> Dict:
+    num_items = random.randint(2, 3)
+    remaining = abs(txn["amount"])
+    items = []
+    for i in range(num_items):
+        product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+        if i == num_items - 1:
+            item_amount = remaining
+        else:
+            item_amount = round(remaining * random.uniform(0.3, 0.5), 2)
+            remaining -= item_amount
+        items.append(
+            {
+                "name": product_name,
+                "amount": round(-item_amount, 2),
+                "quantity": 1,
+                "asin": asin,
+            }
+        )
+    return {
+        "order_id": order_id,
+        "date": txn["date"],
+        "items": items,
+    }
+
+
+def _create_item_level_match(order_id: str, txn: Dict) -> Dict:
+    num_items = random.randint(2, 4)
+    items = []
+    for i in range(num_items):
+        product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
+        if i == 0:
+            item_amount = abs(txn["amount"])
+        else:
+            item_amount = round(random.uniform(15, 100), 2)
+        items.append(
+            {
+                "name": product_name,
+                "amount": round(-item_amount, 2),
+                "quantity": 1,
+                "asin": asin,
+            }
+        )
+    return {
+        "order_id": order_id,
+        "date": txn["date"],
+        "items": items,
+    }
+
+
 def generate_demo_amazon_orders(transactions: List[Dict]) -> List[Dict]:
     """
     Generate Amazon orders that match a subset of demo transactions.
@@ -915,114 +937,17 @@ def generate_demo_amazon_orders(transactions: List[Dict]) -> List[Dict]:
         order_id = f"111-{order_counter:07d}-{random.randint(1000000, 9999999)}"
         order_counter += 1
 
-        txn_amount = abs(txn["amount"])
-        txn_date = txn["date"]
-
-        # Decide match type
         match_type = random.random()
-
         if match_type < 0.5:
-            # Exact match (50%): single item matching transaction
-            product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
-            orders.append(
-                {
-                    "order_id": order_id,
-                    "date": txn_date,
-                    "items": [
-                        {
-                            "name": product_name,
-                            "amount": -txn_amount,
-                            "quantity": 1,
-                            "asin": asin,
-                        }
-                    ],
-                }
-            )
-
+            order = _create_exact_match(order_id, txn)
         elif match_type < 0.7:
-            # Fuzzy match (20%): order total > transaction (gift card used)
-            # Gift card covers 5-12% of order
-            gift_card_percent = random.uniform(0.05, 0.12)
-            order_total = txn_amount / (1 - gift_card_percent)
-
-            product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
-            orders.append(
-                {
-                    "order_id": order_id,
-                    "date": txn_date,
-                    "items": [
-                        {
-                            "name": product_name,
-                            "amount": round(-order_total, 2),
-                            "quantity": 1,
-                            "asin": asin,
-                        }
-                    ],
-                }
-            )
-
+            order = _create_fuzzy_match(order_id, txn)
         elif match_type < 0.9:
-            # Multi-item order (20%): 2-3 items totaling transaction amount
-            num_items = random.randint(2, 3)
-            remaining = txn_amount
-            items = []
-
-            for i in range(num_items):
-                product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
-                if i == num_items - 1:
-                    # Last item gets remainder
-                    item_amount = remaining
-                else:
-                    item_amount = round(remaining * random.uniform(0.3, 0.5), 2)
-                    remaining -= item_amount
-
-                items.append(
-                    {
-                        "name": product_name,
-                        "amount": round(-item_amount, 2),
-                        "quantity": 1,
-                        "asin": asin,
-                    }
-                )
-
-            orders.append(
-                {
-                    "order_id": order_id,
-                    "date": txn_date,
-                    "items": items,
-                }
-            )
-
+            order = _create_multi_item_match(order_id, txn)
         else:
-            # Item-level match (10%): order has multiple items, transaction matches one item
-            num_items = random.randint(2, 4)
-            items = []
+            order = _create_item_level_match(order_id, txn)
 
-            for i in range(num_items):
-                product_name, asin = random.choice(DEMO_AMAZON_PRODUCTS)
-                if i == 0:
-                    # First item matches transaction
-                    item_amount = txn_amount
-                else:
-                    # Other items have random amounts
-                    item_amount = round(random.uniform(15, 100), 2)
-
-                items.append(
-                    {
-                        "name": product_name,
-                        "amount": round(-item_amount, 2),
-                        "quantity": 1,
-                        "asin": asin,
-                    }
-                )
-
-            orders.append(
-                {
-                    "order_id": order_id,
-                    "date": txn_date,
-                    "items": items,
-                }
-            )
+        orders.append(order)
 
     return orders
 

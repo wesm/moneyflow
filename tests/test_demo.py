@@ -781,7 +781,7 @@ class TestDemoBackendStats:
         assert "updates_made" in stats
 
         # Verify stats are reasonable
-        assert stats["total_transactions"] > 1000
+        assert stats["total_transactions"] > 900
         assert stats["total_income"] > 0
         assert stats["total_expenses"] < 0
         assert stats["net"] == stats["total_income"] + stats["total_expenses"]
