@@ -43,6 +43,10 @@ class CredentialManager:
        Single account (backward compatible)
     """
 
+    PBKDF2_ITERATIONS = 100_000
+    KEY_LENGTH = 32
+    SALT_LENGTH = 16
+
     def __init__(self, config_dir: Optional[Path] = None, profile_dir: Optional[Path] = None):
         """
         Initialize credential manager.
@@ -87,9 +91,9 @@ class CredentialManager:
         """
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
-            length=32,
+            length=self.KEY_LENGTH,
             salt=salt,
-            iterations=100000,  # OWASP recommended minimum
+            iterations=self.PBKDF2_ITERATIONS,
         )
         key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
         return key
@@ -105,7 +109,7 @@ class CredentialManager:
             with open(self.salt_file, "rb") as f:
                 return f.read()
         else:
-            salt = os.urandom(16)
+            salt = os.urandom(self.SALT_LENGTH)
             secure_write_file(self.salt_file, salt, "wb")
             return salt
 
@@ -147,7 +151,6 @@ class CredentialManager:
             mfa_secret: OTP/TOTP secret for 2FA
             encryption_password: Password to encrypt credentials.
                                 Required if use_encryption=True.
-                                If None and use_encryption=True, will prompt user.
             backend_type: Backend type (e.g., 'monarch', 'ynab').
                          Defaults to 'monarch' for backward compatibility.
             use_encryption: If True, encrypt credentials with password.
@@ -162,14 +165,8 @@ class CredentialManager:
         }
 
         if use_encryption:
-            # Get encryption password if not provided
             if encryption_password is None:
-                print("Set a password to encrypt your credentials:")
-                encryption_password = getpass("Encryption password: ")
-                confirm = getpass("Confirm password: ")
-
-                if encryption_password != confirm:
-                    raise ValueError("Passwords do not match!")
+                raise ValueError("Encryption password is required when use_encryption is True.")
 
             # Get or create salt
             salt = self._get_or_create_salt()
@@ -185,8 +182,6 @@ class CredentialManager:
             # Remove plaintext file if it exists (switching from plaintext to encrypted)
             if self.plaintext_credentials_file.exists():
                 self.plaintext_credentials_file.unlink()
-
-            print(f"✓ Encrypted credentials saved to {self.credentials_file}")
         else:
             # Save as plaintext JSON with secure permissions from creation
             json_data = json.dumps(credentials, indent=2)
@@ -197,8 +192,6 @@ class CredentialManager:
                 self.credentials_file.unlink()
             if self.salt_file.exists():
                 self.salt_file.unlink()
-
-            print(f"✓ Credentials saved to {self.plaintext_credentials_file}")
 
     def load_credentials(
         self, encryption_password: Optional[str] = None
@@ -213,7 +206,6 @@ class CredentialManager:
         Args:
             encryption_password: Password to decrypt credentials.
                                 Required for encrypted credentials.
-                                If None and encrypted, will prompt user.
                                 Ignored for plaintext credentials.
 
         Returns:
@@ -225,13 +217,36 @@ class CredentialManager:
 
         Raises:
             FileNotFoundError: If credentials file doesn't exist
-            ValueError: If password is incorrect (encrypted mode only)
+            ValueError: If password is incorrect (encrypted mode only) or not provided when required
         """
-        # Prefer encrypted credentials when both exist (security-first approach)
-        # This matches the is_encrypted() / is_plaintext() method semantics
         if self.credentials_file.exists():
-            # Load encrypted credentials
-            pass  # Fall through to encrypted loading below
+            if not encryption_password:
+                raise ValueError("Encryption password is required to load encrypted credentials.")
+
+            # Load salt
+            salt = self._get_or_create_salt()
+
+            # Derive encryption key
+            key = self._derive_key(encryption_password, salt)
+            fernet = Fernet(key)
+
+            # Load and decrypt
+            with open(self.credentials_file, "rb") as f:
+                encrypted = f.read()
+
+            try:
+                decrypted = fernet.decrypt(encrypted)
+                credentials = json.loads(decrypted.decode())
+
+                # Backward compatibility: add backend_type if not present
+                if "backend_type" not in credentials:
+                    credentials["backend_type"] = "monarch"
+
+                # Return credentials AND encryption key for cache encryption
+                return credentials, key
+            except InvalidToken:
+                raise ValueError("Incorrect password!")
+
         elif self.plaintext_credentials_file.exists():
             # Only use plaintext if no encrypted file exists
             with open(self.plaintext_credentials_file, "r") as f:
@@ -249,53 +264,64 @@ class CredentialManager:
                 "Run with --setup-credentials to create one."
             )
 
-        # Get encryption password
-        if encryption_password is None:
-            encryption_password = getpass("Encryption password: ")
-
-        # Load salt
-        salt = self._get_or_create_salt()
-
-        # Derive encryption key
-        key = self._derive_key(encryption_password, salt)
-        fernet = Fernet(key)
-
-        # Load and decrypt
-        with open(self.credentials_file, "rb") as f:
-            encrypted = f.read()
-
-        try:
-            decrypted = fernet.decrypt(encrypted)
-            credentials = json.loads(decrypted.decode())
-
-            # Backward compatibility: add backend_type if not present
-            if "backend_type" not in credentials:
-                credentials["backend_type"] = "monarch"
-
-            # Return credentials AND encryption key for cache encryption
-            return credentials, key
-        except InvalidToken:
-            raise ValueError("Incorrect password!")
-
     def delete_credentials(self) -> None:
         """Delete stored credentials (encrypted and/or plaintext)."""
-        deleted = False
-
         if self.credentials_file.exists():
             self.credentials_file.unlink()
-            print(f"✓ Encrypted credentials deleted from {self.credentials_file}")
-            deleted = True
 
         if self.plaintext_credentials_file.exists():
             self.plaintext_credentials_file.unlink()
-            print(f"✓ Plaintext credentials deleted from {self.plaintext_credentials_file}")
-            deleted = True
 
         if self.salt_file.exists():
             self.salt_file.unlink()
 
-        if not deleted:
-            print("No credentials found to delete.")
+
+def _prompt_monarch_credentials() -> Dict[str, str]:
+    print()
+    print("=" * 70)
+    print("Monarch Money Credential Setup")
+    print("=" * 70)
+    print()
+    print("IMPORTANT: You'll need your 2FA/OTP secret key for automatic login.")
+    print("This is the BASE32 secret shown when you first set up 2FA")
+    print("(usually a long string like: JBSWY3DPEHPK3PXP)")
+    print()
+    print("How to find your OTP secret:")
+    print("  1. Log into Monarch Money on the web")
+    print("  2. Go to Settings -> Security")
+    print("  3. Disable 2FA, then re-enable it")
+    print("  4. When shown the QR code, click 'Can't scan?' or 'Manual entry'")
+    print("  5. Copy the secret key (base32 string)")
+    print()
+    print("=" * 70)
+    print()
+
+    email = input("Monarch Money email: ")
+    password = getpass("Monarch Money password: ")
+
+    print()
+    mfa_secret = getpass("2FA/TOTP Secret Key: ").strip().replace(" ", "").upper()
+    return {"email": email, "password": password, "mfa_secret": mfa_secret}
+
+
+def _prompt_ynab_credentials() -> Dict[str, str]:
+    print()
+    print("=" * 70)
+    print("YNAB Credential Setup")
+    print("=" * 70)
+    print()
+    print("How to get your YNAB Personal Access Token:")
+    print("  1. Sign in to the YNAB web app")
+    print("  2. Go to Account Settings → Developer Settings")
+    print("  3. Click 'New Token' under Personal Access Tokens")
+    print("  4. Enter your password and click 'Generate'")
+    print("  5. Copy the generated token (you won't be able to see it again)")
+    print()
+    print("=" * 70)
+    print()
+
+    access_token = getpass("YNAB Personal Access Token: ").strip()
+    return {"email": "", "password": access_token, "mfa_secret": ""}
 
 
 def setup_credentials_interactive() -> None:
@@ -326,52 +352,15 @@ def setup_credentials_interactive() -> None:
         print("❌ Invalid choice. Please select 1 or 2.")
         return
 
-    if backend_type == "monarch":
-        print()
-        print("=" * 70)
-        print("Monarch Money Credential Setup")
-        print("=" * 70)
-        print()
-        print("IMPORTANT: You'll need your 2FA/OTP secret key for automatic login.")
-        print("This is the BASE32 secret shown when you first set up 2FA")
-        print("(usually a long string like: JBSWY3DPEHPK3PXP)")
-        print()
-        print("How to find your OTP secret:")
-        print("  1. Log into Monarch Money on the web")
-        print("  2. Go to Settings -> Security")
-        print("  3. Disable 2FA, then re-enable it")
-        print("  4. When shown the QR code, click 'Can't scan?' or 'Manual entry'")
-        print("  5. Copy the secret key (base32 string)")
-        print()
-        print("=" * 70)
-        print()
+    setup_handlers = {
+        "monarch": _prompt_monarch_credentials,
+        "ynab": _prompt_ynab_credentials,
+    }
 
-        email = input("Monarch Money email: ")
-        password = getpass("Monarch Money password: ")
-
-        print()
-        mfa_secret = getpass("2FA/TOTP Secret Key: ").strip().replace(" ", "").upper()
-
-    elif backend_type == "ynab":
-        print()
-        print("=" * 70)
-        print("YNAB Credential Setup")
-        print("=" * 70)
-        print()
-        print("How to get your YNAB Personal Access Token:")
-        print("  1. Sign in to the YNAB web app")
-        print("  2. Go to Account Settings → Developer Settings")
-        print("  3. Click 'New Token' under Personal Access Tokens")
-        print("  4. Enter your password and click 'Generate'")
-        print("  5. Copy the generated token (you won't be able to see it again)")
-        print()
-        print("=" * 70)
-        print()
-
-        access_token = getpass("YNAB Personal Access Token: ").strip()
-        email = ""
-        password = access_token
-        mfa_secret = ""
+    creds = setup_handlers[backend_type]()
+    email = creds["email"]
+    password = creds["password"]
+    mfa_secret = creds["mfa_secret"]
 
     # Ask about encryption
     print()
@@ -392,22 +381,38 @@ def setup_credentials_interactive() -> None:
     encrypt_choice = input("Password protect credentials? [n]: ").strip().lower() or "n"
     use_encryption = encrypt_choice in ("y", "yes")
 
+    encryption_password = None
+    if use_encryption:
+        print("Set a password to encrypt your credentials:")
+        encryption_password = getpass("Encryption password: ")
+        confirm = getpass("Confirm password: ")
+
+        if encryption_password != confirm:
+            print("❌ Passwords do not match!")
+            return
+
     # Save credentials with backend type
     manager = CredentialManager()
 
     if use_encryption:
-        # Let save_credentials prompt for the encryption password
         manager.save_credentials(
-            email, password, mfa_secret, backend_type=backend_type, use_encryption=True
+            email,
+            password,
+            mfa_secret,
+            encryption_password=encryption_password,
+            backend_type=backend_type,
+            use_encryption=True,
         )
         cred_file = manager.credentials_file
         extra_step = "  2. You'll need to enter your encryption password each time"
+        print(f"✓ Encrypted credentials saved to {cred_file}")
     else:
         manager.save_credentials(
             email, password, mfa_secret, backend_type=backend_type, use_encryption=False
         )
         cred_file = manager.plaintext_credentials_file
         extra_step = "  2. No password needed - credentials load automatically"
+        print(f"✓ Credentials saved to {cred_file}")
 
     print()
     print("=" * 70)
