@@ -4,7 +4,7 @@ Centralized notification messages for consistent UI feedback.
 This module provides a single source of truth for all user-facing notifications,
 making them easier to test, maintain, and keep consistent across the application.
 
-Each method returns a tuple of (message, severity, timeout) that can be
+Each function/constant provides a tuple of (message, severity, timeout) that can be
 unpacked and passed to the Textual notify() method.
 """
 
@@ -13,233 +13,148 @@ from typing import Literal
 NotificationSeverity = Literal["information", "warning", "error"]
 NotificationTuple = tuple[str, NotificationSeverity, int]
 
+# ==================== Commit & Save ====================
 
-class NotificationHelper:
-    """
-    Helper class for consistent notification messages.
+def commit_starting(count: int, severity: NotificationSeverity = "information", timeout: int = 2) -> NotificationTuple:
+    """User pressed 'w' to commit changes."""
+    return (f"Committing {count} change(s) to backend...", severity, timeout)
 
-    All methods are static and return tuples of (message, severity, timeout)
-    that can be directly unpacked into self.notify() calls.
+def commit_success(count: int, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """All changes committed successfully."""
+    return (f"✅ Committed {count} change(s) successfully!", severity, timeout)
 
-    Example:
-        msg, severity, timeout = NotificationHelper.commit_success(15)
-        self.notify(msg, severity=severity, timeout=timeout)
-    """
+def commit_partial(success: int, failure: int, severity: NotificationSeverity = "warning", timeout: int = 8) -> NotificationTuple:
+    """Some commits succeeded, some failed."""
+    return (
+        f"✅ Saved {success}, ❌ {failure} failed. Check terminal (run with --dev to see errors)",
+        severity,
+        timeout,
+    )
 
-    # ==================== Commit & Save ====================
+def commit_error(error_msg: str, severity: NotificationSeverity = "error", timeout: int = 5) -> NotificationTuple:
+    """Commit failed with an error."""
+    return (f"❌ Error committing: {error_msg}", severity, timeout)
 
-    @staticmethod
-    def commit_starting(count: int) -> NotificationTuple:
-        """User pressed 'w' to commit changes."""
-        return (f"Committing {count} change(s) to backend...", "information", 2)
+NO_PENDING_CHANGES: NotificationTuple = ("No pending changes to commit", "information", 2)
+COMMIT_CANCELLED: NotificationTuple = ("Commit cancelled", "information", 2)
 
-    @staticmethod
-    def commit_success(count: int) -> NotificationTuple:
-        """All changes committed successfully."""
-        return (f"✅ Committed {count} change(s) successfully!", "information", 3)
+# ==================== Session & Auth ====================
 
-    @staticmethod
-    def commit_partial(success: int, failure: int) -> NotificationTuple:
-        """Some commits succeeded, some failed."""
-        return (
-            f"✅ Saved {success}, ❌ {failure} failed. Check terminal (run with --dev to see errors)",
-            "warning",
-            8,
-        )
+SESSION_EXPIRED: NotificationTuple = ("Session expired during commit. Refreshing...", "warning", 2)
+SESSION_REFRESHING: NotificationTuple = ("Session expired, re-authenticating...", "information", 2)
+SESSION_REFRESH_SUCCESS: NotificationTuple = ("Session refreshed successfully", "information", 2)
 
-    @staticmethod
-    def commit_error(error_msg: str) -> NotificationTuple:
-        """Commit failed with an error."""
-        return (f"❌ Error committing: {error_msg}", "error", 5)
+def session_refresh_failed(error_msg: str, severity: NotificationSeverity = "error", timeout: int = 5) -> NotificationTuple:
+    """Re-authentication failed."""
+    return (f"Failed to refresh session: {error_msg}", severity, timeout)
 
-    @staticmethod
-    def no_pending_changes() -> NotificationTuple:
-        """User tried to commit but no changes pending."""
-        return ("No pending changes to commit", "information", 2)
+# ==================== Retry Logic ====================
 
-    @staticmethod
-    def commit_cancelled() -> NotificationTuple:
-        """User cancelled the commit from batch scope prompt."""
-        return ("Commit cancelled", "information", 2)
+def retry_waiting(attempt: int, wait_seconds: float, max_retries: int = 5, severity: NotificationSeverity = "warning") -> NotificationTuple:
+    """Waiting before retry attempt."""
+    return (
+        f"⚠ Retrying commit in {wait_seconds:.0f}s (attempt {attempt + 1}/{max_retries}). Press Ctrl-C to abort.",
+        severity,
+        int(wait_seconds),
+    )
 
-    # ==================== Session & Auth ====================
+RETRY_CANCELLED: NotificationTuple = ("Commit cancelled by user", "warning", 3)
 
-    @staticmethod
-    def session_expired() -> NotificationTuple:
-        """Session expired during an operation."""
-        return ("Session expired during commit. Refreshing...", "warning", 2)
+# ==================== Edit Operations ====================
 
-    @staticmethod
-    def session_refreshing() -> NotificationTuple:
-        """Attempting to re-authenticate."""
-        return ("Session expired, re-authenticating...", "information", 2)
+def edit_queued(count: int, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Edits queued for commit."""
+    return (f"Queued {count} edits. Press w to review and commit.", severity, timeout)
 
-    @staticmethod
-    def session_refresh_success() -> NotificationTuple:
-        """Re-authentication succeeded."""
-        return ("Session refreshed successfully", "information", 2)
+MERCHANT_CHANGED: NotificationTuple = ("Merchant changed. Press w to review and commit.", "information", 2)
+CATEGORY_CHANGED: NotificationTuple = ("Category changed. Press w to review and commit.", "information", 2)
 
-    @staticmethod
-    def session_refresh_failed(error_msg: str) -> NotificationTuple:
-        """Re-authentication failed."""
-        return (f"Failed to refresh session: {error_msg}", "error", 5)
+def bulk_edit_category_queued(count: int, old_cat: str, new_cat: str, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Bulk recategorization queued."""
+    return (
+        f"Queued {count} transactions to edit_category: {old_cat} → {new_cat}. Press w to commit.",
+        severity,
+        timeout,
+    )
 
-    # ==================== Retry Logic ====================
+def bulk_edit_category_from_group(count: int, group: str, new_cat: str, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Bulk recategorization from group queued."""
+    return (
+        f"Queued {count} transactions from {group} to edit_category to {new_cat}. Press w to commit.",
+        severity,
+        timeout,
+    )
 
-    @staticmethod
-    def retry_waiting(attempt: int, wait_seconds: float, max_retries: int = 5) -> NotificationTuple:
-        """Waiting before retry attempt."""
-        return (
-            f"⚠ Retrying commit in {wait_seconds:.0f}s (attempt {attempt + 1}/{max_retries}). Press Ctrl-C to abort.",
-            "warning",
-            int(wait_seconds),
-        )
+def hide_toggled(action: str, severity: NotificationSeverity = "information", timeout: int = 2) -> NotificationTuple:
+    """Transaction hidden/unhidden."""
+    return (f"{action} from reports. Press w to commit.", severity, timeout)
 
-    @staticmethod
-    def retry_cancelled() -> NotificationTuple:
-        """User pressed Ctrl-C to cancel retry."""
-        return ("Commit cancelled by user", "warning", 3)
+def hide_toggled_bulk(count: int, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Multiple transactions hidden/unhidden."""
+    return (
+        f"Toggled hide/unhide for {count} transactions. Press w to commit.",
+        severity,
+        timeout,
+    )
 
-    # ==================== Edit Operations ====================
+# ==================== Navigation & Views ====================
 
-    @staticmethod
-    def edit_queued(count: int) -> NotificationTuple:
-        """Edits queued for commit."""
-        return (f"Queued {count} edits. Press w to review and commit.", "information", 3)
+def view_changed(view_name: str, severity: NotificationSeverity = "information", timeout: int = 1) -> NotificationTuple:
+    """View mode changed."""
+    return (f"Viewing: {view_name}", severity, timeout)
 
-    @staticmethod
-    def merchant_changed() -> NotificationTuple:
-        """Single merchant changed."""
-        return ("Merchant changed. Press w to review and commit.", "information", 2)
+def sort_changed(field_name: str, severity: NotificationSeverity = "information", timeout: int = 1) -> NotificationTuple:
+    """Sort field changed."""
+    return (f"Sorting by: {field_name}", severity, timeout)
 
-    @staticmethod
-    def category_changed() -> NotificationTuple:
-        """Single category changed."""
-        return ("Category changed. Press w to review and commit.", "information", 2)
+def sort_direction_changed(direction: str, severity: NotificationSeverity = "information", timeout: int = 1) -> NotificationTuple:
+    """Sort direction reversed."""
+    return (f"Sort: {direction}", severity, timeout)
 
-    @staticmethod
-    def bulk_edit_category_queued(count: int, old_cat: str, new_cat: str) -> NotificationTuple:
-        """Bulk recategorization queued."""
-        return (
-            f"Queued {count} transactions to edit_category: {old_cat} → {new_cat}. Press w to commit.",
-            "information",
-            3,
-        )
+def time_period_changed(description: str, severity: NotificationSeverity = "information", timeout: int = 1) -> NotificationTuple:
+    """Time period changed."""
+    return (f"Viewing: {description}", severity, timeout)
 
-    @staticmethod
-    def bulk_edit_category_from_group(count: int, group: str, new_cat: str) -> NotificationTuple:
-        """Bulk recategorization from group queued."""
-        return (
-            f"Queued {count} transactions from {group} to edit_category to {new_cat}. Press w to commit.",
-            "information",
-            3,
-        )
+ALL_TRANSACTIONS_VIEW: NotificationTuple = ("All transactions (ungrouped)", "information", 1)
 
-    @staticmethod
-    def hide_toggled(action: str) -> NotificationTuple:
-        """Transaction hidden/unhidden."""
-        return (f"{action} from reports. Press w to commit.", "information", 2)
+# ==================== Selection & Multi-select ====================
 
-    @staticmethod
-    def hide_toggled_bulk(count: int) -> NotificationTuple:
-        """Multiple transactions hidden/unhidden."""
-        return (
-            f"Toggled hide/unhide for {count} transactions. Press w to commit.",
-            "information",
-            3,
-        )
+def selected_count(count: int, severity: NotificationSeverity = "information", timeout: int = 1) -> NotificationTuple:
+    """Selection changed."""
+    return (f"Selected: {count} transaction(s)", severity, timeout)
 
-    # ==================== Navigation & Views ====================
+# ==================== Search & Filters ====================
 
-    @staticmethod
-    def view_changed(view_name: str) -> NotificationTuple:
-        """View mode changed."""
-        return (f"Viewing: {view_name}", "information", 1)
+def search_results(query: str, count: int, severity: NotificationSeverity = "information", timeout: int = 2) -> NotificationTuple:
+    """Search executed with results."""
+    return (f"Search: '{query}' - {count} results", severity, timeout)
 
-    @staticmethod
-    def sort_changed(field_name: str) -> NotificationTuple:
-        """Sort field changed."""
-        return (f"Sorting by: {field_name}", "information", 1)
+SEARCH_CLEARED: NotificationTuple = ("Search cleared", "information", 1)
 
-    @staticmethod
-    def sort_direction_changed(direction: str) -> NotificationTuple:
-        """Sort direction reversed."""
-        return (f"Sort: {direction}", "information", 1)
+def filters_applied(status_list: list[str], severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Filters applied."""
+    return (f"Filters: {', '.join(status_list)}", severity, timeout)
 
-    @staticmethod
-    def time_period_changed(description: str) -> NotificationTuple:
-        """Time period changed."""
-        return (f"Viewing: {description}", "information", 1)
+# ==================== Duplicates ====================
 
-    @staticmethod
-    def all_transactions_view() -> NotificationTuple:
-        """Switched to ungrouped view."""
-        return ("All transactions (ungrouped)", "information", 1)
+def duplicates_found(count: int, severity: NotificationSeverity = "information", timeout: int = 3) -> NotificationTuple:
+    """Duplicates found."""
+    return (f"Found {count} potential duplicates", severity, timeout)
 
-    # ==================== Selection & Multi-select ====================
+NO_DUPLICATES: NotificationTuple = ("✅ No duplicates found!", "information", 3)
+SCANNING_DUPLICATES: NotificationTuple = ("Scanning for duplicates...", "information", 1)
+NO_TRANSACTIONS_TO_CHECK: NotificationTuple = ("No transactions to check", "information", 2)
 
-    @staticmethod
-    def selected_count(count: int) -> NotificationTuple:
-        """Selection changed."""
-        return (f"Selected: {count} transaction(s)", "information", 1)
+# ==================== Errors & Warnings ====================
 
-    # ==================== Search & Filters ====================
+def operation_not_available(reason: str, severity: NotificationSeverity = "information", timeout: int = 2) -> NotificationTuple:
+    """Operation not available in current context."""
+    return (reason, severity, timeout)
 
-    @staticmethod
-    def search_results(query: str, count: int) -> NotificationTuple:
-        """Search executed with results."""
-        return (f"Search: '{query}' - {count} results", "information", 2)
+TRANSACTION_DELETED: NotificationTuple = ("Transaction deleted", "information", 2)
 
-    @staticmethod
-    def search_cleared() -> NotificationTuple:
-        """Search cleared."""
-        return ("Search cleared", "information", 1)
+def delete_error(error_msg: str, severity: NotificationSeverity = "error", timeout: int = 5) -> NotificationTuple:
+    """Error deleting transaction."""
+    return (f"Error deleting: {error_msg}", severity, timeout)
 
-    @staticmethod
-    def filters_applied(status_list: list[str]) -> NotificationTuple:
-        """Filters applied."""
-        return (f"Filters: {', '.join(status_list)}", "information", 3)
-
-    # ==================== Duplicates ====================
-
-    @staticmethod
-    def duplicates_found(count: int) -> NotificationTuple:
-        """Duplicates found."""
-        return (f"Found {count} potential duplicates", "information", 3)
-
-    @staticmethod
-    def no_duplicates() -> NotificationTuple:
-        """No duplicates found."""
-        return ("✅ No duplicates found!", "information", 3)
-
-    @staticmethod
-    def scanning_duplicates() -> NotificationTuple:
-        """Scanning for duplicates."""
-        return ("Scanning for duplicates...", "information", 1)
-
-    @staticmethod
-    def no_transactions_to_check() -> NotificationTuple:
-        """No transactions to check for duplicates."""
-        return ("No transactions to check", "information", 2)
-
-    # ==================== Errors & Warnings ====================
-
-    @staticmethod
-    def operation_not_available(reason: str) -> NotificationTuple:
-        """Operation not available in current context."""
-        return (reason, "information", 2)
-
-    @staticmethod
-    def transaction_deleted() -> NotificationTuple:
-        """Transaction deleted successfully."""
-        return ("Transaction deleted", "information", 2)
-
-    @staticmethod
-    def delete_error(error_msg: str) -> NotificationTuple:
-        """Error deleting transaction."""
-        return (f"Error deleting: {error_msg}", "error", 5)
-
-    @staticmethod
-    def refresh_needed() -> NotificationTuple:
-        """Data refresh needed after operation."""
-        return ("Press Ctrl+L to refresh data from backend", "information", 3)
+REFRESH_NEEDED: NotificationTuple = ("Press Ctrl+L to refresh data from backend", "information", 3)

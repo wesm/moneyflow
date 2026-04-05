@@ -1,7 +1,7 @@
 import logging
 from datetime import date as date_type
 
-from moneyflow.notification_helper import NotificationHelper
+from moneyflow import notification_helper
 from moneyflow.retry_logic import RetryAborted, retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -150,13 +150,13 @@ class BackendTaskRunner:
             return False
 
         try:
-            self.app._notify(NotificationHelper.session_refreshing())
+            self.app._notify(notification_helper.SESSION_REFRESHING)
             await self.do_fresh_login(self.app.stored_credentials)
-            self.app._notify(NotificationHelper.session_refresh_success())
+            self.app._notify(notification_helper.SESSION_REFRESH_SUCCESS)
             return True
         except Exception as e:
             logger.error(f"Session refresh failed: {e}", exc_info=True)
-            self.app._notify(NotificationHelper.session_refresh_failed(str(e)))
+            self.app._notify(notification_helper.session_refresh_failed(str(e)))
             return False
 
     async def delete_with_retry(self, transaction_id: str) -> None:
@@ -174,7 +174,7 @@ class BackendTaskRunner:
 
     async def commit_with_retry(self, edits, skip_batch_for: set[tuple[str, str]] | None = None):
         def on_retry_notification(attempt: int, wait_seconds: float) -> None:
-            self.app._notify(NotificationHelper.retry_waiting(attempt, wait_seconds))
+            self.app._notify(notification_helper.retry_waiting(attempt, wait_seconds))
 
         async def commit_operation():
             try:
@@ -182,7 +182,7 @@ class BackendTaskRunner:
             except Exception as e:
                 error_msg = str(e).lower()
                 if "401" in error_msg or "unauthorized" in error_msg or "token" in error_msg:
-                    self.app._notify(NotificationHelper.session_expired())
+                    self.app._notify(notification_helper.SESSION_EXPIRED)
                     if await self.refresh_session():
                         return await self.app.data_manager.commit_pending_edits(edits, skip_batch_for)
                     else:
@@ -198,7 +198,7 @@ class BackendTaskRunner:
                 on_retry=on_retry_notification,
             )
         except RetryAborted:
-            self.app._notify(NotificationHelper.retry_cancelled())
+            self.app._notify(notification_helper.RETRY_CANCELLED)
             raise
         except Exception:
             raise

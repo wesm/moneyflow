@@ -670,7 +670,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
                 __typename
               }
             }
-            
+
             fragment BudgetDataMonthlyAmountsFields on BudgetMonthlyAmounts {
               month
               plannedCashFlowAmount
@@ -683,7 +683,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               rolloverTargetAmount
               __typename
             }
-            
+
             fragment BudgetMonthlyAmountsByCategoryFields on BudgetCategoryMonthlyAmounts {
               category {
                 id
@@ -695,7 +695,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetMonthlyAmountsByCategoryGroupFields on BudgetCategoryGroupMonthlyAmounts {
               categoryGroup {
                 id
@@ -707,7 +707,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetMonthlyAmountsForFlexExpenseFields on BudgetFlexMonthlyAmounts {
               budgetVariability
               monthlyAmounts {
@@ -716,7 +716,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetDataTotalsByMonthFields on BudgetTotals {
               actualAmount
               plannedAmount
@@ -724,7 +724,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               remainingAmount
               __typename
             }
-            
+
             fragment BudgetTotalsByMonthFields on BudgetMonthTotals {
               month
               totalIncome {
@@ -749,7 +749,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetRolloverPeriodFields on BudgetRolloverPeriod {
               id
               startMonth
@@ -760,7 +760,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               type
               __typename
             }
-            
+
             fragment BudgetCategoryFields on Category {
               id
               name
@@ -783,7 +783,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetDataFields on BudgetData {
               monthlyAmountsByCategory {
                 ...BudgetMonthlyAmountsByCategoryFields
@@ -803,7 +803,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetCategoryGroupFields on CategoryGroup {
               id
               name
@@ -828,7 +828,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
               }
               __typename
             }
-            
+
             fragment BudgetDataGoalsV2Fields on GoalV2 {
               id
               name
@@ -849,7 +849,7 @@ COMMON__GET_JOINT_PLANNING_DATA = gql(
                 __typename
               }
               __typename
-            }            
+            }
             """
 )
 
@@ -912,7 +912,7 @@ GET_TRANSACTIONS_LIST = gql(
               __typename
             }
           }
-    
+
           fragment TransactionOverviewFields on Transaction {
             id
             amount
@@ -1004,7 +1004,7 @@ COMMON__DELETE_TRANSACTION_MUTATION = gql(
               __typename
             }
           }
-  
+
           fragment PayloadErrorFields on PayloadError {
             fieldErrors {
               field

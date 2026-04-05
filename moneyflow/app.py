@@ -33,6 +33,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
+from . import notification_helper
 from .account_manager import AccountManager
 from .app_controller import AppController
 from .backend_config import get_backend_config
@@ -42,7 +43,6 @@ from .cache_orchestrator import CacheOrchestrator
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .logging_config import get_logger, setup_logging
-from .notification_helper import NotificationHelper
 
 # Screen imports
 from .screens.batch_scope_screen import BatchScopeScreen
@@ -157,10 +157,10 @@ class MoneyflowApp(App):
         Wrapper for self.notify() that unpacks NotificationHelper tuples.
 
         Usage:
-            self._notify(NotificationHelper.commit_success(10))
+            self._notify(notification_helper.commit_success(10))
 
         Instead of:
-            msg, severity, timeout = NotificationHelper.commit_success(10)
+            msg, severity, timeout = notification_helper.commit_success(10)
             self.notify(msg, severity=severity, timeout=timeout)
         """
         msg, severity, timeout = notification_tuple
@@ -873,12 +873,12 @@ class MoneyflowApp(App):
         """
         view_name = self.controller.cycle_grouping()
         if view_name:
-            self._notify(NotificationHelper.view_changed(view_name))
+            self._notify(notification_helper.view_changed(view_name))
 
     def action_view_ungrouped(self) -> None:
         """Switch to ungrouped transactions view (all transactions in reverse chronological order)."""
         self.controller.switch_to_detail_view(set_default_sort=True)
-        self._notify(NotificationHelper.all_transactions_view())
+        self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
 
     def action_find_duplicates(self) -> None:
         """Find and display duplicate transactions."""
@@ -1168,7 +1168,7 @@ class MoneyflowApp(App):
                 self.state.clear_selection()
 
             # Display result
-            self._notify(NotificationHelper.edit_queued(count))
+            self._notify(notification_helper.edit_queued(count))
             self.refresh_view()
             self._restore_table_position(saved_position)
 
@@ -1463,7 +1463,7 @@ class MoneyflowApp(App):
 
         count = self.data_manager.get_stats()["pending_changes"]
         if count == 0:
-            self._notify(NotificationHelper.no_pending_changes())
+            self._notify(notification_helper.NO_PENDING_CHANGES)
             return
 
         # Show review screen
@@ -1523,7 +1523,7 @@ class MoneyflowApp(App):
 
                 if choice == "cancel":
                     # User cancelled - abort the entire commit
-                    self._notify(NotificationHelper.commit_cancelled())
+                    self._notify(notification_helper.COMMIT_CANCELLED)
                     return
                 elif choice == "selected":
                     # User chose individual updates for this rename
@@ -1531,7 +1531,7 @@ class MoneyflowApp(App):
                 # "all" → use batch (default behavior, nothing to track)
 
             count = len(self.data_manager.pending_edits)
-            self._notify(NotificationHelper.commit_starting(count))
+            self._notify(notification_helper.commit_starting(count))
 
             try:
                 success_count, failure_count, bulk_merchant_renames = await self.task_runner.commit_with_retry(
@@ -1540,9 +1540,9 @@ class MoneyflowApp(App):
 
                 # Show notification based on results
                 if failure_count > 0:
-                    self._notify(NotificationHelper.commit_partial(success_count, failure_count))
+                    self._notify(notification_helper.commit_partial(success_count, failure_count))
                 else:
-                    self._notify(NotificationHelper.commit_success(success_count))
+                    self._notify(notification_helper.commit_success(success_count))
 
                 # Delegate to controller for data integrity logic
                 # Controller handles: apply edits if success, keep current view if failure
@@ -1569,7 +1569,7 @@ class MoneyflowApp(App):
                 # Restore table position after commit completes
                 self._restore_table_position(saved_table_position)
             except Exception as e:
-                self._notify(NotificationHelper.commit_error(str(e)))
+                self._notify(notification_helper.commit_error(str(e)))
                 # View already restored above, just refresh to show current state
                 self.refresh_view(force_rebuild=False)
                 # Restore table position after error refresh
