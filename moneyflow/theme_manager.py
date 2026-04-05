@@ -74,7 +74,6 @@ def load_theme_from_config(
     Returns:
         Theme name from override, config, or DEFAULT_THEME
     """
-    # Override takes precedence
     if theme_override:
         if theme_override in AVAILABLE_THEMES:
             logger.info(f"Using theme override from CLI: {theme_override}")
@@ -82,44 +81,24 @@ def load_theme_from_config(
         else:
             logger.warning(f"Unknown theme override '{theme_override}', using config or default")
 
-    if config_dir is None:
-        config_dir = str(Path.home() / ".moneyflow")
-
-    config_path = Path(config_dir) / "config.yaml"
-
-    if not config_path.exists():
-        logger.debug(f"No config file at {config_path}, using default theme")
-        return DEFAULT_THEME
+    config_path = Path(config_dir or Path.home() / ".moneyflow") / "config.yaml"
 
     try:
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f) or {}
 
-        if not config:
-            logger.debug("Empty config file, using default theme")
-            return DEFAULT_THEME
+            theme = config.get("settings", {}).get("theme")
 
-        # Look for settings.theme configuration
-        settings = config.get("settings", {})
-        theme = settings.get("theme")
-
-        if theme:
             if theme in AVAILABLE_THEMES:
                 logger.info(f"Using theme from config: {theme}")
                 return theme
-            else:
-                logger.warning(f"Unknown theme in config: {theme}, using default")
-                return DEFAULT_THEME
-        else:
-            logger.debug("No theme configured, using default")
-            return DEFAULT_THEME
-
-    except yaml.YAMLError as e:
-        logger.error(f"Failed to parse {config_path}: {e}, using default theme")
-        return DEFAULT_THEME
+            elif theme:
+                logger.warning(f"Unknown theme in config: '{theme}', using default")
     except Exception as e:
-        logger.error(f"Error loading theme from config: {e}, using default theme")
-        return DEFAULT_THEME
+        logger.error(f"Error loading theme config from {config_path}: {e}")
+
+    return DEFAULT_THEME
 
 
 def get_theme_css_paths(theme_name: str) -> list[str]:
@@ -139,20 +118,12 @@ def get_theme_css_paths(theme_name: str) -> list[str]:
 
     if theme_path is None:
         # Fallback to default theme if requested theme doesn't exist
-        logger.warning(f"Theme {theme_name} not found, falling back to default")
+        logger.warning(f"Theme '{theme_name}' not found, falling back to default")
         theme_path = get_theme_path(DEFAULT_THEME)
 
-    # DEBUG: Log what we're loading
-    logger.info(f"Loading theme CSS from: {theme_path}")
-    if theme_path and theme_path.exists():
-        content = theme_path.read_text()
-        lines = content.splitlines()
-        logger.info(f"Theme file has {len(lines)} lines")
-        logger.info(f"Line 40: {lines[39] if len(lines) > 39 else 'N/A'}")
-        # Check for mystery content
-        for i, line in enumerate(lines, 1):
-            if "maximized" in line.lower() or "hatch" in line.lower():
-                logger.error(f"FOUND MYSTERY CONTENT at line {i}: {line}")
+    if theme_path is None:
+        logger.error("Default theme file is also missing.")
+        return []
 
     # Each theme file is complete and standalone
     return [str(theme_path)]
