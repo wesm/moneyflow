@@ -33,33 +33,20 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
-from .account_manager import Account, AccountManager
+from .account_manager import AccountManager
 from .app_controller import AppController
 from .backend_config import get_backend_config
 from .backends import DemoBackend, get_backend
 from .cache_manager import CacheManager, RefreshStrategy
 from .cache_orchestrator import CacheOrchestrator
-from .credentials import CredentialManager
 from .data_manager import DataManager
 from .duplicate_detector import DuplicateDetector
 from .logging_config import get_logger, setup_logging
-from .migration import (
-    migrate_global_categories_to_profiles,
-    migrate_legacy_amazon_db,
-    migrate_legacy_credentials,
-)
 from .notification_helper import NotificationHelper
-from .retry_logic import RetryAborted, retry_with_backoff
 
 # Screen imports
-from .screens.account_name_input_screen import AccountNameInputScreen
-from .screens.account_selector_screen import AccountSelectorScreen
 from .screens.batch_scope_screen import BatchScopeScreen
-from .screens.budget_selector_screen import BudgetSelectorScreen
 from .screens.credential_screens import (
-    BackendSelectionScreen,
-    CredentialSetupScreen,
-    CredentialUnlockScreen,
     FilterScreen,
     QuitConfirmationScreen,
 )
@@ -213,22 +200,22 @@ class MoneyflowApp(App):
 
         # Backend configuration (for Amazon/YNAB/etc)
         # Import here to avoid circular dependency
-        from moneyflow.backend_config import BackendConfig
+        from moneyflow.backend_config import MONARCH_CONFIG
 
-        self.backend_config = config or BackendConfig.for_monarch()
+        self.backend_config = config or MONARCH_CONFIG
 
         # Backend will be initialized in initialize_data() based on credentials
         # unless explicitly provided (e.g., for Amazon mode)
         self.backend = backend
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
-        
+
         from .amazon_presentation import AmazonPresentationManager
         self.amazon_presentation = AmazonPresentationManager(self.demo_mode, self.config_dir)
         from .account_flow import AccountFlowCoordinator
         self.account_flow = AccountFlowCoordinator(self)
         from .backend_task_runner import BackendTaskRunner
         self.task_runner = BackendTaskRunner(self)
-        
+
         if backend is not None:
             # Backend provided externally (Amazon mode, etc.)
             pass

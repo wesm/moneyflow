@@ -3,8 +3,8 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from textual.widgets import DataTable
 import polars as pl
+from textual.widgets import DataTable
 
 from .amazon_linker import AmazonLinker
 
@@ -17,7 +17,7 @@ class AmazonPresentationManager:
     def __init__(self, demo_mode: bool, config_dir: Optional[str]):
         self.demo_mode = demo_mode
         self.config_dir = config_dir
-        
+
         self._cache: dict[str, Optional[str]] = {}
         self._rows_loaded: set[int] = set()
         self._column_visible: bool = False
@@ -62,7 +62,7 @@ class AmazonPresentationManager:
             config_dir = self.get_demo_config_dir()
         else:
             config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
-        
+
         linker = AmazonLinker(config_dir)
 
         if not linker.is_amazon_merchant(merchant):
@@ -127,7 +127,7 @@ class AmazonPresentationManager:
             config_dir = self.get_demo_config_dir()
         else:
             config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
-            
+
         linker = AmazonLinker(config_dir)
 
         if not linker.find_amazon_databases():

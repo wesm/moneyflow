@@ -640,6 +640,7 @@ class TestMerchantCreation:
 
     def get_app_with_screen(self, current="Old Merchant", all_merchants=["Amazon", "Whole Foods"]):
         from textual.app import App
+
         from moneyflow.screens.edit_screens import EditMerchantScreen
 
         class DummyApp(App):
@@ -660,24 +661,24 @@ class TestMerchantCreation:
         async with app.run_test():
             screen = app.query_one("EditMerchantScreen")
             merchant_input = screen.query_one("#merchant-input", Input)
-            
+
             # Simulate typing a brand new merchant
             merchant_input.value = "New Coffee Shop"
             await screen._update_suggestions("new coffee shop")
-            
+
             option_list = screen.query_one("#suggestions", OptionList)
             assert option_list.option_count == 1
             opt = option_list.get_option_at_index(0)
             assert str(opt.id) == "__new__:New Coffee Shop"
             assert str(opt.prompt) == '"New Coffee Shop"'
-            
+
             # Simulate typing a partial match to an existing one
             merchant_input.value = "Ama"
             await screen._update_suggestions("ama")
-            
+
             # Should have multiple options: First match, __new__, then rest of matches
             assert option_list.option_count == 4
-            
+
             # First match
             assert str(option_list.get_option_at_index(0).id) == "Amazon"
             # Create new option
@@ -694,27 +695,27 @@ class TestMerchantCreation:
     async def test_auto_select_first_match_on_enter(self):
         """Test that Enter auto-selects the first existing match even when a create-new option is present."""
         from textual.widgets import Input
-        
+
         app = self.get_app_with_screen(all_merchants=["Star Market", "Starbucks", "Starbucks Coffee"])
         async with app.run_test() as pilot:
             screen = app.query_one("EditMerchantScreen")
             merchant_input = screen.query_one("#merchant-input", Input)
-            
+
             # Type partial match that generates matches and a "create new"
             merchant_input.value = "Star"
             await screen._update_suggestions("star")
-            
+
             # Mock dismiss to intercept the selected value
             dismiss_value = None
             def mock_dismiss(result=None):
                 nonlocal dismiss_value
                 dismiss_value = result
-            
+
             screen.dismiss = mock_dismiss
-            
+
             # Press Enter on the input
             await pilot.press("enter")
-            
+
             # Should have selected the first real match ("Star Market") instead of "__new__:Star"
             assert dismiss_value == "Star Market"
 

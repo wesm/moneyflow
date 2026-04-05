@@ -124,7 +124,7 @@ class AccountManager:
         # Create directories if they don't exist
         self.config_dir.mkdir(mode=0o700, exist_ok=True)
         self.profiles_dir.mkdir(mode=0o700, exist_ok=True)
-        
+
         self._registry = self.load_registry()
 
     def load_registry(self) -> AccountRegistry:

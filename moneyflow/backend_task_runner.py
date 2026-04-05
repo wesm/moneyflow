@@ -1,14 +1,14 @@
 import logging
 from datetime import date as date_type
 
-from moneyflow.retry_logic import RetryAborted, retry_with_backoff
 from moneyflow.notification_helper import NotificationHelper
+from moneyflow.retry_logic import RetryAborted, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
 class BackendTaskRunner:
     """Centralizes API retry wrappers and error handling boilerplate."""
-    
+
     def __init__(self, app):
         self.app = app
 
@@ -200,5 +200,5 @@ class BackendTaskRunner:
         except RetryAborted:
             self.app._notify(NotificationHelper.retry_cancelled())
             raise
-        except Exception as e:
+        except Exception:
             raise
