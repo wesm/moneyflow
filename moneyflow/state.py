@@ -739,77 +739,12 @@ class AppState:
     def get_filtered_df(self) -> Optional[pl.DataFrame]:
         """
         Get filtered DataFrame based on current state.
-
-        Applies multiple filters in sequence:
-        1. Time range filter (start_date/end_date)
-        2. Search query filter (merchant/category text search)
-        3. Group filter (hide Transfers unless enabled)
-        4. Hidden transactions filter (hide if show_hidden=False, but ONLY in aggregate views)
-           - Detail views always show hidden transactions for review
-        5. Drill-down filter (if viewing specific merchant/category/etc)
-
-        Returns:
-            Filtered DataFrame or None if no data loaded
-
-        Note: This method contains business logic (Polars operations) that
-        ideally should be extracted to a FilterService for better testability.
         """
         if self.transactions_df is None:
             return None
 
-        df = self.transactions_df
-
-        # Handle empty DataFrame (0 transactions) - return early to avoid column errors
-        if len(df) == 0:
-            return df
-
-        # Apply time filter
-        if self.start_date and self.end_date:
-            df = df.filter((pl.col("date") >= self.start_date) & (pl.col("date") <= self.end_date))
-
-        # Apply search filter
-        if self.search_query:
-            query = self.search_query.lower()
-            # Include matches from merchant, category, or Amazon item names
-            search_filter = pl.col("merchant").str.to_lowercase().str.contains(query) | pl.col(
-                "category"
-            ).str.to_lowercase().str.contains(query)
-            # Also include transactions matching Amazon item search
-            if self.amazon_search_ids:
-                search_filter = search_filter | pl.col("id").is_in(list(self.amazon_search_ids))
-            df = df.filter(search_filter)
-
-        # Apply group filter (hide Transfers unless enabled)
-        if not self.show_transfers:
-            df = df.filter(pl.col("group") != "Transfers")
-
-        # Apply hidden filter ONLY for aggregate views
-        # Detail views should always show hidden transactions so users can review them
-        if not self.show_hidden and self.view_mode != ViewMode.DETAIL:
-            df = df.filter(~pl.col("hideFromReports"))
-
-        # Apply time period drill-down filter (can combine with other dimensions)
-        if self.selected_time_year is not None:
-            df = df.filter(pl.col("date").dt.year() == self.selected_time_year)
-
-            if self.selected_time_month is not None:
-                df = df.filter(pl.col("date").dt.month() == self.selected_time_month)
-
-                if self.selected_time_day is not None:
-                    df = df.filter(pl.col("date").dt.day() == self.selected_time_day)
-
-        # Apply view-specific filters (can have multiple levels in multi-level drill-down)
-        if self.view_mode == ViewMode.DETAIL:
-            if self.selected_merchant:
-                df = df.filter(pl.col("merchant") == self.selected_merchant)
-            if self.selected_category:
-                df = df.filter(pl.col("category") == self.selected_category)
-            if self.selected_group:
-                df = df.filter(pl.col("group") == self.selected_group)
-            if self.selected_account:
-                df = df.filter(pl.col("account") == self.selected_account)
-
-        return df
+        from moneyflow.filter_service import FilterService
+        return FilterService.apply_filters(self.transactions_df, self)
 
     def drill_down(self, item_name: str, cursor_position: int = 0, scroll_y: float = 0) -> None:
         """
@@ -890,22 +825,11 @@ class AppState:
                 month_name = parts[0]
                 year_str = parts[1]
 
-                month_names = [
-                    "Jan",
-                    "Feb",
-                    "Mar",
-                    "Apr",
-                    "May",
-                    "Jun",
-                    "Jul",
-                    "Aug",
-                    "Sep",
-                    "Oct",
-                    "Nov",
-                    "Dec",
-                ]
+                import calendar
+                month_index = list(calendar.month_abbr).index(month_name)
+
                 self.selected_time_year = int(year_str)
-                self.selected_time_month = month_names.index(month_name) + 1
+                self.selected_time_month = month_index
                 self.selected_time_day = None
             else:  # DAY
                 # item_name is like "2024-03-15" (ISO format)
