@@ -213,3 +213,29 @@ async def test_partial_refresh_cold_only_updates_cold(
     saved_cold = cache_manager.load_cold_cache()
     assert saved_hot is not None and len(saved_hot) > 0
     assert len(saved_cold) == len(new_cold_df)
+
+
+@pytest.mark.asyncio
+async def test_load_merchant_cache_protocol_double():
+    """Regression test ensuring load_merchant_cache uses the return value of initialize_merchants."""
+    class MockDataManagerDouble:
+        def __init__(self):
+            self.all_merchants = []
+            self._merchants_to_return = ["Amazon", "Target"]
+
+        async def initialize_merchants(self, force: bool = False) -> list[str]:
+            # DO NOT set self.all_merchants here (simulating the bug's weakness)
+            # Just return the loaded merchants
+            return self._merchants_to_return
+
+        def apply_category_groups(self, df): pass
+
+        async def fetch_all_data(self, start_date=None, end_date=None, progress_callback=None): return None, {}, {}
+
+    double = MockDataManagerDouble()
+    orchestrator = CacheOrchestrator(cache_manager=None, data_manager=double)
+
+    await orchestrator.load_merchant_cache()
+
+    # Verify the return value was correctly assigned to all_merchants by the orchestrator
+    assert double.all_merchants == ["Amazon", "Target"]

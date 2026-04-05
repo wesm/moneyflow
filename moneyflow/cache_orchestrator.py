@@ -66,8 +66,9 @@ class CacheOrchestrator:
     async def load_merchant_cache(self) -> None:
         """Load merchant cache for autocomplete. Logs warning on failure."""
         try:
-            await self.data_manager.initialize_merchants(force=False)
-            self.logger.debug(f"Loaded {len(self.data_manager.all_merchants)} merchants from cache")
+            merchants = await self.data_manager.initialize_merchants(force=False)
+            self.data_manager.all_merchants = merchants
+            self.logger.debug(f"Loaded {len(merchants)} merchants from cache")
         except Exception as exc:
             self.logger.warning(f"Merchant cache load failed: {exc}")
             self.data_manager.all_merchants = []

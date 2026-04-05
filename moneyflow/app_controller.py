@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import polars as pl
+
 from moneyflow.formatters import PreparedView
 
 from .amazon_linker import AmazonLinker

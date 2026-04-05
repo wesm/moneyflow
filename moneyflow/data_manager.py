@@ -219,9 +219,10 @@ class DataManager:
 
         return merchants
 
-    async def initialize_merchants(self, force: bool = False) -> None:
+    async def initialize_merchants(self, force: bool = False) -> List[str]:
         """Initialize the merchant cache list."""
         self.all_merchants = await self.refresh_merchant_cache(force=force)
+        return self.all_merchants
 
     def get_all_merchants_for_autocomplete(self) -> List[str]:
         """
