@@ -670,7 +670,7 @@ class TestYNABBackend:
         assert backend.client._transaction_cache is None
 
     def test_find_payee_detects_duplicates(self, backend, mock_ynab_api):
-        """Test that _find_or_create_payee detects duplicate payee names."""
+        """Test that _find_payees_by_name detects duplicate payee names."""
         backend.client.budget_id = "test-budget-id"
         backend.client.api_client = MagicMock()
 
@@ -692,7 +692,7 @@ class TestYNABBackend:
         mock_ynab_api.PayeesApi.return_value = mock_payees_api
 
         # Call should return a dict with warning about duplicates
-        result = backend.client._find_or_create_payee("Amazon")
+        result = backend.client._find_payees_by_name("Amazon")
 
         assert result is not None
         assert "payee" in result
@@ -703,7 +703,7 @@ class TestYNABBackend:
         assert "payee-amazon-2" in result["duplicate_ids"]
 
     def test_find_payee_no_duplicates(self, backend, mock_ynab_api):
-        """Test that _find_or_create_payee works normally with unique names."""
+        """Test that _find_payees_by_name works normally with unique names."""
         backend.client.budget_id = "test-budget-id"
         backend.client.api_client = MagicMock()
 
@@ -719,7 +719,7 @@ class TestYNABBackend:
 
         mock_ynab_api.PayeesApi.return_value = mock_payees_api
 
-        result = backend.client._find_or_create_payee("Amazon")
+        result = backend.client._find_payees_by_name("Amazon")
 
         assert result is not None
         assert "payee" in result

@@ -30,6 +30,28 @@ class YNABClient:
         self._transaction_cache: Optional[List[Dict[str, Any]]] = None
         self._cache_params: Optional[Dict[str, Any]] = None
         self._account_cache: Optional[Dict[str, Dict[str, Any]]] = None
+        self._payee_cache: Optional[List[Any]] = None
+        self._category_cache: Optional[Dict[str, Any]] = None
+
+    @property
+    def _transactions_api(self) -> ynab.TransactionsApi:
+        self._ensure_authenticated()
+        return ynab.TransactionsApi(self.api_client)
+
+    @property
+    def _categories_api(self) -> ynab.CategoriesApi:
+        self._ensure_authenticated()
+        return ynab.CategoriesApi(self.api_client)
+
+    @property
+    def _payees_api(self) -> ynab.PayeesApi:
+        self._ensure_authenticated()
+        return ynab.PayeesApi(self.api_client)
+
+    @property
+    def _accounts_api(self) -> ynab.AccountsApi:
+        self._ensure_authenticated()
+        return ynab.AccountsApi(self.api_client)
 
     def login(self, access_token: str, budget_id: Optional[str] = None) -> None:
         """
@@ -52,15 +74,21 @@ class YNABClient:
         budgets_api = ynab.BudgetsApi(self.api_client)
         budgets_response = budgets_api.get_budgets()
 
+        self._resolve_budget_id(budgets_response, budget_id)
+
+        # Fetch and cache account information (including on_budget status)
+        self._fetch_and_cache_accounts()
+
+    def _resolve_budget_id(self, budgets_response: Any, requested_id: Optional[str]) -> None:
         if not budgets_response.data.budgets:
             raise ValueError("No budgets found in YNAB account")
 
-        if budget_id:
+        if requested_id:
             # Verify the specified budget exists
-            budget = next((b for b in budgets_response.data.budgets if b.id == budget_id), None)
+            budget = next((b for b in budgets_response.data.budgets if b.id == requested_id), None)
             if not budget:
-                raise ValueError(f"Budget with ID '{budget_id}' not found")
-            self.budget_id = budget_id
+                raise ValueError(f"Budget with ID '{requested_id}' not found")
+            self.budget_id = requested_id
         elif not self.budget_id:
             # Use first budget if no budget specified
             budget = budgets_response.data.budgets[0]
@@ -74,9 +102,6 @@ class YNABClient:
         # Fetch currency symbol from budget settings
         if budget and budget.currency_format and budget.currency_format.currency_symbol:
             self.currency_symbol = budget.currency_format.currency_symbol
-
-        # Fetch and cache account information (including on_budget status)
-        self._fetch_and_cache_accounts()
 
     def get_budgets(self) -> List[Dict[str, Any]]:
         """
@@ -139,14 +164,12 @@ class YNABClient:
         cache_key = {"start_date": start_date}
 
         if self._transaction_cache is None or self._cache_params != cache_key:
-            transactions_api = ynab.TransactionsApi(self.api_client)
-
             if start_date:
-                response = transactions_api.get_transactions(
+                response = self._transactions_api.get_transactions(
                     budget_id=self.budget_id, since_date=start_date
                 )
             else:
-                response = transactions_api.get_transactions(budget_id=self.budget_id)
+                response = self._transactions_api.get_transactions(budget_id=self.budget_id)
 
             self._transaction_cache = [
                 self._convert_transaction(txn) for txn in response.data.transactions
@@ -164,6 +187,11 @@ class YNABClient:
             }
         }
 
+    def _fetch_categories(self) -> None:
+        if self._category_cache is None:
+            response = self._categories_api.get_categories(budget_id=self.budget_id)
+            self._category_cache = response.data
+
     def get_transaction_categories(self) -> Dict[str, Any]:
         """
         Fetch all transaction categories from YNAB.
@@ -172,12 +200,10 @@ class YNABClient:
             Dictionary with categories list in moneyflow-compatible format
         """
         self._ensure_authenticated()
-
-        categories_api = ynab.CategoriesApi(self.api_client)
-        response = categories_api.get_categories(budget_id=self.budget_id)
+        self._fetch_categories()
 
         categories = []
-        for category_group in response.data.category_groups:
+        for category_group in self._category_cache.category_groups:
             for category in category_group.categories:
                 categories.append(
                     {
@@ -201,9 +227,7 @@ class YNABClient:
             Dictionary with categoryGroups list in moneyflow-compatible format
         """
         self._ensure_authenticated()
-
-        categories_api = ynab.CategoriesApi(self.api_client)
-        response = categories_api.get_categories(budget_id=self.budget_id)
+        self._fetch_categories()
 
         category_groups = [
             {
@@ -211,7 +235,7 @@ class YNABClient:
                 "name": group.name,
                 "type": "expense",
             }
-            for group in response.data.category_groups
+            for group in self._category_cache.category_groups
         ]
 
         return {"categoryGroups": category_groups}
@@ -239,9 +263,7 @@ class YNABClient:
         """
         self._ensure_authenticated()
 
-        transactions_api = ynab.TransactionsApi(self.api_client)
-
-        txn_response = transactions_api.get_transaction_by_id(
+        txn_response = self._transactions_api.get_transaction_by_id(
             budget_id=self.budget_id, transaction_id=transaction_id
         )
         existing_txn = txn_response.data.transaction
@@ -257,7 +279,7 @@ class YNABClient:
         )
 
         if merchant_name is not None:
-            payee_result = self._find_or_create_payee(merchant_name)
+            payee_result = self._find_payees_by_name(merchant_name)
             if payee_result["payee"]:
                 update_data.payee_id = payee_result["payee"].id
             else:
@@ -270,7 +292,7 @@ class YNABClient:
         # The deleted field is read-only. To "hide" transactions,
         # we would need to actually delete them, which we avoid here.
 
-        updated = transactions_api.update_transaction(
+        updated = self._transactions_api.update_transaction(
             budget_id=self.budget_id,
             transaction_id=transaction_id,
             data=ynab.PutTransactionWrapper(transaction=update_data),
@@ -293,8 +315,7 @@ class YNABClient:
         self._ensure_authenticated()
 
         try:
-            transactions_api = ynab.TransactionsApi(self.api_client)
-            transactions_api.delete_transaction(
+            self._transactions_api.delete_transaction(
                 budget_id=self.budget_id, transaction_id=transaction_id
             )
             self._invalidate_cache()
@@ -311,8 +332,7 @@ class YNABClient:
         """
         self._ensure_authenticated()
 
-        payees_api = ynab.PayeesApi(self.api_client)
-        response = payees_api.get_payees(budget_id=self.budget_id)
+        response = self._payees_api.get_payees(budget_id=self.budget_id)
 
         return sorted(payee.name for payee in response.data.payees)
 
@@ -344,14 +364,12 @@ class YNABClient:
             return False
 
         try:
-            payees_api = ynab.PayeesApi(self.api_client)
-
             # Create the update payload
             save_payee = ynab.SavePayee(name=new_name)
             wrapper = ynab.PatchPayeeWrapper(payee=save_payee)
 
             # Call the PATCH /payees/{payee_id} endpoint
-            response = payees_api.update_payee(
+            response = self._payees_api.update_payee(
                 budget_id=self.budget_id, payee_id=payee_id, data=wrapper
             )
 
@@ -368,6 +386,27 @@ class YNABClient:
         except Exception as e:
             logger.error(f"Failed to update payee {payee_id}: {e}", exc_info=True)
             return False
+
+    def _check_payee_duplicates(self, payee_result: Dict[str, Any], name: str, is_target: bool = False) -> Optional[Dict[str, Any]]:
+        if payee_result["duplicates_found"]:
+            method_prefix = "duplicate_target_payees" if is_target else "duplicate_payees"
+            logger.error(
+                f"Found duplicate payees with name '{name}': "
+                f"{payee_result['duplicate_ids']}. Cannot safely perform batch update. "
+                "Please merge duplicate payees in YNAB first."
+            )
+            return {
+                "success": False,
+                "payee_id": None,
+                "transactions_affected": 0,
+                "method": f"{method_prefix}_found",
+                "message": (
+                    f"Found {len(payee_result['duplicate_ids'])} duplicate payees "
+                    f"with name '{name}'. Merge duplicates in YNAB first."
+                ),
+                "duplicate_ids": payee_result["duplicate_ids"],
+            }
+        return None
 
     def batch_update_merchant(
         self, old_merchant_name: str, new_merchant_name: str
@@ -421,7 +460,7 @@ class YNABClient:
         logger.info(f"Batch updating merchant: '{old_merchant_name}' -> '{new_merchant_name}'")
 
         # Find the payee for the old merchant name
-        payee_result = self._find_or_create_payee(old_merchant_name)
+        payee_result = self._find_payees_by_name(old_merchant_name)
 
         if not payee_result["payee"]:
             logger.warning(
@@ -437,48 +476,21 @@ class YNABClient:
             }
 
         # Check for duplicates - abort if found
-        if payee_result["duplicates_found"]:
-            logger.error(
-                f"Found duplicate payees with name '{old_merchant_name}': "
-                f"{payee_result['duplicate_ids']}. Cannot safely perform batch update. "
-                "Please merge duplicate payees in YNAB first."
-            )
-            return {
-                "success": False,
-                "payee_id": None,
-                "transactions_affected": 0,
-                "method": "duplicate_payees_found",
-                "message": (
-                    f"Found {len(payee_result['duplicate_ids'])} duplicate payees "
-                    f"with name '{old_merchant_name}'. Merge duplicates in YNAB first."
-                ),
-                "duplicate_ids": payee_result["duplicate_ids"],
-            }
+        dup_error = self._check_payee_duplicates(payee_result, old_merchant_name)
+        if dup_error:
+            return dup_error
 
         old_payee = payee_result["payee"]
 
         # Check if target payee name already exists
-        target_payee_result = self._find_or_create_payee(new_merchant_name)
+        target_payee_result = self._find_payees_by_name(new_merchant_name)
         if target_payee_result["payee"]:
             # Check for duplicates in target - abort if found
-            if target_payee_result["duplicates_found"]:
-                logger.error(
-                    f"Found duplicate target payees with name '{new_merchant_name}': "
-                    f"{target_payee_result['duplicate_ids']}. Cannot safely perform batch merge. "
-                    "Please merge duplicate payees in YNAB first."
-                )
-                return {
-                    "success": False,
-                    "payee_id": None,
-                    "transactions_affected": 0,
-                    "method": "duplicate_target_payees_found",
-                    "message": (
-                        f"Target payee '{new_merchant_name}' has "
-                        f"{len(target_payee_result['duplicate_ids'])} duplicates. "
-                        "Merge duplicates in YNAB first."
-                    ),
-                    "duplicate_ids": target_payee_result["duplicate_ids"],
-                }
+            target_dup_error = self._check_payee_duplicates(
+                target_payee_result, new_merchant_name, is_target=True
+            )
+            if target_dup_error:
+                return target_dup_error
 
             # Target payee already exists - use batch transaction update to merge
             target_payee = target_payee_result["payee"]
@@ -533,12 +545,11 @@ class YNABClient:
         """
         self._ensure_authenticated()
 
-        payee_result = self._find_or_create_payee(payee_name)
+        payee_result = self._find_payees_by_name(payee_name)
         if not payee_result["payee"]:
             return 0
 
-        transactions_api = ynab.TransactionsApi(self.api_client)
-        response = transactions_api.get_transactions_by_payee(
+        response = self._transactions_api.get_transactions_by_payee(
             budget_id=self.budget_id, payee_id=payee_result["payee"].id
         )
         return len(response.data.transactions)
@@ -599,10 +610,8 @@ class YNABClient:
             }
 
         try:
-            transactions_api = ynab.TransactionsApi(self.api_client)
-
             # Get all transactions for the old payee
-            response = transactions_api.get_transactions_by_payee(
+            response = self._transactions_api.get_transactions_by_payee(
                 budget_id=self.budget_id, payee_id=old_payee_id
             )
             transactions = response.data.transactions
@@ -629,7 +638,7 @@ class YNABClient:
 
             # Execute batch update
             wrapper = ynab.PatchTransactionsWrapper(transactions=update_list)
-            transactions_api.update_transactions(budget_id=self.budget_id, data=wrapper)
+            self._transactions_api.update_transactions(budget_id=self.budget_id, data=wrapper)
 
             self._invalidate_cache()
 
@@ -670,6 +679,8 @@ class YNABClient:
         """Clear the transaction cache."""
         self._transaction_cache = None
         self._cache_params = None
+        self._payee_cache = None
+        self._category_cache = None
 
     def _fetch_and_cache_accounts(self) -> None:
         """
@@ -680,8 +691,7 @@ class YNABClient:
         """
         self._ensure_authenticated()
 
-        accounts_api = ynab.AccountsApi(self.api_client)
-        response = accounts_api.get_accounts(budget_id=self.budget_id)
+        response = self._accounts_api.get_accounts(budget_id=self.budget_id)
 
         self._account_cache = {
             account.id: {
@@ -744,7 +754,12 @@ class YNABClient:
             "isRecurring": False,
         }
 
-    def _find_or_create_payee(self, merchant_name: str) -> Dict[str, Any]:
+    def _fetch_and_cache_payees(self) -> None:
+        if self._payee_cache is None:
+            response = self._payees_api.get_payees(budget_id=self.budget_id)
+            self._payee_cache = response.data.payees
+
+    def _find_payees_by_name(self, merchant_name: str) -> Dict[str, Any]:
         """
         Find a payee by name and detect duplicates.
 
@@ -757,13 +772,12 @@ class YNABClient:
             - duplicates_found: True if multiple payees with same name exist
             - duplicate_ids: List of all payee IDs with matching names
         """
-        payees_api = ynab.PayeesApi(self.api_client)
-        response = payees_api.get_payees(budget_id=self.budget_id)
+        self._fetch_and_cache_payees()
 
         # Find all payees with matching name
         # Note: Linear search is intentional - we need ALL matches to detect duplicates
         # Using a dict would only find one match and miss duplicate detection
-        matching_payees = [p for p in response.data.payees if p.name == merchant_name]
+        matching_payees = [p for p in self._payee_cache if p.name == merchant_name]
 
         if not matching_payees:
             return {
