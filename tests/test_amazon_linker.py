@@ -729,3 +729,13 @@ class TestItemLevelMatching:
         assert matches[0].total_amount == -200.00
         assert len(matches[0].items) == 1
         assert matches[0].items[0]["name"] == "Soundbar"
+
+    def test_database_error_query_time(self, linker: AmazonLinker, amazon_profile: Path) -> None:
+        """Should handle query-time sqlite3.DatabaseError gracefully without raising RuntimeError."""
+        db_path = amazon_profile / "amazon.db"
+        # Create an empty db file to cause missing table error
+        db_path.touch()
+
+        # This should return an empty list, not raise a RuntimeError or DatabaseError
+        matches = linker.find_matching_orders(amount=-10.00, transaction_date="2025-01-01")
+        assert len(matches) == 0

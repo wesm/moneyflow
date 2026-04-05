@@ -277,15 +277,19 @@ class AmazonLinker:
 
     @contextlib.contextmanager
     def _get_connection(self, db_path: Path):
-        conn = None
         try:
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
-            with contextlib.closing(conn):
-                yield conn
         except sqlite3.DatabaseError as e:
             logger.warning(f"Database error reading {db_path}: {e}")
             yield None
+            return
+
+        with contextlib.closing(conn):
+            try:
+                yield conn
+            except sqlite3.DatabaseError as e:
+                logger.warning(f"Database error reading {db_path}: {e}")
 
     def _calculate_confidence(self, days_diff: int, amount_diff: float = 0.0) -> str:
         """Calculate confidence based on date and amount proximity."""
