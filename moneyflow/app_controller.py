@@ -40,7 +40,7 @@ from .state import (
     TransactionEdit,
     ViewMode,
 )
-from .time_navigator import TimeNavigator
+from .time_navigator import get_month_range, next_period, previous_period
 from .view_interface import IViewPresenter
 
 logger = get_logger(__name__)
@@ -661,7 +661,7 @@ class AppController:
             Description of the selected time range
         """
         today = date_type.today()
-        date_range = TimeNavigator.get_month_range(today.year, month)
+        date_range = get_month_range(today.year, month)
 
         self.state.start_date = date_range.start_date
         self.state.end_date = date_range.end_date
@@ -681,7 +681,7 @@ class AppController:
             # In all-time view, signal to fallback to current year
             return (True, None)
 
-        date_range = TimeNavigator.previous_period(self.state.start_date, self.state.end_date)
+        date_range = previous_period(self.state.start_date, self.state.end_date)
         self.state.start_date = date_range.start_date
         self.state.end_date = date_range.end_date
         self.refresh_view()
@@ -700,7 +700,7 @@ class AppController:
             # In all-time view, signal to fallback to current year
             return (True, None)
 
-        date_range = TimeNavigator.next_period(self.state.start_date, self.state.end_date)
+        date_range = next_period(self.state.start_date, self.state.end_date)
         self.state.start_date = date_range.start_date
         self.state.end_date = date_range.end_date
         self.refresh_view()
