@@ -188,6 +188,16 @@ class AppState:
     # Stores NavigationState objects for restoring state on go_back
     navigation_history: List[NavigationState] = dataclass_field(default_factory=list)
 
+    @property
+    def is_aggregate_view(self) -> bool:
+        """Check if current view mode is an aggregate view."""
+        return self.view_mode in [
+            ViewMode.MERCHANT,
+            ViewMode.CATEGORY,
+            ViewMode.GROUP,
+            ViewMode.ACCOUNT,
+        ]
+
     def add_edit(self, transaction_id: str, field: str, old_value: Any, new_value: Any):
         """Add a pending edit to the change tracker."""
         edit = TransactionEdit(

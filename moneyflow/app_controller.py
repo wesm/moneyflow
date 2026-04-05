@@ -225,13 +225,7 @@ class AppController:
         # Validate sort field for current view type
         # Detail views (transaction lists) don't have a 'count' column
         # Aggregate views and sub-grouped views DO have a 'count' column
-        is_aggregate_view = self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-            ViewMode.TIME,
-        ]
+        is_aggregate_view = self.state.is_aggregate_view or self.state.view_mode == ViewMode.TIME
         is_sub_grouped = self.state.is_drilled_down() and self.state.sub_grouping_mode is not None
         is_detail_view = not is_aggregate_view and not is_sub_grouped
 
@@ -245,13 +239,7 @@ class AppController:
             self.state.sort_direction = SortDirection.DESC
 
         # Prepare view data based on current state
-        if self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-            ViewMode.TIME,
-        ]:
+        if self.state.is_aggregate_view or self.state.view_mode == ViewMode.TIME:
             # All aggregate views use the same pattern
             view_data = self._prepare_aggregate_view(self.state.view_mode)
             if view_data is None:
@@ -263,129 +251,13 @@ class AppController:
                 return
 
             # Apply drill-down filters (can have multiple levels)
-            # Apply in order: merchant → category → group → account
-            txns = filtered_df
-
-            if self.state.selected_merchant:
-                txns = self.data_manager.filter_by_merchant(txns, self.state.selected_merchant)
-
-            if self.state.selected_category:
-                txns = self.data_manager.filter_by_category(txns, self.state.selected_category)
-
-            if self.state.selected_group:
-                txns = self.data_manager.filter_by_group(txns, self.state.selected_group)
-
-            if self.state.selected_account:
-                txns = self.data_manager.filter_by_account(txns, self.state.selected_account)
+            txns = self._apply_drill_down_filters(filtered_df)
 
             # Check if sub-grouping is active (drilled down with aggregation)
             if self.state.is_drilled_down() and self.state.sub_grouping_mode:
-                # Show aggregated view within drill-down
-                if self.state.sub_grouping_mode == ViewMode.TIME:
-                    # Special handling for time sub-grouping
-                    agg = self.data_manager.aggregate_by_time(txns, self.state.time_granularity)
-                    field_name = "time_period_display"  # Actual column name in time aggregation
-                else:
-                    sub_group_map = {
-                        ViewMode.CATEGORY: (self.data_manager.aggregate_by_category, "category"),
-                        ViewMode.GROUP: (self.data_manager.aggregate_by_group, "group"),
-                        ViewMode.ACCOUNT: (self.data_manager.aggregate_by_account, "account"),
-                        ViewMode.MERCHANT: (self.data_manager.aggregate_by_merchant, "merchant"),
-                    }
-
-                    aggregate_func, field_name = sub_group_map[self.state.sub_grouping_mode]
-                    agg = aggregate_func(txns)
-
-                # Apply sorting with secondary sort key for deterministic ordering
-                # Use sort_column if set (for computed columns), otherwise use sort_by
-                if self.state.sort_column:
-                    sort_col = self.state.sort_column
-                else:
-                    sort_col = self.state.sort_by.value
-                    if sort_col == "amount":
-                        sort_col = "total"
-                    elif sort_col == "time_period":
-                        sort_col = "time_period_display"
-                    elif sort_col in ["merchant", "category", "group", "account"]:
-                        sort_col = field_name
-
-                descending = ViewPresenter.should_sort_descending(
-                    sort_col, self.state.sort_direction
-                )
-                if not agg.is_empty():
-                    # Use secondary sort by field_name for deterministic ordering
-                    # when primary sort values are equal (e.g., same amount)
-                    agg = agg.sort([sort_col, field_name], descending=[descending, False])
-
-                self.state.current_data = agg
-
-                # Get pending edit IDs for flags
-                pending_edit_ids = {edit.transaction_id for edit in self.data_manager.pending_edits}
-
-                view_data = ViewPresenter.prepare_aggregation_view(
-                    agg,
-                    field_name,
-                    self.state.sort_by,
-                    self.state.sort_direction,
-                    detail_df=txns,
-                    pending_edit_ids=pending_edit_ids,
-                    selected_group_keys=self.state.selected_group_keys,
-                    column_config=self._get_column_config(),
-                    display_labels=self._get_display_labels(),
-                    computed_columns=self._get_computed_columns(),
-                    sort_column=self.state.sort_column,
-                )
+                view_data = self._prepare_subgroup_view(txns)
             else:
-                # Show detail view (normal behavior)
-                # Sort
-                if not txns.is_empty():
-                    sort_field = self.state.sort_by.value
-                    # Map TIME_PERIOD to DATE for detail view (transactions don't have time_period column)
-                    if sort_field == "time_period":
-                        sort_field = "date"
-                    descending = ViewPresenter.should_sort_descending(
-                        sort_field, self.state.sort_direction
-                    )
-                    txns = txns.sort(sort_field, descending=descending)
-
-                self.state.current_data = txns
-
-                # Get pending edit IDs
-                pending_txn_ids = {edit.transaction_id for edit in self.data_manager.pending_edits}
-
-                # Check if we should show Amazon column
-                self._showing_amazon_column = self._is_amazon_filtered_view(txns)
-
-                # Get Amazon cache from view to avoid "..." flash for cached results
-                amazon_cache = self.view.get_amazon_cache() if self._showing_amazon_column else None
-
-                # Determine if drilled into a specific field (for shrink-to-fit column width)
-                # Note: group doesn't have its own column, so we don't shrink-to-fit for it
-                drilled_field = None
-                drilled_value = None
-                if self.state.selected_merchant:
-                    drilled_field = "merchant"
-                    drilled_value = self.state.selected_merchant
-                elif self.state.selected_category:
-                    drilled_field = "category"
-                    drilled_value = self.state.selected_category
-                elif self.state.selected_account:
-                    drilled_field = "account"
-                    drilled_value = self.state.selected_account
-
-                view_data = ViewPresenter.prepare_transaction_view(
-                    txns,
-                    self.state.sort_by,
-                    self.state.sort_direction,
-                    self.state.selected_ids,
-                    pending_txn_ids,
-                    column_config=self._get_column_config(),
-                    display_labels=self._get_display_labels(),
-                    show_amazon_column=self._showing_amazon_column,
-                    amazon_cache=amazon_cache,
-                    drilled_field=drilled_field,
-                    drilled_value=drilled_value,
-                )
+                view_data = self._prepare_detail_view(txns)
         else:
             return
 
@@ -442,6 +314,131 @@ class AppController:
         # Update pending changes
         count = len(self.data_manager.pending_edits)
         self.view.update_pending_changes(count)
+
+    def _apply_drill_down_filters(self, filtered_df: pl.DataFrame) -> pl.DataFrame:
+        """Apply active drill-down filters (merchant, category, group, account) to the dataframe."""
+        txns = filtered_df
+
+        if self.state.selected_merchant:
+            txns = self.data_manager.filter_by_merchant(txns, self.state.selected_merchant)
+        if self.state.selected_category:
+            txns = self.data_manager.filter_by_category(txns, self.state.selected_category)
+        if self.state.selected_group:
+            txns = self.data_manager.filter_by_group(txns, self.state.selected_group)
+        if self.state.selected_account:
+            txns = self.data_manager.filter_by_account(txns, self.state.selected_account)
+
+        return txns
+
+    def _prepare_subgroup_view(self, txns: pl.DataFrame) -> dict:
+        """Prepare view data for sub-grouping (aggregated drill-down)."""
+        # Show aggregated view within drill-down
+        if self.state.sub_grouping_mode == ViewMode.TIME:
+            # Special handling for time sub-grouping
+            agg = self.data_manager.aggregate_by_time(txns, self.state.time_granularity)
+            field_name = "time_period_display"  # Actual column name in time aggregation
+        else:
+            sub_group_map = {
+                ViewMode.CATEGORY: (self.data_manager.aggregate_by_category, "category"),
+                ViewMode.GROUP: (self.data_manager.aggregate_by_group, "group"),
+                ViewMode.ACCOUNT: (self.data_manager.aggregate_by_account, "account"),
+                ViewMode.MERCHANT: (self.data_manager.aggregate_by_merchant, "merchant"),
+            }
+
+            aggregate_func, field_name = sub_group_map[self.state.sub_grouping_mode]
+            agg = aggregate_func(txns)
+
+        # Apply sorting with secondary sort key for deterministic ordering
+        # Use sort_column if set (for computed columns), otherwise use sort_by
+        if self.state.sort_column:
+            sort_col = self.state.sort_column
+        else:
+            sort_col = self.state.sort_by.value
+            if sort_col == "amount":
+                sort_col = "total"
+            elif sort_col == "time_period":
+                sort_col = "time_period_display"
+            elif sort_col in ["merchant", "category", "group", "account"]:
+                sort_col = field_name
+
+        descending = ViewPresenter.should_sort_descending(
+            sort_col, self.state.sort_direction
+        )
+        if not agg.is_empty():
+            # Use secondary sort by field_name for deterministic ordering
+            # when primary sort values are equal (e.g., same amount)
+            agg = agg.sort([sort_col, field_name], descending=[descending, False])
+
+        self.state.current_data = agg
+
+        # Get pending edit IDs for flags
+        pending_edit_ids = {edit.transaction_id for edit in self.data_manager.pending_edits}
+
+        return ViewPresenter.prepare_aggregation_view(
+            agg,
+            field_name,
+            self.state.sort_by,
+            self.state.sort_direction,
+            detail_df=txns,
+            pending_edit_ids=pending_edit_ids,
+            selected_group_keys=self.state.selected_group_keys,
+            column_config=self._get_column_config(),
+            display_labels=self._get_display_labels(),
+            computed_columns=self._get_computed_columns(),
+            sort_column=self.state.sort_column,
+        )
+
+    def _prepare_detail_view(self, txns: pl.DataFrame) -> dict:
+        """Prepare normal transaction detail view."""
+        # Sort
+        if not txns.is_empty():
+            sort_field = self.state.sort_by.value
+            # Map TIME_PERIOD to DATE for detail view (transactions don't have time_period column)
+            if sort_field == "time_period":
+                sort_field = "date"
+            descending = ViewPresenter.should_sort_descending(
+                sort_field, self.state.sort_direction
+            )
+            txns = txns.sort(sort_field, descending=descending)
+
+        self.state.current_data = txns
+
+        # Get pending edit IDs
+        pending_txn_ids = {edit.transaction_id for edit in self.data_manager.pending_edits}
+
+        # Check if we should show Amazon column
+        self._showing_amazon_column = self._is_amazon_filtered_view(txns)
+
+        # Get Amazon cache from view to avoid "..." flash for cached results
+        amazon_cache = self.view.get_amazon_cache() if self._showing_amazon_column else None
+
+        # Determine if drilled into a specific field (for shrink-to-fit column width)
+        # Note: group doesn't have its own column, so we don't shrink-to-fit for it
+        drilled_field = None
+        drilled_value = None
+        if self.state.selected_merchant:
+            drilled_field = "merchant"
+            drilled_value = self.state.selected_merchant
+        elif self.state.selected_category:
+            drilled_field = "category"
+            drilled_value = self.state.selected_category
+        elif self.state.selected_account:
+            drilled_field = "account"
+            drilled_value = self.state.selected_account
+
+        return ViewPresenter.prepare_transaction_view(
+            txns,
+            self.state.sort_by,
+            self.state.sort_direction,
+            self.state.selected_ids,
+            pending_txn_ids,
+            column_config=self._get_column_config(),
+            display_labels=self._get_display_labels(),
+            show_amazon_column=self._showing_amazon_column,
+            amazon_cache=amazon_cache,
+            drilled_field=drilled_field,
+            drilled_value=drilled_value,
+        )
 
     def _prepare_aggregate_view(self, view_mode: ViewMode):
         """
@@ -576,13 +573,7 @@ class AppController:
         """
         # Save current state to navigation history if we're in an aggregate view
         # This allows Esc/'g' to return to the correct aggregate view
-        if self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-            ViewMode.TIME,
-        ]:
+        if self.state.is_aggregate_view or self.state.view_mode == ViewMode.TIME:
             self.state.navigation_history.append(
                 NavigationState(
                     view_mode=self.state.view_mode,
@@ -824,12 +815,7 @@ class AppController:
         row_data = self.state.current_data.row(row_idx, named=True)
 
         # Check if we're in aggregate view or sub-grouped detail view
-        if self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-        ] or (
+        if self.state.is_aggregate_view or (
             self.state.view_mode == ViewMode.DETAIL
             and self.state.is_drilled_down()
             and self.state.sub_grouping_mode
@@ -864,12 +850,7 @@ class AppController:
         total_rows = len(self.state.current_data)
 
         # Check if we're in aggregate view or sub-grouped detail view
-        if self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-        ] or (
+        if self.state.is_aggregate_view or (
             self.state.view_mode == ViewMode.DETAIL
             and self.state.is_drilled_down()
             and self.state.sub_grouping_mode
@@ -1100,12 +1081,7 @@ class AppController:
             50
         """
         # Determine view type
-        is_aggregate = self.state.view_mode in [
-            ViewMode.MERCHANT,
-            ViewMode.CATEGORY,
-            ViewMode.GROUP,
-            ViewMode.ACCOUNT,
-        ]
+        is_aggregate = self.state.is_aggregate_view
         is_detail = self.state.view_mode == ViewMode.DETAIL
         is_subgrouped = self.state.is_drilled_down() and self.state.sub_grouping_mode is not None
 
@@ -1156,6 +1132,17 @@ class AppController:
             group_field=None,
         )
 
+    def _filter_by_field(self, df: pl.DataFrame, field: str, value: str) -> pl.DataFrame:
+        """Helper to filter dataframe by a specific grouping field."""
+        filters = {
+            "merchant": self.data_manager.filter_by_merchant,
+            "category": self.data_manager.filter_by_category,
+            "group": self.data_manager.filter_by_group,
+            "account": self.data_manager.filter_by_account,
+        }
+        filter_func = filters.get(field)
+        return filter_func(df, value) if filter_func else pl.DataFrame()
+
     def _determine_aggregate_edit_context(
         self, field_name: str, cursor_row: int, filtered_df: pl.DataFrame, has_selected_groups: bool
     ) -> EditContext:
@@ -1198,16 +1185,7 @@ class AppController:
             group_name = str(current_row.get(self.state.current_data.columns[0]))
 
             # Get all transactions for this group
-            if group_field == "merchant":
-                transactions = self.data_manager.filter_by_merchant(filtered_df, group_name)
-            elif group_field == "category":
-                transactions = self.data_manager.filter_by_category(filtered_df, group_name)
-            elif group_field == "group":
-                transactions = self.data_manager.filter_by_group(filtered_df, group_name)
-            elif group_field == "account":
-                transactions = self.data_manager.filter_by_account(filtered_df, group_name)
-            else:
-                transactions = pl.DataFrame()
+            transactions = self._filter_by_field(filtered_df, group_field, group_name)
 
             # For merchant edits, current_value is the merchant name
             # For category edits in merchant view, current_value is the first category or None
@@ -1272,16 +1250,7 @@ class AppController:
             group_name = str(current_row.get(self.state.current_data.columns[0]))
 
             # Get transactions for this sub-group
-            if group_field == "merchant":
-                transactions = self.data_manager.filter_by_merchant(filtered_df, group_name)
-            elif group_field == "category":
-                transactions = self.data_manager.filter_by_category(filtered_df, group_name)
-            elif group_field == "group":
-                transactions = self.data_manager.filter_by_group(filtered_df, group_name)
-            elif group_field == "account":
-                transactions = self.data_manager.filter_by_account(filtered_df, group_name)
-            else:
-                transactions = pl.DataFrame()
+            transactions = self._filter_by_field(filtered_df, group_field, group_name)
 
             return EditContext(
                 mode=EditMode.SUBGROUP_SINGLE,
@@ -1656,93 +1625,7 @@ class AppController:
             # is the same list object (passed by reference), so clearing pending_edits
             # would empty the edits list before we can use it for cache updates!
             if self.cache_manager and cache_filters:
-                try:
-                    if is_filtered_view:
-                        # Filtered views only hold a subset of transactions.
-                        # Merge edits into cached tiers to avoid overwriting data.
-                        hot_df = self.cache_manager.load_hot_cache()
-                        cold_df = self.cache_manager.load_cold_cache()
-                        if hot_df is None or cold_df is None:
-                            # This can happen if cache files don't exist, are corrupted,
-                            # or encryption mode changed since they were created.
-                            # We'll try to recover by applying edits to whichever tier
-                            # loaded successfully, and preserve the other.
-                            logger.warning(
-                                "Filtered view: cache tier(s) unavailable (hot=%s, cold=%s). "
-                                "Attempting partial update to preserve edits.",
-                                hot_df is not None,
-                                cold_df is not None,
-                            )
-                            if hot_df is not None:
-                                updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
-                                    hot_df,
-                                    edits,
-                                    self.data_manager.categories,
-                                    self.data_manager.apply_category_groups,
-                                    bulk_merchant_renames,
-                                )
-                                self.cache_manager.save_hot_cache(
-                                    hot_df=updated_hot,
-                                    categories=self.data_manager.categories,
-                                    category_groups=self.data_manager.category_groups,
-                                )
-                                logger.info("Updated hot cache with edits (cold unavailable)")
-                            if cold_df is not None:
-                                updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
-                                    cold_df,
-                                    edits,
-                                    self.data_manager.categories,
-                                    self.data_manager.apply_category_groups,
-                                    bulk_merchant_renames,
-                                )
-                                self.cache_manager.save_cold_cache(cold_df=updated_cold)
-                                logger.info("Updated cold cache with edits (hot unavailable)")
-                            if hot_df is None and cold_df is None:
-                                # Neither tier available - cache is corrupted or missing.
-                                # In filtered view, data_manager.df only contains the filtered
-                                # subset, so we CANNOT safely save it as the full cache (would
-                                # lose historical data). Just log the error - edits are already
-                                # saved to backend, so next --refresh will restore consistency.
-                                logger.error(
-                                    "Neither cache tier could be loaded in filtered view! "
-                                    "Cache may be corrupted. Edits saved to backend but not to "
-                                    "local cache. Use --refresh to rebuild cache from backend."
-                                )
-                        else:
-                            logger.info("Filtered view detected - updating cached tiers with edits")
-                            updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
-                                hot_df,
-                                edits,
-                                self.data_manager.categories,
-                                self.data_manager.apply_category_groups,
-                                bulk_merchant_renames,
-                            )
-                            updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
-                                cold_df,
-                                edits,
-                                self.data_manager.categories,
-                                self.data_manager.apply_category_groups,
-                                bulk_merchant_renames,
-                            )
-                            self.cache_manager.save_hot_cache(
-                                hot_df=updated_hot,
-                                categories=self.data_manager.categories,
-                                category_groups=self.data_manager.category_groups,
-                            )
-                            self.cache_manager.save_cold_cache(cold_df=updated_cold)
-                    else:
-                        # Full data mode - safe to save both tiers
-                        logger.debug("Full data mode - updating both cache tiers")
-                        self.cache_manager.save_cache(
-                            transactions_df=self.data_manager.df,
-                            categories=self.data_manager.categories,
-                            category_groups=self.data_manager.category_groups,
-                            year=cache_filters.get("year"),
-                            since=cache_filters.get("since"),
-                        )
-                except Exception as e:
-                    # Cache update failed - not critical, just log
-                    logger.warning(f"Cache update failed: {e}", exc_info=True)
+                self._update_cache_after_commit(edits, bulk_merchant_renames, cache_filters, is_filtered_view)
 
             # Clear pending edits on success (after cache update to preserve edits list)
             self.data_manager.pending_edits.clear()
@@ -1755,6 +1638,102 @@ class AppController:
             )
             self.refresh_view(force_rebuild=False)
             logger.debug(f"After refresh: view_mode={self.state.view_mode}")
+
+    def _update_cache_after_commit(
+        self,
+        edits: List[TransactionEdit],
+        bulk_merchant_renames: set[tuple[str, str]] | None,
+        cache_filters: dict,
+        is_filtered_view: bool,
+    ) -> None:
+        """Update the cache after a successful commit."""
+        try:
+            if is_filtered_view:
+                # Filtered views only hold a subset of transactions.
+                # Merge edits into cached tiers to avoid overwriting data.
+                hot_df = self.cache_manager.load_hot_cache()
+                cold_df = self.cache_manager.load_cold_cache()
+                if hot_df is None or cold_df is None:
+                    # This can happen if cache files don't exist, are corrupted,
+                    # or encryption mode changed since they were created.
+                    # We'll try to recover by applying edits to whichever tier
+                    # loaded successfully, and preserve the other.
+                    logger.warning(
+                        "Filtered view: cache tier(s) unavailable (hot=%s, cold=%s). "
+                        "Attempting partial update to preserve edits.",
+                        hot_df is not None,
+                        cold_df is not None,
+                    )
+                    if hot_df is not None:
+                        updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                            hot_df,
+                            edits,
+                            self.data_manager.categories,
+                            self.data_manager.apply_category_groups,
+                            bulk_merchant_renames,
+                        )
+                        self.cache_manager.save_hot_cache(
+                            hot_df=updated_hot,
+                            categories=self.data_manager.categories,
+                            category_groups=self.data_manager.category_groups,
+                        )
+                        logger.info("Updated hot cache with edits (cold unavailable)")
+                    if cold_df is not None:
+                        updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                            cold_df,
+                            edits,
+                            self.data_manager.categories,
+                            self.data_manager.apply_category_groups,
+                            bulk_merchant_renames,
+                        )
+                        self.cache_manager.save_cold_cache(cold_df=updated_cold)
+                        logger.info("Updated cold cache with edits (hot unavailable)")
+                    if hot_df is None and cold_df is None:
+                        # Neither tier available - cache is corrupted or missing.
+                        # In filtered view, data_manager.df only contains the filtered
+                        # subset, so we CANNOT safely save it as the full cache (would
+                        # lose historical data). Just log the error - edits are already
+                        # saved to backend, so next --refresh will restore consistency.
+                        logger.error(
+                            "Neither cache tier could be loaded in filtered view! "
+                            "Cache may be corrupted. Edits saved to backend but not to "
+                            "local cache. Use --refresh to rebuild cache from backend."
+                        )
+                else:
+                    logger.info("Filtered view detected - updating cached tiers with edits")
+                    updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                        hot_df,
+                        edits,
+                        self.data_manager.categories,
+                        self.data_manager.apply_category_groups,
+                        bulk_merchant_renames,
+                    )
+                    updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                        cold_df,
+                        edits,
+                        self.data_manager.categories,
+                        self.data_manager.apply_category_groups,
+                        bulk_merchant_renames,
+                    )
+                    self.cache_manager.save_hot_cache(
+                        hot_df=updated_hot,
+                        categories=self.data_manager.categories,
+                        category_groups=self.data_manager.category_groups,
+                    )
+                    self.cache_manager.save_cold_cache(cold_df=updated_cold)
+            else:
+                # Full data mode - safe to save both tiers
+                logger.debug("Full data mode - updating both cache tiers")
+                self.cache_manager.save_cache(
+                    transactions_df=self.data_manager.df,
+                    categories=self.data_manager.categories,
+                    category_groups=self.data_manager.category_groups,
+                    year=cache_filters.get("year"),
+                    since=cache_filters.get("since"),
+                )
+        except Exception as e:
+            # Cache update failed - not critical, just log
+            logger.warning(f"Cache update failed: {e}", exc_info=True)
 
     def get_transactions_from_selected_groups(self, group_by_field: str) -> pl.DataFrame:
         """
@@ -1776,15 +1755,8 @@ class AppController:
         # Filter to transactions in any of the selected groups
         all_txns = pl.DataFrame()
         for group_key in self.state.selected_group_keys:
-            if group_by_field == "merchant":
-                group_txns = self.data_manager.filter_by_merchant(filtered_df, group_key)
-            elif group_by_field == "category":
-                group_txns = self.data_manager.filter_by_category(filtered_df, group_key)
-            elif group_by_field == "group":
-                group_txns = self.data_manager.filter_by_group(filtered_df, group_key)
-            elif group_by_field == "account":
-                group_txns = self.data_manager.filter_by_account(filtered_df, group_key)
-            else:
+            group_txns = self._filter_by_field(filtered_df, group_by_field, group_key)
+            if group_txns.is_empty():
                 continue
 
             if all_txns.is_empty():
