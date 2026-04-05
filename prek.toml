@@ -1,0 +1,64 @@
+default_install_hook_types = ["pre-commit"]
+
+[[repos]]
+repo = "builtin"
+hooks = [
+  { id = "check-case-conflict" },
+  { id = "check-merge-conflict", args = ["--assume-in-merge"] },
+  { id = "detect-private-key" },
+  { id = "no-commit-to-branch" },
+  { id = "check-added-large-files", args = ["--maxkb=1024"] },
+  { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"] },
+  { id = "end-of-file-fixer" },
+  { id = "check-json" },
+  { id = "check-toml" },
+  { id = "check-yaml" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "ruff-format",
+    name = "ruff format",
+    language = "system",
+    entry = "uv run ruff format",
+    files = "\\.py$",
+    exclude = "monarchmoney\\.py$",
+    priority = 0,
+  },
+  {
+    id = "ruff-check",
+    name = "ruff check --fix",
+    language = "system",
+    entry = "uv run ruff check --fix",
+    files = "\\.py$",
+    exclude = "monarchmoney\\.py$",
+    priority = 10,
+  },
+  {
+    id = "pyright",
+    name = "pyright",
+    language = "system",
+    entry = "uv run pyright moneyflow/",
+    files = "\\.py$",
+    pass_filenames = false,
+    priority = 20,
+  },
+  {
+    id = "pytest",
+    name = "pytest (quick)",
+    language = "system",
+    entry = "uv run pytest -x -q",
+    files = "\\.py$",
+    pass_filenames = false,
+    priority = 30,
+  },
+]
+
+[[repos]]
+repo = "meta"
+hooks = [
+  { id = "check-hooks-apply" },
+  { id = "check-useless-excludes" },
+]

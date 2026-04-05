@@ -173,7 +173,9 @@ class AccountFlowCoordinator:
         account: Account,
         account_manager: AccountManager,
     ) -> Optional[str]:
-        temp_backend = get_backend("ynab")
+        from moneyflow.backends.ynab import YNABBackend
+
+        temp_backend: YNABBackend = get_backend("ynab")  # type: ignore[assignment]
 
         try:
             await temp_backend.login(password=creds["password"])
