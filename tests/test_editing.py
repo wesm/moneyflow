@@ -17,6 +17,7 @@ from moneyflow.state import TransactionEdit
 
 
 async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, expected_path):
+    dm.pending_edits.clear()
     edit = TransactionEdit(
         transaction_id=txn_id,
         field=field,
@@ -25,6 +26,7 @@ async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, e
         timestamp=datetime.now(),
     )
     success, failure, _ = await dm.commit_pending_edits([edit])
+    dm.pending_edits.clear()
     assert success == 1
     assert failure == 0
     updated = mock_mm.get_transaction_by_id(txn_id)
@@ -636,103 +638,85 @@ class TestEdgeCase:
 class TestMerchantCreation:
     """Test creating new merchants via edit merchant modal."""
 
-    def test_user_input_always_available_as_option(self):
-        """Test that user input is always available as a 'create new' option."""
-        # This tests the representation of the option id
-        user_input = "Starbucks"
-        option_id = f"__new__:{user_input}"
-        is_new, name = parse_merchant_option_id(option_id)
-        assert is_new is True
-        assert name == "Starbucks"
-
-    def test_create_new_option_format(self):
-        """Test that create new option is formatted with quotes."""
-        user_inputs = [
-            ("Amazon", "Amazon"),
-            ("Whole Foods", "Whole Foods"),
-            ("CVS Pharmacy", "CVS Pharmacy"),
-        ]
-
-        for user_input, expected_display in user_inputs:
-            option_id = f"__new__:{user_input}"
-            is_new, name = parse_merchant_option_id(option_id)
-            assert is_new is True
-            assert name == expected_display
-
-    def test_create_new_id_format(self):
-        """Test that create new option has correct ID format."""
-        user_input = "New Merchant"
-        option_id = f"__new__:{user_input}"
-
-        is_new, name = parse_merchant_option_id(option_id)
-        assert is_new is True
-        assert name == "New Merchant"
-
-    def test_auto_select_existing_match_with_create_new_present(self):
-        """Test that Enter still auto-selects existing match when create new is present."""
-        options = [
-            {"id": "Amazon.com", "is_new": False},
-            {"id": "__new__:Amazon", "is_new": True},
-        ]
-        existing_matches = [opt for opt in options if not opt["is_new"]]
-        assert len(existing_matches) == 1
-        assert existing_matches[0]["id"] == "Amazon.com"
-
-    async def test_update_suggestions_inserts_new_option(self):
-        """Test that _update_suggestions actually inserts the user input as a 'create new' option."""
+    def get_app_with_screen(self, current="Old Merchant", all_merchants=["Amazon", "Whole Foods"]):
         from textual.app import App
-        from textual.widgets import Input, OptionList
-
         from moneyflow.screens.edit_screens import EditMerchantScreen
 
         class DummyApp(App):
             def compose(self):
                 yield EditMerchantScreen(
-                    current_merchant="Old Merchant",
-                    all_merchants=["Amazon", "Whole Foods"],
+                    current_merchant=current,
+                    all_merchants=all_merchants,
                     transaction_details={"id": "123", "amount": 10.0},
                     transaction_count=1,
                 )
+        return DummyApp()
 
-        app = DummyApp()
+    async def test_create_new_merchant_option_and_ordering(self):
+        """Test that user input is added as a 'create new' option, correctly quoted, and ordered relative to matches."""
+        from textual.widgets import Input, OptionList
+
+        app = self.get_app_with_screen(all_merchants=["Amazon", "Amazon.com", "Amazon UK"])
         async with app.run_test():
-            screen = app.query_one(EditMerchantScreen)
+            screen = app.query_one("EditMerchantScreen")
             merchant_input = screen.query_one("#merchant-input", Input)
-
+            
             # Simulate typing a brand new merchant
             merchant_input.value = "New Coffee Shop"
             await screen._update_suggestions("new coffee shop")
-
+            
             option_list = screen.query_one("#suggestions", OptionList)
-
-            # "new coffee shop" shouldn't match Amazon or Whole Foods.
             assert option_list.option_count == 1
             opt = option_list.get_option_at_index(0)
             assert str(opt.id) == "__new__:New Coffee Shop"
             assert str(opt.prompt) == '"New Coffee Shop"'
-
-            # Now simulate typing a partial match to an existing one
-            merchant_input.value = "ama"
+            
+            # Simulate typing a partial match to an existing one
+            merchant_input.value = "Ama"
             await screen._update_suggestions("ama")
-
-            # "Amazon" matches. First item should be Amazon, second should be "__new__:ama"
-            assert option_list.option_count == 2
+            
+            # Should have multiple options: First match, __new__, then rest of matches
+            assert option_list.option_count == 4
+            
+            # First match
             assert str(option_list.get_option_at_index(0).id) == "Amazon"
-            assert str(option_list.get_option_at_index(1).id) == "__new__:ama"
-            assert str(option_list.get_option_at_index(1).prompt) == '"ama"'
+            # Create new option
+            assert str(option_list.get_option_at_index(1).id) == "__new__:Ama"
+            assert str(option_list.get_option_at_index(1).prompt) == '"Ama"'
+            # Remaining matches
+            remaining = [
+                str(option_list.get_option_at_index(2).id),
+                str(option_list.get_option_at_index(3).id)
+            ]
+            assert "Amazon.com" in remaining
+            assert "Amazon UK" in remaining
 
-    def test_auto_select_first_match_with_multiple_existing_matches(self):
-        """Test that Enter auto-selects first match even with multiple matches."""
-        options = [
-            {"id": "Star Market", "is_new": False},
-            {"id": "__new__:Star", "is_new": True},
-            {"id": "Starbucks", "is_new": False},
-            {"id": "Starbucks Coffee", "is_new": False},
-        ]
-
-        first_existing = next((opt for opt in options if not opt["is_new"]), None)
-        assert first_existing is not None
-        assert first_existing["id"] == "Star Market"
+    async def test_auto_select_first_match_on_enter(self):
+        """Test that Enter auto-selects the first existing match even when a create-new option is present."""
+        from textual.widgets import Input
+        
+        app = self.get_app_with_screen(all_merchants=["Star Market", "Starbucks", "Starbucks Coffee"])
+        async with app.run_test() as pilot:
+            screen = app.query_one("EditMerchantScreen")
+            merchant_input = screen.query_one("#merchant-input", Input)
+            
+            # Type partial match that generates matches and a "create new"
+            merchant_input.value = "Star"
+            await screen._update_suggestions("star")
+            
+            # Mock dismiss to intercept the selected value
+            dismiss_value = None
+            def mock_dismiss(result=None):
+                nonlocal dismiss_value
+                dismiss_value = result
+            
+            screen.dismiss = mock_dismiss
+            
+            # Press Enter on the input
+            await pilot.press("enter")
+            
+            # Should have selected the first real match ("Star Market") instead of "__new__:Star"
+            assert dismiss_value == "Star Market"
 
     def test_extracting_merchant_name_from_new_option_id(self):
         """Test extracting actual merchant name from __new__ option ID."""
