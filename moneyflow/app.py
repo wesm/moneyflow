@@ -210,10 +210,13 @@ class MoneyflowApp(App):
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
 
         from .amazon_presentation import AmazonPresentationManager
+
         self.amazon_presentation = AmazonPresentationManager(self.demo_mode, self.config_dir)
         from .account_flow import AccountFlowCoordinator
+
         self.account_flow = AccountFlowCoordinator(self)
         from .backend_task_runner import BackendTaskRunner
+
         self.task_runner = BackendTaskRunner(self)
 
         if backend is not None:
@@ -373,6 +376,7 @@ class MoneyflowApp(App):
         # Initialize controller with view presenter pattern
         view = TextualViewPresenter(self)
         self.controller = AppController(view, self.state, self.data_manager, self.cache_manager)
+        self.controller.amazon_match_cache = self.amazon_presentation.get_cache()
 
     def _determine_date_range(self):
         """Determine date range based on CLI arguments.
@@ -619,7 +623,9 @@ class MoneyflowApp(App):
                 if backend_type == "ynab" and account_id:
                     budget_id = self.account_flow.get_ynab_budget_id(account_id)
 
-                login_success = await self.task_runner.login_with_retry(creds, loading_status, budget_id)
+                login_success = await self.task_runner.login_with_retry(
+                    creds, loading_status, budget_id
+                )
                 if not login_success:
                     has_error = True
                     return
@@ -699,7 +705,9 @@ class MoneyflowApp(App):
             else:
                 # Step 6: Full fetch from API (BOTH, ALL, or no cache)
                 # Always fetch full data - display filter applied after
-                fetch_result = await self.task_runner.fetch_data_with_retry(creds, None, None, loading_status)
+                fetch_result = await self.task_runner.fetch_data_with_retry(
+                    creds, None, None, loading_status
+                )
                 if fetch_result is None:
                     has_error = True
                     return
@@ -831,7 +839,10 @@ class MoneyflowApp(App):
             return
 
         # Check if Amazon column is being shown and handle lazy loading
-        self.amazon_presentation.set_visibility(self.controller._showing_amazon_column, getattr(self.amazon_presentation, "_column_index", None))
+        self.amazon_presentation.set_visibility(
+            self.controller._showing_amazon_column,
+            getattr(self.amazon_presentation, "_column_index", None),
+        )
 
         if self.amazon_presentation._column_visible:
             table = self.query_one("#data-table", DataTable)
@@ -1050,7 +1061,12 @@ class MoneyflowApp(App):
             # Apply search via controller
             if new_query:
                 # Search Amazon items for the query (may be slow)
-                amazon_match_ids = self.amazon_presentation.search_amazon_items_for_query(new_query, self.state.transactions_df, self.state.start_date, self.state.end_date)
+                amazon_match_ids = self.amazon_presentation.search_amazon_items_for_query(
+                    new_query,
+                    self.state.transactions_df,
+                    self.state.start_date,
+                    self.state.end_date,
+                )
                 count = self.controller.apply_search(new_query, amazon_match_ids)
                 self.notify(f"Search: '{new_query}' - {count} results", timeout=2)
             else:
@@ -1328,7 +1344,9 @@ class MoneyflowApp(App):
         transaction_dict = dict(row_data)
 
         # Look for matching Amazon orders if this looks like an Amazon transaction
-        amazon_matches, amazon_searched = self.amazon_presentation.find_amazon_matches(transaction_dict)
+        amazon_matches, amazon_searched = self.amazon_presentation.find_amazon_matches(
+            transaction_dict
+        )
 
         # Show detail modal with any Amazon matches
         self.push_screen(
@@ -1534,7 +1552,11 @@ class MoneyflowApp(App):
             self._notify(notification_helper.commit_starting(count))
 
             try:
-                success_count, failure_count, bulk_merchant_renames = await self.task_runner.commit_with_retry(
+                (
+                    success_count,
+                    failure_count,
+                    bulk_merchant_renames,
+                ) = await self.task_runner.commit_with_retry(
                     self.data_manager.pending_edits, skip_batch_for=skip_batch_for
                 )
 
@@ -1632,7 +1654,15 @@ class MoneyflowApp(App):
         end_row = last_visible + 2
 
         # Schedule loading to avoid blocking
-        self.set_timer(0.01, lambda: self.amazon_presentation.load_matches_for_rows(self.query_one("#data-table", DataTable), self.state.current_data, start_row, end_row))
+        self.set_timer(
+            0.01,
+            lambda: self.amazon_presentation.load_matches_for_rows(
+                self.query_one("#data-table", DataTable),
+                self.state.current_data,
+                start_row,
+                end_row,
+            ),
+        )
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection (Enter key)."""

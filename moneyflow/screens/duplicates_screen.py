@@ -317,7 +317,7 @@ class DuplicatesScreen(Screen):
 
             for i, txn_id in enumerate(to_delete, 1):
                 try:
-                    await self.main_app._delete_with_retry(txn_id)
+                    await self.main_app.task_runner.delete_with_retry(txn_id)
                     success_count += 1
 
                     # Show progress every 10 transactions for large batches

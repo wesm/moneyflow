@@ -112,7 +112,9 @@ class AmazonPresentationManager:
 
         return f"{indicator} {item_name}"
 
-    def search_amazon_items_for_query(self, query: str, df: Optional[pl.DataFrame], start_date=None, end_date=None) -> set[str]:
+    def search_amazon_items_for_query(
+        self, query: str, df: Optional[pl.DataFrame], start_date=None, end_date=None
+    ) -> set[str]:
         """Search Amazon transactions for items matching a query string."""
         matching_ids: set[str] = set()
         query_lower = query.lower()
@@ -168,7 +170,9 @@ class AmazonPresentationManager:
 
         return matching_ids
 
-    def get_amazon_match_status(self, txn_id: str, amount: float, date_str: str, merchant: str) -> str:
+    def get_amazon_match_status(
+        self, txn_id: str, amount: float, date_str: str, merchant: str
+    ) -> str:
         """Get Amazon match status for a transaction, using cache when available."""
         if txn_id in self._cache:
             cached = self._cache[txn_id]
@@ -183,7 +187,9 @@ class AmazonPresentationManager:
         self._cache[txn_id] = status
         return status
 
-    def load_matches_for_rows(self, table: DataTable, current_data: Optional[pl.DataFrame], start_row: int, end_row: int) -> None:
+    def load_matches_for_rows(
+        self, table: DataTable, current_data: Optional[pl.DataFrame], start_row: int, end_row: int
+    ) -> None:
         """Load Amazon matches for a range of rows and update table cells."""
         logger.debug(
             f"load_matches_for_rows: start={start_row}, end={end_row}, "
@@ -242,6 +248,10 @@ class AmazonPresentationManager:
                 self._row_to_txn_id[idx] = txn_id
                 if txn_id in self._cache:
                     self._rows_loaded.add(idx)
+
+    def get_cache(self) -> dict[str, Optional[str]]:
+        """Get the full Amazon match cache dictionary."""
+        return self._cache
 
     def get_cached_status(self, txn_id: str) -> Optional[str]:
         return self._cache.get(txn_id)
