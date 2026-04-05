@@ -36,6 +36,67 @@ from .state import TimeGranularity
 logger = get_logger(__name__)
 
 
+class MerchantCache:
+    """File-based cache for merchant names."""
+
+    def __init__(self, cache_dir: Path, max_age_hours: int = 24):
+        self.cache_dir = cache_dir
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_file = self.cache_dir / "merchants.json"
+        self.max_age_hours = max_age_hours
+
+    def is_stale(self) -> bool:
+        """Check if merchant cache needs refresh."""
+        if not self.cache_file.exists():
+            return True
+
+        try:
+            with open(self.cache_file, "r") as f:
+                data = json.load(f)
+
+            timestamp_str = data.get("timestamp")
+            if not timestamp_str:
+                return True
+
+            cache_time = datetime.fromisoformat(timestamp_str)
+            age_hours = (datetime.now() - cache_time).total_seconds() / 3600
+
+            return age_hours >= self.max_age_hours
+
+        except (json.JSONDecodeError, KeyError, ValueError):
+            return True
+
+    def load(self) -> list[str]:
+        """Load merchants from cache file."""
+        if not self.cache_file.exists():
+            return []
+
+        from .logging_config import get_logger
+        logger = get_logger(__name__)
+        try:
+            with open(self.cache_file, "r") as f:
+                data = json.load(f)
+            return data.get("merchants", [])
+        except (json.JSONDecodeError, KeyError):
+            logger.warning("Corrupt merchant cache, will refresh")
+            return []
+
+    def save(self, merchants: list[str]) -> None:
+        """Save merchants to cache with timestamp."""
+        from .logging_config import get_logger
+        logger = get_logger(__name__)
+        data = {
+            "timestamp": datetime.now().isoformat(),
+            "merchants": sorted(set(merchants)),
+            "count": len(set(merchants)),
+        }
+
+        with open(self.cache_file, "w") as f:
+            json.dump(data, f, indent=2)
+
+        logger.info(f"Saved {data['count']} merchants to cache")
+
+
 class DataManager:
     """
     Manages all transaction data operations.
@@ -76,6 +137,8 @@ class DataManager:
     """
 
     MERCHANT_CACHE_MAX_AGE_HOURS = 24  # Refresh once per day
+    INCOME_GROUP = "Income"
+    TRANSFERS_GROUP = "Transfers"
 
     def __init__(
         self,
@@ -126,60 +189,8 @@ class DataManager:
 
         # Merchant cache setup
         if not merchant_cache_dir:
-            # Use config_dir if available, otherwise default to ~/.moneyflow
-            merchant_cache_dir = (
-                self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
-            )
-        self.merchant_cache_dir = Path(merchant_cache_dir)
-        self.merchant_cache_dir.mkdir(parents=True, exist_ok=True)
-        self.merchant_cache_file = self.merchant_cache_dir / "merchants.json"
-
-    def _is_merchant_cache_stale(self) -> bool:
-        """Check if merchant cache needs refresh (older than 24 hours)."""
-        if not self.merchant_cache_file.exists():
-            return True
-
-        try:
-            with open(self.merchant_cache_file, "r") as f:
-                data = json.load(f)
-
-            timestamp_str = data.get("timestamp")
-            if not timestamp_str:
-                return True
-
-            cache_time = datetime.fromisoformat(timestamp_str)
-            age_hours = (datetime.now() - cache_time).total_seconds() / 3600
-
-            return age_hours >= self.MERCHANT_CACHE_MAX_AGE_HOURS
-
-        except (json.JSONDecodeError, KeyError, ValueError):
-            return True
-
-    def _load_cached_merchants(self) -> List[str]:
-        """Load merchants from cache file."""
-        if not self.merchant_cache_file.exists():
-            return []
-
-        try:
-            with open(self.merchant_cache_file, "r") as f:
-                data = json.load(f)
-            return data.get("merchants", [])
-        except (json.JSONDecodeError, KeyError):
-            logger.warning("Corrupt merchant cache, will refresh")
-            return []
-
-    def _save_merchant_cache(self, merchants: List[str]) -> None:
-        """Save merchants to cache with timestamp."""
-        data = {
-            "timestamp": datetime.now().isoformat(),
-            "merchants": sorted(set(merchants)),
-            "count": len(set(merchants)),
-        }
-
-        with open(self.merchant_cache_file, "w") as f:
-            json.dump(data, f, indent=2)
-
-        logger.info(f"Saved {data['count']} merchants to cache")
+            merchant_cache_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
+        self.merchant_cache = MerchantCache(Path(merchant_cache_dir), max_age_hours=self.MERCHANT_CACHE_MAX_AGE_HOURS)
 
     async def refresh_merchant_cache(
         self, force: bool = False, skip_cache: bool = False
@@ -194,15 +205,15 @@ class DataManager:
         Returns:
             List of merchant names
         """
-        if not force and not self._is_merchant_cache_stale():
+        if not force and not self.merchant_cache.is_stale():
             logger.debug("Merchant cache is fresh, loading from cache")
-            return self._load_cached_merchants()
+            return self.merchant_cache.load()
 
         logger.info("Fetching all merchants from API...")
         merchants = await self.mm.get_all_merchants()
 
         if not skip_cache:
-            self._save_merchant_cache(merchants)
+            self.merchant_cache.save(merchants)
         else:
             logger.debug("Skipping merchant cache save (demo/test mode)")
 
@@ -302,10 +313,7 @@ class DataManager:
 
         # Convert and save categories to profile config for Monarch/YNAB backends
         # Skip for demo mode (uses built-in defaults) and Amazon (local-only)
-        backend_class = (
-            getattr(self.mm, "__class__", None).__name__ if hasattr(self.mm, "__class__") else None
-        )
-        if backend_class and backend_class not in ["DemoBackend", "AmazonBackend"]:
+        if getattr(self.mm, "supports_category_sync", True):
             try:
                 simple_groups = convert_api_categories_to_groups(categories_data, groups_data)
 
@@ -835,119 +843,60 @@ class DataManager:
     def _fill_time_gaps(self, df: pl.DataFrame, granularity: TimeGranularity) -> pl.DataFrame:
         """
         Fill gaps in time series with zero-value rows.
-
-        Ensures continuous time series between earliest and latest period,
-        filling missing periods with count=0 and total=0.
-
-        Args:
-            df: Aggregated time DataFrame with year, month, day, count, total columns
-            granularity: TIME granularity (YEAR, MONTH, or DAY)
-
-        Returns:
-            DataFrame with all periods filled, sorted chronologically
         """
         if df.is_empty():
             return df
 
+        from datetime import date
+
+        from dateutil.relativedelta import relativedelta
+
+        sorted_df = df.sort("time_period_display")
+        first_row = sorted_df.head(1)
+        last_row = sorted_df.tail(1)
+
+        min_year, max_year = first_row["year"][0], last_row["year"][0]
+        min_month = first_row["month"][0] if "month" in df.columns else 1
+        max_month = last_row["month"][0] if "month" in df.columns else 12
+        min_day = first_row["day"][0] if "day" in df.columns else 1
+        max_day = last_row["day"][0] if "day" in df.columns else 1
+
+        current_date = date(min_year, min_month, min_day)
+        end_date = date(max_year, max_month, max_day)
+
+        periods = []
         if granularity == TimeGranularity.YEAR:
-            # Determine range of years in the data
-            min_year = df["year"].min()
-            max_year = df["year"].max()
-
-            # Type assertions: df is not empty so min/max are not None
-            assert min_year is not None
-            assert max_year is not None
-            # Ensure we have ints for range() function
-            min_year_int = int(min_year)
-            max_year_int = int(max_year)
-
-            # Create all years in range
-            all_periods = pl.DataFrame(
-                {
-                    "year": list(range(min_year_int, max_year_int + 1)),
-                    "time_period_display": [str(y) for y in range(min_year_int, max_year_int + 1)],
-                }
-            )
+            for y in range(min_year, max_year + 1):
+                periods.append({"year": y, "time_period_display": str(y)})
             join_cols = ["year", "time_period_display"]
         elif granularity == TimeGranularity.MONTH:
-            # Find actual min and max months (not just years)
-            # Sort by time_period_display to get actual earliest/latest
-            sorted_df = df.sort("time_period_display")
-            first_row = sorted_df.head(1)
-            last_row = sorted_df.tail(1)
-
-            min_year = first_row["year"][0]
-            min_month = first_row["month"][0]
-            max_year = last_row["year"][0]
-            max_month = last_row["month"][0]
-
-            # Generate all months between min and max
-            periods = []
-            current_year = min_year
-            current_month = min_month
-
-            while (current_year < max_year) or (
-                current_year == max_year and current_month <= max_month
-            ):
-                periods.append(
-                    {
-                        "year": current_year,
-                        "month": current_month,
-                        "time_period_display": f"{current_year}-{current_month:02d}",
-                    }
-                )
-
-                # Advance to next month
-                current_month += 1
-                if current_month > 12:
-                    current_month = 1
-                    current_year += 1
-
-            all_periods = pl.DataFrame(periods)
+            while current_date <= end_date or (current_date.year == end_date.year and current_date.month <= end_date.month):
+                periods.append({
+                    "year": current_date.year,
+                    "month": current_date.month,
+                    "time_period_display": f"{current_date.year}-{current_date.month:02d}",
+                })
+                current_date += relativedelta(months=1)
             join_cols = ["year", "month", "time_period_display"]
         else:  # DAY
-            # Find actual min and max days
-            from datetime import date, timedelta
-
-            sorted_df = df.sort("time_period_display")
-            first_row = sorted_df.head(1)
-            last_row = sorted_df.tail(1)
-
-            min_year = first_row["year"][0]
-            min_month = first_row["month"][0]
-            min_day = first_row["day"][0]
-            max_year = last_row["year"][0]
-            max_month = last_row["month"][0]
-            max_day = last_row["day"][0]
-
-            # Generate all days between min and max
-            periods = []
-            current_date = date(min_year, min_month, min_day)
-            end_date = date(max_year, max_month, max_day)
-
+            from datetime import timedelta
             while current_date <= end_date:
-                periods.append(
-                    {
-                        "year": current_date.year,
-                        "month": current_date.month,
-                        "day": current_date.day,
-                        "time_period_display": f"{current_date.year}-{current_date.month:02d}-{current_date.day:02d}",
-                    }
-                )
+                periods.append({
+                    "year": current_date.year,
+                    "month": current_date.month,
+                    "day": current_date.day,
+                    "time_period_display": f"{current_date.year}-{current_date.month:02d}-{current_date.day:02d}",
+                })
                 current_date += timedelta(days=1)
-
-            all_periods = pl.DataFrame(periods)
             join_cols = ["year", "month", "day", "time_period_display"]
 
-        # Left join to preserve all periods, filling missing with 0
+        all_periods = pl.DataFrame(periods)
         result = (
             all_periods.join(df, on=join_cols, how="left")
-            .with_columns(
-                [
-                    pl.col("count").fill_null(0),
-                    pl.col("total").fill_null(0.0),
-                ]
-            )
+            .with_columns([
+                pl.col("count").fill_null(0),
+                pl.col("total").fill_null(0.0),
+            ])
             .sort("time_period_display")
         )
 
@@ -994,57 +943,25 @@ class DataManager:
             ]
         )
 
+        group_cols = ["year", "time_period_display"]
         if granularity == TimeGranularity.YEAR:
-            # Group by year
             df = df.with_columns([pl.col("year").cast(pl.Utf8).alias("time_period_display")])
-
-            aggregated = df.group_by(["year", "time_period_display"]).agg(
-                [
-                    pl.count("id").alias("count"),
-                    # Exclude hidden transactions from totals
-                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
-                ]
-            )
         elif granularity == TimeGranularity.MONTH:
-            # Group by year and month
-            df = df.with_columns(
-                [
-                    (
-                        pl.col("year").cast(pl.Utf8)
-                        + "-"
-                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
-                    ).alias("time_period_display")
-                ]
-            )
-
-            aggregated = df.group_by(["year", "month", "time_period_display"]).agg(
-                [
-                    pl.count("id").alias("count"),
-                    # Exclude hidden transactions from totals
-                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
-                ]
-            )
+            df = df.with_columns([
+                (pl.col("year").cast(pl.Utf8) + "-" + pl.col("month").cast(pl.Utf8).str.zfill(2)).alias("time_period_display")
+            ])
+            group_cols.insert(1, "month")
         else:  # DAY
-            # Group by year, month, and day
-            df = df.with_columns(
-                [
-                    (
-                        pl.col("year").cast(pl.Utf8)
-                        + "-"
-                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
-                        + "-"
-                        + pl.col("day").cast(pl.Utf8).str.zfill(2)
-                    ).alias("time_period_display")
-                ]
-            )
+            df = df.with_columns([
+                (pl.col("year").cast(pl.Utf8) + "-" + pl.col("month").cast(pl.Utf8).str.zfill(2) + "-" + pl.col("day").cast(pl.Utf8).str.zfill(2)).alias("time_period_display")
+            ])
+            group_cols.insert(1, "month")
+            group_cols.insert(2, "day")
 
-            aggregated = df.group_by(["year", "month", "day", "time_period_display"]).agg(
-                [
-                    pl.count("id").alias("count"),
-                    # Exclude hidden transactions from totals
-                    pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
-                ]
-            )
+        aggregated = df.group_by(group_cols).agg([
+            pl.count("id").alias("count"),
+            pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+        ])
 
         # Fill gaps between earliest and latest period
         result = self._fill_time_gaps(aggregated, granularity)
@@ -1157,47 +1074,159 @@ class DataManager:
 
         return edits_to_undo
 
+    def _partition_edits(self, edits: List[Any]) -> Tuple[List[Any], List[Any]]:
+        """Separate merchant edits from other edits."""
+        merchant_edits = [e for e in edits if e.field == "merchant"]
+        other_edits = [e for e in edits if e.field != "merchant"]
+        return merchant_edits, other_edits
+
+    async def _process_batch_updates(
+        self, merchant_edits: List[Any], skip_batch_for: Optional[Set[Tuple[str, str]]]
+    ) -> Tuple[int, Set[Tuple[str, str]], List[Any]]:
+        """Process batch merchant updates if supported by backend."""
+        success_count = 0
+        bulk_merchant_renames: Set[Tuple[str, str]] = set()
+        failed_batch_edits = []
+
+        if not hasattr(self.mm, "batch_update_merchant") or not merchant_edits:
+            return success_count, bulk_merchant_renames, merchant_edits
+
+        logger.info(
+            f"Backend supports batch updates - optimizing {len(merchant_edits)} merchant edits"
+        )
+
+        merchant_groups: Dict[Tuple[str, str], List[Any]] = {}
+        for edit in merchant_edits:
+            key = (edit.old_value, edit.new_value)
+            if key not in merchant_groups:
+                merchant_groups[key] = []
+            merchant_groups[key].append(edit)
+
+        processed_txn_ids = set()
+        skip_batch_set = skip_batch_for or set()
+
+        for (old_name, new_name), group_edits in merchant_groups.items():
+            if (old_name, new_name) in skip_batch_set:
+                logger.info(
+                    f"User chose individual updates for '{old_name}' -> '{new_name}' "
+                    f"({len(group_edits)} transactions)"
+                )
+                failed_batch_edits.extend(group_edits)
+                continue
+
+            unprocessed_edits = [
+                e for e in group_edits if e.transaction_id not in processed_txn_ids
+            ]
+
+            if not unprocessed_edits:
+                failed_batch_edits.extend(group_edits)
+                continue
+
+            group_edits = unprocessed_edits
+            group_txn_ids = {e.transaction_id for e in group_edits}
+            logger.info(
+                f"Attempting batch update: '{old_name}' -> '{new_name}' "
+                f"({len(group_edits)} transactions)"
+            )
+
+            try:
+                result = await asyncio.to_thread(
+                    self.mm.batch_update_merchant,  # type: ignore[attr-defined]
+                    old_name,
+                    new_name,
+                )
+
+                if result.get("success"):
+                    processed_txn_ids.update(group_txn_ids)
+                    success_count += len(group_edits)
+                    bulk_merchant_renames.add((old_name, new_name))
+                    logger.info(
+                        f"✓ Batch update succeeded for '{old_name}' -> '{new_name}' "
+                        f"({len(group_edits)} transactions updated via 1 API call)"
+                    )
+                else:
+                    processed_txn_ids.update(group_txn_ids)
+                    logger.warning(
+                        f"Batch update failed for '{old_name}' -> '{new_name}': "
+                        f"{result.get('message', 'Unknown error')}. "
+                        f"Falling back to individual transaction updates."
+                    )
+                    failed_batch_edits.extend(group_edits)
+
+            except Exception as e:
+                processed_txn_ids.update(group_txn_ids)
+                logger.warning(
+                    f"Batch update exception for '{old_name}' -> '{new_name}': {e}. "
+                    f"Falling back to individual transaction updates.",
+                    exc_info=True,
+                )
+                failed_batch_edits.extend(group_edits)
+
+        return success_count, bulk_merchant_renames, failed_batch_edits
+
+    async def _process_individual_updates(
+        self, edits_to_process: List[Any]
+    ) -> Tuple[int, List[Exception]]:
+        """Process individual transaction updates in parallel."""
+        success_count = 0
+        failures = []
+
+        if not edits_to_process:
+            return success_count, failures
+
+        logger.info(f"Processing {len(edits_to_process)} edits individually")
+
+        edits_by_txn: Dict[str, Dict[str, Any]] = {}
+        for edit in edits_to_process:
+            txn_id = edit.transaction_id
+            if txn_id not in edits_by_txn:
+                edits_by_txn[txn_id] = {}
+
+            if edit.field == "merchant":
+                edits_by_txn[txn_id]["merchant_name"] = edit.new_value
+            elif edit.field == "category":
+                edits_by_txn[txn_id]["category_id"] = edit.new_value
+            elif edit.field == "hide_from_reports":
+                edits_by_txn[txn_id]["hide_from_reports"] = edit.new_value
+
+        tasks = []
+        for txn_id, updates in edits_by_txn.items():
+            tasks.append(self.mm.update_transaction(transaction_id=txn_id, **updates))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                failures.append(result)
+                logger.error(
+                    f"Transaction update {i + 1}/{len(results)} FAILED: {result}",
+                    exc_info=result,
+                )
+            else:
+                success_count += 1
+
+        return success_count, failures
+
+    def _check_for_auth_errors(self, failures: List[Exception]) -> None:
+        """Raise auth error to trigger retry if all failures are auth errors."""
+        if not failures:
+            return
+
+        auth_errors = []
+        for error in failures:
+            error_str = str(error).lower()
+            if "401" in error_str or "unauthorized" in error_str:
+                auth_errors.append(error)
+
+        if len(auth_errors) == len(failures):
+            logger.warning("All failures were auth errors - raising to trigger retry")
+            raise auth_errors[0]
+
     async def commit_pending_edits(
         self, edits: List[Any], skip_batch_for: Optional[Set[Tuple[str, str]]] = None
     ) -> Tuple[int, int, Set[Tuple[str, str]]]:
         """
         Commit pending edits to backend API in parallel.
-
-        This method intelligently optimizes commits based on backend capabilities:
-        - For backends with batch_update_merchant (e.g., YNAB), bulk merchant
-          renames are handled with a single API call per (old, new) pair instead
-          of one call per transaction (100x performance improvement)
-        - For other backends, or non-merchant edits, uses individual transaction
-          updates in parallel for maximum speed
-
-        The method is resilient to partial failures - if some updates fail,
-        others will still succeed. The caller receives counts for both.
-
-        Args:
-            edits: List of TransactionEdit objects to commit
-            skip_batch_for: Optional set of (old_merchant, new_merchant) tuples
-                to process individually instead of using batch update. Used when
-                user chooses "rename selected only" for renames that would affect
-                more transactions than selected.
-
-        Returns:
-            Tuple of (success_count, failure_count, bulk_merchant_renames)
-            - success_count: Number of successful API updates
-            - failure_count: Number of failed API updates
-            - bulk_merchant_renames: Set of (old_merchant, new_merchant) tuples
-              that were batch-updated. Pass this to CommitOrchestrator to
-              ensure all matching transactions are updated locally.
-
-        Example:
-            >>> edits = [
-            ...     TransactionEdit("txn1", "merchant", "Old", "New", ...),
-            ...     TransactionEdit("txn2", "category", "cat1", "cat2", ...)
-            ... ]
-            >>> success, failure, bulk_renames = await dm.commit_pending_edits(edits)
-            >>> print(f"Committed {success} edits, {failure} failed")
-
-        Note: After successful commit, caller should use CommitOrchestrator
-        to apply edits to local DataFrames for instant UI update.
         """
         logger.info(f"Starting commit of {len(edits)} edits")
 
@@ -1205,178 +1234,23 @@ class DataManager:
             logger.info("No edits to commit")
             return 0, 0, set()
 
-        success_count = 0
-        failure_count = 0
-        auth_errors = []
-        bulk_merchant_renames: Set[Tuple[str, str]] = set()
+        merchant_edits, other_edits = self._partition_edits(edits)
 
-        # Check if backend supports batch merchant updates
-        has_batch_update = hasattr(self.mm, "batch_update_merchant")
+        success, bulk_renames, failed_batch_edits = await self._process_batch_updates(
+            merchant_edits, skip_batch_for
+        )
 
-        # Separate merchant edits from other edits
-        merchant_edits = [e for e in edits if e.field == "merchant"]
-        other_edits = [e for e in edits if e.field != "merchant"]
+        individual_edits = other_edits + failed_batch_edits
+        ind_success, ind_failures = await self._process_individual_updates(individual_edits)
 
-        # OPTIMIZATION: Group merchant edits by (old_value, new_value) for batch updates
-        if has_batch_update and merchant_edits:
-            logger.info(
-                f"Backend supports batch updates - optimizing {len(merchant_edits)} merchant edits"
-            )
+        self._check_for_auth_errors(ind_failures)
 
-            # Group merchant edits by (old_name, new_name)
-            merchant_groups: Dict[Tuple[str, str], List[Any]] = {}
-            for edit in merchant_edits:
-                key = (edit.old_value, edit.new_value)
-                if key not in merchant_groups:
-                    merchant_groups[key] = []
-                merchant_groups[key].append(edit)
+        total_success = success + ind_success
+        total_failure = len(ind_failures)
 
-            # Try batch update for each (old, new) pair
-            successfully_batched_edits = []
-            failed_batch_edits = []
+        logger.info(f"Commit completed: {total_success} succeeded, {total_failure} failed")
 
-            # Track processed transaction IDs to prevent double-counting
-            # Note: If the same transaction has multiple merchant edits (e.g., A→B then B→C),
-            # they'll be in different batch groups. We can only batch one of them.
-            processed_txn_ids = set()
-
-            # Initialize skip_batch_for if not provided
-            skip_batch_set = skip_batch_for or set()
-
-            for (old_name, new_name), group_edits in merchant_groups.items():
-                # Check if user chose to skip batch for this rename
-                if (old_name, new_name) in skip_batch_set:
-                    logger.info(
-                        f"User chose individual updates for '{old_name}' -> '{new_name}' "
-                        f"({len(group_edits)} transactions)"
-                    )
-                    failed_batch_edits.extend(group_edits)
-                    continue
-
-                # Filter out edits for transactions already processed in a different batch
-                unprocessed_edits = [
-                    e for e in group_edits if e.transaction_id not in processed_txn_ids
-                ]
-
-                if not unprocessed_edits:
-                    # All edits in this group were already processed in a previous batch
-                    # Add them to failed list so they get individual processing with latest values
-                    failed_batch_edits.extend(group_edits)
-                    continue
-
-                group_edits = unprocessed_edits  # Only batch the unprocessed ones
-                group_txn_ids = {e.transaction_id for e in group_edits}
-                logger.info(
-                    f"Attempting batch update: '{old_name}' -> '{new_name}' "
-                    f"({len(group_edits)} transactions)"
-                )
-
-                try:
-                    # Call batch_update_merchant in thread to avoid blocking event loop
-                    result = await asyncio.to_thread(
-                        self.mm.batch_update_merchant,  # type: ignore[attr-defined]
-                        old_name,
-                        new_name,
-                    )
-
-                    if result.get("success"):
-                        # Batch update succeeded - mark edits as processed and count as successful
-                        processed_txn_ids.update(group_txn_ids)
-                        success_count += len(group_edits)
-                        successfully_batched_edits.extend(group_edits)
-                        # Track this as a bulk rename for local cache update
-                        bulk_merchant_renames.add((old_name, new_name))
-                        logger.info(
-                            f"✓ Batch update succeeded for '{old_name}' -> '{new_name}' "
-                            f"({len(group_edits)} transactions updated via 1 API call)"
-                        )
-                    else:
-                        # Batch update failed - mark as processed but add to fallback list
-                        processed_txn_ids.update(group_txn_ids)
-                        logger.warning(
-                            f"Batch update failed for '{old_name}' -> '{new_name}': "
-                            f"{result.get('message', 'Unknown error')}. "
-                            f"Falling back to individual transaction updates."
-                        )
-                        failed_batch_edits.extend(group_edits)
-
-                except Exception as e:
-                    # Exception during batch - mark as processed and add to fallback list
-                    processed_txn_ids.update(group_txn_ids)
-                    logger.warning(
-                        f"Batch update exception for '{old_name}' -> '{new_name}': {e}. "
-                        f"Falling back to individual transaction updates.",
-                        exc_info=True,
-                    )
-                    failed_batch_edits.extend(group_edits)
-
-            # Add failed batch edits back to the list for individual processing
-            merchant_edits = failed_batch_edits
-
-            # Safety check: ensure no overlap between successful and failed batches
-            successful_ids = {e.transaction_id for e in successfully_batched_edits}
-            failed_ids = {e.transaction_id for e in failed_batch_edits}
-            overlap = successful_ids & failed_ids
-            assert not overlap, (
-                f"Found {len(overlap)} edits in both successful and failed batches - "
-                "this indicates a race condition or logic error"
-            )
-
-        # Process remaining edits (non-merchant + failed batch updates) individually
-        edits_to_process = merchant_edits + other_edits
-
-        if edits_to_process:
-            logger.info(
-                f"Processing {len(edits_to_process)} edits individually "
-                f"({len(merchant_edits)} merchant, {len(other_edits)} other)"
-            )
-
-            # Group edits by transaction ID
-            edits_by_txn: Dict[str, Dict[str, Any]] = {}
-            for edit in edits_to_process:
-                txn_id = edit.transaction_id
-                if txn_id not in edits_by_txn:
-                    edits_by_txn[txn_id] = {}
-
-                if edit.field == "merchant":
-                    edits_by_txn[txn_id]["merchant_name"] = edit.new_value
-                elif edit.field == "category":
-                    edits_by_txn[txn_id]["category_id"] = edit.new_value
-                elif edit.field == "hide_from_reports":
-                    edits_by_txn[txn_id]["hide_from_reports"] = edit.new_value
-
-            # Create update tasks
-            tasks = []
-            for txn_id, updates in edits_by_txn.items():
-                tasks.append(self.mm.update_transaction(transaction_id=txn_id, **updates))
-
-            # Execute in parallel
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Count successes and failures
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    failure_count += 1
-                    logger.error(
-                        f"Transaction update {i + 1}/{len(results)} FAILED: {result}",
-                        exc_info=result,
-                    )
-
-                    # Check if it's a 401/auth error
-                    error_str = str(result).lower()
-                    if "401" in error_str or "unauthorized" in error_str:
-                        auth_errors.append(result)
-                else:
-                    success_count += 1
-
-        logger.info(f"Commit completed: {success_count} succeeded, {failure_count} failed")
-
-        # If ALL failures were auth errors, raise one so retry logic can kick in
-        if failure_count > 0 and len(auth_errors) == failure_count:
-            logger.warning("All failures were auth errors - raising to trigger retry")
-            raise auth_errors[0]  # Raise first auth error to trigger retry
-
-        return success_count, failure_count, bulk_merchant_renames
+        return total_success, total_failure, bulk_renames
 
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about current data."""
@@ -1390,13 +1264,13 @@ class DataManager:
             }
 
         # Calculate income (from Income group, excluding Transfers)
-        income_df = self.df.filter(pl.col("group") == "Income")
+        income_df = self.df.filter(pl.col("group") == self.INCOME_GROUP)
         total_income = float(income_df["amount"].sum()) if not income_df.is_empty() else 0.0
 
         # Calculate expenses (all non-Income, non-Transfer transactions)
         # Expenses are negative, so this sum will be negative
         expense_df = self.df.filter(
-            (pl.col("group") != "Income") & (pl.col("group") != "Transfers")
+            (pl.col("group") != self.INCOME_GROUP) & (pl.col("group") != self.TRANSFERS_GROUP)
         )
         total_expenses = float(expense_df["amount"].sum()) if not expense_df.is_empty() else 0.0
 

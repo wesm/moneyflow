@@ -476,8 +476,7 @@ class TestAmazonNoEncryption:
         cache_mgr = CacheManager(cache_dir=temp_config_dir, encryption_key=None)
 
         # The manager exists but has no fernet cipher
-        assert cache_mgr.fernet is None
-        assert cache_mgr.encryption_key is None
+        assert not cache_mgr.is_encrypted
 
     def test_cache_manager_saves_unencrypted_without_key(self, temp_config_dir):
         """CacheManager should save unencrypted cache when encryption key is None."""

@@ -33,7 +33,7 @@ async def dm(mock_mm, temp_merchant_cache_dir, tmp_path):
 
 def write_raw_cache(dm, data_dict_or_string):
     """Helper to write raw data or dict to the cache file."""
-    with open(dm.merchant_cache_file, "w") as f:
+    with open(dm.merchant_cache.cache_file, "w") as f:
         if isinstance(data_dict_or_string, str):
             f.write(data_dict_or_string)
         else:
@@ -45,16 +45,16 @@ class TestMerchantCacheBasics:
 
     async def test_cache_file_created(self, dm):
         """Test that cache file is created in specified directory."""
-        assert dm.merchant_cache_file.parent.exists()
+        assert dm.merchant_cache.cache_file.parent.exists()
 
     async def test_fresh_cache_not_stale(self, dm):
         """Test that freshly saved cache is not considered stale."""
         # Save merchants
         merchants = ["Amazon", "Starbucks", "Whole Foods"]
-        dm._save_merchant_cache(merchants)
+        dm.merchant_cache.save(merchants)
 
         # Should not be stale
-        assert not dm._is_merchant_cache_stale()
+        assert not dm.merchant_cache.is_stale()
 
     async def test_old_cache_is_stale(self, dm):
         """Test that cache older than 24 hours is considered stale."""
@@ -68,11 +68,11 @@ class TestMerchantCacheBasics:
         write_raw_cache(dm, data)
 
         # Should be stale
-        assert dm._is_merchant_cache_stale()
+        assert dm.merchant_cache.is_stale()
 
     async def test_missing_cache_is_stale(self, dm):
         """Test that missing cache is considered stale."""
-        assert dm._is_merchant_cache_stale()
+        assert dm.merchant_cache.is_stale()
 
 
 class TestMerchantCacheSaveLoad:
@@ -81,30 +81,30 @@ class TestMerchantCacheSaveLoad:
     async def test_save_and_load_merchants(self, dm):
         """Test basic save and load cycle."""
         merchants = ["Amazon", "Starbucks", "Whole Foods", "Shell"]
-        dm._save_merchant_cache(merchants)
+        dm.merchant_cache.save(merchants)
 
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert set(loaded) == set(merchants)
 
     async def test_merchants_sorted_on_save(self, dm):
         """Test that merchants are sorted alphabetically when saved."""
         merchants = ["Zebra Corp", "Apple Store", "Microsoft"]
-        dm._save_merchant_cache(merchants)
+        dm.merchant_cache.save(merchants)
 
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert loaded == ["Apple Store", "Microsoft", "Zebra Corp"]
 
     async def test_duplicate_merchants_deduped(self, dm):
         """Test that duplicate merchants are removed."""
         merchants = ["Amazon", "Amazon", "Starbucks", "Amazon"]
-        dm._save_merchant_cache(merchants)
+        dm.merchant_cache.save(merchants)
 
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert loaded == ["Amazon", "Starbucks"]
 
     async def test_load_nonexistent_cache_returns_empty(self, dm):
         """Test that loading nonexistent cache returns empty list."""
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert loaded == []
 
 
@@ -128,17 +128,17 @@ class TestMerchantCacheRefresh:
         await dm.refresh_merchant_cache(force=False)
 
         # Cache file should exist
-        assert dm.merchant_cache_file.exists()
+        assert dm.merchant_cache.cache_file.exists()
 
         # Should be loadable
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert len(loaded) > 0
         spy.assert_called()
 
     async def test_refresh_with_fresh_cache_uses_cache(self, dm, mock_mm, mocker):
         """Test that refresh with fresh cache doesn't hit API."""
         # Pre-populate cache
-        dm._save_merchant_cache(["Cached Merchant"])
+        dm.merchant_cache.save(["Cached Merchant"])
 
         spy = mocker.spy(mock_mm, "get_all_merchants")
 
@@ -153,7 +153,7 @@ class TestMerchantCacheRefresh:
     async def test_refresh_with_force_ignores_cache(self, dm, mock_mm, mocker):
         """Test that force=True always fetches from API."""
         # Pre-populate cache
-        dm._save_merchant_cache(["Cached Merchant"])
+        dm.merchant_cache.save(["Cached Merchant"])
 
         spy = mocker.spy(mock_mm, "get_all_merchants")
 
@@ -172,7 +172,7 @@ class TestMerchantAutocomplete:
     async def test_autocomplete_merges_cached_and_current(self, dm):
         """Test that autocomplete includes both cached and current merchants."""
         # Pre-populate cache with historical merchants not in current data
-        dm._save_merchant_cache(["Historical Merchant 1", "Historical Merchant 2", "Amazon"])
+        dm.merchant_cache.save(["Historical Merchant 1", "Historical Merchant 2", "Amazon"])
 
         # Fetch transactions (will load cached merchants and current merchants)
         df, cats, groups = await dm.fetch_all_data()
@@ -192,7 +192,7 @@ class TestMerchantAutocomplete:
     async def test_autocomplete_dedupes(self, dm):
         """Test that autocomplete removes duplicates."""
         # Set cached merchants that overlap with loaded transactions
-        dm._save_merchant_cache(["Amazon", "Starbucks"])
+        dm.merchant_cache.save(["Amazon", "Starbucks"])
 
         # Fetch transactions (mock has Amazon)
         df, cats, groups = await dm.fetch_all_data()
@@ -206,7 +206,7 @@ class TestMerchantAutocomplete:
 
     async def test_autocomplete_sorted(self, dm):
         """Test that autocomplete list is sorted."""
-        dm._save_merchant_cache(["Zebra", "Apple"])
+        dm.merchant_cache.save(["Zebra", "Apple"])
 
         df, cats, groups = await dm.fetch_all_data()
         dm.df = df
@@ -218,7 +218,7 @@ class TestMerchantAutocomplete:
 
     async def test_autocomplete_works_without_df(self, dm):
         """Test that autocomplete works with only cached merchants (no df loaded)."""
-        dm._save_merchant_cache(["Cached Only"])
+        dm.merchant_cache.save(["Cached Only"])
 
         # Load the cache properly via public method instead of directly mutating state
         orchestrator = CacheOrchestrator(cache_manager=None, data_manager=dm)
@@ -244,7 +244,7 @@ class TestMerchantCacheIntegration:
         await dm.fetch_all_data()
 
         # Cache file should exist
-        assert dm.merchant_cache_file.exists()
+        assert dm.merchant_cache.cache_file.exists()
 
     async def test_second_fetch_uses_cached_merchants(self, dm, mock_mm, mocker):
         """Test that second fetch within 24 hours uses cached merchants."""
@@ -272,21 +272,21 @@ class TestEdgeCases:
         write_raw_cache(dm, "not valid json{{{")
 
         # Should not crash, just treat as stale
-        assert dm._is_merchant_cache_stale()
+        assert dm.merchant_cache.is_stale()
 
         # Load should return empty
-        assert dm._load_cached_merchants() == []
+        assert dm.merchant_cache.load() == []
 
     async def test_cache_with_no_timestamp(self, dm):
         """Test cache file without timestamp is treated as stale."""
         # Save cache without timestamp
         write_raw_cache(dm, {"merchants": ["Test"]})
 
-        assert dm._is_merchant_cache_stale()
+        assert dm.merchant_cache.is_stale()
 
     async def test_empty_merchant_list(self, dm):
         """Test saving and loading empty merchant list."""
-        dm._save_merchant_cache([])
+        dm.merchant_cache.save([])
 
-        loaded = dm._load_cached_merchants()
+        loaded = dm.merchant_cache.load()
         assert loaded == []

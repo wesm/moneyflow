@@ -334,6 +334,11 @@ class FinanceBackend(ABC):
         """
         pass  # Default: no-op
 
+    @property
+    def supports_category_sync(self) -> bool:
+        """Whether this backend supports syncing categories."""
+        return True
+
     @abstractmethod
     def get_backend_type(self) -> str:
         """

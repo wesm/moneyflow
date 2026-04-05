@@ -588,6 +588,10 @@ class AmazonBackend(FinanceBackend):
         conn.close()
         return stats
 
+    @property
+    def supports_category_sync(self) -> bool:
+        return False
+
     def get_backend_type(self) -> str:
         """Return the backend type identifier."""
         return "amazon"
