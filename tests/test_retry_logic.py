@@ -25,7 +25,6 @@ class TestRetryLogic:
         with patch("moneyflow.retry_logic.random.uniform", return_value=1.0):
             yield
 
-
     @pytest.mark.asyncio
     @patch("moneyflow.retry_logic.asyncio.sleep", new_callable=AsyncMock)
     async def test_successful_on_first_attempt(self, mock_sleep):

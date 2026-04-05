@@ -19,9 +19,7 @@ class DuplicateDetector:
     """Detect potential duplicate transactions."""
 
     @staticmethod
-    def find_duplicates(
-        df: pl.DataFrame, strict_account_match: bool = True
-    ) -> pl.DataFrame:
+    def find_duplicates(df: pl.DataFrame, strict_account_match: bool = True) -> pl.DataFrame:
         """
         Find potential duplicate transactions.
 

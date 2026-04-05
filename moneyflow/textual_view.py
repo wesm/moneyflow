@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class TableUpdated(Message):
     """Message sent when the data table is updated."""
+
     pass
 
 

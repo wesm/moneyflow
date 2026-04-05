@@ -1658,4 +1658,3 @@ LOGIN_MUTATION = gql(
             }
         """
 )
-

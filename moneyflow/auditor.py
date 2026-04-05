@@ -10,7 +10,9 @@ class AuditError(Exception):
     pass
 
 
-def run_category_audit(config_dir: str, cache_dir: str) -> Tuple[Dict[str, int], Set[str], Dict[str, Any]]:
+def run_category_audit(
+    config_dir: str, cache_dir: str
+) -> Tuple[Dict[str, int], Set[str], Dict[str, Any]]:
     """
     Run audit of transaction categories against config.yaml.
 

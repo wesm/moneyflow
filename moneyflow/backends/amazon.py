@@ -22,6 +22,7 @@ from .base import AggregationFunc, ComputedColumn, FinanceBackend
 
 logger = logging.getLogger(__name__)
 
+
 def get_amazon_category_source(config_dir: Optional[Union[str, Path]] = None) -> Optional[str]:
     """Get the profile ID that Amazon should inherit categories from."""
     if config_dir is None:
@@ -44,6 +45,7 @@ def get_amazon_category_source(config_dir: Optional[Union[str, Path]] = None) ->
 
     return None
 
+
 def get_amazon_inherited_categories(
     profile_dir: Optional[Union[str, Path]], config_dir: Optional[Union[str, Path]]
 ) -> Dict[str, List[str]]:
@@ -64,6 +66,7 @@ def get_amazon_inherited_categories(
                     return categories
 
         from ..account_manager import AccountManager
+
         account_mgr = AccountManager(config_dir=str(config_dir))
         accounts = account_mgr.list_accounts()
 
@@ -93,6 +96,7 @@ def get_amazon_inherited_categories(
 
     logger.info("Using built-in default categories")
     return DEFAULT_CATEGORY_GROUPS
+
 
 class AmazonBackend(FinanceBackend):
     """
@@ -402,7 +406,9 @@ class AmazonBackend(FinanceBackend):
 
         # Load category groups (profile-aware with Amazon inheritance)
         if self.profile_dir:
-            category_groups = get_amazon_inherited_categories(profile_dir=self.profile_dir, config_dir=self.config_dir)
+            category_groups = get_amazon_inherited_categories(
+                profile_dir=self.profile_dir, config_dir=self.config_dir
+            )
         else:
             # Legacy mode - use global config
             category_groups = get_effective_category_groups(self.config_dir)
@@ -466,7 +472,9 @@ class AmazonBackend(FinanceBackend):
             # (group is derived from category by data_manager, not stored)
             # Build category_id → category_name lookup
             if self.profile_dir:
-                category_groups = get_amazon_inherited_categories(profile_dir=self.profile_dir, config_dir=self.config_dir)
+                category_groups = get_amazon_inherited_categories(
+                    profile_dir=self.profile_dir, config_dir=self.config_dir
+                )
             else:
                 category_groups = get_effective_category_groups(self.config_dir)
             category_name = None

@@ -364,9 +364,7 @@ class AppController:
             elif sort_col in ["merchant", "category", "group", "account"]:
                 sort_col = field_name
 
-        descending = ViewPresenter.should_sort_descending(
-            sort_col, self.state.sort_direction
-        )
+        descending = ViewPresenter.should_sort_descending(sort_col, self.state.sort_direction)
         if not agg.is_empty():
             # Use secondary sort by field_name for deterministic ordering
             # when primary sort values are equal (e.g., same amount)
@@ -399,9 +397,7 @@ class AppController:
             # Map TIME_PERIOD to DATE for detail view (transactions don't have time_period column)
             if sort_field == "time_period":
                 sort_field = "date"
-            descending = ViewPresenter.should_sort_descending(
-                sort_field, self.state.sort_direction
-            )
+            descending = ViewPresenter.should_sort_descending(sort_field, self.state.sort_direction)
             txns = txns.sort(sort_field, descending=descending)
 
         self.state.current_data = txns
@@ -1628,7 +1624,9 @@ class AppController:
             # is the same list object (passed by reference), so clearing pending_edits
             # would empty the edits list before we can use it for cache updates!
             if self.cache_manager and cache_filters:
-                self._update_cache_after_commit(edits, bulk_merchant_renames, cache_filters, is_filtered_view)
+                self._update_cache_after_commit(
+                    edits, bulk_merchant_renames, cache_filters, is_filtered_view
+                )
 
             # Clear pending edits on success (after cache update to preserve edits list)
             self.data_manager.pending_edits.clear()

@@ -16,9 +16,7 @@ import polars as pl
 from .state import TransactionEdit
 
 
-def apply_merchant_edit(
-    df: pl.DataFrame, transaction_id: str, new_merchant: str
-) -> pl.DataFrame:
+def apply_merchant_edit(df: pl.DataFrame, transaction_id: str, new_merchant: str) -> pl.DataFrame:
     """
     Apply merchant edit to a single transaction by ID.
 
@@ -128,16 +126,14 @@ def apply_category_edit(
         .then(pl.lit(new_category_id))
         .otherwise(pl.col("category_id"))
         .alias("category_id"),
-
         pl.when(pl.col("id") == transaction_id)
         .then(pl.lit(category_name))
         .otherwise(pl.col("category"))
         .alias("category"),
-
         pl.when(pl.col("id") == transaction_id)
         .then(pl.lit(category_group))
         .otherwise(pl.col("group"))
-        .alias("group")
+        .alias("group"),
     )
 
 
@@ -212,24 +208,16 @@ def apply_edit_to_dataframe(
                 and (edit.old_value, edit.new_value) in bulk_merchant_renames
             )
             if is_bulk:
-                return apply_bulk_merchant_edit(
-                    df, edit.old_value, edit.new_value
-                )
+                return apply_bulk_merchant_edit(df, edit.old_value, edit.new_value)
             else:
-                return apply_merchant_edit(
-                    df, edit.transaction_id, edit.new_value
-                )
+                return apply_merchant_edit(df, edit.transaction_id, edit.new_value)
         case "category":
             cat = categories.get(edit.new_value, {})
             cat_name = cat.get("name", "Unknown")
             cat_group = cat.get("group", "Unknown")
-            return apply_category_edit(
-                df, edit.transaction_id, edit.new_value, cat_name, cat_group
-            )
+            return apply_category_edit(df, edit.transaction_id, edit.new_value, cat_name, cat_group)
         case "hide_from_reports":
-            return apply_hide_from_reports_edit(
-                df, edit.transaction_id, edit.new_value
-            )
+            return apply_hide_from_reports_edit(df, edit.transaction_id, edit.new_value)
         case _:
             raise ValueError(f"Unknown edit field: {edit.field}")
 

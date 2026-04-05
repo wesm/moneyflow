@@ -5,9 +5,10 @@ import polars as pl
 if TYPE_CHECKING:
     from moneyflow.state import AppState
 
+
 class FilterService:
     @staticmethod
-    def apply_filters(df: pl.DataFrame, state: 'AppState') -> pl.DataFrame:
+    def apply_filters(df: pl.DataFrame, state: "AppState") -> pl.DataFrame:
         """
         Apply multiple filters to the DataFrame based on current AppState.
         """
@@ -17,7 +18,9 @@ class FilterService:
 
         # Apply time filter
         if state.start_date and state.end_date:
-            df = df.filter((pl.col("date") >= state.start_date) & (pl.col("date") <= state.end_date))
+            df = df.filter(
+                (pl.col("date") >= state.start_date) & (pl.col("date") <= state.end_date)
+            )
 
         # Apply search filter
         if state.search_query:
@@ -38,6 +41,7 @@ class FilterService:
         # Apply hidden filter ONLY for aggregate views
         # Detail views should always show hidden transactions so users can review them
         from moneyflow.state import ViewMode
+
         if not state.show_hidden and state.view_mode != ViewMode.DETAIL:
             df = df.filter(~pl.col("hideFromReports"))
 

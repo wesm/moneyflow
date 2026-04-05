@@ -199,7 +199,9 @@ class TestSearchAndFilterNotifications:
         assert "cleared" in msg
 
     def test_filters_applied(self):
-        msg, _, _ = notification_helper.filters_applied(["hidden items shown", "transfers excluded"])
+        msg, _, _ = notification_helper.filters_applied(
+            ["hidden items shown", "transfers excluded"]
+        )
         assert "hidden items shown" in msg
         assert "transfers excluded" in msg
 

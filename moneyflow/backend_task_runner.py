@@ -6,6 +6,7 @@ from moneyflow.retry_logic import RetryAborted, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
+
 class BackendTaskRunner:
     """Centralizes API retry wrappers and error handling boilerplate."""
 
@@ -61,16 +62,26 @@ class BackendTaskRunner:
             return False
         except Exception as e:
             logger.error(f"Login failed after all retries: {e}", exc_info=True)
-            log_path = f"{self.app.config_dir}/moneyflow.log" if self.app.config_dir else "~/.moneyflow/moneyflow.log"
-            loading_status.update(f"❌ Login failed: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit")
+            log_path = (
+                f"{self.app.config_dir}/moneyflow.log"
+                if self.app.config_dir
+                else "~/.moneyflow/moneyflow.log"
+            )
+            loading_status.update(
+                f"❌ Login failed: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
+            )
             return False
 
     async def fetch_data_with_retry(self, creds, start_date, end_date, loading_status):
         today_str = date_type.today().isoformat()
         if self.app.custom_start_date:
-            loading_status.update(f"🔄 Full refresh: fetching {self.app.custom_start_date} to {today_str}...")
+            loading_status.update(
+                f"🔄 Full refresh: fetching {self.app.custom_start_date} to {today_str}..."
+            )
         elif self.app.start_year:
-            loading_status.update(f"🔄 Full refresh: fetching {self.app.start_year}-01-01 to {today_str}...")
+            loading_status.update(
+                f"🔄 Full refresh: fetching {self.app.start_year}-01-01 to {today_str}..."
+            )
         else:
             loading_status.update("🔄 Full refresh: fetching all transaction history...")
 
@@ -95,7 +106,9 @@ class BackendTaskRunner:
                 if "401" in error_msg or "unauthorized" in error_msg:
                     if await self.refresh_session():
                         return await self.app.data_manager.fetch_all_data(
-                            start_date=start_date, end_date=end_date, progress_callback=update_progress
+                            start_date=start_date,
+                            end_date=end_date,
+                            progress_callback=update_progress,
                         )
                     else:
                         raise Exception("Session refresh failed")
@@ -128,8 +141,14 @@ class BackendTaskRunner:
             loading_status.update("Data fetch cancelled. Press 'q' to quit.")
             return None
         except Exception as e:
-            log_path = f"{self.app.config_dir}/moneyflow.log" if self.app.config_dir else "~/.moneyflow/moneyflow.log"
-            loading_status.update(f"❌ Failed to load data: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit")
+            log_path = (
+                f"{self.app.config_dir}/moneyflow.log"
+                if self.app.config_dir
+                else "~/.moneyflow/moneyflow.log"
+            )
+            loading_status.update(
+                f"❌ Failed to load data: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
+            )
             return None
 
     async def do_fresh_login(self, creds):
@@ -184,7 +203,9 @@ class BackendTaskRunner:
                 if "401" in error_msg or "unauthorized" in error_msg or "token" in error_msg:
                     self.app._notify(notification_helper.SESSION_EXPIRED)
                     if await self.refresh_session():
-                        return await self.app.data_manager.commit_pending_edits(edits, skip_batch_for)
+                        return await self.app.data_manager.commit_pending_edits(
+                            edits, skip_batch_for
+                        )
                     else:
                         raise Exception("Session refresh failed - will retry with backoff")
                 raise

@@ -58,7 +58,10 @@ class IViewPresenter(ABC):
 
     @abstractmethod
     def show_notification(
-        self, message: str, severity: NotificationSeverity = NotificationSeverity.INFO, timeout: int = 3
+        self,
+        message: str,
+        severity: NotificationSeverity = NotificationSeverity.INFO,
+        timeout: int = 3,
     ) -> None:
         """
         Show a notification to the user.

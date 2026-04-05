@@ -412,8 +412,6 @@ class TestGetProfileCategoryGroups:
         assert result != monarch_cats
 
 
-
-
 class TestAmazonCategoryInheritance:
     """Tests for Amazon category inheritance logic."""
 
@@ -492,7 +490,9 @@ class TestAmazonCategoryInheritance:
         save_categories_to_profile({"YNAB": ["Y1"]}, ynab_dir)
 
         # Amazon should use defaults (can't pick between 2 profiles)
-        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(mock_accounts))
+        result = get_amazon_inherited_categories(
+            profile_dir=amazon_dir, config_dir=str(mock_accounts)
+        )
 
         assert result == DEFAULT_CATEGORY_GROUPS
 

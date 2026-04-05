@@ -21,6 +21,7 @@ else:
 
 # ==================== Edit Merchant ====================
 
+
 class EditMerchantParams(TypedDict):
     current_merchant: str
     transaction_count: int
@@ -66,6 +67,7 @@ def get_edit_merchant_params(
 
 # ==================== Select Category ====================
 
+
 class SelectCategoryParams(TypedDict):
     categories: dict
     current_category_id: Optional[str]
@@ -101,6 +103,7 @@ def get_select_category_params(
 
 # ==================== Review Changes ====================
 
+
 class ReviewChangesParams(TypedDict):
     edits: list
     categories: dict
@@ -125,6 +128,7 @@ def get_review_changes_params(edits: list, categories: dict) -> ReviewChangesPar
 
 # ==================== Delete Confirmation ====================
 
+
 class DeleteConfirmationParams(TypedDict):
     transaction_count: int
 
@@ -146,6 +150,7 @@ def get_delete_confirmation_params(transaction_count: int = 1) -> DeleteConfirma
 
 # ==================== Quit Confirmation ====================
 
+
 class QuitConfirmationParams(TypedDict):
     has_unsaved_changes: bool
 
@@ -166,6 +171,7 @@ def get_quit_confirmation_params(has_unsaved_changes: bool) -> QuitConfirmationP
 
 
 # ==================== Filter Settings ====================
+
 
 class FilterParams(TypedDict):
     show_transfers: bool
@@ -191,6 +197,7 @@ def get_filter_params(show_transfers: bool, show_hidden: bool) -> FilterParams:
 
 # ==================== Search ====================
 
+
 class SearchParams(TypedDict):
     current_query: str
 
@@ -212,13 +219,16 @@ def get_search_params(current_query: str = "") -> SearchParams:
 
 # ==================== Cache Prompt ====================
 
+
 class CachePromptParams(TypedDict):
     age: str
     transaction_count: int
     filter_desc: str
 
 
-def get_cache_prompt_params(age: str, transaction_count: int, filter_desc: str) -> CachePromptParams:
+def get_cache_prompt_params(
+    age: str, transaction_count: int, filter_desc: str
+) -> CachePromptParams:
     """
     Prepare parameters for Cache Prompt modal.
 
@@ -238,6 +248,7 @@ def get_cache_prompt_params(age: str, transaction_count: int, filter_desc: str) 
 
 
 # ==================== Transaction Details ====================
+
 
 class TransactionDetailParams(TypedDict):
     transaction: Dict[str, Any]
@@ -259,6 +270,7 @@ def get_transaction_detail_params(transaction: Dict[str, Any]) -> TransactionDet
 
 
 # ==================== Duplicates ====================
+
 
 class DuplicatesParams(TypedDict):
     duplicates: pl.DataFrame

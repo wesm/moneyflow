@@ -294,7 +294,9 @@ class AmazonLinker:
             return "high"
         return "medium"
 
-    def _get_orders_in_range(self, conn: sqlite3.Connection, start_date: date, end_date: date) -> List[sqlite3.Row]:
+    def _get_orders_in_range(
+        self, conn: sqlite3.Connection, start_date: date, end_date: date
+    ) -> List[sqlite3.Row]:
         """Fetch orders within the given date range."""
         query = """
             SELECT

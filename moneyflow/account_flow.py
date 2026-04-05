@@ -63,7 +63,9 @@ class AccountFlowCoordinator:
             else:
                 return result
         else:
-            backend_type = await self.app.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
+            backend_type = await self.app.push_screen(
+                BackendSelectionScreen(), wait_for_dismiss=True
+            )
             if not backend_type:
                 self.app.exit()
                 return None
@@ -76,7 +78,9 @@ class AccountFlowCoordinator:
                 return None
             return creds
 
-    async def handle_account_selection(self) -> Tuple[Optional[str], Optional[Path], Optional[dict]]:
+    async def handle_account_selection(
+        self,
+    ) -> Tuple[Optional[str], Optional[Path], Optional[dict]]:
         """Handle account selection flow for multi-account support."""
         config_path = Path(self.app.config_dir) if self.app.config_dir else None
 
@@ -205,7 +209,9 @@ class AccountFlowCoordinator:
         finally:
             temp_backend.clear_auth()
 
-    async def handle_add_new_account(self, account_manager: AccountManager) -> Optional[Tuple[str, Path, dict]]:
+    async def handle_add_new_account(
+        self, account_manager: AccountManager
+    ) -> Optional[Tuple[str, Path, dict]]:
         account_name = await self.app.push_screen(
             AccountNameInputScreen(backend_type="monarch"),
             wait_for_dismiss=True,
@@ -239,9 +245,7 @@ class AccountFlowCoordinator:
                 return None
 
             if backend_type == "ynab":
-                budget_id = await self.handle_ynab_budget_selection(
-                    creds, account, account_manager
-                )
+                budget_id = await self.handle_ynab_budget_selection(creds, account, account_manager)
                 if budget_id is None:
                     return None
         else:

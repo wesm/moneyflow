@@ -218,6 +218,7 @@ async def test_partial_refresh_cold_only_updates_cold(
 @pytest.mark.asyncio
 async def test_load_merchant_cache_protocol_double():
     """Regression test ensuring load_merchant_cache uses the return value of initialize_merchants."""
+
     class MockDataManagerDouble:
         def __init__(self):
             self.all_merchants = []
@@ -228,9 +229,11 @@ async def test_load_merchant_cache_protocol_double():
             # Just return the loaded merchants
             return self._merchants_to_return
 
-        def apply_category_groups(self, df): pass
+        def apply_category_groups(self, df):
+            pass
 
-        async def fetch_all_data(self, start_date=None, end_date=None, progress_callback=None): return None, {}, {}
+        async def fetch_all_data(self, start_date=None, end_date=None, progress_callback=None):
+            return None, {}, {}
 
     double = MockDataManagerDouble()
     orchestrator = CacheOrchestrator(cache_manager=None, data_manager=double)

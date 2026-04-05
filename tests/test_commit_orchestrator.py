@@ -161,9 +161,7 @@ class TestApplyBulkMerchantEdit:
         df = pl.DataFrame({"id": ["txn1", "txn2"], "merchant": ["Amazon", "Amazon"]})
 
         updated1 = apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
-        updated2 = apply_bulk_merchant_edit(
-            updated1, "Whole Foods", "Trader Joes"
-        )
+        updated2 = apply_bulk_merchant_edit(updated1, "Whole Foods", "Trader Joes")
 
         assert updated2["merchant"][0] == "Trader Joes"
         assert updated2["merchant"][1] == "Trader Joes"
@@ -183,9 +181,7 @@ class TestApplyCategoryEdit:
             }
         )
 
-        updated = apply_category_edit(
-            df, "txn1", "cat3", "New Category", "New Group"
-        )
+        updated = apply_category_edit(df, "txn1", "cat3", "New Category", "New Group")
 
         assert_cell(updated, "txn1", "category_id", "cat3")
         assert_cell(updated, "txn1", "category", "New Category")
@@ -201,9 +197,7 @@ class TestApplyCategoryEdit:
             {"id": ["txn1"], "category_id": ["cat1"], "category": ["Old"], "group": ["OldGroup"]}
         )
 
-        updated = apply_category_edit(
-            df, "txn1", "cat2", "New", "NewGroup"
-        )
+        updated = apply_category_edit(df, "txn1", "cat2", "New", "NewGroup")
 
         assert updated["group"][0] == "NewGroup"
 
@@ -220,9 +214,7 @@ class TestApplyCategoryEdit:
             }
         )
 
-        updated = apply_category_edit(
-            df, "txn1", "cat2", "New", "NewGroup"
-        )
+        updated = apply_category_edit(df, "txn1", "cat2", "New", "NewGroup")
 
         assert updated["merchant"][0] == "Amazon"
         assert updated["amount"][0] == -99.99
@@ -300,9 +292,7 @@ class TestApplyEditToDataframe:
 
         edit = make_edit("txn1", "category", "cat1", "cat2")
 
-        updated = apply_edit_to_dataframe(
-            df, edit, categories
-        )
+        updated = apply_edit_to_dataframe(df, edit, categories)
 
         assert updated["category_id"][0] == "cat2"
         assert updated["category"][0] == "Groceries"
@@ -388,9 +378,7 @@ class TestApplyEditsToDataframe:
         def mock_apply_groups(df):
             return df.with_columns(pl.lit("Food").alias("group"))
 
-        updated = apply_edits_to_dataframe(
-            df, edits, categories, mock_apply_groups
-        )
+        updated = apply_edits_to_dataframe(df, edits, categories, mock_apply_groups)
 
         assert_cell(updated, "txn1", "merchant", "Whole Foods")
         assert_cell(updated, "txn1", "category", "Groceries")
@@ -559,9 +547,7 @@ class TestRealWorldScenarios:
         def mock_apply_groups(df):
             return df.with_columns(pl.lit("Food & Dining").alias("group"))
 
-        updated = apply_edits_to_dataframe(
-            df, edits, categories, mock_apply_groups
-        )
+        updated = apply_edits_to_dataframe(df, edits, categories, mock_apply_groups)
 
         assert_cell(updated, "txn1", "merchant", "Whole Foods")
         assert_cell(updated, "txn1", "category", "Groceries")
