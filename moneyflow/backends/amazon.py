@@ -6,13 +6,93 @@ This backend does not connect to any Amazon API - it works with locally
 imported CSV files from Amazon's order history export.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from ..categories import get_effective_category_groups, get_profile_category_groups
+import yaml
+
+from ..categories import (
+    DEFAULT_CATEGORY_GROUPS,
+    get_effective_category_groups,
+    load_categories_from_profile,
+)
 from .base import AggregationFunc, ComputedColumn, FinanceBackend
 
+logger = logging.getLogger(__name__)
+
+def get_amazon_category_source(config_dir: Optional[Union[str, Path]] = None) -> Optional[str]:
+    """Get the profile ID that Amazon should inherit categories from."""
+    if config_dir is None:
+        config_dir = Path.home() / ".moneyflow"
+
+    config_path = Path(config_dir) / "config.yaml"
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f) or {}
+
+        if "amazon_categories_source" in config:
+            source = config["amazon_categories_source"]
+            logger.info(f"Amazon categories configured to use profile: {source}")
+            return source
+    except Exception as e:
+        logger.warning(f"Failed to load global config: {e}")
+
+    return None
+
+def get_amazon_inherited_categories(
+    profile_dir: Optional[Union[str, Path]], config_dir: Optional[Union[str, Path]]
+) -> Dict[str, List[str]]:
+    """Get category groups for Amazon, inheriting if necessary."""
+    if profile_dir:
+        categories = load_categories_from_profile(profile_dir)
+        if categories:
+            return categories
+
+    if config_dir:
+        source_profile = get_amazon_category_source(config_dir)
+        if source_profile:
+            source_profile_dir = Path(config_dir) / "profiles" / source_profile
+            if source_profile_dir.exists():
+                categories = load_categories_from_profile(source_profile_dir)
+                if categories:
+                    logger.info(f"Amazon inheriting categories from profile: {source_profile}")
+                    return categories
+
+        from ..account_manager import AccountManager
+        account_mgr = AccountManager(config_dir=str(config_dir))
+        accounts = account_mgr.list_accounts()
+
+        other_profiles = [acc for acc in accounts if acc.backend_type != "amazon"]
+
+        if len(other_profiles) == 1:
+            other_profile_dir = account_mgr.get_profile_dir(other_profiles[0].id)
+            categories = load_categories_from_profile(other_profile_dir)
+            if categories:
+                logger.info(
+                    f"Amazon auto-inheriting categories from {other_profiles[0].backend_type} "
+                    f"profile: {other_profiles[0].name}"
+                )
+                return categories
+
+        legacy_categories = get_effective_category_groups(config_dir)
+        config_path = Path(config_dir) / "config.yaml"
+        if config_path.exists():
+            try:
+                with open(config_path, "r") as f:
+                    config = yaml.safe_load(f) or {}
+                if "fetched_categories" in config:
+                    logger.warning("Using legacy global config.yaml - consider migrating")
+                    return legacy_categories
+            except Exception:
+                pass
+
+    logger.info("Using built-in default categories")
+    return DEFAULT_CATEGORY_GROUPS
 
 class AmazonBackend(FinanceBackend):
     """
@@ -322,9 +402,7 @@ class AmazonBackend(FinanceBackend):
 
         # Load category groups (profile-aware with Amazon inheritance)
         if self.profile_dir:
-            category_groups = get_profile_category_groups(
-                profile_dir=self.profile_dir, config_dir=self.config_dir, backend_type="amazon"
-            )
+            category_groups = get_amazon_inherited_categories(profile_dir=self.profile_dir, config_dir=self.config_dir)
         else:
             # Legacy mode - use global config
             category_groups = get_effective_category_groups(self.config_dir)
@@ -388,9 +466,7 @@ class AmazonBackend(FinanceBackend):
             # (group is derived from category by data_manager, not stored)
             # Build category_id → category_name lookup
             if self.profile_dir:
-                category_groups = get_profile_category_groups(
-                    profile_dir=self.profile_dir, config_dir=self.config_dir, backend_type="amazon"
-                )
+                category_groups = get_amazon_inherited_categories(profile_dir=self.profile_dir, config_dir=self.config_dir)
             else:
                 category_groups = get_effective_category_groups(self.config_dir)
             category_name = None

@@ -8,10 +8,10 @@ import pytest
 import yaml
 
 from moneyflow.account_manager import AccountManager
+from moneyflow.backends.amazon import get_amazon_category_source, get_amazon_inherited_categories
 from moneyflow.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
-    get_amazon_category_source,
     get_effective_category_groups,
     get_profile_category_groups,
     load_categories_from_profile,
@@ -390,10 +390,12 @@ class TestGetProfileCategoryGroups:
         save_categories_to_profile(monarch_cats, monarch_dir)
 
         # YNAB profile should use defaults, not inherit from Monarch
-        result = get_profile_category_groups(profile_dir=ynab_dir, backend_type="ynab")
+        result = get_profile_category_groups(profile_dir=ynab_dir)
 
         assert result == DEFAULT_CATEGORY_GROUPS
         assert result != monarch_cats
+
+
 
 
 class TestAmazonCategoryInheritance:
@@ -421,9 +423,7 @@ class TestAmazonCategoryInheritance:
         save_categories_to_profile(monarch_cats, monarch_dir)
 
         # Amazon should use its own
-        result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(tmp_path), backend_type="amazon"
-        )
+        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(tmp_path))
 
         assert result == amazon_cats
 
@@ -441,9 +441,7 @@ class TestAmazonCategoryInheritance:
         save_categories_to_profile(monarch_cats, monarch_dir)
 
         # Amazon should inherit from monarch1
-        result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
-        )
+        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(config_dir))
 
         assert result == monarch_cats
 
@@ -463,9 +461,7 @@ class TestAmazonCategoryInheritance:
         save_categories_to_profile(monarch_cats, monarch_dir)
 
         # Amazon should auto-inherit
-        result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(config_dir), backend_type="amazon"
-        )
+        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(config_dir))
 
         assert result == monarch_cats
 
@@ -480,9 +476,7 @@ class TestAmazonCategoryInheritance:
         save_categories_to_profile({"YNAB": ["Y1"]}, ynab_dir)
 
         # Amazon should use defaults (can't pick between 2 profiles)
-        result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(mock_accounts), backend_type="amazon"
-        )
+        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(mock_accounts))
 
         assert result == DEFAULT_CATEGORY_GROUPS
 
@@ -490,9 +484,7 @@ class TestAmazonCategoryInheritance:
         """Test Amazon uses defaults when no other profiles exist."""
         amazon_dir = tmp_path / "profiles" / "amazon"
 
-        result = get_profile_category_groups(
-            profile_dir=amazon_dir, config_dir=str(tmp_path), backend_type="amazon"
-        )
+        result = get_amazon_inherited_categories(profile_dir=amazon_dir, config_dir=str(tmp_path))
 
         assert result == DEFAULT_CATEGORY_GROUPS
 

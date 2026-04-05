@@ -104,9 +104,13 @@ class DataManager:
 
         # Load category groups (profile-aware if profile_dir provided)
         if profile_dir:
-            self.category_groups_config = get_profile_category_groups(
-                profile_dir=profile_dir, config_dir=config_dir, backend_type=backend_type
-            )
+            if backend_type == "amazon":
+                from .backends.amazon import get_amazon_inherited_categories
+                self.category_groups_config = get_amazon_inherited_categories(
+                    profile_dir=profile_dir, config_dir=config_dir
+                )
+            else:
+                self.category_groups_config = get_profile_category_groups(profile_dir=profile_dir)
         else:
             # Legacy mode - use global config
             self.category_groups_config = get_effective_category_groups(config_dir)
@@ -315,11 +319,15 @@ class DataManager:
                 # Rebuild category mapping after saving fresh categories
                 # This fixes bug where stale mapping causes transfers to not be filtered
                 if self.profile_dir:
-                    self.category_groups_config = get_profile_category_groups(
-                        profile_dir=self.profile_dir,
-                        config_dir=self.config_dir,
-                        backend_type=self.backend_type,
-                    )
+                    if self.backend_type == "amazon":
+                        from .backends.amazon import get_amazon_inherited_categories
+                        self.category_groups_config = get_amazon_inherited_categories(
+                            profile_dir=self.profile_dir, config_dir=self.config_dir
+                        )
+                    else:
+                        self.category_groups_config = get_profile_category_groups(
+                            profile_dir=self.profile_dir
+                        )
                 else:
                     self.category_groups_config = get_effective_category_groups(self.config_dir)
 
