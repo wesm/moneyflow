@@ -25,7 +25,7 @@ def test_find_amazon_matches_uses_config_dir(tmp_path: Path) -> None:
     )
 
     app = MoneyflowApp(config_dir=str(config_dir))
-    matches, searched = app._find_amazon_matches(
+    matches, searched = app.amazon_presentation.find_amazon_matches(
         {"merchant": "Amazon", "amount": -12.99, "date": "2025-01-10"}
     )
 

@@ -220,6 +220,15 @@ class MoneyflowApp(App):
         # Backend will be initialized in initialize_data() based on credentials
         # unless explicitly provided (e.g., for Amazon mode)
         self.backend = backend
+        self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
+        
+        from .amazon_presentation import AmazonPresentationManager
+        self.amazon_presentation = AmazonPresentationManager(self.demo_mode, self.config_dir)
+        from .account_flow import AccountFlowCoordinator
+        self.account_flow = AccountFlowCoordinator(self)
+        from .backend_task_runner import BackendTaskRunner
+        self.task_runner = BackendTaskRunner(self)
+        
         if backend is not None:
             # Backend provided externally (Amazon mode, etc.)
             pass
@@ -229,7 +238,7 @@ class MoneyflowApp(App):
             version = get_version()
             self.title = f"moneyflow [{version}] [DEMO MODE]"
             # Create demo Amazon database for Amazon linking feature demo
-            self._create_demo_amazon_db()
+            self.amazon_presentation.create_demo_amazon_db(self.backend.transactions)
         else:
             # Backend will be set in initialize_data() based on credentials
             version = get_version()
@@ -256,18 +265,6 @@ class MoneyflowApp(App):
         self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
-
-        # Amazon match cache for lazy loading
-        # Key: transaction ID, Value: match status string ("✓", "~", "", or None if not searched)
-        self._amazon_match_cache: dict[str, Optional[str]] = {}
-        # Track which row indices have been loaded (for lazy loading)
-        self._amazon_rows_loaded: set[int] = set()
-        # Track current transaction IDs by row index (updated on refresh)
-        self._row_to_txn_id: dict[int, str] = {}
-        # Track if we're currently showing Amazon column
-        self._amazon_column_visible = False
-        # Amazon column index (set when table is rebuilt with Amazon column)
-        self._amazon_column_index: Optional[int] = None
 
     def compose(self) -> ComposeResult:
         """Compose the main UI."""
@@ -446,431 +443,6 @@ class MoneyflowApp(App):
         # Show initial view (merchants)
         self.refresh_view()
 
-    async def _handle_credentials(self):
-        """Handle credential unlock/setup flow.
-
-        Returns:
-            dict: Credentials dict or None if user exits
-        """
-
-        # Convert config_dir string to Path if provided
-        config_path = Path(self.config_dir) if self.config_dir else None
-        cred_manager = CredentialManager(config_dir=config_path)
-
-        logger = get_logger(__name__)
-        logger.debug(f"Credentials exist: {cred_manager.credentials_exist()}")
-
-        if cred_manager.credentials_exist():
-            # Check if credentials are encrypted or plaintext
-            if cred_manager.is_plaintext():
-                # Plaintext credentials - load directly without unlock screen
-                logger.debug("Loading plaintext credentials (no encryption)")
-                creds, _ = cred_manager.load_credentials()
-                self.encryption_key = None  # No encryption key for plaintext
-                return creds
-
-            # Encrypted credentials - show unlock screen
-            result = await self.push_screen(CredentialUnlockScreen(), wait_for_dismiss=True)
-
-            if result is None:
-                # User chose to reset - show backend selection then setup screen
-                backend_type = await self.push_screen(
-                    BackendSelectionScreen(), wait_for_dismiss=True
-                )
-                if not backend_type:
-                    self.exit()
-                    return None
-
-                creds = await self.push_screen(
-                    CredentialSetupScreen(backend_type=backend_type), wait_for_dismiss=True
-                )
-                if not creds:
-                    self.exit()
-                    return None
-                return creds
-            else:
-                return result
-        else:
-            # No credentials - show backend selection first, then setup screen
-            backend_type = await self.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
-            if not backend_type:
-                self.exit()
-                return None
-
-            creds = await self.push_screen(
-                CredentialSetupScreen(backend_type=backend_type), wait_for_dismiss=True
-            )
-            if not creds:
-                self.exit()
-                return None
-            return creds
-
-    async def _handle_account_selection(self):
-        """
-        Handle account selection flow for multi-account support.
-
-        Shows account selector, handles add new account flow, and sets up profile.
-
-        Returns:
-            tuple: (account_id, profile_dir, credentials_dict) or (None, None, None) if user exits
-                   account_id can be "demo" for demo mode
-        """
-        logger = get_logger(__name__)
-
-        # Initialize account manager
-        config_path = Path(self.config_dir) if self.config_dir else None
-
-        # Check for legacy credentials and migrate if needed
-        migrated = migrate_legacy_credentials(config_dir=config_path)
-        if migrated:
-            logger.info("Migrated legacy credentials to default profile")
-
-        # Check for legacy Amazon database and migrate if needed
-        amazon_migrated = migrate_legacy_amazon_db(config_dir=config_path)
-        if amazon_migrated:
-            logger.info("Migrated legacy Amazon database to amazon profile")
-
-        # Migrate global config.yaml categories to profile-local configs
-        categories_migrated = migrate_global_categories_to_profiles(config_dir=config_path)
-        if categories_migrated:
-            logger.info("Migrated global categories to profile-local configs")
-
-        account_manager = AccountManager(config_dir=config_path)
-
-        while True:  # Loop to handle "add new account" flow
-            # Show account selector
-            result = await self.push_screen(
-                AccountSelectorScreen(config_dir=str(config_path) if config_path else None),
-                wait_for_dismiss=True,
-            )
-
-            if result is None:
-                # User chose to exit
-                return None, None, None
-
-            if result == "demo":
-                # Demo mode - no account/credentials needed
-                return "demo", None, None
-
-            if result == "add_new":
-                # Add new account flow
-                new_account_info = await self._handle_add_new_account(account_manager)
-
-                if new_account_info is None:
-                    # User cancelled - return to account selector
-                    continue
-
-                # New account created - return its info
-                account_id, profile_dir, creds = new_account_info
-                return account_id, profile_dir, creds
-
-            # result is an account_id - load that account
-            account = account_manager.get_account(result)
-            if account is None:
-                logger.error(f"Account {result} not found in registry")
-                # Show error and return to selector
-                continue
-
-            # Get profile directory for this account
-            profile_dir = account_manager.get_profile_dir(account.id)
-
-            # Amazon backend doesn't require credentials (local-only)
-            if account.backend_type == "amazon":
-                logger.info(f"Loading Amazon account {account.id} (no credentials needed)")
-                return account.id, profile_dir, None
-
-            # Load credentials for this account (if backend requires auth)
-            cred_manager = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
-
-            if not cred_manager.credentials_exist():
-                # Account exists in registry but has no credentials
-                # (shouldn't happen, but handle gracefully)
-                logger.warning(f"Account {account.id} has no credentials, prompting setup")
-
-                # Show credential setup
-                creds = await self.push_screen(
-                    CredentialSetupScreen(
-                        backend_type=account.backend_type, profile_dir=profile_dir
-                    ),
-                    wait_for_dismiss=True,
-                )
-
-                if not creds:
-                    # User cancelled - return to account selector
-                    continue
-
-                return account.id, profile_dir, creds
-
-            # Check if credentials are plaintext (no encryption)
-            if cred_manager.is_plaintext():
-                # Plaintext credentials - load directly without unlock screen
-                logger.debug(f"Loading plaintext credentials for account {account.id}")
-                creds, _ = cred_manager.load_credentials()
-                self.encryption_key = None  # No encryption key for plaintext
-                return account.id, profile_dir, creds
-
-            # Encrypted credentials - show unlock screen
-            creds = await self.push_screen(
-                CredentialUnlockScreen(profile_dir=profile_dir), wait_for_dismiss=True
-            )
-
-            if creds is None:
-                # User chose to reset credentials or cancelled
-                # For now, just return to account selector
-                # TODO: Could add option to reset/delete account here
-                continue
-
-            # Success - return account info
-            return account.id, profile_dir, creds
-
-    def _get_ynab_budget_id(self, account_id: str) -> Optional[str]:
-        """
-        Look up the budget_id for a YNAB account.
-
-        Args:
-            account_id: The account ID to look up
-
-        Returns:
-            The budget_id if found, None otherwise
-        """
-        config_path = Path(self.config_dir) if self.config_dir else None
-        account_manager = AccountManager(config_dir=config_path)
-        account = account_manager.get_account(account_id)
-
-        if account and account.budget_id:
-            return account.budget_id
-        return None
-
-    async def _handle_ynab_budget_selection(
-        self,
-        creds: dict,
-        account: Account,
-        account_manager: AccountManager,
-    ) -> Optional[str]:
-        """
-        Handle YNAB-specific budget selection after credentials are set up.
-
-        This method encapsulates the YNAB budget selection flow:
-        1. Create temporary backend and login
-        2. Fetch available budgets
-        3. Show budget selector if multiple budgets exist
-        4. Update account with selected budget_id
-
-        Args:
-            creds: Credentials dictionary (must contain "password" with YNAB token)
-            account: The newly created Account object
-            account_manager: AccountManager for updating the account
-
-        Returns:
-            budget_id if successful, None if user cancelled or error occurred.
-            On error/cancel, this method handles cleanup (clearing creds, deleting account).
-        """
-        logger = get_logger(__name__)
-        temp_backend = get_backend("ynab")
-
-        try:
-            await temp_backend.login(password=creds["password"])
-            budgets = await temp_backend.get_budgets()  # type: ignore
-
-            budget_id = None
-            if len(budgets) > 1:
-                # Show budget selector
-                budget_id = await self.push_screen(
-                    BudgetSelectorScreen(budgets), wait_for_dismiss=True
-                )
-
-                if budget_id is None:
-                    # User cancelled budget selection - clean up
-                    creds.clear()
-                    account_manager.delete_account(account.id)
-                    return None
-            elif len(budgets) == 1:
-                budget_id = budgets[0]["id"]
-
-            # Update the account with the selected budget_id
-            if budget_id:
-                account.budget_id = budget_id
-                registry = account_manager.load_registry()
-                if account.id in registry.accounts:
-                    registry.accounts[account.id] = account
-                account_manager.save_registry(registry)
-
-            return budget_id
-
-        except Exception:
-            logger.error("Failed to fetch YNAB budgets during account setup")
-            creds.clear()
-            account_manager.delete_account(account.id)
-            return None
-        finally:
-            # Always clear temporary backend auth to minimize credential exposure
-            # Note: creds dict is intentionally NOT cleared here on success because
-            # it's returned and used for the actual backend login later.
-            temp_backend.clear_auth()
-
-    async def _handle_add_new_account(self, account_manager: AccountManager):
-        """
-        Handle adding a new account.
-
-        Args:
-            account_manager: AccountManager instance
-
-        Returns:
-            tuple: (account_id, profile_dir, credentials) or None if cancelled
-        """
-        # Step 1: Get account name from user
-        account_name = await self.push_screen(
-            AccountNameInputScreen(
-                backend_type="monarch"
-            ),  # Placeholder, will get actual type next
-            wait_for_dismiss=True,
-        )
-
-        if not account_name:
-            return None  # User cancelled
-
-        # Step 2: Select backend type
-        backend_type = await self.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
-
-        if not backend_type:
-            return None  # User cancelled
-
-        # Step 3: Create account profile first
-        try:
-            account = account_manager.create_account(name=account_name, backend_type=backend_type)
-        except ValueError as e:
-            # Duplicate account ID - shouldn't happen with our ID generation, but handle it
-            logger = get_logger(__name__)
-            logger.error(f"Failed to create account: {e}")
-            return None
-
-        # Step 4: Get/store credentials and handle backend-specific setup
-        from .backend_config import get_backend_config
-
-        backend_config = get_backend_config(backend_type)
-
-        # Get profile directory
-        profile_dir = account_manager.get_profile_dir(account.id)
-
-        if backend_config.requires_auth:
-            # Show credential setup with profile_dir so it saves to the right place
-            creds = await self.push_screen(
-                CredentialSetupScreen(backend_type=backend_type, profile_dir=profile_dir),
-                wait_for_dismiss=True,
-            )
-
-            if not creds:
-                # User cancelled - delete the account we just created
-                account_manager.delete_account(account.id)
-                return None
-
-            # Handle backend-specific post-credential setup (e.g., YNAB budget selection)
-            if backend_type == "ynab":
-                budget_id = await self._handle_ynab_budget_selection(
-                    creds, account, account_manager
-                )
-                if budget_id is None:
-                    # User cancelled or error occurred - cleanup already handled
-                    return None
-        else:
-            # Backend doesn't need credentials (Amazon, Demo)
-            creds = {"backend_type": backend_type}
-
-        return account.id, profile_dir, creds
-
-    async def _login_with_retry(self, creds, loading_status, budget_id=None):
-        """Login with retry logic for robustness.
-
-        Args:
-            creds: Credentials dict
-            loading_status: Loading status widget
-            budget_id: Optional budget ID for YNAB accounts
-
-        Returns:
-            bool: True on success, False on failure
-        """
-
-        logger = get_logger(__name__)
-
-        backend_type = creds.get("backend_type", "monarch")
-        loading_status.update(f"🔐 Logging in to {backend_type.capitalize()}...")
-
-        logger.debug(f"Starting login flow for {backend_type}")
-        logger.debug(f"Email: {creds['email']}")
-        logger.debug(f"Has MFA secret: {bool(creds.get('mfa_secret'))}")
-
-        def on_login_retry(attempt: int, wait_seconds: float) -> None:
-            """Show retry progress during login."""
-            loading_status.update(
-                f"⚠ Login failed. Retrying in {wait_seconds:.0f}s (attempt {attempt + 1}/5). Press Ctrl-C to abort."
-            )
-
-        async def login_operation():
-            """Login with automatic retry on session expiration."""
-            try:
-                logger.debug("Attempting login with saved session...")
-
-                # Simple login - budget selection happens during account creation
-                login_kwargs = {
-                    "email": creds["email"],
-                    "password": creds["password"],
-                    "use_saved_session": True,
-                    "save_session": True,
-                    "mfa_secret_key": creds["mfa_secret"],
-                }
-
-                # For YNAB, include budget_id if available
-                if backend_type == "ynab" and budget_id:
-                    login_kwargs["budget_id"] = budget_id
-
-                await self.backend.login(**login_kwargs)
-
-                logger.debug("Login succeeded!")
-                return True
-            except Exception as e:
-                logger.warning(f"Login failed: {e}", exc_info=True)
-                error_str = str(e).lower()
-                # Check if it's a stale session
-                if "401" in error_str or "unauthorized" in error_str:
-                    logger.debug("Detected stale session, performing fresh login")
-                    # Use centralized fresh login logic
-                    await self._do_fresh_login(creds)
-                    return True
-                # Not a session issue, re-raise for retry logic
-                raise
-
-        try:
-            await retry_with_backoff(
-                operation=login_operation,
-                operation_name="Login to backend",
-                max_retries=5,
-                initial_wait=60.0,
-                on_retry=on_login_retry,
-            )
-            # Store credentials for automatic session refresh if needed
-            self.stored_credentials = creds
-            loading_status.update("✅ Logged in successfully!")
-            logger.debug("Login flow completed successfully")
-            return True
-        except RetryAborted:
-            # User pressed Ctrl-C
-            logger.debug("Login cancelled by user")
-            loading_status.update("Login cancelled by user. Press 'q' to quit.")
-            return False
-        except Exception as e:
-            # All retries exhausted
-            logger.error(f"Login failed after all retries: {e}", exc_info=True)
-            error_msg = f"Login failed: {e}"
-            log_path = (
-                f"{self.config_dir}/moneyflow.log"
-                if self.config_dir
-                else "~/.moneyflow/moneyflow.log"
-            )
-            loading_status.update(
-                f"❌ {error_msg}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
-            )
-            return False
-
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
 
@@ -897,121 +469,6 @@ class MoneyflowApp(App):
             custom_start_date=self.custom_start_date,
             status_update=loading_status.update,
         )
-
-    async def _fetch_data_with_retry(self, creds, start_date, end_date, loading_status):
-        """Fetch data from API with retry logic.
-
-        Args:
-            creds: Credentials dict (may be None in demo mode)
-            start_date: Start date for fetch
-            end_date: End date for fetch
-            loading_status: Loading status widget
-
-        Returns:
-            tuple: (df, categories, category_groups) or None on failure
-        """
-
-        logger = get_logger(__name__)
-
-        # Update status based on date range
-        today_str = date_type.today().isoformat()
-        if self.custom_start_date:
-            loading_status.update(
-                f"🔄 Full refresh: fetching {self.custom_start_date} to {today_str}..."
-            )
-        elif self.start_year:
-            loading_status.update(
-                f"🔄 Full refresh: fetching {self.start_year}-01-01 to {today_str}..."
-            )
-        else:
-            loading_status.update("🔄 Full refresh: fetching all transaction history...")
-
-        loading_status.update("⏳ This may take a minute for large accounts (10k+ transactions)...")
-
-        def update_progress(msg: str) -> None:
-            """Update the loading status display."""
-            loading_status.update(f"📊 {msg}")
-
-        def on_fetch_retry(attempt: int, wait_seconds: float) -> None:
-            """Show retry progress during data fetch."""
-            loading_status.update(
-                f"⚠ Data fetch failed. Retrying in {wait_seconds:.0f}s (attempt {attempt + 1}/5). Press Ctrl-C to abort."
-            )
-
-        async def fetch_operation():
-            """Fetch data with automatic error logging."""
-            try:
-                logger.debug(f"Fetching transactions (start={start_date}, end={end_date})")
-                result = await self.data_manager.fetch_all_data(
-                    start_date=start_date, end_date=end_date, progress_callback=update_progress
-                )
-                logger.debug(f"Data fetch succeeded - loaded {len(result[0])} transactions")
-                return result
-            except Exception as e:
-                logger.error(f"Data fetch failed: {e}", exc_info=True)
-                # Check if session expiration
-                error_str = str(e).lower()
-                if ("401" in error_str or "unauthorized" in error_str) and creds:
-                    logger.info("Session expired during fetch, attempting fresh login...")
-                    loading_status.update("🔄 Session expired. Re-authenticating...")
-                    # Use centralized fresh login logic
-                    try:
-                        await self._do_fresh_login(creds)
-                        loading_status.update("✅ Re-authenticated. Retrying fetch...")
-                        result = await self.data_manager.fetch_all_data(
-                            start_date=start_date,
-                            end_date=end_date,
-                            progress_callback=update_progress,
-                        )
-                        logger.info(f"Fetch retry succeeded - loaded {len(result[0])} transactions")
-                        return result
-                    except Exception as reauth_error:
-                        logger.error(f"Re-authentication failed: {reauth_error}", exc_info=True)
-                        # Re-auth failed, let retry logic handle it with backoff
-                        raise Exception(f"Session refresh failed: {reauth_error}")
-                # Not auth error, re-raise for retry logic
-                raise
-
-        try:
-            df, categories, category_groups = await retry_with_backoff(  # type: ignore
-                operation=fetch_operation,
-                operation_name="Fetch transaction data",
-                max_retries=5,
-                initial_wait=60.0,
-                on_retry=on_fetch_retry,
-            )
-
-            # Save to cache for next time (only if --cache was passed)
-            # Always save as full cache (no filters) - display filters applied separately
-            if self.cache_manager:
-                loading_status.update("💾 Saving to cache...")
-                self.cache_manager.save_cache(
-                    transactions_df=df,
-                    categories=categories,
-                    category_groups=category_groups,
-                    year=None,  # Full cache - no year filter
-                    since=None,  # Full cache - no since filter
-                )
-                loading_status.update(f"✅ Loaded {len(df):,} transactions and cached!")
-            else:
-                loading_status.update(f"✅ Loaded {len(df):,} transactions!")
-
-            return df, categories, category_groups
-        except RetryAborted:
-            logger.debug("Data fetch cancelled by user")
-            loading_status.update("Data fetch cancelled. Press 'q' to quit.")
-            return None
-        except Exception as e:
-            logger.error(f"Data fetch failed after all retries: {e}", exc_info=True)
-            log_path = (
-                f"{self.config_dir}/moneyflow.log"
-                if self.config_dir
-                else "~/.moneyflow/moneyflow.log"
-            )
-            loading_status.update(
-                f"❌ Failed to load data: {e}\n\nCheck {log_path} for details.\n\nPress 'q' to quit"
-            )
-            return None
 
     async def _partial_refresh(self, strategy, creds, loading_status):
         """Perform a partial refresh of cache data.
@@ -1120,12 +577,12 @@ class MoneyflowApp(App):
                 profile_dir = self._preconfigured_profile_dir
                 account_id = None  # No account tracking for pre-configured backends
                 if self.backend_config.requires_auth:
-                    creds = await self._handle_credentials()
+                    creds = await self.account_flow.handle_credentials()
                     if creds is None:
                         return  # User exited
             else:
                 # Normal multi-account flow
-                account_id, profile_dir, creds = await self._handle_account_selection()
+                account_id, profile_dir, creds = await self.account_flow.handle_account_selection()
 
                 if account_id is None:
                     # User chose to exit from account selector
@@ -1137,7 +594,7 @@ class MoneyflowApp(App):
                     self.demo_mode = True
                     self.backend = DemoBackend(start_year=self.start_year or 2023, years=3)
                     self.title = "moneyflow [DEMO MODE]"
-                    self._create_demo_amazon_db()
+                    self.amazon_presentation.create_demo_amazon_db(self.backend.transactions)
                     loading_status.update("🎮 DEMO MODE - Loading sample data...")
                 else:
                     # Load account info to get backend_type
@@ -1173,9 +630,9 @@ class MoneyflowApp(App):
                 # For YNAB, get budget_id from account if available
                 budget_id = None
                 if backend_type == "ynab" and account_id:
-                    budget_id = self._get_ynab_budget_id(account_id)
+                    budget_id = self.account_flow.get_ynab_budget_id(account_id)
 
-                login_success = await self._login_with_retry(creds, loading_status, budget_id)
+                login_success = await self.task_runner.login_with_retry(creds, loading_status, budget_id)
                 if not login_success:
                     has_error = True
                     return
@@ -1183,7 +640,7 @@ class MoneyflowApp(App):
                 # Backend exists but might need login
                 if self.backend_config.requires_auth and creds:
                     # For pre-configured backends, we don't have account_id to look up budget_id
-                    login_success = await self._login_with_retry(creds, loading_status)
+                    login_success = await self.task_runner.login_with_retry(creds, loading_status)
                     if not login_success:
                         has_error = True
                         return
@@ -1245,7 +702,7 @@ class MoneyflowApp(App):
                 else:
                     # Partial refresh failed, fall back to full fetch
                     # Always fetch full data - display filter applied after
-                    fetch_result = await self._fetch_data_with_retry(
+                    fetch_result = await self.task_runner.fetch_data_with_retry(
                         creds, None, None, loading_status
                     )
                     if fetch_result is None:
@@ -1255,7 +712,7 @@ class MoneyflowApp(App):
             else:
                 # Step 6: Full fetch from API (BOTH, ALL, or no cache)
                 # Always fetch full data - display filter applied after
-                fetch_result = await self._fetch_data_with_retry(creds, None, None, loading_status)
+                fetch_result = await self.task_runner.fetch_data_with_retry(creds, None, None, loading_status)
                 if fetch_result is None:
                     has_error = True
                     return
@@ -1387,21 +844,21 @@ class MoneyflowApp(App):
             return
 
         # Check if Amazon column is being shown and handle lazy loading
-        self._amazon_column_visible = self.controller._showing_amazon_column
+        self.amazon_presentation.set_visibility(self.controller._showing_amazon_column, getattr(self.amazon_presentation, "_column_index", None))
 
-        if self._amazon_column_visible:
+        if self.amazon_presentation._column_visible:
             table = self.query_one("#data-table", DataTable)
             column_keys = list(table.columns.keys())
             logger.debug(f"Amazon column check: column_keys={column_keys}")
-            self._amazon_column_index = (
+            self.amazon_presentation._column_index = (
                 column_keys.index("amazon") if "amazon" in column_keys else None
             )
-            logger.debug(f"Amazon column index: {self._amazon_column_index}")
+            logger.debug(f"Amazon column index: {self.amazon_presentation._column_index}")
 
             # Rows are always rebuilt, so reload Amazon match statuses each refresh.
-            self._on_amazon_view_refresh()
+            self.amazon_presentation.on_amazon_view_refresh(self.state.current_data)
         else:
-            self._amazon_column_index = None
+            self.amazon_presentation._column_index = None
 
     # Actions
     def action_view_merchants(self) -> None:
@@ -1606,7 +1063,7 @@ class MoneyflowApp(App):
             # Apply search via controller
             if new_query:
                 # Search Amazon items for the query (may be slow)
-                amazon_match_ids = self._search_amazon_items_for_query(new_query)
+                amazon_match_ids = self.amazon_presentation.search_amazon_items_for_query(new_query, self.state.transactions_df, self.state.start_date, self.state.end_date)
                 count = self.controller.apply_search(new_query, amazon_match_ids)
                 self.notify(f"Search: '{new_query}' - {count} results", timeout=2)
             else:
@@ -1884,7 +1341,7 @@ class MoneyflowApp(App):
         transaction_dict = dict(row_data)
 
         # Look for matching Amazon orders if this looks like an Amazon transaction
-        amazon_matches, amazon_searched = self._find_amazon_matches(transaction_dict)
+        amazon_matches, amazon_searched = self.amazon_presentation.find_amazon_matches(transaction_dict)
 
         # Show detail modal with any Amazon matches
         self.push_screen(
@@ -1894,313 +1351,6 @@ class MoneyflowApp(App):
                 amazon_searched=amazon_searched,
             )
         )
-
-    def _get_demo_config_dir(self) -> Path:
-        """Get the config directory for demo mode (cross-platform temp dir)."""
-        import tempfile
-
-        return Path(tempfile.gettempdir()) / "moneyflow_demo"
-
-    def _create_demo_amazon_db(self) -> None:
-        """Create demo Amazon database with matching orders for demo transactions."""
-        from .demo_data_generator import create_demo_amazon_database
-
-        if not self.demo_mode or not isinstance(self.backend, DemoBackend):
-            return
-
-        # Use temp directory for demo mode to avoid polluting user's config
-        demo_config_dir = str(self._get_demo_config_dir())
-        create_demo_amazon_database(demo_config_dir, self.backend.transactions)
-
-    def _find_amazon_matches(self, transaction: dict) -> tuple[list, bool]:
-        """
-        Find matching Amazon orders for a transaction.
-
-        Args:
-            transaction: Transaction dict with merchant, amount, date fields
-
-        Returns:
-            Tuple of (matches, searched) where:
-            - matches: List of AmazonOrderMatch objects
-            - searched: True if we searched (merchant looked like Amazon)
-        """
-        from .amazon_linker import AmazonLinker
-
-        logger = get_logger(__name__)
-        merchant = transaction.get("merchant", "")
-        amount = transaction.get("amount", 0)
-        txn_date = transaction.get("date", "")
-
-        # Convert date to string if it's a date object
-        if hasattr(txn_date, "isoformat"):
-            txn_date = txn_date.isoformat()
-        else:
-            txn_date = str(txn_date)
-
-        # Initialize linker with config directory
-        # Use temp directory for demo mode
-        if self.demo_mode:
-            config_dir = self._get_demo_config_dir()
-        else:
-            config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
-        linker = AmazonLinker(config_dir)
-
-        # Only look up if merchant looks like Amazon
-        if not linker.is_amazon_merchant(merchant):
-            return [], False
-
-        try:
-            matches = linker.find_matching_orders(
-                amount=float(amount),
-                transaction_date=txn_date,
-                date_tolerance_days=7,
-            )
-            return matches, True
-        except Exception as e:
-            logger.warning(f"Error finding Amazon matches: {e}")
-            return [], True
-
-    def _format_amazon_match_status(self, matches: list) -> str:
-        """
-        Format Amazon match status for display in table column.
-
-        Args:
-            matches: List of AmazonOrderMatch objects
-
-        Returns:
-            Status indicator with first item name, e.g. "✓ Product Name" or "~ Product Name"
-        """
-        if not matches:
-            return ""
-
-        # Find the best match (prefer exact over fuzzy)
-        best_match = None
-        indicator = ""
-
-        for m in matches:
-            if m.confidence in ("high", "medium"):
-                best_match = m
-                indicator = "✓"
-                break
-            elif m.confidence == "likely" and best_match is None:
-                best_match = m
-                indicator = "~"
-
-        if not best_match:
-            return ""
-
-        # Get the first item name from the match
-        item_name = ""
-        if best_match.items and len(best_match.items) > 0:
-            item_name = best_match.items[0].get("name", "")
-
-        if not item_name:
-            return indicator
-
-        # Truncate item name to fit column (30 chars total, minus indicator and space)
-        max_name_len = 27  # 30 - 2 (indicator) - 1 (space)
-        if len(item_name) > max_name_len:
-            item_name = item_name[: max_name_len - 1] + "…"
-
-        return f"{indicator} {item_name}"
-
-    def _search_amazon_items_for_query(self, query: str) -> set[str]:
-        """
-        Search Amazon transactions for items matching a query string.
-
-        This is used by text search to include transactions where the Amazon
-        item name contains the search term.
-
-        Args:
-            query: Search query string (will be lowercased)
-
-        Returns:
-            Set of transaction IDs whose Amazon items match the query
-        """
-        from .amazon_linker import AmazonLinker
-
-        matching_ids: set[str] = set()
-        query_lower = query.lower()
-
-        # Get transactions with only time filter applied (not search filter)
-        if self.state.transactions_df is None or len(self.state.transactions_df) == 0:
-            return matching_ids
-
-        df = self.state.transactions_df
-
-        # Apply time filter only
-        if self.state.start_date and self.state.end_date:
-            import polars as pl
-
-            df = df.filter(
-                (pl.col("date") >= self.state.start_date) & (pl.col("date") <= self.state.end_date)
-            )
-
-        # Initialize linker (use temp directory for demo mode)
-        if self.demo_mode:
-            config_dir = self._get_demo_config_dir()
-        else:
-            config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
-        linker = AmazonLinker(config_dir)
-
-        # Check if there are any Amazon databases
-        if not linker.find_amazon_databases():
-            return matching_ids
-
-        # Find Amazon transactions
-        for row in df.iter_rows(named=True):
-            merchant = row.get("merchant", "")
-            if not linker.is_amazon_merchant(merchant):
-                continue
-
-            txn_id = row.get("id", "")
-            amount = row.get("amount", 0)
-            txn_date = row.get("date", "")
-
-            # Convert date to string
-            if hasattr(txn_date, "isoformat"):
-                txn_date = txn_date.isoformat()
-            else:
-                txn_date = str(txn_date)
-
-            # Search for matching orders
-            try:
-                matches = linker.find_matching_orders(
-                    amount=float(amount),
-                    transaction_date=txn_date,
-                    date_tolerance_days=7,
-                )
-
-                # Check if any item name contains the query
-                for match in matches:
-                    for item in match.items:
-                        item_name = item.get("name", "").lower()
-                        if query_lower in item_name:
-                            matching_ids.add(txn_id)
-                            break
-                    if txn_id in matching_ids:
-                        break
-
-            except Exception as e:
-                logger.warning(f"Error searching Amazon for txn {txn_id}: {e}")
-
-        return matching_ids
-
-    def _get_amazon_match_status(
-        self, txn_id: str, amount: float, date_str: str, merchant: str
-    ) -> str:
-        """
-        Get Amazon match status for a transaction, using cache when available.
-
-        Args:
-            txn_id: Transaction ID
-            amount: Transaction amount
-            date_str: Transaction date string
-            merchant: Merchant name
-
-        Returns:
-            Match status string ("✓", "~", or "")
-        """
-        # Check cache first
-        if txn_id in self._amazon_match_cache:
-            cached = self._amazon_match_cache[txn_id]
-            if cached is not None:
-                return cached
-
-        # Search for matches
-        matches, _ = self._find_amazon_matches(
-            {"merchant": merchant, "amount": amount, "date": date_str}
-        )
-
-        # Format and cache result
-        status = self._format_amazon_match_status(matches)
-        self._amazon_match_cache[txn_id] = status
-        return status
-
-    def _load_amazon_matches_for_rows(self, start_row: int, end_row: int) -> None:
-        """
-        Load Amazon matches for a range of rows and update table cells.
-
-        Args:
-            start_row: First row index to load
-            end_row: Last row index to load (exclusive)
-        """
-        logger.debug(
-            f"_load_amazon_matches_for_rows: start={start_row}, end={end_row}, "
-            f"visible={self._amazon_column_visible}, col_idx={self._amazon_column_index}"
-        )
-        if not self._amazon_column_visible or self._amazon_column_index is None:
-            logger.debug("Early return: column not visible or index is None")
-            return
-
-        if self.state.current_data is None:
-            logger.debug("Early return: no current_data")
-            return
-
-        table = self.query_one("#data-table", DataTable)
-        df = self.state.current_data
-
-        for row_idx in range(start_row, min(end_row, len(df))):
-            # Skip if already loaded
-            if row_idx in self._amazon_rows_loaded:
-                continue
-
-            # Get transaction data
-            if row_idx >= len(df):
-                break
-
-            row_data = df.row(row_idx, named=True)
-            txn_id = row_data["id"]
-            amount = row_data["amount"]
-            date_val = row_data["date"]
-            merchant = row_data["merchant"]
-
-            # Convert date to string
-            if hasattr(date_val, "isoformat"):
-                date_str = date_val.isoformat()
-            else:
-                date_str = str(date_val)
-
-            # Get match status
-            status = self._get_amazon_match_status(txn_id, amount, date_str, merchant)
-
-            # Update the cell
-            try:
-                table.update_cell_at((row_idx, self._amazon_column_index), status)
-                logger.debug(
-                    f"Updated cell ({row_idx}, {self._amazon_column_index}) with status: {status[:20] if status else '(empty)'}..."
-                )
-            except Exception as e:
-                logger.debug(f"Failed to update cell ({row_idx}, {self._amazon_column_index}): {e}")
-
-            # Mark as loaded
-            self._amazon_rows_loaded.add(row_idx)
-
-    def _on_amazon_view_refresh(self) -> None:
-        """Called when the view is refreshed with Amazon transactions."""
-        logger.debug(
-            f"_on_amazon_view_refresh: visible={self._amazon_column_visible}, "
-            f"col_idx={self._amazon_column_index}, data_len={len(self.state.current_data) if self.state.current_data is not None else 'None'}"
-        )
-        # Reset row tracking
-        self._amazon_rows_loaded.clear()
-        self._row_to_txn_id.clear()
-
-        # Update row-to-txn mapping and mark cached rows as already loaded
-        # (cached rows were rendered with cached values, no need to update them)
-        if self.state.current_data is not None:
-            for idx, row_data in enumerate(self.state.current_data.iter_rows(named=True)):
-                txn_id = row_data["id"]
-                self._row_to_txn_id[idx] = txn_id
-                # If this transaction is in cache, mark row as loaded
-                # (the cell was already rendered with the cached value)
-                if txn_id in self._amazon_match_cache:
-                    self._amazon_rows_loaded.add(idx)
-
-        # Load initial batch of matches for UNCACHED rows only
-        if self._amazon_column_visible:
-            logger.debug("Scheduling initial Amazon match load for rows 0-20")
-            self.set_timer(0.1, lambda: self._load_amazon_matches_for_rows(0, 20))
 
     def action_delete_transaction(self) -> None:
         """Delete current transaction with confirmation."""
@@ -2254,7 +1404,7 @@ class MoneyflowApp(App):
                 # Delete each transaction via API (with session renewal if needed)
                 for txn_id in transaction_ids:
                     try:
-                        await self._delete_with_retry(txn_id)
+                        await self.task_runner.delete_with_retry(txn_id)
                         success_count += 1
                     except Exception as e:
                         logger.error(f"Failed to delete transaction {txn_id}: {e}")
@@ -2318,162 +1468,6 @@ class MoneyflowApp(App):
             # Use set_timer to defer until table is fully rendered
             saved_position = {"cursor_row": cursor_position, "scroll_y": scroll_y}
             self.set_timer(0.01, lambda: self._restore_table_position(saved_position))
-
-    async def _do_fresh_login(self, creds):
-        """
-        Delete stale session and perform fresh login.
-
-        This is the common pattern used in 3 places (login, fetch, commit).
-        Extracted to eliminate duplication while preserving the exact logic
-        that evolved through multiple bug fixes.
-
-        Args:
-            creds: Credentials dict with email, password, mfa_secret
-
-        Raises:
-            Exception: If login fails
-        """
-
-        logger = get_logger(__name__)
-
-        logger.info("Deleting stale session and performing fresh login")
-        self.backend.delete_session()
-        self.backend.clear_auth()  # Clear in-memory token/headers
-
-        await self.backend.login(
-            email=creds["email"],
-            password=creds["password"],
-            use_saved_session=False,  # Force fresh login
-            save_session=True,
-            mfa_secret_key=creds["mfa_secret"],
-        )
-        logger.info("Fresh login succeeded")
-
-    async def _refresh_session(self) -> bool:
-        """Refresh expired session by re-authenticating with stored credentials."""
-
-        logger = get_logger(__name__)
-
-        if self.stored_credentials is None:
-            logger.error("Cannot refresh session - no stored credentials")
-            return False
-
-        try:
-            logger.info("Session expired - attempting to refresh")
-            self._notify(NotificationHelper.session_refreshing())
-            # Use centralized fresh login logic
-            await self._do_fresh_login(self.stored_credentials)
-            logger.info("Session refresh succeeded")
-            self._notify(NotificationHelper.session_refresh_success())
-            return True
-        except Exception as e:
-            logger.error(f"Session refresh failed: {e}", exc_info=True)
-            self._notify(NotificationHelper.session_refresh_failed(str(e)))
-            return False
-
-    async def _delete_with_retry(self, transaction_id: str) -> None:
-        """
-        Delete transaction with automatic retry on session expiration.
-
-        Args:
-            transaction_id: ID of transaction to delete
-
-        Raises:
-            Exception: If delete fails after session refresh attempt
-        """
-        logger = get_logger(__name__)
-
-        try:
-            await self.backend.delete_transaction(transaction_id)
-        except Exception as e:
-            # Check if it's an auth error (session expired)
-            error_msg = str(e).lower()
-            if "401" in error_msg or "unauthorized" in error_msg or "token" in error_msg:
-                logger.debug("Delete failed with auth error, attempting session refresh")
-                # Try to refresh session once
-                if await self._refresh_session():
-                    logger.debug("Session refreshed, retrying delete immediately")
-                    # Session refreshed - try delete again immediately
-                    await self.backend.delete_transaction(transaction_id)
-                else:
-                    logger.error("Session refresh failed during delete")
-                    raise Exception("Session refresh failed - cannot delete transaction")
-            else:
-                # Re-raise other errors
-                raise
-
-    async def _commit_with_retry(self, edits, skip_batch_for: set[tuple[str, str]] | None = None):
-        """
-        Commit edits with automatic retry on session expiration.
-
-        Uses exponential backoff (60s, 120s, 240s, 480s, 960s) for transient failures.
-        User can press Ctrl-C to abort during retry waits.
-
-        **User Experience:**
-        - On auth error: "Session expired, re-authenticating..." → immediate retry
-        - On other error: "Commit failed due to {reason}. Retrying in Xs (attempt N/5). Press Ctrl-C to abort."
-        - On retry success: Returns normally (no extra notification)
-        - On all retries exhausted: Re-raises exception (caller shows error)
-        - On user cancel: "Commit cancelled by user"
-
-        Args:
-            edits: List of TransactionEdit objects to commit
-            skip_batch_for: Set of (old, new) merchant tuples to process individually
-                instead of using batch update
-        """
-
-        logger = get_logger(__name__)
-
-        def on_retry_notification(attempt: int, wait_seconds: float) -> None:
-            """
-            Show retry progress to user.
-
-            Called AFTER the first failure and BEFORE waiting to retry.
-            """
-            self._notify(NotificationHelper.retry_waiting(attempt, wait_seconds))
-
-        async def commit_operation():
-            """Wrapper to commit and re-authenticate if needed."""
-            try:
-                return await self.data_manager.commit_pending_edits(edits, skip_batch_for)
-            except Exception as e:
-                # Check if it's an auth error (session expired)
-                error_msg = str(e).lower()
-                if "401" in error_msg or "unauthorized" in error_msg or "token" in error_msg:
-                    logger.debug("Commit failed with auth error, attempting session refresh")
-                    # Show clear message to user
-                    self._notify(NotificationHelper.session_expired())
-                    # Try to refresh session once
-                    if await self._refresh_session():
-                        logger.debug("Session refreshed, retrying commit immediately")
-                        # Session refreshed - try commit again immediately
-                        return await self.data_manager.commit_pending_edits(edits, skip_batch_for)
-                    else:
-                        logger.error("Session refresh failed")
-                        # Session refresh failed - will trigger retry with backoff
-                        raise Exception("Session refresh failed - will retry with backoff")
-                # Re-raise for retry logic to handle
-                logger.warning(f"Commit failed: {e}")
-                raise
-
-        try:
-            # Use retry_with_backoff for robust error handling
-            return await retry_with_backoff(
-                operation=commit_operation,
-                operation_name="Commit changes",
-                max_retries=5,
-                initial_wait=60.0,
-                on_retry=on_retry_notification,
-            )
-        except RetryAborted:
-            # User pressed Ctrl-C
-            logger.debug("Commit retry cancelled by user")
-            self._notify(NotificationHelper.retry_cancelled())
-            raise
-        except Exception as e:
-            # All retries exhausted
-            logger.error(f"All commit retries exhausted: {e}")
-            raise
 
     def action_review_and_commit(self) -> None:
         """Review pending changes and commit if confirmed."""
@@ -2553,7 +1547,7 @@ class MoneyflowApp(App):
             self._notify(NotificationHelper.commit_starting(count))
 
             try:
-                success_count, failure_count, bulk_merchant_renames = await self._commit_with_retry(
+                success_count, failure_count, bulk_merchant_renames = await self.task_runner.commit_with_retry(
                     self.data_manager.pending_edits, skip_batch_for=skip_batch_for
                 )
 
@@ -2626,8 +1620,8 @@ class MoneyflowApp(App):
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row highlight (cursor movement)."""
-        logger.debug(f"Row highlighted: visible={self._amazon_column_visible}")
-        if not self._amazon_column_visible:
+        logger.debug(f"Row highlighted: visible={self.amazon_presentation._column_visible}")
+        if not self.amazon_presentation._column_visible:
             return
 
         table = self.query_one("#data-table", DataTable)
@@ -2651,7 +1645,7 @@ class MoneyflowApp(App):
         end_row = last_visible + 2
 
         # Schedule loading to avoid blocking
-        self.set_timer(0.01, lambda: self._load_amazon_matches_for_rows(start_row, end_row))
+        self.set_timer(0.01, lambda: self.amazon_presentation.load_matches_for_rows(self.query_one("#data-table", DataTable), self.state.current_data, start_row, end_row))
 
     async def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle row selection (Enter key)."""
