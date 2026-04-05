@@ -16,7 +16,7 @@ def _detect_gql_v4_plus() -> bool:
 
         match = re.match(r"^(\d+)", gql_module.__version__)
         return int(match.group(1)) >= 4 if match else False
-    except (ImportError, AttributeError, ValueError):
+    except (ImportError, AttributeError, ValueError, TypeError):
         # Fallback: assume older version if we can't detect
         return False
 

@@ -76,6 +76,9 @@ class YNABClient:
 
         self._resolve_budget_id(budgets_response, budget_id)
 
+        # Clear budget-dependent caches on re-login
+        self._invalidate_cache()
+
         # Fetch and cache account information (including on_budget status)
         self._fetch_and_cache_accounts()
 
@@ -387,7 +390,9 @@ class YNABClient:
             logger.error(f"Failed to update payee {payee_id}: {e}", exc_info=True)
             return False
 
-    def _check_payee_duplicates(self, payee_result: Dict[str, Any], name: str, is_target: bool = False) -> Optional[Dict[str, Any]]:
+    def _check_payee_duplicates(
+        self, payee_result: Dict[str, Any], name: str, is_target: bool = False
+    ) -> Optional[Dict[str, Any]]:
         if payee_result["duplicates_found"]:
             method_prefix = "duplicate_target_payees" if is_target else "duplicate_payees"
             logger.error(

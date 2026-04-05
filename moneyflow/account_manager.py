@@ -16,8 +16,10 @@ Account metadata is stored in ~/.moneyflow/accounts.json
 
 import json
 import logging
+import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime
@@ -90,8 +92,7 @@ class AccountRegistry:
     def from_dict(data: Dict[str, Any]) -> "AccountRegistry":
         """Create AccountRegistry from dictionary."""
         accounts = {
-            acc_data["id"]: Account.from_dict(acc_data)
-            for acc_data in data.get("accounts", [])
+            acc_data["id"]: Account.from_dict(acc_data) for acc_data in data.get("accounts", [])
         }
         return AccountRegistry(
             accounts=accounts,
@@ -159,11 +160,23 @@ class AccountManager:
         if registry is not None:
             self._registry = registry
 
-        with open(self.accounts_file, "w") as f:
-            json.dump(self._registry.to_dict(), f, indent=2)
-
-        # Ensure only user can read
-        self.accounts_file.chmod(0o600)
+        # Write atomically via temp file + rename to prevent torn reads
+        fd, tmp_path = tempfile.mkstemp(
+            dir=self.accounts_file.parent,
+            suffix=".tmp",
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(self._registry.to_dict(), f, indent=2)
+            os.chmod(tmp_path, 0o600)
+            os.replace(tmp_path, self.accounts_file)
+        except BaseException:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def generate_account_id(self, backend_type: str, account_name: str) -> str:
         """
@@ -252,7 +265,9 @@ class AccountManager:
         # Update last_active if we deleted it
         if self._registry.last_active_account == account_id:
             # Set to first remaining account or None
-            self._registry.last_active_account = next(iter(self._registry.accounts)) if self._registry.accounts else None
+            self._registry.last_active_account = (
+                next(iter(self._registry.accounts)) if self._registry.accounts else None
+            )
 
         self.save_registry()
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date as date_type
 from datetime import datetime, timedelta
-from typing import Any, Callable, Optional, Protocol, Tuple
+from typing import Any, Callable, List, Optional, Protocol, Tuple
 
 from .cache_manager import CacheManager, RefreshStrategy
 from .logging_config import get_logger
@@ -21,19 +21,16 @@ NotifyFn = Optional[Callable[..., None]]
 class DataManagerProtocol(Protocol):
     all_merchants: list[str]
 
-    def apply_category_groups(self, df: Any) -> Any:
-        ...
+    def apply_category_groups(self, df: Any) -> Any: ...
 
     async def fetch_all_data(
         self,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         progress_callback: Optional[Callable[[str], None]] = None,
-    ) -> Tuple[Any, dict, dict]:
-        ...
+    ) -> Tuple[Any, dict, dict]: ...
 
-    async def initialize_merchants(self, force: bool = False) -> None:
-        ...
+    async def initialize_merchants(self, force: bool = False) -> List[str]: ...
 
 
 class CacheOrchestrator:
@@ -82,7 +79,12 @@ class CacheOrchestrator:
             self._notify_fn(message, severity=severity, timeout=timeout)
 
     async def _process_and_return(
-        self, df: Any, categories: Any, category_groups: Any, strategy: RefreshStrategy, status_update: StatusUpdate
+        self,
+        df: Any,
+        categories: Any,
+        category_groups: Any,
+        strategy: RefreshStrategy,
+        status_update: StatusUpdate,
     ) -> Tuple[Tuple[Any, Any, Any], RefreshStrategy]:
         self._status_update(status_update, "🔄 Applying category groupings...")
         processed_df = self.data_manager.apply_category_groups(df)
@@ -133,7 +135,9 @@ class CacheOrchestrator:
                 full_result = self.cache_manager.load_cache()
                 if hot_df is not None and full_result:
                     _, categories, category_groups, _ = full_result
-                    result, ret_strategy = await self._process_and_return(hot_df, categories, category_groups, RefreshStrategy.NONE, status_update)
+                    result, ret_strategy = await self._process_and_return(
+                        hot_df, categories, category_groups, RefreshStrategy.NONE, status_update
+                    )
                     self._notify("📦 Loaded recent transactions (hot cache only)")
                     return result, ret_strategy
             else:
@@ -142,7 +146,9 @@ class CacheOrchestrator:
                 result_full = self.cache_manager.load_cache()
                 if result_full:
                     df, categories, category_groups, _ = result_full
-                    result, ret_strategy = await self._process_and_return(df, categories, category_groups, strategy, status_update)
+                    result, ret_strategy = await self._process_and_return(
+                        df, categories, category_groups, strategy, status_update
+                    )
                     if cache_info:
                         self._notify(
                             f"📦 Loaded from cache ({cache_info['age']}) • Use --refresh to force update"
@@ -184,7 +190,8 @@ class CacheOrchestrator:
 
         try:
             fetch_start, fetch_end = (
-                self.cache_manager.get_hot_refresh_date_range() if is_hot_refresh
+                self.cache_manager.get_hot_refresh_date_range()
+                if is_hot_refresh
                 else self.cache_manager.get_cold_refresh_date_range()
             )
 

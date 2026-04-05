@@ -220,7 +220,7 @@ class CredentialManager:
             ValueError: If password is incorrect (encrypted mode only) or not provided when required
         """
         if self.credentials_file.exists():
-            if not encryption_password:
+            if encryption_password is None:
                 raise ValueError("Encryption password is required to load encrypted credentials.")
 
             # Load salt

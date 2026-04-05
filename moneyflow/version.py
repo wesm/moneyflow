@@ -31,15 +31,15 @@ def get_version() -> str:
             git_hash = result.stdout.strip()
             if git_hash:
                 return git_hash
-    except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
         pass
 
     # Fall back to package version
     try:
-        from importlib.metadata import version
+        from importlib.metadata import PackageNotFoundError, version
 
         return version("moneyflow")
-    except Exception:
+    except (PackageNotFoundError, ValueError):
         pass
 
     # Last resort

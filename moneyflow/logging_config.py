@@ -12,11 +12,11 @@ from typing import Optional
 
 DEFAULT_LOGGER_NAME = "moneyflow"
 LOG_FILENAME = "moneyflow.log"
-DEFAULT_CONFIG_DIR = Path.home() / ".moneyflow"
+DEFAULT_LOG_DIR_NAME = ".moneyflow"
 
 
 def _get_log_file(config_dir: Optional[str] = None) -> Path:
-    log_dir = Path(config_dir).expanduser() if config_dir else DEFAULT_CONFIG_DIR
+    log_dir = Path(config_dir).expanduser() if config_dir else Path.home() / DEFAULT_LOG_DIR_NAME
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir / LOG_FILENAME
 
@@ -29,9 +29,7 @@ def _silence_noisy_third_party_loggers() -> None:
 
 
 def setup_logging(
-    console_output: bool = False,
-    config_dir: Optional[str] = None,
-    quiet: bool = False
+    console_output: bool = False, config_dir: Optional[str] = None, quiet: bool = False
 ) -> logging.Logger:
     """
     Configure logging to write to file.

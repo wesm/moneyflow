@@ -678,7 +678,9 @@ class DemoDataGenerator:
         """Create a single transaction."""
         txn_id = self._generate_id()
 
-        account_info = self.ACCOUNT_MAP.get(account, {"id": "acc_unknown", "displayName": account})
+        account_info = dict(
+            self.ACCOUNT_MAP.get(account, {"id": "acc_unknown", "displayName": account})
+        )
 
         # Fallback category names just in case category_map is not populated
         fallback_names = {

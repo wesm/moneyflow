@@ -169,7 +169,7 @@ def amazon(ctx, db_path, config_dir):
         backend, cfg_dir, prof_dir = _get_amazon_backend_with_profile_support(
             db_path=db_path, config_dir=config_dir
         )
-    except Exception as e:
+    except (OSError, ValueError, ImportError) as e:
         click.echo(f"Initialization failed: {e}", err=True)
         raise click.Abort()
 
@@ -199,9 +199,7 @@ def amazon(ctx, db_path, config_dir):
             raise click.Abort()
 
         # Launch the UI
-        launch_amazon_mode(
-            db_path=str(backend.db_path), config_dir=cfg_dir, profile_dir=prof_dir
-        )
+        launch_amazon_mode(db_path=str(backend.db_path), config_dir=cfg_dir, profile_dir=prof_dir)
 
 
 @amazon.command(name="import")

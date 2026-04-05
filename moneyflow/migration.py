@@ -28,7 +28,7 @@ def _load_yaml(path: Path) -> dict:
     try:
         with open(path, "r") as f:
             return yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError):
+    except (OSError, yaml.YAMLError, UnicodeDecodeError):
         return {}
 
 

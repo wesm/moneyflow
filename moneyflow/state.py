@@ -744,6 +744,7 @@ class AppState:
             return None
 
         from moneyflow.filter_service import FilterService
+
         return FilterService.apply_filters(self.transactions_df, self)
 
     def drill_down(self, item_name: str, cursor_position: int = 0, scroll_y: float = 0) -> None:
@@ -825,8 +826,21 @@ class AppState:
                 month_name = parts[0]
                 year_str = parts[1]
 
-                import calendar
-                month_index = list(calendar.month_abbr).index(month_name)
+                _month_abbr_to_num = {
+                    "Jan": 1,
+                    "Feb": 2,
+                    "Mar": 3,
+                    "Apr": 4,
+                    "May": 5,
+                    "Jun": 6,
+                    "Jul": 7,
+                    "Aug": 8,
+                    "Sep": 9,
+                    "Oct": 10,
+                    "Nov": 11,
+                    "Dec": 12,
+                }
+                month_index = _month_abbr_to_num.get(month_name, 1)
 
                 self.selected_time_year = int(year_str)
                 self.selected_time_month = month_index

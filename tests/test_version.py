@@ -1,4 +1,5 @@
 import subprocess
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import patch
 
 import moneyflow
@@ -12,8 +13,8 @@ def test_get_version_metadata_missing(mock_version, mock_subprocess_run):
     # Mock subprocess to fail (e.g., git command fails)
     mock_subprocess_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=1)
 
-    # Mock importlib.metadata.version to raise Exception (metadata missing)
-    mock_version.side_effect = Exception("PackageNotFoundError")
+    # Mock importlib.metadata.version to raise PackageNotFoundError
+    mock_version.side_effect = PackageNotFoundError("moneyflow")
 
     # Should fall back to "unknown"
     assert get_version() == "unknown"

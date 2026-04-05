@@ -72,6 +72,7 @@ class MerchantCache:
             return []
 
         from .logging_config import get_logger
+
         logger = get_logger(__name__)
         try:
             with open(self.cache_file, "r") as f:
@@ -84,6 +85,7 @@ class MerchantCache:
     def save(self, merchants: list[str]) -> None:
         """Save merchants to cache with timestamp."""
         from .logging_config import get_logger
+
         logger = get_logger(__name__)
         data = {
             "timestamp": datetime.now().isoformat(),
@@ -169,6 +171,7 @@ class DataManager:
         if profile_dir:
             if backend_type == "amazon":
                 from .backends.amazon import get_amazon_inherited_categories
+
                 self.category_groups_config = get_amazon_inherited_categories(
                     profile_dir=profile_dir, config_dir=config_dir
                 )
@@ -189,8 +192,12 @@ class DataManager:
 
         # Merchant cache setup
         if not merchant_cache_dir:
-            merchant_cache_dir = self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
-        self.merchant_cache = MerchantCache(Path(merchant_cache_dir), max_age_hours=self.MERCHANT_CACHE_MAX_AGE_HOURS)
+            merchant_cache_dir = (
+                self.config_dir if self.config_dir else str(Path.home() / ".moneyflow")
+            )
+        self.merchant_cache = MerchantCache(
+            Path(merchant_cache_dir), max_age_hours=self.MERCHANT_CACHE_MAX_AGE_HOURS
+        )
 
     async def refresh_merchant_cache(
         self, force: bool = False, skip_cache: bool = False
@@ -300,6 +307,7 @@ class DataManager:
             group_data = cat.get("group") or {}
             categories[cat["id"]] = {
                 "name": cat["name"],
+                "group": group_data.get("name") if group_data else None,
                 "group_id": group_data.get("id") if group_data else None,
                 "group_type": group_data.get("type") if group_data else None,
             }
@@ -331,6 +339,7 @@ class DataManager:
                     if self.profile_dir:
                         if self.backend_type == "amazon":
                             from .backends.amazon import get_amazon_inherited_categories
+
                             self.category_groups_config = get_amazon_inherited_categories(
                                 profile_dir=self.profile_dir, config_dir=self.config_dir
                             )
@@ -872,33 +881,42 @@ class DataManager:
                 periods.append({"year": y, "time_period_display": str(y)})
             join_cols = ["year", "time_period_display"]
         elif granularity == TimeGranularity.MONTH:
-            while current_date <= end_date or (current_date.year == end_date.year and current_date.month <= end_date.month):
-                periods.append({
-                    "year": current_date.year,
-                    "month": current_date.month,
-                    "time_period_display": f"{current_date.year}-{current_date.month:02d}",
-                })
+            while current_date <= end_date or (
+                current_date.year == end_date.year and current_date.month <= end_date.month
+            ):
+                periods.append(
+                    {
+                        "year": current_date.year,
+                        "month": current_date.month,
+                        "time_period_display": f"{current_date.year}-{current_date.month:02d}",
+                    }
+                )
                 current_date += relativedelta(months=1)
             join_cols = ["year", "month", "time_period_display"]
         else:  # DAY
             from datetime import timedelta
+
             while current_date <= end_date:
-                periods.append({
-                    "year": current_date.year,
-                    "month": current_date.month,
-                    "day": current_date.day,
-                    "time_period_display": f"{current_date.year}-{current_date.month:02d}-{current_date.day:02d}",
-                })
+                periods.append(
+                    {
+                        "year": current_date.year,
+                        "month": current_date.month,
+                        "day": current_date.day,
+                        "time_period_display": f"{current_date.year}-{current_date.month:02d}-{current_date.day:02d}",
+                    }
+                )
                 current_date += timedelta(days=1)
             join_cols = ["year", "month", "day", "time_period_display"]
 
         all_periods = pl.DataFrame(periods)
         result = (
             all_periods.join(df, on=join_cols, how="left")
-            .with_columns([
-                pl.col("count").fill_null(0),
-                pl.col("total").fill_null(0.0),
-            ])
+            .with_columns(
+                [
+                    pl.col("count").fill_null(0),
+                    pl.col("total").fill_null(0.0),
+                ]
+            )
             .sort("time_period_display")
         )
 
@@ -949,21 +967,37 @@ class DataManager:
         if granularity == TimeGranularity.YEAR:
             df = df.with_columns([pl.col("year").cast(pl.Utf8).alias("time_period_display")])
         elif granularity == TimeGranularity.MONTH:
-            df = df.with_columns([
-                (pl.col("year").cast(pl.Utf8) + "-" + pl.col("month").cast(pl.Utf8).str.zfill(2)).alias("time_period_display")
-            ])
+            df = df.with_columns(
+                [
+                    (
+                        pl.col("year").cast(pl.Utf8)
+                        + "-"
+                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
+                    ).alias("time_period_display")
+                ]
+            )
             group_cols.insert(1, "month")
         else:  # DAY
-            df = df.with_columns([
-                (pl.col("year").cast(pl.Utf8) + "-" + pl.col("month").cast(pl.Utf8).str.zfill(2) + "-" + pl.col("day").cast(pl.Utf8).str.zfill(2)).alias("time_period_display")
-            ])
+            df = df.with_columns(
+                [
+                    (
+                        pl.col("year").cast(pl.Utf8)
+                        + "-"
+                        + pl.col("month").cast(pl.Utf8).str.zfill(2)
+                        + "-"
+                        + pl.col("day").cast(pl.Utf8).str.zfill(2)
+                    ).alias("time_period_display")
+                ]
+            )
             group_cols.insert(1, "month")
             group_cols.insert(2, "day")
 
-        aggregated = df.group_by(group_cols).agg([
-            pl.count("id").alias("count"),
-            pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
-        ])
+        aggregated = df.group_by(group_cols).agg(
+            [
+                pl.count("id").alias("count"),
+                pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+            ]
+        )
 
         # Fill gaps between earliest and latest period
         result = self._fill_time_gaps(aggregated, granularity)

@@ -232,6 +232,10 @@ class CacheManager:
             metadata = self.load_metadata()
             if not isinstance(metadata, dict):
                 return {}
+            # Validate tier sections are dicts to prevent downstream TypeError
+            for key in ("hot", "cold"):
+                if key in metadata and not isinstance(metadata[key], dict):
+                    return {}
             return metadata
         except (FileNotFoundError, json.JSONDecodeError):
             return {}

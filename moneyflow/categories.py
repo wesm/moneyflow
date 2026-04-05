@@ -133,7 +133,9 @@ DEFAULT_CATEGORY_GROUPS: Dict[str, List[str]] = {
 }
 
 
-def _get_config_path(base_dir: Optional[Union[str, Path]] = None, filename: str = "config.yaml") -> Path:
+def _get_config_path(
+    base_dir: Optional[Union[str, Path]] = None, filename: str = "config.yaml"
+) -> Path:
     base = Path(base_dir) if base_dir else Path.home() / ".moneyflow"
     return base / filename
 
@@ -161,7 +163,9 @@ def _save_yaml(path: Path, data: dict) -> bool:
         return False
 
 
-def load_custom_categories(config_dir: Optional[Union[str, Path]] = None) -> Optional[Dict[str, Any]]:
+def load_custom_categories(
+    config_dir: Optional[Union[str, Path]] = None,
+) -> Optional[Dict[str, Any]]:
     """
     Load custom category configuration from ~/.moneyflow/config.yaml.
     """
@@ -257,7 +261,6 @@ def merge_category_groups(
     return merged
 
 
-
 def convert_api_categories_to_groups(
     categories_data: Dict[str, Any], groups_data: Dict[str, Any]
 ) -> Dict[str, List[str]]:
@@ -285,13 +288,14 @@ def convert_api_categories_to_groups(
     return result
 
 
-
-
 def save_categories_to_config(
     category_groups: Dict[str, List[str]], config_dir: Optional[Union[str, Path]] = None
-) -> None:
+) -> bool:
     """
     Save fetched category structure to config.yaml.
+
+    Returns:
+        True if save succeeded, False otherwise.
     """
     config_path = _get_config_path(config_dir)
     config = _load_yaml(config_path)
@@ -299,12 +303,15 @@ def save_categories_to_config(
     config["version"] = 1
     config["fetched_categories"] = category_groups
 
-    _save_yaml(config_path, config)
+    saved = _save_yaml(config_path, config)
 
-    logger.info(
-        f"Saved {len(category_groups)} category groups "
-        f"({sum(len(cats) for cats in category_groups.values())} categories) to {config_path}"
-    )
+    if saved:
+        logger.info(
+            f"Saved {len(category_groups)} category groups "
+            f"({sum(len(cats) for cats in category_groups.values())} categories) "
+            f"to {config_path}"
+        )
+    return saved
 
 
 def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Dict[str, str]:
@@ -318,9 +325,9 @@ def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Di
     return category_to_group
 
 
-
-
-def save_categories_to_profile(category_groups: Dict[str, List[str]], profile_dir: Union[str, Path]) -> bool:
+def save_categories_to_profile(
+    category_groups: Dict[str, List[str]], profile_dir: Union[str, Path]
+) -> bool:
     """
     Save category structure to profile-local config.yaml.
     """
@@ -337,7 +344,6 @@ def save_categories_to_profile(category_groups: Dict[str, List[str]], profile_di
         )
         return True
     return False
-
 
 
 def load_categories_from_profile(profile_dir: Union[str, Path]) -> Optional[Dict[str, List[str]]]:
@@ -361,8 +367,9 @@ def load_categories_from_profile(profile_dir: Union[str, Path]) -> Optional[Dict
     return None
 
 
-
-def get_effective_category_groups(config_dir: Optional[Union[str, Path]] = None) -> Dict[str, List[str]]:
+def get_effective_category_groups(
+    config_dir: Optional[Union[str, Path]] = None,
+) -> Dict[str, List[str]]:
     """
     Get category groups (LEGACY - for backward compatibility).
     """
@@ -380,7 +387,6 @@ def get_effective_category_groups(config_dir: Optional[Union[str, Path]] = None)
 
     logger.info("Using built-in default categories")
     return DEFAULT_CATEGORY_GROUPS
-
 
 
 def get_profile_category_groups(
@@ -438,4 +444,3 @@ def format_categories_readable(category_groups: Dict[str, List[str]]) -> str:
             lines.append(f"  - {cat}")
 
     return "\n".join(lines)
-

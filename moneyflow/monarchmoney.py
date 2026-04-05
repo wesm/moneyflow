@@ -18,6 +18,7 @@ import calendar
 import getpass
 import json
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 import os
@@ -184,7 +185,7 @@ class MonarchMoney:
     ) -> None:
         """Logs into a Monarch Money account."""
         if use_saved_session and os.path.exists(self._session_file):
-            logger.info("Using saved session found at {self._session_file}")
+            logger.info(f"Using saved session found at {self._session_file}")
             try:
                 self.load_session(self._session_file)
                 # Validate the session by making a simple API call
@@ -1415,7 +1416,7 @@ class MonarchMoney:
                 async with session.post(
                     MonarchMoneyEndpoints.getLoginEndpoint(), json=data
                 ) as resp:
-                    logger.debug("Login response status: {resp.status}")
+                    logger.debug(f"Login response status: {resp.status}")
 
                     # Handle 404 - REST endpoint no longer exists, fallback to GraphQL
                     if resp.status == 404:
@@ -1500,7 +1501,7 @@ class MonarchMoney:
                     messages = error.get("messages", [])
                     error_messages.extend(messages)
                 error_text = "; ".join(error_messages)
-                logger.debug("GraphQL login errors: {error_text}")
+                logger.debug(f"GraphQL login errors: {error_text}")
                 raise LoginFailedException(f"Login failed: {error_text}")
 
             token = login_data.get("token")

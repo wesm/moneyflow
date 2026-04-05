@@ -73,8 +73,9 @@ async def retry_with_backoff(
 
             # Calculate wait time with exponential backoff, max wait cap, and jitter
             max_wait = 300.0  # Cap at 5 minutes
-            wait_seconds = min(initial_wait * (2**attempt), max_wait)
+            wait_seconds = initial_wait * (2**attempt)
             wait_seconds *= random.uniform(0.8, 1.2)  # +/- 20% jitter
+            wait_seconds = min(wait_seconds, max_wait)  # Clamp after jitter
 
             # Notify UI if callback provided
             if on_retry:
