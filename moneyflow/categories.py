@@ -143,43 +143,22 @@ def _load_yaml(path: Path) -> dict:
         return {}
     try:
         with open(path, "r") as f:
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
     except Exception as e:
         logger.error(f"Failed to load YAML from {path}: {e}")
         return {}
 
 
-def _save_yaml(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+def _save_yaml(path: Path, data: dict) -> bool:
     try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         with open(path, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        return True
     except Exception as e:
         logger.error(f"Failed to save YAML to {path}: {e}")
-
-
-
-def _get_config_path(base_dir: Optional[Union[str, Path]] = None, filename: str = "config.yaml") -> Path:
-    base = Path(base_dir) if base_dir else Path.home() / ".moneyflow"
-    return base / filename
-
-def _load_yaml(path: Path) -> dict:
-    if not path.exists():
-        return {}
-    try:
-        with open(path, "r") as f:
-            return yaml.safe_load(f) or {}
-    except Exception as e:
-        logger.error(f"Failed to load YAML from {path}: {e}")
-        return {}
-
-def _save_yaml(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        with open(path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-    except Exception as e:
-        logger.error(f"Failed to save YAML to {path}: {e}")
+        return False
 
 
 def load_custom_categories(config_dir: Optional[Union[str, Path]] = None) -> Optional[Dict[str, Any]]:
@@ -341,7 +320,7 @@ def build_category_to_group_mapping(category_groups: Dict[str, List[str]]) -> Di
 
 
 
-def save_categories_to_profile(category_groups: Dict[str, List[str]], profile_dir: Union[str, Path]) -> None:
+def save_categories_to_profile(category_groups: Dict[str, List[str]], profile_dir: Union[str, Path]) -> bool:
     """
     Save category structure to profile-local config.yaml.
     """
@@ -351,12 +330,13 @@ def save_categories_to_profile(category_groups: Dict[str, List[str]], profile_di
     config["version"] = 1
     config["fetched_categories"] = category_groups
 
-    _save_yaml(config_path, config)
-
-    logger.info(
-        f"Saved {len(category_groups)} category groups "
-        f"({sum(len(cats) for cats in category_groups.values())} categories) to {config_path}"
-    )
+    if _save_yaml(config_path, config):
+        logger.info(
+            f"Saved {len(category_groups)} category groups "
+            f"({sum(len(cats) for cats in category_groups.values())} categories) to {config_path}"
+        )
+        return True
+    return False
 
 
 

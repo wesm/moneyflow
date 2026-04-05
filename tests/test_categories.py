@@ -315,7 +315,8 @@ class TestProfileLocalCategories:
         }
 
         # Save categories
-        save_categories_to_profile(test_categories, profile_dir)
+        result = save_categories_to_profile(test_categories, profile_dir)
+        assert result is True
 
         # Verify file created
         assert (profile_dir / "config.yaml").exists()
@@ -324,6 +325,21 @@ class TestProfileLocalCategories:
         loaded = load_categories_from_profile(profile_dir)
 
         assert loaded == test_categories
+
+    def test_save_categories_returns_false_on_write_failure(self, tmp_path, monkeypatch):
+        """Should return False when _save_yaml fails (e.g. OSError)."""
+        import moneyflow.categories
+
+        def mock_save_yaml(path, data):
+            return False
+
+        monkeypatch.setattr(moneyflow.categories, "_save_yaml", mock_save_yaml)
+
+        profile_dir = tmp_path / "profiles" / "test_profile"
+        test_categories = {"Food": ["Groceries"]}
+
+        result = save_categories_to_profile(test_categories, profile_dir)
+        assert result is False
 
     def test_load_from_nonexistent_profile(self, tmp_path):
         """Test loading from profile without config returns None."""

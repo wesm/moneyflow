@@ -320,30 +320,31 @@ class DataManager:
 
                 # Save to profile-local config if available, otherwise legacy global config
                 if self.profile_dir:
-                    save_categories_to_profile(simple_groups, profile_dir=self.profile_dir)
+                    saved = save_categories_to_profile(simple_groups, profile_dir=self.profile_dir)
                 else:
                     # Legacy: save to global config
-                    save_categories_to_config(simple_groups, config_dir=self.config_dir)
+                    saved = save_categories_to_config(simple_groups, config_dir=self.config_dir)
 
-                # Rebuild category mapping after saving fresh categories
-                # This fixes bug where stale mapping causes transfers to not be filtered
-                if self.profile_dir:
-                    if self.backend_type == "amazon":
-                        from .backends.amazon import get_amazon_inherited_categories
-                        self.category_groups_config = get_amazon_inherited_categories(
-                            profile_dir=self.profile_dir, config_dir=self.config_dir
-                        )
+                if saved:
+                    # Rebuild category mapping after saving fresh categories
+                    # This fixes bug where stale mapping causes transfers to not be filtered
+                    if self.profile_dir:
+                        if self.backend_type == "amazon":
+                            from .backends.amazon import get_amazon_inherited_categories
+                            self.category_groups_config = get_amazon_inherited_categories(
+                                profile_dir=self.profile_dir, config_dir=self.config_dir
+                            )
+                        else:
+                            self.category_groups_config = get_profile_category_groups(
+                                profile_dir=self.profile_dir
+                            )
                     else:
-                        self.category_groups_config = get_profile_category_groups(
-                            profile_dir=self.profile_dir
-                        )
-                else:
-                    self.category_groups_config = get_effective_category_groups(self.config_dir)
+                        self.category_groups_config = get_effective_category_groups(self.config_dir)
 
-                self.category_to_group = build_category_to_group_mapping(
-                    self.category_groups_config
-                )
-                logger.debug("Rebuilt category-to-group mapping with fresh categories")
+                    self.category_to_group = build_category_to_group_mapping(
+                        self.category_groups_config
+                    )
+                    logger.debug("Rebuilt category-to-group mapping with fresh categories")
             except Exception as e:
                 logger.warning(f"Failed to save categories to config.yaml: {e}")
 
