@@ -180,6 +180,7 @@ def apply_edit_to_dataframe(
     df: pl.DataFrame,
     edit: TransactionEdit,
     categories: dict[str, dict],
+    *,
     bulk_merchant_renames: set[tuple[str, str]] | None = None,
 ) -> pl.DataFrame:
     """
@@ -288,7 +289,7 @@ def apply_edits_to_dataframe(
         if edit.field == "category":
             has_category_edit = True
         result_df = apply_edit_to_dataframe(
-            result_df, edit, categories, bulk_merchant_renames
+            result_df, edit, categories, bulk_merchant_renames=bulk_merchant_renames
         )
 
     if has_category_edit:
