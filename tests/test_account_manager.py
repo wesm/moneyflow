@@ -664,3 +664,30 @@ class TestEndToEndScenarios:
         assert len(accounts) == 2
         assert any(acc.id == "monarch-test-account" for acc in accounts)
         assert any(acc.id == "ynab-another" for acc in accounts)
+
+    def test_concurrent_instances_avoid_stale_cache(self, temp_config_dir):
+        """Test that concurrent instances don't overwrite each other due to stale cache."""
+        manager1 = AccountManager(config_dir=temp_config_dir)
+        manager2 = AccountManager(config_dir=temp_config_dir)
+
+        # Manager 1 creates an account
+        manager1.create_account("Test 1", "monarch")
+
+        # Manager 2 creates a different account
+        manager2.create_account("Test 2", "ynab")
+
+        # Both managers should see both accounts due to auto-refresh before mutating/reading
+        assert len(manager1.list_accounts()) == 2
+        assert len(manager2.list_accounts()) == 2
+
+        # Both managers should be able to create accounts without ID conflict
+        # Because they refresh the registry before generating an ID.
+        m1_acc = manager1.create_account("Conflict", "monarch")
+        m2_acc = manager2.create_account("Conflict", "monarch")
+
+        assert m1_acc.id == "monarch-conflict"
+        assert m2_acc.id == "monarch-conflict-2"
+
+        # The final registry should have 4 accounts
+        assert len(manager1.list_accounts()) == 4
+        assert len(manager2.list_accounts()) == 4

@@ -129,22 +129,25 @@ class AccountManager:
 
     def load_registry(self) -> AccountRegistry:
         """
-        Load account registry from disk.
+        Load account registry from disk and update internal cache.
 
         Returns:
             AccountRegistry with all configured accounts
         """
         if not self.accounts_file.exists():
-            return AccountRegistry()
+            self._registry = AccountRegistry()
+            return self._registry
 
         try:
             with open(self.accounts_file, "r") as f:
                 data = json.load(f)
-            return AccountRegistry.from_dict(data)
+            self._registry = AccountRegistry.from_dict(data)
+            return self._registry
         except (json.JSONDecodeError, KeyError) as e:
             # Corrupt registry - start fresh but log warning
             logging.warning(f"Corrupt accounts.json, starting fresh: {e}")
-            return AccountRegistry()
+            self._registry = AccountRegistry()
+            return self._registry
 
     def save_registry(self, registry: Optional[AccountRegistry] = None) -> None:
         """
@@ -173,6 +176,8 @@ class AccountManager:
         Returns:
             Account ID (e.g., "monarch-personal", "ynab-budget-2025")
         """
+        self.load_registry()
+
         # Normalize account name to lowercase, replace spaces/special chars with hyphens
         normalized = account_name.lower()
         normalized = re.sub(r"[^a-z0-9]+", "-", normalized)
@@ -201,6 +206,8 @@ class AccountManager:
         """
         Create a new account profile.
         """
+        self.load_registry()
+
         # Generate ID if not provided
         if account_id is None:
             account_id = self.generate_account_id(backend_type, name)
@@ -234,6 +241,8 @@ class AccountManager:
         """
         Delete an account profile and all its data.
         """
+        self.load_registry()
+
         if account_id not in self._registry.accounts:
             return False
 
@@ -258,12 +267,15 @@ class AccountManager:
         """
         Get account by ID.
         """
+        self.load_registry()
         return self._registry.accounts.get(account_id)
 
     def list_accounts(self) -> List[Account]:
         """
         List all configured accounts.
         """
+        self.load_registry()
+
         # Sort by last_used (None values go to end)
         def sort_key(acc: Account):
             if acc.last_used is None:
@@ -276,6 +288,8 @@ class AccountManager:
         """
         Update last_used timestamp for an account.
         """
+        self.load_registry()
+
         account = self._registry.accounts.get(account_id)
         if account:
             account.last_used = datetime.now().isoformat()
@@ -294,6 +308,8 @@ class AccountManager:
         """
         Get the last active account.
         """
+        self.load_registry()
+
         if self._registry.last_active_account:
             return self.get_account(self._registry.last_active_account)
 
