@@ -71,6 +71,8 @@ def mcp_server_factory(mock_account):
 
             def mock_search(df, query):
                 """Simple case-insensitive substring filter for MCP wiring tests."""
+                if not query:
+                    return df
                 q = query.lower()
                 return df.filter(
                     pl.col("merchant").str.to_lowercase().str.contains(q, literal=True)
@@ -508,6 +510,35 @@ class TestSearchFunctionality:
         content_list1, _ = result1
         content_list2, _ = result2
         assert len(json.loads(content_list1[0].text)) == len(json.loads(content_list2[0].text))
+
+    @pytest.mark.asyncio
+    async def test_search_literal_characters(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        """Search should treat regex metacharacters as literals."""
+        # Add a transaction with regex metacharacters
+        tx_data = sample_transactions.to_dicts()
+        tx_data.append(
+            {
+                "id": "tx8",
+                "date": "2023-01-01",
+                "merchant": "Regex.*[Test]",
+                "category": "Shopping",
+                "amount": -10.0,
+                "account": "Chase",
+                "notes": None,
+                "is_hidden": False,
+            }
+        )
+        import polars as pl
+
+        mcp = mcp_server_factory(pl.DataFrame(tx_data), sample_categories)
+
+        result = await mcp.call_tool("search_transactions", {"query": ".*[Test]"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert len(response) == 1
+        assert response[0]["merchant"] == "Regex.*[Test]"
 
 
 # ============================================================================
