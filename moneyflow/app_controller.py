@@ -27,7 +27,7 @@ from typing import List, Optional
 import polars as pl
 
 from .amazon_linker import AmazonLinker
-from .commit_orchestrator import CommitOrchestrator
+from .commit_orchestrator import apply_edits_to_dataframe
 from .data_manager import DataManager
 from .formatters import ViewPresenter
 from .logging_config import get_logger
@@ -1600,9 +1600,9 @@ class AppController:
             # All commits succeeded - safe to apply to local state
 
             # Apply edits to local DataFrames for instant UI update
-            # Use CommitOrchestrator to apply all edits (fully tested)
+            # Use apply_edits_to_dataframe to apply all edits (fully tested)
             # Pass bulk_merchant_renames so YNAB batch updates affect all matching transactions
-            self.data_manager.df = CommitOrchestrator.apply_edits_to_dataframe(
+            self.data_manager.df = apply_edits_to_dataframe(
                 self.data_manager.df,
                 edits,
                 self.data_manager.categories,
@@ -1612,7 +1612,7 @@ class AppController:
 
             # Also update state DataFrame
             if self.state.transactions_df is not None:
-                self.state.transactions_df = CommitOrchestrator.apply_edits_to_dataframe(
+                self.state.transactions_df = apply_edits_to_dataframe(
                     self.state.transactions_df,
                     edits,
                     self.data_manager.categories,
@@ -1665,7 +1665,7 @@ class AppController:
                         cold_df is not None,
                     )
                     if hot_df is not None:
-                        updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                        updated_hot = apply_edits_to_dataframe(
                             hot_df,
                             edits,
                             self.data_manager.categories,
@@ -1679,7 +1679,7 @@ class AppController:
                         )
                         logger.info("Updated hot cache with edits (cold unavailable)")
                     if cold_df is not None:
-                        updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                        updated_cold = apply_edits_to_dataframe(
                             cold_df,
                             edits,
                             self.data_manager.categories,
@@ -1701,14 +1701,14 @@ class AppController:
                         )
                 else:
                     logger.info("Filtered view detected - updating cached tiers with edits")
-                    updated_hot = CommitOrchestrator.apply_edits_to_dataframe(
+                    updated_hot = apply_edits_to_dataframe(
                         hot_df,
                         edits,
                         self.data_manager.categories,
                         self.data_manager.apply_category_groups,
                         bulk_merchant_renames,
                     )
-                    updated_cold = CommitOrchestrator.apply_edits_to_dataframe(
+                    updated_cold = apply_edits_to_dataframe(
                         cold_df,
                         edits,
                         self.data_manager.categories,

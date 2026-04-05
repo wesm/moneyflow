@@ -13,7 +13,14 @@ from typing import Any
 import polars as pl
 import pytest
 
-from moneyflow.commit_orchestrator import CommitOrchestrator
+from moneyflow.commit_orchestrator import (
+    apply_bulk_merchant_edit,
+    apply_category_edit,
+    apply_edit_to_dataframe,
+    apply_edits_to_dataframe,
+    apply_hide_from_reports_edit,
+    apply_merchant_edit,
+)
 from moneyflow.state import TransactionEdit
 
 # --- Helpers & Fixtures ---
@@ -69,7 +76,7 @@ class TestApplyMerchantEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Whole Foods")
+        updated = apply_merchant_edit(df, "txn1", "Whole Foods")
 
         # Only txn1 should be updated
         assert_cell(updated, "txn1", "merchant", "Whole Foods")
@@ -81,7 +88,7 @@ class TestApplyMerchantEdit:
         """Should handle empty DataFrame without error."""
         df = pl.DataFrame({"id": [], "merchant": []}, schema={"id": pl.Utf8, "merchant": pl.Utf8})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "NewMerchant")
+        updated = apply_merchant_edit(df, "txn1", "NewMerchant")
 
         assert updated.is_empty()
 
@@ -89,7 +96,7 @@ class TestApplyMerchantEdit:
         """Should return unchanged DataFrame for nonexistent transaction ID."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn999", "NewMerchant")
+        updated = apply_merchant_edit(df, "txn999", "NewMerchant")
 
         assert updated["merchant"][0] == "Amazon"
 
@@ -97,8 +104,8 @@ class TestApplyMerchantEdit:
         """Should handle applying edits to same transaction multiple times."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated1 = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Whole Foods")
-        updated2 = CommitOrchestrator.apply_merchant_edit(updated1, "txn1", "Trader Joes")
+        updated1 = apply_merchant_edit(df, "txn1", "Whole Foods")
+        updated2 = apply_merchant_edit(updated1, "txn1", "Trader Joes")
 
         assert updated2["merchant"][0] == "Trader Joes"
 
@@ -114,7 +121,7 @@ class TestApplyMerchantEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Target")
+        updated = apply_merchant_edit(df, "txn1", "Target")
 
         assert updated["amount"][0] == -99.99
         assert updated["category"][0] == "Shopping"
@@ -132,7 +139,7 @@ class TestApplyBulkMerchantEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
+        updated = apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
 
         # All Amazon transactions should be updated
         assert_cell(updated, "txn1", "merchant", "Whole Foods")
@@ -145,7 +152,7 @@ class TestApplyBulkMerchantEdit:
         """Should return unchanged DataFrame for nonexistent merchant name."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_bulk_merchant_edit(df, "NonExistent", "NewMerchant")
+        updated = apply_bulk_merchant_edit(df, "NonExistent", "NewMerchant")
 
         assert updated["merchant"][0] == "Amazon"
 
@@ -153,8 +160,8 @@ class TestApplyBulkMerchantEdit:
         """Should handle chained bulk renames."""
         df = pl.DataFrame({"id": ["txn1", "txn2"], "merchant": ["Amazon", "Amazon"]})
 
-        updated1 = CommitOrchestrator.apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
-        updated2 = CommitOrchestrator.apply_bulk_merchant_edit(
+        updated1 = apply_bulk_merchant_edit(df, "Amazon", "Whole Foods")
+        updated2 = apply_bulk_merchant_edit(
             updated1, "Whole Foods", "Trader Joes"
         )
 
@@ -176,8 +183,8 @@ class TestApplyCategoryEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_category_edit(
-            df, "txn1", "cat3", "New Category", noop_apply_groups
+        updated = apply_category_edit(
+            df, "txn1", "cat3", "New Category"
         )
 
         assert_cell(updated, "txn1", "category_id", "cat3")
@@ -186,7 +193,7 @@ class TestApplyCategoryEdit:
         assert_cell(updated, "txn2", "category_id", "cat2")
         assert_cell(updated, "txn2", "category", "Dining")
 
-    def test_calls_apply_groups_func(self):
+    def test_does_not_call_apply_groups_func(self):
         """Should call apply_groups_func to update groups."""
         df = pl.DataFrame(
             {"id": ["txn1"], "category_id": ["cat1"], "category": ["Old"], "group": ["OldGroup"]}
@@ -196,11 +203,11 @@ class TestApplyCategoryEdit:
             # Simulate updating groups based on category
             return df.with_columns(pl.lit("NewGroup").alias("group"))
 
-        updated = CommitOrchestrator.apply_category_edit(
-            df, "txn1", "cat2", "New", mock_apply_groups
+        updated = apply_category_edit(
+            df, "txn1", "cat2", "New"
         )
 
-        assert updated["group"][0] == "NewGroup"
+        assert updated["group"][0] == "OldGroup"
 
     def test_preserves_other_columns(self):
         """Should not modify unrelated columns."""
@@ -215,8 +222,8 @@ class TestApplyCategoryEdit:
             }
         )
 
-        updated = CommitOrchestrator.apply_category_edit(
-            df, "txn1", "cat2", "New", noop_apply_groups
+        updated = apply_category_edit(
+            df, "txn1", "cat2", "New"
         )
 
         assert updated["merchant"][0] == "Amazon"
@@ -230,7 +237,7 @@ class TestApplyHideFromReportsEdit:
         """Should set hideFromReports to True."""
         df = pl.DataFrame({"id": ["txn1", "txn2"], "hideFromReports": [False, False]})
 
-        updated = CommitOrchestrator.apply_hide_from_reports_edit(df, "txn1", True)
+        updated = apply_hide_from_reports_edit(df, "txn1", True)
 
         assert_cell(updated, "txn1", "hideFromReports", True)
         assert_cell(updated, "txn2", "hideFromReports", False)
@@ -239,7 +246,7 @@ class TestApplyHideFromReportsEdit:
         """Should set hideFromReports to False."""
         df = pl.DataFrame({"id": ["txn1"], "hideFromReports": [True]})
 
-        updated = CommitOrchestrator.apply_hide_from_reports_edit(df, "txn1", False)
+        updated = apply_hide_from_reports_edit(df, "txn1", False)
 
         assert updated["hideFromReports"][0] is False
 
@@ -248,11 +255,11 @@ class TestApplyHideFromReportsEdit:
         df = pl.DataFrame({"id": ["txn1"], "hideFromReports": [False]})
 
         # Toggle to True
-        updated1 = CommitOrchestrator.apply_hide_from_reports_edit(df, "txn1", True)
+        updated1 = apply_hide_from_reports_edit(df, "txn1", True)
         assert updated1["hideFromReports"][0] is True
 
         # Toggle back to False
-        updated2 = CommitOrchestrator.apply_hide_from_reports_edit(updated1, "txn1", False)
+        updated2 = apply_hide_from_reports_edit(updated1, "txn1", False)
         assert updated2["hideFromReports"][0] is False
 
 
@@ -274,7 +281,7 @@ class TestApplyEditToDataframe:
 
         edit = make_edit("txn1", "merchant", "Amazon", "Target")
 
-        updated = CommitOrchestrator.apply_edit_to_dataframe(df, edit, {}, noop_apply_groups)
+        updated = apply_edit_to_dataframe(df, edit, {})
 
         assert updated["merchant"][0] == "Target"
 
@@ -295,7 +302,7 @@ class TestApplyEditToDataframe:
 
         edit = make_edit("txn1", "category", "cat1", "cat2")
 
-        updated = CommitOrchestrator.apply_edit_to_dataframe(
+        updated = apply_edit_to_dataframe(
             df, edit, categories, noop_apply_groups
         )
 
@@ -317,7 +324,7 @@ class TestApplyEditToDataframe:
 
         edit = make_edit("txn1", "hide_from_reports", False, True)
 
-        updated = CommitOrchestrator.apply_edit_to_dataframe(df, edit, {}, noop_apply_groups)
+        updated = apply_edit_to_dataframe(df, edit, {})
 
         assert updated["hideFromReports"][0] is True
 
@@ -328,7 +335,7 @@ class TestApplyEditToDataframe:
         edit = make_edit("txn1", "invalid_field", "old", "new")
 
         with pytest.raises(ValueError, match="Unknown edit field"):
-            CommitOrchestrator.apply_edit_to_dataframe(df, edit, {}, noop_apply_groups)
+            apply_edit_to_dataframe(df, edit, {})
 
 
 class TestApplyEditsToDataframe:
@@ -353,7 +360,7 @@ class TestApplyEditsToDataframe:
             make_edit("txn3", "merchant", "Target", "Costco"),
         ]
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
+        updated = apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
 
         assert_cell(updated, "txn1", "merchant", "Whole Foods")
         assert_cell(updated, "txn2", "hideFromReports", True)
@@ -383,7 +390,7 @@ class TestApplyEditsToDataframe:
         def mock_apply_groups(df):
             return df.with_columns(pl.lit("Food").alias("group"))
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(
+        updated = apply_edits_to_dataframe(
             df, edits, categories, mock_apply_groups
         )
 
@@ -396,7 +403,7 @@ class TestApplyEditsToDataframe:
         """Should return unchanged DataFrame for empty edits."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(df, [], {}, noop_apply_groups)
+        updated = apply_edits_to_dataframe(df, [], {}, noop_apply_groups)
 
         assert updated["merchant"][0] == "Amazon"
 
@@ -409,7 +416,7 @@ class TestApplyEditsToDataframe:
         # Category cat999 not in categories dict
         edit = make_edit("txn1", "category", "cat1", "cat999")
 
-        updated = CommitOrchestrator.apply_edit_to_dataframe(df, edit, {}, noop_apply_groups)
+        updated = apply_edit_to_dataframe(df, edit, {})
 
         assert updated["category"][0] == "Unknown"
 
@@ -424,7 +431,7 @@ class TestDataFramePurity:
         # Create a copy to check against
         original_merchant = original_df["merchant"][0]
 
-        updated = CommitOrchestrator.apply_merchant_edit(original_df, "txn1", "Target")
+        updated = apply_merchant_edit(original_df, "txn1", "Target")
 
         # Original should be unchanged
         assert original_df["merchant"][0] == original_merchant
@@ -440,7 +447,7 @@ class TestDataFramePurity:
         edit1 = make_edit("txn1", "merchant", "Amazon", "Target")
         edit2 = make_edit("txn1", "hide_from_reports", False, True)
 
-        CommitOrchestrator.apply_edits_to_dataframe(df, [edit1, edit2], {}, noop_apply_groups)
+        apply_edits_to_dataframe(df, [edit1, edit2], {}, noop_apply_groups)
 
         # Original unchanged
         assert df["merchant"][0] == original_merchant
@@ -470,7 +477,7 @@ class TestRealWorldScenarios:
             make_edit("txn4", "merchant", "AMZN*ABC123", "Amazon"),
         ]
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
+        updated = apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
 
         assert_cell(updated, "txn1", "merchant", "Amazon")
         assert_cell(updated, "txn2", "merchant", "Amazon")
@@ -503,7 +510,7 @@ class TestRealWorldScenarios:
                 .alias("group")
             )
 
-        updated = CommitOrchestrator.apply_edit_to_dataframe(df, edit, categories, apply_food_group)
+        updated = apply_edits_to_dataframe(df, [edit], categories, apply_food_group)
 
         assert updated["category"][0] == "Groceries"
         assert updated["group"][0] == "Food & Dining"
@@ -523,7 +530,7 @@ class TestRealWorldScenarios:
             make_edit("txn2", "hide_from_reports", False, True),
         ]
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
+        updated = apply_edits_to_dataframe(df, edits, {}, noop_apply_groups)
 
         assert_cell(updated, "txn1", "hideFromReports", True)
         assert_cell(updated, "txn2", "hideFromReports", True)
@@ -554,7 +561,7 @@ class TestRealWorldScenarios:
         def mock_apply_groups(df):
             return df.with_columns(pl.lit("Food & Dining").alias("group"))
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(
+        updated = apply_edits_to_dataframe(
             df, edits, categories, mock_apply_groups
         )
 
@@ -570,7 +577,7 @@ class TestEdgeCases:
         """Should handle special characters in merchant names."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Old & Busted"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "New & Improved")
+        updated = apply_merchant_edit(df, "txn1", "New & Improved")
 
         assert updated["merchant"][0] == "New & Improved"
 
@@ -578,7 +585,7 @@ class TestEdgeCases:
         """Should handle unicode characters."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Café"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "Café Français")
+        updated = apply_merchant_edit(df, "txn1", "Café Français")
 
         assert updated["merchant"][0] == "Café Français"
 
@@ -588,7 +595,7 @@ class TestEdgeCases:
 
         long_name = "A" * 200
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", long_name)
+        updated = apply_merchant_edit(df, "txn1", long_name)
 
         assert updated["merchant"][0] == long_name
 
@@ -596,7 +603,7 @@ class TestEdgeCases:
         """Should handle empty string merchant."""
         df = pl.DataFrame({"id": ["txn1"], "merchant": ["Amazon"]})
 
-        updated = CommitOrchestrator.apply_merchant_edit(df, "txn1", "")
+        updated = apply_merchant_edit(df, "txn1", "")
 
         assert updated["merchant"][0] == ""
 
@@ -605,7 +612,7 @@ class TestEdgeCases:
         # Without bulk_merchant_renames, only txn0 should be updated
         edits = [make_edit("txn0", "merchant", "Amazon", "Target")]
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(
+        updated = apply_edits_to_dataframe(
             large_df, edits, {}, noop_apply_groups, bulk_merchant_renames=None
         )
 
@@ -619,7 +626,7 @@ class TestEdgeCases:
         # With bulk_merchant_renames, ALL Amazon transactions should be updated
         edits = [make_edit("txn0", "merchant", "Amazon", "Target")]
 
-        updated = CommitOrchestrator.apply_edits_to_dataframe(
+        updated = apply_edits_to_dataframe(
             large_df, edits, {}, noop_apply_groups, bulk_merchant_renames={("Amazon", "Target")}
         )
 
