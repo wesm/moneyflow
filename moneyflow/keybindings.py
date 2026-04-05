@@ -6,10 +6,14 @@ Keeping this separate from the UI code makes it easy to maintain and update
 keyboard shortcuts across the application.
 """
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import List
 
 from textual.binding import Binding
+
+CATEGORY_ORDER = ["Views", "Time", "Sorting", "Actions", "Filters", "System"]
+KEY_MAPPING = {"esc": "escape"}
 
 
 @dataclass
@@ -30,7 +34,7 @@ KEYBINDINGS: List[KeyBinding] = [
     ),
     KeyBinding("u", "view_ungrouped", "View all transactions (detail view)", "Views"),
     KeyBinding("D", "find_duplicates", "Find duplicate transactions", "Views"),
-    KeyBinding("m", "view_merchants", "View merchant aggregation (direct)", "Views"),
+    KeyBinding("M", "view_merchants", "View merchant aggregation (direct)", "Views"),
     KeyBinding("c", "view_categories", "View category aggregation (direct)", "Views"),
     KeyBinding("A", "view_accounts", "View account aggregation (direct)", "Views"),
     KeyBinding("enter", "drill_down", "Drill down into selected item", "Views"),
@@ -64,17 +68,17 @@ KEYBINDINGS: List[KeyBinding] = [
 def get_help_text() -> str:
     """Generate formatted help text for all keybindings."""
     # Group by category
-    categories = {}
+    categories = defaultdict(list)
     for binding in KEYBINDINGS:
-        if binding.category not in categories:
-            categories[binding.category] = []
         categories[binding.category].append(binding)
 
     # Format as text
     lines = ["moneyflow - Keyboard Shortcuts", "=" * 40, ""]
 
-    # Display categories in logical order
-    for category in ["Views", "Time", "Sorting", "Actions", "Filters", "System"]:
+    # Display categories in logical order, appending any unlisted categories
+    display_order = CATEGORY_ORDER + [c for c in categories if c not in CATEGORY_ORDER]
+
+    for category in display_order:
         if category in categories:
             lines.append(f"{category}:")
             lines.append("-" * 40)
@@ -93,15 +97,9 @@ def get_textual_bindings():
     for kb in KEYBINDINGS:
         # Only include single-key bindings for Textual
         # Command-style bindings (:w, :q, etc.) handled separately
-        if not kb.key.startswith(":") and "/" not in kb.key and "-" not in kb.key:
+        if not kb.key.startswith(":") and "-" not in kb.key:
             # Map special keys
-            key = kb.key
-            if key == "space":
-                key = "space"
-            elif key == "enter":
-                key = "enter"
-            elif key == "esc":
-                key = "escape"
+            key = KEY_MAPPING.get(kb.key, kb.key)
 
             # Create short description for footer
             desc = kb.description.split("(")[0].strip()[:20]
