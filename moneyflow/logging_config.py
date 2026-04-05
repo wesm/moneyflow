@@ -10,8 +10,29 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+DEFAULT_LOGGER_NAME = "moneyflow"
+LOG_FILENAME = "moneyflow.log"
+DEFAULT_CONFIG_DIR = Path.home() / ".moneyflow"
 
-def setup_logging(console_output: bool = False, config_dir: Optional[str] = None):
+
+def _get_log_file(config_dir: Optional[str] = None) -> Path:
+    log_dir = Path(config_dir).expanduser() if config_dir else DEFAULT_CONFIG_DIR
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / LOG_FILENAME
+
+
+def _silence_noisy_third_party_loggers() -> None:
+    """Reduce verbosity for libraries that log sensitive or excessive data."""
+    noisy_loggers = ["gql.transport.aiohttp", "gql", "aiohttp", "asyncio"]
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def setup_logging(
+    console_output: bool = False,
+    config_dir: Optional[str] = None,
+    quiet: bool = False
+) -> logging.Logger:
     """
     Configure logging to write to file.
 
@@ -22,19 +43,15 @@ def setup_logging(console_output: bool = False, config_dir: Optional[str] = None
     Args:
         console_output: If True, also log to console (for --dev mode)
         config_dir: Optional custom config directory. If None, uses ~/.moneyflow
+        quiet: If True, suppress printing the log file path to stderr
 
     Returns:
         Logger instance
     """
-    if config_dir:
-        log_dir = Path(config_dir).expanduser()
-    else:
-        log_dir = Path.home() / ".moneyflow"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "moneyflow.log"
+    log_file = _get_log_file(config_dir)
 
     # Configure root logger - FILE ONLY by default
-    handlers = [logging.FileHandler(log_file)]
+    handlers: list[logging.Handler] = [logging.FileHandler(log_file)]
 
     # Only add console handler if explicitly requested (--dev mode)
     if console_output:
@@ -47,24 +64,19 @@ def setup_logging(console_output: bool = False, config_dir: Optional[str] = None
         force=True,  # Override any existing config
     )
 
-    logger = logging.getLogger("moneyflow")
+    _silence_noisy_third_party_loggers()
 
-    # Reduce verbosity for libraries that log too much sensitive data
-    # GQL library logs full HTTP request/response bodies which contains transaction data
-    logging.getLogger("gql.transport.aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("gql").setLevel(logging.WARNING)
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    if not quiet:
+        # Print ONCE to console to tell user where logs are
+        # This is okay because it happens before Textual starts
+        print(f"Logging to: {log_file}", file=sys.stderr)
 
-    # Print ONCE to console to tell user where logs are
-    # This is okay because it happens before Textual starts
-    print(f"Logging to: {log_file}", file=sys.stderr)
-
+    logger = get_logger()
     logger.info(f"Logging initialized - writing to {log_file}")
 
     return logger
 
 
-def get_logger(name: str = "moneyflow"):
+def get_logger(name: str = DEFAULT_LOGGER_NAME) -> logging.Logger:
     """Get a logger instance."""
     return logging.getLogger(name)
