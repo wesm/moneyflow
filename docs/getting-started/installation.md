@@ -84,7 +84,8 @@ uv run moneyflow
 
 - **Python 3.11+** (automatically handled by pip/uvx/pipx)
 - **Terminal**: Any modern terminal with Unicode support
-- **Account**: [Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024), YNAB, or Amazon account (or use `--demo` mode)
+- **Account**: [Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024),
+  YNAB, or Amazon account (or use `--demo` mode)
 
 ---
 
