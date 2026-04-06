@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
-from ..categories import (
+from ..data.categories import (
     DEFAULT_CATEGORY_GROUPS,
     get_effective_category_groups,
     load_categories_from_profile,
@@ -65,7 +65,7 @@ def get_amazon_inherited_categories(
                     logger.info(f"Amazon inheriting categories from profile: {source_profile}")
                     return categories
 
-        from ..account_manager import AccountManager
+        from ..data.account_manager import AccountManager
 
         account_mgr = AccountManager(config_dir=str(config_dir))
         accounts = account_mgr.list_accounts()

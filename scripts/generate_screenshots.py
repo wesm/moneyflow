@@ -23,10 +23,10 @@ from textual.pilot import Pilot
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from moneyflow.app import MoneyflowApp
 from moneyflow.backends import DemoBackend
-from moneyflow.screens.account_selector_screen import AccountSelectorScreen
-from moneyflow.screens.credential_screens import BackendSelectionScreen
+from moneyflow.tui.app import MoneyflowApp
+from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
+from moneyflow.tui.screens.credential_screens import BackendSelectionScreen
 
 
 class ScreenshotGenerator:
@@ -164,7 +164,7 @@ class ScreenshotGenerator:
         # Create some mock accounts first
         from pathlib import Path
 
-        from moneyflow.account_manager import AccountManager
+        from moneyflow.data.account_manager import AccountManager
 
         config_dir = Path(self.temp_config_dir) / ".moneyflow"
         account_mgr = AccountManager(config_dir=config_dir)
@@ -217,7 +217,7 @@ class ScreenshotGenerator:
 
         from textual.app import App
 
-        from moneyflow.screens.credential_screens import CredentialSetupScreen
+        from moneyflow.tui.screens.credential_screens import CredentialSetupScreen
 
         # Use minimal App to avoid account selector
         class CredentialSetupApp(App):
@@ -243,7 +243,7 @@ class ScreenshotGenerator:
 
         from textual.app import App
 
-        from moneyflow.screens.credential_screens import CredentialSetupScreen
+        from moneyflow.tui.screens.credential_screens import CredentialSetupScreen
 
         # Use minimal App to avoid account selector
         class CredentialSetupApp(App):

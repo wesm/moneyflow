@@ -6,7 +6,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Button, Label, Static
 
-from moneyflow.screens.batch_scope_screen import BatchScopeScreen
+from moneyflow.tui.screens.batch_scope_screen import BatchScopeScreen
 
 
 class MinimalApp(App):

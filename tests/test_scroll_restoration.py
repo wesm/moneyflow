@@ -10,7 +10,7 @@ would override our scroll_y restoration.
 
 import pytest
 
-from moneyflow.state import AppState, ViewMode
+from moneyflow.data.state import AppState, ViewMode
 
 
 @pytest.fixture

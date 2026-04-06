@@ -405,7 +405,7 @@ class TestEndToEndDataFetch:
     @pytest.mark.asyncio
     async def test_fetch_all_data_workflow(self, populated_backend):
         """Test complete workflow: import → fetch with DataManager."""
-        from moneyflow.data_manager import DataManager
+        from moneyflow.data.data_manager import DataManager
 
         # Create DataManager and fetch with isolated config directory
         # Use a temp directory to avoid using ~/.moneyflow/config.yaml
@@ -469,7 +469,7 @@ class TestAmazonNoEncryption:
 
     def test_cache_manager_not_created_without_encryption_key(self, temp_config_dir):
         """CacheManager should not be created when encryption_key is None."""
-        from moneyflow.cache_manager import CacheManager
+        from moneyflow.data.cache_manager import CacheManager
 
         # When encryption_key is None, CacheManager can be created but
         # save/load operations should be skipped or raise clear errors
@@ -484,7 +484,7 @@ class TestAmazonNoEncryption:
 
         import polars as pl
 
-        from moneyflow.cache_manager import CacheManager
+        from moneyflow.data.cache_manager import CacheManager
 
         cache_mgr = CacheManager(cache_dir=temp_config_dir, encryption_key=None)
 
@@ -512,7 +512,7 @@ class TestAmazonNoEncryption:
     @pytest.mark.asyncio
     async def test_data_manager_works_without_cache(self, populated_backend, temp_config_dir):
         """DataManager should work with Amazon backend and no cache manager."""
-        from moneyflow.data_manager import DataManager
+        from moneyflow.data.data_manager import DataManager
 
         # DataManager with cache_manager=None should work fine
         data_manager = DataManager(populated_backend, config_dir=temp_config_dir)

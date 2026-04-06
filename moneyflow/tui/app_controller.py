@@ -26,14 +26,12 @@ from typing import List, Optional
 
 import polars as pl
 
-from moneyflow.formatters import PreparedView
+from moneyflow.tui.formatters import PreparedView
 
-from .amazon_linker import AmazonLinker
-from .commit_orchestrator import apply_edits_to_dataframe
-from .data_manager import DataManager
-from .formatters import ViewPresenter
-from .logging_config import get_logger
-from .state import (
+from ..data.amazon_linker import AmazonLinker
+from ..data.commit_orchestrator import apply_edits_to_dataframe
+from ..data.data_manager import DataManager
+from ..data.state import (
     AppState,
     NavigationState,
     SortDirection,
@@ -42,7 +40,9 @@ from .state import (
     TransactionEdit,
     ViewMode,
 )
-from .time_navigator import get_month_range, next_period, previous_period
+from ..data.time_navigator import get_month_range, next_period, previous_period
+from ..logging_config import get_logger
+from .formatters import ViewPresenter
 from .view_interface import IViewPresenter
 
 logger = get_logger(__name__)

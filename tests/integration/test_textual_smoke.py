@@ -3,7 +3,7 @@
 import pytest
 from textual.widgets import DataTable
 
-from moneyflow.app import MoneyflowApp
+from moneyflow.tui.app import MoneyflowApp
 
 
 async def _wait_for_app_ready(app: MoneyflowApp, pilot, attempts: int = 40) -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from freezegun import freeze_time
 
-from moneyflow.account_manager import Account, AccountManager, AccountRegistry
+from moneyflow.data.account_manager import Account, AccountManager, AccountRegistry
 
 
 @pytest.fixture

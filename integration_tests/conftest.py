@@ -13,7 +13,7 @@ from typing import Any, Dict, Generator, List, Optional
 
 import pytest
 
-from moneyflow.ynab_client import YNABClient
+from moneyflow.backends.ynab_client import YNABClient
 
 
 def get_test_credentials() -> tuple[Optional[str], Optional[str]]:

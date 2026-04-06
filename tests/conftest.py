@@ -15,9 +15,9 @@ import polars as pl
 import pytest
 from rich.text import Text
 
-from moneyflow.data_manager import DataManager
-from moneyflow.formatters import ViewPresenter
-from moneyflow.state import AppState
+from moneyflow.data.data_manager import DataManager
+from moneyflow.data.state import AppState
+from moneyflow.tui.formatters import ViewPresenter
 from tests.mock_backend import MockMonarchMoney
 
 # ============================================================================

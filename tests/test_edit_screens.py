@@ -9,7 +9,7 @@ Tests the extracted pure functions from edit_screens.py:
 import polars as pl
 import pytest
 
-from moneyflow.screens.edit_screens import filter_merchants, parse_merchant_option_id
+from moneyflow.tui.screens.edit_screens import filter_merchants, parse_merchant_option_id
 
 
 class TestFilterMerchants:

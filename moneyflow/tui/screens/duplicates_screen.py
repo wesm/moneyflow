@@ -10,10 +10,10 @@ from textual.containers import Container
 from textual.screen import Screen
 from textual.widgets import DataTable, Label, Static
 
-from ..duplicate_detector import DuplicateDetector
+from ...data.duplicate_detector import DuplicateDetector
+from ...data.state import TransactionEdit
+from ...logging_config import get_logger
 from ..formatters import ViewPresenter
-from ..logging_config import get_logger
-from ..state import TransactionEdit
 from .edit_screens import DeleteConfirmationScreen
 from .transaction_detail_screen import TransactionDetailScreen
 

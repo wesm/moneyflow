@@ -6,8 +6,8 @@ from datetime import datetime
 
 import polars as pl
 
-from moneyflow.data_manager import DataManager
-from moneyflow.state import TimeGranularity, TransactionEdit
+from moneyflow.data.data_manager import DataManager
+from moneyflow.data.state import TimeGranularity, TransactionEdit
 
 
 class MockBackendWithFailingBatch:

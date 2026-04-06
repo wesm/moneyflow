@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from moneyflow.credentials import CredentialManager
+from moneyflow.data.credentials import CredentialManager
 from tests.conftest import save_test_credentials
 
 

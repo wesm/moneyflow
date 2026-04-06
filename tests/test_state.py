@@ -7,7 +7,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from moneyflow.state import (
+from moneyflow.data.state import (
     NavigationState,
     SortDirection,
     SortMode,

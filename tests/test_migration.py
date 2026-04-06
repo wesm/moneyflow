@@ -5,9 +5,9 @@ import json
 import pytest
 import yaml
 
-from moneyflow.account_manager import AccountManager
-from moneyflow.credentials import CredentialManager
-from moneyflow.migration import (
+from moneyflow.data.account_manager import AccountManager
+from moneyflow.data.credentials import CredentialManager
+from moneyflow.data.migration import (
     check_amazon_migration_needed,
     check_migration_needed,
     migrate_global_categories_to_profiles,

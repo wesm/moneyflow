@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from moneyflow.theme_manager import (
+from moneyflow.tui.theme_manager import (
     AVAILABLE_THEMES,
     DEFAULT_THEME,
     get_theme_css_paths,
@@ -103,7 +103,7 @@ class TestLoadThemeFromConfig:
         theme = load_theme_from_config(str(tmp_path))
         assert theme == DEFAULT_THEME
 
-    @patch("moneyflow.theme_manager.Path.home")
+    @patch("moneyflow.tui.theme_manager.Path.home")
     def test_none_config_dir_uses_default_location(self, mock_home, tmp_path):
         """Passing None for config_dir should use ~/.moneyflow"""
         mock_home.return_value = tmp_path

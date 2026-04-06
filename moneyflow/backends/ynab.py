@@ -6,8 +6,8 @@ Wraps the YNABClient to implement the FinanceBackend interface.
 
 from typing import Any, Dict, List, Optional
 
-from ..ynab_client import YNABClient
 from .base import FinanceBackend
+from .ynab_client import YNABClient
 
 
 class YNABBackend(FinanceBackend):

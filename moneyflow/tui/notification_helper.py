@@ -8,7 +8,7 @@ Each function/constant provides a tuple of (message, severity, timeout) that can
 unpacked and passed to the Textual notify() method.
 """
 
-from moneyflow.view_interface import NotificationSeverity
+from moneyflow.tui.view_interface import NotificationSeverity
 
 NotificationTuple = tuple[str, NotificationSeverity, int]
 

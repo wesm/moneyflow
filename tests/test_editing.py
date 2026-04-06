@@ -12,8 +12,8 @@ from datetime import datetime
 
 import polars as pl
 
-from moneyflow.screens.edit_screens import parse_merchant_option_id, validate_merchant_name
-from moneyflow.state import TransactionEdit
+from moneyflow.data.state import TransactionEdit
+from moneyflow.tui.screens.edit_screens import parse_merchant_option_id, validate_merchant_name
 
 
 async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, expected_path):
@@ -641,7 +641,7 @@ class TestMerchantCreation:
     def get_app_with_screen(self, current="Old Merchant", all_merchants=["Amazon", "Whole Foods"]):
         from textual.app import App
 
-        from moneyflow.screens.edit_screens import EditMerchantScreen
+        from moneyflow.tui.screens.edit_screens import EditMerchantScreen
 
         class DummyApp(App):
             def compose(self):

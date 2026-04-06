@@ -33,16 +33,18 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, LoadingIndicator, Static
 
+from ..backends import DemoBackend, get_backend
+from ..data.account_manager import AccountManager
+from ..data.cache_manager import CacheManager, RefreshStrategy
+from ..data.cache_orchestrator import CacheOrchestrator
+from ..data.data_manager import DataManager
+from ..data.duplicate_detector import DuplicateDetector
+from ..data.state import AppState, ViewMode
+from ..logging_config import get_logger, setup_logging
+from ..version import get_version
 from . import notification_helper
-from .account_manager import AccountManager
 from .app_controller import AppController
 from .backend_config import get_backend_config
-from .backends import DemoBackend, get_backend
-from .cache_manager import CacheManager, RefreshStrategy
-from .cache_orchestrator import CacheOrchestrator
-from .data_manager import DataManager
-from .duplicate_detector import DuplicateDetector
-from .logging_config import get_logger, setup_logging
 
 # Screen imports
 from .screens.batch_scope_screen import BatchScopeScreen
@@ -55,10 +57,8 @@ from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, 
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
-from .state import AppState, ViewMode
 from .textual_view import TextualViewPresenter
 from .theme_manager import get_theme_css_paths, load_theme_from_config
-from .version import get_version
 from .widgets.help_screen import HelpScreen
 
 # Module-level logger
@@ -200,7 +200,7 @@ class MoneyflowApp(App):
 
         # Backend configuration (for Amazon/YNAB/etc)
         # Import here to avoid circular dependency
-        from moneyflow.backend_config import MONARCH_CONFIG
+        from moneyflow.tui.backend_config import MONARCH_CONFIG
 
         self.backend_config = config or MONARCH_CONFIG
 
@@ -781,7 +781,7 @@ class MoneyflowApp(App):
         Args:
             saved_position: Dict from _save_table_position()
         """
-        from .logging_config import get_logger
+        from ..logging_config import get_logger
 
         logger = get_logger(__name__)
 
@@ -1398,7 +1398,7 @@ class MoneyflowApp(App):
             # Save position for refresh
             saved_position = self._save_table_position()
 
-            from .logging_config import get_logger
+            from ..logging_config import get_logger
 
             logger = get_logger(__name__)
 
@@ -1687,7 +1687,7 @@ class MoneyflowApp(App):
             ViewMode.TIME,
         ]:
             # Drill down from top-level view - save cursor and scroll position for restoration on go_back
-            from .logging_config import get_logger
+            from ..logging_config import get_logger
 
             logger = get_logger(__name__)
 
@@ -1869,8 +1869,8 @@ def launch_amazon_mode(
     Uses the AmazonBackend with data stored in SQLite.
     Data must be imported first using: moneyflow amazon import <csv>
     """
-    from moneyflow.backend_config import get_backend_config
     from moneyflow.backends.amazon import AmazonBackend
+    from moneyflow.tui.backend_config import get_backend_config
 
     # Initialize logging
     logger = setup_logging(console_output=False, config_dir=config_dir)

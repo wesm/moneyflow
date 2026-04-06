@@ -48,10 +48,10 @@ def mcp_server_factory(mock_account):
 
     def _factory(transactions, categories):
         with (
-            patch("moneyflow.account_manager.AccountManager") as mock_am,
-            patch("moneyflow.credentials.CredentialManager") as mock_cm,
+            patch("moneyflow.data.account_manager.AccountManager") as mock_am,
+            patch("moneyflow.data.credentials.CredentialManager") as mock_cm,
             patch("moneyflow.backends.get_backend") as mock_get_backend,
-            patch("moneyflow.data_manager.DataManager") as mock_dm_cls,
+            patch("moneyflow.data.data_manager.DataManager") as mock_dm_cls,
         ):
             mock_am.return_value.get_last_active_account.return_value = mock_account
             mock_am.return_value.get_profile_dir.return_value = None

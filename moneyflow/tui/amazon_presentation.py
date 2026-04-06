@@ -6,7 +6,7 @@ from typing import Optional
 import polars as pl
 from textual.widgets import DataTable
 
-from .amazon_linker import AmazonLinker
+from ..data.amazon_linker import AmazonLinker
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class AmazonPresentationManager:
 
     def create_demo_amazon_db(self, transactions) -> None:
         """Create demo Amazon database with matching orders for demo transactions."""
-        from .demo_data_generator import create_demo_amazon_database
+        from ..data.demo_data_generator import create_demo_amazon_database
 
         if not self.demo_mode:
             return

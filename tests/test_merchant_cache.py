@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from moneyflow.cache_orchestrator import CacheOrchestrator
-from moneyflow.data_manager import DataManager
+from moneyflow.data.cache_orchestrator import CacheOrchestrator
+from moneyflow.data.data_manager import DataManager
 
 
 @pytest.fixture

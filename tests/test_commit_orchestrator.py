@@ -13,7 +13,7 @@ from typing import Any
 import polars as pl
 import pytest
 
-from moneyflow.commit_orchestrator import (
+from moneyflow.data.commit_orchestrator import (
     apply_bulk_merchant_edit,
     apply_category_edit,
     apply_edit_to_dataframe,
@@ -21,7 +21,7 @@ from moneyflow.commit_orchestrator import (
     apply_hide_from_reports_edit,
     apply_merchant_edit,
 )
-from moneyflow.state import TransactionEdit
+from moneyflow.data.state import TransactionEdit
 
 # --- Helpers & Fixtures ---
 

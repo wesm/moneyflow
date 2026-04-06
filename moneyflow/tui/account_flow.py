@@ -2,19 +2,19 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple
 
-from moneyflow.account_manager import Account, AccountManager
-from moneyflow.backend_config import get_backend_config
 from moneyflow.backends import get_backend
-from moneyflow.credentials import CredentialManager
-from moneyflow.migration import (
+from moneyflow.data.account_manager import Account, AccountManager
+from moneyflow.data.credentials import CredentialManager
+from moneyflow.data.migration import (
     migrate_global_categories_to_profiles,
     migrate_legacy_amazon_db,
     migrate_legacy_credentials,
 )
-from moneyflow.screens.account_name_input_screen import AccountNameInputScreen
-from moneyflow.screens.account_selector_screen import AccountSelectorScreen
-from moneyflow.screens.budget_selector_screen import BudgetSelectorScreen
-from moneyflow.screens.credential_screens import (
+from moneyflow.tui.backend_config import get_backend_config
+from moneyflow.tui.screens.account_name_input_screen import AccountNameInputScreen
+from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
+from moneyflow.tui.screens.budget_selector_screen import BudgetSelectorScreen
+from moneyflow.tui.screens.credential_screens import (
     BackendSelectionScreen,
     CredentialSetupScreen,
     CredentialUnlockScreen,

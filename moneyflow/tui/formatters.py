@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 import polars as pl
 from rich.text import Text
 
-from .state import SortDirection, SortMode, TimeGranularity
+from ..data.state import SortDirection, SortMode, TimeGranularity
 
 # Type definitions for better type safety
 AggregationField = Literal["merchant", "category", "group", "account", "time_period_display"]
@@ -111,7 +111,7 @@ class ViewPresenter:
         year = row_dict.get("year")
         month = row_dict.get("month")
         day = row_dict.get("day")
-        from .state import TimeGranularity
+        from ..data.state import TimeGranularity
 
         if day:
             granularity = TimeGranularity.DAY

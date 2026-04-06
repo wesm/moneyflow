@@ -5,7 +5,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from moneyflow.app import MoneyflowApp
+from moneyflow.tui.app import MoneyflowApp
 from tests.conftest import _create_amazon_db
 
 

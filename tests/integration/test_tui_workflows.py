@@ -17,10 +17,10 @@ import pytest
 from textual.containers import Container
 from textual.widgets import Checkbox, DataTable
 
-from moneyflow.app import MoneyflowApp
-from moneyflow.screens.account_selector_screen import AccountSelectorScreen
-from moneyflow.screens.batch_scope_screen import BatchScopeScreen
-from moneyflow.screens.credential_screens import (
+from moneyflow.tui.app import MoneyflowApp
+from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
+from moneyflow.tui.screens.batch_scope_screen import BatchScopeScreen
+from moneyflow.tui.screens.credential_screens import (
     BackendSelectionScreen,
     CachePromptScreen,
     CredentialSetupScreen,
@@ -28,14 +28,14 @@ from moneyflow.screens.credential_screens import (
     FilterScreen,
     QuitConfirmationScreen,
 )
-from moneyflow.screens.duplicates_screen import DuplicatesScreen
-from moneyflow.screens.edit_screens import (
+from moneyflow.tui.screens.duplicates_screen import DuplicatesScreen
+from moneyflow.tui.screens.edit_screens import (
     EditMerchantScreen,
     SelectCategoryScreen,
 )
-from moneyflow.screens.review_screen import ReviewChangesScreen
-from moneyflow.screens.search_screen import SearchScreen
-from moneyflow.screens.transaction_detail_screen import TransactionDetailScreen
+from moneyflow.tui.screens.review_screen import ReviewChangesScreen
+from moneyflow.tui.screens.search_screen import SearchScreen
+from moneyflow.tui.screens.transaction_detail_screen import TransactionDetailScreen
 
 # ============================================================================
 # CSS Validation Tests

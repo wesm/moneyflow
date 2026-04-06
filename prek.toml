@@ -24,7 +24,7 @@ hooks = [
     language = "system",
     entry = "uv run ruff format",
     files = "\\.py$",
-    exclude = "monarchmoney\\.py$",
+    exclude = "monarch_client\\.py$",
     priority = 0,
   },
   {
@@ -33,7 +33,7 @@ hooks = [
     language = "system",
     entry = "uv run ruff check --fix",
     files = "\\.py$",
-    exclude = "monarchmoney\\.py$",
+    exclude = "monarch_client\\.py$",
     priority = 10,
   },
   {

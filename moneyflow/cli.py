@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from .formatters import ViewPresenter
+from .tui.formatters import ViewPresenter
 
 
 def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
@@ -30,8 +30,8 @@ def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
     """
     from pathlib import Path
 
-    from moneyflow.account_manager import AccountManager
     from moneyflow.backends.amazon import AmazonBackend
+    from moneyflow.data.account_manager import AccountManager
 
     # Ensure config_dir has a value
     if config_dir is None:
@@ -118,7 +118,7 @@ def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir, theme):
         return
 
     # Launch default backend (Monarch Money)
-    from moneyflow.app import launch_monarch_mode
+    from moneyflow.tui.app import launch_monarch_mode
 
     # Convert no-cache flag to cache path
     # Caching is enabled by default (unless --no-cache is passed)
@@ -179,7 +179,7 @@ def amazon(ctx, db_path, config_dir):
 
     # If no subcommand, launch the UI
     if ctx.invoked_subcommand is None:
-        from moneyflow.app import launch_amazon_mode
+        from moneyflow.tui.app import launch_amazon_mode
 
         # Check if database exists
         if not backend.db_path.exists():
@@ -331,7 +331,7 @@ def categories_dump(config_dir, format):
     Default output is YAML format (copy-pastable into config.yaml under 'categories:').
     Use --format=readable for human-readable format with counts.
     """
-    from moneyflow.categories import (
+    from moneyflow.data.categories import (
         format_categories_readable,
         format_categories_yaml,
         get_effective_category_groups,

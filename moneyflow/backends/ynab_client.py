@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import ynab
 
-from .logging_config import get_logger
+from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 

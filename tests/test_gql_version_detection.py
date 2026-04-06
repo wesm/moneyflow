@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from moneyflow.gql_version import GQL_V4_PLUS, _detect_gql_v4_plus
+from moneyflow.backends.gql_version import GQL_V4_PLUS, _detect_gql_v4_plus
 
 
 class TestVersionDetection:

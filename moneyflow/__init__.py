@@ -10,10 +10,10 @@ from .version import get_version
 __version__ = get_version()
 
 from .backends import DemoBackend, FinanceBackend, MonarchBackend, get_backend
-from .data_manager import DataManager
-from .duplicate_detector import DuplicateDetector
-from .monarchmoney import MonarchMoney
-from .state import AppState, SortMode, TransactionEdit, ViewMode
+from .backends.monarch_client import MonarchMoney
+from .data.data_manager import DataManager
+from .data.duplicate_detector import DuplicateDetector
+from .data.state import AppState, SortMode, TransactionEdit, ViewMode
 
 __all__ = [
     "AppState",

@@ -7,7 +7,7 @@ of the TUI without connecting to a real account or exposing personal finances.
 
 from typing import Any, Dict, List, Optional
 
-from ..demo_data_generator import generate_demo_data
+from ..data.demo_data_generator import generate_demo_data
 from .base import FinanceBackend
 
 

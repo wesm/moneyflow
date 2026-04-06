@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import polars as pl
 import pytest
 
-from moneyflow.screens.duplicates_screen import DuplicatesScreen
+from moneyflow.tui.screens.duplicates_screen import DuplicatesScreen
 
 
 @pytest.fixture

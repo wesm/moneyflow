@@ -13,10 +13,10 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from moneyflow.app_controller import AppController
 from moneyflow.backends.base import AggregationFunc, ComputedColumn
-from moneyflow.data_manager import DataManager
-from moneyflow.state import AppState, SortDirection, SortMode, TransactionEdit, ViewMode
+from moneyflow.data.data_manager import DataManager
+from moneyflow.data.state import AppState, SortDirection, SortMode, TransactionEdit, ViewMode
+from moneyflow.tui.app_controller import AppController
 
 from .mock_view import MockViewPresenter
 

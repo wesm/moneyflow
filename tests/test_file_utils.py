@@ -11,7 +11,7 @@ import os
 import stat
 from pathlib import Path
 
-from moneyflow.file_utils import secure_atomic_write, secure_write_file
+from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
 
 
 def assert_secure_permissions(file_path: Path):

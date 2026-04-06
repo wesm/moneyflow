@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 import polars as pl
 import pytest
 
-from moneyflow.state import TransactionEdit
+from moneyflow.data.state import TransactionEdit
 
 FIXED_TIME = datetime(2026, 4, 4)
 
@@ -68,7 +68,7 @@ class TestCacheAndCommit:
         This might be the root cause - backend not properly authenticated
         when loading from cache.
         """
-        from moneyflow.data_manager import DataManager
+        from moneyflow.data.data_manager import DataManager
 
         # We need mock_mm to behave like a real backend that requires auth
         def mock_update(*args, **kwargs):

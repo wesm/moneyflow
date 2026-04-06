@@ -10,7 +10,7 @@ import hashlib
 import random
 from typing import Any, Dict, List
 
-from moneyflow.categories import DEFAULT_CATEGORY_GROUPS
+from moneyflow.data.categories import DEFAULT_CATEGORY_GROUPS
 
 
 class DemoDataGenerator:

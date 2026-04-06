@@ -7,7 +7,7 @@ controller calls the right view methods with the right arguments.
 
 from typing import Any, Dict, List, Optional
 
-from moneyflow.view_interface import IViewPresenter, NotificationSeverity, TableColumn
+from moneyflow.tui.view_interface import IViewPresenter, NotificationSeverity, TableColumn
 
 
 class MockViewPresenter(IViewPresenter):

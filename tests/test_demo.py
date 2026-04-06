@@ -14,7 +14,7 @@ from typing import Dict, List
 import pytest
 
 from moneyflow.backends import DemoBackend
-from moneyflow.demo_data_generator import DemoDataGenerator, generate_demo_data
+from moneyflow.data.demo_data_generator import DemoDataGenerator, generate_demo_data
 
 CAT_GROCERIES = "cat_groceries"
 CAT_RESTAURANTS = "cat_restaurants"

@@ -21,7 +21,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import polars as pl
 
-from .backends.base import FinanceBackend
+from ..backends.base import FinanceBackend
+from ..logging_config import get_logger
 from .categories import (
     build_category_to_group_mapping,
     convert_api_categories_to_groups,
@@ -30,7 +31,6 @@ from .categories import (
     save_categories_to_config,
     save_categories_to_profile,
 )
-from .logging_config import get_logger
 from .state import TimeGranularity
 
 logger = get_logger(__name__)
@@ -71,7 +71,7 @@ class MerchantCache:
         if not self.cache_file.exists():
             return []
 
-        from .logging_config import get_logger
+        from ..logging_config import get_logger
 
         logger = get_logger(__name__)
         try:
@@ -84,7 +84,7 @@ class MerchantCache:
 
     def save(self, merchants: list[str]) -> None:
         """Save merchants to cache with timestamp."""
-        from .logging_config import get_logger
+        from ..logging_config import get_logger
 
         logger = get_logger(__name__)
         data = {
@@ -170,7 +170,7 @@ class DataManager:
         # Load category groups (profile-aware if profile_dir provided)
         if profile_dir:
             if backend_type == "amazon":
-                from .backends.amazon import get_amazon_inherited_categories
+                from ..backends.amazon import get_amazon_inherited_categories
 
                 self.category_groups_config = get_amazon_inherited_categories(
                     profile_dir=profile_dir, config_dir=config_dir
@@ -338,7 +338,7 @@ class DataManager:
                     # This fixes bug where stale mapping causes transfers to not be filtered
                     if self.profile_dir:
                         if self.backend_type == "amazon":
-                            from .backends.amazon import get_amazon_inherited_categories
+                            from ..backends.amazon import get_amazon_inherited_categories
 
                             self.category_groups_config = get_amazon_inherited_categories(
                                 profile_dir=self.profile_dir, config_dir=self.config_dir
@@ -613,7 +613,7 @@ class DataManager:
             computed_columns: List of ComputedColumn configurations
             agg_exprs: List of aggregation expressions to append to (modified in place)
         """
-        from .backends.base import AggregationFunc
+        from ..backends.base import AggregationFunc
 
         # Map aggregation functions to Polars methods
         agg_func_map = {

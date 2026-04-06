@@ -11,7 +11,7 @@ import pytest
 from textual.app import App
 from textual.widgets import DataTable, Static
 
-from moneyflow.textual_view import TextualViewPresenter
+from moneyflow.tui.textual_view import TextualViewPresenter
 
 
 class MockApp(App):

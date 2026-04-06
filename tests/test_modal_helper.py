@@ -10,7 +10,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from moneyflow.modal_helper import (
+from moneyflow.data.state import TransactionEdit
+from moneyflow.tui.modal_helper import (
     get_cache_prompt_params,
     get_delete_confirmation_params,
     get_duplicates_params,
@@ -22,7 +23,6 @@ from moneyflow.modal_helper import (
     get_select_category_params,
     get_transaction_detail_params,
 )
-from moneyflow.state import TransactionEdit
 
 
 class TestEditMerchantParams:

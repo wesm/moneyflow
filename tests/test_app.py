@@ -10,7 +10,7 @@ class TestCacheDataFiltering:
 
     def test_filter_by_start_date_basic(self):
         """Test basic filtering of cached data by start date."""
-        from moneyflow.app import MoneyflowApp
+        from moneyflow.tui.app import MoneyflowApp
 
         df = pl.DataFrame(
             {
@@ -34,7 +34,7 @@ class TestCacheDataFiltering:
 
     def test_filter_by_start_date_includes_boundary(self):
         """Test that filtering includes transactions on the start date."""
-        from moneyflow.app import MoneyflowApp
+        from moneyflow.tui.app import MoneyflowApp
 
         df = pl.DataFrame(
             {
@@ -55,7 +55,7 @@ class TestCacheDataFiltering:
 
     def test_filter_by_start_date_empty_result(self):
         """Test filtering when all transactions are before start date."""
-        from moneyflow.app import MoneyflowApp
+        from moneyflow.tui.app import MoneyflowApp
 
         df = pl.DataFrame(
             {
@@ -72,7 +72,7 @@ class TestCacheDataFiltering:
 
     def test_filter_mtd_scenario(self):
         """Test realistic MTD filtering scenario with full year of data."""
-        from moneyflow.app import MoneyflowApp
+        from moneyflow.tui.app import MoneyflowApp
 
         dates = []
         ids = []

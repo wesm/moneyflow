@@ -105,10 +105,10 @@ def create_mcp_server(
     """
     from mcp.server.fastmcp import FastMCP
 
-    from ..account_manager import AccountManager
     from ..backends import get_backend
-    from ..credentials import CredentialManager
-    from ..data_manager import DataManager
+    from ..data.account_manager import AccountManager
+    from ..data.credentials import CredentialManager
+    from ..data.data_manager import DataManager
 
     mcp = FastMCP("moneyflow")
 
@@ -854,7 +854,7 @@ def create_mcp_server(
         """
         await _ensure_initialized()
 
-        from ..amazon_linker import AmazonLinker
+        from ..data.amazon_linker import AmazonLinker
 
         df = _state["transactions_df"]
         config_path = (

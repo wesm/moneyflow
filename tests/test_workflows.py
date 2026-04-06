@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
-from moneyflow.state import TransactionEdit, ViewMode
+from moneyflow.data.state import TransactionEdit, ViewMode
 
 
 class TestMerchantEditWorkflow:

@@ -21,9 +21,9 @@ def run_category_audit(
     """
     import polars as pl
 
-    from .cache_manager import CacheManager
-    from .categories import get_effective_category_groups
-    from .credentials import CredentialManager
+    from .data.cache_manager import CacheManager
+    from .data.categories import get_effective_category_groups
+    from .data.credentials import CredentialManager
 
     if config_dir is None:
         config_dir = str(Path.home() / ".moneyflow")

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from moneyflow.backends import MonarchBackend
-from moneyflow.monarchmoney import (
+from moneyflow.backends.monarch_client import (
     LoginFailedException,
     MonarchMoney,
     RequireMFAException,

@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from moneyflow.amazon_linker import AmazonLinker, AmazonOrderMatch
+from moneyflow.data.amazon_linker import AmazonLinker, AmazonOrderMatch
 
 
 @pytest.fixture

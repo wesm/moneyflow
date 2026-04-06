@@ -12,7 +12,7 @@ from typing import List
 
 import polars as pl
 
-from .formatters import ViewPresenter
+from ..tui.formatters import ViewPresenter
 
 
 class DuplicateDetector:

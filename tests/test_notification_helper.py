@@ -7,7 +7,7 @@ and return the correct severity/timeout values.
 
 import pytest
 
-from moneyflow import notification_helper
+from moneyflow.tui import notification_helper
 
 
 class TestCommitNotifications:

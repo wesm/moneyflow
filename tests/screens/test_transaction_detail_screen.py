@@ -1,7 +1,7 @@
 """Test TransactionDetailScreen."""
 
-from moneyflow.amazon_linker import AmazonOrderMatch
-from moneyflow.screens.transaction_detail_screen import TransactionDetailScreen
+from moneyflow.data.amazon_linker import AmazonOrderMatch
+from moneyflow.tui.screens.transaction_detail_screen import TransactionDetailScreen
 
 
 class TestTransactionDetailScreenWithAmazon:

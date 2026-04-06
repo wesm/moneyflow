@@ -9,7 +9,7 @@ from datetime import date
 import polars as pl
 import pytest
 
-from moneyflow.duplicate_detector import DuplicateDetector
+from moneyflow.data.duplicate_detector import DuplicateDetector
 
 
 def make_txn(id="txn_1", **kwargs):

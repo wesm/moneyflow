@@ -14,7 +14,7 @@ verify the operations work correctly, then clean up.
 import time
 from typing import Any, Callable, Dict, List
 
-from moneyflow.ynab_client import YNABClient
+from moneyflow.backends.ynab_client import YNABClient
 
 
 class TestPayeeRenaming:

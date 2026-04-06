@@ -7,9 +7,9 @@ Tests the category loading, merging, and customization logic.
 import pytest
 import yaml
 
-from moneyflow.account_manager import AccountManager
 from moneyflow.backends.amazon import get_amazon_category_source, get_amazon_inherited_categories
-from moneyflow.categories import (
+from moneyflow.data.account_manager import AccountManager
+from moneyflow.data.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
     get_effective_category_groups,
@@ -328,12 +328,12 @@ class TestProfileLocalCategories:
 
     def test_save_categories_returns_false_on_write_failure(self, tmp_path, monkeypatch):
         """Should return False when _save_yaml fails (e.g. OSError)."""
-        import moneyflow.categories
+        import moneyflow.data.categories
 
         def mock_save_yaml(path, data):
             return False
 
-        monkeypatch.setattr(moneyflow.categories, "_save_yaml", mock_save_yaml)
+        monkeypatch.setattr(moneyflow.data.categories, "_save_yaml", mock_save_yaml)
 
         profile_dir = tmp_path / "profiles" / "test_profile"
         test_categories = {"Food": ["Groceries"]}

@@ -11,8 +11,8 @@ from typing import cast
 import polars as pl
 from rich.text import Text
 
-from moneyflow.formatters import ViewPresenter
-from moneyflow.state import SortDirection, SortMode
+from moneyflow.data.state import SortDirection, SortMode
+from moneyflow.tui.formatters import ViewPresenter
 
 
 def normalize_label(label: str | Text) -> str:

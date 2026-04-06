@@ -10,7 +10,7 @@ from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, Static
 
-from ..credentials import CredentialManager
+from ...data.credentials import CredentialManager
 
 
 class BackendSelectionScreen(ModalScreen):

@@ -35,7 +35,7 @@ from gql.transport.aiohttp import AIOHTTPTransport
 from graphql import DocumentNode
 
 from .gql_version import GQL_V4_PLUS
-from .queries import (
+from .monarch_queries import (
     ACCOUNT_DETAILS_GET_ACCOUNT,
     COMMON__CREATE_TRANSACTION_MUTATION,
     COMMON__DELETE_ACCOUNT,

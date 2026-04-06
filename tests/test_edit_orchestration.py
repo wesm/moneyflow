@@ -9,9 +9,9 @@ This enables testing edit workflows without requiring the TUI.
 
 import pytest
 
-from moneyflow.app_controller import AppController, EditMode
-from moneyflow.data_manager import DataManager
-from moneyflow.state import AppState, ViewMode
+from moneyflow.data.data_manager import DataManager
+from moneyflow.data.state import AppState, ViewMode
+from moneyflow.tui.app_controller import AppController, EditMode
 
 from .mock_view import MockViewPresenter
 
@@ -601,7 +601,7 @@ class TestToggleHideExecution:
         txn_id = controller.state.current_data["id"][0]
         from datetime import datetime
 
-        from moneyflow.state import TransactionEdit
+        from moneyflow.data.state import TransactionEdit
 
         controller.data_manager.pending_edits.append(
             TransactionEdit(txn_id, "hide_from_reports", False, True, datetime.now())

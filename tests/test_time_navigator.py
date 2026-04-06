@@ -10,7 +10,7 @@ from datetime import date
 
 import pytest
 
-from moneyflow.time_navigator import (
+from moneyflow.data.time_navigator import (
     get_current_month_range,
     get_current_year_range,
     get_month_name,

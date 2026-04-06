@@ -13,9 +13,9 @@ import pytest
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-from moneyflow.cache_manager import CacheManager, RefreshStrategy
-from moneyflow.cache_orchestrator import CacheOrchestrator
-from moneyflow.data_manager import DataManager
+from moneyflow.data.cache_manager import CacheManager, RefreshStrategy
+from moneyflow.data.cache_orchestrator import CacheOrchestrator
+from moneyflow.data.data_manager import DataManager
 
 
 @pytest.fixture

@@ -743,9 +743,49 @@ class AppState:
         if self.transactions_df is None:
             return None
 
-        from moneyflow.filter_service import FilterService
+        return self._apply_filters(self.transactions_df)
 
-        return FilterService.apply_filters(self.transactions_df, self)
+    def _apply_filters(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply all active filters to the DataFrame."""
+        if len(df) == 0:
+            return df
+
+        if self.start_date and self.end_date:
+            df = df.filter((pl.col("date") >= self.start_date) & (pl.col("date") <= self.end_date))
+
+        if self.search_query:
+            query = self.search_query.lower()
+            search_filter = pl.col("merchant").str.to_lowercase().str.contains(query) | pl.col(
+                "category"
+            ).str.to_lowercase().str.contains(query)
+            if self.amazon_search_ids:
+                search_filter = search_filter | pl.col("id").is_in(list(self.amazon_search_ids))
+            df = df.filter(search_filter)
+
+        if not self.show_transfers:
+            df = df.filter(pl.col("group") != "Transfers")
+
+        if not self.show_hidden and self.view_mode != ViewMode.DETAIL:
+            df = df.filter(~pl.col("hideFromReports"))
+
+        if self.selected_time_year is not None:
+            df = df.filter(pl.col("date").dt.year() == self.selected_time_year)
+            if self.selected_time_month is not None:
+                df = df.filter(pl.col("date").dt.month() == self.selected_time_month)
+                if self.selected_time_day is not None:
+                    df = df.filter(pl.col("date").dt.day() == self.selected_time_day)
+
+        if self.view_mode == ViewMode.DETAIL:
+            if self.selected_merchant:
+                df = df.filter(pl.col("merchant") == self.selected_merchant)
+            if self.selected_category:
+                df = df.filter(pl.col("category") == self.selected_category)
+            if self.selected_group:
+                df = df.filter(pl.col("group") == self.selected_group)
+            if self.selected_account:
+                df = df.filter(pl.col("account") == self.selected_account)
+
+        return df
 
     def drill_down(self, item_name: str, cursor_position: int = 0, scroll_y: float = 0) -> None:
         """

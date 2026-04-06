@@ -12,7 +12,7 @@ class TestYNABBackend:
 
     @pytest.fixture
     def mock_ynab_api(self):
-        with patch("moneyflow.ynab_client.ynab") as mock:
+        with patch("moneyflow.backends.ynab_client.ynab") as mock:
             yield mock
 
     @pytest.mark.asyncio

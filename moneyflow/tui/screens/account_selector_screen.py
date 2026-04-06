@@ -8,7 +8,7 @@ from textual.containers import Container, ScrollableContainer
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static
 
-from ..account_manager import Account, AccountManager
+from ...data.account_manager import Account, AccountManager
 
 
 class AccountSelectorScreen(ModalScreen):

@@ -1,8 +1,9 @@
 import logging
 from datetime import date as date_type
 
-from moneyflow import notification_helper
 from moneyflow.retry_logic import RetryAborted, retry_with_backoff
+
+from . import notification_helper
 
 logger = logging.getLogger(__name__)
 

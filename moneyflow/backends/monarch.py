@@ -6,8 +6,8 @@ Wraps the MonarchMoney GraphQL client to implement the FinanceBackend interface.
 
 from typing import Any, Dict, List, Optional
 
-from ..monarchmoney import MonarchMoney
 from .base import FinanceBackend
+from .monarch_client import MonarchMoney
 
 
 class MonarchBackend(FinanceBackend):
