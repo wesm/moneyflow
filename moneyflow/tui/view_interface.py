@@ -21,6 +21,9 @@ class NotificationSeverity(str, Enum):
     WARNING = "warning"
     ERROR = "error"
 
+    def __str__(self) -> str:
+        return self.value
+
 
 class TableColumn(TypedDict):
     label: str

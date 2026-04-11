@@ -8,6 +8,7 @@ and return the correct severity/timeout values.
 import pytest
 
 from moneyflow.tui import notification_helper
+from moneyflow.tui.view_interface import NotificationSeverity
 
 
 class TestCommitNotifications:
@@ -322,3 +323,36 @@ class TestMessageQuality:
         assert any(key in msg for key in ["Press", "w", "Ctrl"]), (
             f"Action message doesn't mention key: {msg}"
         )
+
+
+class TestNotificationSeverityStr:
+    """Verify str() returns the value, not the enum member name.
+
+    Python 3.11 changed str(Enum) to return 'ClassName.MEMBER' instead
+    of the value for (str, Enum) subclasses. Textual uses f-strings on
+    severity to build CSS class names, so dots in the string cause a
+    BadIdentifier crash.
+    """
+
+    @pytest.mark.parametrize(
+        "member,expected",
+        [
+            (NotificationSeverity.INFO, "information"),
+            (NotificationSeverity.WARNING, "warning"),
+            (NotificationSeverity.ERROR, "error"),
+        ],
+    )
+    def test_str_returns_value(self, member, expected):
+        assert str(member) == expected
+
+    @pytest.mark.parametrize(
+        "member,expected",
+        [
+            (NotificationSeverity.INFO, "-information"),
+            (NotificationSeverity.WARNING, "-warning"),
+            (NotificationSeverity.ERROR, "-error"),
+        ],
+    )
+    def test_fstring_returns_value(self, member, expected):
+        """f-string formatting must produce valid CSS class names."""
+        assert f"-{member}" == expected
