@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout base branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # SECURITY: Always checkout base branch (trusted code), never PR branch
           # This is critical when using pull_request_target which has access to secrets
