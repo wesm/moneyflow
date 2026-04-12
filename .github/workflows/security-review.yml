@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout base branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           # SECURITY: Always checkout base branch (trusted code), never PR branch
           # This is critical when using pull_request_target which has access to secrets
@@ -52,7 +52,7 @@ jobs:
 
       - name: Set up Python
         if: steps.check-trusted.outputs.is_trusted != 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
           python-version: '3.11'
 
