@@ -3,7 +3,7 @@
 Terminal interface for Monarch Money with full editing and sync capabilities.
 
 !!! tip "New to Monarch Money?"
-    Get **50% off your first year** with this [special offer link](https://monarchmoney.sjv.io/c/5108110/3777629/39024).
+    Get **50% off your first year of Core Plan** with this [special offer link](https://monarchmoney.sjv.io/c/5108110/3777629/39024).
 
 ## Overview
 

@@ -59,7 +59,7 @@ Choose your platform:
 ## With Monarch Money
 
 !!! tip "New to Monarch Money?"
-    Get **50% off your first year** with this [special offer link](https://monarchmoney.sjv.io/c/5108110/3777629/39024).
+    Get **50% off your first year of Core Plan** with this [special offer link](https://monarchmoney.sjv.io/c/5108110/3777629/39024).
 
 ### Step 1: Get Your 2FA Secret
 
