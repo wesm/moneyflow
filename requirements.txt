@@ -7,4 +7,4 @@ oathtool>=2.3.1
 
 # For fuzzy search
 fuzzywuzzy>=0.18.0
-python-Levenshtein>=0.21.0
+python-Levenshtein>=0.27.3
