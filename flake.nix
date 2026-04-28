@@ -30,12 +30,12 @@
 
         ynab = pythonPackages.buildPythonPackage rec {
           pname = "ynab";
-          version = "1.9.0";
+          version = "4.1.0";
           format = "wheel";
 
           src = pkgs.fetchurl {
-            url = "https://files.pythonhosted.org/packages/b2/9c/0ccd11bcdf7522fcb2823fcd7ffbb48e3164d72caaf3f920c7b068347175/ynab-1.9.0-py3-none-any.whl";
-            hash = "sha256-cqwCGWBbQoAUloTs0P7DvXXZOHctZc3uqbPmahsvRw0=";
+            url = "https://files.pythonhosted.org/packages/d8/8f/96b9f962cca0cbea056d8c0304fd0d2021fa0a42627835ed9a98bdcbab95/ynab-4.1.0-py3-none-any.whl";
+            hash = "sha256-hyp+zxm4Ksln3oaxpxrzdgsy6+x7a/I4345VD6RE2/0=";
           };
 
           dependencies = with pythonPackages; [

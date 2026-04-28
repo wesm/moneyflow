@@ -163,6 +163,45 @@ class TestYNABBackend:
         assert result["updateTransaction"]["transaction"]["id"] == "txn-1"
 
     @pytest.mark.asyncio
+    async def test_update_transaction_uncategorized_placeholder(self, backend, mock_ynab_api):
+        """_convert_transaction emits 'uncategorized' for transactions with no
+        category, so update_transaction must treat it as None rather than
+        attempting uuid.UUID('uncategorized')."""
+        backend.client.budget_id = "test-budget-id"
+        backend.client.api_client = MagicMock()
+
+        mock_existing_txn = MagicMock()
+        mock_existing_txn.account_id = "acc-1"
+        mock_existing_txn.var_date = "2025-01-15"
+        mock_existing_txn.amount = -50000
+
+        mock_get_response = MagicMock()
+        mock_get_response.data.transaction = mock_existing_txn
+
+        mock_updated_txn = MagicMock()
+        mock_updated_txn.id = "txn-1"
+
+        mock_update_response = MagicMock()
+        mock_update_response.data.transaction = mock_updated_txn
+
+        mock_transactions_api = MagicMock()
+        mock_transactions_api.get_transaction_by_id.return_value = mock_get_response
+        mock_transactions_api.update_transaction.return_value = mock_update_response
+
+        mock_ynab_api.TransactionsApi.return_value = mock_transactions_api
+
+        # Should not raise ValueError
+        result = await backend.update_transaction(
+            transaction_id="txn-1", category_id="uncategorized"
+        )
+
+        assert result["updateTransaction"]["transaction"]["id"] == "txn-1"
+        # Verify the update_data passed to PutTransactionWrapper had category_id=None
+        # (the mock receives the actual update_data MagicMock as a kwarg)
+        wrapper_call = mock_ynab_api.PutTransactionWrapper.call_args
+        assert wrapper_call[1]["transaction"].category_id is None
+
+    @pytest.mark.asyncio
     async def test_delete_transaction_success(self, backend, mock_ynab_api):
         backend.client.budget_id = "test-budget-id"
         backend.client.api_client = MagicMock()

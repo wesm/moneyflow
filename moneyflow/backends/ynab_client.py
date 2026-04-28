@@ -290,7 +290,11 @@ class YNABClient:
                 update_data.payee_name = merchant_name
 
         if category_id is not None:
-            update_data.category_id = uuid.UUID(category_id)
+            # _convert_transaction emits "uncategorized" as a placeholder for
+            # transactions with no category, so the app may round-trip it back here.
+            update_data.category_id = (
+                None if category_id == "uncategorized" else uuid.UUID(category_id)
+            )
 
         # Note: YNAB API doesn't support setting deleted via update
         # The deleted field is read-only. To "hide" transactions,
