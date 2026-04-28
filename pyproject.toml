@@ -35,7 +35,7 @@ dependencies = [
     "textual>=0.47.0",
     "cryptography>=41.0.0",
     "python-dateutil>=2.8.0",
-    "ynab>=1.9.0",
+    "ynab>=4.1.0",
     "mcp[cli]>=1.25.0",
 ]
 

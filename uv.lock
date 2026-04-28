@@ -1061,7 +1061,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "textual", specifier = ">=0.47.0" },
-    { name = "ynab", specifier = ">=1.9.0" },
+    { name = "ynab", specifier = ">=4.1.0" },
 ]
 
 [package.metadata.requires-dev]
