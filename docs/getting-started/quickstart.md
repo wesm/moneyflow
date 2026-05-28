@@ -63,19 +63,20 @@ Choose your platform:
 
 ### Step 1: Use Direct Sign-In (Not Apple/Google)
 
-Moneyflow authentication will not work with an account using Apple/Google Sign-In even if you create a password and set up MFA for that account. You must use direct sign-in (an email and password).
+Moneyflow authentication will not work with an account using Apple/Google Sign-In even
+if you create a password and set up MFA for that account. You must use direct sign-in
+(an email and password).
 
 Follow the instructions [in this article.](https://help.monarch.com/hc/en-us/articles/4432419860244-Switch-to-Direct-Sign-In-or-Disconnect-Your-Apple-Google-Sign-In)
 
 !!! warning "Do not lose access to your Monarch account!"
     If you want to use the same email that you have linked with Google/Apple, the best way to do so is to:
-    
+
     1. Add another direct email address and password (credential #2)
     2. Test that you can login to Monarch with credentials #2
     3. After you have verified that the new credentials work, you can unlink credential #1 and/or remove it
     4. Add credentials #1 back without linking to Google/Apple
     5. Test credential #1 again and you can choose to keep or remove credential #2  
-
 
 ### Step 2: Get Your MFA Secret
 
