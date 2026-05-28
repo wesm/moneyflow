@@ -5,7 +5,7 @@ site_description: Track your moneyflow - A powerful terminal UI for personal fin
 repo_url: https://github.com/wesm/moneyflow
 repo_name: wesm/moneyflow
 edit_uri: edit/main/docs/
-copyright: Copyright &copy; 2025 Wes McKinney
+copyright: Copyright &copy; 2026 Wes McKinney
 
 theme:
   name: material
