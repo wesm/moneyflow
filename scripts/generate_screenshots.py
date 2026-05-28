@@ -3,7 +3,7 @@ Automated screenshot generator for moneyflow documentation.
 
 Generates all documentation screenshots programmatically using Textual's
 pilot API and SVG export capabilities. Screenshots are saved to docs/assets/screenshots/
-for inclusion in the mkdocs build.
+for inclusion in the Zensical docs build.
 
 Usage:
     uv run python scripts/generate_screenshots.py
@@ -874,7 +874,7 @@ async def main():
     print(f"   Location: {output_dir}")
     print()
     print("📝 To preview docs with screenshots:")
-    print("   mkdocs serve")
+    print("   uv run zensical serve")
     print()
 
     return 0

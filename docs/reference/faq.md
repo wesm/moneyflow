@@ -2,4 +2,4 @@
 
 Frequently asked questions.
 
-[Documentation coming soon]
+_Documentation coming soon._

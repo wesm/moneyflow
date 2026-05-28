@@ -58,7 +58,7 @@ For local development:
 uv run python scripts/generate_screenshots.py
 
 # Preview docs with screenshots
-mkdocs serve
+uv run zensical serve
 
 # Screenshots are gitignored and will be regenerated in CI
 ```

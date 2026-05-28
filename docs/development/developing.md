@@ -91,13 +91,11 @@ To preview documentation changes locally with live reload:
 
 ```bash
 # Serve docs with live reload (auto-refreshes on file changes)
-uv run mkdocs serve --livereload
+uv run zensical serve
 
-# Then open http://127.0.0.1:8000 in your browser
+# Then open http://localhost:8000 in your browser
 # Edit files in docs/ and see changes instantly
 ```
-
-**Note:** The `--livereload` flag is important - without it, changes won't auto-refresh in the browser.
 
 ### Before Starting Work
 

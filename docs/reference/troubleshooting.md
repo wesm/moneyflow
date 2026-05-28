@@ -2,4 +2,4 @@
 
 Common issues and solutions.
 
-[Documentation coming soon - see README for now]
+_Documentation coming soon — see the README for now._

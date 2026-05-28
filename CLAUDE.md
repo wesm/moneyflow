@@ -262,16 +262,21 @@ uv run ruff check --fix moneyflow/ tests/
 
 ### Working with Documentation
 
-The project uses MkDocs with Material theme for documentation.
+The project uses [Zensical](https://zensical.org) (modern theme) for documentation.
+Zensical is built by the Material for MkDocs team and reads the existing `mkdocs.yml`
+configuration natively.
 
 **Starting the docs server:**
 
 ```bash
-# IMPORTANT: Always delete site/ first to avoid stale content
-rm -rf site/ && uv run mkdocs serve
+# Serve docs locally with live reload (default: http://localhost:8000)
+uv run zensical serve
+```
 
-# Or on a specific port
-rm -rf site/ && uv run mkdocs serve -a 127.0.0.1:8002
+**Building the site (no server):**
+
+```bash
+uv run zensical build   # output written to site/
 ```
 
 **Generating/regenerating screenshots:**
@@ -283,27 +288,14 @@ uv run python scripts/generate_screenshots.py
 # Generate only specific screenshots (by filename filter)
 uv run python scripts/generate_screenshots.py --filter amazon-matching
 
-# IMPORTANT: After regenerating, restart mkdocs for changes to appear
+# IMPORTANT: After regenerating, restart the docs server for changes to appear
 ```
-
-**Live Reload Configuration:**
-
-- `mkdocs.yml` includes a `watch` section that monitors `docs/assets/screenshots/`
-- Static assets (SVG, PNG) should auto-reload when changed
-- If live reload stops working, check the click version (see Known Issues below)
 
 **Known Issues:**
 
-- **Click 8.3.0 breaks live reload**: MkDocs file watching is broken with `click>=8.3.0`.
-  This is constrained in `pyproject.toml` (`click>=8.1.0,<8.3.0`). If the constraint is
-  removed in the future, check [mkdocs issue #4032](https://github.com/mkdocs/mkdocs/issues/4032)
-  for status before upgrading.
-
-- **Stale screenshots/images**: If docs show old images after regenerating:
-  1. Delete `site/` directory: `rm -rf site/`
-  2. Restart `mkdocs serve`
-  3. Hard refresh browser (`Cmd+Shift+R` / `Ctrl+Shift+R`)
-  4. Try a different port to bypass browser cache
+- **Stale screenshots/images**: If docs show old images after regenerating, delete the
+  `site/` directory and rebuild, then hard refresh the browser (`Cmd+Shift+R` /
+  `Ctrl+Shift+R`).
 
 - **HTML img tags need different paths**: When using `<img>` tags in markdown (for tables),
   paths resolve relative to the page URL, not the source file. Use `../../assets/` for

@@ -9,6 +9,7 @@ copyright: Copyright &copy; 2025 Wes McKinney
 
 theme:
   name: material
+  variant: modern
   palette:
     # Dark theme (default for terminal users)
     - scheme: slate
@@ -48,9 +49,6 @@ theme:
     repo: fontawesome/brands/github
     logo: material/currency-usd
 
-  # Show star count in header
-  custom_dir: docs/overrides
-
 extra_css:
   - stylesheets/extra.css
   - stylesheets/terminal.css
@@ -87,9 +85,6 @@ markdown_extensions:
       custom_checkbox: true
   - attr_list
   - md_in_html
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - tables
   - footnotes
   - pymdownx.critic

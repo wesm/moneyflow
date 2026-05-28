@@ -2,4 +2,4 @@
 
 moneyflow's pluggable backend architecture.
 
-[Documentation coming soon]
+_Documentation coming soon._

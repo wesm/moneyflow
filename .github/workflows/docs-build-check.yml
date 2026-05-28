@@ -35,12 +35,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install --system mkdocs-material mkdocs-material-extensions
           npm install -g markdownlint-cli
 
       - name: Sync project dependencies
         run: |
-          uv sync
+          uv sync --group docs
 
       - name: Generate screenshots
         run: |
@@ -59,7 +58,7 @@ jobs:
 
       - name: Build documentation (no deploy)
         run: |
-          mkdocs build --strict
+          uv run zensical build
 
       - name: Summary
         run: |

@@ -27,13 +27,9 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
 
-      - name: Install dependencies
-        run: |
-          uv pip install --system mkdocs-material mkdocs-material-extensions
-
       - name: Sync project dependencies
         run: |
-          uv sync
+          uv sync --group docs
 
       - name: Generate screenshots
         run: |
@@ -42,9 +38,15 @@ jobs:
           # Use headless mode for CI
           TERM: xterm-256color
 
-      - name: Build and deploy
+      - name: Build site
         run: |
-          mkdocs gh-deploy --force
+          uv run zensical build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453  # v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
 
       - name: Summary
         run: |

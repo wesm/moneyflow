@@ -62,7 +62,7 @@ echo ""
 echo "About to push stable branch to GitHub"
 echo "This will trigger the docs deployment workflow which will:"
 echo "  - Generate screenshots"
-echo "  - Build mkdocs site"
+echo "  - Build Zensical site"
 echo "  - Deploy to GitHub Pages"
 echo ""
 read -p "Continue? (y/N): " -n 1 -r
