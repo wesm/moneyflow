@@ -125,7 +125,7 @@
   // Initialize on page load
   document.addEventListener('DOMContentLoaded', initLightbox);
 
-  // Re-initialize on Material for MkDocs instant navigation
+  // Re-initialize on instant navigation (Material/Zensical document$ observable)
   if (typeof document$ !== 'undefined') {
     document$.subscribe(() => {
       initLightbox();
