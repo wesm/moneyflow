@@ -176,8 +176,8 @@ The release script automatically:
 - Updates uv.lock
 - Creates the version bump commit and release tag
 - Tests the built package locally
-- Pushes the release commit and tag
 - Prompts for TestPyPI and PyPI publishing
+- Pushes the release commit and tag after production publishing succeeds
 
 This ensures releases never have failing tests or code quality issues.
 
@@ -187,8 +187,9 @@ Post-publish docs automation updates the `stable` branch, so it is opt-in:
 ./scripts/release.sh 0.x.y --post-publish
 ```
 
-It only runs after production PyPI publishing succeeds in the same release run,
-unless `--force-post-publish` is also passed for a manual-publish workflow.
+It only runs after production PyPI publishing succeeds in the same release run.
+For a manual-publish workflow, `--force-post-publish` also allows the release
+commit/tag push and post-publish automation.
 
 ## Troubleshooting
 

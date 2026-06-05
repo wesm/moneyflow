@@ -20,6 +20,20 @@ def run_release(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_command(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        list(args),
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def dry_run_commands(output: str) -> list[str]:
+    return [line.removeprefix("+ ") for line in output.splitlines() if line.startswith("+ ")]
+
+
 def test_release_help_documents_single_entrypoint() -> None:
     result = run_release("--help")
 
@@ -72,6 +86,45 @@ def test_release_rejects_post_publish_when_pypi_is_skipped() -> None:
     assert "--post-publish requires production PyPI publishing" in result.stderr
 
 
+def test_release_dry_run_pushes_after_production_publish() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
+
+    assert result.returncode == 0
+    pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
+    push_index = result.stdout.index("git push origin v99.99.99")
+    assert pypi_index < push_index
+
+
+def test_release_dry_run_does_not_push_when_pypi_is_skipped() -> None:
+    result = run_release(
+        "99.99.99",
+        "--dry-run",
+        "--skip-testpypi",
+        "--skip-pypi",
+        "--skip-post-publish",
+    )
+
+    assert result.returncode == 0
+    assert "git push origin v99.99.99" not in dry_run_commands(result.stdout)
+    assert "Push manually after publishing" in result.stdout
+
+
+def test_release_dry_run_force_post_publish_allows_explicit_unpublished_push() -> None:
+    result = run_release(
+        "99.99.99",
+        "--dry-run",
+        "--skip-testpypi",
+        "--skip-pypi",
+        "--post-publish",
+        "--force-post-publish",
+    )
+
+    assert result.returncode == 0
+    commands = dry_run_commands(result.stdout)
+    assert "git push origin v99.99.99" in commands
+    assert "./scripts/post-publish.sh v99.99.99" in commands
+
+
 def test_changelog_generation_is_deterministic_without_ai_agent() -> None:
     changelog_script = CHANGELOG_SCRIPT.read_text()
 
@@ -79,3 +132,50 @@ def test_changelog_generation_is_deterministic_without_ai_agent() -> None:
     assert "claude" not in changelog_script
     assert "New Features" in changelog_script
     assert "Bug Fixes" in changelog_script
+
+
+def test_changelog_includes_single_commit_range(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    assert run_command("git", "init", cwd=repo).returncode == 0
+    (repo / "README.md").write_text("initial\n")
+    assert run_command("git", "add", "README.md", cwd=repo).returncode == 0
+    assert (
+        run_command(
+            "git",
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "chore: initial",
+            cwd=repo,
+        ).returncode
+        == 0
+    )
+    assert run_command("git", "tag", "v0.1.0", cwd=repo).returncode == 0
+
+    (repo / "feature.txt").write_text("feature\n")
+    assert run_command("git", "add", "feature.txt", cwd=repo).returncode == 0
+    assert (
+        run_command(
+            "git",
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "feat: single release change",
+            cwd=repo,
+        ).returncode
+        == 0
+    )
+
+    result = run_command("bash", str(CHANGELOG_SCRIPT), "0.2.0", "v0.1.0", cwd=repo)
+
+    assert result.returncode == 0
+    assert "## New Features" in result.stdout
+    assert "feat: single release change" in result.stdout

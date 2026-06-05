@@ -125,8 +125,8 @@ Use the single release entrypoint for normal releases:
 ```
 
 It generates a deterministic changelog from commit subjects, runs the version
-bump checks, tests the built package, pushes the release commit/tag, and prompts
-for TestPyPI/PyPI publishing.
+bump checks, tests the built package, prompts for TestPyPI/PyPI publishing, and
+pushes the release commit/tag only after production publishing succeeds.
 
 Useful options:
 

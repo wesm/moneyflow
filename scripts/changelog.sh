@@ -75,7 +75,7 @@ while IFS=$'\t' read -r hash subject; do
             append_entry "$IMPROVEMENTS" "$subject" "$hash"
             ;;
     esac
-done < <(git log "$RANGE" --pretty=format:'%h%x09%s' --no-merges)
+done < <(git log "$RANGE" --pretty=tformat:'%h%x09%s' --no-merges)
 
 print_section() {
     local title="$1"

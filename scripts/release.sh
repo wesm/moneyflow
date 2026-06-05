@@ -31,16 +31,16 @@ Run the moneyflow release flow from one entrypoint:
   1. Generate and preview changelog
   2. Run version bump checks, commit, and tag
   3. Test the built package locally
-  4. Optionally push, publish to TestPyPI/PyPI, and run post-publish docs automation
+  4. Optionally publish to TestPyPI/PyPI, push, and run post-publish docs automation
 
 Options:
   --dry-run             Print the planned release steps without running them.
   --yes                 Auto-confirm release.sh prompts. Subscripts may still prompt.
   --skip-testpypi       Do not offer to publish to TestPyPI.
   --skip-pypi           Do not offer to publish to production PyPI.
-  --skip-push           Do not push the version commit or release tag.
+  --skip-push           Do not push the version commit or release tag after publishing.
   --post-publish        Run post-publish stable/docs automation at the end.
-  --force-post-publish  Allow post-publish when PyPI publish was skipped or declined.
+  --force-post-publish  Allow push/post-publish when PyPI publish was skipped or declined.
   --skip-post-publish   Do not run post-publish stable/docs automation (default).
   -h, --help            Show this help text.
 
@@ -287,17 +287,6 @@ retag_with_changelog "$TAG_MESSAGE_FILE"
 echo_step "Test built package locally"
 run_cmd "./scripts/test-build.sh" "$SCRIPT_DIR/test-build.sh"
 
-if [ "$RUN_PUSH" -eq 1 ]; then
-    echo_step "Push release commit and tag"
-    run_cmd "git push origin HEAD" git push origin HEAD
-    run_cmd "git push origin $TAG" git push origin "$TAG"
-else
-    echo_step "Skipping push"
-    echo "Push manually when ready:"
-    echo "  git push origin HEAD"
-    echo "  git push origin $TAG"
-fi
-
 echo_step "TestPyPI"
 run_optional_script \
     "$RUN_TESTPYPI" \
@@ -318,6 +307,23 @@ run_optional_script \
     "./scripts/publish-pypi.sh" \
     "$SCRIPT_DIR/publish-pypi.sh"
 PYPI_PUBLISHED="$OPTIONAL_SCRIPT_RAN"
+
+if [ "$RUN_PUSH" -eq 1 ] \
+    && { [ "$PYPI_PUBLISHED" -eq 1 ] \
+        || { [ "$POST_PUBLISH_MODE" = "run" ] && [ "$FORCE_POST_PUBLISH" -eq 1 ]; }; }; then
+    echo_step "Push release commit and tag"
+    run_cmd "git push origin HEAD" git push origin HEAD
+    run_cmd "git push origin $TAG" git push origin "$TAG"
+else
+    echo_step "Skipping push"
+    if [ "$RUN_PUSH" -eq 0 ]; then
+        echo "Push skipped by option."
+    else
+        echo "Push manually after publishing:"
+        echo "  git push origin HEAD"
+        echo "  git push origin $TAG"
+    fi
+fi
 
 case "$POST_PUBLISH_MODE" in
     skip)
