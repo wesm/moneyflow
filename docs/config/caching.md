@@ -94,7 +94,8 @@ Both hot and cold tiers store identical columns in Parquet format:
 | `isRecurring` | `bool` | Recurring transaction flag |
 | `*` | `str` | Backend-specific extra fields (e.g. Amazon: `quantity`, `asin`, `order_id`), coerced to strings |
 
-The `group` column is **not stored** in the Parquet cache. It is derived dynamically from the `category` column at load time so that changes to `config.yaml` category groupings take effect on cached data.
+The `group` column is **not stored** in the Parquet cache. It is derived dynamically from the `category` column
+at load time so that changes to `config.yaml` category groupings take effect on cached data.
 
 ### Tiers
 
