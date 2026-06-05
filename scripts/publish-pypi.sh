@@ -16,17 +16,18 @@ echo ""
 
 # Get version from pyproject.toml
 VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+TAG="v$VERSION"
 echo "Version: $VERSION"
 echo ""
 
 # Safety check: Is this version tagged?
-if ! git tag | grep -q "^v$VERSION$"; then
-    echo "⚠ Warning: Version v$VERSION is not tagged in git"
+if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    echo "⚠ Warning: Version $TAG is not tagged in git"
     echo ""
     read -p "Continue anyway? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted. Create tag with: git tag v$VERSION"
+        echo "Aborted. Create tag with: git tag $TAG"
         exit 1
     fi
 fi
@@ -80,6 +81,22 @@ if [[ ! $REPLY == "yes" ]]; then
     echo "Aborted. (Type 'yes' to confirm)"
     exit 1
 fi
+
+# Final release-state preflight must happen immediately before production upload.
+echo ""
+echo "Preflighting release push..."
+if git ls-remote --exit-code --tags origin "$TAG" >/dev/null; then
+    echo "Error: Tag $TAG already exists on origin"
+    exit 1
+else
+    status=$?
+    if [ "$status" -ne 2 ]; then
+        echo "Error: Could not check origin for existing tag $TAG"
+        exit 1
+    fi
+fi
+git push --dry-run --atomic origin HEAD "$TAG"
+echo "✓ Release commit and tag can be pushed atomically"
 
 # Upload to PyPI
 echo ""

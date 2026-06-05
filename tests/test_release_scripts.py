@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
 PUBLISH_TESTPYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-testpypi.sh"
+PUBLISH_PYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-pypi.sh"
 PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
 
 
@@ -123,6 +124,21 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
     dry_run_push_index = result.stdout.index("git push --dry-run --atomic origin HEAD v99.99.99")
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
     assert tag_index < dry_run_push_index < pypi_index
+
+
+def test_publish_pypi_preflights_release_push_immediately_before_upload() -> None:
+    publish_script = PUBLISH_PYPI_SCRIPT.read_text()
+
+    remote_tag_index = publish_script.index('git ls-remote --exit-code --tags origin "$TAG"')
+    dry_run_push_index = publish_script.index('git push --dry-run --atomic origin HEAD "$TAG"')
+    upload_index = publish_script.index("uvx twine upload dist/*")
+
+    assert remote_tag_index < dry_run_push_index < upload_index
+
+    final_gap = publish_script[dry_run_push_index:upload_index]
+    assert "uv run pytest" not in final_gap
+    assert "uv build" not in final_gap
+    assert "read -p" not in final_gap
 
 
 def test_release_testpypi_verification_uses_exact_wheel_url_not_testpypi_index() -> None:
