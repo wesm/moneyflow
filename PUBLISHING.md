@@ -66,8 +66,32 @@ Useful options:
 If you publish to TestPyPI, verify the package before publishing to production:
 
 ```bash
-uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ moneyflow --demo
+VERSION=0.2.0
+WHEEL_URL="$(uv run python - "$VERSION" <<'PY'
+import json
+import sys
+import urllib.request
+
+version = sys.argv[1]
+wheel_name = f"moneyflow-{version}-py3-none-any.whl"
+url = f"https://test.pypi.org/pypi/moneyflow/{version}/json"
+
+with urllib.request.urlopen(url) as response:
+    release = json.load(response)
+
+for file_info in release["urls"]:
+    if file_info["packagetype"] == "bdist_wheel" and file_info["filename"] == wheel_name:
+        print(file_info["url"])
+        break
+else:
+    raise SystemExit(f"Could not find {wheel_name} on TestPyPI")
+PY
+)"
+uvx --index-url https://pypi.org/simple/ --from "$WHEEL_URL" moneyflow --demo
 ```
+
+This fetches only the `moneyflow` wheel from TestPyPI. Dependencies resolve
+from PyPI.
 
 ### Post-Publish Automation
 
@@ -125,7 +149,7 @@ Check entry point in pyproject.toml:
 
 ```toml
 [project.scripts]
-moneyflow = "moneyflow.app:main"
+moneyflow = "moneyflow.cli:cli"
 ```
 
 ---

@@ -9,6 +9,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
 PUBLISH_TESTPYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-testpypi.sh"
+PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
 
 
 def run_release(*args: str) -> subprocess.CompletedProcess[str]:
@@ -148,6 +149,16 @@ def test_publish_testpypi_does_not_recommend_untrusted_testpypi_resolution() -> 
     assert "--extra-index-url https://pypi.org/simple/" not in publish_script
     assert 'uvx --index-url https://pypi.org/simple/ --from "\\$WHEEL_URL" moneyflow --demo' in (
         publish_script
+    )
+
+
+def test_publishing_docs_do_not_recommend_untrusted_testpypi_resolution() -> None:
+    publishing_doc = PUBLISHING_DOC.read_text()
+
+    assert "--index-url https://test.pypi.org/simple/" not in publishing_doc
+    assert "--extra-index-url https://pypi.org/simple/" not in publishing_doc
+    assert 'uvx --index-url https://pypi.org/simple/ --from "$WHEEL_URL" moneyflow --demo' in (
+        publishing_doc
     )
 
 
