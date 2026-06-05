@@ -393,7 +393,14 @@ run_optional_script \
     "$SCRIPT_DIR/publish-pypi.sh"
 PYPI_PUBLISHED="$OPTIONAL_SCRIPT_RAN"
 
-if release_push_should_run; then
+if [ "$PYPI_PUBLISHED" -eq 1 ]; then
+    echo_step "Release push"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        echo "Release commit and tag will be pushed by ./scripts/publish-pypi.sh before production upload."
+    else
+        echo "Release commit and tag were pushed by ./scripts/publish-pypi.sh before production upload."
+    fi
+elif release_push_should_run; then
     echo_step "Push release commit and tag"
     run_cmd "git push --atomic origin HEAD $TAG" git push --atomic origin HEAD "$TAG"
 else

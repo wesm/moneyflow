@@ -45,7 +45,7 @@ This script:
 - Recreates the tag as an annotated tag with the accepted changelog
 - Tests the built package locally
 - Prompts for TestPyPI and production PyPI publishing
-- Pushes the release commit and tag atomically after production publishing succeeds
+- Pushes the release commit and tag atomically immediately before production PyPI upload
 
 Dry-run the planned flow first:
 

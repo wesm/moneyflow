@@ -177,7 +177,7 @@ The release script automatically:
 - Creates the version bump commit and release tag
 - Tests the built package locally
 - Prompts for TestPyPI and PyPI publishing
-- Pushes the release commit and tag atomically after production publishing succeeds
+- Pushes the release commit and tag atomically immediately before production PyPI upload
 
 This ensures releases never have failing tests or code quality issues.
 

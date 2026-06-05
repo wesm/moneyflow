@@ -37,6 +37,33 @@ def dry_run_commands(output: str) -> list[str]:
     return [line.removeprefix("+ ") for line in output.splitlines() if line.startswith("+ ")]
 
 
+def init_publish_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    (repo / "pyproject.toml").write_text('[project]\nversion = "99.99.99"\n')
+    (repo / "README.md").write_text("release test\n")
+
+    assert run_command("git", "init", cwd=repo).returncode == 0
+    assert run_command("git", "add", "pyproject.toml", "README.md", cwd=repo).returncode == 0
+    assert (
+        run_command(
+            "git",
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "chore: initial",
+            cwd=repo,
+        ).returncode
+        == 0
+    )
+
+    return repo
+
+
 def test_release_help_documents_single_entrypoint() -> None:
     result = run_release("--help")
 
@@ -89,13 +116,16 @@ def test_release_rejects_post_publish_when_pypi_is_skipped() -> None:
     assert "--post-publish requires production PyPI publishing" in result.stderr
 
 
-def test_release_dry_run_pushes_after_production_publish() -> None:
+def test_release_dry_run_delegates_release_push_to_publish_pypi() -> None:
     result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
 
     assert result.returncode == 0
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
-    push_index = result.stdout.index("git push --atomic origin HEAD v99.99.99")
-    assert pypi_index < push_index
+    message_index = result.stdout.index(
+        "Release commit and tag will be pushed by ./scripts/publish-pypi.sh before production upload."
+    )
+    assert pypi_index < message_index
+    assert "git push --atomic origin HEAD v99.99.99" not in dry_run_commands(result.stdout)
 
 
 def test_release_dry_run_preflights_remote_tag_before_production_publish() -> None:
@@ -126,19 +156,76 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
     assert tag_index < dry_run_push_index < pypi_index
 
 
-def test_publish_pypi_preflights_release_push_immediately_before_upload() -> None:
+def test_publish_pypi_pushes_release_state_immediately_before_upload() -> None:
     publish_script = PUBLISH_PYPI_SCRIPT.read_text()
 
-    remote_tag_index = publish_script.index('git ls-remote --exit-code --tags origin "$TAG"')
-    dry_run_push_index = publish_script.index('git push --dry-run --atomic origin HEAD "$TAG"')
+    remote_tag_index = publish_script.index('git ls-remote --tags origin "refs/tags/$TAG"')
+    push_index = publish_script.index('git push --atomic origin HEAD "$TAG"')
     upload_index = publish_script.index("uvx twine upload dist/*")
 
-    assert remote_tag_index < dry_run_push_index < upload_index
+    assert remote_tag_index < push_index < upload_index
+    assert 'git push --dry-run --atomic origin HEAD "$TAG"' not in publish_script
 
-    final_gap = publish_script[dry_run_push_index:upload_index]
+    final_gap = publish_script[push_index:upload_index]
     assert "uv run pytest" not in final_gap
     assert "uv build" not in final_gap
     assert "read -p" not in final_gap
+
+
+def test_publish_pypi_does_not_recommend_push_tags() -> None:
+    publish_script = PUBLISH_PYPI_SCRIPT.read_text()
+
+    assert "git push --tags" not in publish_script
+    assert "git push --atomic origin HEAD $TAG" in publish_script
+
+
+def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path) -> None:
+    repo = init_publish_repo(tmp_path)
+
+    result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo)
+
+    assert result.returncode == 1
+    assert "Tag v99.99.99 does not exist" in result.stderr
+    assert "Uploading to PyPI" not in result.stdout
+
+
+def test_publish_pypi_rejects_dirty_tree(tmp_path: Path) -> None:
+    repo = init_publish_repo(tmp_path)
+    assert run_command("git", "tag", "v99.99.99", cwd=repo).returncode == 0
+    (repo / "README.md").write_text("dirty\n")
+
+    result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo)
+
+    assert result.returncode == 1
+    assert "Uncommitted changes are not allowed" in result.stderr
+    assert "Uploading to PyPI" not in result.stdout
+
+
+def test_publish_pypi_rejects_tag_that_does_not_match_head(tmp_path: Path) -> None:
+    repo = init_publish_repo(tmp_path)
+    assert run_command("git", "tag", "v99.99.99", cwd=repo).returncode == 0
+    (repo / "README.md").write_text("new commit\n")
+    assert run_command("git", "add", "README.md", cwd=repo).returncode == 0
+    assert (
+        run_command(
+            "git",
+            "-c",
+            "user.name=Test User",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "chore: move head",
+            cwd=repo,
+        ).returncode
+        == 0
+    )
+
+    result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo)
+
+    assert result.returncode == 1
+    assert "does not point to HEAD" in result.stderr
+    assert "Uploading to PyPI" not in result.stdout
 
 
 def test_release_testpypi_verification_uses_exact_wheel_url_not_testpypi_index() -> None:
@@ -183,7 +270,8 @@ def test_release_dry_run_pushes_release_state_atomically() -> None:
 
     assert result.returncode == 0
     commands = dry_run_commands(result.stdout)
-    assert "git push --atomic origin HEAD v99.99.99" in commands
+    assert "./scripts/publish-pypi.sh" in commands
+    assert "git push --atomic origin HEAD v99.99.99" not in commands
     assert "git push origin HEAD" not in commands
     assert "git push origin v99.99.99" not in commands
 

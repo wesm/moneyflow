@@ -11,6 +11,11 @@
 
 set -e
 
+error() {
+    echo "Error: $*" >&2
+    exit 1
+}
+
 echo "Publishing moneyflow to PyPI (PRODUCTION)..."
 echo ""
 
@@ -20,29 +25,16 @@ TAG="v$VERSION"
 echo "Version: $VERSION"
 echo ""
 
-# Safety check: Is this version tagged?
-if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    echo "⚠ Warning: Version $TAG is not tagged in git"
-    echo ""
-    read -p "Continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted. Create tag with: git tag $TAG"
-        exit 1
-    fi
+TAG_COMMIT=$(git rev-parse -q --verify "$TAG^{commit}") || error "Tag $TAG does not exist locally"
+HEAD_COMMIT=$(git rev-parse HEAD)
+
+if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
+    error "Tag $TAG does not point to HEAD"
 fi
 
-# Safety check: Are there uncommitted changes?
-if ! git diff-index --quiet HEAD --; then
-    echo "⚠ Warning: You have uncommitted changes"
-    git status --short
-    echo ""
-    read -p "Continue anyway? (y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted. Commit your changes first."
-        exit 1
-    fi
+if [ -n "$(git status --porcelain)" ]; then
+    git status --short >&2
+    error "Uncommitted changes are not allowed for production publishing"
 fi
 
 # Clean old builds
@@ -84,19 +76,20 @@ fi
 
 # Final release-state preflight must happen immediately before production upload.
 echo ""
-echo "Preflighting release push..."
-if git ls-remote --exit-code --tags origin "$TAG" >/dev/null; then
-    echo "Error: Tag $TAG already exists on origin"
-    exit 1
-else
-    status=$?
-    if [ "$status" -ne 2 ]; then
-        echo "Error: Could not check origin for existing tag $TAG"
-        exit 1
+echo "Pushing release commit and tag..."
+REMOTE_TAG_OUTPUT=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}") \
+    || error "Could not check origin for existing tag $TAG"
+REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1; exit }')
+if [ -z "$REMOTE_TAG_COMMIT" ]; then
+    REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1; exit }')
+fi
+if [ -n "$REMOTE_TAG_COMMIT" ]; then
+    if [ "$REMOTE_TAG_COMMIT" != "$TAG_COMMIT" ]; then
+        error "Tag $TAG already exists on origin and does not match HEAD"
     fi
 fi
-git push --dry-run --atomic origin HEAD "$TAG"
-echo "✓ Release commit and tag can be pushed atomically"
+git push --atomic origin HEAD "$TAG"
+echo "✓ Release commit and tag pushed atomically"
 
 # Upload to PyPI
 echo ""
@@ -115,5 +108,5 @@ echo ""
 echo "View on PyPI:"
 echo "  https://pypi.org/project/moneyflow/$VERSION/"
 echo ""
-echo "Don't forget to push your tags:"
-echo "  git push --tags"
+echo "Release commit and tag were pushed before upload with:"
+echo "  git push --atomic origin HEAD $TAG"
