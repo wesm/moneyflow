@@ -14,7 +14,7 @@ TUI (Textual app)
   |     |-- CacheManager -- reads/writes encrypted Parquet + JSON on disk
   |     |-- DataManager  -- wraps the backend, converts API responses to DataFrames
   |
-  |-- Backend (FinanceBackend protocol)
+  |-- Backend (FinanceBackend ABC)
         |
         |-- Monarch Money API
         |-- YNAB API
@@ -124,17 +124,43 @@ being saved in the cold tier.
 
 ## Backend Abstraction
 
-All backends implement the `FinanceBackend` protocol:
+All backends subclass the `FinanceBackend` abstract base class defined in
+`moneyflow/backends/base.py`:
 
 ```python
-class FinanceBackend(Protocol):
-    async def login(self, creds: dict) -> bool: ...
-    async def get_transactions(self, ...) -> dict: ...
+class FinanceBackend(ABC):
+    @abstractmethod
+    async def login(self, email=None, password=None, use_saved_session=True,
+                    save_session=True, mfa_secret_key=None) -> None: ...
+
+    @abstractmethod
+    async def get_transactions(self, limit=100, offset=0, start_date=None,
+                               end_date=None, **kwargs) -> dict: ...
+
+    @abstractmethod
     async def get_transaction_categories(self) -> dict: ...
+
+    @abstractmethod
     async def get_transaction_category_groups(self) -> dict: ...
-    async def commit_edit(self, edit: Edit) -> bool: ...
+
+    @abstractmethod
+    async def update_transaction(self, transaction_id, merchant_name=None,
+                                 category_id=None, hide_from_reports=None,
+                                 **kwargs) -> dict: ...
+
+    @abstractmethod
+    async def delete_transaction(self, transaction_id: str) -> bool: ...
+
+    @abstractmethod
     async def get_all_merchants(self) -> list[str]: ...
+
+    @abstractmethod
+    def get_backend_type(self) -> str: ...
 ```
+
+Backends also inherit concrete helpers with sensible defaults — for example
+`get_display_labels`, `get_column_config`, `get_currency_symbol`,
+`get_computed_columns`, and `clear_auth` — which they can override as needed.
 
 Supported backends:
 
