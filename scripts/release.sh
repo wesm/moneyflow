@@ -323,6 +323,8 @@ fi
 
 write_tag_message "$CHANGELOG_FILE" "$TAG_MESSAGE_FILE"
 
+preflight_remote_tag
+
 echo_step "Bump version, run quality checks, commit, and tag"
 run_cmd "./scripts/bump-version.sh $VERSION" "$SCRIPT_DIR/bump-version.sh" "$VERSION"
 
@@ -331,8 +333,6 @@ retag_with_changelog "$TAG_MESSAGE_FILE"
 
 echo_step "Test built package locally"
 run_cmd "./scripts/test-build.sh" "$SCRIPT_DIR/test-build.sh"
-
-preflight_remote_tag
 
 echo_step "TestPyPI"
 run_optional_script \

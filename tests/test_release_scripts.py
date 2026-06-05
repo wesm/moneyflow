@@ -104,6 +104,15 @@ def test_release_dry_run_preflights_remote_tag_before_production_publish() -> No
     assert remote_tag_index < pypi_index
 
 
+def test_release_dry_run_preflights_remote_tag_before_version_bump() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
+
+    assert result.returncode == 0
+    remote_tag_index = result.stdout.index("git ls-remote --exit-code --tags origin v99.99.99")
+    bump_index = result.stdout.index("./scripts/bump-version.sh 99.99.99")
+    assert remote_tag_index < bump_index
+
+
 def test_release_dry_run_pushes_release_state_atomically() -> None:
     result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
 
