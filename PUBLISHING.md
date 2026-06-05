@@ -30,62 +30,59 @@ chmod 600 ~/.pypirc
 
 ## Publishing Workflow
 
-Use the automated scripts in `scripts/` directory:
-
-### 1. Bump Version
+Use the single release entrypoint for normal releases:
 
 ```bash
-./scripts/bump-version.sh 0.2.0
+./scripts/release.sh 0.2.0
 ```
 
-This updates pyproject.toml, commits, and creates a git tag.
+This script:
 
-### 2. Test Build Locally
+- Generates and previews a changelog
+- Runs the version bump checks
+- Updates `pyproject.toml`, `mkdocs.yml`, and `uv.lock`
+- Commits the version bump and creates a release tag
+- Recreates the tag as an annotated tag with the accepted changelog
+- Tests the built package locally
+- Pushes the release commit and tag
+- Prompts for TestPyPI and production PyPI publishing
+
+Dry-run the planned flow first:
 
 ```bash
-./scripts/test-build.sh
+./scripts/release.sh 0.2.0 --dry-run
 ```
 
-Builds and tests the package with uvx before uploading.
-
-### 3. Publish to TestPyPI
+Useful options:
 
 ```bash
-./scripts/publish-testpypi.sh
+./scripts/release.sh 0.2.0 --skip-testpypi
+./scripts/release.sh 0.2.0 --skip-pypi
+./scripts/release.sh 0.2.0 --skip-push
 ```
 
-Runs tests, builds, and uploads to TestPyPI.
+### Test from TestPyPI
 
-### 4. Test from TestPyPI
+If you publish to TestPyPI, verify the package before publishing to production:
 
 ```bash
 uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ moneyflow --demo
 ```
 
-### 5. Publish to PyPI
+### Post-Publish Automation
+
+Post-publish automation updates the `stable` branch and pushes it to trigger
+docs deployment. It changes branches, so it is opt-in:
 
 ```bash
-./scripts/publish-pypi.sh
+./scripts/release.sh 0.2.0 --post-publish
 ```
 
-Publishes to production PyPI (with confirmation prompts).
-
-### 6. Push to GitHub
-
-```bash
-git push && git push --tags
-```
-
-### 7. Post-Publish Automation
+Or run the subscript after publishing:
 
 ```bash
 ./scripts/post-publish.sh v0.2.0
 ```
-
-This automates:
-
-- Updating stable branch to release tag
-- Pushing to GitHub (triggers docs deployment with screenshot generation)
 
 ---
 
@@ -93,13 +90,7 @@ This automates:
 
 ```bash
 # Full release workflow
-./scripts/bump-version.sh 0.2.0
-./scripts/test-build.sh
-./scripts/publish-testpypi.sh
-# Test from TestPyPI...
-./scripts/publish-pypi.sh
-git push && git push --tags
-./scripts/post-publish.sh v0.2.0
+./scripts/release.sh 0.2.0
 ```
 
 See `scripts/README.md` for detailed script documentation.

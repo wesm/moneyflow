@@ -158,30 +158,34 @@ See `.github/workflows/test.yml` for details.
 ## Release Process
 
 ```bash
-# 1. Bump version (runs all quality checks automatically)
-./scripts/bump-version.sh 0.x.y
+# Preview the release flow
+./scripts/release.sh 0.x.y --dry-run
 
-# 2. Review the version bump commit
-git show
-
-# 3. Push to GitHub
-git push && git push --tags
-
-# 4. Publish to PyPI (if authorized)
-./scripts/publish-pypi.sh
+# Run the release
+./scripts/release.sh 0.x.y
 ```
 
-The bump-version.sh script automatically:
+The release script automatically:
 
+- Generates and previews a changelog
 - Runs all tests
 - Runs type checking (pyright)
 - Checks code formatting (ruff format)
 - Runs linter (ruff check)
 - Updates version in pyproject.toml and mkdocs.yml
 - Updates uv.lock
-- Creates commit and git tag
+- Creates the version bump commit and release tag
+- Tests the built package locally
+- Pushes the release commit and tag
+- Prompts for TestPyPI and PyPI publishing
 
 This ensures releases never have failing tests or code quality issues.
+
+Post-publish docs automation updates the `stable` branch, so it is opt-in:
+
+```bash
+./scripts/release.sh 0.x.y --post-publish
+```
 
 ## Troubleshooting
 

@@ -52,7 +52,9 @@ class TestEditMerchantParams:
         assert params["current_merchant"] == "Amazon"
         assert params["transaction_count"] == 15
         assert params["all_merchants"] == ["Amazon"]
-        assert params["bulk_summary"]["total_amount"] == -250.50
+        bulk_summary = params.get("bulk_summary")
+        assert bulk_summary is not None
+        assert bulk_summary["total_amount"] == -250.50
 
     def test_with_txn_details(self):
         params = get_edit_merchant_params(
@@ -65,9 +67,11 @@ class TestEditMerchantParams:
         assert params["current_merchant"] == "Amazon"
         assert params["transaction_count"] == 1
         assert params["all_merchants"] == ["Amazon"]
-        assert params["txn_details"]["date"] == "2025-10-14"
-        assert params["txn_details"]["amount"] == -42.99
-        assert params["txn_details"]["category"] == "Shopping"
+        txn_details = params.get("txn_details")
+        assert txn_details is not None
+        assert txn_details["date"] == "2025-10-14"
+        assert txn_details["amount"] == -42.99
+        assert txn_details["category"] == "Shopping"
 
     def test_both_bulk_and_details(self):
         """Can include both bulk summary and transaction details."""
@@ -115,7 +119,9 @@ class TestSelectCategoryParams:
             txn_details={"date": "2025-10-14", "amount": -25.0, "merchant": "Safeway"},
         )
 
-        assert params["txn_details"]["merchant"] == "Safeway"
+        txn_details = params.get("txn_details")
+        assert txn_details is not None
+        assert txn_details["merchant"] == "Safeway"
 
 
 class TestReviewChangesParams:

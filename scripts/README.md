@@ -118,7 +118,28 @@ brew install cairo pango gdk-pixbuf libffi
 
 ## Release Scripts
 
+Use the single release entrypoint for normal releases:
+
+```bash
+./scripts/release.sh 0.10.0
+```
+
+It generates a changelog, runs the version bump checks, tests the built package,
+pushes the release commit/tag, and prompts for TestPyPI/PyPI publishing.
+
+Useful options:
+
+```bash
+./scripts/release.sh 0.10.0 --dry-run
+./scripts/release.sh 0.10.0 --skip-testpypi
+./scripts/release.sh 0.10.0 --skip-pypi
+./scripts/release.sh 0.10.0 --post-publish
+```
+
+The underlying scripts remain available for targeted steps:
+
 - `bump-version.sh` - Bump version number and create git tag
+- `changelog.sh` - Generate release notes from commits
 - `test-build.sh` - Test package build locally
 - `publish-testpypi.sh` - Publish to TestPyPI for testing
 - `publish-pypi.sh` - Publish to production PyPI

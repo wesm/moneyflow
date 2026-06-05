@@ -11,9 +11,14 @@ Tests the complete editing workflows including:
 from datetime import datetime
 
 import polars as pl
+from textual.await_complete import AwaitComplete
 
 from moneyflow.data.state import TransactionEdit
-from moneyflow.tui.screens.edit_screens import parse_merchant_option_id, validate_merchant_name
+from moneyflow.tui.screens.edit_screens import (
+    EditMerchantScreen,
+    parse_merchant_option_id,
+    validate_merchant_name,
+)
 
 
 async def commit_and_verify_edit(dm, mock_mm, txn_id, field, old_val, new_val, expected_path):
@@ -660,7 +665,7 @@ class TestMerchantCreation:
 
         app = self.get_app_with_screen(all_merchants=["Amazon", "Amazon.com", "Amazon UK"])
         async with app.run_test() as pilot:
-            screen = app.query_one("EditMerchantScreen")
+            screen = app.query_one("EditMerchantScreen", EditMerchantScreen)
             merchant_input = screen.query_one("#merchant-input", Input)
 
             # Simulate typing a brand new merchant
@@ -703,7 +708,7 @@ class TestMerchantCreation:
             all_merchants=["Star Market", "Starbucks", "Starbucks Coffee"]
         )
         async with app.run_test() as pilot:
-            screen = app.query_one("EditMerchantScreen")
+            screen = app.query_one("EditMerchantScreen", EditMerchantScreen)
             merchant_input = screen.query_one("#merchant-input", Input)
 
             # Type partial match that generates matches and a "create new"
@@ -714,9 +719,10 @@ class TestMerchantCreation:
             # Mock dismiss to intercept the selected value
             dismiss_value = None
 
-            def mock_dismiss(result=None):
+            def mock_dismiss(result: object | None = None) -> AwaitComplete:
                 nonlocal dismiss_value
                 dismiss_value = result
+                return AwaitComplete()
 
             screen.dismiss = mock_dismiss
 
