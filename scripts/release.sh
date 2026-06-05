@@ -126,6 +126,8 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 TAG="v$VERSION"
+TAG_REF="refs/tags/$TAG"
+TAG_REFSPEC="$TAG_REF:$TAG_REF"
 
 if [ "$POST_PUBLISH_MODE" = "run" ] && [ "$RUN_PYPI" -eq 0 ] && [ "$FORCE_POST_PUBLISH" -eq 0 ]; then
     error "--post-publish requires production PyPI publishing. Use --force-post-publish to override."
@@ -138,7 +140,7 @@ fi
 
 cd "$REPO_ROOT"
 
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+if git rev-parse -q --verify "$TAG_REF" >/dev/null; then
     error "Tag $TAG already exists"
 fi
 
@@ -279,11 +281,11 @@ preflight_remote_tag() {
 
     echo_step "Preflight remote release tag"
     if [ "$DRY_RUN" -eq 1 ]; then
-        print_cmd "git ls-remote --exit-code --tags origin $TAG"
+        print_cmd "git ls-remote --exit-code --tags origin $TAG_REF"
         return 0
     fi
 
-    if git ls-remote --exit-code --tags origin "$TAG" >/dev/null; then
+    if git ls-remote --exit-code --tags origin "$TAG_REF" >/dev/null; then
         error "Tag $TAG already exists on origin"
     else
         local status=$?
@@ -299,8 +301,8 @@ preflight_release_push() {
     fi
 
     echo_step "Preflight release push"
-    run_cmd "git push --dry-run --atomic origin HEAD $TAG" \
-        git push --dry-run --atomic origin HEAD "$TAG"
+    run_cmd "git push --dry-run --atomic origin HEAD $TAG_REFSPEC" \
+        git push --dry-run --atomic origin HEAD "$TAG_REFSPEC"
 }
 
 print_testpypi_verification_command() {
@@ -407,14 +409,14 @@ if [ "$PYPI_PUBLISHED" -eq 1 ]; then
     fi
 elif release_push_should_run; then
     echo_step "Push release commit and tag"
-    run_cmd "git push --atomic origin HEAD $TAG" git push --atomic origin HEAD "$TAG"
+    run_cmd "git push --atomic origin HEAD $TAG_REFSPEC" git push --atomic origin HEAD "$TAG_REFSPEC"
 else
     echo_step "Skipping push"
     if [ "$RUN_PUSH" -eq 0 ]; then
         echo "Push skipped by option."
     else
         echo "Push manually after publishing:"
-        echo "  git push --atomic origin HEAD $TAG"
+        echo "  git push --atomic origin HEAD $TAG_REFSPEC"
     fi
 fi
 

@@ -108,7 +108,7 @@ rerun `release.sh` for the same version. Push the existing release commit/tag
 and run the post-publish subscript directly:
 
 ```bash
-git push --atomic origin HEAD v0.2.0
+git push --atomic origin HEAD refs/tags/v0.2.0:refs/tags/v0.2.0
 ./scripts/post-publish.sh v0.2.0
 ```
 

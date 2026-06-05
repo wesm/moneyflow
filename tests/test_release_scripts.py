@@ -13,6 +13,7 @@ PUBLISH_PYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-pypi.sh"
 PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
 DEVELOPING_DOC = REPO_ROOT / "docs" / "development" / "developing.md"
 SCRIPTS_README = REPO_ROOT / "scripts" / "README.md"
+EXAMPLE_TAG_REFSPEC = "refs/tags/v99.99.99:refs/tags/v99.99.99"
 
 
 def run_release(*args: str) -> subprocess.CompletedProcess[str]:
@@ -141,7 +142,9 @@ def test_release_dry_run_preflights_remote_tag_before_production_publish() -> No
     result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
 
     assert result.returncode == 0
-    remote_tag_index = result.stdout.index("git ls-remote --exit-code --tags origin v99.99.99")
+    remote_tag_index = result.stdout.index(
+        "git ls-remote --exit-code --tags origin refs/tags/v99.99.99"
+    )
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
     assert remote_tag_index < pypi_index
 
@@ -150,7 +153,9 @@ def test_release_dry_run_preflights_remote_tag_before_version_bump() -> None:
     result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
 
     assert result.returncode == 0
-    remote_tag_index = result.stdout.index("git ls-remote --exit-code --tags origin v99.99.99")
+    remote_tag_index = result.stdout.index(
+        "git ls-remote --exit-code --tags origin refs/tags/v99.99.99"
+    )
     bump_index = result.stdout.index("./scripts/bump-version.sh 99.99.99")
     assert remote_tag_index < bump_index
 
@@ -160,7 +165,9 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
 
     assert result.returncode == 0
     tag_index = result.stdout.index("git tag -a v99.99.99 -F <generated changelog>")
-    dry_run_push_index = result.stdout.index("git push --dry-run --atomic origin HEAD v99.99.99")
+    dry_run_push_index = result.stdout.index(
+        f"git push --dry-run --atomic origin HEAD {EXAMPLE_TAG_REFSPEC}"
+    )
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
     assert tag_index < dry_run_push_index < pypi_index
 
@@ -168,12 +175,12 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
 def test_publish_pypi_pushes_release_state_immediately_before_upload() -> None:
     publish_script = PUBLISH_PYPI_SCRIPT.read_text()
 
-    remote_tag_index = publish_script.index('git ls-remote --tags origin "refs/tags/$TAG"')
-    push_index = publish_script.index('git push --atomic origin HEAD "$TAG"')
+    remote_tag_index = publish_script.index('git ls-remote --tags origin "$TAG_REF"')
+    push_index = publish_script.index('git push --atomic origin HEAD "$TAG_REFSPEC"')
     upload_index = publish_script.index("uvx twine upload dist/*")
 
     assert remote_tag_index < push_index < upload_index
-    assert 'git push --dry-run --atomic origin HEAD "$TAG"' not in publish_script
+    assert 'git push --dry-run --atomic origin HEAD "$TAG_REFSPEC"' not in publish_script
 
     final_gap = publish_script[push_index:upload_index]
     assert "uv run pytest" not in final_gap
@@ -185,7 +192,8 @@ def test_publish_pypi_does_not_recommend_push_tags() -> None:
     publish_script = PUBLISH_PYPI_SCRIPT.read_text()
 
     assert "git push --tags" not in publish_script
-    assert "git push --atomic origin HEAD $TAG" in publish_script
+    assert 'git push --atomic origin HEAD "$TAG_REFSPEC"' in publish_script
+    assert "git push --atomic origin HEAD refs/tags/$TAG:refs/tags/$TAG" in publish_script
 
 
 def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path) -> None:
@@ -195,6 +203,18 @@ def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "Tag v99.99.99 does not exist" in result.stderr
+    assert "Uploading to PyPI" not in result.stdout
+
+
+def test_publish_pypi_rejects_branch_named_like_release_tag(tmp_path: Path) -> None:
+    repo = init_publish_repo(tmp_path)
+    assert run_command("git", "branch", "v99.99.99", cwd=repo).returncode == 0
+
+    result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo)
+
+    assert result.returncode == 1
+    assert "Tag v99.99.99 does not exist" in result.stderr
+    assert "Running tests" not in result.stdout
     assert "Uploading to PyPI" not in result.stdout
 
 
@@ -281,9 +301,9 @@ def test_manual_publish_docs_use_direct_push_and_post_publish() -> None:
     release_docs = "\n".join([publishing_doc, developing_doc, scripts_readme])
 
     assert "--post-publish --force-post-publish" not in release_docs
-    assert "git push --atomic origin HEAD v0.2.0" in publishing_doc
+    assert "git push --atomic origin HEAD refs/tags/v0.2.0:refs/tags/v0.2.0" in publishing_doc
     assert "./scripts/post-publish.sh v0.2.0" in publishing_doc
-    assert "git push --atomic origin HEAD v0.x.y" in developing_doc
+    assert "git push --atomic origin HEAD refs/tags/v0.x.y:refs/tags/v0.x.y" in developing_doc
     assert "./scripts/post-publish.sh v0.x.y" in developing_doc
 
 
@@ -324,7 +344,7 @@ def test_release_dry_run_force_post_publish_allows_explicit_unpublished_push() -
 
     assert result.returncode == 0
     commands = dry_run_commands(result.stdout)
-    assert "git push --atomic origin HEAD v99.99.99" in commands
+    assert f"git push --atomic origin HEAD {EXAMPLE_TAG_REFSPEC}" in commands
     assert "./scripts/post-publish.sh v99.99.99" in commands
 
 

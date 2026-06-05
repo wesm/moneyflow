@@ -192,7 +192,7 @@ For a manual-publish workflow outside `release.sh`, push the existing release
 commit/tag and run post-publish directly:
 
 ```bash
-git push --atomic origin HEAD v0.x.y
+git push --atomic origin HEAD refs/tags/v0.x.y:refs/tags/v0.x.y
 ./scripts/post-publish.sh v0.x.y
 ```
 

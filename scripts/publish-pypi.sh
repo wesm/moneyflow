@@ -22,10 +22,12 @@ echo ""
 # Get version from pyproject.toml
 VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
 TAG="v$VERSION"
+TAG_REF="refs/tags/$TAG"
+TAG_REFSPEC="$TAG_REF:$TAG_REF"
 echo "Version: $VERSION"
 echo ""
 
-TAG_COMMIT=$(git rev-parse -q --verify "$TAG^{commit}") || error "Tag $TAG does not exist locally"
+TAG_COMMIT=$(git rev-parse -q --verify "$TAG_REF^{commit}") || error "Tag $TAG does not exist locally"
 HEAD_COMMIT=$(git rev-parse HEAD)
 
 if [ "$TAG_COMMIT" != "$HEAD_COMMIT" ]; then
@@ -77,18 +79,18 @@ fi
 # Final release-state preflight must happen immediately before production upload.
 echo ""
 echo "Pushing release commit and tag..."
-REMOTE_TAG_OUTPUT=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}") \
+REMOTE_TAG_OUTPUT=$(git ls-remote --tags origin "$TAG_REF" "$TAG_REF^{}") \
     || error "Could not check origin for existing tag $TAG"
-REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1; exit }')
+REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="$TAG_REF^{}" '$2 == ref { print $1; exit }')
 if [ -z "$REMOTE_TAG_COMMIT" ]; then
-    REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="refs/tags/$TAG" '$2 == ref { print $1; exit }')
+    REMOTE_TAG_COMMIT=$(printf '%s\n' "$REMOTE_TAG_OUTPUT" | awk -v ref="$TAG_REF" '$2 == ref { print $1; exit }')
 fi
 if [ -n "$REMOTE_TAG_COMMIT" ]; then
     if [ "$REMOTE_TAG_COMMIT" != "$TAG_COMMIT" ]; then
         error "Tag $TAG already exists on origin and does not match HEAD"
     fi
 fi
-git push --atomic origin HEAD "$TAG"
+git push --atomic origin HEAD "$TAG_REFSPEC"
 echo "✓ Release commit and tag pushed atomically"
 
 # Upload to PyPI
@@ -109,4 +111,4 @@ echo "View on PyPI:"
 echo "  https://pypi.org/project/moneyflow/$VERSION/"
 echo ""
 echo "Release commit and tag were pushed before upload with:"
-echo "  git push --atomic origin HEAD $TAG"
+echo "  git push --atomic origin HEAD refs/tags/$TAG:refs/tags/$TAG"
