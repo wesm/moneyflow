@@ -177,7 +177,7 @@ The release script automatically:
 - Creates the version bump commit and release tag
 - Tests the built package locally
 - Prompts for TestPyPI and PyPI publishing
-- Pushes the release commit and tag after production publishing succeeds
+- Pushes the release commit and tag atomically after production publishing succeeds
 
 This ensures releases never have failing tests or code quality issues.
 
@@ -188,8 +188,8 @@ Post-publish docs automation updates the `stable` branch, so it is opt-in:
 ```
 
 It only runs after production PyPI publishing succeeds in the same release run.
-For a manual-publish workflow, `--force-post-publish` also allows the release
-commit/tag push and post-publish automation.
+For a manual-publish workflow, `--force-post-publish` also allows the atomic
+release commit/tag push and post-publish automation.
 
 ## Troubleshooting
 

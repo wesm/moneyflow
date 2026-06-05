@@ -38,7 +38,7 @@ Options:
   --yes                 Auto-confirm release.sh prompts. Subscripts may still prompt.
   --skip-testpypi       Do not offer to publish to TestPyPI.
   --skip-pypi           Do not offer to publish to production PyPI.
-  --skip-push           Do not push the version commit or release tag after publishing.
+  --skip-push           Do not atomically push the version commit and release tag after publishing.
   --post-publish        Run post-publish stable/docs automation at the end.
   --force-post-publish  Allow push/post-publish when PyPI publish was skipped or declined.
   --skip-post-publish   Do not run post-publish stable/docs automation (default).
@@ -243,6 +243,51 @@ run_optional_script() {
     fi
 }
 
+release_push_may_run() {
+    if [ "$RUN_PUSH" -eq 0 ]; then
+        return 1
+    fi
+
+    if [ "$RUN_PYPI" -eq 1 ]; then
+        return 0
+    fi
+
+    [ "$POST_PUBLISH_MODE" = "run" ] && [ "$FORCE_POST_PUBLISH" -eq 1 ]
+}
+
+release_push_should_run() {
+    if [ "$RUN_PUSH" -eq 0 ]; then
+        return 1
+    fi
+
+    if [ "$PYPI_PUBLISHED" -eq 1 ]; then
+        return 0
+    fi
+
+    [ "$POST_PUBLISH_MODE" = "run" ] && [ "$FORCE_POST_PUBLISH" -eq 1 ]
+}
+
+preflight_remote_tag() {
+    if ! release_push_may_run; then
+        return 0
+    fi
+
+    echo_step "Preflight remote release tag"
+    if [ "$DRY_RUN" -eq 1 ]; then
+        print_cmd "git ls-remote --exit-code --tags origin $TAG"
+        return 0
+    fi
+
+    if git ls-remote --exit-code --tags origin "$TAG" >/dev/null; then
+        error "Tag $TAG already exists on origin"
+    else
+        local status=$?
+        if [ "$status" -ne 2 ]; then
+            error "Could not check origin for existing tag $TAG"
+        fi
+    fi
+}
+
 CHANGELOG_FILE="$(mktemp)"
 TAG_MESSAGE_FILE="$(mktemp)"
 trap 'rm -f "$CHANGELOG_FILE" "$TAG_MESSAGE_FILE"' EXIT
@@ -287,6 +332,8 @@ retag_with_changelog "$TAG_MESSAGE_FILE"
 echo_step "Test built package locally"
 run_cmd "./scripts/test-build.sh" "$SCRIPT_DIR/test-build.sh"
 
+preflight_remote_tag
+
 echo_step "TestPyPI"
 run_optional_script \
     "$RUN_TESTPYPI" \
@@ -308,20 +355,16 @@ run_optional_script \
     "$SCRIPT_DIR/publish-pypi.sh"
 PYPI_PUBLISHED="$OPTIONAL_SCRIPT_RAN"
 
-if [ "$RUN_PUSH" -eq 1 ] \
-    && { [ "$PYPI_PUBLISHED" -eq 1 ] \
-        || { [ "$POST_PUBLISH_MODE" = "run" ] && [ "$FORCE_POST_PUBLISH" -eq 1 ]; }; }; then
+if release_push_should_run; then
     echo_step "Push release commit and tag"
-    run_cmd "git push origin HEAD" git push origin HEAD
-    run_cmd "git push origin $TAG" git push origin "$TAG"
+    run_cmd "git push --atomic origin HEAD $TAG" git push --atomic origin HEAD "$TAG"
 else
     echo_step "Skipping push"
     if [ "$RUN_PUSH" -eq 0 ]; then
         echo "Push skipped by option."
     else
         echo "Push manually after publishing:"
-        echo "  git push origin HEAD"
-        echo "  git push origin $TAG"
+        echo "  git push --atomic origin HEAD $TAG"
     fi
 fi
 

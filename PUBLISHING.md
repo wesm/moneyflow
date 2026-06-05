@@ -45,7 +45,7 @@ This script:
 - Recreates the tag as an annotated tag with the accepted changelog
 - Tests the built package locally
 - Prompts for TestPyPI and production PyPI publishing
-- Pushes the release commit and tag after production publishing succeeds
+- Pushes the release commit and tag atomically after production publishing succeeds
 
 Dry-run the planned flow first:
 
@@ -79,8 +79,8 @@ docs deployment. It changes branches, so it is opt-in:
 ```
 
 Post-publish automation requires a successful production PyPI publish in the
-same `release.sh` run. To push and run post-publish automation after manually
-publishing, pass the explicit override:
+same `release.sh` run. To atomically push and run post-publish automation after
+manually publishing, pass the explicit override:
 
 ```bash
 ./scripts/release.sh 0.2.0 --post-publish --force-post-publish

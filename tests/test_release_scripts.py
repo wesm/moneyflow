@@ -91,8 +91,27 @@ def test_release_dry_run_pushes_after_production_publish() -> None:
 
     assert result.returncode == 0
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
-    push_index = result.stdout.index("git push origin v99.99.99")
+    push_index = result.stdout.index("git push --atomic origin HEAD v99.99.99")
     assert pypi_index < push_index
+
+
+def test_release_dry_run_preflights_remote_tag_before_production_publish() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
+
+    assert result.returncode == 0
+    remote_tag_index = result.stdout.index("git ls-remote --exit-code --tags origin v99.99.99")
+    pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
+    assert remote_tag_index < pypi_index
+
+
+def test_release_dry_run_pushes_release_state_atomically() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
+
+    assert result.returncode == 0
+    commands = dry_run_commands(result.stdout)
+    assert "git push --atomic origin HEAD v99.99.99" in commands
+    assert "git push origin HEAD" not in commands
+    assert "git push origin v99.99.99" not in commands
 
 
 def test_release_dry_run_does_not_push_when_pypi_is_skipped() -> None:
@@ -105,7 +124,7 @@ def test_release_dry_run_does_not_push_when_pypi_is_skipped() -> None:
     )
 
     assert result.returncode == 0
-    assert "git push origin v99.99.99" not in dry_run_commands(result.stdout)
+    assert all(not command.startswith("git push") for command in dry_run_commands(result.stdout))
     assert "Push manually after publishing" in result.stdout
 
 
@@ -121,7 +140,7 @@ def test_release_dry_run_force_post_publish_allows_explicit_unpublished_push() -
 
     assert result.returncode == 0
     commands = dry_run_commands(result.stdout)
-    assert "git push origin v99.99.99" in commands
+    assert "git push --atomic origin HEAD v99.99.99" in commands
     assert "./scripts/post-publish.sh v99.99.99" in commands
 
 
