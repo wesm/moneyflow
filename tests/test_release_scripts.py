@@ -8,6 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
+PUBLISH_TESTPYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-testpypi.sh"
 
 
 def run_release(*args: str) -> subprocess.CompletedProcess[str]:
@@ -121,6 +122,33 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
     dry_run_push_index = result.stdout.index("git push --dry-run --atomic origin HEAD v99.99.99")
     pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
     assert tag_index < dry_run_push_index < pypi_index
+
+
+def test_release_testpypi_verification_uses_exact_wheel_url_not_testpypi_index() -> None:
+    result = run_release(
+        "99.99.99",
+        "--dry-run",
+        "--skip-pypi",
+        "--skip-post-publish",
+    )
+
+    assert result.returncode == 0
+    assert "https://test.pypi.org/pypi/moneyflow/99.99.99/json" in result.stdout
+    assert 'uvx --index-url https://pypi.org/simple/ --from "$WHEEL_URL" moneyflow --demo' in (
+        result.stdout
+    )
+    assert "--index-url https://test.pypi.org/simple/" not in result.stdout
+    assert "--extra-index-url https://pypi.org/simple/" not in result.stdout
+
+
+def test_publish_testpypi_does_not_recommend_untrusted_testpypi_resolution() -> None:
+    publish_script = PUBLISH_TESTPYPI_SCRIPT.read_text()
+
+    assert "--index-url https://test.pypi.org/simple/" not in publish_script
+    assert "--extra-index-url https://pypi.org/simple/" not in publish_script
+    assert 'uvx --index-url https://pypi.org/simple/ --from "\\$WHEEL_URL" moneyflow --demo' in (
+        publish_script
+    )
 
 
 def test_release_dry_run_pushes_release_state_atomically() -> None:

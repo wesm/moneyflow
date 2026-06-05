@@ -298,6 +298,33 @@ preflight_release_push() {
         git push --dry-run --atomic origin HEAD "$TAG"
 }
 
+print_testpypi_verification_command() {
+    cat <<EOF
+TestPyPI verification command:
+  WHEEL_URL="\$(uv run python - "$VERSION" <<'PY'
+import json
+import sys
+import urllib.request
+
+version = sys.argv[1]
+wheel_name = f"moneyflow-{version}-py3-none-any.whl"
+url = "https://test.pypi.org/pypi/moneyflow/$VERSION/json"
+
+with urllib.request.urlopen(url) as response:
+    release = json.load(response)
+
+for file_info in release["urls"]:
+    if file_info["packagetype"] == "bdist_wheel" and file_info["filename"] == wheel_name:
+        print(file_info["url"])
+        break
+else:
+    raise SystemExit(f"Could not find {wheel_name} on TestPyPI")
+PY
+)"
+  uvx --index-url https://pypi.org/simple/ --from "\$WHEEL_URL" moneyflow --demo
+EOF
+}
+
 CHANGELOG_FILE="$(mktemp)"
 TAG_MESSAGE_FILE="$(mktemp)"
 trap 'rm -f "$CHANGELOG_FILE" "$TAG_MESSAGE_FILE"' EXIT
@@ -355,8 +382,7 @@ run_optional_script \
 
 if [ "$RUN_TESTPYPI" -eq 1 ]; then
     echo ""
-    echo "TestPyPI verification command:"
-    echo "  uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ moneyflow --demo"
+    print_testpypi_verification_command
 fi
 
 echo_step "PyPI"

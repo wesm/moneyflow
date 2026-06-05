@@ -56,7 +56,29 @@ echo ""
 echo "✅ Published to TestPyPI!"
 echo ""
 echo "Test it with:"
-echo "  uvx --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ moneyflow --demo"
+cat <<EOF
+  WHEEL_URL="\$(uv run python - "$VERSION" <<'PY'
+import json
+import sys
+import urllib.request
+
+version = sys.argv[1]
+wheel_name = f"moneyflow-{version}-py3-none-any.whl"
+url = "https://test.pypi.org/pypi/moneyflow/$VERSION/json"
+
+with urllib.request.urlopen(url) as response:
+    release = json.load(response)
+
+for file_info in release["urls"]:
+    if file_info["packagetype"] == "bdist_wheel" and file_info["filename"] == wheel_name:
+        print(file_info["url"])
+        break
+else:
+    raise SystemExit(f"Could not find {wheel_name} on TestPyPI")
+PY
+)"
+  uvx --index-url https://pypi.org/simple/ --from "\$WHEEL_URL" moneyflow --demo
+EOF
 echo ""
 echo "If it works, publish to real PyPI:"
 echo "  ./scripts/publish-pypi.sh"
