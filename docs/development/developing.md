@@ -167,7 +167,7 @@ See `.github/workflows/test.yml` for details.
 
 The release script automatically:
 
-- Generates and previews a changelog
+- Generates and previews a deterministic changelog from commit subjects
 - Runs all tests
 - Runs type checking (pyright)
 - Checks code formatting (ruff format)
@@ -186,6 +186,9 @@ Post-publish docs automation updates the `stable` branch, so it is opt-in:
 ```bash
 ./scripts/release.sh 0.x.y --post-publish
 ```
+
+It only runs after production PyPI publishing succeeds in the same release run,
+unless `--force-post-publish` is also passed for a manual-publish workflow.
 
 ## Troubleshooting
 

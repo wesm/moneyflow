@@ -19,6 +19,9 @@ RUN_TESTPYPI=1
 RUN_PYPI=1
 RUN_PUSH=1
 POST_PUBLISH_MODE="skip"
+FORCE_POST_PUBLISH=0
+PYPI_PUBLISHED=0
+OPTIONAL_SCRIPT_RAN=0
 
 usage() {
     cat <<'EOF'
@@ -37,6 +40,7 @@ Options:
   --skip-pypi           Do not offer to publish to production PyPI.
   --skip-push           Do not push the version commit or release tag.
   --post-publish        Run post-publish stable/docs automation at the end.
+  --force-post-publish  Allow post-publish when PyPI publish was skipped or declined.
   --skip-post-publish   Do not run post-publish stable/docs automation (default).
   -h, --help            Show this help text.
 
@@ -83,6 +87,9 @@ while [ "$#" -gt 0 ]; do
             ;;
         --post-publish)
             POST_PUBLISH_MODE="run"
+            ;;
+        --force-post-publish)
+            FORCE_POST_PUBLISH=1
             ;;
         --skip-post-publish)
             POST_PUBLISH_MODE="skip"
@@ -132,8 +139,8 @@ if [ "$DRY_RUN" -eq 0 ] && [ -n "$(git status --porcelain)" ]; then
     error "Commit or stash changes before releasing"
 fi
 
-if [ "$DRY_RUN" -eq 0 ] && ! command -v codex >/dev/null 2>&1; then
-    error "codex CLI is required for changelog generation"
+if [ "$POST_PUBLISH_MODE" = "run" ] && [ "$RUN_PYPI" -eq 0 ] && [ "$FORCE_POST_PUBLISH" -eq 0 ]; then
+    error "--post-publish requires production PyPI publishing. Use --force-post-publish to override."
 fi
 
 echo_step() {
@@ -215,6 +222,7 @@ run_optional_script() {
     local prompt="$2"
     local display="$3"
     shift 3
+    OPTIONAL_SCRIPT_RAN=0
 
     if [ "$enabled" -eq 0 ]; then
         echo "Skipped by option."
@@ -223,11 +231,13 @@ run_optional_script() {
 
     if [ "$DRY_RUN" -eq 1 ]; then
         print_cmd "$display"
+        OPTIONAL_SCRIPT_RAN=1
         return 0
     fi
 
     if confirm "$prompt"; then
         run_cmd "$display" "$@"
+        OPTIONAL_SCRIPT_RAN=1
     else
         echo "Skipped $display"
     fi
@@ -307,6 +317,7 @@ run_optional_script \
     "Publish $TAG to production PyPI now?" \
     "./scripts/publish-pypi.sh" \
     "$SCRIPT_DIR/publish-pypi.sh"
+PYPI_PUBLISHED="$OPTIONAL_SCRIPT_RAN"
 
 case "$POST_PUBLISH_MODE" in
     skip)
@@ -314,6 +325,9 @@ case "$POST_PUBLISH_MODE" in
         ;;
     run)
         echo_step "Post-publish stable/docs automation"
+        if [ "$PYPI_PUBLISHED" -eq 0 ] && [ "$FORCE_POST_PUBLISH" -eq 0 ]; then
+            error "Post-publish automation requires a successful production PyPI publish. Use --force-post-publish to override."
+        fi
         if [ "$DRY_RUN" -eq 1 ]; then
             print_cmd "./scripts/post-publish.sh $TAG"
         else

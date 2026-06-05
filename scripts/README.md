@@ -124,8 +124,9 @@ Use the single release entrypoint for normal releases:
 ./scripts/release.sh 0.10.0
 ```
 
-It generates a changelog, runs the version bump checks, tests the built package,
-pushes the release commit/tag, and prompts for TestPyPI/PyPI publishing.
+It generates a deterministic changelog from commit subjects, runs the version
+bump checks, tests the built package, pushes the release commit/tag, and prompts
+for TestPyPI/PyPI publishing.
 
 Useful options:
 
@@ -134,12 +135,13 @@ Useful options:
 ./scripts/release.sh 0.10.0 --skip-testpypi
 ./scripts/release.sh 0.10.0 --skip-pypi
 ./scripts/release.sh 0.10.0 --post-publish
+./scripts/release.sh 0.10.0 --post-publish --force-post-publish
 ```
 
 The underlying scripts remain available for targeted steps:
 
 - `bump-version.sh` - Bump version number and create git tag
-- `changelog.sh` - Generate release notes from commits
+- `changelog.sh` - Generate deterministic release notes from commit subjects
 - `test-build.sh` - Test package build locally
 - `publish-testpypi.sh` - Publish to TestPyPI for testing
 - `publish-pypi.sh` - Publish to production PyPI

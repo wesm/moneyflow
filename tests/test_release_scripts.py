@@ -31,6 +31,13 @@ def test_release_help_documents_single_entrypoint() -> None:
     assert "--skip-post-publish" in result.stdout
 
 
+def test_release_help_documents_post_publish_override() -> None:
+    result = run_release("--help")
+
+    assert result.returncode == 0
+    assert "--force-post-publish" in result.stdout
+
+
 def test_release_rejects_invalid_version_before_side_effects() -> None:
     result = run_release("not-a-version", "--dry-run")
 
@@ -58,8 +65,17 @@ def test_release_dry_run_lists_streamlined_flow() -> None:
     assert "./scripts/post-publish.sh" not in result.stdout
 
 
-def test_changelog_prompt_uses_moneyflow_project_name() -> None:
+def test_release_rejects_post_publish_when_pypi_is_skipped() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-pypi", "--post-publish")
+
+    assert result.returncode == 1
+    assert "--post-publish requires production PyPI publishing" in result.stderr
+
+
+def test_changelog_generation_is_deterministic_without_ai_agent() -> None:
     changelog_script = CHANGELOG_SCRIPT.read_text()
 
-    assert "moneyflow version $VERSION" in changelog_script
-    assert "roborev version $VERSION" not in changelog_script
+    assert "codex exec" not in changelog_script
+    assert "claude" not in changelog_script
+    assert "New Features" in changelog_script
+    assert "Bug Fixes" in changelog_script

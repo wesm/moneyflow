@@ -1,25 +1,22 @@
 #!/bin/bash
-# Generate a changelog since the last release using codex
+# Generate a deterministic changelog since the last release.
 # Usage: ./scripts/changelog.sh [version] [start_tag] [extra_instructions]
 # If version is not provided, uses "NEXT" as placeholder
 # If start_tag is "-" or empty, auto-detects the previous tag
 
-set -e
+set -euo pipefail
 
 VERSION="${1:-NEXT}"
-START_TAG="$2"
-EXTRA_INSTRUCTIONS="$3"
+START_TAG="${2:-}"
+EXTRA_INSTRUCTIONS="${3:-}"
+PREV_TAG=""
 
-# Determine the starting point
 if [ -n "$START_TAG" ] && [ "$START_TAG" != "-" ]; then
-    # Use provided start tag
     RANGE="$START_TAG..HEAD"
     echo "Generating changelog from $START_TAG to HEAD..." >&2
 else
-    # Auto-detect previous tag
     PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
     if [ -z "$PREV_TAG" ]; then
-        # No previous tag, use first commit
         FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
         RANGE="$FIRST_COMMIT..HEAD"
         echo "No previous release found. Generating changelog for all commits..." >&2
@@ -29,46 +26,75 @@ else
     fi
 fi
 
-# Get commit log for changelog generation
-COMMITS=$(git log $RANGE --pretty=format:"- %s (%h)" --no-merges)
-DIFF_STAT=$(git diff --stat $RANGE)
+COMMIT_SUBJECTS=$(git log "$RANGE" --pretty=format:%s --no-merges)
 
-if [ -z "$COMMITS" ]; then
-    echo "No commits since $PREV_TAG" >&2
+if [ -z "$COMMIT_SUBJECTS" ]; then
+    if [ -n "$PREV_TAG" ]; then
+        echo "No commits since $PREV_TAG" >&2
+    else
+        echo "No commits in changelog range" >&2
+    fi
     exit 0
 fi
 
-# Use codex to generate the changelog
-echo "Using codex to generate changelog..." >&2
+FEATURES=$(mktemp)
+IMPROVEMENTS=$(mktemp)
+FIXES=$(mktemp)
+DOCS=$(mktemp)
+MAINTENANCE=$(mktemp)
+trap 'rm -f "$FEATURES" "$IMPROVEMENTS" "$FIXES" "$DOCS" "$MAINTENANCE"' EXIT
 
-TMPFILE=$(mktemp)
-trap 'rm -f "$TMPFILE"' EXIT
+sanitize_text() {
+    tr -d '\000-\010\013\014\016-\037\177'
+}
 
-codex exec --skip-git-repo-check --sandbox read-only -c reasoning_effort=high -o "$TMPFILE" - >/dev/null <<EOF
-You are generating a changelog for moneyflow version $VERSION.
+append_entry() {
+    local file="$1"
+    local subject="$2"
+    local hash="$3"
 
-IMPORTANT: Do NOT use any tools. Do NOT run any shell commands. Do NOT search or read any files.
-All the information you need is provided below. Simply analyze the commit messages and output the changelog.
+    subject=$(printf '%s' "$subject" | sanitize_text)
+    printf -- "- %s (%s)\n" "$subject" "$hash" >> "$file"
+}
 
-Here are the commits since the last release:
-$COMMITS
+while IFS=$'\t' read -r hash subject; do
+    case "$subject" in
+        feat:*|feat\(*|feature:*|feature\(*)
+            append_entry "$FEATURES" "$subject" "$hash"
+            ;;
+        fix:*|fix\(*|bugfix:*|bugfix\(*)
+            append_entry "$FIXES" "$subject" "$hash"
+            ;;
+        docs:*|docs\(*)
+            append_entry "$DOCS" "$subject" "$hash"
+            ;;
+        chore:*|chore\(*|build:*|build\(*|ci:*|ci\(*|deps:*|deps\(*|refactor:*|refactor\(*|test:*|test\(*)
+            append_entry "$MAINTENANCE" "$subject" "$hash"
+            ;;
+        *)
+            append_entry "$IMPROVEMENTS" "$subject" "$hash"
+            ;;
+    esac
+done < <(git log "$RANGE" --pretty=format:'%h%x09%s' --no-merges)
 
-Here's the diff summary:
-$DIFF_STAT
+print_section() {
+    local title="$1"
+    local file="$2"
 
-Please generate a concise, user-focused changelog. Group changes into sections like:
-- New Features
-- Improvements
-- Bug Fixes
+    if [ -s "$file" ]; then
+        printf '## %s\n\n' "$title"
+        cat "$file"
+        printf '\n'
+    fi
+}
 
-Focus on user-visible changes. Skip internal refactoring unless it affects users.
-Keep descriptions brief (one line each). Use present tense.
-Do NOT mention bugs that were introduced and fixed within this same release cycle.
-${EXTRA_INSTRUCTIONS:+
+if [ -n "$EXTRA_INSTRUCTIONS" ]; then
+    printf '## Release Focus\n\n'
+    printf -- "- %s\n\n" "$(printf '%s' "$EXTRA_INSTRUCTIONS" | sanitize_text)"
+fi
 
-When writing the changelog, look for these features or improvements in the commit log above: $EXTRA_INSTRUCTIONS
-Do NOT search files, read code, or do any analysis outside of the commit log provided above.
-Output ONLY the changelog content, no preamble.
-EOF
-
-cat "$TMPFILE"
+print_section "New Features" "$FEATURES"
+print_section "Improvements" "$IMPROVEMENTS"
+print_section "Bug Fixes" "$FIXES"
+print_section "Documentation" "$DOCS"
+print_section "Maintenance" "$MAINTENANCE"

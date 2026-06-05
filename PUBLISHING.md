@@ -38,7 +38,7 @@ Use the single release entrypoint for normal releases:
 
 This script:
 
-- Generates and previews a changelog
+- Generates and previews a deterministic changelog from commit subjects
 - Runs the version bump checks
 - Updates `pyproject.toml`, `mkdocs.yml`, and `uv.lock`
 - Commits the version bump and creates a release tag
@@ -76,6 +76,14 @@ docs deployment. It changes branches, so it is opt-in:
 
 ```bash
 ./scripts/release.sh 0.2.0 --post-publish
+```
+
+Post-publish automation requires a successful production PyPI publish in the
+same `release.sh` run. To run it after manually publishing, pass the explicit
+override:
+
+```bash
+./scripts/release.sh 0.2.0 --post-publish --force-post-publish
 ```
 
 Or run the subscript after publishing:
