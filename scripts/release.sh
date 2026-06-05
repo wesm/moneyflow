@@ -31,16 +31,16 @@ Run the moneyflow release flow from one entrypoint:
   1. Generate and preview changelog
   2. Run version bump checks, commit, and tag
   3. Test the built package locally
-  4. Optionally publish to TestPyPI/PyPI, push, and run post-publish docs automation
+  4. Optionally publish to TestPyPI/PyPI and run post-publish docs automation
 
 Options:
   --dry-run             Print the planned release steps without running them.
   --yes                 Auto-confirm release.sh prompts. Subscripts may still prompt.
   --skip-testpypi       Do not offer to publish to TestPyPI.
   --skip-pypi           Do not offer to publish to production PyPI.
-  --skip-push           Do not atomically push the version commit and release tag after publishing.
+  --skip-push           Do not push the version commit/tag. Requires --skip-pypi.
   --post-publish        Run post-publish stable/docs automation at the end.
-  --force-post-publish  Allow push/post-publish when PyPI publish was skipped or declined.
+  --force-post-publish  Allow post-publish when PyPI was skipped or declined in this run.
   --skip-post-publish   Do not run post-publish stable/docs automation (default).
   -h, --help            Show this help text.
 
@@ -127,6 +127,15 @@ fi
 
 TAG="v$VERSION"
 
+if [ "$POST_PUBLISH_MODE" = "run" ] && [ "$RUN_PYPI" -eq 0 ] && [ "$FORCE_POST_PUBLISH" -eq 0 ]; then
+    error "--post-publish requires production PyPI publishing. Use --force-post-publish to override."
+fi
+
+if [ "$RUN_PUSH" -eq 0 ] && [ "$RUN_PYPI" -eq 1 ]; then
+    error "--skip-push cannot be used with production PyPI publishing because" \
+        "publish-pypi.sh must push HEAD and $TAG before upload. Use --skip-pypi for a manual publish flow."
+fi
+
 cd "$REPO_ROOT"
 
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
@@ -137,10 +146,6 @@ if [ "$DRY_RUN" -eq 0 ] && [ -n "$(git status --porcelain)" ]; then
     echo "Uncommitted changes:" >&2
     git status --short >&2
     error "Commit or stash changes before releasing"
-fi
-
-if [ "$POST_PUBLISH_MODE" = "run" ] && [ "$RUN_PYPI" -eq 0 ] && [ "$FORCE_POST_PUBLISH" -eq 0 ]; then
-    error "--post-publish requires production PyPI publishing. Use --force-post-publish to override."
 fi
 
 echo_step() {

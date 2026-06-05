@@ -188,8 +188,13 @@ Post-publish docs automation updates the `stable` branch, so it is opt-in:
 ```
 
 It only runs after production PyPI publishing succeeds in the same release run.
-For a manual-publish workflow, `--force-post-publish` also allows the atomic
-release commit/tag push and post-publish automation.
+For a manual-publish workflow outside `release.sh`, push the existing release
+commit/tag and run post-publish directly:
+
+```bash
+git push --atomic origin HEAD v0.x.y
+./scripts/post-publish.sh v0.x.y
+```
 
 ## Troubleshooting
 

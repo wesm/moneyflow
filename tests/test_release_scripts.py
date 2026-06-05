@@ -11,6 +11,8 @@ CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
 PUBLISH_TESTPYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-testpypi.sh"
 PUBLISH_PYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-pypi.sh"
 PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
+DEVELOPING_DOC = REPO_ROOT / "docs" / "development" / "developing.md"
+SCRIPTS_README = REPO_ROOT / "scripts" / "README.md"
 
 
 def run_release(*args: str) -> subprocess.CompletedProcess[str]:
@@ -114,6 +116,13 @@ def test_release_rejects_post_publish_when_pypi_is_skipped() -> None:
 
     assert result.returncode == 1
     assert "--post-publish requires production PyPI publishing" in result.stderr
+
+
+def test_release_rejects_skip_push_when_pypi_is_enabled() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-push", "--skip-post-publish")
+
+    assert result.returncode == 1
+    assert "--skip-push cannot be used with production PyPI publishing" in result.stderr
 
 
 def test_release_dry_run_delegates_release_push_to_publish_pypi() -> None:
@@ -263,6 +272,19 @@ def test_publishing_docs_do_not_recommend_untrusted_testpypi_resolution() -> Non
     assert 'uvx --index-url https://pypi.org/simple/ --from "$WHEEL_URL" moneyflow --demo' in (
         publishing_doc
     )
+
+
+def test_manual_publish_docs_use_direct_push_and_post_publish() -> None:
+    publishing_doc = PUBLISHING_DOC.read_text()
+    developing_doc = DEVELOPING_DOC.read_text()
+    scripts_readme = SCRIPTS_README.read_text()
+    release_docs = "\n".join([publishing_doc, developing_doc, scripts_readme])
+
+    assert "--post-publish --force-post-publish" not in release_docs
+    assert "git push --atomic origin HEAD v0.2.0" in publishing_doc
+    assert "./scripts/post-publish.sh v0.2.0" in publishing_doc
+    assert "git push --atomic origin HEAD v0.x.y" in developing_doc
+    assert "./scripts/post-publish.sh v0.x.y" in developing_doc
 
 
 def test_release_dry_run_pushes_release_state_atomically() -> None:

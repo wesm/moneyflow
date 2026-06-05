@@ -58,7 +58,7 @@ Useful options:
 ```bash
 ./scripts/release.sh 0.2.0 --skip-testpypi
 ./scripts/release.sh 0.2.0 --skip-pypi
-./scripts/release.sh 0.2.0 --skip-push
+./scripts/release.sh 0.2.0 --skip-pypi --skip-push
 ```
 
 ### Test from TestPyPI
@@ -103,16 +103,12 @@ docs deployment. It changes branches, so it is opt-in:
 ```
 
 Post-publish automation requires a successful production PyPI publish in the
-same `release.sh` run. To atomically push and run post-publish automation after
-manually publishing, pass the explicit override:
+same `release.sh` run. If you published manually outside `release.sh`, do not
+rerun `release.sh` for the same version. Push the existing release commit/tag
+and run the post-publish subscript directly:
 
 ```bash
-./scripts/release.sh 0.2.0 --post-publish --force-post-publish
-```
-
-Or run the subscript after publishing:
-
-```bash
+git push --atomic origin HEAD v0.2.0
 ./scripts/post-publish.sh v0.2.0
 ```
 

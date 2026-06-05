@@ -135,8 +135,8 @@ Useful options:
 ./scripts/release.sh 0.10.0 --dry-run
 ./scripts/release.sh 0.10.0 --skip-testpypi
 ./scripts/release.sh 0.10.0 --skip-pypi
+./scripts/release.sh 0.10.0 --skip-pypi --skip-push
 ./scripts/release.sh 0.10.0 --post-publish
-./scripts/release.sh 0.10.0 --post-publish --force-post-publish
 ```
 
 The underlying scripts remain available for targeted steps:
