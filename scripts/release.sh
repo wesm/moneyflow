@@ -288,6 +288,16 @@ preflight_remote_tag() {
     fi
 }
 
+preflight_release_push() {
+    if ! release_push_may_run; then
+        return 0
+    fi
+
+    echo_step "Preflight release push"
+    run_cmd "git push --dry-run --atomic origin HEAD $TAG" \
+        git push --dry-run --atomic origin HEAD "$TAG"
+}
+
 CHANGELOG_FILE="$(mktemp)"
 TAG_MESSAGE_FILE="$(mktemp)"
 trap 'rm -f "$CHANGELOG_FILE" "$TAG_MESSAGE_FILE"' EXIT
@@ -333,6 +343,8 @@ retag_with_changelog "$TAG_MESSAGE_FILE"
 
 echo_step "Test built package locally"
 run_cmd "./scripts/test-build.sh" "$SCRIPT_DIR/test-build.sh"
+
+preflight_release_push
 
 echo_step "TestPyPI"
 run_optional_script \

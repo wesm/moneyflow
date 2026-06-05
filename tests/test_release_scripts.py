@@ -113,6 +113,16 @@ def test_release_dry_run_preflights_remote_tag_before_version_bump() -> None:
     assert remote_tag_index < bump_index
 
 
+def test_release_dry_run_preflights_atomic_push_before_production_publish() -> None:
+    result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
+
+    assert result.returncode == 0
+    tag_index = result.stdout.index("git tag -a v99.99.99 -F <generated changelog>")
+    dry_run_push_index = result.stdout.index("git push --dry-run --atomic origin HEAD v99.99.99")
+    pypi_index = result.stdout.index("./scripts/publish-pypi.sh")
+    assert tag_index < dry_run_push_index < pypi_index
+
+
 def test_release_dry_run_pushes_release_state_atomically() -> None:
     result = run_release("99.99.99", "--dry-run", "--skip-testpypi", "--skip-post-publish")
 
