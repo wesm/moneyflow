@@ -109,27 +109,46 @@ markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
 ```
 moneyflow/
 ├── moneyflow/                   # Main package (ALL code goes here)
-│   ├── app.py                   # Main Textual application (~1750 lines)
-│   ├── monarchmoney.py          # GraphQL client (keep separate for upstream diffs)
-│   ├── data_manager.py          # Data layer with Polars
-│   ├── state.py                 # App state management
-│   ├── credentials.py           # Encrypted credential storage
-│   ├── duplicate_detector.py    # Duplicate detection
-│   ├── view_presenter.py        # Presentation logic (NEW - fully typed & tested)
-│   ├── time_navigator.py        # Time period calculations (NEW - 100% coverage)
-│   ├── commit_orchestrator.py   # DataFrame update logic (NEW - critical, 100% tested)
 │   ├── backends/                # Backend implementations
-│   ├── screens/                 # UI screens and modals
-│   ├── widgets/                 # Custom UI widgets
-│   └── styles/                  # Textual CSS
-├── tests/                       # Test suite (744 tests)
+│   │   ├── base.py              # Backend protocol/base types
+│   │   ├── monarch.py           # Monarch backend adapter
+│   │   ├── monarch_client.py    # Vendored GraphQL client (keep separate for upstream diffs)
+│   │   ├── ynab.py              # YNAB backend adapter
+│   │   ├── ynab_client.py       # YNAB API client wrapper
+│   │   ├── amazon.py            # Amazon order data backend
+│   │   └── demo.py              # Demo backend
+│   ├── data/                    # Business/data layer
+│   │   ├── data_manager.py      # Data orchestration with Polars
+│   │   ├── state.py             # App state management
+│   │   ├── cache_manager.py     # Core cache persistence
+│   │   ├── cache_orchestrator.py # Cache flow orchestration
+│   │   ├── credentials.py       # Encrypted credential storage
+│   │   ├── duplicate_detector.py # Duplicate detection
+│   │   ├── commit_orchestrator.py # DataFrame update logic
+│   │   ├── time_navigator.py    # Time period calculations
+│   │   └── categories.py        # Category normalization/config
+│   ├── importers/               # File importers
+│   ├── mcp/                     # MCP server entrypoint and tools
+│   ├── tui/                     # Textual UI layer
+│   │   ├── app.py               # Main Textual application
+│   │   ├── app_controller.py    # UI orchestration
+│   │   ├── formatters.py        # UI formatting/presentation helpers
+│   │   ├── keybindings.py       # Keyboard shortcut definitions
+│   │   ├── screens/             # UI screens and modals
+│   │   ├── widgets/             # Custom UI widgets
+│   │   └── styles/              # Textual CSS
+│   ├── cli.py                   # CLI entrypoint
+│   └── version.py               # Version metadata helpers
+├── tests/                       # Test suite
 │   ├── conftest.py              # Pytest fixtures
-│   ├── mock_backend.py          # Mock MonarchMoney API
+│   ├── mock_backend.py          # Mock finance backend
 │   ├── test_state.py            # State management tests
 │   ├── test_data_manager.py     # Data operations tests
-│   ├── test_view_presenter.py   # Presentation logic tests (NEW - 48 tests)
-│   ├── test_time_navigator.py   # Time navigation tests (NEW - 52 tests)
-│   ├── test_commit_orchestrator.py  # DataFrame updates (NEW - 30 tests)
+│   ├── test_formatters.py       # UI formatting/presentation tests
+│   ├── test_time_navigator.py   # Time navigation tests
+│   ├── test_commit_orchestrator.py # DataFrame update tests
+│   ├── screens/                 # Screen-level UI tests
+│   ├── integration/             # Integration/Textual smoke tests
 │   └── test_workflows.py        # Edit workflow tests
 ├── pyproject.toml               # Project metadata and dependencies
 ├── README.md                    # User documentation
@@ -155,9 +174,9 @@ moneyflow/
 2. **Test Fixtures**: `tests/conftest.py` provides reusable test data and fixtures.
 
 3. **Separation of Concerns**:
-   - `state.py`: Pure state management (no I/O) - easily testable
-   - `data_manager.py`: Takes MonarchMoney instance via dependency injection - can use mock
-   - UI layer: Testable with Textual pilot tests
+   - `moneyflow/data/state.py`: Pure state management (no I/O) - easily testable
+   - `moneyflow/data/data_manager.py`: Takes backend instances via dependency injection - can use mocks
+   - `moneyflow/tui/`: Testable with Textual pilot tests
 
 ### What We Test
 
@@ -200,12 +219,14 @@ uv run pytest -l
 **Business Logic Coverage Target: >90%**
 
 Core modules must maintain high coverage:
-- `state.py`: State management (target: 90%+, current: 85%)
-- `data_manager.py`: Data operations and API integration (target: 90%+, current: 97%)
-- `duplicate_detector.py`: Duplicate detection (target: 95%+, current: 84%)
-- `view_presenter.py`: Presentation logic (**100% - keep at 100%**)
-- `time_navigator.py`: Time period calculations (**100% - keep at 100%**)
-- `commit_orchestrator.py`: DataFrame updates (**100% - CRITICAL, keep at 100%**)
+- `moneyflow/data/state.py`: State management
+- `moneyflow/data/data_manager.py`: Data operations and backend integration
+- `moneyflow/data/duplicate_detector.py`: Duplicate detection
+- `moneyflow/data/cache_manager.py`: Core cache persistence
+- `moneyflow/data/cache_orchestrator.py`: Cache orchestration
+- `moneyflow/data/time_navigator.py`: Time period calculations
+- `moneyflow/data/commit_orchestrator.py`: DataFrame update logic
+- `moneyflow/tui/formatters.py`: UI formatting and presentation helpers
 
 UI layer coverage is less critical but still valuable.
 
@@ -305,7 +326,7 @@ uv run python scripts/generate_screenshots.py --filter amazon-matching
 ### Configuration
 
 - `pyproject.toml` contains configuration for ruff and pyright
-- `monarchmoney.py` is excluded from ruff checks (external vendor code)
+- `moneyflow/backends/monarch_client.py` is excluded from ruff/pyright checks (external vendor code)
 - Line length: 100 characters
 - Target Python version: 3.11
 
@@ -320,14 +341,14 @@ uv run python scripts/generate_screenshots.py --filter amazon-matching
 - **Keep functions focused** - Single responsibility, easy to test
 - **Use meaningful variable names** - Prefer clarity over brevity
 
-## Making Changes to monarchmoney.py
+## Making Changes to monarch_client.py
 
-The `monarchmoney.py` file is kept separate to make it easy to generate diffs for upstream contributions:
+The `moneyflow/backends/monarch_client.py` file is kept separate to make it easy
+to generate diffs for upstream contributions to `hammem/monarchmoney`:
 
 ```bash
 # Generate a diff against the original
-cd moneyflow
-diff monarchmoney.py /path/to/original/monarchmoney.py > my_changes.patch
+diff moneyflow/backends/monarch_client.py /path/to/original/monarchmoney.py > my_changes.patch
 ```
 
 ## Security Notes
@@ -344,7 +365,7 @@ diff monarchmoney.py /path/to/original/monarchmoney.py > my_changes.patch
 
 1. Create tests in `tests/test_*.py`
 2. Implement in appropriate module
-3. Update keyboard shortcuts in `keybindings.py`
+3. Update keyboard shortcuts in `moneyflow/tui/keybindings.py`
 4. Update README.md with new functionality
 5. Run full test suite
 
@@ -431,7 +452,7 @@ git commit -m "Descriptive commit message"
 
 ```bash
 # Type-check specific module
-uv run pyright moneyflow/view_presenter.py
+uv run pyright moneyflow/data/data_manager.py
 
 # Type-check all application code
 uv run pyright moneyflow/
