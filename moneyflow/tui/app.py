@@ -144,6 +144,7 @@ class MoneyflowApp(App):
         Binding("slash", "search", "Search", show=True, key_display="/"),
         Binding("escape", "go_back", "Back", show=False),
         Binding("w", "review_and_commit", "Commit", show=True),
+        Binding("E", "export_data", "Export", show=True, key_display="E"),
         Binding("q", "quit_app", "Quit", show=True),
         Binding("ctrl+c", "quit_app", "Force Quit", show=False),  # Also allow Ctrl+C
     ]
@@ -890,6 +891,38 @@ class MoneyflowApp(App):
         """Switch to ungrouped transactions view (all transactions in reverse chronological order)."""
         self.controller.switch_to_detail_view(set_default_sort=True)
         self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
+
+    def action_export_data(self) -> None:
+        """Export full dataset to Parquet."""
+        if self.data_manager is None or self.data_manager.df is None:
+            self.notify("No data to export", timeout=2)
+            return
+        self.run_worker(self._export_data_async(), exclusive=False)
+
+    async def _export_data_async(self) -> None:
+        """Export data to Parquet file in background."""
+        df = self.data_manager.df
+        if df is None or df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+
+        self._notify(notification_helper.export_starting(len(df)))
+
+        df = self.data_manager.apply_category_groups(df)
+
+        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
+        exports_dir = config_dir / "exports"
+        exports_dir.mkdir(parents=True, exist_ok=True)
+
+        today = date_type.today()
+        filename = f"{today}-full-export.parquet"
+        path = exports_dir / filename
+
+        try:
+            df.write_parquet(str(path))
+            self._notify(notification_helper.export_success(str(path), len(df)))
+        except Exception as e:
+            self._notify(notification_helper.export_error(str(e)))
 
     def action_find_duplicates(self) -> None:
         """Find and display duplicate transactions."""

@@ -291,3 +291,29 @@ REFRESH_NEEDED: NotificationTuple = (
     NotificationSeverity.INFO,
     3,
 )
+
+# ==================== Export ====================
+
+
+def export_starting(
+    count: int, severity: NotificationSeverity = NotificationSeverity.INFO, timeout: int = 2
+) -> NotificationTuple:
+    """Export started."""
+    return (f"Exporting {count} transactions...", severity, timeout)
+
+
+def export_success(
+    path: str,
+    count: int,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    timeout: int = 3,
+) -> NotificationTuple:
+    """Export completed successfully."""
+    return (f"✅ Exported {count} transactions to {path}", severity, timeout)
+
+
+def export_error(
+    error_msg: str, severity: NotificationSeverity = NotificationSeverity.ERROR, timeout: int = 5
+) -> NotificationTuple:
+    """Export failed with an error."""
+    return (f"❌ Export failed: {error_msg}", severity, timeout)
