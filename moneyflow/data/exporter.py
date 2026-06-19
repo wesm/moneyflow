@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -127,8 +128,15 @@ def _export_parquet(
     metadata: ExportMetadata,
 ) -> Path:
     """Write DataFrame as Parquet with sidecar metadata."""
-    df.write_parquet(str(path))
-    os.chmod(path, 0o600)
+    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp.parquet")
+    tmp_path = Path(tmp_path_str)
+    os.close(fd)
+    try:
+        df.write_parquet(str(tmp_path))
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     meta_path = path.with_suffix(".meta.json")
     meta_data = {
@@ -153,12 +161,12 @@ def _export_sqlite(
     metadata: ExportMetadata,
 ) -> Path:
     """Write DataFrame as SQLite database with transactions and metadata tables."""
-    path.unlink(missing_ok=True)
+    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp.db")
+    tmp_path = Path(tmp_path_str)
+    os.close(fd)
 
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(tmp_path))
     try:
-        os.chmod(path, 0o600)
-
         conn.execute("CREATE TABLE metadata (key TEXT, value TEXT)")
         groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
         meta_rows = [
@@ -187,10 +195,15 @@ def _export_sqlite(
         conn.commit()
     except Exception:
         conn.close()
-        path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)
         raise
 
     conn.close()
+    try:
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
     return path
 
 

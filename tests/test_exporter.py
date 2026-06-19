@@ -6,6 +6,7 @@ import re
 import sqlite3
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 import polars as pl
 import pytest
@@ -180,6 +181,13 @@ class TestExportDataframeParquet:
         )
 
     @pytest.fixture
+    def export_dir(self, tmp_path: Path) -> Path:
+        """Create and return an exports directory."""
+        path = tmp_path / "exports"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    @pytest.fixture
     def sample_metadata(self) -> ExportMetadata:
         """Create sample metadata for export tests."""
         return ExportMetadata(
@@ -268,6 +276,19 @@ class TestExportDataframeParquet:
 
         loaded = pl.read_parquet(str(path))
         assert len(loaded) == 0
+
+    def test_parquet_temp_file_cleaned_on_write_failure(
+        self, sample_df, sample_metadata, tmp_path: Path
+    ) -> None:
+        """Verify temp file is cleaned up when df.write_parquet fails."""
+        path = tmp_path / "exports" / "test.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with patch.object(sample_df, "write_parquet", side_effect=RuntimeError("write failed")):
+            with pytest.raises(RuntimeError, match="write failed"):
+                export_dataframe(
+                    sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET
+                )
+        assert len(list(path.parent.glob("*.tmp.*"))) == 0
 
 
 class TestExportDataframeCsv:
@@ -660,6 +681,21 @@ class TestExportDataframeSqlite:
             assert col_names == ["id", "amount"]
         finally:
             conn.close()
+
+    def test_sqlite_temp_file_cleaned_on_replace_failure(
+        self, sample_df, sample_metadata, tmp_path: Path
+    ) -> None:
+        """Verify temp file is cleaned up when os.replace fails."""
+        path = tmp_path / "exports" / "test.db"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with patch(
+            "moneyflow.data.exporter.os.replace", side_effect=RuntimeError("replace failed")
+        ):
+            with pytest.raises(RuntimeError, match="replace failed"):
+                export_dataframe(
+                    sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.SQLITE
+                )
+        assert len(list(path.parent.glob("*.tmp.*"))) == 0
 
 
 class TestExportDataframeDispatcher:
