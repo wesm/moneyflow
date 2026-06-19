@@ -54,6 +54,7 @@ from .screens.credential_screens import (
 )
 from .screens.duplicates_screen import DuplicatesScreen
 from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, SelectCategoryScreen
+from .screens.export_screen import ExportScreen
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
@@ -893,10 +894,21 @@ class MoneyflowApp(App):
         self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
 
     def action_export_data(self) -> None:
-        """Export full dataset to Parquet."""
+        """Show export format and scope selection modal."""
         if self.data_manager is None or self.data_manager.df is None:
             self.notify("No data to export", timeout=2)
             return
+        if self.data_manager.df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+        self.run_worker(self._show_export_screen(), exclusive=False)
+
+    async def _show_export_screen(self) -> None:
+        """Push the export screen and handle its result."""
+        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
+        if result is None:
+            return  # User cancelled
+        # Format and scope captured but not yet wired — Issue #2
         self.run_worker(self._export_data_async(), exclusive=False)
 
     async def _export_data_async(self) -> None:
