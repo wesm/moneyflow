@@ -125,7 +125,6 @@ being saved in the cold tier.
 
 ## Backend Abstraction
 
-<<<<<<< HEAD
 All backends subclass the `FinanceBackend` abstract base class defined in
 `moneyflow/backends/base.py`:
 
@@ -164,25 +163,12 @@ Backends also inherit concrete helpers with sensible defaults — for example
 `get_display_labels`, `get_column_config`, `get_currency_symbol`,
 `get_computed_columns`, and `clear_auth` — which they can override as needed.
 
-=======
-All backends implement the `FinanceBackend` protocol:
-
-```python
-class FinanceBackend(Protocol):
-    async def login(self, creds: dict) -> bool: ...
-    async def get_transactions(self, ...) -> dict: ...
-    async def get_transaction_categories(self) -> dict: ...
-    async def get_transaction_category_groups(self) -> dict: ...
-    async def commit_edit(self, edit: Edit) -> bool: ...
-    async def get_all_merchants(self) -> list[str]: ...
-```
-
 Supported backends:
 
-- **Monarch Money** (`backends/monarch.py`) — GraphQL API client
-- **YNAB** (`backends/ynab.py`) — REST API client
-- **Amazon Orders** (`backends/amazon.py`) — Amazon order history scraper
-- **Demo** (`backends/demo.py`) — Built-in sample data for evaluation
+- **Monarch Money** (`moneyflow/backends/monarch.py`) — GraphQL API client
+- **YNAB** (`moneyflow/backends/ynab.py`) — REST API client
+- **Amazon Orders** (`moneyflow/backends/amazon.py`) — Amazon order history scraper
+- **Demo** (`moneyflow/backends/demo.py`) — Built-in sample data for evaluation
 
 ## File Format Reference
 
