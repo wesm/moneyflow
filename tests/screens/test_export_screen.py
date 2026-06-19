@@ -82,7 +82,7 @@ class TestExportScreenDisplay:
             assert format_set.pressed_index == 0
 
     async def test_scope_selector_shows_both_scopes(self, test_app):
-        """Test scope RadioSet shows Full dataset and Current view."""
+        """Test scope RadioSet shows Full dataset and Filtered transactions."""
         async with test_app.run_test() as pilot:
             screen = ExportScreen()
             test_app.push_screen(screen)
@@ -91,7 +91,7 @@ class TestExportScreenDisplay:
             scope_set = screen.query_one("#scope-select", RadioSet)
             button_labels = [btn.label for btn in scope_set.query("RadioButton")]
             assert "Full dataset" in button_labels
-            assert "Current view" in button_labels
+            assert "Filtered transactions" in button_labels
 
     async def test_full_is_default_scope_selection(self, test_app):
         """Test Full dataset is the default selected scope."""
@@ -178,16 +178,18 @@ class TestExportScreenDismiss:
 
             assert result["result"] == (ExportFormat.SQLITE, ExportScope.FULL)
 
-    async def test_export_with_current_view_selected_returns_snapshot(self, test_app, capture):
-        """Test selecting Current view then Export returns (PARQUET, SNAPSHOT)."""
+    async def test_export_with_filtered_transactions_selected_returns_snapshot(
+        self, test_app, capture
+    ):
+        """Test selecting Filtered transactions then Export returns (PARQUET, SNAPSHOT)."""
         result, callback = capture
         async with test_app.run_test() as pilot:
             screen = ExportScreen()
             test_app.push_screen(screen, callback=callback)
             await pilot.pause()
 
-            # Current view is the second scope button (after Full dataset)
-            # Format: Parquet(0), CSV(1), SQLite(2), Scope: Full(3), Current view(4)
+            # Filtered transactions is the second scope button (after Full dataset)
+            # Format: Parquet(0), CSV(1), SQLite(2), Scope: Full(3), Filtered transactions(4)
             snapshot_button = screen.query("RadioButton")[4]
             await pilot.click(snapshot_button)
             await pilot.pause()

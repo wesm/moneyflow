@@ -69,7 +69,7 @@ class TestExportScope:
 
     def test_snapshot_display_name(self) -> None:
         """Verify SNAPSHOT has the expected display name."""
-        assert ExportScope.SNAPSHOT.display_name == "Current view"
+        assert ExportScope.SNAPSHOT.display_name == "Filtered transactions"
 
     def test_enum_members(self) -> None:
         """Verify current member count (grows with subsequent issues)."""

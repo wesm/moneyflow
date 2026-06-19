@@ -22,7 +22,7 @@ Parquet is selected by default. Use arrow keys or click to switch formats.
 ## Choosing a Scope
 
 - **Full dataset** — All loaded transactions
-- **Current view** — Only what's currently visible on screen (respects filters, search, time period, and drill-down)
+- **Filtered transactions** — Only transactions matching current filters (search, time period, hide-from-reports)
 
 ## Output Location
 

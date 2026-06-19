@@ -46,7 +46,7 @@ class ExportScope(Enum):
         """Human-readable label for UI display."""
         name_overrides = {
             self.FULL: "Full dataset",
-            self.SNAPSHOT: "Current view",
+            self.SNAPSHOT: "Filtered transactions",
         }
         return name_overrides.get(self, self.value.capitalize())
 
