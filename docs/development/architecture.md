@@ -6,7 +6,6 @@ whether to serve data from a local two-tier cache or fetch from the backend API.
 
 ## Layer Overview
 
-
 ```text
 TUI (Textual app)
   |
