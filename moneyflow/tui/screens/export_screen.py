@@ -9,6 +9,22 @@ from textual.widgets import Button, Label, RadioButton, RadioSet
 from ...data.exporter import ExportFormat, ExportScope
 
 
+class FormatRadioButton(RadioButton):
+    """RadioButton that carries an ExportFormat value."""
+
+    def __init__(self, label: str, export_format: ExportFormat, *args, **kwargs):
+        super().__init__(label, *args, **kwargs)
+        self.export_format = export_format
+
+
+class ScopeRadioButton(RadioButton):
+    """RadioButton that carries an ExportScope value."""
+
+    def __init__(self, label: str, export_scope: ExportScope, *args, **kwargs):
+        super().__init__(label, *args, **kwargs)
+        self.export_scope = export_scope
+
+
 class ExportScreen(ModalScreen):
     """
     Modal screen for selecting export format and scope.
@@ -69,15 +85,15 @@ class ExportScreen(ModalScreen):
             yield Label("Format:", classes="section-label")
             with RadioSet(id="format-select"):
                 for fmt in ExportFormat:
-                    btn = RadioButton(fmt.display_name, value=(fmt == ExportFormat.PARQUET))
-                    btn.export_format = fmt
-                    yield btn
+                    yield FormatRadioButton(
+                        fmt.display_name, export_format=fmt, value=(fmt == ExportFormat.PARQUET)
+                    )
             yield Label("Scope:", classes="section-label")
             with RadioSet(id="scope-select"):
                 for scope in ExportScope:
-                    btn = RadioButton(scope.display_name, value=(scope == ExportScope.FULL))
-                    btn.export_scope = scope
-                    yield btn
+                    yield ScopeRadioButton(
+                        scope.display_name, export_scope=scope, value=(scope == ExportScope.FULL)
+                    )
             with Container(id="button-container"):
                 yield Button("Export", variant="primary", id="export")
                 yield Button("Cancel", variant="error", id="cancel")
@@ -92,10 +108,16 @@ class ExportScreen(ModalScreen):
             format_set = self.query_one("#format-select", RadioSet)
             scope_set = self.query_one("#scope-select", RadioSet)
             selected_btn = format_set.pressed_button
-            export_format = selected_btn.export_format if selected_btn else ExportFormat.PARQUET
+            export_format = (
+                selected_btn.export_format
+                if isinstance(selected_btn, FormatRadioButton)
+                else ExportFormat.PARQUET
+            )
             selected_scope_btn = scope_set.pressed_button
             export_scope = (
-                selected_scope_btn.export_scope if selected_scope_btn else ExportScope.FULL
+                selected_scope_btn.export_scope
+                if isinstance(selected_scope_btn, ScopeRadioButton)
+                else ExportScope.FULL
             )
             self.dismiss((export_format, export_scope))
         else:
