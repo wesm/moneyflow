@@ -20,9 +20,11 @@ the UI layer thin and focused on rendering and user interaction.
 """
 
 import argparse
+import asyncio
 import sys
 import traceback
 from datetime import date as date_type
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,6 +41,12 @@ from ..data.cache_manager import CacheManager, RefreshStrategy
 from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.data_manager import DataManager
 from ..data.duplicate_detector import DuplicateDetector
+from ..data.exporter import (
+    ExportFormat,
+    ExportMetadata,
+    build_export_path,
+    export_dataframe,
+)
 from ..data.state import AppState, ViewMode
 from ..logging_config import get_logger, setup_logging
 from ..version import get_version
@@ -907,31 +915,57 @@ class MoneyflowApp(App):
         """Push the export screen and handle its result."""
         result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
         if result is None:
-            return  # User cancelled
-        # Format and scope captured but not yet wired — Issue #2
-        self.run_worker(self._export_data_async(), exclusive=False)
+            return
+        export_format, export_scope = result
 
-    async def _export_data_async(self) -> None:
-        """Export data to Parquet file in background."""
         df = self.data_manager.df
         if df is None or df.is_empty():
             self.notify("No data to export", timeout=2)
             return
 
-        self._notify(notification_helper.export_starting(len(df)))
-
         df = self.data_manager.apply_category_groups(df)
 
         config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
-        exports_dir = config_dir / "exports"
-        exports_dir.mkdir(parents=True, exist_ok=True)
 
-        today = date_type.today()
-        filename = f"{today}-full-export.parquet"
-        path = exports_dir / filename
+        category_groups = (
+            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
+            if self.data_manager.category_groups
+            else []
+        )
 
+        metadata = ExportMetadata(
+            app_version=get_version(),
+            export_timestamp=datetime.now().isoformat(),
+            transaction_count=len(df),
+            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
+            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
+            backend_type=self.data_manager.backend_type or "unknown",
+            category_groups=category_groups,
+        )
+
+        path = build_export_path(config_dir, export_format, export_scope)
+
+        self._notify(notification_helper.export_starting(len(df)))
+        await self._export_data_async(
+            df=df, path=path, export_format=export_format, metadata=metadata
+        )
+
+    async def _export_data_async(
+        self,
+        df: pl.DataFrame,
+        path: Path,
+        export_format: ExportFormat,
+        metadata: ExportMetadata,
+    ) -> None:
+        """Export data using the exporter module in a background thread."""
         try:
-            df.write_parquet(str(path))
+            await asyncio.to_thread(
+                export_dataframe,
+                df,
+                path=path,
+                metadata=metadata,
+                fmt=export_format,
+            )
             self._notify(notification_helper.export_success(str(path), len(df)))
         except Exception as e:
             self._notify(notification_helper.export_error(str(e)))
