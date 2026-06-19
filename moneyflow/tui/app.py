@@ -44,6 +44,7 @@ from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
     ExportMetadata,
+    ExportScope,
     build_export_path,
     export_dataframe,
 )
@@ -918,7 +919,11 @@ class MoneyflowApp(App):
             return
         export_format, export_scope = result
 
-        df = self.data_manager.df
+        if export_scope == ExportScope.SNAPSHOT:
+            df = self.state.get_filtered_df()
+        else:
+            df = self.data_manager.df
+
         if df is None or df.is_empty():
             self.notify("No data to export", timeout=2)
             return

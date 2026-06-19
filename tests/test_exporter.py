@@ -62,9 +62,17 @@ class TestExportScope:
         """Verify FULL has the expected display name."""
         assert ExportScope.FULL.display_name == "Full dataset"
 
+    def test_snapshot_value(self) -> None:
+        """Verify SNAPSHOT has the expected value."""
+        assert ExportScope.SNAPSHOT.value == "snapshot"
+
+    def test_snapshot_display_name(self) -> None:
+        """Verify SNAPSHOT has the expected display name."""
+        assert ExportScope.SNAPSHOT.display_name == "Current view"
+
     def test_enum_members(self) -> None:
         """Verify current member count (grows with subsequent issues)."""
-        assert len(ExportScope) == 1
+        assert len(ExportScope) == 2
 
 
 class TestExportMetadata:

@@ -36,12 +36,14 @@ class ExportScope(Enum):
     """Scope of data to include in an export."""
 
     FULL = "full"
+    SNAPSHOT = "snapshot"
 
     @property
     def display_name(self) -> str:
         """Human-readable label for UI display."""
         name_overrides = {
             self.FULL: "Full dataset",
+            self.SNAPSHOT: "Current view",
         }
         return name_overrides.get(self, self.value.capitalize())
 
