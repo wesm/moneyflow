@@ -2,6 +2,7 @@
 
 import json
 import os
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -18,6 +19,7 @@ class ExportFormat(Enum):
 
     PARQUET = "parquet"
     CSV = "csv"
+    SQLITE = "sqlite"
 
     @property
     def display_name(self) -> str:
@@ -25,6 +27,7 @@ class ExportFormat(Enum):
         name_overrides = {
             self.PARQUET: "Parquet",
             self.CSV: "CSV",
+            self.SQLITE: "SQLite",
         }
         return name_overrides.get(self, self.value)
 
@@ -108,6 +111,8 @@ def export_dataframe(
         return _export_parquet(df, path=path, metadata=metadata)
     if fmt == ExportFormat.CSV:
         return _export_csv(df, path=path, metadata=metadata)
+    if fmt == ExportFormat.SQLITE:
+        return _export_sqlite(df, path=path, metadata=metadata)
     raise ValueError(f"Unsupported export format: {fmt}")
 
 
@@ -134,6 +139,54 @@ def _export_parquet(
     }
     secure_write_file(meta_path, json.dumps(meta_data, indent=2), mode="w")
 
+    return path
+
+
+def _export_sqlite(
+    df: pl.DataFrame,
+    *,
+    path: Path,
+    metadata: ExportMetadata,
+) -> Path:
+    """Write DataFrame as SQLite database with transactions and metadata tables."""
+    path.unlink(missing_ok=True)
+
+    conn = sqlite3.connect(str(path))
+    try:
+        os.chmod(path, 0o600)
+
+        conn.execute("CREATE TABLE metadata (key TEXT, value TEXT)")
+        groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
+        meta_rows = [
+            ("app_version", metadata.app_version),
+            ("export_timestamp", metadata.export_timestamp),
+            ("transaction_count", str(metadata.transaction_count)),
+            ("earliest_date", metadata.earliest_date or ""),
+            ("latest_date", metadata.latest_date or ""),
+            ("backend_type", metadata.backend_type),
+            ("category_groups", groups),
+        ]
+        conn.executemany("INSERT INTO metadata (key, value) VALUES (?, ?)", meta_rows)
+
+        df_text = df.with_columns(pl.all().cast(pl.String))
+        columns = df_text.columns
+        escaped_cols = [c.replace('"', '""') for c in columns]
+        col_defs = ", ".join(f'"{c}" TEXT' for c in escaped_cols)
+        placeholders = ", ".join(["?"] * len(columns))
+        col_list = ", ".join(f'"{c}"' for c in escaped_cols)
+
+        conn.execute(f"CREATE TABLE transactions ({col_defs})")
+        conn.executemany(
+            f"INSERT INTO transactions ({col_list}) VALUES ({placeholders})",
+            df_text.rows(),
+        )
+        conn.commit()
+    except Exception:
+        conn.close()
+        path.unlink(missing_ok=True)
+        raise
+
+    conn.close()
     return path
 
 

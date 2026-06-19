@@ -57,8 +57,8 @@ class TestExportScreenDisplay:
             button_labels = [btn.label for btn in format_set.query("RadioButton")]
             assert ExportFormat.PARQUET.display_name in button_labels
 
-    async def test_format_selector_shows_both_formats(self, test_app):
-        """Test format selector shows both Parquet and CSV."""
+    async def test_format_selector_shows_all_formats(self, test_app):
+        """Test format selector shows Parquet, CSV, and SQLite."""
         async with test_app.run_test() as pilot:
             screen = ExportScreen()
             test_app.push_screen(screen)
@@ -68,6 +68,7 @@ class TestExportScreenDisplay:
             button_labels = [btn.label for btn in format_set.query("RadioButton")]
             assert "Parquet" in button_labels
             assert "CSV" in button_labels
+            assert "SQLite" in button_labels
 
     async def test_parquet_is_default_selection(self, test_app):
         """Test Parquet is the default selected format."""
@@ -148,6 +149,23 @@ class TestExportScreenDismiss:
             await pilot.pause()
 
             assert result["result"] == (ExportFormat.CSV, ExportScope.FULL)
+
+    async def test_export_with_sqlite_selected_returns_sqlite(self, test_app, capture):
+        """Test selecting SQLite then Export returns (SQLITE, FULL)."""
+        result, callback = capture
+        async with test_app.run_test() as pilot:
+            screen = ExportScreen()
+            test_app.push_screen(screen, callback=callback)
+            await pilot.pause()
+
+            sqlite_button = screen.query("RadioButton")[2]
+            await pilot.click(sqlite_button)
+            await pilot.pause()
+
+            await pilot.click("#export")
+            await pilot.pause()
+
+            assert result["result"] == (ExportFormat.SQLITE, ExportScope.FULL)
 
     async def test_cancel_button_returns_none(self, test_app, capture):
         """Test clicking Cancel returns None."""
