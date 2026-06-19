@@ -118,6 +118,7 @@ nav:
     - Monarch Money: guide/monarch.md
     - YNAB: guide/ynab.md
     - Amazon Mode: guide/amazon-mode.md
+    - Exporting Transactions: guide/export.md
   - Configuration:
     - Themes: config/themes.md
     - Categories: categories.md

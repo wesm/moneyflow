@@ -81,6 +81,11 @@ See exactly what changes you're making before saving. All edits are queued and r
 </div>
 
 <div class="feature-card" markdown>
+### Export Anywhere
+Export your data to Parquet, CSV, or SQLite with embedded metadata. Full dataset or current view — press ++E++ to export.
+</div>
+
+<div class="feature-card" markdown>
 ### Multi-Account Support
 Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamlessly from the account selector.
 </div>
@@ -127,6 +132,7 @@ uvx moneyflow --demo
 1. [Full installation guide](getting-started/installation.md) - Detailed setup instructions
 2. [Quick start guide](getting-started/quickstart.md) - Get up and running in 2 minutes
 3. [Keyboard shortcuts](guide/keyboard-shortcuts.md) - Master the interface
+4. [Exporting transactions](guide/export.md) - Export to Parquet, CSV, or SQLite
 
 ---
 
