@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.events import Key
 from textual.screen import ModalScreen
-from textual.widgets import Button, Label
+from textual.widgets import Button, Label, RadioButton, RadioSet
 
 from ...data.exporter import ExportFormat, ExportScope
 
@@ -16,6 +16,8 @@ class ExportScreen(ModalScreen):
     Returns a tuple of (ExportFormat, ExportScope) on confirm,
     or None if the user cancels.
     """
+
+    DEFAULT_FOCUS = "#format-select"
 
     CSS = """
     ExportScreen {
@@ -44,6 +46,10 @@ class ExportScreen(ModalScreen):
         margin-bottom: 0;
     }
 
+    RadioSet {
+        margin: 0 0 0 0;
+    }
+
     #button-container {
         layout: horizontal;
         width: 100%;
@@ -61,21 +67,37 @@ class ExportScreen(ModalScreen):
         with Container(id="export-container"):
             yield Label("Export Data", id="export-title")
             yield Label("Format:", classes="section-label")
-            yield Label(ExportFormat.PARQUET.display_name, id="format-value")
+            with RadioSet(id="format-select"):
+                for fmt in ExportFormat:
+                    btn = RadioButton(fmt.display_name, value=(fmt == ExportFormat.PARQUET))
+                    btn.export_format = fmt
+                    yield btn
             yield Label("Scope:", classes="section-label")
-            yield Label(ExportScope.FULL.display_name, id="scope-value")
+            with RadioSet(id="scope-select"):
+                for scope in ExportScope:
+                    btn = RadioButton(scope.display_name, value=(scope == ExportScope.FULL))
+                    btn.export_scope = scope
+                    yield btn
             with Container(id="button-container"):
                 yield Button("Export", variant="primary", id="export")
                 yield Button("Cancel", variant="error", id="cancel")
 
     def on_mount(self) -> None:
-        """Focus the Export button on mount so Enter triggers default action."""
-        self.query_one("#export", Button).focus()
+        """Focus the format selector on mount."""
+        self.query_one("#format-select", RadioSet).focus()
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button clicks."""
         if event.button.id == "export":
-            self.dismiss((ExportFormat.PARQUET, ExportScope.FULL))
+            format_set = self.query_one("#format-select", RadioSet)
+            scope_set = self.query_one("#scope-select", RadioSet)
+            selected_btn = format_set.pressed_button
+            export_format = selected_btn.export_format if selected_btn else ExportFormat.PARQUET
+            selected_scope_btn = scope_set.pressed_button
+            export_scope = (
+                selected_scope_btn.export_scope if selected_scope_btn else ExportScope.FULL
+            )
+            self.dismiss((export_format, export_scope))
         else:
             self.dismiss(None)
 

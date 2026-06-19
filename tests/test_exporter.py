@@ -29,9 +29,17 @@ class TestExportFormat:
         """Verify PARQUET has the expected display name."""
         assert ExportFormat.PARQUET.display_name == "Parquet"
 
+    def test_csv_value(self) -> None:
+        """Verify CSV has the expected value."""
+        assert ExportFormat.CSV.value == "csv"
+
+    def test_csv_display_name(self) -> None:
+        """Verify CSV has the expected display name."""
+        assert ExportFormat.CSV.display_name == "CSV"
+
     def test_enum_members(self) -> None:
         """Verify current member count (grows with subsequent issues)."""
-        assert len(ExportFormat) == 1
+        assert len(ExportFormat) == 2
 
 
 class TestExportScope:
@@ -245,6 +253,142 @@ class TestExportDataframeParquet:
         assert len(loaded) == 0
 
 
+class TestExportDataframeCsv:
+    """Tests for exporting DataFrame to CSV."""
+
+    @pytest.fixture
+    def sample_df(self) -> pl.DataFrame:
+        """Create a small DataFrame for export tests."""
+        return pl.DataFrame(
+            {
+                "id": ["txn_1", "txn_2"],
+                "date": ["2024-10-01", "2024-10-02"],
+                "amount": [-45.67, -23.45],
+                "merchant": ["Whole Foods", "Starbucks"],
+                "category": ["Groceries", "Restaurants & Bars"],
+                "account": ["Chase Checking", "Chase Checking"],
+            }
+        )
+
+    @pytest.fixture
+    def sample_metadata(self) -> ExportMetadata:
+        """Create sample metadata for export tests."""
+        return ExportMetadata(
+            app_version="test-1.0.0",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=2,
+            earliest_date="2024-10-01",
+            latest_date="2024-10-02",
+            backend_type="demo",
+            category_groups=["Food & Dining"],
+        )
+
+    def test_writes_valid_csv(self, sample_df, sample_metadata, tmp_path: Path) -> None:
+        """Verify export_dataframe writes a valid CSV file."""
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        result = export_dataframe(
+            sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV
+        )
+        assert result == path
+        assert path.exists()
+        assert path.stat().st_size > 0
+
+        content = path.read_text()
+        assert content.startswith("#")
+        assert "id,date,amount,merchant,category,account" in content
+
+    def test_csv_file_permissions(self, sample_df, sample_metadata, tmp_path: Path) -> None:
+        """Verify CSV file has 0o600 permissions."""
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV)
+        mode = os.stat(path).st_mode & 0o777
+        assert mode == 0o600
+
+    def test_csv_has_metadata_header(self, sample_df, sample_metadata, tmp_path: Path) -> None:
+        """Verify first lines of CSV are #-prefixed metadata."""
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        assert lines[0].startswith("# Export from moneyflow v")
+        assert lines[1].startswith("# Date:")
+        assert lines[2].startswith("# Transactions:")
+        assert lines[3].startswith("# Date range:")
+        assert lines[4].startswith("# Backend:")
+        assert lines[5].startswith("# Category groups:")
+
+    def test_csv_metadata_contains_values(self, sample_df, sample_metadata, tmp_path: Path) -> None:
+        """Verify metadata header contains expected values."""
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        assert lines[0] == "# Export from moneyflow vtest-1.0.0"
+        assert lines[1] == "# Date: 2026-06-19T12:00:00"
+        assert lines[2] == "# Transactions: 2"
+        assert lines[3] == "# Date range: 2024-10-01 - 2024-10-02"
+        assert lines[4] == "# Backend: demo"
+        assert lines[5] == "# Category groups: Food & Dining"
+
+    def test_csv_data_after_header(self, sample_df, sample_metadata, tmp_path: Path) -> None:
+        """Verify CSV data rows appear after the metadata header."""
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        header_line = next(i for i, line in enumerate(lines) if not line.startswith("#"))
+        assert lines[header_line] == "id,date,amount,merchant,category,account"
+        assert "Whole Foods" in content
+        assert "Starbucks" in content
+
+    def test_empty_dataframe(self, tmp_path: Path) -> None:
+        """Verify exporting an empty DataFrame produces header + column names only."""
+        schema = {"id": pl.Utf8, "amount": pl.Float64}
+        df = pl.DataFrame(schema=schema)
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=0,
+            earliest_date=None,
+            latest_date=None,
+            backend_type="demo",
+            category_groups=[],
+        )
+        path = tmp_path / "exports" / "empty.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(df, path=path, metadata=meta, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        assert lines[0].startswith("#")
+        non_comment_lines = [ln for ln in lines if not ln.startswith("#")]
+        assert non_comment_lines == ["id,amount"]
+
+    def test_metadata_no_category_groups(self, tmp_path: Path) -> None:
+        """Verify metadata header handles empty category groups."""
+        schema = {"id": pl.Utf8}
+        df = pl.DataFrame(schema=schema)
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=0,
+            earliest_date=None,
+            latest_date=None,
+            backend_type="demo",
+            category_groups=[],
+        )
+        path = tmp_path / "exports" / "empty.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(df, path=path, metadata=meta, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        assert lines[5] == "# Category groups: N/A"
+
+
 class TestExportDataframeDispatcher:
     """Tests for the export_dataframe dispatcher."""
 
@@ -263,7 +407,7 @@ class TestExportDataframeDispatcher:
         path = tmp_path / "test.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
         with pytest.raises(ValueError, match="Unsupported export format"):
-            export_dataframe(df, path=path, metadata=meta, fmt="csv")  # type: ignore[arg-type]
+            export_dataframe(df, path=path, metadata=meta, fmt="excel")  # type: ignore[arg-type]
 
 
 class TestExportDataframeEdgeCases:

@@ -17,14 +17,16 @@ class ExportFormat(Enum):
     """Supported export output formats."""
 
     PARQUET = "parquet"
+    CSV = "csv"
 
     @property
     def display_name(self) -> str:
         """Human-readable label for UI display."""
         name_overrides = {
             self.PARQUET: "Parquet",
+            self.CSV: "CSV",
         }
-        return name_overrides.get(self, self.value.capitalize())
+        return name_overrides.get(self, self.value)
 
 
 class ExportScope(Enum):
@@ -104,6 +106,8 @@ def export_dataframe(
     """
     if fmt == ExportFormat.PARQUET:
         return _export_parquet(df, path=path, metadata=metadata)
+    if fmt == ExportFormat.CSV:
+        return _export_csv(df, path=path, metadata=metadata)
     raise ValueError(f"Unsupported export format: {fmt}")
 
 
@@ -130,4 +134,26 @@ def _export_parquet(
     }
     secure_write_file(meta_path, json.dumps(meta_data, indent=2), mode="w")
 
+    return path
+
+
+def _export_csv(
+    df: pl.DataFrame,
+    *,
+    path: Path,
+    metadata: ExportMetadata,
+) -> Path:
+    """Write DataFrame as CSV with a metadata comment header."""
+    groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
+    header_lines = [
+        f"# Export from moneyflow v{metadata.app_version}",
+        f"# Date: {metadata.export_timestamp}",
+        f"# Transactions: {metadata.transaction_count}",
+        f"# Date range: {metadata.earliest_date or 'N/A'} - {metadata.latest_date or 'N/A'}",
+        f"# Backend: {metadata.backend_type}",
+        f"# Category groups: {groups}",
+    ]
+    header = "\n".join(header_lines) + "\n"
+    data = df.write_csv()
+    secure_write_file(path, header + data, mode="w")
     return path
