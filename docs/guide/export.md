@@ -1,6 +1,7 @@
 # Exporting Transactions
 
-Export your transactions for backup, external analysis, or sharing. moneyflow supports three formats with automatic metadata embedded in each.
+Export your transactions for backup, external analysis, or sharing. moneyflow
+supports three formats with automatic metadata embedded in each.
 
 ## Opening the Export Modal
 
@@ -27,7 +28,7 @@ Parquet is selected by default. Use arrow keys or click to switch formats.
 
 Files are written to `~/.moneyflow/exports/` with the naming pattern:
 
-```
+```text
 <timestamp>-<scope>-export.<ext>
 ```
 
@@ -38,13 +39,18 @@ All export files and directories are created with restrictive permissions (`0o60
 ## Tips
 
 !!! tip "CSV comment prefix"
-    When reading exported CSV files back, pass `comment_prefix="#"` to Polars' `read_csv()` to skip the metadata header automatically:
+    When reading exported CSV files back, pass `comment_prefix="#"` to Polars'
+    `read_csv()` to skip the metadata header automatically:
     ```python
     pl.read_csv("export.csv", comment_prefix="#")
     ```
 
 !!! tip "Metadata is app-level only"
-    Export metadata includes the app version, timestamp, transaction count, date range, backend type, and category group names. No credentials, tokens, or personal data are included.
+    Export metadata includes the app version, timestamp, transaction count, date
+    range, backend type, and category group names. No credentials, tokens, or
+    personal data are included.
 
 !!! tip "All formats preserve the same data"
-    Each format exports the same set of columns. The only difference is how metadata is attached — sidecar file, inline header, or separate database table.
+    Each format exports the same set of columns. The only difference is how
+    metadata is attached — sidecar file, inline header, or separate database
+    table.

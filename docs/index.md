@@ -82,7 +82,8 @@ See exactly what changes you're making before saving. All edits are queued and r
 
 <div class="feature-card" markdown>
 ### Export Anywhere
-Export your data to Parquet, CSV, or SQLite with embedded metadata. Full dataset or current view — press ++E++ to export.
+Export your data to Parquet, CSV, or SQLite with embedded metadata. Full
+dataset or current view — press ++E++ to export.
 </div>
 
 <div class="feature-card" markdown>
@@ -98,7 +99,8 @@ Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamles
 
 **Currently supported:**
 
-- **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full-featured integration with real-time sync
+- **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** -
+  Full-featured integration with real-time sync
 - **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
 - **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official
   data exports
