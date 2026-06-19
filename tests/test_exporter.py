@@ -546,6 +546,91 @@ class TestCsvFormulaInjectionSanitization:
         assert "'=" in result
 
 
+class TestCsvMetadataSanitization:
+    """Tests for CSV metadata header field sanitization."""
+
+    def _export_and_get_header(
+        self, df: pl.DataFrame, metadata: ExportMetadata, tmp_path: Path
+    ) -> list[str]:
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(df, path=path, metadata=metadata, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        return [ln for ln in content.splitlines() if ln.startswith("#")]
+
+    def test_newline_in_backend_type_is_sanitized(self, tmp_path: Path) -> None:
+        """Verify \\n in backend_type is replaced with space in header."""
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=1,
+            earliest_date="2026-01-01",
+            latest_date="2026-06-19",
+            backend_type="my\nbackend",
+            category_groups=[],
+        )
+        df = pl.DataFrame({"id": ["test"]})
+        header = self._export_and_get_header(df, meta, tmp_path)
+        backend_line = next(ln for ln in header if ln.startswith("# Backend:"))
+        assert "my backend" in backend_line
+        assert "\n" not in backend_line
+
+    def test_carriage_return_in_category_group_is_sanitized(self, tmp_path: Path) -> None:
+        """Verify \\r in category group name is replaced with space."""
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=1,
+            earliest_date=None,
+            latest_date=None,
+            backend_type="demo",
+            category_groups=["Food\r& Dining"],
+        )
+        df = pl.DataFrame({"id": ["test"]})
+        header = self._export_and_get_header(df, meta, tmp_path)
+        groups_line = next(ln for ln in header if ln.startswith("# Category groups:"))
+        assert "Food & Dining" in groups_line
+        assert "\r" not in groups_line
+
+    def test_crlf_in_date_field_is_sanitized(self, tmp_path: Path) -> None:
+        """Verify \\r\\n in date field is replaced with space."""
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=1,
+            earliest_date="2026-01-01\r\n2026-01-02",
+            latest_date="2026-06-19",
+            backend_type="demo",
+            category_groups=[],
+        )
+        df = pl.DataFrame({"id": ["test"]})
+        header = self._export_and_get_header(df, meta, tmp_path)
+        date_line = next(ln for ln in header if ln.startswith("# Date range:"))
+        assert "2026-01-01 2026-01-02" in date_line
+        assert "\r" not in date_line
+        assert "\n" not in date_line
+
+    def test_normal_values_unchanged(self, tmp_path: Path) -> None:
+        """Verify normal metadata values pass through unchanged."""
+        meta = ExportMetadata(
+            app_version="1.0.0",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=5,
+            earliest_date="2026-01-01",
+            latest_date="2026-06-19",
+            backend_type="demo",
+            category_groups=["Food & Dining", "Transport"],
+        )
+        df = pl.DataFrame({"id": ["test"]})
+        header = self._export_and_get_header(df, meta, tmp_path)
+        assert "# Export from moneyflow v1.0.0" in header
+        assert "# Date: 2026-06-19T12:00:00" in header
+        assert "# Transactions: 5" in header
+        assert "# Date range: 2026-01-01 - 2026-06-19" in header
+        assert "# Backend: demo" in header
+        assert "# Category groups: Food & Dining, Transport" in header
+
+
 class TestExportDataframeSqlite:
     """Tests for exporting DataFrame to SQLite."""
 

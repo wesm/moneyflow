@@ -228,6 +228,11 @@ def _sanitize_csv_cells(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(sanitized)
 
 
+def _sanitize_csv_field(value: str) -> str:
+    """Strip newlines and carriage returns from a CSV field value."""
+    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+
+
 def _export_csv(
     df: pl.DataFrame,
     *,
@@ -238,12 +243,12 @@ def _export_csv(
     df = _sanitize_csv_cells(df)
     groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
     header_lines = [
-        f"# Export from moneyflow v{metadata.app_version}",
-        f"# Date: {metadata.export_timestamp}",
+        f"# Export from moneyflow v{_sanitize_csv_field(metadata.app_version)}",
+        f"# Date: {_sanitize_csv_field(metadata.export_timestamp)}",
         f"# Transactions: {metadata.transaction_count}",
-        f"# Date range: {metadata.earliest_date or 'N/A'} - {metadata.latest_date or 'N/A'}",
-        f"# Backend: {metadata.backend_type}",
-        f"# Category groups: {groups}",
+        f"# Date range: {_sanitize_csv_field(metadata.earliest_date or 'N/A')} - {_sanitize_csv_field(metadata.latest_date or 'N/A')}",
+        f"# Backend: {_sanitize_csv_field(metadata.backend_type)}",
+        f"# Category groups: {_sanitize_csv_field(groups)}",
     ]
     header = "\n".join(header_lines) + "\n"
     data = df.write_csv()
