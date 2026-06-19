@@ -13,6 +13,8 @@ import polars as pl
 
 from .file_utils import secure_write_file
 
+DANGEROUS_PREFIX_PATTERN = r"^\s*[=+\-@\t\r]"
+
 
 class ExportFormat(Enum):
     """Supported export output formats."""
@@ -192,6 +194,27 @@ def _export_sqlite(
     return path
 
 
+def _sanitize_csv_cells(df: pl.DataFrame) -> pl.DataFrame:
+    """Prefix dangerous leading characters with a single quote to prevent formula injection.
+
+    Spreadsheet engines (Excel, Google Sheets, LibreOffice Calc) interpret cells
+    starting with ``=``, ``+``, ``-``, ``@``, tab, or carriage return as formulas.
+    Leading whitespace is included because some engines strip it before checking.
+    """
+    sanitized = []
+    for col in df.columns:
+        if df[col].dtype in (pl.Utf8, pl.String):
+            sanitized.append(
+                pl.when(pl.col(col).str.contains(DANGEROUS_PREFIX_PATTERN))
+                .then(pl.lit("'") + pl.col(col))
+                .otherwise(pl.col(col))
+                .alias(col)
+            )
+        else:
+            sanitized.append(pl.col(col))
+    return df.with_columns(sanitized)
+
+
 def _export_csv(
     df: pl.DataFrame,
     *,
@@ -199,6 +222,7 @@ def _export_csv(
     metadata: ExportMetadata,
 ) -> Path:
     """Write DataFrame as CSV with a metadata comment header."""
+    df = _sanitize_csv_cells(df)
     groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
     header_lines = [
         f"# Export from moneyflow v{metadata.app_version}",

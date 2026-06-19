@@ -406,6 +406,125 @@ class TestExportDataframeCsv:
         assert lines[5] == "# Category groups: N/A"
 
 
+class TestCsvFormulaInjectionSanitization:
+    """Tests for CSV formula injection prevention."""
+
+    @pytest.fixture
+    def sample_metadata(self) -> ExportMetadata:
+        return ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=1,
+            earliest_date="2026-01-01",
+            latest_date="2026-06-19",
+            backend_type="demo",
+            category_groups=[],
+        )
+
+    def _export_and_read(self, df: pl.DataFrame, metadata: ExportMetadata, tmp_path: Path) -> str:
+        path = tmp_path / "exports" / "test.csv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        export_dataframe(df, path=path, metadata=metadata, fmt=ExportFormat.CSV)
+        content = path.read_text()
+        lines = content.splitlines()
+        data_lines = [ln for ln in lines if not ln.startswith("#")]
+        return "\n".join(data_lines)
+
+    def test_equals_prefix_is_escaped(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ['=HYPERLINK("http://evil.com")']})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'=HYPERLINK" in result
+
+    def test_plus_prefix_is_escaped(self, sample_metadata: ExportMetadata, tmp_path: Path) -> None:
+        df = pl.DataFrame({"merchant": ["+SUM(1,1)"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'+SUM" in result
+
+    def test_minus_prefix_is_escaped(self, sample_metadata: ExportMetadata, tmp_path: Path) -> None:
+        df = pl.DataFrame({"merchant": ['-DDE("cmd")']})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'-DDE" in result
+
+    def test_at_prefix_is_escaped(self, sample_metadata: ExportMetadata, tmp_path: Path) -> None:
+        df = pl.DataFrame({"merchant": ['@WEBSERVICE("url")']})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'@WEBSERVICE" in result
+
+    def test_tab_prefix_is_escaped(self, sample_metadata: ExportMetadata, tmp_path: Path) -> None:
+        df = pl.DataFrame({"merchant": ["\t=1+1"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'\t=" in result
+
+    def test_carriage_return_prefix_is_escaped(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ["\r=1+1"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'" in result
+
+    def test_leading_whitespace_before_dangerous_char_is_escaped(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ["  =SUM(1,1)"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'  =" in result
+
+    def test_normal_merchant_is_not_altered(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ["Target", "Walmart"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "Target" in result
+        assert "Walmart" in result
+        assert "'Target" not in result
+
+    def test_empty_string_is_not_affected(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": [""]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        last_line = result.splitlines()[-1]
+        assert "'" not in last_line
+
+    def test_null_field_is_not_affected(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": [None]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "" in result
+
+    def test_non_string_columns_are_not_affected(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"amount": [1.0], "count": [5]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        data_line = result.splitlines()
+        assert "1.0" in data_line[-1]
+        assert "5" in data_line[-1]
+        assert not any(line.startswith("'") for line in data_line if line)
+
+    def test_multiple_dangerous_rows_all_escaped(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ["=A", "+B", "-C", "@D", "Safe"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "'=A" in result
+        assert "'+B" in result
+        assert "'-C" in result
+        assert "'@D" in result
+        assert "Safe" in result
+
+    def test_already_prefixed_value_is_not_double_escaped(
+        self, sample_metadata: ExportMetadata, tmp_path: Path
+    ) -> None:
+        df = pl.DataFrame({"merchant": ["'=SUM(1,1)"]})
+        result = self._export_and_read(df, sample_metadata, tmp_path)
+        assert "''=" not in result
+        assert "'=" in result
+
+
 class TestExportDataframeSqlite:
     """Tests for exporting DataFrame to SQLite."""
 
