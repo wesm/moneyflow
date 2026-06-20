@@ -140,7 +140,7 @@ class TestBuildExportPath:
     def test_filename_has_timestamp_prefix(self, tmp_path: Path) -> None:
         """Verify filename starts with a timestamp pattern."""
         path = build_export_path(tmp_path, ExportFormat.PARQUET, ExportScope.FULL)
-        timestamp_pattern = r"^\d{4}-\d{2}-\d{2}_\d{6}-"
+        timestamp_pattern = r"^\d{4}-\d{2}-\d{2}_\d{6}_\d{6}-"
         assert re.match(timestamp_pattern, path.name) is not None
 
     def test_creates_exports_directory(self, tmp_path: Path) -> None:

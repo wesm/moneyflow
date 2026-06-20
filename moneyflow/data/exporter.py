@@ -82,7 +82,7 @@ def build_export_path(config_dir: Path, fmt: ExportFormat, scope: ExportScope) -
     Returns:
         Path to the export file.
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
     filename = f"{timestamp}-{scope.value}-export.{fmt.value}"
     exports_dir = config_dir / "exports"
     exports_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
