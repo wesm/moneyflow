@@ -32,7 +32,7 @@ Files are written to `~/.moneyflow/exports/` with the naming pattern:
 <timestamp>-<scope>-export.<ext>
 ```
 
-For example: `2026-06-19_143022-full-export.parquet`
+For example: `2026-06-19_143022_865809-full-export.parquet`
 
 All export files and directories are created with restrictive permissions (`0o600` for files, `0o700` for directories).
 
