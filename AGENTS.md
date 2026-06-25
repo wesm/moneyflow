@@ -1,5 +1,10 @@
 # AGENTS.md - moneyflow Development Guide
 
+## Canonical Assistant Instructions
+
+AGENTS.md is the system prompt of truth for AI assistants in this repository.
+CLAUDE.md must remain a symlink to AGENTS.md rather than a separate copy.
+
 ## CRITICAL: Git Branch Management for AI Assistants
 
 **⚠️ NEVER change git branches, pull, or create new branches without explicit user permission.**
@@ -401,15 +406,23 @@ uv sync
 
 **IMPORTANT**: When working with Codex, Claude Code, or other AI assistants:
 - ✅ AI can create commits locally
+- ✅ AI must commit each turn that modifies tracked files before stopping
 - ❌ AI must NEVER push to git without explicit user permission
 - ❌ AI must NEVER create new branches unless explicitly asked by the user
 - ❌ AI must NEVER amend commits unless explicitly asked by the user
-- 💡 User should review commits before pushing
+- ❌ AI must NEVER leave uncommitted tracked changes when stopping
+- 💡 User should review commits before pushing unless they explicitly asked the AI to push
 
 **Pull request descriptions**:
 - Do not include a "Test Plan", "Verification", or similar checklist/section in PR descriptions.
 - Keep PR descriptions focused on the change summary and useful context.
 - Report verification results in chat/status updates instead.
+
+**End-of-turn rule for AI assistants**:
+- If a turn changes tracked files, run the required checks, create a local commit, and stop only after `git status --short` is clean.
+- If required checks fail, keep working until they pass and then commit.
+- If an external blocker prevents a clean commit, report the blocker clearly and do not pretend the turn is complete.
+- Only push after explicit user permission for that push.
 
 ```bash
 # MANDATORY: Run all code quality checks before committing

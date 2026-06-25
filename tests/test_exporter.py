@@ -48,6 +48,10 @@ class TestExportFormat:
         """Verify SQLITE has the expected display name."""
         assert ExportFormat.SQLITE.display_name == "SQLite"
 
+    def test_sqlite_extension_is_db(self) -> None:
+        """Verify SQLite exports use the documented .db extension."""
+        assert ExportFormat.SQLITE.extension == "db"
+
     def test_enum_members(self) -> None:
         """Verify current member count (grows with subsequent issues)."""
         assert len(ExportFormat) == 3
@@ -132,6 +136,11 @@ class TestBuildExportPath:
         """Verify path ends with correct extension for format."""
         path = build_export_path(tmp_path, ExportFormat.PARQUET, ExportScope.FULL)
         assert path.suffix == ".parquet"
+
+    def test_sqlite_path_uses_db_extension(self, tmp_path: Path) -> None:
+        """Verify generated SQLite export paths use the documented .db extension."""
+        path = build_export_path(tmp_path, ExportFormat.SQLITE, ExportScope.FULL)
+        assert path.suffix == ".db"
 
     def test_filename_contains_scope_label(self, tmp_path: Path) -> None:
         """Verify filename includes the scope value."""

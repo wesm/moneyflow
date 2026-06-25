@@ -82,8 +82,8 @@ See exactly what changes you're making before saving. All edits are queued and r
 
 <div class="feature-card" markdown>
 ### Export Anywhere
-Export your data to Parquet, CSV, or SQLite with embedded metadata. Full
-dataset or current view — press ++E++ to export.
+Export your data to Parquet, CSV, or SQLite with export metadata. Full
+dataset or filtered transactions — press ++E++ to export.
 </div>
 
 <div class="feature-card" markdown>

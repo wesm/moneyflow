@@ -35,6 +35,14 @@ class ExportFormat(Enum):
         }
         return name_overrides.get(self, self.value)
 
+    @property
+    def extension(self) -> str:
+        """File extension to use for generated export paths."""
+        extension_overrides = {
+            self.SQLITE: "db",
+        }
+        return extension_overrides.get(self, self.value)
+
 
 class ExportScope(Enum):
     """Scope of data to include in an export."""
@@ -56,7 +64,7 @@ class ExportScope(Enum):
 class ExportMetadata:
     """Metadata accompanying an export file.
 
-    Contains only non-sensitive app-level information.
+    Contains export context and app configuration details.
     No credentials, tokens, or encrypted blobs are included.
     """
 
@@ -84,7 +92,7 @@ def build_export_path(config_dir: Path, fmt: ExportFormat, scope: ExportScope) -
         Path to the export file.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
-    filename = f"{timestamp}-{scope.value}-export.{fmt.value}"
+    filename = f"{timestamp}-{scope.value}-export.{fmt.extension}"
     exports_dir = config_dir / "exports"
     exports_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     return exports_dir / filename
