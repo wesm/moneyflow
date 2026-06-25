@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sqlite3
 import tempfile
 from dataclasses import dataclass
@@ -229,8 +230,11 @@ def _sanitize_csv_cells(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _sanitize_csv_field(value: str) -> str:
-    """Strip newlines and carriage returns from a CSV field value."""
-    return value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    """Strip CSV row/cell delimiters and neutralize formula-capable metadata values."""
+    sanitized = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").replace(",", " ")
+    if re.search(DANGEROUS_PREFIX_PATTERN, sanitized):
+        return f"'{sanitized}"
+    return sanitized
 
 
 def _export_csv(
@@ -241,14 +245,18 @@ def _export_csv(
 ) -> Path:
     """Write DataFrame as CSV with a metadata comment header."""
     df = _sanitize_csv_cells(df)
-    groups = ", ".join(metadata.category_groups) if metadata.category_groups else "N/A"
+    groups = (
+        "; ".join(_sanitize_csv_field(group) for group in metadata.category_groups)
+        if metadata.category_groups
+        else "N/A"
+    )
     header_lines = [
         f"# Export from moneyflow v{_sanitize_csv_field(metadata.app_version)}",
         f"# Date: {_sanitize_csv_field(metadata.export_timestamp)}",
         f"# Transactions: {metadata.transaction_count}",
         f"# Date range: {_sanitize_csv_field(metadata.earliest_date or 'N/A')} - {_sanitize_csv_field(metadata.latest_date or 'N/A')}",
         f"# Backend: {_sanitize_csv_field(metadata.backend_type)}",
-        f"# Category groups: {_sanitize_csv_field(groups)}",
+        f"# Category groups: {groups}",
     ]
     header = "\n".join(header_lines) + "\n"
     data = df.write_csv()

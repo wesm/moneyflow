@@ -1,5 +1,6 @@
 """Tests for export enums, metadata, and file writing."""
 
+import csv
 import json
 import os
 import re
@@ -628,7 +629,30 @@ class TestCsvMetadataSanitization:
         assert "# Transactions: 5" in header
         assert "# Date range: 2026-01-01 - 2026-06-19" in header
         assert "# Backend: demo" in header
-        assert "# Category groups: Food & Dining, Transport" in header
+        assert "# Category groups: Food & Dining; Transport" in header
+
+    def test_category_group_with_comma_and_formula_text_stays_in_comment_cell(
+        self, tmp_path: Path
+    ) -> None:
+        """Verify category metadata cannot create a formula-capable CSV cell."""
+        meta = ExportMetadata(
+            app_version="test",
+            export_timestamp="2026-06-19T12:00:00",
+            transaction_count=1,
+            earliest_date=None,
+            latest_date=None,
+            backend_type="demo",
+            category_groups=['Safe, =HYPERLINK("https://example.invalid")', "@Formula"],
+        )
+        df = pl.DataFrame({"id": ["test"]})
+        header = self._export_and_get_header(df, meta, tmp_path)
+        groups_line = next(ln for ln in header if "Category groups:" in ln)
+
+        parsed_cells = next(csv.reader([groups_line]))
+        assert len(parsed_cells) == 1
+        assert parsed_cells[0].startswith("# Category groups:")
+        assert "Safe  =HYPERLINK" in parsed_cells[0]
+        assert "'@Formula" in parsed_cells[0]
 
 
 class TestExportDataframeSqlite:
