@@ -60,6 +60,7 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding("/", "search", "Search transactions", "Filters"),
     # Commit & System
     KeyBinding("w", "review_and_commit", "Review and commit pending changes", "System"),
+    KeyBinding("E", "export_data", "Export transactions", "System"),
     KeyBinding("q", "quit", "Quit application", "System"),
     KeyBinding("?", "help", "Show this help screen", "System"),
 ]

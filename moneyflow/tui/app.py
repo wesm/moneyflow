@@ -20,9 +20,11 @@ the UI layer thin and focused on rendering and user interaction.
 """
 
 import argparse
+import asyncio
 import sys
 import traceback
 from datetime import date as date_type
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -39,6 +41,13 @@ from ..data.cache_manager import CacheManager, RefreshStrategy
 from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.data_manager import DataManager
 from ..data.duplicate_detector import DuplicateDetector
+from ..data.exporter import (
+    ExportFormat,
+    ExportMetadata,
+    ExportScope,
+    build_export_path,
+    export_dataframe,
+)
 from ..data.state import AppState, ViewMode
 from ..logging_config import get_logger, setup_logging
 from ..version import get_version
@@ -54,6 +63,7 @@ from .screens.credential_screens import (
 )
 from .screens.duplicates_screen import DuplicatesScreen
 from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, SelectCategoryScreen
+from .screens.export_screen import ExportScreen
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
 from .screens.transaction_detail_screen import TransactionDetailScreen
@@ -144,6 +154,7 @@ class MoneyflowApp(App):
         Binding("slash", "search", "Search", show=True, key_display="/"),
         Binding("escape", "go_back", "Back", show=False),
         Binding("w", "review_and_commit", "Commit", show=True),
+        Binding("E", "export_data", "Export", show=True, key_display="E"),
         Binding("q", "quit_app", "Quit", show=True),
         Binding("ctrl+c", "quit_app", "Force Quit", show=False),  # Also allow Ctrl+C
     ]
@@ -890,6 +901,79 @@ class MoneyflowApp(App):
         """Switch to ungrouped transactions view (all transactions in reverse chronological order)."""
         self.controller.switch_to_detail_view(set_default_sort=True)
         self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
+
+    def action_export_data(self) -> None:
+        """Show export format and scope selection modal."""
+        if self.data_manager is None or self.data_manager.df is None:
+            self.notify("No data to export", timeout=2)
+            return
+        if self.data_manager.df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+        self.run_worker(self._show_export_screen(), exclusive=False)
+
+    async def _show_export_screen(self) -> None:
+        """Push the export screen and handle its result."""
+        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
+        if result is None:
+            return
+        export_format, export_scope = result
+
+        if export_scope == ExportScope.SNAPSHOT:
+            df = self.state.get_filtered_df()
+        else:
+            df = self.data_manager.df
+
+        if df is None or df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+
+        df = self.data_manager.apply_category_groups(df)
+
+        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
+
+        category_groups = (
+            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
+            if self.data_manager.category_groups
+            else []
+        )
+
+        metadata = ExportMetadata(
+            app_version=get_version(),
+            export_timestamp=datetime.now().isoformat(),
+            transaction_count=len(df),
+            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
+            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
+            backend_type=self.data_manager.backend_type or "unknown",
+            category_groups=category_groups,
+        )
+
+        path = build_export_path(config_dir, export_format, export_scope)
+
+        self._notify(notification_helper.export_starting(len(df)))
+        await self._export_data_async(
+            df=df, path=path, export_format=export_format, metadata=metadata
+        )
+
+    async def _export_data_async(
+        self,
+        df: pl.DataFrame,
+        path: Path,
+        export_format: ExportFormat,
+        metadata: ExportMetadata,
+    ) -> None:
+        """Export data using the exporter module in a background thread."""
+        try:
+            await asyncio.to_thread(
+                export_dataframe,
+                df,
+                path=path,
+                metadata=metadata,
+                fmt=export_format,
+            )
+            self._notify(notification_helper.export_success(str(path), len(df)))
+        except Exception as e:
+            self._notify(notification_helper.export_error(str(e)))
 
     def action_find_duplicates(self) -> None:
         """Find and display duplicate transactions."""

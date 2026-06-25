@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,23 @@ PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
 DEVELOPING_DOC = REPO_ROOT / "docs" / "development" / "developing.md"
 SCRIPTS_README = REPO_ROOT / "scripts" / "README.md"
 EXAMPLE_TAG_REFSPEC = "refs/tags/v99.99.99:refs/tags/v99.99.99"
+GIT_LOCAL_ENV_VARS = {
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+}
 
 
 def run_release(*args: str) -> subprocess.CompletedProcess[str]:
@@ -27,9 +45,17 @@ def run_release(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def run_command(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    for name in GIT_LOCAL_ENV_VARS:
+        env.pop(name, None)
+    for name in list(env):
+        if name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            env.pop(name, None)
+
     return subprocess.run(
         list(args),
         cwd=cwd,
+        env=env,
         text=True,
         capture_output=True,
         check=False,

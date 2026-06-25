@@ -164,10 +164,10 @@ Backends also inherit concrete helpers with sensible defaults — for example
 
 Supported backends:
 
-- **Monarch Money** (`backends/monarch.py`) — GraphQL API client
-- **YNAB** (`backends/ynab.py`) — REST API client
-- **Amazon Orders** (`backends/amazon.py`) — Amazon order history scraper
-- **Demo** (`backends/demo.py`) — Built-in sample data for evaluation
+- **Monarch Money** (`moneyflow/backends/monarch.py`) — GraphQL API client
+- **YNAB** (`moneyflow/backends/ynab.py`) — REST API client
+- **Amazon Orders** (`moneyflow/backends/amazon.py`) — Amazon order history scraper
+- **Demo** (`moneyflow/backends/demo.py`) — Built-in sample data for evaluation
 
 ## File Format Reference
 

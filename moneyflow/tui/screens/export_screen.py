@@ -1,0 +1,130 @@
+"""Modal screen for choosing export format and scope."""
+
+from textual.app import ComposeResult
+from textual.containers import Container
+from textual.events import Key
+from textual.screen import ModalScreen
+from textual.widgets import Button, Label, RadioButton, RadioSet
+
+from ...data.exporter import ExportFormat, ExportScope
+
+
+class FormatRadioButton(RadioButton):
+    """RadioButton that carries an ExportFormat value."""
+
+    def __init__(self, label: str, export_format: ExportFormat, *args, **kwargs):
+        super().__init__(label, *args, **kwargs)
+        self.export_format = export_format
+
+
+class ScopeRadioButton(RadioButton):
+    """RadioButton that carries an ExportScope value."""
+
+    def __init__(self, label: str, export_scope: ExportScope, *args, **kwargs):
+        super().__init__(label, *args, **kwargs)
+        self.export_scope = export_scope
+
+
+class ExportScreen(ModalScreen):
+    """
+    Modal screen for selecting export format and scope.
+
+    Returns a tuple of (ExportFormat, ExportScope) on confirm,
+    or None if the user cancels.
+    """
+
+    DEFAULT_FOCUS = "#format-select"
+
+    CSS = """
+    ExportScreen {
+        background: $surface;
+        align: center middle;
+    }
+
+    #export-container {
+        width: 50;
+        height: auto;
+        padding: 1 2;
+        background: $panel;
+        border: solid $accent;
+    }
+
+    #export-title {
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+        content-align: center top;
+    }
+
+    .section-label {
+        color: $text;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+
+    RadioSet {
+        margin: 0 0 0 0;
+    }
+
+    #button-container {
+        layout: horizontal;
+        width: 100%;
+        margin-top: 2;
+        align: center middle;
+    }
+
+    #button-container Button {
+        margin: 0 1;
+        min-width: 20;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        with Container(id="export-container"):
+            yield Label("Export Data", id="export-title")
+            yield Label("Format:", classes="section-label")
+            with RadioSet(id="format-select"):
+                for fmt in ExportFormat:
+                    yield FormatRadioButton(
+                        fmt.display_name, export_format=fmt, value=(fmt == ExportFormat.PARQUET)
+                    )
+            yield Label("Scope:", classes="section-label")
+            with RadioSet(id="scope-select"):
+                for scope in ExportScope:
+                    yield ScopeRadioButton(
+                        scope.display_name, export_scope=scope, value=(scope == ExportScope.FULL)
+                    )
+            with Container(id="button-container"):
+                yield Button("Export", variant="primary", id="export")
+                yield Button("Cancel", variant="error", id="cancel")
+
+    def on_mount(self) -> None:
+        """Focus the format selector on mount."""
+        self.query_one("#format-select", RadioSet).focus()
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button clicks."""
+        if event.button.id == "export":
+            format_set = self.query_one("#format-select", RadioSet)
+            scope_set = self.query_one("#scope-select", RadioSet)
+            selected_btn = format_set.pressed_button
+            export_format = (
+                selected_btn.export_format
+                if isinstance(selected_btn, FormatRadioButton)
+                else ExportFormat.PARQUET
+            )
+            selected_scope_btn = scope_set.pressed_button
+            export_scope = (
+                selected_scope_btn.export_scope
+                if isinstance(selected_scope_btn, ScopeRadioButton)
+                else ExportScope.FULL
+            )
+            self.dismiss((export_format, export_scope))
+        else:
+            self.dismiss(None)
+
+    def on_key(self, event: Key) -> None:
+        """Handle keyboard shortcuts."""
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
