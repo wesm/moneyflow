@@ -65,6 +65,7 @@ class SimpleFinBackend(FinanceBackend):
                          profile_dir.
         """
         self.profile_dir = profile_dir
+        self._managed_db_directory = db_path is None
         if db_path is None and profile_dir is not None:
             db_path = str(Path(profile_dir) / "simplefin.db")
         self._client: Optional[SimpleFinClient] = None
@@ -90,6 +91,8 @@ class SimpleFinBackend(FinanceBackend):
         if self._db_path != ":memory:":
             db_path = Path(self._db_path)
             db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if self._managed_db_directory:
+                os.chmod(db_path.parent, 0o700)
             flags = os.O_RDWR | os.O_CREAT
             if hasattr(os, "O_CLOEXEC"):
                 flags |= os.O_CLOEXEC

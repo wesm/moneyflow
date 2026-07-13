@@ -953,6 +953,26 @@ class TestProfileIntegration:
 
         assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
 
+    def test_existing_managed_profile_directory_permissions_are_restricted(self, tmp_path):
+        profile_dir = tmp_path / "simplefin-profile"
+        profile_dir.mkdir(mode=0o755)
+        profile_dir.chmod(0o755)
+        backend = SimpleFinBackend(profile_dir=profile_dir)
+
+        backend._ensure_db_initialized()
+
+        assert stat.S_IMODE(profile_dir.stat().st_mode) == 0o700
+
+    def test_existing_custom_database_directory_permissions_are_preserved(self, tmp_path):
+        custom_dir = tmp_path / "shared-data"
+        custom_dir.mkdir(mode=0o755)
+        custom_dir.chmod(0o755)
+        backend = SimpleFinBackend(db_path=str(custom_dir / "simplefin.db"))
+
+        backend._ensure_db_initialized()
+
+        assert stat.S_IMODE(custom_dir.stat().st_mode) == 0o755
+
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"
         conn = sqlite3.connect(db_path)
