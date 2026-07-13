@@ -29,6 +29,7 @@ import polars as pl
 from moneyflow.tui.formatters import PreparedView
 
 from ..data.amazon_linker import AmazonLinker
+from ..data.categories import save_categories_to_profile
 from ..data.commit_orchestrator import apply_edits_to_dataframe
 from ..data.data_manager import DataManager
 from ..data.state import (
@@ -1631,6 +1632,16 @@ class AppController:
             # Clear pending edits on success (after cache update to preserve edits list)
             self.data_manager.pending_edits.clear()
             logger.info("Cleared pending edits")
+
+            # Persist deferred category config if any (from category manager)
+            if self.data_manager.pending_category_groups:
+                if self.data_manager.profile_dir:
+                    save_categories_to_profile(
+                        self.data_manager.pending_category_groups,
+                        profile_dir=self.data_manager.profile_dir,
+                    )
+                self.data_manager.pending_category_groups = None
+                logger.info("Saved deferred category config after successful commit")
 
             # Refresh to show updated data (smooth update)
             # Note: View already restored in app.py before commit started

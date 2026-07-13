@@ -53,6 +53,7 @@ Choose your platform:
 
 - [Monarch Money Setup](#with-monarch-money)
 - [YNAB Setup](#with-ynab)
+- [SimpleFIN Setup](#with-simplefin)
 
 ---
 
@@ -149,19 +150,52 @@ Transactions are cached locally after the initial download for instant startup.
 
 ---
 
+## With SimpleFIN
+
+### Step 1: Get an Access URL or Setup Token
+
+Use an Access URL from your SimpleFIN server, or create a one-time setup token
+through [SimpleFIN Bridge](https://bridge.simplefin.org/simplefin/create).
+
+### Launch moneyflow (SimpleFIN)
+
+```bash
+moneyflow
+```
+
+On first run, you'll be prompted for:
+
+1. **Backend selection** - Choose **SimpleFIN**
+2. **Access URL or token** - Paste the credential from Step 1
+3. **Encryption password** - Create a new password to encrypt your stored Access URL
+
+Transactions are stored in a local SQLite database. The SimpleFIN API is
+read-only — all edits (merchant rename, category changes, hide/unhide) are
+persisted locally.
+
+---
+
 ## Common First Commands
 
 ```bash
-# Fetch only current year from API (faster for large accounts)
+# Fetch only current year from the default backend
 moneyflow --year 2025
 
-# Force refresh from API (ignore cache)
+# Force refresh from the default backend cache path
 moneyflow --refresh
+
+# SimpleFIN: launch with current-year filtering
+moneyflow simplefin --year 2025
+
+# SimpleFIN: fetch new API transactions into the local SQLite database
+moneyflow simplefin refresh
 ```
 
 !!! note
-    Caching is enabled by default. Your transactions are stored in an encrypted local cache for fast startup.
-    Use `--refresh` to force a fresh download from your backend.
+    Monarch and YNAB use moneyflow's encrypted cache by default; `--refresh`
+    forces a fresh backend download. SimpleFIN uses a local SQLite database
+    instead, so use `moneyflow simplefin refresh` for an additive API refresh
+    or `moneyflow simplefin refresh --force` to rebuild the local database.
 
 ---
 
@@ -174,7 +208,8 @@ Let's rename a merchant:
 3. Press ++m++ to edit merchant name
 4. Type the new name, press ++enter++
 5. Press ++w++ to review changes
-6. Press ++enter++ to commit to your backend (Monarch/YNAB)
+6. Press ++enter++ to commit. Monarch/YNAB sync supported edits to the backend;
+   SimpleFIN saves edits to its local SQLite database.
 
 ![Edit merchant](../assets/screenshots/drill-down-bulk-edit-merchant.svg)
 
@@ -190,10 +225,11 @@ Done! The change is now saved.
 - [Monarch Money Guide](../guide/monarch.md) - Detailed Monarch-specific documentation
 - [YNAB Guide](../guide/ynab.md) - Detailed YNAB-specific documentation
 - [Amazon Mode](../guide/amazon-mode.md) - Analyze Amazon purchase history
+- [SimpleFIN Guide](../guide/simplefin.md) - Connect via SimpleFIN Bridge
 
 !!! info "Multiple Accounts"
-    moneyflow supports multiple accounts! You can add Monarch, YNAB, and Amazon accounts and switch between them
-    from the account selector on startup.
+    moneyflow supports multiple accounts. You can add Monarch, YNAB, SimpleFIN,
+    and Amazon accounts and switch between them from the account selector on startup.
 
 ---
 

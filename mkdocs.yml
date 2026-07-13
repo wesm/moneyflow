@@ -119,6 +119,8 @@ nav:
     - YNAB: guide/ynab.md
     - Amazon Mode: guide/amazon-mode.md
     - Exporting Transactions: guide/export.md
+    - SimpleFIN: guide/simplefin.md
+    - SimpleFIN CLI Reference: guide/simplefin-cli.md
   - Configuration:
     - Themes: config/themes.md
     - Categories: categories.md

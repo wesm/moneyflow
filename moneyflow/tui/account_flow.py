@@ -9,6 +9,7 @@ from moneyflow.data.migration import (
     migrate_global_categories_to_profiles,
     migrate_legacy_amazon_db,
     migrate_legacy_credentials,
+    migrate_legacy_simplefin_db,
 )
 from moneyflow.tui.backend_config import get_backend_config
 from moneyflow.tui.screens.account_name_input_screen import AccountNameInputScreen
@@ -92,6 +93,10 @@ class AccountFlowCoordinator:
         if amazon_migrated:
             logger.info("Migrated legacy Amazon database to amazon profile")
 
+        simplefin_migrated = migrate_legacy_simplefin_db(config_dir=config_path)
+        if simplefin_migrated:
+            logger.info("Migrated legacy SimpleFIN database to simplefin profile")
+
         categories_migrated = migrate_global_categories_to_profiles(config_dir=config_path)
         if categories_migrated:
             logger.info("Migrated global categories to profile-local configs")
@@ -156,6 +161,17 @@ class AccountFlowCoordinator:
             if creds is None:
                 continue
 
+            if creds == "__reset__":
+                new_creds = await self.app.push_screen(
+                    CredentialSetupScreen(
+                        backend_type=account.backend_type, profile_dir=profile_dir
+                    ),
+                    wait_for_dismiss=True,
+                )
+                if not new_creds:
+                    continue
+                return account.id, profile_dir, new_creds
+
             return account.id, profile_dir, creds
 
     def get_ynab_budget_id(self, account_id: str) -> Optional[str]:
@@ -214,17 +230,17 @@ class AccountFlowCoordinator:
     async def handle_add_new_account(
         self, account_manager: AccountManager
     ) -> Optional[Tuple[str, Path, dict]]:
+        backend_type = await self.app.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
+
+        if not backend_type:
+            return None
+
         account_name = await self.app.push_screen(
-            AccountNameInputScreen(backend_type="monarch"),
+            AccountNameInputScreen(backend_type=backend_type),
             wait_for_dismiss=True,
         )
 
         if not account_name:
-            return None
-
-        backend_type = await self.app.push_screen(BackendSelectionScreen(), wait_for_dismiss=True)
-
-        if not backend_type:
             return None
 
         try:
@@ -252,5 +268,91 @@ class AccountFlowCoordinator:
                     return None
         else:
             creds = {"backend_type": backend_type}
+
+        return account.id, profile_dir, creds
+
+    async def handle_profile_credentials(
+        self, profile_dir: Path, backend_type: str = "simplefin"
+    ) -> Optional[dict]:
+        """
+        Handle credential unlock for a specific profile (no BackendSelectionScreen).
+
+        Args:
+            profile_dir: Profile directory containing credentials
+            backend_type: Backend type for display purposes
+
+        Returns:
+            Credentials dict, or None if user cancelled
+        """
+        config_path = Path(self.app.config_dir) if self.app.config_dir else None
+        cred_manager = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
+
+        if not cred_manager.credentials_exist():
+            logger.warning(f"No credentials found in {profile_dir}, prompting setup")
+            creds = await self.app.push_screen(
+                CredentialSetupScreen(backend_type=backend_type, profile_dir=profile_dir),
+                wait_for_dismiss=True,
+            )
+            return creds or None
+
+        if cred_manager.is_plaintext():
+            logger.debug("Loading plaintext credentials")
+            creds, _ = cred_manager.load_credentials()
+            self.app.encryption_key = None
+            return creds
+
+        creds = await self.app.push_screen(
+            CredentialUnlockScreen(profile_dir=profile_dir), wait_for_dismiss=True
+        )
+
+        if creds is None:
+            return None
+
+        if creds == "__reset__":
+            new_creds = await self.app.push_screen(
+                CredentialSetupScreen(backend_type=backend_type, profile_dir=profile_dir),
+                wait_for_dismiss=True,
+            )
+            if not new_creds:
+                return None
+            return new_creds
+
+        return creds
+
+    async def handle_new_simplefin_setup(self) -> Optional[Tuple[str, Path, dict]]:
+        """
+        Go straight to SimpleFIN credential setup.
+
+        Creates the account first so profile_dir is available to pass
+        to the credential setup screen, preserving encryption settings.
+
+        Skips both AccountSelectorScreen and BackendSelectionScreen.
+
+        Returns:
+            tuple: (account_id, profile_dir, creds) or None if user cancelled
+        """
+        config_path = Path(self.app.config_dir) if self.app.config_dir else None
+        account_manager = AccountManager(config_dir=config_path)
+
+        # Create a SimpleFIN account in the registry first
+        try:
+            account = account_manager.create_account(
+                name="SimpleFIN",
+                backend_type="simplefin",
+            )
+        except ValueError as e:
+            logger.error(f"Failed to create SimpleFIN account: {e}")
+            return None
+
+        profile_dir = account_manager.get_profile_dir(account.id)
+
+        creds = await self.app.push_screen(
+            CredentialSetupScreen(backend_type="simplefin", profile_dir=profile_dir),
+            wait_for_dismiss=True,
+        )
+
+        if not creds:
+            account_manager.delete_account(account.id)
+            return None
 
         return account.id, profile_dir, creds

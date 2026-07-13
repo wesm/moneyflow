@@ -12,11 +12,12 @@ All screens follow a consistent pattern:
 3. Dismiss with new value or None (if cancelled)
 """
 
-from typing import List
+import re
+from typing import Dict, List, Optional
 
 import polars as pl
 from textual.app import ComposeResult
-from textual.containers import Container
+from textual.containers import Container, VerticalScroll
 from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
@@ -67,6 +68,24 @@ def parse_merchant_option_id(option_id: str) -> tuple[bool, str]:
     """
     if option_id.startswith("__new__:"):
         return True, option_id[8:]  # Remove "__new__:" prefix
+    return False, option_id
+
+
+def parse_category_option_id(option_id: str) -> tuple[bool, str]:
+    """
+    Parse a category option ID to determine if it's a new category.
+
+    Option IDs use a "__new__:" prefix to distinguish user-typed
+    category names from existing ones in the suggestion list.
+
+    Args:
+        option_id: The option ID string
+
+    Returns:
+        Tuple of (is_new, category_name)
+    """
+    if option_id.startswith("__new__:"):
+        return True, option_id[8:]
     return False, option_id
 
 
@@ -361,7 +380,7 @@ class EditMerchantScreen(ModalScreen):
 
 class SelectCategoryScreen(ModalScreen):
     """
-    Modal screen for selecting transaction category with type-to-search.
+    Modal screen for selecting or creating transaction categories.
 
     Features:
     - Shows transaction context (date, amount, merchant)
@@ -369,16 +388,15 @@ class SelectCategoryScreen(ModalScreen):
     - Keyboard-driven list navigation (↑/↓ arrows, Enter to select)
     - Shows current category with "← current" indicator
     - Focus starts on search input for immediate typing
+    - Type a new name and press Enter to create a new category
 
     The screen provides fast category selection for recategorization workflows.
-    Type a few letters to filter hundreds of categories down to relevant matches.
+    Type a few letters to filter down to relevant matches, or type an entirely
+    new name and press Enter to create a category on the fly.
 
     Returns:
-        str: Selected category ID (if user selected a category)
+        str: Selected category ID or '__new__:name' for a new category name
         None: If cancelled (Esc key)
-
-    Note: Lines 279-313 contain search/filter business logic that could be
-    extracted to a CategorySearchService for better testability.
     """
 
     CSS = """
@@ -425,6 +443,7 @@ class SelectCategoryScreen(ModalScreen):
         current_category_id: str = None,
         transaction_details: dict = None,
         transaction_count: int = 1,
+        source_name: Optional[str] = None,
     ):
         super().__init__()
         self.categories = categories
@@ -432,11 +451,16 @@ class SelectCategoryScreen(ModalScreen):
         self.category_map = {}  # Maps option index to category ID
         self.transaction_details = transaction_details
         self.transaction_count = transaction_count
+        self.source_name = source_name
 
     def compose(self) -> ComposeResult:
         with Container(id="category-dialog"):
-            # Show transaction count in title for bulk operations
-            if self.transaction_count > 1:
+            if self.source_name:
+                yield Label(
+                    f"📋 Merge {self.source_name} INTO... - Type to filter | ↑/↓=Navigate | Enter=Select",
+                    id="category-title",
+                )
+            elif self.transaction_count > 1:
                 yield Label(
                     f"📋 Select Category ({self.transaction_count} transactions) - Type to filter | ↑/↓=Navigate | Enter=Select",
                     id="category-title",
@@ -463,7 +487,7 @@ class SelectCategoryScreen(ModalScreen):
                 current_cat_name = self.categories[self.current_category_id]["name"]
                 yield Label(f"Current category: {current_cat_name}", classes="edit-label")
 
-            yield Input(placeholder="Type to filter categories...", id="search-input")
+            yield Input(placeholder="Type to filter or create...", id="search-input")
 
             yield Static(f"{len(self.categories)} categories", id="results-count")
 
@@ -479,6 +503,8 @@ class SelectCategoryScreen(ModalScreen):
         """Update the category list based on search query."""
         option_list = self.query_one("#category-list", OptionList)
         results_count = self.query_one("#results-count", Static)
+        search_input = self.query_one("#search-input", Input)
+        user_input = search_input.value.strip()
 
         # Filter categories
         if query:
@@ -490,8 +516,16 @@ class SelectCategoryScreen(ModalScreen):
         else:
             matches = list(self.categories.items())
 
+        # Check if user input matches exactly — if so, no "create new" needed
+        exact_match = (
+            any(cat_data["name"].lower() == query for _, cat_data in matches) if query else False
+        )
+
         # Update count
-        results_count.update(f"{len(matches)} categories")
+        count_text = f"{len(matches)} categories"
+        if user_input and not exact_match:
+            count_text += " · Type Enter to create"
+        results_count.update(count_text)
 
         # Clear and rebuild list
         option_list.clear_options()
@@ -502,6 +536,10 @@ class SelectCategoryScreen(ModalScreen):
             is_current = " ← current" if cat_id == self.current_category_id else ""
             option_list.add_option(Option(f"{cat_name}{is_current}", id=cat_id))
             self.category_map[idx] = cat_id
+
+        # Add "create new" option when typed text doesn't exactly match
+        if user_input and not exact_match and user_input != self.current_category_id:
+            option_list.add_option(Option(f'Create new "{user_input}"', id=f"__new__:{user_input}"))
 
         # Highlight first item by default so Enter works immediately
         if option_list.option_count > 0:
@@ -518,37 +556,45 @@ class SelectCategoryScreen(ModalScreen):
     async def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         """Handle category selection with Enter key."""
         if event.option.id:
-            selected_cat_id = str(event.option.id)
+            option_id = str(event.option.id)
+            is_new, cat_name = parse_category_option_id(option_id)
+
             # Don't queue no-op edit if selecting current category
-            if selected_cat_id == self.current_category_id:
+            if not is_new and cat_name == self.current_category_id:
                 self.dismiss(None)
             else:
-                self.dismiss(selected_cat_id)
+                self.dismiss(option_id)
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle Enter key in search - auto-select if only one match."""
+        """Handle Enter key in search input."""
         if event.input.id != "search-input":
             return
 
         option_list = self.query_one("#category-list", OptionList)
-        if option_list.option_count == 1:
-            # Auto-select the single match
-            highlighted_option = option_list.get_option_at_index(0)
-            selected_cat_id = str(highlighted_option.id)
-            # Don't queue no-op edit if selecting current category
+
+        # Find first non-"create new" option (first existing match)
+        first_existing = None
+        for i in range(option_list.option_count):
+            option = option_list.get_option_at_index(i)
+            if not str(option.id).startswith("__new__:"):
+                first_existing = option
+                break
+
+        # If there's any existing match, auto-select the first one
+        if first_existing:
+            selected_cat_id = str(first_existing.id)
             if selected_cat_id == self.current_category_id:
                 self.dismiss(None)
             else:
                 self.dismiss(selected_cat_id)
-        elif option_list.option_count > 1 and option_list.highlighted is not None:
-            # If there are multiple matches but one is highlighted, select it
-            highlighted_option = option_list.get_option_at_index(option_list.highlighted)
-            selected_cat_id = str(highlighted_option.id)
-            # Don't queue no-op edit if selecting current category
-            if selected_cat_id == self.current_category_id:
-                self.dismiss(None)
-            else:
-                self.dismiss(selected_cat_id)
+            return
+
+        # No existing matches — treat the typed value as a new category
+        new_name = event.value.strip()
+        if new_name and new_name != self.current_category_id:
+            self.dismiss(f"__new__:{new_name}")
+        else:
+            self.dismiss(None)
 
     def on_key(self, event: Key) -> None:
         """Handle keyboard shortcuts."""
@@ -663,3 +709,1116 @@ class DeleteConfirmationScreen(ModalScreen):
         elif event.key == "enter":
             event.stop()  # Prevent propagation to parent
             self.dismiss(True)
+
+
+class RenameCategoryScreen(ModalScreen):
+    """Small modal for renaming a single category."""
+
+    CSS = """
+    RenameCategoryScreen {
+        align: center middle;
+    }
+
+    #rename-dialog {
+        width: 50;
+        height: auto;
+        border: thick $primary;
+        background: $surface;
+        padding: 2 4;
+    }
+
+    #rename-title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #rename-input {
+        margin: 1 0;
+    }
+
+    #rename-buttons {
+        layout: horizontal;
+        width: 100%;
+        align: center middle;
+        margin-top: 1;
+    }
+
+    #rename-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(
+        self, current_name: str, category_count: int = 1, title: str = "Rename Category"
+    ) -> None:
+        super().__init__()
+        self.current_name = current_name
+        self.category_count = category_count
+        self._title = title
+
+    def compose(self) -> ComposeResult:
+        with Container(id="rename-dialog"):
+            yield Label(f"✏️  {self._title}", id="rename-title")
+            yield Label(f"Renaming {self.category_count} category", classes="edit-label")
+            yield Label(f"Current name: {self.current_name}", classes="edit-label")
+            yield Input(
+                value=self.current_name, placeholder="New category name...", id="rename-input"
+            )
+            with Container(id="rename-buttons"):
+                yield Button("Save", variant="primary", id="save-button")
+                yield Button("Cancel", variant="default", id="cancel-button")
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "rename-input":
+            self.dismiss(event.value.strip())
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-button":
+            self.dismiss(None)
+        elif event.button.id == "save-button":
+            self.dismiss(self.query_one("#rename-input", Input).value.strip())
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
+
+
+class GroupSelectScreen(ModalScreen):
+    """Modal for selecting a category group."""
+
+    CSS = """
+    GroupSelectScreen {
+        align: center middle;
+    }
+
+    #group-dialog {
+        width: 50;
+        height: auto;
+        max-height: 25;
+        border: thick $primary;
+        background: $surface;
+        padding: 2 4;
+    }
+
+    #group-title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #group-list {
+        height: 15;
+        border: solid $panel;
+        margin: 1 0;
+    }
+    """
+
+    def __init__(
+        self,
+        groups: List[str],
+        current_group: Optional[str] = None,
+        title: str = "📁 Move to Group",
+    ) -> None:
+        super().__init__()
+        self.groups = sorted(groups)
+        self.current_group = current_group
+        self.title = title
+        self._group_map: Dict[int, str] = {}
+
+    def compose(self) -> ComposeResult:
+        with Container(id="group-dialog"):
+            yield Label(self.title, id="group-title")
+            yield Label("↑/↓=Navigate  Enter=Select  Esc=Cancel", classes="edit-label")
+            yield OptionList(id="group-list")
+
+    async def on_mount(self) -> None:
+        option_list = self.query_one("#group-list", OptionList)
+        for idx, group in enumerate(self.groups):
+            suffix = (
+                " ← current"
+                if self.current_group is not None and group == self.current_group
+                else ""
+            )
+            option_list.add_option(Option(f"{group}{suffix}", id=group))
+            self._group_map[idx] = group
+        if option_list.option_count > 0:
+            option_list.highlighted = 0
+
+    async def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        if event.option.id:
+            selected = str(event.option.id)
+            if self.current_group is not None and selected == self.current_group:
+                self.dismiss(None)
+            else:
+                self.dismiss(selected)
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
+
+
+class ManageCategoriesScreen(ModalScreen):
+    """
+    Modal screen for managing categories: rename, move group, merge, delete.
+
+    Only available for read-only backends (SimpleFIN) where categories come
+    from local config rather than an API that owns the truth.
+
+    The screen holds a reference to the mutable ``self.categories`` dict from
+    DataManager, so all in-place mutations (rename, move group) are reflected
+    immediately. Merge and delete operations also queue ``TransactionEdit``
+    objects via ``queue_reassign_callback``.
+
+    Returns:
+        bool: ``True`` if any mutations were made (caller should persist config).
+    """
+
+    CSS = """
+    ManageCategoriesScreen {
+        align: center middle;
+    }
+
+    #cm-dialog {
+        width: 80;
+        height: auto;
+        max-height: 40;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #cm-title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #cm-search {
+        margin: 0 0 1 0;
+    }
+
+    #cm-filter-info {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #cm-content {
+        width: 100%;
+        height: 20;
+        border: solid $panel;
+        padding: 0 1;
+    }
+
+    #cm-footer {
+        width: 100%;
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    .cm-group-header {
+        color: $secondary;
+        text-style: bold;
+    }
+
+    .cm-category-selected {
+        color: $success;
+        text-style: bold;
+    }
+
+    .cm-category-normal {
+        color: $text;
+    }
+    """
+
+    def __init__(
+        self,
+        categories: Dict[str, Dict[str, str]],
+        transaction_counts: Optional[Dict[str, int]] = None,
+        queue_reassign_callback=None,
+    ) -> None:
+        super().__init__()
+        self.categories = categories
+        self.transaction_counts = transaction_counts or {}
+        self._queue_reassign = queue_reassign_callback
+        self._selected_index = 0
+        self._category_order: List[str] = []  # flat list of cat IDs in display order
+        self._group_order: List[str] = []  # group names in display order
+        self._filter_query: str = ""
+        self._filtered_order: List[str] = []
+        self._pending_name: Optional[str] = None
+        self._dirty = False
+
+    def compose(self) -> ComposeResult:
+        with Container(id="cm-dialog"):
+            yield Label("📋 Category Manager", id="cm-title")
+            yield Input(id="cm-search", placeholder="Type to filter categories...")
+            yield Static("", id="cm-filter-info")
+            with VerticalScroll(id="cm-content"):
+                yield Static("")
+            yield Static(
+                "n=new  r=rename  g=group  m=merge  d=delete  /=search  ↑/↓=navigate  Esc=close",
+                id="cm-footer",
+            )
+
+    async def on_mount(self) -> None:
+        self._build_category_order()
+        self._update_display()
+        self.query_one("#cm-search", Input).focus()
+        self.query_one("#cm-content", VerticalScroll).can_focus = True
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _get_selected_cat_id(self) -> Optional[str]:
+        if 0 <= self._selected_index < len(self._filtered_order):
+            return self._filtered_order[self._selected_index]
+        return None
+
+    def _can_delete(self, cat_id: str) -> bool:
+        """Whether a category can be deleted — at least one category per group must remain."""
+        if cat_id == "uncategorized":
+            return False
+        cat_data = self.categories.get(cat_id)
+        if not cat_data:
+            return False
+        group = cat_data["group"]
+        count_in_group = sum(1 for c in self.categories.values() if c.get("group") == group)
+        return count_in_group > 1
+
+    def _build_category_order(self) -> None:
+        """Build flat list of category IDs sorted by group then name."""
+        from collections import defaultdict
+
+        grouped: Dict[str, List[str]] = defaultdict(list)
+        for cat_id, cat_data in self.categories.items():
+            group = cat_data.get("group", "Uncategorized")
+            grouped[group].append(cat_id)
+
+        self._group_order = sorted(grouped.keys())
+        self._category_order = []
+        for group in self._group_order:
+            cat_ids = sorted(grouped[group], key=lambda cid: self.categories[cid].get("name", ""))
+            self._category_order.extend(cat_ids)
+        self._rebuild_filtered_order()
+
+    def _rebuild_filtered_order(self) -> None:
+        if not self._filter_query:
+            self._filtered_order = list(self._category_order)
+            return
+        q = self._filter_query
+        self._filtered_order = [
+            cid for cid in self._category_order if q in self.categories[cid].get("name", "").lower()
+        ]
+
+    def _clear_search(self) -> None:
+        self._filter_query = ""
+        self._rebuild_filtered_order()
+        self._selected_index = 0
+        self._update_display()
+        self.query_one("#cm-search", Input).clear()
+        self.query_one("#cm-search", Input).focus()
+
+    def _update_display(self) -> None:
+        """Rebuild the category list inside the VerticalScroll container."""
+        container = self.query_one("#cm-content", VerticalScroll)
+        container.remove_children()
+
+        cat_idx = 0
+        selected_widget = None
+
+        for group in self._group_order:
+            group_cat_ids = [
+                cid
+                for cid in self._filtered_order
+                if self.categories.get(cid, {}).get("group") == group
+            ]
+            if not group_cat_ids:
+                continue
+
+            container.mount(Static(f"[b][secondary]── {group} ──[/][/]", classes="cm-group-header"))
+
+            for cat_id in group_cat_ids:
+                cat_data = self.categories.get(cat_id, {})
+                txn_count = self.transaction_counts.get(cat_id, 0)
+                is_selected = cat_idx == self._selected_index
+
+                prefix = "▸" if is_selected else " "
+                style = "bold success" if is_selected else "text"
+                actions = self._action_labels(cat_id)
+                name = cat_data.get("name", cat_id)
+                classes = "cm-category-selected" if is_selected else "cm-category-normal"
+
+                widget = Static(
+                    f"[{style}]{prefix} {name:<28}  {txn_count:>5} txns  {actions}[/]",
+                    classes=classes,
+                )
+                container.mount(widget)
+                if is_selected:
+                    selected_widget = widget
+                cat_idx += 1
+
+        info = self.query_one("#cm-filter-info", Static)
+        if self._filter_query:
+            info.update(f"{len(self._filtered_order)} of {len(self._category_order)} categories")
+        else:
+            info.update("")
+
+        if not selected_widget and not container.children:
+            container.mount(Static("[italic]No categories[/]"))
+
+        if selected_widget:
+            self.call_after_refresh(selected_widget.scroll_visible)
+
+    def _action_labels(self, cat_id: str) -> str:
+        """Return action label string for a category."""
+        parts = ["[R]", "[G]"]
+        parts.append("[M]")
+        if self._can_delete(cat_id):
+            parts.append("[D]")
+        return " ".join(parts)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "cm-search":
+            return
+        query = event.value.lower().strip()
+        self._filter_query = query
+        self._rebuild_filtered_order()
+        self._selected_index = 0
+        self._update_display()
+
+    # ------------------------------------------------------------------
+    # Keyboard handler
+    # ------------------------------------------------------------------
+
+    def on_key(self, event: Key) -> None:
+        input_widget = self.query_one("#cm-search", Input)
+        input_focused = self.focused is input_widget
+
+        if event.key == "escape":
+            event.stop()
+            if self._filter_query:
+                self._clear_search()
+            else:
+                self.dismiss(self._dirty)
+            return
+
+        if event.key == "slash":
+            event.stop()
+            input_widget.focus()
+            return
+
+        if input_focused:
+            if event.key == "down":
+                event.stop()
+                if self._filtered_order:
+                    self.query_one("#cm-content", VerticalScroll).focus()
+            elif event.key == "up":
+                event.stop()
+            return
+
+        if event.key == "up":
+            event.stop()
+            if self._selected_index > 0:
+                self._selected_index -= 1
+                self._update_display()
+            else:
+                input_widget.focus()
+        elif event.key == "down":
+            event.stop()
+            if self._selected_index < len(self._filtered_order) - 1:
+                self._selected_index += 1
+                self._update_display()
+        elif event.key == "r":
+            event.stop()
+            self._rename_selected()
+        elif event.key == "g":
+            event.stop()
+            self._move_group_selected()
+        elif event.key == "m":
+            event.stop()
+            self._merge_selected()
+        elif event.key == "d":
+            event.stop()
+            self._delete_selected()
+        elif event.key == "n":
+            event.stop()
+            self._create_category()
+
+    # ------------------------------------------------------------------
+    # Operations
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _category_id_from_name(name: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+    def _next_available_category_id(self, base_id: str) -> str:
+        cat_id = base_id
+        suffix = 2
+        while cat_id in self.categories:
+            cat_id = f"{base_id}_{suffix}"
+            suffix += 1
+        return cat_id
+
+    def _rename_selected(self) -> None:
+        cat_id = self._get_selected_cat_id()
+        if not cat_id:
+            return
+        current_name = self.categories[cat_id].get("name", "")
+        self._pending_cat_id = cat_id
+        self.app.push_screen(
+            RenameCategoryScreen(current_name),
+            self._handle_rename,
+        )
+
+    def _handle_rename(self, new_name: Optional[str]) -> None:
+        cat_id = getattr(self, "_pending_cat_id", None)
+        self._pending_cat_id = None
+        if not cat_id or not new_name:
+            return
+        if new_name == self.categories[cat_id].get("name", ""):
+            return
+
+        # Compute new category ID from new name (same logic as
+        # _populate_categories_from_config in data_manager.py).
+        # If the ID changed, reassign transactions so they aren't
+        # orphaned on restart when IDs are regenerated from names.
+        new_id = self._category_id_from_name(new_name)
+
+        if self._queue_reassign:
+            self._queue_reassign(cat_id, new_id)
+
+        if new_id != cat_id:
+            if new_id not in self.categories:
+                self.categories[new_id] = self.categories.pop(cat_id)
+                self.categories[new_id]["name"] = new_name
+            else:
+                self.categories[new_id]["name"] = new_name
+                del self.categories[cat_id]
+            self._category_order = [
+                new_id if cid == cat_id else cid for cid in self._category_order
+            ]
+        else:
+            self.categories[cat_id]["name"] = new_name
+
+        self._dirty = True
+        self._rebuild_filtered_order()
+        self._update_display()
+
+    def _move_group_selected(self) -> None:
+        cat_id = self._get_selected_cat_id()
+        if not cat_id:
+            return
+        current_group = self.categories[cat_id].get("group", "Uncategorized")
+        all_groups = sorted({c.get("group", "Uncategorized") for c in self.categories.values()})
+        self._pending_cat_id = cat_id
+        self.app.push_screen(
+            GroupSelectScreen(all_groups, current_group),
+            self._handle_move_group,
+        )
+
+    def _handle_move_group(self, new_group: Optional[str]) -> None:
+        cat_id = getattr(self, "_pending_cat_id", None)
+        self._pending_cat_id = None
+        if not cat_id or not new_group:
+            return
+        if new_group == self.categories[cat_id].get("group", ""):
+            return
+        self.categories[cat_id]["group"] = new_group
+        self.categories[cat_id]["group_id"] = re.sub(r"[^a-z0-9]+", "_", new_group.lower()).strip(
+            "_"
+        )
+        self._dirty = True
+        self._build_category_order()
+        self._update_display()
+
+    def _merge_selected(self) -> None:
+        cat_id = self._get_selected_cat_id()
+        if not cat_id:
+            return
+        self._pending_cat_id = cat_id
+        # Show category selector, excluding the source category
+        source_name = self.categories[cat_id].get("name", cat_id)
+        filtered = {k: v for k, v in self.categories.items() if k != cat_id}
+        self.app.push_screen(
+            SelectCategoryScreen(
+                categories=filtered,
+                current_category_id=None,
+                transaction_count=1,
+                source_name=source_name,
+            ),
+            self._handle_merge,
+        )
+
+    def _handle_merge(self, target_id: Optional[str]) -> None:
+        source_id = getattr(self, "_pending_cat_id", None)
+        self._pending_cat_id = None
+        if not source_id or not target_id:
+            return
+        if target_id.startswith("__new__:"):
+            # Target is a new category — create it first
+            name = target_id[8:]
+            new_id = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+            first_group = next(iter(self._group_order), "Uncategorized")
+            self.categories[new_id] = {
+                "name": name,
+                "group": first_group,
+                "group_id": re.sub(r"[^a-z0-9]+", "_", first_group.lower()).strip("_"),
+                "group_type": "",
+            }
+            target_id = new_id
+        # Queue edits (reassign transactions from source to target)
+        if self._queue_reassign:
+            self._queue_reassign(source_id, target_id)
+        # Remove source
+        self.categories.pop(source_id, None)
+        self._dirty = True
+        self._selected_index = min(self._selected_index, len(self._filtered_order) - 1)
+        self._build_category_order()
+        self._update_display()
+
+    def _delete_selected(self) -> None:
+        cat_id = self._get_selected_cat_id()
+        if not cat_id:
+            return
+        if not self._can_delete(cat_id):
+            return
+
+        txn_count = self.transaction_counts.get(cat_id, 0)
+        self._pending_cat_id = cat_id
+
+        if txn_count == 0:
+            # Simple confirmation
+            self.app.push_screen(
+                DeleteConfirmationScreen(transaction_count=0),
+                self._handle_delete_confirm,
+            )
+        else:
+            # Transactions exist — offer reassignment
+            self._show_reassign_prompt(cat_id, txn_count)
+
+    def _show_reassign_prompt(self, cat_id: str, txn_count: int) -> None:
+        """Show a confirmation dialog that offers reassignment choice."""
+        source_name = self.categories[cat_id].get("name", cat_id)
+        msg = (
+            f'"{source_name}" has {txn_count} transaction(s).\n\n'
+            f"Delete category and reassign all to [b]Uncategorized[/]?"
+        )
+        self._pending_txn_count = txn_count
+        self.app.push_screen(
+            _ConfirmReassignScreen(msg),
+            lambda result: self._handle_delete_reassign(result, cat_id),
+        )
+
+    def _handle_delete_confirm(self, confirmed: bool) -> None:
+        cat_id = getattr(self, "_pending_cat_id", None)
+        self._pending_cat_id = None
+        if not confirmed or not cat_id:
+            return
+        self.categories.pop(cat_id, None)
+        self._dirty = True
+        self._selected_index = min(self._selected_index, len(self._filtered_order) - 1)
+        self._build_category_order()
+        self._update_display()
+
+    def _handle_delete_reassign(self, result: Optional[tuple], cat_id: str) -> None:
+        self._pending_cat_id = None
+        if not result:
+            return
+        action, target_id = result
+
+        if action == "reassign":
+            if target_id == "uncategorized" and target_id not in self.categories:
+                self.categories[target_id] = {
+                    "name": "Uncategorized",
+                    "group": "Uncategorized",
+                    "group_id": "uncategorized",
+                    "group_type": "",
+                }
+            if self._queue_reassign:
+                self._queue_reassign(cat_id, target_id)
+
+        self.categories.pop(cat_id, None)
+        self._dirty = True
+        self._selected_index = min(self._selected_index, len(self._filtered_order) - 1)
+        self._build_category_order()
+        self._update_display()
+
+    # ------------------------------------------------------------------
+    # New category creation
+    # ------------------------------------------------------------------
+
+    def _create_category(self) -> None:
+        self.app.push_screen(
+            RenameCategoryScreen("", title="New Category Name"),
+            self._handle_create_name,
+        )
+
+    def _handle_create_name(self, new_name: Optional[str]) -> None:
+        if not new_name:
+            return
+        self._pending_name = new_name
+        all_groups = sorted({c.get("group", "Uncategorized") for c in self.categories.values()})
+        self.app.push_screen(
+            GroupSelectScreen(all_groups),
+            self._handle_create_group,
+        )
+
+    def _handle_create_group(self, group: Optional[str]) -> None:
+        name = getattr(self, "_pending_name", None)
+        self._pending_name = None
+        if not name or not group:
+            return
+        base_id = self._category_id_from_name(name)
+        if not base_id:
+            return
+        cat_id = self._next_available_category_id(base_id)
+        self.categories[cat_id] = {
+            "name": name,
+            "group": group,
+            "group_id": re.sub(r"[^a-z0-9]+", "_", group.lower()).strip("_"),
+            "group_type": "",
+        }
+        self._dirty = True
+        self._build_category_order()
+        self._selected_index = (
+            min(self._selected_index, len(self._filtered_order) - 1) if self._filtered_order else 0
+        )
+        self._update_display()
+
+
+class _ConfirmReassignScreen(ModalScreen):
+    """Confirmation dialog for deleting a category with active transactions."""
+
+    CSS = """
+    _ConfirmReassignScreen {
+        align: center middle;
+    }
+
+    #confirm-dialog {
+        width: 55;
+        height: auto;
+        border: thick $warning;
+        background: $surface;
+        padding: 2 4;
+    }
+
+    #confirm-title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $warning;
+        margin-bottom: 1;
+    }
+
+    #confirm-message {
+        text-align: center;
+        color: $text;
+        margin-bottom: 2;
+    }
+
+    #confirm-instructions {
+        text-align: center;
+        color: $accent;
+        margin-bottom: 2;
+        text-style: bold;
+    }
+
+    #confirm-buttons {
+        layout: horizontal;
+        width: 100%;
+        align: center middle;
+    }
+
+    #confirm-buttons Button {
+        margin: 0 1;
+    }
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__()
+        self.message = message
+
+    def compose(self) -> ComposeResult:
+        with Container(id="confirm-dialog"):
+            yield Label("⚠️  Delete Category", id="confirm-title")
+            yield Static(self.message, id="confirm-message")
+            yield Static("Enter to reassign & delete | Esc=Cancel", id="confirm-instructions")
+            with Container(id="confirm-buttons"):
+                yield Button("Cancel", variant="primary", id="cancel-button")
+                yield Button("Reassign & Delete", variant="error", id="confirm-button")
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-button":
+            self.dismiss(None)
+        elif event.button.id == "confirm-button":
+            self.dismiss(("reassign", "uncategorized"))
+
+    def on_key(self, event: Key) -> None:
+        if event.key == "escape":
+            event.stop()
+            self.dismiss(None)
+        elif event.key == "enter":
+            event.stop()
+            self.dismiss(("reassign", "uncategorized"))
+
+
+class ManageGroupsScreen(ModalScreen):
+    """Modal screen for managing category groups: create, rename, merge, delete."""
+
+    CSS = """
+    ManageGroupsScreen {
+        align: center middle;
+    }
+
+    #gm-dialog {
+        width: 60;
+        height: auto;
+        max-height: 35;
+        border: thick $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+
+    #gm-title {
+        width: 100%;
+        text-align: center;
+        text-style: bold;
+        color: $accent;
+        margin-bottom: 1;
+    }
+
+    #gm-search {
+        margin: 0 0 1 0;
+    }
+
+    #gm-filter-info {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+
+    #gm-content {
+        width: 100%;
+        height: 20;
+        border: solid $panel;
+        padding: 0 1;
+    }
+
+    #gm-footer {
+        width: 100%;
+        text-align: center;
+        color: $text-muted;
+        margin-top: 1;
+    }
+
+    .gm-group-selected {
+        color: $success;
+        text-style: bold;
+    }
+
+    .gm-group-normal {
+        color: $text;
+    }
+    """
+
+    def __init__(
+        self,
+        categories: Dict[str, Dict[str, str]],
+    ) -> None:
+        super().__init__()
+        self.categories = categories
+        self._selected_index = 0
+        self._group_order: List[str] = []
+        self._filter_query: str = ""
+        self._filtered_order: List[str] = []
+        self._dirty = False
+        self._pending_group: Optional[str] = None
+
+    def compose(self) -> ComposeResult:
+        with Container(id="gm-dialog"):
+            yield Label("📁 Group Manager", id="gm-title")
+            yield Input(id="gm-search", placeholder="Type to filter groups...")
+            yield Static("", id="gm-filter-info")
+            with VerticalScroll(id="gm-content"):
+                yield Static("")
+            yield Static(
+                "n=new  r=rename  m=merge  d=delete  /=search  ↑/↓=navigate  Esc=close",
+                id="gm-footer",
+            )
+
+    async def on_mount(self) -> None:
+        self._build_group_order()
+        self._update_display()
+        self.query_one("#gm-search", Input).focus()
+        self.query_one("#gm-content", VerticalScroll).can_focus = True
+
+    def _build_group_order(self) -> None:
+        all_groups = sorted({c.get("group", "Uncategorized") for c in self.categories.values()})
+        self._group_order = all_groups
+        self._rebuild_filtered_order()
+
+    def _rebuild_filtered_order(self) -> None:
+        if not self._filter_query:
+            self._filtered_order = list(self._group_order)
+            return
+        q = self._filter_query.lower()
+        self._filtered_order = [g for g in self._group_order if q in g.lower()]
+
+    def _get_selected_group(self) -> Optional[str]:
+        if 0 <= self._selected_index < len(self._filtered_order):
+            return self._filtered_order[self._selected_index]
+        return None
+
+    def _category_count(self, group: str) -> int:
+        return sum(1 for c in self.categories.values() if c.get("group") == group)
+
+    def _update_display(self) -> None:
+        container = self.query_one("#gm-content", VerticalScroll)
+        container.remove_children()
+
+        idx = 0
+        selected_widget = None
+        for group in self._filtered_order:
+            is_selected = idx == self._selected_index
+            prefix = "▸" if is_selected else " "
+            style = "bold success" if is_selected else "text"
+            cat_count = self._category_count(group)
+            count_label = f"{cat_count} cat{'s' if cat_count != 1 else ''}"
+            classes = "gm-group-selected" if is_selected else "gm-group-normal"
+
+            widget = Static(
+                f"[{style}]{prefix} {group:<30}  {count_label:>8}  [M] [R] [D][/]",
+                classes=classes,
+            )
+            container.mount(widget)
+            if is_selected:
+                selected_widget = widget
+            idx += 1
+
+        info = self.query_one("#gm-filter-info", Static)
+        if self._filter_query:
+            info.update(f"{len(self._filtered_order)} of {len(self._group_order)} groups")
+        else:
+            info.update("")
+
+        if not selected_widget and not container.children:
+            container.mount(Static("[italic]No groups[/]"))
+
+        if selected_widget:
+            self.call_after_refresh(selected_widget.scroll_visible)
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "gm-search":
+            return
+        query = event.value.lower().strip()
+        self._filter_query = query
+        self._rebuild_filtered_order()
+        self._selected_index = 0
+        self._update_display()
+
+    def on_key(self, event: Key) -> None:
+        input_widget = self.query_one("#gm-search", Input)
+        input_focused = self.focused is input_widget
+
+        if event.key == "escape":
+            event.stop()
+            if self._filter_query:
+                self._clear_search()
+            else:
+                self.dismiss(self._dirty)
+            return
+
+        if event.key == "slash":
+            event.stop()
+            input_widget.focus()
+            return
+
+        if input_focused:
+            if event.key == "down":
+                event.stop()
+                if self._filtered_order:
+                    self.query_one("#gm-content", VerticalScroll).focus()
+            elif event.key == "up":
+                event.stop()
+            return
+
+        if event.key == "up":
+            event.stop()
+            if self._selected_index > 0:
+                self._selected_index -= 1
+                self._update_display()
+            else:
+                input_widget.focus()
+        elif event.key == "down":
+            event.stop()
+            if self._selected_index < len(self._filtered_order) - 1:
+                self._selected_index += 1
+                self._update_display()
+        elif event.key == "n":
+            event.stop()
+            self._create_group()
+        elif event.key == "r":
+            event.stop()
+            self._rename_group()
+        elif event.key == "m":
+            event.stop()
+            self._merge_group()
+        elif event.key == "d":
+            event.stop()
+            self._delete_group()
+
+    def _clear_search(self) -> None:
+        self._filter_query = ""
+        self._rebuild_filtered_order()
+        self._selected_index = 0
+        self._update_display()
+        self.query_one("#gm-search", Input).clear()
+        self.query_one("#gm-search", Input).focus()
+
+    def _create_group(self) -> None:
+        self.app.push_screen(
+            RenameCategoryScreen("", title="New Group Name"),
+            self._handle_create_group,
+        )
+
+    def _handle_create_group(self, new_name: Optional[str]) -> None:
+        if not new_name:
+            return
+        name = new_name.strip()
+        if not name:
+            return
+        group_id = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        if not group_id:
+            return
+        if any(c.get("group") == name for c in self.categories.values()):
+            self.app.notify(f"Group '{name}' already exists", timeout=3)
+            return
+        cat_id = group_id
+        counter = 2
+        while cat_id in self.categories:
+            cat_id = f"{group_id}_{counter}"
+            counter += 1
+        self.categories[cat_id] = {
+            "name": name,
+            "group": name,
+            "group_id": group_id,
+            "group_type": "",
+        }
+        self._dirty = True
+        self._build_group_order()
+        self._selected_index = (
+            min(self._selected_index, len(self._filtered_order) - 1) if self._filtered_order else 0
+        )
+        self._update_display()
+
+    def _rename_group(self) -> None:
+        group = self._get_selected_group()
+        if not group:
+            return
+        self._pending_group = group
+        self.app.push_screen(
+            RenameCategoryScreen(group, title="Rename Group"),
+            self._handle_rename_group,
+        )
+
+    def _handle_rename_group(self, new_name: Optional[str]) -> None:
+        old_name = getattr(self, "_pending_group", None)
+        self._pending_group = None
+        if not old_name or not new_name:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+        new_group_id = re.sub(r"[^a-z0-9]+", "_", new_name.lower()).strip("_")
+        for cat_data in self.categories.values():
+            if cat_data.get("group") == old_name:
+                cat_data["group"] = new_name
+                cat_data["group_id"] = new_group_id
+        self._dirty = True
+        self._build_group_order()
+        self._update_display()
+
+    def _merge_group(self) -> None:
+        group = self._get_selected_group()
+        if not group:
+            return
+        all_other_groups = sorted(
+            {
+                c.get("group", "Uncategorized")
+                for c in self.categories.values()
+                if c.get("group") != group
+            }
+        )
+        if not all_other_groups:
+            self.app.notify("Cannot merge the only group", timeout=3)
+            return
+        self._pending_group = group
+        self.app.push_screen(
+            GroupSelectScreen(
+                all_other_groups,
+                current_group=group,
+                title=f"📁 Merge {group} INTO...",
+            ),
+            self._handle_merge_group,
+        )
+
+    def _handle_merge_group(self, target_group: Optional[str]) -> None:
+        source_group = getattr(self, "_pending_group", None)
+        self._pending_group = None
+        if not source_group or not target_group:
+            return
+        if source_group == target_group:
+            return
+        target_group_id = re.sub(r"[^a-z0-9]+", "_", target_group.lower()).strip("_")
+        for cat_data in self.categories.values():
+            if cat_data.get("group") == source_group:
+                cat_data["group"] = target_group
+                cat_data["group_id"] = target_group_id
+        self._dirty = True
+        self._build_group_order()
+        self._update_display()
+
+    def _delete_group(self) -> None:
+        group = self._get_selected_group()
+        if not group:
+            return
+        all_groups = sorted(
+            {
+                c.get("group", "Uncategorized")
+                for c in self.categories.values()
+                if c.get("group") != group
+            }
+        )
+        if not all_groups:
+            self.app.notify("Cannot delete the only group", timeout=3)
+            return
+        self._pending_group = group
+        self.app.push_screen(
+            GroupSelectScreen(all_groups),
+            self._handle_delete_group,
+        )
+
+    def _handle_delete_group(self, target_group: Optional[str]) -> None:
+        old_group = getattr(self, "_pending_group", None)
+        self._pending_group = None
+        if not old_group or not target_group:
+            return
+        target_group_id = re.sub(r"[^a-z0-9]+", "_", target_group.lower()).strip("_")
+        for cat_data in self.categories.values():
+            if cat_data.get("group") == old_group:
+                cat_data["group"] = target_group
+                cat_data["group_id"] = target_group_id
+        self._dirty = True
+        self._build_group_order()
+        self._update_display()

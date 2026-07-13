@@ -21,6 +21,8 @@ the UI layer thin and focused on rendering and user interaction.
 
 import argparse
 import asyncio
+import json
+import re
 import sys
 import traceback
 from datetime import date as date_type
@@ -39,6 +41,11 @@ from ..backends import DemoBackend, get_backend
 from ..data.account_manager import AccountManager
 from ..data.cache_manager import CacheManager, RefreshStrategy
 from ..data.cache_orchestrator import CacheOrchestrator
+from ..data.categories import (
+    build_category_to_group_mapping,
+    categories_dict_to_config_groups,
+    save_categories_to_profile,
+)
 from ..data.data_manager import DataManager
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
@@ -62,7 +69,14 @@ from .screens.credential_screens import (
     QuitConfirmationScreen,
 )
 from .screens.duplicates_screen import DuplicatesScreen
-from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, SelectCategoryScreen
+from .screens.edit_screens import (
+    DeleteConfirmationScreen,
+    EditMerchantScreen,
+    GroupSelectScreen,
+    ManageCategoriesScreen,
+    ManageGroupsScreen,
+    SelectCategoryScreen,
+)
 from .screens.export_screen import ExportScreen
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
@@ -142,6 +156,8 @@ class MoneyflowApp(App):
         # Editing
         Binding("m", "edit_merchant", "Edit Merchant", show=False),
         Binding("c", "edit_category", "Edit Category", show=False),
+        Binding("C", "manage_categories", "Manage Categories", show=False),
+        Binding("G", "manage_groups", "Manage Groups", show=False),
         Binding("h", "toggle_hide_from_reports", "Hide/Unhide", show=False),
         Binding("x", "delete_transaction", "Delete", show=False),
         Binding("i", "show_transaction_details", "Info", show=False),
@@ -247,6 +263,7 @@ class MoneyflowApp(App):
 
         self.data_manager: Optional[DataManager] = None
         self.state = AppState()
+        self._last_update_time: Optional[datetime] = None
 
         # Store profile_dir and backend_type for pre-configured backends (e.g., Amazon via CLI)
         self._preconfigured_profile_dir = profile_dir
@@ -264,8 +281,48 @@ class MoneyflowApp(App):
         self.display_start_date = None  # Display filter (--mtd/--since) separate from cache
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
         self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
+        self._read_only_warning_shown = False  # One-time warning per session for read-only backends
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
+
+    def _refresh_subtitle(self) -> None:
+        backend_name = self.backend.get_backend_type().capitalize() if self.backend else ""
+        time_str = ""
+        if self._last_update_time:
+            time_str = self._last_update_time.strftime("%-I:%M %p").lstrip("0")
+        parts = [p for p in [backend_name, time_str and f"Last update: {time_str}"] if p]
+        self.sub_title = " | ".join(parts) if parts else ""
+
+    def _get_last_update_path(self) -> Path:
+        if self.data_manager and self.data_manager.profile_dir:
+            return Path(self.data_manager.profile_dir) / "last_update.json"
+        config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
+        return config_dir / "last_update.json"
+
+    def _load_last_update_time(self) -> None:
+        # Prefer the backend's own refresh timestamp (SimpleFIN SQLite)
+        if self.backend:
+            backend_ts = self.backend.get_last_update_time()
+            if backend_ts is not None:
+                self._last_update_time = backend_ts
+                return
+        # Fall back to JSON file mechanism (Monarch and others)
+        path = self._get_last_update_path()
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                iso = data.get("iso")
+                if iso:
+                    self._last_update_time = datetime.fromisoformat(iso)
+            except Exception:
+                pass
+
+    def _save_last_update_time(self) -> None:
+        if self._last_update_time is None:
+            return
+        path = self._get_last_update_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"iso": self._last_update_time.isoformat()}))
 
     def compose(self) -> ComposeResult:
         """Compose the main UI."""
@@ -358,6 +415,10 @@ class MoneyflowApp(App):
             backend_type=backend_type,
         )
 
+        # Skip CacheManager for backends with their own local persistence layer.
+        if backend_type == "simplefin":
+            self.cache_path = None
+
         # Initialize cache manager for backends that support caching
         # cache_path is None for backends like Amazon that don't need caching
         # encryption_key can be None for plaintext credentials (CacheManager supports both modes)
@@ -434,6 +495,7 @@ class MoneyflowApp(App):
         """Store data in data manager and state."""
         self.data_manager.df = df
         self.data_manager.categories = categories
+        self.data_manager._populate_categories_from_config()
         self.data_manager.category_groups = category_groups
         self.state.transactions_df = df
 
@@ -444,6 +506,58 @@ class MoneyflowApp(App):
 
         # Show initial view (merchants)
         self.refresh_view()
+
+    def _schedule_simplefin_background_refresh(self) -> None:
+        """If SimpleFIN data is stale, schedule a background API refresh."""
+        if self.backend is None:
+            return
+        if self.backend.get_backend_type() != "simplefin":
+            return
+        if not self.backend.is_refresh_stale():
+            logger.debug("SimpleFIN data is fresh — no background refresh")
+            return
+
+        logger.info("SimpleFIN data is stale — scheduling background refresh")
+        self.run_worker(self._simplefin_background_refresh(), exclusive=False)
+
+    async def _simplefin_background_refresh(self) -> None:
+        """
+        Background worker: refresh SimpleFIN data from API, then re-load
+        from SQLite and update the UI. Runs as an async task on the main
+        event loop (not a thread) to avoid thread-safety issues.
+        """
+        try:
+            self.notify("SimpleFIN: Checking for new transactions...", timeout=10)
+
+            added = await self.backend.refresh()
+
+            if added > 0:
+                df, categories, category_groups = await self.data_manager.fetch_all_data()
+                if self.display_start_date:
+                    df = self._filter_df_by_start_date(df, self.display_start_date)
+                self._store_data(df, categories, category_groups)
+                self._last_update_time = self.backend.get_last_update_time() or datetime.now()
+                self._save_last_update_time()
+                self._refresh_subtitle()
+
+                saved = self._save_table_position()
+                self.controller.refresh_view(force_rebuild=False)
+                self._restore_table_position(saved)
+
+                self.notify(
+                    f"SimpleFIN: Added {added} new transaction{'s' if added != 1 else ''}",
+                    severity="information",
+                    timeout=4,
+                )
+            else:
+                self._last_update_time = self.backend.get_last_update_time() or datetime.now()
+                self._save_last_update_time()
+                self._refresh_subtitle()
+                self.notify("SimpleFIN: No new transactions found", timeout=3)
+
+        except Exception as e:
+            logger.warning(f"SimpleFIN background refresh failed: {e}")
+            self.notify(f"SimpleFIN: Refresh failed — {e}", severity="error", timeout=5)
 
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
@@ -582,6 +696,24 @@ class MoneyflowApp(App):
                     creds = await self.account_flow.handle_credentials()
                     if creds is None:
                         return  # User exited
+            elif self._preconfigured_backend_type == "simplefin":
+                # SimpleFIN CLI mode — skip account selector and backend picker
+                if self._preconfigured_profile_dir:
+                    # Existing account — use profile-aware credential unlock
+                    creds = await self.account_flow.handle_profile_credentials(
+                        profile_dir=self._preconfigured_profile_dir,
+                    )
+                    if creds is None:
+                        return  # User exited unlock screen
+                    account_id = None
+                    profile_dir = self._preconfigured_profile_dir
+                else:
+                    # New account — go straight to SimpleFIN credential setup
+                    result = await self.account_flow.handle_new_simplefin_setup()
+                    if result is None:
+                        self.exit()
+                        return
+                    account_id, profile_dir, creds = result
             else:
                 # Normal multi-account flow
                 account_id, profile_dir, creds = await self.account_flow.handle_account_selection()
@@ -620,10 +752,11 @@ class MoneyflowApp(App):
                 backend_type = creds.get("backend_type", "monarch")
                 loading_status.update(f"🔄 Initializing {backend_type} backend...")
 
-                # Pass profile_dir for Monarch backend to store session in profile
+                # Pass profile_dir for backends that support profile-local storage
                 backend_kwargs = {}
-                if backend_type == "monarch" and self._preconfigured_profile_dir:
-                    backend_kwargs["profile_dir"] = str(self._preconfigured_profile_dir)
+                resolved_profile_dir = self._preconfigured_profile_dir or profile_dir
+                if resolved_profile_dir:
+                    backend_kwargs["profile_dir"] = str(resolved_profile_dir)
 
                 self.backend = get_backend(backend_type, **backend_kwargs)
                 self.backend_config = get_backend_config(backend_type)
@@ -670,10 +803,19 @@ class MoneyflowApp(App):
                 profile_dir=determined_profile_dir, backend_type=determined_backend_type
             )
 
+            # Load persisted last-update timestamp from previous session
+            self._load_last_update_time()
+
             # Step 4: Determine display filter (separate from cache)
             self.display_start_date, self.cache_year_filter, self.cache_since_filter = (
                 self._determine_date_range()
             )
+
+            # Step 4a: Handle SimpleFIN refresh before cache/API fetch
+            if determined_backend_type == "simplefin" and self.backend:
+                if self.force_refresh:
+                    loading_status.update("🔄 SimpleFIN refresh: fetching new data from API...")
+                    await self.backend.refresh()
 
             # Step 5: Check cache and determine refresh strategy
             cached_data, strategy = await self._check_and_load_cache(loading_status)
@@ -733,12 +875,22 @@ class MoneyflowApp(App):
                         f"📦 Filtered: {len(df):,} of {original_count:,} transactions"
                     )
 
+            # Track last API update time
+            if strategy != RefreshStrategy.NONE:
+                backend_ts = self.backend.get_last_update_time() if self.backend else None
+                self._last_update_time = backend_ts or datetime.now()
+                self._save_last_update_time()
+            self._refresh_subtitle()
+
             # Step 7: Store data
             self._store_data(df, categories, category_groups)
 
             # Step 8: Initialize view
             loading_status.update(f"✅ Ready! Showing {len(df):,} transactions")
             self._initialize_view()
+
+            # Step 9: Schedule background refresh for SimpleFIN if stale
+            self._schedule_simplefin_background_refresh()
 
         except Exception as e:
             await self._handle_init_error(e, loading_status)
@@ -901,79 +1053,6 @@ class MoneyflowApp(App):
         """Switch to ungrouped transactions view (all transactions in reverse chronological order)."""
         self.controller.switch_to_detail_view(set_default_sort=True)
         self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
-
-    def action_export_data(self) -> None:
-        """Show export format and scope selection modal."""
-        if self.data_manager is None or self.data_manager.df is None:
-            self.notify("No data to export", timeout=2)
-            return
-        if self.data_manager.df.is_empty():
-            self.notify("No data to export", timeout=2)
-            return
-        self.run_worker(self._show_export_screen(), exclusive=False)
-
-    async def _show_export_screen(self) -> None:
-        """Push the export screen and handle its result."""
-        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
-        if result is None:
-            return
-        export_format, export_scope = result
-
-        if export_scope == ExportScope.SNAPSHOT:
-            df = self.state.get_filtered_df()
-        else:
-            df = self.data_manager.df
-
-        if df is None or df.is_empty():
-            self.notify("No data to export", timeout=2)
-            return
-
-        df = self.data_manager.apply_category_groups(df)
-
-        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
-
-        category_groups = (
-            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
-            if self.data_manager.category_groups
-            else []
-        )
-
-        metadata = ExportMetadata(
-            app_version=get_version(),
-            export_timestamp=datetime.now().isoformat(),
-            transaction_count=len(df),
-            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
-            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
-            backend_type=self.data_manager.backend_type or "unknown",
-            category_groups=category_groups,
-        )
-
-        path = build_export_path(config_dir, export_format, export_scope)
-
-        self._notify(notification_helper.export_starting(len(df)))
-        await self._export_data_async(
-            df=df, path=path, export_format=export_format, metadata=metadata
-        )
-
-    async def _export_data_async(
-        self,
-        df: pl.DataFrame,
-        path: Path,
-        export_format: ExportFormat,
-        metadata: ExportMetadata,
-    ) -> None:
-        """Export data using the exporter module in a background thread."""
-        try:
-            await asyncio.to_thread(
-                export_dataframe,
-                df,
-                path=path,
-                metadata=metadata,
-                fmt=export_format,
-            )
-            self._notify(notification_helper.export_success(str(path), len(df)))
-        except Exception as e:
-            self._notify(notification_helper.export_error(str(e)))
 
     def action_find_duplicates(self) -> None:
         """Find and display duplicate transactions."""
@@ -1308,6 +1387,58 @@ class MoneyflowApp(App):
         )
 
         if new_category_id:
+            # Handle "create new category" flow
+            if new_category_id.startswith("__new__:"):
+                cat_name = new_category_id[8:]
+                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                if not cat_id:
+                    self.notify(
+                        "Category name must contain at least one letter or number.",
+                        severity="error",
+                    )
+                    new_category_id = None
+                elif cat_id in self.data_manager.categories:
+                    base_id = cat_id
+                    suffix = 2
+                    while cat_id in self.data_manager.categories:
+                        cat_id = f"{base_id}_{suffix}"
+                        suffix += 1
+
+                if new_category_id is not None:
+                    all_groups = sorted(
+                        set(
+                            c.get("group", "Uncategorized")
+                            for c in self.data_manager.categories.values()
+                        )
+                    )
+                    chosen_group = await self.push_screen(
+                        GroupSelectScreen(all_groups),
+                        wait_for_dismiss=True,
+                    )
+                    if not chosen_group:
+                        new_category_id = None
+                    else:
+                        self.data_manager.categories[cat_id] = {
+                            "name": cat_name,
+                            "group": chosen_group,
+                            "group_id": re.sub(r"[^a-z0-9]+", "_", chosen_group.lower()).strip("_"),
+                            "group_type": "",
+                        }
+                        new_category_id = cat_id
+                        groups = categories_dict_to_config_groups(self.data_manager.categories)
+                        if self.data_manager.profile_dir:
+                            save_categories_to_profile(
+                                groups, profile_dir=self.data_manager.profile_dir
+                            )
+                        self.data_manager.category_groups_config = groups
+                        self.data_manager.category_to_group = build_category_to_group_mapping(
+                            groups
+                        )
+            else:
+                cat_name = self.data_manager.categories.get(new_category_id, {}).get(
+                    "name", "Unknown"
+                )
+
             # Save position before refresh
             saved_position = self._save_table_position()
 
@@ -1321,14 +1452,109 @@ class MoneyflowApp(App):
                 self.state.clear_selection()
 
             # Display result
-            new_cat_name = self.data_manager.categories.get(new_category_id, {}).get(
-                "name", "Unknown"
-            )
             self.notify(
-                f"Queued {count} category changes to {new_cat_name}. Press w to commit.", timeout=3
+                f"Queued {count} category changes to {cat_name}. Press w to commit.", timeout=3
             )
             self.refresh_view()
             self._restore_table_position(saved_position)
+
+    def action_manage_categories(self) -> None:
+        """Open the category manager (rename, merge, delete categories).
+
+        Only available for read-only backends (SimpleFIN) where categories
+        are managed locally rather than synced from an API.
+        """
+        if self.data_manager is None or self.state.current_data is None:
+            return
+
+        if not getattr(self.backend, "read_only", False):
+            self.notify("Category manager is only available for read-only backends", timeout=3)
+            return
+
+        self.run_worker(self._manage_categories(), exclusive=False)
+
+    async def _manage_categories(self) -> None:
+        """Run the category manager modal and handle results."""
+        # Pre-compute transaction counts per category
+        # Use full transactions_df, not current_data, which may be a filtered or
+        # aggregate subset. Otherwise transactions outside the current view can
+        # keep orphaned category_id values after merge/delete.
+        txn_counts: dict = {}
+        source_df = self.state.transactions_df
+        if source_df is not None and "category_id" in source_df.columns:
+            counts_df = source_df.group_by("category_id").agg(pl.len().alias("count"))
+            for row in counts_df.iter_rows(named=True):
+                txn_counts[row["category_id"]] = row["count"]
+
+        def queue_reassign(source_id: str, target_id: str) -> None:
+            """Queue TransactionEdits to reassign all txns from source to target."""
+            source_txns = source_df.filter(pl.col("category_id") == source_id)
+            if source_txns.height > 0:
+                self.controller.queue_category_edits(source_txns, target_id)
+
+        dirty = await self.push_screen(
+            ManageCategoriesScreen(
+                categories=self.data_manager.categories,
+                transaction_counts=txn_counts,
+                queue_reassign_callback=queue_reassign,
+            ),
+            wait_for_dismiss=True,
+        )
+
+        if dirty:
+            # Rebuild in-memory mappings immediately
+            groups = categories_dict_to_config_groups(self.data_manager.categories)
+            self.data_manager.category_groups_config = groups
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups)
+            self.refresh_view()
+            self._restore_table_position(None)
+            pending = len(self.data_manager.pending_edits)
+            if pending:
+                # Defer config save until pending edits commit successfully
+                self.data_manager.pending_category_groups = groups
+                self.notify(
+                    f"Categories updated. {pending} pending recategorizations. Press w to commit.",
+                    timeout=4,
+                )
+            else:
+                # No pending edits, safe to persist config immediately
+                if self.data_manager.profile_dir:
+                    save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
+                self.notify("Categories updated.", timeout=2)
+
+    def action_manage_groups(self) -> None:
+        """Open the group manager (create, rename, delete groups).
+
+        Only available for read-only backends (SimpleFIN) where categories
+        are managed locally rather than synced from an API.
+        """
+        if self.data_manager is None or self.state.current_data is None:
+            return
+
+        if not getattr(self.backend, "read_only", False):
+            self.notify("Group manager is only available for read-only backends", timeout=3)
+            return
+
+        self.run_worker(self._manage_groups(), exclusive=False)
+
+    async def _manage_groups(self) -> None:
+        """Run the group manager modal and handle results."""
+        dirty = await self.push_screen(
+            ManageGroupsScreen(
+                categories=self.data_manager.categories,
+            ),
+            wait_for_dismiss=True,
+        )
+
+        if dirty:
+            groups = categories_dict_to_config_groups(self.data_manager.categories)
+            if self.data_manager.profile_dir:
+                save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
+            self.data_manager.category_groups_config = groups
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups)
+            self.refresh_view()
+            self._restore_table_position(None)
+            self.notify("Groups updated.", timeout=2)
 
     def action_toggle_hide_from_reports(self) -> None:
         """
@@ -1592,6 +1818,12 @@ class MoneyflowApp(App):
         )
 
         if should_commit:
+            # One-time warning for read-only backends (e.g., SimpleFIN) that edits
+            # are saved locally only and won't sync to the server
+            if getattr(self.backend, "read_only", False) and not self._read_only_warning_shown:
+                self._read_only_warning_shown = True
+                self._notify(notification_helper.commit_read_only_warning())
+
             # Restore view IMMEDIATELY after review screen dismisses to avoid flash
             # User should see their original view while commits are happening
             logger.debug(f"Before restore: view_mode={self.state.view_mode}")
@@ -1686,6 +1918,79 @@ class MoneyflowApp(App):
             self.refresh_view(force_rebuild=False)
             # Restore table position after cancel
             self._restore_table_position(saved_table_position)
+
+    def action_export_data(self) -> None:
+        """Show export format and scope selection modal."""
+        if self.data_manager is None or self.data_manager.df is None:
+            self.notify("No data to export", timeout=2)
+            return
+        if self.data_manager.df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+        self.run_worker(self._show_export_screen(), exclusive=False)
+
+    async def _show_export_screen(self) -> None:
+        """Push the export screen and handle its result."""
+        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
+        if result is None:
+            return
+        export_format, export_scope = result
+
+        if export_scope == ExportScope.SNAPSHOT:
+            df = self.state.get_filtered_df()
+        else:
+            df = self.data_manager.df
+
+        if df is None or df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+
+        df = self.data_manager.apply_category_groups(df)
+
+        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
+
+        category_groups = (
+            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
+            if self.data_manager.category_groups
+            else []
+        )
+
+        metadata = ExportMetadata(
+            app_version=get_version(),
+            export_timestamp=datetime.now().isoformat(),
+            transaction_count=len(df),
+            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
+            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
+            backend_type=self.data_manager.backend_type or "unknown",
+            category_groups=category_groups,
+        )
+
+        path = build_export_path(config_dir, export_format, export_scope)
+
+        self._notify(notification_helper.export_starting(len(df)))
+        await self._export_data_async(
+            df=df, path=path, export_format=export_format, metadata=metadata
+        )
+
+    async def _export_data_async(
+        self,
+        df: pl.DataFrame,
+        path: Path,
+        export_format: ExportFormat,
+        metadata: ExportMetadata,
+    ) -> None:
+        """Export data using the exporter module in a background thread."""
+        try:
+            await asyncio.to_thread(
+                export_dataframe,
+                df,
+                path=path,
+                metadata=metadata,
+                fmt=export_format,
+            )
+            self._notify(notification_helper.export_success(str(path), len(df)))
+        except Exception as e:
+            self._notify(notification_helper.export_error(str(e)))
 
     def action_quit_app(self) -> None:
         """Quit the application - show confirmation first."""
@@ -1871,6 +2176,35 @@ def main():
         sys.exit(1)
 
 
+def _compute_date_filter_params(
+    year: Optional[int],
+    since: Optional[str],
+    mtd: bool,
+) -> tuple[Optional[int], Optional[str]]:
+    """Convert CLI date-filter flags to MoneyflowApp constructor params.
+
+    Single source of truth for the year/since/mtd → start_year/custom_start_date
+    conversion used by all launch_*_mode functions.
+
+    Args:
+        year: Start year (e.g. 2025 means "from 2025-01-01").
+        since: Start date in YYYY-MM-DD format (overrides year).
+        mtd: If true, show month-to-date (overrides year and since).
+
+    Returns:
+        Tuple of (start_year, custom_start_date). At most one is set.
+    """
+    if mtd:
+        today = date_type.today()
+        first_of_month = date_type(today.year, today.month, 1)
+        return None, first_of_month.strftime("%Y-%m-%d")
+    if since:
+        return None, since
+    if year:
+        return year, None
+    return None, None
+
+
 def launch_monarch_mode(
     year: Optional[int] = None,
     since: Optional[str] = None,
@@ -1894,26 +2228,13 @@ def launch_monarch_mode(
         config_dir: Config directory (None = ~/.moneyflow)
         theme: Override theme (temporary, doesn't modify config.yaml)
     """
-    from datetime import date as date_type
-
     # Initialize logging
     logger = setup_logging(console_output=False, config_dir=config_dir)
     logger.info("Starting moneyflow with Monarch Money backend")
     if config_dir:
         logger.info(f"Using custom config directory: {config_dir}")
 
-    # Determine start year or date range
-    start_year = None
-    custom_start_date = None
-
-    if mtd:
-        today = date_type.today()
-        first_of_month = date_type(today.year, today.month, 1)
-        custom_start_date = first_of_month.strftime("%Y-%m-%d")
-    elif since:
-        custom_start_date = since
-    elif year:
-        start_year = year
+    start_year, custom_start_date = _compute_date_filter_params(year, since, mtd)
 
     try:
         app = MoneyflowApp(
@@ -1983,6 +2304,62 @@ def launch_amazon_mode(
     except Exception:
         print("\n" + "=" * 80, file=sys.stderr)
         print("FATAL ERROR - moneyflow Amazon mode crashed!", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("Please report this error with the traceback above.", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+
+def launch_simplefin_mode(
+    year: Optional[int] = None,
+    since: Optional[str] = None,
+    mtd: bool = False,
+    profile_dir: Optional[Path] = None,
+    config_dir: Optional[str] = None,
+) -> None:
+    """
+    Launch moneyflow in SimpleFIN open banking mode.
+
+    Args:
+        year: Only load transactions from this year onwards
+        since: Only load transactions from this date onwards (overrides year)
+        mtd: Load month-to-date transactions only
+        profile_dir: Profile directory for existing SimpleFIN account.
+                     If None, triggers first-time credential setup.
+        config_dir: Config directory (default: ~/.moneyflow)
+    """
+    from moneyflow.tui.backend_config import get_backend_config
+
+    # Initialize logging
+    logger = setup_logging(console_output=False, config_dir=config_dir)
+    logger.info("Starting moneyflow in SimpleFIN mode")
+    if config_dir:
+        logger.info(f"Using custom config directory: {config_dir}")
+    if profile_dir:
+        logger.info(f"Using profile directory: {profile_dir}")
+
+    start_year, custom_start_date = _compute_date_filter_params(year, since, mtd)
+
+    try:
+        config = get_backend_config("simplefin")
+
+        app = MoneyflowApp(
+            start_year=start_year,
+            custom_start_date=custom_start_date,
+            demo_mode=False,
+            config=config,
+            config_dir=config_dir,
+            profile_dir=profile_dir,
+            backend_type="simplefin",
+        )
+        app.title = "moneyflow [SimpleFIN]"
+
+        app.run()
+    except Exception:
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("FATAL ERROR - moneyflow SimpleFIN mode crashed!", file=sys.stderr)
         print("=" * 80, file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         print("\n" + "=" * 80, file=sys.stderr)

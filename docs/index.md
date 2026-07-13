@@ -88,7 +88,8 @@ dataset or filtered transactions — press ++E++ to export.
 
 <div class="feature-card" markdown>
 ### Multi-Account Support
-Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamlessly from the account selector.
+Manage multiple accounts (Monarch, YNAB, SimpleFIN, Amazon) and switch between
+them from the account selector.
 </div>
 
 </div>
@@ -99,12 +100,13 @@ Manage multiple accounts (Monarch, YNAB, Amazon) and switch between them seamles
 
 **Currently supported:**
 
-- **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** -
-  Full-featured integration with real-time sync
+- **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full-featured integration with real-time sync
 - **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
 - **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official
   data exports
 - **Demo Mode** - Synthetic data for testing features
+- **[SimpleFIN](guide/simplefin.md)** - Import read-only account and transaction
+  data from a SimpleFIN server; moneyflow edits are stored locally
 
 **Future:**
 
@@ -135,6 +137,7 @@ uvx moneyflow --demo
 2. [Quick start guide](getting-started/quickstart.md) - Get up and running in 2 minutes
 3. [Keyboard shortcuts](guide/keyboard-shortcuts.md) - Master the interface
 4. [Exporting transactions](guide/export.md) - Export to Parquet, CSV, or SQLite
+5. [SimpleFIN Guide](guide/simplefin.md) - Configure a SimpleFIN connection
 
 ---
 

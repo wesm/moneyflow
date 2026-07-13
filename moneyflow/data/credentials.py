@@ -7,7 +7,7 @@ Supports two storage modes:
 2. Unencrypted: Credentials stored in ~/.moneyflow/credentials.json as
    plaintext JSON with file permissions restricted to owner only.
 
-Supports multiple backends (Monarch Money, YNAB, etc.).
+Supports multiple backends (Monarch Money, YNAB, SimpleFIN, etc.).
 """
 
 import base64
@@ -151,7 +151,7 @@ class CredentialManager:
             mfa_secret: OTP/TOTP secret for 2FA
             encryption_password: Password to encrypt credentials.
                                 Required if use_encryption=True.
-            backend_type: Backend type (e.g., 'monarch', 'ynab').
+            backend_type: Backend type (e.g., 'monarch', 'ynab', 'simplefin').
                          Defaults to 'monarch' for backward compatibility.
             use_encryption: If True, encrypt credentials with password.
                            If False, store as plaintext JSON (default: True).
@@ -312,7 +312,7 @@ def _prompt_ynab_credentials() -> Dict[str, str]:
     print()
     print("How to get your YNAB Personal Access Token:")
     print("  1. Sign in to the YNAB web app")
-    print("  2. Go to Account Settings → Developer Settings")
+    print("  2. Go to Account Settings -> Developer Settings")
     print("  3. Click 'New Token' under Personal Access Tokens")
     print("  4. Enter your password and click 'Generate'")
     print("  5. Copy the generated token (you won't be able to see it again)")
@@ -322,6 +322,59 @@ def _prompt_ynab_credentials() -> Dict[str, str]:
 
     access_token = getpass("YNAB Personal Access Token: ").strip()
     return {"email": "", "password": access_token, "mfa_secret": ""}
+
+
+def _prompt_simplefin_credentials() -> Dict[str, str]:
+    """
+    Prompt the user for SimpleFIN credentials.
+
+    Accepts either a one-time Base64-encoded Setup Token (from the SimpleFIN
+    Bridge website) or an already-claimed Access URL. If a Setup Token is
+    provided, it is claimed immediately and the resulting Access URL is stored
+    in the password field of the credential schema.
+    """
+    from ..backends.simplefin_client import claim_token
+
+    print()
+    print("=" * 70)
+    print("SimpleFIN Credential Setup")
+    print("=" * 70)
+    print()
+    print("SimpleFIN gives read-only access to your bank account transactions.")
+    print()
+    print("You have two options:")
+    print()
+    print("  Option 1 — Setup Token (first time):")
+    print("    1. Visit https://bridge.simplefin.org/simplefin/create")
+    print("    2. Follow the prompts to connect your bank account")
+    print("    3. Copy the Base64 token shown at the end")
+    print("    4. Paste it below — it will be claimed automatically")
+    print()
+    print("  Option 2 — Access URL (already claimed):")
+    print("    If you have already claimed a token, paste the Access URL")
+    print("    directly (it starts with 'https://').")
+    print()
+    print("=" * 70)
+    print()
+
+    raw = getpass("Paste your SimpleFIN token or Access URL: ").strip()
+
+    if not raw:
+        raise ValueError("No token or Access URL provided.")
+
+    if raw.startswith("https://"):
+        # User pasted an already-claimed Access URL directly.
+        access_url = raw
+        print()
+        print("Access URL accepted.")
+    else:
+        # Treat as a one-time token and claim it.
+        print()
+        print("Claiming your SimpleFIN token...")
+        access_url = claim_token(raw)
+        print("Token claimed successfully.")
+
+    return {"email": "", "password": access_url, "mfa_secret": ""}
 
 
 def setup_credentials_interactive() -> None:
@@ -340,6 +393,7 @@ def setup_credentials_interactive() -> None:
     print("Select your finance backend:")
     print("  1. Monarch Money")
     print("  2. YNAB")
+    print("  3. SimpleFIN")
     print()
 
     backend_choice = input("Enter choice [1]: ").strip() or "1"
@@ -348,13 +402,16 @@ def setup_credentials_interactive() -> None:
         backend_type = "monarch"
     elif backend_choice == "2":
         backend_type = "ynab"
+    elif backend_choice == "3":
+        backend_type = "simplefin"
     else:
-        print("❌ Invalid choice. Please select 1 or 2.")
+        print("Invalid choice. Please select 1, 2, or 3.")
         return
 
     setup_handlers = {
         "monarch": _prompt_monarch_credentials,
         "ynab": _prompt_ynab_credentials,
+        "simplefin": _prompt_simplefin_credentials,
     }
 
     creds = setup_handlers[backend_type]()
@@ -388,11 +445,21 @@ def setup_credentials_interactive() -> None:
         confirm = getpass("Confirm password: ")
 
         if encryption_password != confirm:
-            print("❌ Passwords do not match!")
+            print("Passwords do not match!")
             return
 
-    # Save credentials with backend type
-    manager = CredentialManager()
+    # Register account first so TUI can find it and we know the profile directory
+    from .account_manager import AccountManager
+
+    account_manager = AccountManager()
+    account = account_manager.create_account(
+        name=f"{backend_type.title()} Account",
+        backend_type=backend_type,
+    )
+    profile_dir = account_manager.get_profile_dir(account.id)
+
+    # Save credentials into the account's profile directory
+    manager = CredentialManager(profile_dir=profile_dir)
 
     if use_encryption:
         manager.save_credentials(
@@ -405,18 +472,18 @@ def setup_credentials_interactive() -> None:
         )
         cred_file = manager.credentials_file
         extra_step = "  2. You'll need to enter your encryption password each time"
-        print(f"✓ Encrypted credentials saved to {cred_file}")
+        print(f"Encrypted credentials saved to {cred_file}")
     else:
         manager.save_credentials(
             email, password, mfa_secret, backend_type=backend_type, use_encryption=False
         )
         cred_file = manager.plaintext_credentials_file
         extra_step = "  2. No password needed - credentials load automatically"
-        print(f"✓ Credentials saved to {cred_file}")
+        print(f"Credentials saved to {cred_file}")
 
     print()
     print("=" * 70)
-    print("✓ Setup Complete!")
+    print("Setup Complete!")
     print("=" * 70)
     print()
     print("Your credentials are stored at:")

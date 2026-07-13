@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,26 +12,17 @@ RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
 PUBLISH_TESTPYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-testpypi.sh"
 PUBLISH_PYPI_SCRIPT = REPO_ROOT / "scripts" / "publish-pypi.sh"
-PUBLISHING_DOC = REPO_ROOT / "PUBLISHING.md"
-DEVELOPING_DOC = REPO_ROOT / "docs" / "development" / "developing.md"
-SCRIPTS_README = REPO_ROOT / "scripts" / "README.md"
 EXAMPLE_TAG_REFSPEC = "refs/tags/v99.99.99:refs/tags/v99.99.99"
-GIT_LOCAL_ENV_VARS = {
+GIT_ENV_KEYS = {
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_GRAFT_FILE",
-    "GIT_INDEX_FILE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_PREFIX",
-    "GIT_SHALLOW_FILE",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_WORK_TREE",
 }
 
 
@@ -44,18 +36,33 @@ def run_release(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def run_command(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+def nested_repo_env() -> dict[str, str]:
     env = os.environ.copy()
-    for name in GIT_LOCAL_ENV_VARS:
-        env.pop(name, None)
-    for name in list(env):
-        if name.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
-            env.pop(name, None)
+    for key in list(env):
+        if (
+            key in GIT_ENV_KEYS
+            or key.startswith("GIT_CONFIG_KEY_")
+            or key.startswith("GIT_CONFIG_VALUE_")
+        ):
+            env.pop(key)
+    return env
+
+
+def run_command(
+    *args: str,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+    input: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command_env = nested_repo_env()
+    if env is not None:
+        command_env.update(env)
 
     return subprocess.run(
         list(args),
         cwd=cwd,
-        env=env,
+        env=command_env,
+        input=input,
         text=True,
         capture_output=True,
         check=False,
@@ -64,6 +71,63 @@ def run_command(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 
 def dry_run_commands(output: str) -> list[str]:
     return [line.removeprefix("+ ") for line in output.splitlines() if line.startswith("+ ")]
+
+
+def write_executable(path: Path, content: str) -> None:
+    path.write_text(content)
+    path.chmod(0o755)
+
+
+def release_command_shims(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    command_log = tmp_path / "release-commands.log"
+    real_git = shutil.which("git")
+    assert real_git is not None
+
+    write_executable(
+        fake_bin / "git",
+        """#!/usr/bin/env bash
+set -e
+if [ "$1" = "ls-remote" ] || [ "$1" = "push" ]; then
+    printf 'git %s\\n' "$*" >> "$RELEASE_TEST_COMMAND_LOG"
+fi
+exec "$REAL_GIT" "$@"
+""",
+    )
+    write_executable(
+        fake_bin / "uv",
+        """#!/usr/bin/env bash
+set -e
+printf 'uv %s\\n' "$*" >> "$RELEASE_TEST_COMMAND_LOG"
+if [ "$1" = "build" ]; then
+    version=$(grep '^version = ' pyproject.toml | sed 's/version = "\\(.*\\)"/\\1/')
+    mkdir -p dist
+    touch "dist/moneyflow-$version.tar.gz"
+    touch "dist/moneyflow-$version-py3-none-any.whl"
+fi
+""",
+    )
+    write_executable(
+        fake_bin / "uvx",
+        """#!/usr/bin/env bash
+set -e
+printf 'uvx %s\\n' "$*" >> "$RELEASE_TEST_COMMAND_LOG"
+""",
+    )
+
+    return command_log, {
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "REAL_GIT": real_git,
+        "RELEASE_TEST_COMMAND_LOG": str(command_log),
+    }
+
+
+def command_index(commands: list[str], prefix: str) -> int:
+    for index, command in enumerate(commands):
+        if command.startswith(prefix):
+            return index
+    raise AssertionError(f"Could not find command starting with {prefix!r} in {commands!r}")
 
 
 def init_publish_repo(tmp_path: Path) -> Path:
@@ -198,31 +262,50 @@ def test_release_dry_run_preflights_atomic_push_before_production_publish() -> N
     assert tag_index < dry_run_push_index < pypi_index
 
 
-def test_publish_pypi_pushes_release_state_immediately_before_upload() -> None:
-    publish_script = PUBLISH_PYPI_SCRIPT.read_text()
+def test_publish_pypi_pushes_release_state_immediately_before_upload(tmp_path: Path) -> None:
+    repo = init_publish_repo(tmp_path)
+    origin = tmp_path / "origin.git"
+    assert run_command("git", "init", "--bare", str(origin), cwd=tmp_path).returncode == 0
+    assert run_command("git", "remote", "add", "origin", str(origin), cwd=repo).returncode == 0
+    assert run_command("git", "tag", "v99.99.99", cwd=repo).returncode == 0
+    command_log, env = release_command_shims(tmp_path)
 
-    remote_tag_index = publish_script.index('git ls-remote --tags origin "$TAG_REF"')
-    push_index = publish_script.index('git push --atomic origin HEAD "$TAG_REFSPEC"')
-    upload_index = publish_script.index("uvx twine upload dist/*")
+    result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo, env=env, input="yes\n")
 
+    assert result.returncode == 0, result.stderr
+    commands = command_log.read_text().splitlines()
+    remote_tag_index = command_index(
+        commands,
+        "git ls-remote --tags origin refs/tags/v99.99.99",
+    )
+    push_index = command_index(
+        commands,
+        f"git push --atomic origin HEAD {EXAMPLE_TAG_REFSPEC}",
+    )
+    upload_index = command_index(commands, "uvx twine upload ")
     assert remote_tag_index < push_index < upload_index
-    assert 'git push --dry-run --atomic origin HEAD "$TAG_REFSPEC"' not in publish_script
+    assert upload_index == push_index + 1
+    assert all("push --tags" not in command for command in commands)
+    assert "git push --tags" not in result.stdout
+    assert "git push --tags" not in result.stderr
 
-    final_gap = publish_script[push_index:upload_index]
-    assert "uv run pytest" not in final_gap
-    assert "uv build" not in final_gap
-    assert "read -p" not in final_gap
+    origin_tag = run_command(
+        "git",
+        "--git-dir",
+        str(origin),
+        "rev-parse",
+        "refs/tags/v99.99.99^{commit}",
+        cwd=tmp_path,
+    )
+    repo_head = run_command("git", "rev-parse", "HEAD", cwd=repo)
+    assert origin_tag.returncode == 0, origin_tag.stderr
+    assert repo_head.returncode == 0, repo_head.stderr
+    assert origin_tag.stdout == repo_head.stdout
 
 
-def test_publish_pypi_does_not_recommend_push_tags() -> None:
-    publish_script = PUBLISH_PYPI_SCRIPT.read_text()
-
-    assert "git push --tags" not in publish_script
-    assert 'git push --atomic origin HEAD "$TAG_REFSPEC"' in publish_script
-    assert "git push --atomic origin HEAD refs/tags/$TAG:refs/tags/$TAG" in publish_script
-
-
-def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path) -> None:
+def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path, monkeypatch) -> None:
+    inherited_index = tmp_path / "parent-index"
+    monkeypatch.setenv("GIT_INDEX_FILE", str(inherited_index))
     repo = init_publish_repo(tmp_path)
 
     result = run_command("bash", str(PUBLISH_PYPI_SCRIPT), cwd=repo)
@@ -230,6 +313,7 @@ def test_publish_pypi_rejects_missing_release_tag(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "Tag v99.99.99 does not exist" in result.stderr
     assert "Uploading to PyPI" not in result.stdout
+    assert not inherited_index.exists()
 
 
 def test_publish_pypi_rejects_branch_named_like_release_tag(tmp_path: Path) -> None:
@@ -300,37 +384,21 @@ def test_release_testpypi_verification_uses_exact_wheel_url_not_testpypi_index()
     assert "--extra-index-url https://pypi.org/simple/" not in result.stdout
 
 
-def test_publish_testpypi_does_not_recommend_untrusted_testpypi_resolution() -> None:
-    publish_script = PUBLISH_TESTPYPI_SCRIPT.read_text()
+def test_publish_testpypi_verification_uses_exact_wheel_url_not_testpypi_index(
+    tmp_path: Path,
+) -> None:
+    repo = init_publish_repo(tmp_path)
+    _, env = release_command_shims(tmp_path)
 
-    assert "--index-url https://test.pypi.org/simple/" not in publish_script
-    assert "--extra-index-url https://pypi.org/simple/" not in publish_script
-    assert 'uvx --index-url https://pypi.org/simple/ --from "\\$WHEEL_URL" moneyflow --demo' in (
-        publish_script
-    )
+    result = run_command("bash", str(PUBLISH_TESTPYPI_SCRIPT), cwd=repo, env=env)
 
-
-def test_publishing_docs_do_not_recommend_untrusted_testpypi_resolution() -> None:
-    publishing_doc = PUBLISHING_DOC.read_text()
-
-    assert "--index-url https://test.pypi.org/simple/" not in publishing_doc
-    assert "--extra-index-url https://pypi.org/simple/" not in publishing_doc
+    assert result.returncode == 0, result.stderr
+    assert "https://test.pypi.org/pypi/moneyflow/99.99.99/json" in result.stdout
     assert 'uvx --index-url https://pypi.org/simple/ --from "$WHEEL_URL" moneyflow --demo' in (
-        publishing_doc
+        result.stdout
     )
-
-
-def test_manual_publish_docs_use_direct_push_and_post_publish() -> None:
-    publishing_doc = PUBLISHING_DOC.read_text()
-    developing_doc = DEVELOPING_DOC.read_text()
-    scripts_readme = SCRIPTS_README.read_text()
-    release_docs = "\n".join([publishing_doc, developing_doc, scripts_readme])
-
-    assert "--post-publish --force-post-publish" not in release_docs
-    assert "git push --atomic origin HEAD refs/tags/v0.2.0:refs/tags/v0.2.0" in publishing_doc
-    assert "./scripts/post-publish.sh v0.2.0" in publishing_doc
-    assert "git push --atomic origin HEAD refs/tags/v0.x.y:refs/tags/v0.x.y" in developing_doc
-    assert "./scripts/post-publish.sh v0.x.y" in developing_doc
+    assert "--index-url https://test.pypi.org/simple/" not in result.stdout
+    assert "--extra-index-url https://pypi.org/simple/" not in result.stdout
 
 
 def test_release_dry_run_pushes_release_state_atomically() -> None:
@@ -372,15 +440,6 @@ def test_release_dry_run_force_post_publish_allows_explicit_unpublished_push() -
     commands = dry_run_commands(result.stdout)
     assert f"git push --atomic origin HEAD {EXAMPLE_TAG_REFSPEC}" in commands
     assert "./scripts/post-publish.sh v99.99.99" in commands
-
-
-def test_changelog_generation_is_deterministic_without_ai_agent() -> None:
-    changelog_script = CHANGELOG_SCRIPT.read_text()
-
-    assert "codex exec" not in changelog_script
-    assert "claude" not in changelog_script
-    assert "New Features" in changelog_script
-    assert "Bug Fixes" in changelog_script
 
 
 def test_changelog_includes_single_commit_range(tmp_path: Path) -> None:

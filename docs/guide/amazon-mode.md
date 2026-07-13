@@ -137,10 +137,10 @@ moneyflow amazon import ~/Downloads/"Your Orders"
 
 Cancelled orders are automatically skipped during import.
 
-### Transaction Linking with Monarch/YNAB
+### Transaction Linking
 
-When you use Amazon mode alongside Monarch Money or YNAB, moneyflow can automatically link Amazon orders to
-transactions in your bank accounts.
+When you use Amazon mode alongside a primary financial backend (e.g., Monarch Money, YNAB, or SimpleFIN), moneyflow
+can automatically link Amazon orders to transactions in your bank accounts.
 
 #### Amazon Column in Transaction View
 

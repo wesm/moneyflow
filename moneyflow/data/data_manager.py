@@ -14,7 +14,9 @@ providing a clean interface for data operations without exposing API details.
 """
 
 import asyncio
+import inspect
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -28,6 +30,7 @@ from .categories import (
     convert_api_categories_to_groups,
     get_effective_category_groups,
     get_profile_category_groups,
+    load_categories_from_profile,
     save_categories_to_config,
     save_categories_to_profile,
 )
@@ -183,11 +186,24 @@ class DataManager:
 
         self.category_to_group = build_category_to_group_mapping(self.category_groups_config)
 
+        # Seed profile with categories for read-only backends (e.g., SimpleFIN)
+        # that can't fetch categories from the API. Seeds from global config
+        # if available, otherwise from defaults.
+        if (
+            profile_dir
+            and backend_type != "amazon"
+            and not getattr(mm, "supports_category_sync", True)
+        ):
+            existing = load_categories_from_profile(profile_dir)
+            if existing is None:
+                save_categories_to_profile(self.category_groups_config, profile_dir=profile_dir)
+
         # Data storage
         self.df: Optional[pl.DataFrame] = None
         self.categories: Dict[str, Any] = {}
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
+        self.pending_category_groups: Optional[Dict[str, List[str]]] = None
         self.all_merchants: List[str] = []  # Cached + current merchants
 
         # Merchant cache setup
@@ -1212,6 +1228,7 @@ class DataManager:
 
         logger.info(f"Processing {len(edits_to_process)} edits individually")
 
+        send_category_name = self._backend_accepts_category_name()
         edits_by_txn: Dict[str, Dict[str, Any]] = {}
         for edit in edits_to_process:
             txn_id = edit.transaction_id
@@ -1222,6 +1239,9 @@ class DataManager:
                 edits_by_txn[txn_id]["merchant_name"] = edit.new_value
             elif edit.field == "category":
                 edits_by_txn[txn_id]["category_id"] = edit.new_value
+                cat_info = self.categories.get(edit.new_value)
+                if send_category_name and cat_info and cat_info.get("name"):
+                    edits_by_txn[txn_id]["category_name"] = cat_info["name"]
             elif edit.field == "hide_from_reports":
                 edits_by_txn[txn_id]["hide_from_reports"] = edit.new_value
 
@@ -1243,6 +1263,22 @@ class DataManager:
 
         return success_count, failures
 
+    def _backend_accepts_category_name(self) -> bool:
+        """Return whether the backend explicitly persists local category display names."""
+        try:
+            parameters = inspect.signature(self.mm.update_transaction).parameters
+        except (TypeError, ValueError):
+            return False
+
+        parameter = parameters.get("category_name")
+        if parameter is None:
+            return False
+
+        return parameter.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+
     def _check_for_auth_errors(self, failures: List[Exception]) -> None:
         """Raise auth error to trigger retry if all failures are auth errors."""
         if not failures:
@@ -1258,6 +1294,33 @@ class DataManager:
             logger.warning("All failures were auth errors - raising to trigger retry")
             raise auth_errors[0]
 
+    def _populate_categories_from_config(self) -> None:
+        """Fill self.categories from category_groups_config if empty.
+
+        For backends like SimpleFIN that don't sync categories, the API returns
+        empty categories. This uses the local config (built-in defaults or
+        user-customized via config.yaml) so the TUI can offer categories
+        for recategorization.
+        """
+        if self.categories and any(cat.get("name") for cat in self.categories.values()):
+            return
+
+        if not self.category_groups_config:
+            return
+
+        categories: Dict[str, Dict[str, str]] = {}
+        for group_name, cat_names in self.category_groups_config.items():
+            group_id = re.sub(r"[^a-z0-9]+", "_", group_name.lower()).strip("_")
+            for cat_name in cat_names:
+                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                categories[cat_id] = {
+                    "name": cat_name,
+                    "group": group_name,
+                    "group_id": group_id,
+                    "group_type": "",
+                }
+        self.categories = categories
+
     async def commit_pending_edits(
         self, edits: List[Any], skip_batch_for: Optional[Set[Tuple[str, str]]] = None
     ) -> Tuple[int, int, Set[Tuple[str, str]]]:
@@ -1269,6 +1332,11 @@ class DataManager:
         if not edits:
             logger.info("No edits to commit")
             return 0, 0, set()
+
+        # Skip remote commit for backends that cannot persist transaction edits.
+        if not getattr(self.mm, "can_write_transactions", True):
+            logger.info("Backend does not support writing transactions — skipping commit")
+            return len(edits), 0, set()
 
         merchant_edits, other_edits = self._partition_edits(edits)
 

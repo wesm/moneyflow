@@ -9,7 +9,11 @@ Tests the extracted pure functions from edit_screens.py:
 import polars as pl
 import pytest
 
-from moneyflow.tui.screens.edit_screens import filter_merchants, parse_merchant_option_id
+from moneyflow.tui.screens.edit_screens import (
+    ManageCategoriesScreen,
+    filter_merchants,
+    parse_merchant_option_id,
+)
 
 
 class TestFilterMerchants:
@@ -122,3 +126,102 @@ class TestParseMerchantOptionId:
 
         assert is_new is expected_is_new
         assert name == expected_name
+
+
+class TestManageCategoriesScreen:
+    """Tests for Category Manager business rules."""
+
+    def test_uncategorized_fallback_cannot_be_deleted(self):
+        categories = {
+            "uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "miscellaneous": {
+                "name": "Miscellaneous",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(categories)
+
+        assert screen._can_delete("uncategorized") is False
+
+    def test_delete_recreates_missing_uncategorized_reassignment_target(self):
+        categories = {
+            "needs_review": {
+                "name": "Needs Review",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "groceries": {
+                "name": "Groceries",
+                "group": "Food",
+                "group_id": "food",
+                "group_type": "expense",
+            },
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._category_order = list(categories)
+        screen._filtered_order = list(categories)
+        screen._update_display = lambda: None
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "groceries")
+
+        assert queued == [("groceries", "uncategorized")]
+        assert "groceries" not in categories
+        assert categories["uncategorized"] == {
+            "name": "Uncategorized",
+            "group": "Uncategorized",
+            "group_id": "uncategorized",
+            "group_type": "",
+        }
+
+    def test_rename_same_normalized_id_queues_reassign(self):
+        categories = {
+            "food_dining": {
+                "name": "Food Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "food_dining"
+        screen._category_order = ["food_dining"]
+        screen._filtered_order = ["food_dining"]
+        screen._update_display = lambda: None
+
+        screen._handle_rename("Food-Dining")
+
+        assert queued == [("food_dining", "food_dining")]
+        assert categories["food_dining"]["name"] == "Food-Dining"
+
+    def test_create_category_suffixes_normalized_id_collision(self):
+        categories = {
+            "food_dining": {
+                "name": "Food & Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        screen = ManageCategoriesScreen(categories)
+        screen._pending_name = "Food Dining"
+        screen._update_display = lambda: None
+
+        screen._handle_create_group("Expenses")
+
+        assert categories["food_dining"]["name"] == "Food & Dining"
+        assert categories["food_dining_2"]["name"] == "Food Dining"
+        assert categories["food_dining_2"]["group"] == "Expenses"

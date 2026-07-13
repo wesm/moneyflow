@@ -8,7 +8,7 @@ from textual.binding import Binding
 from textual.containers import Container
 from textual.events import Key
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Input, Label, Static
+from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
 
 from ...data.credentials import CredentialManager
 
@@ -22,6 +22,7 @@ class BackendSelectionScreen(ModalScreen):
     - Enter: Select highlighted backend
     - m: Select Monarch Money
     - y: Select YNAB
+    - s: Select SimpleFIN
     - Esc: Exit/Cancel
     """
 
@@ -32,6 +33,7 @@ class BackendSelectionScreen(ModalScreen):
         Binding("enter", "select_current", "Select", show=False),
         Binding("m", "select_monarch", "Monarch", show=False),
         Binding("y", "select_ynab", "YNAB", show=False),
+        Binding("s", "select_simplefin", "SimpleFIN", show=False),
     ]
 
     CSS = """
@@ -89,7 +91,7 @@ class BackendSelectionScreen(ModalScreen):
     def __init__(self):
         """Initialize backend selector with tracking for keyboard navigation."""
         super().__init__()
-        self.backends = ["monarch", "ynab"]  # Available backends in order
+        self.backends = ["monarch", "ynab", "simplefin"]  # Available backends in order
         self.current_index = 0  # Currently highlighted backend
 
     def compose(self) -> ComposeResult:
@@ -98,7 +100,7 @@ class BackendSelectionScreen(ModalScreen):
 
             yield Static(
                 "Choose which personal finance platform you want to connect to.\n"
-                "Keys: ↑/↓=Navigate | Enter=Select | m=Monarch | y=YNAB | Esc=Cancel",
+                "Keys: ↑/↓=Navigate | Enter=Select | m=Monarch | y=YNAB | s=SimpleFIN | Esc=Cancel",
                 classes="backend-help",
             )
 
@@ -107,6 +109,10 @@ class BackendSelectionScreen(ModalScreen):
             )
 
             yield Button("💰 YNAB", variant="default", id="ynab-button", classes="backend-option")
+
+            yield Button(
+                "🔗 SimpleFIN", variant="default", id="simplefin-button", classes="backend-option"
+            )
 
             with Container(id="button-container"):
                 yield Button("Cancel", variant="default", id="exit-button")
@@ -129,6 +135,9 @@ class BackendSelectionScreen(ModalScreen):
 
         if event.button.id == "ynab-button":
             self.dismiss("ynab")
+
+        if event.button.id == "simplefin-button":
+            self.dismiss("simplefin")
 
     def action_exit_backend_selector(self) -> None:
         """Exit backend selector (Esc key)."""
@@ -156,6 +165,10 @@ class BackendSelectionScreen(ModalScreen):
     def action_select_ynab(self) -> None:
         """Select YNAB (y key)."""
         self.dismiss("ynab")
+
+    def action_select_simplefin(self) -> None:
+        """Select SimpleFIN (s key)."""
+        self.dismiss("simplefin")
 
     def _focus_current_backend(self) -> None:
         """Focus the button for currently selected backend."""
@@ -205,6 +218,26 @@ class CredentialSetupScreen(ModalScreen):
         color: $text-muted;
         text-style: italic;
         margin-bottom: 1;
+    }
+
+    #url-help {
+        display: none;
+    }
+
+    #simplefin-mode-section {
+        margin-top: 1;
+        margin-bottom: 1;
+    }
+
+    #simplefin-mode-section RadioSet {
+        width: 100%;
+        margin-top: 1;
+        margin-bottom: 1;
+        background: $surface;
+    }
+
+    #simplefin-mode-section RadioButton {
+        padding: 0 1;
     }
 
     #encryption-section {
@@ -261,6 +294,38 @@ class CredentialSetupScreen(ModalScreen):
                 )
                 yield Input(
                     placeholder="your access token",
+                    password=True,
+                    id="password-input",
+                    classes="setup-input",
+                )
+            elif self.backend_type == "simplefin":
+                yield Label("🔗 SimpleFIN Credential Setup", id="setup-title")
+
+                with Container(id="simplefin-mode-section"):
+                    yield Label("What do you have?", classes="setup-label")
+                    yield RadioSet(
+                        RadioButton(
+                            "Setup Token (one-time Base64 string)", id="token-radio", value=True
+                        ),
+                        RadioButton("Access URL (already claimed)", id="url-radio"),
+                        id="simplefin-mode",
+                    )
+
+                yield Static(
+                    "Get a token at: bridge.simplefin.org → create token\n"
+                    "Paste the one-time Base64 token below. It will be exchanged\n"
+                    "for an Access URL and saved automatically.",
+                    id="token-help",
+                    classes="setup-help",
+                )
+                yield Static(
+                    "Paste your Access URL directly. It starts with 'https://'\n"
+                    "and contains embedded credentials (username:password@host).",
+                    id="url-help",
+                    classes="setup-help",
+                )
+                yield Input(
+                    placeholder="Paste your Base64 setup token",
                     password=True,
                     id="password-input",
                     classes="setup-input",
@@ -343,6 +408,21 @@ class CredentialSetupScreen(ModalScreen):
                 except Exception:
                     pass
 
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        """Toggle help text and placeholder based on radio selection."""
+        token_help = self.query_one("#token-help", Static)
+        url_help = self.query_one("#url-help", Static)
+        password_input = self.query_one("#password-input", Input)
+
+        if event.pressed.id == "token-radio":
+            token_help.display = True
+            url_help.display = False
+            password_input.placeholder = "Paste your Base64 setup token"
+        else:
+            token_help.display = False
+            url_help.display = True
+            password_input.placeholder = "Paste your Access URL (starts with https://)"
+
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "exit-button":
             self.app.exit()
@@ -378,6 +458,43 @@ class CredentialSetupScreen(ModalScreen):
                 error_label.update("❌ Please enter your YNAB access token")
                 return
 
+            email = ""
+            mfa_secret = ""
+        elif self.backend_type == "simplefin":
+            from moneyflow.backends.simplefin_client import claim_token, parse_access_url
+
+            raw = self.query_one("#password-input", Input).value.strip()
+            if not raw:
+                error_label.update("❌ Please enter your SimpleFIN setup token or Access URL")
+                return
+
+            radio_set = self.query_one("#simplefin-mode", RadioSet)
+            pressed = radio_set.pressed_button
+            if pressed is None or pressed.id == "token-radio":
+                # Token mode – claim the one-time Base64 token
+                error_label.update("🔑 Claiming SimpleFIN token...")
+                try:
+                    password = claim_token(raw)
+                except ValueError as e:
+                    error_label.update(f"❌ Invalid token: {e}")
+                    return
+                except PermissionError:
+                    error_label.update(
+                        "❌ Token already claimed or invalid.\n"
+                        "Get a new one at bridge.simplefin.org"
+                    )
+                    return
+                except RuntimeError as e:
+                    error_label.update(f"❌ Failed to claim token: {e}")
+                    return
+            else:
+                # Access URL mode – validate then save as-is
+                try:
+                    parse_access_url(raw)
+                    password = raw
+                except ValueError as e:
+                    error_label.update(f"❌ {e}")
+                    return
             email = ""
             mfa_secret = ""
         else:
@@ -581,7 +698,7 @@ class CredentialUnlockScreen(ModalScreen):
             cred_manager.delete_credentials()
 
             # Switch to setup screen
-            self.dismiss(None)  # Signal to show setup screen
+            self.dismiss("__reset__")  # Sentinel so caller knows to re-show CredentialSetupScreen
 
         except Exception as e:
             error_label = self.query_one("#error-label", Label)

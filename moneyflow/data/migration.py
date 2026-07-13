@@ -5,6 +5,8 @@ Handles migrating existing ~/.moneyflow/credentials.enc to the new profile syste
 Also handles migrating global config.yaml categories to profile-local config.
 """
 
+import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -14,8 +16,12 @@ import yaml
 from .account_manager import AccountManager
 
 CREDENTIALS_FILE = "credentials.enc"
+CREDENTIALS_FILE_JSON = "credentials.json"
 AMAZON_DB_FILE = "amazon.db"
+SIMPLEFIN_DB_FILE = "simplefin.db"
 CONFIG_FILE = "config.yaml"
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_config_dir(config_dir: Optional[Path] = None) -> Path:
@@ -62,14 +68,16 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     """
     config_dir = _resolve_config_dir(config_dir)
 
-    # Check if legacy credentials exist
+    # Check if legacy credentials exist (encrypted or plaintext)
     legacy_cred_file = config_dir / CREDENTIALS_FILE
     legacy_salt_file = config_dir / "salt"
     legacy_merchant_cache = config_dir / "merchants.json"
 
     if not legacy_cred_file.exists():
-        # No legacy credentials to migrate
-        return False
+        legacy_cred_file = config_dir / CREDENTIALS_FILE_JSON
+        if not legacy_cred_file.exists():
+            # No legacy credentials to migrate
+            return False
 
     # Check if profiles directory already has accounts
     account_manager = AccountManager(config_dir=config_dir)
@@ -80,6 +88,28 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
         # User should manually handle this case
         return False
 
+    # Read backend_type from stored credentials before migration
+    backend_type = "monarch"  # default for true legacy
+    try:
+        if legacy_cred_file.suffix == ".json":
+            with open(legacy_cred_file) as f:
+                data = json.load(f)
+                backend_type = data.get("backend_type", "monarch")
+        elif legacy_cred_file.suffix == ".enc":
+            from .credentials import CredentialManager
+
+            cm = CredentialManager(config_dir=config_dir)
+            creds, _ = cm.load_credentials()
+            backend_type = creds.get("backend_type", "monarch")
+    except Exception:
+        # Encrypted credentials can't be inspected without a password.
+        # If a legacy SimpleFIN DB exists alongside, assume SimpleFIN
+        # so credentials and DB migrate into the same profile.
+        if (config_dir / SIMPLEFIN_DB_FILE).exists():
+            backend_type = "simplefin"
+        else:
+            backend_type = "monarch"
+
     if dry_run:
         # Just report that migration is needed
         return True
@@ -88,7 +118,7 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     # Step 1: Create "default" account profile
     default_account = account_manager.create_account(
         name="Default Account",
-        backend_type="monarch",  # Assume monarch for legacy accounts
+        backend_type=backend_type,
         account_id="default",
     )
 
@@ -96,9 +126,12 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     profile_dir = account_manager.get_profile_dir(default_account.id)
 
     # Step 3: Move credentials and salt to profile directory
-    shutil.move(str(legacy_cred_file), str(profile_dir / CREDENTIALS_FILE))
+    # Preserve the filename so plaintext stays as .json and encrypted as .enc
+    is_encrypted_source = legacy_cred_file.suffix == ".enc"
+    dest_filename = CREDENTIALS_FILE if is_encrypted_source else CREDENTIALS_FILE_JSON
+    shutil.move(str(legacy_cred_file), str(profile_dir / dest_filename))
 
-    if legacy_salt_file.exists():
+    if is_encrypted_source and legacy_salt_file.exists():
         shutil.move(str(legacy_salt_file), str(profile_dir / "salt"))
 
     # Step 4: Move merchant cache if it exists
@@ -113,12 +146,89 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     return True
 
 
+def migrate_legacy_db(
+    config_dir: Optional[Path] = None,
+    db_filename: str = "amazon.db",
+    account_name: str = "Amazon",
+    backend_type: str = "amazon",
+    account_id: Optional[str] = None,
+    dry_run: bool = False,
+) -> bool:
+    """
+    Migrate a legacy per-backend database to the multi-account profile system.
+
+    Checks if an old-style database file exists at ~/.moneyflow/<db_filename>
+    and migrates it to ~/.moneyflow/profiles/<account_id>/<db_filename>.
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+        db_filename: Legacy database filename (e.g., "amazon.db", "simplefin.db")
+        account_name: Display name for the migrated account
+        backend_type: Backend type identifier
+        account_id: Optional explicit account ID (defaults to backend_type)
+        dry_run: If True, only check if migration is needed without performing it
+
+    Returns:
+        True if migration was performed (or would be performed in dry_run),
+        False if no migration needed
+    """
+    config_dir = _resolve_config_dir(config_dir)
+    account_id = account_id or backend_type
+
+    # Check if legacy database file exists
+    legacy_db = config_dir / db_filename
+
+    if not legacy_db.exists():
+        return False
+
+    # Check if an account of this backend type already exists
+    account_manager = AccountManager(config_dir=config_dir)
+    existing_accounts = account_manager.list_accounts()
+
+    for account in existing_accounts:
+        if account.backend_type == backend_type:
+            if dry_run:
+                return True
+            profile_dir = account_manager.get_profile_dir(account.id)
+            dest = profile_dir / db_filename
+            if dest.exists():
+                logger.warning(
+                    "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
+                    dest,
+                    legacy_db,
+                )
+                return True
+            shutil.move(str(legacy_db), str(dest))
+            return True
+
+    if dry_run:
+        return True
+
+    profile_account = account_manager.create_account(
+        name=account_name,
+        backend_type=backend_type,
+        account_id=account_id,
+    )
+
+    profile_dir = account_manager.get_profile_dir(profile_account.id)
+    dest = profile_dir / db_filename
+    if dest.exists():
+        logger.warning(
+            "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
+            dest,
+            legacy_db,
+        )
+        return True
+    shutil.move(str(legacy_db), str(dest))
+
+    return True
+
+
 def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
     """
     Migrate legacy Amazon database to multi-account profile system.
 
-    Checks if old-style Amazon DB exists at ~/.moneyflow/amazon.db
-    and migrates it to ~/.moneyflow/profiles/amazon/amazon.db
+    Convenience wrapper around migrate_legacy_db.
 
     Args:
         config_dir: Optional config directory (defaults to ~/.moneyflow)
@@ -127,51 +237,133 @@ def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = 
     Returns:
         True if migration was performed (or would be performed in dry_run),
         False if no migration needed
+    """
+    return migrate_legacy_db(
+        config_dir=config_dir,
+        db_filename=AMAZON_DB_FILE,
+        account_name="Amazon",
+        backend_type="amazon",
+        account_id="amazon",
+        dry_run=dry_run,
+    )
 
-    Example:
-        # Check if migration needed
-        if migrate_legacy_amazon_db(dry_run=True):
-            print("Amazon migration needed")
 
-        # Perform migration
-        migrate_legacy_amazon_db()
+def check_simplefin_migration_needed(config_dir: Optional[Path] = None) -> bool:
+    """
+    Check if legacy SimpleFIN database migration is needed.
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+
+    Returns:
+        True if migration needed, False otherwise
+    """
+    return migrate_legacy_db(
+        config_dir=config_dir,
+        db_filename=SIMPLEFIN_DB_FILE,
+        account_name="SimpleFIN",
+        backend_type="simplefin",
+        account_id="simplefin",
+        dry_run=True,
+    )
+
+
+def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> bool:
+    """Move legacy credential files from config_dir root into *profile_dir*.
+
+    Handles both encrypted (.enc + salt) and plaintext (.json) credentials.
+    Does NOT move merchants.json or cache/ — those belong to
+    ``migrate_legacy_credentials()``.
+
+    Returns True if credentials were moved, False if none existed.
+    """
+    legacy_cred_file = config_dir / CREDENTIALS_FILE
+    if not legacy_cred_file.exists():
+        legacy_cred_file = config_dir / CREDENTIALS_FILE_JSON
+        if not legacy_cred_file.exists():
+            return False
+
+    is_encrypted = legacy_cred_file.suffix == ".enc"
+    dest_filename = CREDENTIALS_FILE if is_encrypted else CREDENTIALS_FILE_JSON
+    dest = profile_dir / dest_filename
+
+    if dest.exists():
+        logger.warning(
+            "Credentials already exist at %s. Skipping move of %s to avoid overwriting.",
+            dest,
+            legacy_cred_file,
+        )
+        return True
+
+    shutil.move(str(legacy_cred_file), str(dest))
+
+    if is_encrypted:
+        salt_file = config_dir / "salt"
+        if salt_file.exists():
+            salt_dest = profile_dir / "salt"
+            if not salt_dest.exists():
+                shutil.move(str(salt_file), str(salt_dest))
+
+    return True
+
+
+def migrate_legacy_simplefin_db(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
+    """
+    Migrate legacy SimpleFIN database and credentials to a profile.
+
+    Moves ``simplefin.db`` from the config root into a SimpleFIN-backed
+    profile.  When a new profile is created (no SimpleFIN account existed
+    yet), any unmigrated legacy credentials at the config root are moved
+    into the same profile so the user can log in immediately.
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+        dry_run: If True, only check if migration is needed without performing it
+
+    Returns:
+        True if migration was performed (or would be performed in dry_run),
+        False if no migration needed
     """
     config_dir = _resolve_config_dir(config_dir)
 
-    # Check if legacy amazon.db exists
-    legacy_amazon_db = config_dir / AMAZON_DB_FILE
-
-    if not legacy_amazon_db.exists():
-        # No legacy Amazon database to migrate
+    legacy_db = config_dir / SIMPLEFIN_DB_FILE
+    if not legacy_db.exists():
         return False
 
-    # Check if an Amazon account already exists
-    account_manager = AccountManager(config_dir=config_dir)
-    existing_accounts = account_manager.list_accounts()
-
-    # Check if there's already an amazon account
-    for account in existing_accounts:
-        if account.backend_type == "amazon":
-            # Amazon account already exists - don't migrate
-            return False
-
     if dry_run:
-        # Just report that migration is needed
         return True
 
-    # Perform migration
-    # Step 1: Create "Amazon" account profile
-    amazon_account = account_manager.create_account(
-        name="Amazon",
-        backend_type="amazon",
-        account_id="amazon",
-    )
+    account_manager = AccountManager(config_dir=config_dir)
+    existing_accounts = account_manager.list_accounts()
+    simplefin_account = None
+    for acc in existing_accounts:
+        if acc.backend_type == "simplefin":
+            simplefin_account = acc
+            break
 
-    # Step 2: Get profile directory
-    profile_dir = account_manager.get_profile_dir(amazon_account.id)
+    if simplefin_account is not None:
+        profile_dir = account_manager.get_profile_dir(simplefin_account.id)
+    else:
+        profile_account = account_manager.create_account(
+            name="SimpleFIN",
+            backend_type="simplefin",
+            account_id="simplefin",
+        )
+        profile_dir = account_manager.get_profile_dir(profile_account.id)
 
-    # Step 3: Move amazon.db to profile directory
-    shutil.move(str(legacy_amazon_db), str(profile_dir / AMAZON_DB_FILE))
+    # Move the database
+    dest = profile_dir / SIMPLEFIN_DB_FILE
+    if dest.exists():
+        logger.warning(
+            "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
+            dest,
+            legacy_db,
+        )
+    else:
+        shutil.move(str(legacy_db), str(dest))
+
+    # Migrate legacy credentials if they are still sitting at the root
+    _move_legacy_credentials_to_profile(config_dir, profile_dir)
 
     return True
 

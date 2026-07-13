@@ -1,7 +1,7 @@
 """
 Amazon transaction linker service.
 
-Links Monarch/YNAB transactions to Amazon orders by matching amount and date.
+Links transactions from any backend to Amazon orders by matching amount and date.
 Searches Amazon profile databases for orders that match a given transaction.
 """
 

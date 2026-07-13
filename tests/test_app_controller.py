@@ -8,6 +8,7 @@ They focus on the "data plane" bugs we recently fixed:
 - Table update sequencing
 """
 
+import re
 from datetime import datetime
 
 import polars as pl
@@ -2019,3 +2020,129 @@ class TestBulkEditTimestamps:
 
         timestamps = set(edit.timestamp for edit in edits)
         assert len(timestamps) == 1, f"Expected 1 unique timestamp, got {len(timestamps)}"
+
+
+class TestCategoryManagerDataSource:
+    """
+    Tests for category merge/delete transaction data source.
+
+    Category operations (merge, delete) must source transactions from the
+    full transactions_df, not current_data, which may be a filtered or
+    aggregate subset. Otherwise transactions outside the current view
+    keep orphaned category_id values.
+    """
+
+    async def test_queue_reassign_uses_transactions_df_not_current_data(self, controller):
+        """queue_reassign logic must use full df, not filtered view."""
+        state = controller.state
+        full_df = state.transactions_df
+
+        cat_with_filtered_out_txns = "cat_groceries"
+
+        current_data = full_df.filter(pl.col("category_id") != cat_with_filtered_out_txns)
+        state.current_data = current_data
+
+        filtered_count = current_data.filter(
+            pl.col("category_id") == cat_with_filtered_out_txns
+        ).height
+        assert filtered_count == 0, f"current_data should have 0 {cat_with_filtered_out_txns} txns"
+
+        full_count = full_df.filter(pl.col("category_id") == cat_with_filtered_out_txns).height
+        assert full_count > 0, f"transactions_df must have {cat_with_filtered_out_txns} txns"
+
+        full_source = full_df.filter(pl.col("category_id") == cat_with_filtered_out_txns)
+        count = controller.queue_category_edits(full_source, "cat_new")
+        assert count == full_count
+
+    async def test_txn_counts_use_transactions_df_not_current_data(self, controller):
+        """Category counts from full df include all transactions."""
+        state = controller.state
+        full_df = state.transactions_df
+
+        filtered_df = full_df.filter(pl.col("category_id") != "cat_groceries")
+        state.current_data = filtered_df
+        state.transactions_df = full_df
+
+        full_counts = {}
+        counts_df = full_df.group_by("category_id").agg(pl.len().alias("count"))
+        for row in counts_df.iter_rows(named=True):
+            full_counts[row["category_id"]] = row["count"]
+
+        filtered_counts = {}
+        counts_df = filtered_df.group_by("category_id").agg(pl.len().alias("count"))
+        for row in counts_df.iter_rows(named=True):
+            filtered_counts[row["category_id"]] = row["count"]
+
+        assert "cat_groceries" not in filtered_counts
+        assert "cat_groceries" in full_counts
+        assert full_counts["cat_groceries"] > 0
+
+
+class TestCategoryRenameReassign:
+    """Tests for category rename queuing transaction reassignments.
+
+    When a category is renamed such that its generated category_id changes,
+    all transactions with the old category_id must be reassigned to the new
+    one. Otherwise they become orphaned on restart when _populate_categories
+    regenerates IDs from the new names.
+    """
+
+    @staticmethod
+    def _compute_cat_id(name: str) -> str:
+        """Replicate the ID computation from _populate_categories_from_config."""
+        return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+    def test_rename_with_same_id_is_cosmetic(self):
+        """Renames that don't change the computed ID need no reassign."""
+        assert self._compute_cat_id("Groceries") == "groceries"
+        assert self._compute_cat_id("groceries") == "groceries"
+        assert self._compute_cat_id("  Groceries  ") == "groceries"
+
+    def test_rename_with_different_id_changes_cat_id(self):
+        """Renames that change characters produce new ID."""
+        old_id = self._compute_cat_id("Groceries")
+        new_id = self._compute_cat_id("Groceries & Staples")
+        assert old_id == "groceries"
+        assert new_id == "groceries_staples"
+        assert old_id != new_id
+
+    async def test_rename_reassigns_all_transactions(self, controller):
+        """queue_category_edits captures all txns for the renamed category."""
+        state = controller.state
+        full_df = state.transactions_df
+
+        # Pick a category that exists in the mock data
+        old_id = "cat_groceries"
+        new_name = "Groceries & Staples"
+        new_id = self._compute_cat_id(new_name)
+
+        # Sanity: old_id exists in data, new_id does not
+        old_txns = full_df.filter(pl.col("category_id") == old_id)
+        assert old_txns.height > 0
+        new_txns = full_df.filter(pl.col("category_id") == new_id)
+        assert new_txns.height == 0
+
+        # The reassign should catch all old_id txns
+        count = controller.queue_category_edits(old_txns, new_id)
+        assert count == old_txns.height
+
+        edits = controller.data_manager.pending_edits
+        assert len(edits) == old_txns.height
+        for edit in edits:
+            assert edit.field == "category"
+            assert edit.old_value == old_id
+            assert edit.new_value == new_id
+
+    async def test_rename_reassign_clears_old_category_edits(self, controller):
+        """After reassign, old_id edits can be committed."""
+        state = controller.state
+        full_df = state.transactions_df
+
+        old_id = "cat_groceries"
+        new_id = self._compute_cat_id("Groceries & Staples")
+        old_txns = full_df.filter(pl.col("category_id") == old_id)
+
+        controller.queue_category_edits(old_txns, new_id)
+
+        assert len(controller.data_manager.pending_edits) == old_txns.height
+        assert all(e.new_value == new_id for e in controller.data_manager.pending_edits)

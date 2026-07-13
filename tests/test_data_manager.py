@@ -41,6 +41,59 @@ class MockBackendNoCount:
     pass
 
 
+class StrictCategoryBackend:
+    """Backend whose client does not accept backend-specific category names."""
+
+    def __init__(self):
+        self.update_calls = []
+
+    def get_backend_type(self):
+        return "monarch"
+
+    async def update_transaction(
+        self,
+        transaction_id,
+        merchant_name=None,
+        category_id=None,
+        hide_from_reports=None,
+    ):
+        self.update_calls.append(
+            {
+                "transaction_id": transaction_id,
+                "merchant_name": merchant_name,
+                "category_id": category_id,
+                "hide_from_reports": hide_from_reports,
+            }
+        )
+        return {"updateTransaction": {"transaction": {"id": transaction_id}}}
+
+
+class CategoryNameBackend(StrictCategoryBackend):
+    """Backend that persists local display category names."""
+
+    def get_backend_type(self):
+        return "simplefin"
+
+    async def update_transaction(
+        self,
+        transaction_id,
+        merchant_name=None,
+        category_id=None,
+        hide_from_reports=None,
+        category_name=None,
+    ):
+        self.update_calls.append(
+            {
+                "transaction_id": transaction_id,
+                "merchant_name": merchant_name,
+                "category_id": category_id,
+                "hide_from_reports": hide_from_reports,
+                "category_name": category_name,
+            }
+        )
+        return {"updateTransaction": {"transaction": {"id": transaction_id}}}
+
+
 class MockBackendWithCount:
     """Mock backend that returns specific counts."""
 
@@ -494,6 +547,41 @@ class TestCommitEdits:
         txn = mock_mm.get_transaction_by_id("txn_1")
         assert txn is not None
         assert txn["category"]["id"] == "cat_shopping"
+
+    async def test_commit_category_change_omits_category_name_for_strict_backends(self, tmp_path):
+        """Category display names must not leak into remote backend client calls."""
+        backend = StrictCategoryBackend()
+        dm = DataManager(backend, config_dir=str(tmp_path))
+        dm.categories = {"cat_new": {"name": "New Category"}}
+
+        edits = [TransactionEdit("txn_1", "category", "cat_old", "cat_new", datetime.now())]
+
+        success, failure, _ = await dm.commit_pending_edits(edits)
+
+        assert success == 1
+        assert failure == 0
+        assert backend.update_calls == [
+            {
+                "transaction_id": "txn_1",
+                "merchant_name": None,
+                "category_id": "cat_new",
+                "hide_from_reports": None,
+            }
+        ]
+
+    async def test_commit_category_change_includes_category_name_for_simplefin(self, tmp_path):
+        """SimpleFIN stores both category ID and display name locally."""
+        backend = CategoryNameBackend()
+        dm = DataManager(backend, config_dir=str(tmp_path))
+        dm.categories = {"cat_new": {"name": "New Category"}}
+
+        edits = [TransactionEdit("txn_1", "category", "cat_old", "cat_new", datetime.now())]
+
+        success, failure, _ = await dm.commit_pending_edits(edits)
+
+        assert success == 1
+        assert failure == 0
+        assert backend.update_calls[0]["category_name"] == "New Category"
 
     async def test_commit_hide_toggle(self, data_manager, mock_mm):
         """Test committing hide from reports toggle."""
