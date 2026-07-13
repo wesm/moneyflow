@@ -176,7 +176,7 @@ def _build_simplefin_backend(profile_dir: Path):
     """
     from moneyflow.backends.simplefin import SimpleFinBackend
 
-    return SimpleFinBackend(db_path=str(profile_dir / "simplefin.db"))
+    return SimpleFinBackend(profile_dir=profile_dir)
 
 
 def _load_simplefin_credentials(

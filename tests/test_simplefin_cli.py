@@ -5,14 +5,28 @@ Tests use CliRunner for Click command invocation and isolated
 tmp_path config directories to avoid touching real profiles.
 """
 
+import stat
 from unittest.mock import AsyncMock, Mock, patch
 
 import click
 import pytest
 from click.testing import CliRunner
 
-from moneyflow.cli import _resolve_simplefin_profile, simplefin
+from moneyflow.cli import _build_simplefin_backend, _resolve_simplefin_profile, simplefin
 from moneyflow.data.account_manager import AccountManager
+
+
+class TestBuildSimplefinBackend:
+    def test_cli_factory_treats_profile_directory_as_managed(self, tmp_path):
+        profile_dir = tmp_path / "simplefin-profile"
+        profile_dir.mkdir(mode=0o755)
+        profile_dir.chmod(0o755)
+
+        backend = _build_simplefin_backend(profile_dir)
+        backend._ensure_db_initialized()
+
+        assert backend.profile_dir == profile_dir
+        assert stat.S_IMODE(profile_dir.stat().st_mode) == 0o700
 
 
 class TestResolveSimplefinProfile:
