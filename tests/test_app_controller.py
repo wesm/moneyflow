@@ -2077,6 +2077,24 @@ class TestCategoryManagerDataSource:
         assert "cat_groceries" in full_counts
         assert full_counts["cat_groceries"] > 0
 
+    def test_chained_reassignments_retarget_pending_category_edits(self, controller):
+        source_df = pl.DataFrame(
+            {
+                "id": ["txn-a", "txn-b"],
+                "category_id": ["category-a", "category-b"],
+            }
+        )
+
+        controller.queue_category_reassignment(source_df, "category-a", "category-b")
+        controller.queue_category_reassignment(source_df, "category-b", "category-c")
+
+        targets = {
+            edit.transaction_id: edit.new_value
+            for edit in controller.data_manager.pending_edits
+            if edit.field == "category"
+        }
+        assert targets == {"txn-a": "category-c", "txn-b": "category-c"}
+
 
 class TestCategoryRenameReassign:
     """Tests for category rename queuing transaction reassignments.

@@ -16,6 +16,7 @@ import re
 from typing import Dict, List, Optional
 
 import polars as pl
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Container, VerticalScroll
 from textual.events import Key
@@ -1046,7 +1047,7 @@ class ManageCategoriesScreen(ModalScreen):
             if not group_cat_ids:
                 continue
 
-            container.mount(Static(f"[b][secondary]── {group} ──[/][/]", classes="cm-group-header"))
+            container.mount(Static(Text(f"── {group} ──"), classes="cm-group-header"))
 
             for cat_id in group_cat_ids:
                 cat_data = self.categories.get(cat_id, {})
@@ -1054,13 +1055,12 @@ class ManageCategoriesScreen(ModalScreen):
                 is_selected = cat_idx == self._selected_index
 
                 prefix = "▸" if is_selected else " "
-                style = "bold success" if is_selected else "text"
                 actions = self._action_labels(cat_id)
                 name = cat_data.get("name", cat_id)
                 classes = "cm-category-selected" if is_selected else "cm-category-normal"
 
                 widget = Static(
-                    f"[{style}]{prefix} {name:<28}  {txn_count:>5} txns  {actions}[/]",
+                    Text(f"{prefix} {name:<28}  {txn_count:>5} txns  {actions}"),
                     classes=classes,
                 )
                 container.mount(widget)
@@ -1162,14 +1162,6 @@ class ManageCategoriesScreen(ModalScreen):
     @staticmethod
     def _category_id_from_name(name: str) -> str:
         return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-
-    def _next_available_category_id(self, base_id: str) -> str:
-        cat_id = base_id
-        suffix = 2
-        while cat_id in self.categories:
-            cat_id = f"{base_id}_{suffix}"
-            suffix += 1
-        return cat_id
 
     def _rename_selected(self) -> None:
         cat_id = self._get_selected_cat_id()
@@ -1383,7 +1375,13 @@ class ManageCategoriesScreen(ModalScreen):
         base_id = self._category_id_from_name(name)
         if not base_id:
             return
-        cat_id = self._next_available_category_id(base_id)
+        if base_id in self.categories:
+            self.notify(
+                "A category with an equivalent name already exists",
+                severity="warning",
+            )
+            return
+        cat_id = base_id
         self.categories[cat_id] = {
             "name": name,
             "group": group,
@@ -1592,13 +1590,12 @@ class ManageGroupsScreen(ModalScreen):
         for group in self._filtered_order:
             is_selected = idx == self._selected_index
             prefix = "▸" if is_selected else " "
-            style = "bold success" if is_selected else "text"
             cat_count = self._category_count(group)
             count_label = f"{cat_count} cat{'s' if cat_count != 1 else ''}"
             classes = "gm-group-selected" if is_selected else "gm-group-normal"
 
             widget = Static(
-                f"[{style}]{prefix} {group:<30}  {count_label:>8}  [M] [R] [D][/]",
+                Text(f"{prefix} {group:<30}  {count_label:>8}  [M] [R] [D]"),
                 classes=classes,
             )
             container.mount(widget)

@@ -38,6 +38,10 @@ class SimpleFinBackend(FinanceBackend):
       The 2-week lookback ensures transactions that transition from pending to
       posted are re-fetched and captured, even if their original date predates
       the last refresh boundary.
+    - Currency-safe: persists one ISO currency code per profile and rejects
+      mixed-currency data rather than aggregating incompatible amounts.
+    - Local deletion: tombstones keep deleted transaction IDs excluded from
+      subsequent additive and hard refreshes.
     - No category hierarchy: get_transaction_categories() and
       get_transaction_category_groups() return empty collections.
     """
@@ -97,6 +101,7 @@ class SimpleFinBackend(FinanceBackend):
                 category_name TEXT NOT NULL DEFAULT 'Uncategorized',
                 account_id TEXT NOT NULL DEFAULT '',
                 account_name TEXT NOT NULL DEFAULT '',
+                currency TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
                 hideFromReports INTEGER NOT NULL DEFAULT 0,
                 pending INTEGER NOT NULL DEFAULT 0,
@@ -109,6 +114,18 @@ class SimpleFinBackend(FinanceBackend):
                 value TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_transactions (
+                id TEXT PRIMARY KEY,
+                deleted_at TEXT NOT NULL
+            )
+        """)
+
+        transaction_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
+        }
+        if "currency" not in transaction_columns:
+            conn.execute("ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT ''")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_txn_date ON transactions(date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_txn_pending ON transactions(pending)")
@@ -141,6 +158,7 @@ class SimpleFinBackend(FinanceBackend):
                 "id": row["account_id"],
                 "displayName": row["account_name"],
             },
+            "currency": row["currency"],
             "notes": row["notes"],
             "hideFromReports": bool(row["hideFromReports"]),
             "pending": bool(row["pending"]),
@@ -171,6 +189,43 @@ class SimpleFinBackend(FinanceBackend):
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         return count == 0
+
+    @staticmethod
+    def _get_deleted_transaction_ids(conn: sqlite3.Connection) -> set[str]:
+        """Return transaction IDs hidden by persistent local deletion tombstones."""
+        rows = conn.execute("SELECT id FROM deleted_transactions").fetchall()
+        return {row[0] for row in rows}
+
+    def _resolve_currency_code(
+        self,
+        transactions: List[Dict[str, Any]],
+        *,
+        include_existing: bool,
+    ) -> Optional[str]:
+        """Resolve one safe ISO currency code for storage and aggregation."""
+        currencies = {
+            currency
+            for transaction in transactions
+            if (currency := str(transaction.get("currency") or "").upper())
+        }
+        client_currency = getattr(self._client, "currency_code", None)
+        if isinstance(client_currency, str) and client_currency:
+            currencies.add(client_currency.upper())
+
+        if include_existing:
+            conn = self._get_connection()
+            rows = conn.execute(
+                "SELECT DISTINCT currency FROM transactions WHERE currency != ''"
+            ).fetchall()
+            conn.close()
+            currencies.update(str(row[0]).upper() for row in rows)
+
+        if len(currencies) > 1:
+            raise RuntimeError(
+                "SimpleFIN profile contains multiple currencies; "
+                "moneyflow cannot aggregate them safely."
+            )
+        return next(iter(currencies), None)
 
     def _get_last_refresh_timestamp(self) -> Optional[datetime]:
         """Read the last successful refresh UTC timestamp, or None."""
@@ -254,20 +309,29 @@ class SimpleFinBackend(FinanceBackend):
             start_date=start_date,
             end_date=end_date,
         )
+        currency_code = self._resolve_currency_code(transactions, include_existing=True)
 
         non_pending = [t for t in transactions if not t.get("pending", False)]
 
         conn = self._get_connection()
+        deleted_ids = self._get_deleted_transaction_ids(conn)
+        if currency_code:
+            conn.execute(
+                "UPDATE transactions SET currency = ? WHERE currency = ''",
+                (currency_code,),
+            )
 
         before = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
 
         for txn in non_pending:
+            if txn["id"] in deleted_ids:
+                continue
             conn.execute(
                 """INSERT OR IGNORE INTO transactions
                    (id, date, amount, merchant_name, merchant_id,
                     category_id, category_name, account_id, account_name,
-                    notes, hideFromReports, pending, isRecurring)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    currency, notes, hideFromReports, pending, isRecurring)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     txn["id"],
                     txn["date"],
@@ -278,6 +342,7 @@ class SimpleFinBackend(FinanceBackend):
                     txn.get("category", {}).get("name", "Uncategorized"),
                     txn.get("account", {}).get("id", ""),
                     txn.get("account", {}).get("displayName", ""),
+                    txn.get("currency") or currency_code or "",
                     txn.get("notes", ""),
                     1 if txn.get("hideFromReports") else 0,
                     1 if txn.get("pending") else 0,
@@ -300,6 +365,11 @@ class SimpleFinBackend(FinanceBackend):
             "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
             ("last_refresh_timestamp", datetime.now(timezone.utc).isoformat()),
         )
+        if currency_code:
+            conn.execute(
+                "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
+                ("currency_code", currency_code),
+            )
         conn.commit()
         conn.close()
 
@@ -312,9 +382,10 @@ class SimpleFinBackend(FinanceBackend):
 
     async def hard_refresh(self, lookback_days: int = 1095) -> int:
         """
-        Clear the local SQLite store and re-fetch transactions from the API.
+        Replace local transaction rows with transactions from the API.
 
-        This overwrites all local edits — use refresh() for additive merge.
+        This overwrites merchant, category-assignment, and hide edits. Local
+        deletion tombstones remain in effect. Use refresh() for additive merge.
 
         Args:
             lookback_days: Number of days of history to fetch
@@ -333,20 +404,25 @@ class SimpleFinBackend(FinanceBackend):
             start_date=start_date,
             end_date=end_date,
         )
+        currency_code = self._resolve_currency_code(transactions, include_existing=False)
 
         non_pending = [t for t in transactions if not t.get("pending", False)]
 
         conn = self._get_connection()
         conn.execute("DELETE FROM transactions")
         conn.execute("DELETE FROM refresh_metadata")
+        deleted_ids = self._get_deleted_transaction_ids(conn)
+        inserted = 0
 
         for txn in non_pending:
+            if txn["id"] in deleted_ids:
+                continue
             conn.execute(
                 """INSERT INTO transactions
                    (id, date, amount, merchant_name, merchant_id,
                     category_id, category_name, account_id, account_name,
-                    notes, hideFromReports, pending, isRecurring)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    currency, notes, hideFromReports, pending, isRecurring)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     txn["id"],
                     txn["date"],
@@ -357,12 +433,14 @@ class SimpleFinBackend(FinanceBackend):
                     txn.get("category", {}).get("name", "Uncategorized"),
                     txn.get("account", {}).get("id", ""),
                     txn.get("account", {}).get("displayName", ""),
+                    txn.get("currency") or currency_code or "",
                     txn.get("notes", ""),
                     1 if txn.get("hideFromReports") else 0,
                     1 if txn.get("pending") else 0,
                     1 if txn.get("isRecurring") else 0,
                 ),
             )
+            inserted += 1
 
         conn.execute(
             "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
@@ -370,22 +448,27 @@ class SimpleFinBackend(FinanceBackend):
         )
         conn.execute(
             "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
-            ("last_refresh_count", str(len(non_pending))),
+            ("last_refresh_count", str(inserted)),
         )
         conn.execute(
             "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
             ("last_refresh_timestamp", datetime.now(timezone.utc).isoformat()),
         )
+        if currency_code:
+            conn.execute(
+                "INSERT OR REPLACE INTO refresh_metadata (key, value) VALUES (?, ?)",
+                ("currency_code", currency_code),
+            )
         conn.commit()
         conn.close()
 
         logger.info(
             "SimpleFIN hard refresh: %d transactions (lookback %d days, skipped %d pending)",
-            len(non_pending),
+            inserted,
             lookback_days,
             len(transactions) - len(non_pending),
         )
-        return len(non_pending)
+        return inserted
 
     def get_database_stats(self) -> Dict[str, Any]:
         """
@@ -393,7 +476,8 @@ class SimpleFinBackend(FinanceBackend):
 
         Returns:
             Dict with keys: total_transactions, total_amount, earliest_date,
-            latest_date, last_refresh_timestamp, last_refresh_count.
+            latest_date, last_refresh_timestamp, last_refresh_count,
+            currency_code.
         """
         conn = self._get_connection()
 
@@ -411,6 +495,7 @@ class SimpleFinBackend(FinanceBackend):
         metadata = self._get_refresh_metadata()
         last_refresh_timestamp = metadata.get("last_refresh_timestamp")
         last_refresh_count = metadata.get("last_refresh_count")
+        currency_code = metadata.get("currency_code")
 
         conn.close()
 
@@ -421,6 +506,7 @@ class SimpleFinBackend(FinanceBackend):
             "latest_date": latest_date,
             "last_refresh_timestamp": last_refresh_timestamp,
             "last_refresh_count": last_refresh_count,
+            "currency_code": currency_code,
         }
 
     # ------------------------------------------------------------------
@@ -643,7 +729,7 @@ class SimpleFinBackend(FinanceBackend):
 
     async def delete_transaction(self, transaction_id: str) -> bool:
         """
-        Delete a transaction from the local SQLite store.
+        Delete a transaction and persist a tombstone in the local SQLite store.
 
         Args:
             transaction_id: ID of the transaction to delete.
@@ -654,6 +740,11 @@ class SimpleFinBackend(FinanceBackend):
         conn = self._get_connection()
         cursor = conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
         deleted = cursor.rowcount > 0
+        if deleted:
+            conn.execute(
+                "INSERT OR REPLACE INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+                (transaction_id, datetime.now(timezone.utc).isoformat()),
+            )
         conn.commit()
         conn.close()
         return deleted
@@ -672,6 +763,10 @@ class SimpleFinBackend(FinanceBackend):
 
     def get_backend_type(self) -> str:
         return "simplefin"
+
+    def get_currency_symbol(self) -> str:
+        """Return the profile's ISO currency code for unambiguous display."""
+        return self._get_refresh_metadata().get("currency_code", "¤")
 
     @property
     def read_only(self) -> bool:

@@ -297,6 +297,7 @@ class TestSimplefinStatus:
                 "latest_date": "2025-06-01",
                 "last_refresh_timestamp": None,
                 "last_refresh_count": None,
+                "currency_code": "EUR",
             },
         )
 
@@ -310,6 +311,7 @@ class TestSimplefinStatus:
         assert "2024-01-15" in result.output
         assert "2025-06-01" in result.output
         assert "-1,234.56" in result.output  # formatted amount
+        assert "Total amount (EUR)" in result.output
 
     def test_status_with_explicit_profile(self, tmp_path, monkeypatch):
         """--profile X -> shows status for that profile."""

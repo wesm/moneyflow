@@ -72,6 +72,19 @@ def _coerce_bool(x: Any) -> bool:
     return bool(x) if x is not None else False
 
 
+def _normalize_currency_code(x: Any) -> str:
+    """Return a normalized ISO 4217 code or reject unsupported custom currencies."""
+    currency = _coerce_str(x) or ""
+    if not currency:
+        return ""
+    if not re.fullmatch(r"[A-Za-z]{3}", currency):
+        raise RuntimeError(
+            "SimpleFIN account uses a custom currency; "
+            "moneyflow currently supports ISO 4217 currencies only."
+        )
+    return currency.upper()
+
+
 # ---------------------------------------------------------------------------
 # Access URL utilities
 # ---------------------------------------------------------------------------
@@ -211,6 +224,7 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
     for acct in raw_accounts:
         acct_id = _coerce_str(acct.get("id")) or ""
         acct_name = _coerce_str(acct.get("name")) or acct_id
+        currency = _normalize_currency_code(acct.get("currency"))
         txns = acct.get("transactions") or []
 
         for txn in txns:
@@ -235,6 +249,7 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
                     "merchant": {"id": description, "name": description},
                     "category": {"id": "uncategorized", "name": "Uncategorized"},
                     "account": {"id": acct_id, "displayName": acct_name},
+                    "currency": currency,
                     "notes": "",
                     "hideFromReports": False,
                     "pending": pending,
@@ -274,6 +289,7 @@ class SimpleFinClient:
         self._username = parsed["username"]
         self._password = parsed["password"]
         self._base_url = parsed["base_url"].rstrip("/")
+        self.currency_code: Optional[str] = None
 
     async def fetch_transactions(
         self,
@@ -314,6 +330,7 @@ class SimpleFinClient:
 
         batch_days = 90
         all_transactions: List[Dict[str, Any]] = []
+        currencies: set[str] = set()
         batch_start = start
 
         url = f"{self._base_url}/accounts"
@@ -343,8 +360,26 @@ class SimpleFinClient:
                             f"Unexpected HTTP {resp.status} response from the SimpleFIN server."
                         )
                     body = await resp.json(content_type=None)
+                response_errors = body.get("errlist") or []
+                if response_errors:
+                    raise RuntimeError(
+                        "SimpleFIN returned partial account data "
+                        f"({len(response_errors)} reported error(s)); refresh was not saved."
+                    )
                 raw_accounts: List[Dict[str, Any]] = body.get("accounts") or []
+                currencies.update(
+                    currency
+                    for account in raw_accounts
+                    if (currency := _normalize_currency_code(account.get("currency")))
+                )
+                if len(currencies) > 1:
+                    self.currency_code = None
+                    raise RuntimeError(
+                        "SimpleFIN profile contains multiple currencies; "
+                        "moneyflow cannot aggregate them safely."
+                    )
                 all_transactions.extend(_parse_transactions(raw_accounts))
                 batch_start = batch_end
 
+        self.currency_code = next(iter(currencies), None)
         return all_transactions

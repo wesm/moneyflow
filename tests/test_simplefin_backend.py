@@ -27,6 +27,7 @@ SAMPLE_TRANSACTIONS = [
         "merchant": {"id": "Grocery Store", "name": "Grocery Store"},
         "category": {"id": "uncategorized", "name": "Uncategorized"},
         "account": {"id": "acct-1", "displayName": "Checking"},
+        "currency": "USD",
         "notes": "",
         "hideFromReports": False,
         "pending": False,
@@ -39,6 +40,7 @@ SAMPLE_TRANSACTIONS = [
         "merchant": {"id": "Coffee Shop", "name": "Coffee Shop"},
         "category": {"id": "uncategorized", "name": "Uncategorized"},
         "account": {"id": "acct-1", "displayName": "Checking"},
+        "currency": "USD",
         "notes": "",
         "hideFromReports": False,
         "pending": False,
@@ -51,6 +53,7 @@ SAMPLE_TRANSACTIONS = [
         "merchant": {"id": "Payroll", "name": "Payroll"},
         "category": {"id": "uncategorized", "name": "Uncategorized"},
         "account": {"id": "acct-2", "displayName": "Savings"},
+        "currency": "USD",
         "notes": "",
         "hideFromReports": False,
         "pending": False,
@@ -72,6 +75,7 @@ def logged_in_backend(tmp_path):
     b = SimpleFinBackend(db_path=db_path)
     mock_client = MagicMock()
     mock_client.fetch_transactions = AsyncMock(return_value=SAMPLE_TRANSACTIONS)
+    mock_client.currency_code = "USD"
     b._client = mock_client
     return b, mock_client
 
@@ -281,6 +285,49 @@ class TestRefresh:
 
         result = await b.get_transactions(limit=100, offset=0)
         assert result["allTransactions"]["totalCount"] == 3
+
+    @pytest.mark.asyncio
+    async def test_refresh_persists_currency_and_uses_iso_code_for_display(self, tmp_path):
+        transactions = [{**transaction, "currency": "EUR"} for transaction in SAMPLE_TRANSACTIONS]
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(return_value=transactions)
+        mock_client.currency_code = "EUR"
+        backend._client = mock_client
+
+        await backend.refresh()
+
+        result = await backend.get_transactions(limit=100, offset=0)
+        assert {
+            transaction["currency"] for transaction in result["allTransactions"]["results"]
+        } == {"EUR"}
+        assert backend.get_currency_symbol() == "EUR"
+
+    @pytest.mark.asyncio
+    async def test_refresh_backfills_currency_for_existing_rows(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            "INSERT INTO transactions (id, date, merchant_name) VALUES (?, ?, ?)",
+            ("legacy-transaction", "2024-01-01", "Example Merchant"),
+        )
+        conn.commit()
+        conn.close()
+
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(return_value=[])
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        await backend.refresh()
+
+        conn = sqlite3.connect(backend._db_path)
+        currency = conn.execute(
+            "SELECT currency FROM transactions WHERE id = ?", ("legacy-transaction",)
+        ).fetchone()[0]
+        conn.close()
+        assert currency == "USD"
 
     @pytest.mark.asyncio
     async def test_refresh_idempotent(self, logged_in_backend):
@@ -674,6 +721,14 @@ class TestGetDatabaseStats:
         assert stats["last_refresh_timestamp"] == "2024-06-01T12:00:00+00:00"
         assert stats["last_refresh_count"] == "42"
 
+    @pytest.mark.asyncio
+    async def test_stats_include_profile_currency(self, logged_in_backend):
+        backend, _ = logged_in_backend
+
+        await backend.refresh()
+
+        assert backend.get_database_stats()["currency_code"] == "USD"
+
 
 class TestGetAllMerchants:
     @pytest.mark.asyncio
@@ -846,6 +901,18 @@ class TestLocalPersistence:
         assert "acct-1:txn-1" not in ids
 
     @pytest.mark.asyncio
+    async def test_deleted_transaction_stays_deleted_after_refresh(self, logged_in_backend):
+        b, _ = logged_in_backend
+        await self._populate(b)
+
+        assert await b.delete_transaction("acct-1:txn-1") is True
+        await b.refresh()
+
+        result = await b.get_transactions(limit=100, offset=0)
+        ids = {transaction["id"] for transaction in result["allTransactions"]["results"]}
+        assert "acct-1:txn-1" not in ids
+
+    @pytest.mark.asyncio
     async def test_delete_nonexistent_transaction(self, logged_in_backend):
         b, _ = logged_in_backend
         await self._populate(b)
@@ -860,6 +927,37 @@ class TestLocalPersistence:
 
 class TestProfileIntegration:
     """Tests for profile_dir-driven database isolation in SimpleFinBackend."""
+
+    def test_existing_database_adds_currency_column(self, tmp_path):
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("""
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                date TEXT NOT NULL,
+                amount REAL,
+                merchant_name TEXT NOT NULL DEFAULT '',
+                merchant_id TEXT NOT NULL DEFAULT '',
+                category_id TEXT NOT NULL DEFAULT 'uncategorized',
+                category_name TEXT NOT NULL DEFAULT 'Uncategorized',
+                account_id TEXT NOT NULL DEFAULT '',
+                account_name TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                hideFromReports INTEGER NOT NULL DEFAULT 0,
+                pending INTEGER NOT NULL DEFAULT 0,
+                isRecurring INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+        backend = SimpleFinBackend(db_path=str(db_path))
+        backend._ensure_db_initialized()
+
+        conn = sqlite3.connect(db_path)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(transactions)")}
+        conn.close()
+        assert "currency" in columns
 
     def test_profile_dir_derives_db_path(self, tmp_path):
         """Given profile_dir, backend should derive db_path under that directory."""

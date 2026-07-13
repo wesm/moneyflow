@@ -1479,6 +1479,20 @@ class AppController:
             count += 1
         return count
 
+    def queue_category_reassignment(
+        self,
+        transactions_df: pl.DataFrame,
+        source_category_id: str,
+        target_category_id: str,
+    ) -> int:
+        """Queue a category merge while preserving earlier pending merge chains."""
+        for edit in self.data_manager.pending_edits:
+            if edit.field == "category" and edit.new_value == source_category_id:
+                edit.new_value = target_category_id
+
+        source_transactions = transactions_df.filter(pl.col("category_id") == source_category_id)
+        return self.queue_category_edits(source_transactions, target_category_id)
+
     def queue_merchant_edits(self, transactions_df, old_merchant: str, new_merchant: str) -> int:
         """
         Queue merchant edits for a set of transactions.

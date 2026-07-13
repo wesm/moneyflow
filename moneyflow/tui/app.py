@@ -1488,9 +1488,7 @@ class MoneyflowApp(App):
 
         def queue_reassign(source_id: str, target_id: str) -> None:
             """Queue TransactionEdits to reassign all txns from source to target."""
-            source_txns = source_df.filter(pl.col("category_id") == source_id)
-            if source_txns.height > 0:
-                self.controller.queue_category_edits(source_txns, target_id)
+            self.controller.queue_category_reassignment(source_df, source_id, target_id)
 
         dirty = await self.push_screen(
             ManageCategoriesScreen(

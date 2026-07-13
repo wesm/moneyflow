@@ -764,7 +764,11 @@ def status(ctx, config_dir, profile):
     click.echo(f"  Total transactions: {stats.get('total_transactions', '?'):,}")
     if stats.get("earliest_date"):
         click.echo(f"  Date range: {stats['earliest_date']} to {stats['latest_date']}")
-    click.echo(f"  Total amount: {ViewPresenter.format_amount(stats.get('total_amount', 0.0))}")
+    currency_suffix = f" ({stats['currency_code']})" if stats.get("currency_code") else ""
+    click.echo(
+        f"  Total amount{currency_suffix}: "
+        f"{ViewPresenter.format_amount(stats.get('total_amount', 0.0))}"
+    )
     if stats.get("last_refresh_timestamp"):
         click.echo(f"  Last refresh: {stats['last_refresh_timestamp']}")
     if stats.get("last_refresh_count"):

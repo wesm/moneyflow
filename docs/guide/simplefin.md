@@ -26,10 +26,16 @@ Use moneyflow with account and transaction data provided by a SimpleFIN server.
 - An additive refresh inserts rows with new transaction IDs without overwriting
   existing rows. This preserves local edits but does not apply upstream corrections
   to transactions already stored.
-- A hard refresh replaces the database contents with the posted transactions
-  returned by the server and discards local edits.
+- Local transaction deletions create tombstones in SQLite so the same IDs are not
+  reinserted by later additive or hard refreshes.
+- A hard refresh replaces transaction rows with the posted transactions returned
+  by the server. Merchant renames, category assignments, and hide flags are lost;
+  deletion tombstones and category definitions remain.
 - Category definitions and assignments are managed by moneyflow rather than
   synchronized through SimpleFIN.
+- moneyflow currently supports profiles whose accounts share one ISO 4217
+  currency code. A refresh stops if the response contains multiple currencies,
+  a custom currency identifier, or partial-account errors.
 
 ---
 
@@ -158,8 +164,9 @@ the database are added.
 
 ### Hard Refresh (Overwrite)
 
-Completely replace the local database with fresh data from the API. **All local
-edits (categories, merchant renames, hides) will be discarded.**
+Replace local transaction rows with fresh data from the API. **Merchant renames,
+category assignments, and hide flags will be discarded.** Category definitions
+and local deletion tombstones remain.
 
 ```bash
 # Hard refresh default profile
@@ -176,6 +183,7 @@ When refreshing (additive), SimpleFIN fetches all transactions since
 
 - **New transactions** are added
 - **Existing transactions** are preserved exactly as-is (local edits never overwritten)
+- **Locally deleted transaction IDs** are excluded using persistent tombstones
 - **Pending transactions** are skipped — they will be picked up once posted
 
 The 2-week lookback is deliberate: if a transaction was pending during the
@@ -184,8 +192,14 @@ to posted. Even though its original transaction date may precede the last
 refresh boundary, the lookback window ensures it is included in the next
 refresh. Duplicates are ignored by `INSERT OR IGNORE`.
 
-When hard-refreshing, the local database and its refresh metadata are cleared
-before the returned posted transactions are inserted again.
+When hard-refreshing, local transaction rows and refresh metadata are cleared
+before returned posted transactions are inserted again. Deletion tombstones are
+retained and continue to exclude their transaction IDs.
+
+If the server reports partial account errors, multiple account currencies, or
+a custom currency identifier, the refresh fails without updating the
+successful-refresh timestamp. SimpleFIN permits custom currency identifiers;
+moneyflow does not currently support them.
 
 !!! note
     With additive refresh, because local edits are never overwritten, corrected
@@ -320,7 +334,7 @@ Do not delete `simplefin.db` unless you also intend to discard local edits.
 - Launch with `moneyflow simplefin refresh` to force an immediate additive refresh
   while preserving local edits
 - Launch with `moneyflow simplefin refresh --force` to completely replace local data
-  from the API (discards all local edits)
+  from the API (discards merchant, category-assignment, and hide edits)
 
 ### Edits not persisting
 

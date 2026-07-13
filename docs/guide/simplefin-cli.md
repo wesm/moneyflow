@@ -102,13 +102,14 @@ moneyflow simplefin refresh [OPTIONS]
 Fetch latest transactions from the SimpleFIN API. By default performs an
 **additive merge** — new transactions are added, existing local edits are
 preserved. Use `--force` to clear the local database and re-fetch everything
-(discards local edits).
+(discards merchant, category-assignment, and hide edits). Local deletion
+tombstones remain in effect.
 
 ### Options
 
 | Option | Description |
 |---|---|
-| `--force` | Clear local data and re-fetch all from API (discards edits) |
+| `--force` | Replace transaction rows from the API; retain deletion tombstones |
 | `--config-dir PATH` | Root configuration directory (default: `~/.moneyflow`) |
 | `--profile PROFILE_ID` | Use the specified SimpleFIN profile instead of the default |
 
@@ -118,7 +119,7 @@ preserved. Use `--force` to clear the local database and re-fetch everything
 # Additive refresh (preserves edits)
 moneyflow simplefin refresh
 
-# Hard refresh (discards local edits)
+# Hard refresh (retains local deletion tombstones)
 moneyflow simplefin refresh --force
 
 # Refresh a non-default profile
@@ -142,7 +143,7 @@ moneyflow simplefin status [OPTIONS]
 ```
 
 Show SimpleFIN database statistics: transaction count, date range, total
-amount, and last refresh timestamp.
+amount with its ISO 4217 currency code when known, and last refresh timestamp.
 
 ### Options
 
@@ -170,7 +171,7 @@ The most common SimpleFIN operations use the `simplefin` subcommand group:
 | Command | Description |
 |---|---|
 | `moneyflow simplefin refresh` | Additive refresh (adds new transactions) |
-| `moneyflow simplefin refresh --force` | Hard refresh (clears and re-fetches) |
+| `moneyflow simplefin refresh --force` | Replace local rows; retain deletion tombstones |
 | `moneyflow simplefin status` | View database statistics |
 | `moneyflow simplefin default` | Set or view default profile |
 

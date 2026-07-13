@@ -143,6 +143,7 @@ class TestParseTransactions:
         assert txn["isRecurring"] is False
         assert txn["notes"] == ""
         assert txn["category"] == {"id": "uncategorized", "name": "Uncategorized"}
+        assert txn["currency"] == "USD"
 
     def test_date_from_posted_timestamp(self):
         result = _parse_transactions([MINIMAL_ACCOUNT])
@@ -248,6 +249,57 @@ class TestSimpleFinClient:
 
         assert len(result) == 1
         assert result[0]["id"] == "acct-1:txn-1"
+
+    @pytest.mark.asyncio
+    async def test_fetch_transactions_rejects_mixed_account_currencies(self):
+        eur_account = {
+            **MINIMAL_ACCOUNT,
+            "id": "acct-2",
+            "name": "Euro Account",
+            "currency": "EUR",
+        }
+        response = {"accounts": [MINIMAL_ACCOUNT, eur_account], "connections": [], "errlist": []}
+        client = SimpleFinClient(VALID_ACCESS_URL)
+        mock_resp = _make_mock_response(200, response)
+        mock_session = _make_mock_session(mock_resp)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="multiple currencies"):
+                await client.fetch_transactions()
+
+    @pytest.mark.asyncio
+    async def test_fetch_transactions_rejects_custom_currency_identifier(self):
+        custom_currency_account = {
+            **MINIMAL_ACCOUNT,
+            "currency": "https://example.com/reward-points",
+        }
+        response = {
+            "accounts": [custom_currency_account],
+            "connections": [],
+            "errlist": [],
+        }
+        client = SimpleFinClient(VALID_ACCESS_URL)
+        mock_resp = _make_mock_response(200, response)
+        mock_session = _make_mock_session(mock_resp)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="custom currency"):
+                await client.fetch_transactions()
+
+    @pytest.mark.asyncio
+    async def test_fetch_transactions_rejects_partial_response_errors(self):
+        response = {
+            "accounts": [MINIMAL_ACCOUNT],
+            "connections": [],
+            "errlist": ["One account could not be refreshed"],
+        }
+        client = SimpleFinClient(VALID_ACCESS_URL)
+        mock_resp = _make_mock_response(200, response)
+        mock_session = _make_mock_session(mock_resp)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="partial account data"):
+                await client.fetch_transactions()
 
     @pytest.mark.asyncio
     async def test_fetch_transactions_passes_start_date_param(self):

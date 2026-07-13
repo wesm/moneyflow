@@ -8,9 +8,12 @@ Tests the extracted pure functions from edit_screens.py:
 
 import polars as pl
 import pytest
+from textual.app import App
+from textual.widgets import Static
 
 from moneyflow.tui.screens.edit_screens import (
     ManageCategoriesScreen,
+    ManageGroupsScreen,
     filter_merchants,
     parse_merchant_option_id,
 )
@@ -131,6 +134,37 @@ class TestParseMerchantOptionId:
 class TestManageCategoriesScreen:
     """Tests for Category Manager business rules."""
 
+    @pytest.mark.asyncio
+    async def test_mounted_rows_render_names_and_actions_literally(self):
+        categories = {
+            "danger": {
+                "name": "[bold]Danger[/]",
+                "group": "[red]Group[/]",
+                "group_id": "group",
+                "group_type": "",
+            },
+            "other": {
+                "name": "Other",
+                "group": "[red]Group[/]",
+                "group_id": "group",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(categories)
+
+        class CategoryManagerApp(App):
+            async def on_mount(self) -> None:
+                await self.push_screen(screen)
+
+        async with CategoryManagerApp().run_test() as pilot:
+            await pilot.pause()
+            rendered_rows = [widget.render().plain for widget in screen.query(Static)]
+
+        rendered = "\n".join(rendered_rows)
+        assert "[red]Group[/]" in rendered
+        assert "[bold]Danger[/]" in rendered
+        assert "[R] [G] [M] [D]" in rendered
+
     def test_uncategorized_fallback_cannot_be_deleted(self):
         categories = {
             "uncategorized": {
@@ -207,7 +241,7 @@ class TestManageCategoriesScreen:
         assert queued == [("food_dining", "food_dining")]
         assert categories["food_dining"]["name"] == "Food-Dining"
 
-    def test_create_category_suffixes_normalized_id_collision(self):
+    def test_create_category_rejects_normalized_id_collision(self, monkeypatch):
         categories = {
             "food_dining": {
                 "name": "Food & Dining",
@@ -219,9 +253,45 @@ class TestManageCategoriesScreen:
         screen = ManageCategoriesScreen(categories)
         screen._pending_name = "Food Dining"
         screen._update_display = lambda: None
+        notifications = []
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
 
         screen._handle_create_group("Expenses")
 
-        assert categories["food_dining"]["name"] == "Food & Dining"
-        assert categories["food_dining_2"]["name"] == "Food Dining"
-        assert categories["food_dining_2"]["group"] == "Expenses"
+        assert categories == {
+            "food_dining": {
+                "name": "Food & Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        assert notifications == ["A category with an equivalent name already exists"]
+
+
+class TestManageGroupsScreen:
+    @pytest.mark.asyncio
+    async def test_mounted_rows_render_names_and_actions_literally(self):
+        categories = {
+            "danger": {
+                "name": "Danger",
+                "group": "[bold]Group[/]",
+                "group_id": "group",
+                "group_type": "",
+            }
+        }
+        screen = ManageGroupsScreen(categories)
+
+        class GroupManagerApp(App):
+            async def on_mount(self) -> None:
+                await self.push_screen(screen)
+
+        async with GroupManagerApp().run_test() as pilot:
+            await pilot.pause()
+            rendered_rows = [widget.render().plain for widget in screen.query(Static)]
+
+        rendered = "\n".join(rendered_rows)
+        assert "[bold]Group[/]" in rendered
+        assert "[M] [R] [D]" in rendered
