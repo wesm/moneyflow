@@ -289,7 +289,7 @@ class MoneyflowApp(App):
         backend_name = self.backend.get_backend_type().capitalize() if self.backend else ""
         time_str = ""
         if self._last_update_time:
-            time_str = self._last_update_time.strftime("%-I:%M %p").lstrip("0")
+            time_str = self._last_update_time.strftime("%I:%M %p").lstrip("0")
         parts = [p for p in [backend_name, time_str and f"Last update: {time_str}"] if p]
         self.sub_title = " | ".join(parts) if parts else ""
 
@@ -1382,6 +1382,7 @@ class MoneyflowApp(App):
                 current_category_id=None,
                 transaction_details=None,
                 transaction_count=context.transaction_count,
+                allow_create=not self.backend.supports_category_sync,
             ),
             wait_for_dismiss=True,
         )
@@ -1389,6 +1390,12 @@ class MoneyflowApp(App):
         if new_category_id:
             # Handle "create new category" flow
             if new_category_id.startswith("__new__:"):
+                if self.backend.supports_category_sync:
+                    self.notify(
+                        "New categories must be created in the connected finance service.",
+                        severity="warning",
+                    )
+                    return
                 cat_name = new_category_id[8:]
                 cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
                 if not cat_id:
@@ -1475,12 +1482,10 @@ class MoneyflowApp(App):
 
     async def _manage_categories(self) -> None:
         """Run the category manager modal and handle results."""
-        # Pre-compute transaction counts per category
-        # Use full transactions_df, not current_data, which may be a filtered or
-        # aggregate subset. Otherwise transactions outside the current view can
-        # keep orphaned category_id values after merge/delete.
+        # Startup date filters also narrow state.transactions_df. Category removal
+        # must use every persisted row or older transactions can become orphaned.
         txn_counts: dict = {}
-        source_df = self.state.transactions_df
+        source_df = await self.data_manager.fetch_unfiltered_transactions()
         if source_df is not None and "category_id" in source_df.columns:
             counts_df = source_df.group_by("category_id").agg(pl.len().alias("count"))
             for row in counts_df.iter_rows(named=True):

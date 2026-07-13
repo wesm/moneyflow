@@ -9,14 +9,41 @@ Tests the extracted pure functions from edit_screens.py:
 import polars as pl
 import pytest
 from textual.app import App
-from textual.widgets import Static
+from textual.widgets import Input, OptionList, Static
 
 from moneyflow.tui.screens.edit_screens import (
     ManageCategoriesScreen,
     ManageGroupsScreen,
+    SelectCategoryScreen,
     filter_merchants,
     parse_merchant_option_id,
 )
+
+
+class TestSelectCategoryScreen:
+    @pytest.mark.asyncio
+    async def test_disallow_create_hides_new_category_option(self):
+        screen = SelectCategoryScreen(
+            {"groceries": {"name": "Groceries"}},
+            allow_create=False,
+        )
+
+        class CategorySelectionApp(App):
+            async def on_mount(self) -> None:
+                await self.push_screen(screen)
+
+        async with CategorySelectionApp().run_test() as pilot:
+            search = screen.query_one("#search-input", Input)
+            search.value = "New Remote Category"
+            await pilot.pause()
+            options = screen.query_one("#category-list", OptionList)
+            option_ids = [
+                str(options.get_option_at_index(i).id) for i in range(options.option_count)
+            ]
+            result_text = screen.query_one("#results-count", Static).render().plain
+
+        assert not any(option_id.startswith("__new__:") for option_id in option_ids)
+        assert "create" not in result_text.lower()
 
 
 class TestFilterMerchants:

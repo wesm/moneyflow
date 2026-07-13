@@ -505,6 +505,12 @@ class DataManager:
 
         return all_transactions
 
+    async def fetch_unfiltered_transactions(self) -> pl.DataFrame:
+        """Fetch every transaction without changing the currently displayed data."""
+        transactions = await self._fetch_all_transactions()
+        df = self._transactions_to_dataframe(transactions, self.categories)
+        return self.apply_category_groups(df)
+
     def _transactions_to_dataframe(
         self, transactions: List[Dict], categories: Dict
     ) -> pl.DataFrame:

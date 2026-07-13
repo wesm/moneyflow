@@ -1,5 +1,6 @@
 """Credential setup and unlock screens, quit confirmation, and filter modal."""
 
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +11,13 @@ from textual.events import Key
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Input, Label, RadioButton, RadioSet, Static
 
+from ...backends.simplefin_client import claim_token, parse_access_url
 from ...data.credentials import CredentialManager
+
+
+async def _claim_simplefin_token(token: str) -> str:
+    """Claim a setup token without blocking Textual's event loop."""
+    return await asyncio.to_thread(claim_token, token)
 
 
 class BackendSelectionScreen(ModalScreen):
@@ -461,8 +468,6 @@ class CredentialSetupScreen(ModalScreen):
             email = ""
             mfa_secret = ""
         elif self.backend_type == "simplefin":
-            from moneyflow.backends.simplefin_client import claim_token, parse_access_url
-
             raw = self.query_one("#password-input", Input).value.strip()
             if not raw:
                 error_label.update("❌ Please enter your SimpleFIN setup token or Access URL")
@@ -474,7 +479,7 @@ class CredentialSetupScreen(ModalScreen):
                 # Token mode – claim the one-time Base64 token
                 error_label.update("🔑 Claiming SimpleFIN token...")
                 try:
-                    password = claim_token(raw)
+                    password = await _claim_simplefin_token(raw)
                 except ValueError as e:
                     error_label.update(f"❌ Invalid token: {e}")
                     return

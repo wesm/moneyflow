@@ -5,6 +5,7 @@ All HTTP calls are mocked — no real network access occurs.
 """
 
 import base64
+import urllib.error
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -376,10 +377,11 @@ class TestClaimToken:
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp):
+        with patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
             result = claim_token(token)
 
         assert result == access_url
+        assert urlopen.call_args.kwargs["timeout"] == 15.0
 
     def test_bad_base64_raises_value_error(self):
         with pytest.raises(ValueError, match="Base64"):
@@ -393,7 +395,6 @@ class TestClaimToken:
 
     def test_403_raises_permission_error(self):
         token = self._make_token("https://bridge.simplefin.org/claim/used")
-        import urllib.error
 
         http_error = urllib.error.HTTPError(
             url="https://bridge.simplefin.org/claim/used",
@@ -404,4 +405,21 @@ class TestClaimToken:
         )
         with patch("urllib.request.urlopen", side_effect=http_error):
             with pytest.raises(PermissionError, match="403"):
+                claim_token(token)
+
+    def test_network_error_raises_runtime_error(self):
+        token = self._make_token("https://bridge.simplefin.org/claim/unavailable")
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection unavailable"),
+        ):
+            with pytest.raises(RuntimeError, match="Unable to reach"):
+                claim_token(token)
+
+    def test_timeout_raises_runtime_error(self):
+        token = self._make_token("https://bridge.simplefin.org/claim/slow")
+
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+            with pytest.raises(RuntimeError, match="Unable to reach"):
                 claim_token(token)

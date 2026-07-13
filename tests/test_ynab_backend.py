@@ -15,6 +15,11 @@ class TestYNABBackend:
         with patch("moneyflow.backends.ynab_client.ynab") as mock:
             yield mock
 
+    def test_init_accepts_profile_directory(self, tmp_path):
+        backend = YNABBackend(profile_dir=str(tmp_path))
+
+        assert backend.profile_dir == str(tmp_path)
+
     @pytest.mark.asyncio
     async def test_login_success(self, backend, mock_ynab_api):
         mock_budget = MagicMock()

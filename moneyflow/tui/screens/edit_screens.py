@@ -445,6 +445,7 @@ class SelectCategoryScreen(ModalScreen):
         transaction_details: dict = None,
         transaction_count: int = 1,
         source_name: Optional[str] = None,
+        allow_create: bool = True,
     ):
         super().__init__()
         self.categories = categories
@@ -453,6 +454,7 @@ class SelectCategoryScreen(ModalScreen):
         self.transaction_details = transaction_details
         self.transaction_count = transaction_count
         self.source_name = source_name
+        self.allow_create = allow_create
 
     def compose(self) -> ComposeResult:
         with Container(id="category-dialog"):
@@ -488,7 +490,10 @@ class SelectCategoryScreen(ModalScreen):
                 current_cat_name = self.categories[self.current_category_id]["name"]
                 yield Label(f"Current category: {current_cat_name}", classes="edit-label")
 
-            yield Input(placeholder="Type to filter or create...", id="search-input")
+            placeholder = (
+                "Type to filter or create..." if self.allow_create else "Type to filter..."
+            )
+            yield Input(placeholder=placeholder, id="search-input")
 
             yield Static(f"{len(self.categories)} categories", id="results-count")
 
@@ -524,7 +529,7 @@ class SelectCategoryScreen(ModalScreen):
 
         # Update count
         count_text = f"{len(matches)} categories"
-        if user_input and not exact_match:
+        if self.allow_create and user_input and not exact_match:
             count_text += " · Type Enter to create"
         results_count.update(count_text)
 
@@ -539,7 +544,12 @@ class SelectCategoryScreen(ModalScreen):
             self.category_map[idx] = cat_id
 
         # Add "create new" option when typed text doesn't exactly match
-        if user_input and not exact_match and user_input != self.current_category_id:
+        if (
+            self.allow_create
+            and user_input
+            and not exact_match
+            and user_input != self.current_category_id
+        ):
             option_list.add_option(Option(f'Create new "{user_input}"', id=f"__new__:{user_input}"))
 
         # Highlight first item by default so Enter works immediately
@@ -588,6 +598,9 @@ class SelectCategoryScreen(ModalScreen):
                 self.dismiss(None)
             else:
                 self.dismiss(selected_cat_id)
+            return
+
+        if not self.allow_create:
             return
 
         # No existing matches — treat the typed value as a new category

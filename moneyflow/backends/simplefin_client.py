@@ -26,6 +26,7 @@ _SIMPLEFIN_CLAIM_HOSTS = frozenset(
         "beta-bridge.simplefin.org",
     }
 )
+_CLAIM_TIMEOUT_SECONDS = 15.0
 
 # ---------------------------------------------------------------------------
 # Low-level helpers
@@ -185,7 +186,7 @@ def claim_token(token: str) -> str:
     req = urllib.request.Request(claim_url, method="POST")
     req.add_header("User-Agent", "moneyflow/1.0")
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=_CLAIM_TIMEOUT_SECONDS) as resp:
             if resp.status != 200:
                 raise RuntimeError(
                     f"Unexpected HTTP {resp.status} response while claiming the token."
@@ -202,6 +203,10 @@ def claim_token(token: str) -> str:
             ) from exc
         raise RuntimeError(
             f"Unexpected HTTP {exc.code} response while claiming the token."
+        ) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(
+            "Unable to reach the SimpleFIN token claim endpoint. Try again later."
         ) from exc
 
 

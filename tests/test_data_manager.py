@@ -147,6 +147,18 @@ class TestDataFetching:
             assert d.month == 10
             assert 1 <= d.day <= 3
 
+    async def test_fetch_unfiltered_transactions_ignores_startup_date_range(self, data_manager):
+        filtered_df, categories, _ = await data_manager.fetch_all_data(
+            start_date="2024-10-02",
+            end_date="2024-10-03",
+        )
+        data_manager.categories = categories
+
+        complete_df = await data_manager.fetch_unfiltered_transactions()
+
+        assert len(filtered_df) < len(complete_df)
+        assert len(complete_df) == 6
+
 
 class TestAggregation:
     """Test data aggregation functions."""
