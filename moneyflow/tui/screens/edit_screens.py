@@ -1176,6 +1176,23 @@ class ManageCategoriesScreen(ModalScreen):
     def _category_id_from_name(name: str) -> str:
         return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
+    def _validated_category_id(self, name: str, current_id: Optional[str] = None) -> Optional[str]:
+        """Return a normalized ID unless it is empty or collides with another category."""
+        category_id = self._category_id_from_name(name)
+        if not category_id:
+            self.notify(
+                "Category name must contain a letter or number",
+                severity="warning",
+            )
+            return None
+        if category_id in self.categories and category_id != current_id:
+            self.notify(
+                "A category with an equivalent name already exists",
+                severity="warning",
+            )
+            return None
+        return category_id
+
     def _rename_selected(self) -> None:
         cat_id = self._get_selected_cat_id()
         if not cat_id:
@@ -1194,12 +1211,20 @@ class ManageCategoriesScreen(ModalScreen):
             return
         if new_name == self.categories[cat_id].get("name", ""):
             return
+        if cat_id == "uncategorized":
+            self.notify(
+                "The Uncategorized category cannot be renamed",
+                severity="warning",
+            )
+            return
 
         # Compute new category ID from new name (same logic as
         # _populate_categories_from_config in data_manager.py).
         # If the ID changed, reassign transactions so they aren't
         # orphaned on restart when IDs are regenerated from names.
-        new_id = self._category_id_from_name(new_name)
+        new_id = self._validated_category_id(new_name, current_id=cat_id)
+        if new_id is None:
+            return
 
         if self._queue_reassign:
             self._queue_reassign(cat_id, new_id)
@@ -1271,10 +1296,18 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_cat_id = None
         if not source_id or not target_id:
             return
+        if source_id == "uncategorized":
+            self.notify(
+                "The Uncategorized category cannot be merged",
+                severity="warning",
+            )
+            return
         if target_id.startswith("__new__:"):
             # Target is a new category — create it first
             name = target_id[8:]
-            new_id = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+            new_id = self._validated_category_id(name)
+            if new_id is None:
+                return
             first_group = next(iter(self._group_order), "Uncategorized")
             self.categories[new_id] = {
                 "name": name,
@@ -1385,16 +1418,9 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_name = None
         if not name or not group:
             return
-        base_id = self._category_id_from_name(name)
-        if not base_id:
+        cat_id = self._validated_category_id(name)
+        if cat_id is None:
             return
-        if base_id in self.categories:
-            self.notify(
-                "A category with an equivalent name already exists",
-                severity="warning",
-            )
-            return
-        cat_id = base_id
         self.categories[cat_id] = {
             "name": name,
             "group": group,

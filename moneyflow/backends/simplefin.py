@@ -8,6 +8,7 @@ is read-only.
 """
 
 import logging
+import os
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -87,7 +88,18 @@ class SimpleFinBackend(FinanceBackend):
             return
 
         if self._db_path != ":memory:":
-            Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+            db_path = Path(self._db_path)
+            db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            flags = os.O_RDWR | os.O_CREAT
+            if hasattr(os, "O_CLOEXEC"):
+                flags |= os.O_CLOEXEC
+            fd = os.open(db_path, flags, 0o600)
+            try:
+                # os.open's mode only applies to new files, so also restrict
+                # databases created by older versions.
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
 
         conn = sqlite3.connect(self._db_path)
         conn.execute("""

@@ -5,7 +5,9 @@ All SimpleFinClient calls are mocked — no real network access occurs.
 Tests use an in-memory SQLite database to avoid filesystem side effects.
 """
 
+import os
 import sqlite3
+import stat
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
@@ -927,6 +929,29 @@ class TestLocalPersistence:
 
 class TestProfileIntegration:
     """Tests for profile_dir-driven database isolation in SimpleFinBackend."""
+
+    def test_database_directory_and_file_use_private_permissions(self, tmp_path):
+        db_path = tmp_path / "profile" / "simplefin.db"
+        backend = SimpleFinBackend(db_path=str(db_path))
+
+        original_umask = os.umask(0o022)
+        try:
+            backend._ensure_db_initialized()
+        finally:
+            os.umask(original_umask)
+
+        assert stat.S_IMODE(db_path.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+
+    def test_existing_database_permissions_are_restricted(self, tmp_path):
+        db_path = tmp_path / "simplefin.db"
+        db_path.touch(mode=0o644)
+        db_path.chmod(0o644)
+        backend = SimpleFinBackend(db_path=str(db_path))
+
+        backend._ensure_db_initialized()
+
+        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
 
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"

@@ -211,6 +211,65 @@ class TestManageCategoriesScreen:
 
         assert screen._can_delete("uncategorized") is False
 
+    def test_uncategorized_fallback_cannot_be_renamed(self, monkeypatch):
+        categories = {
+            "uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            }
+        }
+        queued = []
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "uncategorized"
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        screen._handle_rename("Needs Review")
+
+        assert list(categories) == ["uncategorized"]
+        assert categories["uncategorized"]["name"] == "Uncategorized"
+        assert queued == []
+        assert notifications == ["The Uncategorized category cannot be renamed"]
+
+    def test_uncategorized_fallback_cannot_be_merged(self, monkeypatch):
+        categories = {
+            "uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "other": {
+                "name": "Other",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+        }
+        queued = []
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "uncategorized"
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        screen._handle_merge("other")
+
+        assert "uncategorized" in categories
+        assert queued == []
+        assert notifications == ["The Uncategorized category cannot be merged"]
+
     def test_delete_recreates_missing_uncategorized_reassignment_target(self):
         categories = {
             "needs_review": {
@@ -267,6 +326,88 @@ class TestManageCategoriesScreen:
 
         assert queued == [("food_dining", "food_dining")]
         assert categories["food_dining"]["name"] == "Food-Dining"
+
+    @pytest.mark.parametrize(
+        ("new_name", "notification"),
+        [
+            ("!!!", "Category name must contain a letter or number"),
+            ("Food Dining", "A category with an equivalent name already exists"),
+        ],
+    )
+    def test_rename_rejects_invalid_normalized_id(self, monkeypatch, new_name, notification):
+        categories = {
+            "food_dining": {
+                "name": "Food & Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        queued = []
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "groceries"
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        screen._handle_rename(new_name)
+
+        assert set(categories) == {"food_dining", "groceries"}
+        assert categories["groceries"]["name"] == "Groceries"
+        assert queued == []
+        assert notifications == [notification]
+
+    @pytest.mark.parametrize(
+        ("target_id", "notification"),
+        [
+            ("__new__:!!!", "Category name must contain a letter or number"),
+            (
+                "__new__:Food Dining",
+                "A category with an equivalent name already exists",
+            ),
+        ],
+    )
+    def test_merge_rejects_invalid_new_category_id(self, monkeypatch, target_id, notification):
+        categories = {
+            "food_dining": {
+                "name": "Food & Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        queued = []
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "groceries"
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        screen._handle_merge(target_id)
+
+        assert set(categories) == {"food_dining", "groceries"}
+        assert queued == []
+        assert notifications == [notification]
 
     def test_create_category_rejects_normalized_id_collision(self, monkeypatch):
         categories = {
