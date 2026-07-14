@@ -25,6 +25,7 @@ import json
 import re
 import sys
 import traceback
+from copy import deepcopy
 from datetime import date as date_type
 from datetime import datetime
 from pathlib import Path
@@ -44,10 +45,9 @@ from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.categories import (
     build_category_to_group_mapping,
     categories_dict_to_config_groups,
-    load_categories_from_profile,
     save_categories_to_profile,
 )
-from ..data.data_manager import DataManager
+from ..data.data_manager import DataManager, DeferredCategoryChange
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
@@ -1126,30 +1126,28 @@ class MoneyflowApp(App):
         if self.data_manager is None:
             return
         self.data_manager.pending_category_groups = None
-        self.data_manager.pending_category_group_edit_timestamps.clear()
-        self.data_manager.pending_category_groups_previous = None
+        self.data_manager.pending_category_changes.clear()
 
     def _restore_deferred_category_groups_for_undo(self, undone_edits: list) -> None:
         """Restore category config when undo removes one of its owning edit batches."""
-        if self.data_manager is None or not self.data_manager.pending_category_groups:
+        if self.data_manager is None or not self.data_manager.pending_category_changes:
             return
-        dependent_timestamps = self.data_manager.pending_category_group_edit_timestamps
+        change = self.data_manager.pending_category_changes[-1]
         undone_timestamps = {edit.timestamp for edit in undone_edits}
-        if dependent_timestamps.isdisjoint(undone_timestamps):
+        if change.dependent_timestamps.isdisjoint(undone_timestamps):
             return
-        persisted_groups = self.data_manager.pending_category_groups_previous
-        if persisted_groups is None and self.data_manager.profile_dir:
-            persisted_groups = load_categories_from_profile(self.data_manager.profile_dir)
-        self._clear_deferred_category_groups()
-        if persisted_groups is None:
-            return
-        self.data_manager.category_groups_config = persisted_groups
-        self.data_manager.category_to_group = build_category_to_group_mapping(persisted_groups)
+        self.data_manager.pending_category_changes.pop()
+        self.data_manager.pending_edits = deepcopy(change.before_edits)
+        self.data_manager.pending_category_groups = (
+            change.before_groups if self.data_manager.pending_category_changes else None
+        )
+        self.data_manager.category_groups_config = change.before_groups
+        self.data_manager.category_to_group = build_category_to_group_mapping(change.before_groups)
         self.data_manager.categories = {}
         self.data_manager._populate_categories_from_config()
 
     @staticmethod
-    def _apply_group_changes_to_previous_config(
+    def _apply_independent_category_changes(
         previous_groups: dict[str, list[str]],
         groups_before: dict[str, list[str]],
         groups_after: dict[str, list[str]],
@@ -1165,6 +1163,7 @@ class MoneyflowApp(App):
             for group_name, category_names in groups_after.items()
             for category_name in category_names
         }
+        removed_categories = set(before_by_category) - set(after_by_category)
 
         group_targets: dict[str, set[str]] = {}
         for category_name, before_group in before_by_category.items():
@@ -1191,9 +1190,38 @@ class MoneyflowApp(App):
             current_group = previous_to_current_group.get(previous_group, previous_group)
             renamed_group = renamed_groups.get(current_group, previous_group)
             for category_name in category_names:
+                if category_name in removed_categories:
+                    continue
                 destination = after_by_category.get(category_name, renamed_group)
                 rebased.setdefault(destination, []).append(category_name)
+        rebased_categories = {
+            category_name for category_names in rebased.values() for category_name in category_names
+        }
+        for group_name, category_names in groups_after.items():
+            for category_name in category_names:
+                if category_name not in rebased_categories:
+                    rebased.setdefault(group_name, []).append(category_name)
         return rebased
+
+    def _rebase_pending_category_changes(
+        self,
+        groups_before: dict[str, list[str]],
+        groups_after: dict[str, list[str]],
+    ) -> None:
+        """Persist an independent config change across structural rollback boundaries."""
+        if self.data_manager is None or not self.data_manager.pending_category_changes:
+            return
+        for change in self.data_manager.pending_category_changes:
+            change.before_groups = self._apply_independent_category_changes(
+                change.before_groups, groups_before, groups_after
+            )
+            change.after_groups = self._apply_independent_category_changes(
+                change.after_groups, groups_before, groups_after
+            )
+        base_groups = self.data_manager.pending_category_changes[0].before_groups
+        if self.data_manager.profile_dir:
+            save_categories_to_profile(base_groups, profile_dir=self.data_manager.profile_dir)
+        self.data_manager.pending_category_groups = groups_after
 
     # Time navigation actions
     def action_toggle_time_granularity(self) -> None:
@@ -1580,6 +1608,7 @@ class MoneyflowApp(App):
             group_name: list(category_names)
             for group_name, category_names in self.data_manager.category_groups_config.items()
         }
+        pending_edits_before = deepcopy(self.data_manager.pending_edits)
         category_edits_before = {
             id(edit): edit.new_value
             for edit in self.data_manager.pending_edits
@@ -1611,19 +1640,27 @@ class MoneyflowApp(App):
                     or category_edits_before[id(edit)] != edit.new_value
                 )
             }
-            existing_dependencies = self.data_manager.pending_category_group_edit_timestamps
-            if dependent_timestamps or existing_dependencies:
+            if dependent_timestamps:
                 # Defer config save until pending edits commit successfully
-                if not existing_dependencies:
-                    self.data_manager.pending_category_groups_previous = previous_groups
                 self.data_manager.pending_category_groups = groups
-                self.data_manager.pending_category_group_edit_timestamps = (
-                    existing_dependencies | dependent_timestamps
+                self.data_manager.pending_category_changes.append(
+                    DeferredCategoryChange(
+                        before_groups=previous_groups,
+                        after_groups={
+                            group_name: list(category_names)
+                            for group_name, category_names in groups.items()
+                        },
+                        before_edits=pending_edits_before,
+                        dependent_timestamps=dependent_timestamps,
+                    )
                 )
                 self.notify(
                     "Categories updated with pending recategorizations. Press w to commit.",
                     timeout=4,
                 )
+            elif self.data_manager.pending_category_changes:
+                self._rebase_pending_category_changes(previous_groups, groups)
+                self.notify("Categories updated with pending recategorizations.", timeout=4)
             else:
                 # No pending edits, safe to persist config immediately
                 if self.data_manager.profile_dir:
@@ -1665,18 +1702,8 @@ class MoneyflowApp(App):
             self.data_manager.category_to_group = build_category_to_group_mapping(groups)
             self.refresh_view()
             self._restore_table_position(None)
-            if self.data_manager.pending_category_group_edit_timestamps:
-                self.data_manager.pending_category_groups = groups
-                previous_groups = self.data_manager.pending_category_groups_previous
-                if previous_groups is not None:
-                    previous_groups = self._apply_group_changes_to_previous_config(
-                        previous_groups, groups_before, groups
-                    )
-                    self.data_manager.pending_category_groups_previous = previous_groups
-                    if self.data_manager.profile_dir:
-                        save_categories_to_profile(
-                            previous_groups, profile_dir=self.data_manager.profile_dir
-                        )
+            if self.data_manager.pending_category_changes:
+                self._rebase_pending_category_changes(groups_before, groups)
                 self.notify(
                     "Groups updated with pending recategorizations. Press w to commit.",
                     timeout=4,

@@ -17,6 +17,7 @@ import asyncio
 import inspect
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -37,6 +38,16 @@ from .categories import (
 from .state import TimeGranularity
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class DeferredCategoryChange:
+    """A structural category change and the transaction edit batches that own it."""
+
+    before_groups: Dict[str, List[str]]
+    after_groups: Dict[str, List[str]]
+    before_edits: List[Any]
+    dependent_timestamps: Set[datetime]
 
 
 class MerchantCache:
@@ -204,8 +215,7 @@ class DataManager:
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
         self.pending_category_groups: Optional[Dict[str, List[str]]] = None
-        self.pending_category_group_edit_timestamps: Set[datetime] = set()
-        self.pending_category_groups_previous: Optional[Dict[str, List[str]]] = None
+        self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
 
         # Merchant cache setup
