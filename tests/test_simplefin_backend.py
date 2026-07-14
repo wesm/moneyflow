@@ -79,6 +79,11 @@ COLON_TRANSACTION = {
     "pending": False,
     "isRecurring": False,
 }
+COLLIDING_COLON_TRANSACTION = {
+    **COLON_TRANSACTION,
+    "id": "v2:4:acct1:txn",
+    "account": {"id": "acct", "displayName": "Savings"},
+}
 
 
 @pytest.fixture()
@@ -530,6 +535,36 @@ class TestHardRefresh:
         conn.close()
         assert transaction_count == 0
         assert tombstones == {LEGACY_COLON_ID, ENCODED_COLON_ID}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
+    async def test_refreshes_reject_ambiguous_legacy_tombstone(self, tmp_path, method_name):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            "INSERT INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+            (LEGACY_COLON_ID, "2024-03-15T00:00:00+00:00"),
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(
+            return_value=[COLON_TRANSACTION, COLLIDING_COLON_TRANSACTION]
+        )
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        with pytest.raises(RuntimeError, match="ambiguous legacy deletion tombstone"):
+            await getattr(backend, method_name)()
+
+        assert backend.get_database_stats()["total_transactions"] == 0
+        conn = sqlite3.connect(backend._db_path)
+        tombstones = {
+            row[0] for row in conn.execute("SELECT id FROM deleted_transactions").fetchall()
+        }
+        conn.close()
+        assert tombstones == {LEGACY_COLON_ID}
 
 
 # ---------------------------------------------------------------------------
