@@ -1,10 +1,12 @@
 """Tests for credential migration from single-account to multi-account."""
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
+from moneyflow.data import migration as migration_module
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.credentials import CredentialManager
 from moneyflow.data.migration import (
@@ -662,6 +664,37 @@ class TestMigrateLegacySimplefinDb:
 
         creds_data = json.loads((profile_dir / CREDENTIALS_FILE_JSON).read_text())
         assert creds_data["backend_type"] == "simplefin"
+
+    def test_encrypted_migration_rolls_back_when_salt_move_fails(
+        self, temp_config_dir, legacy_simplefin_db, legacy_credentials, monkeypatch
+    ):
+        original_move = migration_module.shutil.move
+        salt_move_failed = False
+
+        def fail_first_salt_move(source, destination):
+            nonlocal salt_move_failed
+            if Path(source).name == "salt" and not salt_move_failed:
+                salt_move_failed = True
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_first_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert not (profile_dir / "simplefin.db").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert not (profile_dir / "salt").exists()
+
+        assert migrate_legacy_simplefin_db(config_dir=temp_config_dir) is True
+        assert (profile_dir / "simplefin.db").exists()
+        assert (profile_dir / CREDENTIALS_FILE).exists()
+        assert (profile_dir / "salt").exists()
 
 
 class TestMigrateGlobalCategoriesToProfiles:

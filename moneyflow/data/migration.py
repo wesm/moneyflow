@@ -312,14 +312,23 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
         )
         return True
 
-    shutil.move(str(legacy_cred_file), str(dest))
+    completed_moves: list[tuple[Path, Path]] = []
+    try:
+        shutil.move(str(legacy_cred_file), str(dest))
+        completed_moves.append((legacy_cred_file, dest))
 
-    if is_encrypted:
-        salt_file = config_dir / "salt"
-        if salt_file.exists():
-            salt_dest = profile_dir / "salt"
-            if not salt_dest.exists():
-                shutil.move(str(salt_file), str(salt_dest))
+        if is_encrypted:
+            salt_file = config_dir / "salt"
+            if salt_file.exists():
+                salt_dest = profile_dir / "salt"
+                if not salt_dest.exists():
+                    shutil.move(str(salt_file), str(salt_dest))
+                    completed_moves.append((salt_file, salt_dest))
+    except Exception:
+        for source, destination in reversed(completed_moves):
+            if destination.exists() and not source.exists():
+                shutil.move(str(destination), str(source))
+        raise
 
     return True
 
@@ -388,8 +397,11 @@ def migrate_legacy_simplefin_db(
         )
         profile_dir = account_manager.get_profile_dir(profile_account.id)
 
-    # Move the database
+    # Move the database and credentials as one recoverable operation. If a
+    # later credential artifact fails to move, restore the database so the
+    # next startup can retry the complete migration.
     dest = profile_dir / SIMPLEFIN_DB_FILE
+    database_moved = False
     if dest.exists():
         logger.warning(
             "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
@@ -398,9 +410,15 @@ def migrate_legacy_simplefin_db(
         )
     else:
         shutil.move(str(legacy_db), str(dest))
+        database_moved = True
 
-    # Migrate legacy credentials if they are still sitting at the root
-    _move_legacy_credentials_to_profile(config_dir, profile_dir)
+    try:
+        # Migrate legacy credentials if they are still sitting at the root
+        _move_legacy_credentials_to_profile(config_dir, profile_dir)
+    except Exception:
+        if database_moved and dest.exists() and not legacy_db.exists():
+            shutil.move(str(dest), str(legacy_db))
+        raise
 
     return True
 

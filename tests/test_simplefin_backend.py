@@ -392,6 +392,43 @@ class TestRefresh:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
+    async def test_refresh_rejects_occupied_legacy_migration_destination(
+        self, tmp_path, method_name
+    ):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.executemany(
+            """INSERT INTO transactions
+               (id, date, merchant_name, account_id, currency)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (LEGACY_COLON_ID, "2024-03-15", "Locally Edited", "acct:1", "USD"),
+                (ENCODED_COLON_ID, "2024-03-14", "Unrelated", "v2", "USD"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(return_value=[COLON_TRANSACTION])
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        with pytest.raises(RuntimeError, match="legacy transaction ID collision"):
+            await getattr(backend, method_name)()
+
+        conn = sqlite3.connect(backend._db_path)
+        rows = conn.execute(
+            "SELECT id, merchant_name, account_id FROM transactions ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert rows == [
+            (LEGACY_COLON_ID, "Locally Edited", "acct:1"),
+            (ENCODED_COLON_ID, "Unrelated", "v2"),
+        ]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
     async def test_fetch_error_preserves_existing_data_and_metadata(
         self, logged_in_backend, method_name
     ):

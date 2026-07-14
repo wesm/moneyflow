@@ -229,6 +229,35 @@ class SimpleFinBackend(FinanceBackend):
                 "data was not changed. Resolve the legacy tombstone before refreshing."
             )
 
+        migration_targets: dict[str, set[str]] = {}
+        for transaction in transactions:
+            new_id = str(transaction["id"])
+            legacy_id = transaction.get("legacy_id")
+            if not isinstance(legacy_id, str) or legacy_id == new_id:
+                continue
+
+            account_id = str(transaction.get("account", {}).get("id", ""))
+            legacy_row = conn.execute(
+                "SELECT account_id FROM transactions WHERE id = ?", (legacy_id,)
+            ).fetchone()
+            if legacy_row is None or legacy_row[0] != account_id:
+                continue
+
+            migration_targets.setdefault(legacy_id, set()).add(new_id)
+            if (
+                conn.execute("SELECT 1 FROM transactions WHERE id = ?", (new_id,)).fetchone()
+                is not None
+            ):
+                raise RuntimeError(
+                    "SimpleFIN refresh found a legacy transaction ID collision; "
+                    "data was not changed."
+                )
+
+        if any(len(targets) > 1 for targets in migration_targets.values()):
+            raise RuntimeError(
+                "SimpleFIN refresh found a legacy transaction ID collision; data was not changed."
+            )
+
         for transaction in transactions:
             new_id = str(transaction["id"])
             legacy_id = transaction.get("legacy_id")
