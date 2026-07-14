@@ -319,7 +319,11 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
     return True
 
 
-def migrate_legacy_simplefin_db(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
+def migrate_legacy_simplefin_db(
+    config_dir: Optional[Path] = None,
+    dry_run: bool = False,
+    target_profile_id: Optional[str] = None,
+) -> bool:
     """
     Migrate legacy SimpleFIN database and credentials to a profile.
 
@@ -331,6 +335,7 @@ def migrate_legacy_simplefin_db(config_dir: Optional[Path] = None, dry_run: bool
     Args:
         config_dir: Optional config directory (defaults to ~/.moneyflow)
         dry_run: If True, only check if migration is needed without performing it
+        target_profile_id: Existing SimpleFIN profile that should receive the legacy data.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
@@ -347,11 +352,30 @@ def migrate_legacy_simplefin_db(config_dir: Optional[Path] = None, dry_run: bool
 
     account_manager = AccountManager(config_dir=config_dir)
     existing_accounts = account_manager.list_accounts()
+    simplefin_accounts = [acc for acc in existing_accounts if acc.backend_type == "simplefin"]
     simplefin_account = None
-    for acc in existing_accounts:
-        if acc.backend_type == "simplefin":
-            simplefin_account = acc
-            break
+    if target_profile_id is not None:
+        candidate = account_manager.get_account(target_profile_id)
+        if candidate is None or candidate.backend_type != "simplefin":
+            logger.warning(
+                "Cannot migrate %s: target profile %s is not a SimpleFIN profile.",
+                legacy_db,
+                target_profile_id,
+            )
+            return False
+        simplefin_account = candidate
+    elif len(simplefin_accounts) == 1:
+        simplefin_account = simplefin_accounts[0]
+    elif len(simplefin_accounts) > 1:
+        default_id = account_manager.get_backend_default("simplefin")
+        default_account = account_manager.get_account(default_id) if default_id else None
+        if default_account is None or default_account.backend_type != "simplefin":
+            logger.warning(
+                "Cannot migrate %s: multiple SimpleFIN profiles exist and no destination was selected.",
+                legacy_db,
+            )
+            return False
+        simplefin_account = default_account
 
     if simplefin_account is not None:
         profile_dir = account_manager.get_profile_dir(simplefin_account.id)

@@ -124,7 +124,7 @@ def _resolve_simplefin_profile(
     except ValueError as error:
         click.echo(f"Failed to load legacy credentials: {error}", err=True)
         raise click.Abort() from error
-    migrate_legacy_simplefin_db(config_dir=config_path)
+    migrate_legacy_simplefin_db(config_dir=config_path, target_profile_id=profile_id)
 
     mgr = AccountManager(config_dir=config_path)
 
@@ -183,6 +183,7 @@ def _resolve_simplefin_profile(
         selected = matches[0]
 
     mgr.set_backend_default("simplefin", selected.id)
+    migrate_legacy_simplefin_db(config_dir=config_path, target_profile_id=selected.id)
     click.echo(f"Set '{selected.id}' as default for SimpleFIN.")
     return selected.id, mgr.get_profile_dir(selected.id)
 

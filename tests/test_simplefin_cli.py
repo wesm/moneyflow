@@ -125,6 +125,21 @@ class TestResolveSimplefinProfile:
         assert account_id == "simplefin-business"
         assert profile_dir.exists()
 
+    def test_explicit_profile_receives_legacy_database(self, tmp_path):
+        """Migration honors --profile instead of selecting the first profile."""
+        mgr = AccountManager(config_dir=tmp_path)
+        mgr.create_account("Personal", "simplefin", account_id="simplefin-personal")
+        mgr.create_account("Business", "simplefin", account_id="simplefin-business")
+        (tmp_path / "simplefin.db").write_bytes(b"example database")
+
+        account_id, profile_dir = _resolve_simplefin_profile(
+            config_dir=str(tmp_path), profile_id="simplefin-business"
+        )
+
+        assert account_id == "simplefin-business"
+        assert (profile_dir / "simplefin.db").read_bytes() == b"example database"
+        assert not (tmp_path / "profiles" / "simplefin-personal" / "simplefin.db").exists()
+
     def test_explicit_profile_invalid(self, tmp_path):
         """Nonexistent profile_id -> abort."""
         mgr = AccountManager(config_dir=tmp_path)

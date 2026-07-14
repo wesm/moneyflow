@@ -126,6 +126,12 @@ class AccountFlowCoordinator:
                 logger.error(f"Account {result} not found in registry")
                 continue
 
+            if account.backend_type == "simplefin":
+                migrate_legacy_simplefin_db(
+                    config_dir=config_path,
+                    target_profile_id=account.id,
+                )
+
             profile_dir = account_manager.get_profile_dir(account.id)
 
             if account.backend_type == "amazon":

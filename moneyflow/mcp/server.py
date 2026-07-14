@@ -177,7 +177,6 @@ def create_mcp_server(
                 config_dir=resolved_config_path,
                 encryption_password=migration_password,
             )
-        migrate_legacy_simplefin_db(config_dir=resolved_config_path)
         account_manager = AccountManager(config_dir=config_path)
 
         # Get account to use
@@ -188,7 +187,17 @@ def create_mcp_server(
         else:
             account = account_manager.get_last_active_account()
             if not account:
+                migrate_legacy_simplefin_db(config_dir=resolved_config_path)
+                account_manager.load_registry()
+                account = account_manager.get_last_active_account()
+            if not account:
                 raise ValueError("No accounts configured. Run 'moneyflow' to set up.")
+
+        if account.backend_type == "simplefin":
+            migrate_legacy_simplefin_db(
+                config_dir=resolved_config_path,
+                target_profile_id=account.id,
+            )
 
         profile_dir = account_manager.get_profile_dir(account.id)
         logger.info(f"Using account: {account.name} ({account.backend_type})")

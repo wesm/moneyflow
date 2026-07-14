@@ -321,11 +321,15 @@ class DuplicatesScreen(Screen):
             # Delete transactions via backend
             success_count = 0
             failure_count = 0
+            deleted_ids = []
 
             for i, txn_id in enumerate(to_delete, 1):
                 try:
-                    await self.main_app.task_runner.delete_with_retry(txn_id)
-                    success_count += 1
+                    if await self.main_app.task_runner.delete_with_retry(txn_id):
+                        success_count += 1
+                        deleted_ids.append(txn_id)
+                    else:
+                        failure_count += 1
 
                     # Show progress every 10 transactions for large batches
                     if len(to_delete) > 20 and i % 10 == 0:
@@ -339,7 +343,6 @@ class DuplicatesScreen(Screen):
 
             # Update main app's DataFrame to remove deleted transactions
             if success_count > 0:
-                deleted_ids = to_delete[:success_count]
                 if self.main_app.data_manager.df is not None:
                     self.main_app.data_manager.df = self.main_app.data_manager.df.filter(
                         ~pl.col("id").is_in(deleted_ids)

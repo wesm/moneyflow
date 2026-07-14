@@ -556,6 +556,53 @@ class TestMigrateLegacySimplefinDb:
         assert not legacy_simplefin_db.exists()
         assert (existing_profile / "simplefin.db").exists()
 
+    def test_multiple_simplefin_profiles_leave_ambiguous_db_unmoved(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+
+    def test_explicit_simplefin_profile_receives_legacy_db(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_plaintext_credentials,
+        account_manager,
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+
+        result = migrate_legacy_simplefin_db(
+            config_dir=temp_config_dir, target_profile_id="business"
+        )
+
+        assert result is True
+        assert not legacy_simplefin_db.exists()
+        assert (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+        assert (temp_config_dir / "profiles" / "business" / CREDENTIALS_FILE_JSON).exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "personal" / CREDENTIALS_FILE_JSON).exists()
+
+    def test_default_simplefin_profile_receives_legacy_db(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+        account_manager.set_backend_default("simplefin", "business")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is True
+        assert (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+
     def test_migration_works_with_other_accounts_present(
         self, temp_config_dir, legacy_simplefin_db, account_manager
     ):

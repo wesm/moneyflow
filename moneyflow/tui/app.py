@@ -550,6 +550,7 @@ class MoneyflowApp(App):
             df, categories, category_groups = await self.data_manager.fetch_all_data()
             if self.display_start_date:
                 df = self._filter_df_by_start_date(df, self.display_start_date)
+            self.state.clear_selection()
             self._store_data(df, categories, category_groups)
             self._simplefin_refresh_generation += 1
             self._last_update_time = self.backend.get_last_update_time() or datetime.now()
@@ -1493,6 +1494,8 @@ class MoneyflowApp(App):
         4. Call controller to execute edit
         5. Display result
         """
+        refresh_generation = self._simplefin_refresh_generation
+
         # Get cursor position
         table = self.query_one("#data-table", DataTable)
         cursor_row = table.cursor_row if table.cursor_row >= 0 else 0
@@ -1519,12 +1522,20 @@ class MoneyflowApp(App):
         )
 
         if new_merchant:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the editor before making changes.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Save position before refresh
             saved_position = self._save_table_position()
 
             # Execute edit via controller (business logic)
             count = self.controller.edit_merchant_current_selection(
-                new_merchant, cursor_row=cursor_row
+                new_merchant, cursor_row=cursor_row, context=context
             )
 
             # Clear selection if multi-select
@@ -1549,6 +1560,8 @@ class MoneyflowApp(App):
 
     async def _edit_category(self) -> None:
         """Simplified category edit using controller orchestration."""
+        refresh_generation = self._simplefin_refresh_generation
+
         # Get cursor position
         table = self.query_one("#data-table", DataTable)
         cursor_row = table.cursor_row if table.cursor_row >= 0 else 0
@@ -1573,6 +1586,14 @@ class MoneyflowApp(App):
         )
 
         if new_category_id:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the editor before making changes.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Handle "create new category" flow
             if new_category_id.startswith("__new__:"):
                 if self.backend.supports_category_sync:
@@ -1645,7 +1666,7 @@ class MoneyflowApp(App):
 
             # Execute edit via controller
             count = self.controller.edit_category_current_selection(
-                new_category_id, cursor_row=cursor_row
+                new_category_id, cursor_row=cursor_row, context=context
             )
 
             # Clear selection if multi-select
@@ -1801,6 +1822,7 @@ class MoneyflowApp(App):
 
     async def _manage_groups(self) -> None:
         """Run the group manager modal and handle results."""
+        refresh_generation = self._simplefin_refresh_generation
         groups_before = {
             group_name: list(category_names)
             for group_name, category_names in self.data_manager.category_groups_config.items()
@@ -1811,6 +1833,14 @@ class MoneyflowApp(App):
             ),
             wait_for_dismiss=True,
         )
+
+        if refresh_generation != self._simplefin_refresh_generation:
+            self.notify(
+                "Categories refreshed; reopen the group manager before making changes.",
+                severity="warning",
+                timeout=4,
+            )
+            return
 
         if dirty:
             groups = categories_dict_to_config_groups(self.data_manager.categories)
@@ -1969,6 +1999,7 @@ class MoneyflowApp(App):
 
     async def _delete_transaction(self) -> None:
         """Show delete confirmation and delete if confirmed."""
+        refresh_generation = self._simplefin_refresh_generation
         if self.state.current_data is None:
             return
 
@@ -1993,6 +2024,14 @@ class MoneyflowApp(App):
         )
 
         if confirmed:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the view before deleting.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Save position for refresh
             saved_position = self._save_table_position()
 
@@ -2002,21 +2041,23 @@ class MoneyflowApp(App):
 
             success_count = 0
             failure_count = 0
+            deleted_ids = []
 
             try:
                 # Delete each transaction via API (with session renewal if needed)
                 for txn_id in transaction_ids:
                     try:
-                        await self.task_runner.delete_with_retry(txn_id)
-                        success_count += 1
+                        if await self.task_runner.delete_with_retry(txn_id):
+                            success_count += 1
+                            deleted_ids.append(txn_id)
+                        else:
+                            failure_count += 1
                     except Exception as e:
                         logger.error(f"Failed to delete transaction {txn_id}: {e}")
                         failure_count += 1
 
                 # Update local DataFrame to remove deleted transactions
                 if success_count > 0 and self.data_manager.df is not None:
-                    # Remove deleted transactions from DataFrame
-                    deleted_ids = transaction_ids[:success_count]
                     self.data_manager.df = self.data_manager.df.filter(
                         ~pl.col("id").is_in(deleted_ids)
                     )

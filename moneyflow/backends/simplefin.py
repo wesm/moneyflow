@@ -778,12 +778,20 @@ class SimpleFinBackend(FinanceBackend):
             params.append(1 if hide_from_reports else 0)
 
         if not updates:
+            exists = conn.execute(
+                "SELECT 1 FROM transactions WHERE id = ?", (transaction_id,)
+            ).fetchone()
             conn.close()
+            if exists is None:
+                raise ValueError(f"Transaction not found: {transaction_id}")
             return {"updateTransaction": {"transaction": {"id": transaction_id}}}
 
         params.append(transaction_id)
         query = f"UPDATE transactions SET {', '.join(updates)} WHERE id = ?"
-        conn.execute(query, params)
+        cursor = conn.execute(query, params)
+        if cursor.rowcount == 0:
+            conn.close()
+            raise ValueError(f"Transaction not found: {transaction_id}")
         conn.commit()
         conn.close()
 

@@ -1042,6 +1042,16 @@ class TestLocalPersistence:
         assert result == {"updateTransaction": {"transaction": {"id": "acct-1:txn-1"}}}
 
     @pytest.mark.asyncio
+    async def test_update_nonexistent_transaction_fails(self, logged_in_backend):
+        b, _ = logged_in_backend
+        await self._populate(b)
+
+        with pytest.raises(ValueError, match="Transaction not found"):
+            await b.update_transaction("does-not-exist", merchant_name="Example Merchant")
+        with pytest.raises(ValueError, match="Transaction not found"):
+            await b.update_transaction("does-not-exist")
+
+    @pytest.mark.asyncio
     async def test_update_preserved_across_refresh(self, logged_in_backend):
         """Local edits survive a subsequent refresh (INSERT OR IGNORE)."""
         b, mock_client = logged_in_backend

@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import polars as pl
 import pytest
@@ -302,6 +303,8 @@ class TestSimpleFinBackgroundRefresh:
         app.data_manager = FetchingDataManager(migrated_df)
         app.controller = RefreshController()
         app.state.transactions_df = pl.DataFrame({"id": ["legacy-account:transaction"]})
+        app.state.selected_ids.add("legacy-account:transaction")
+        app.state.selected_group_keys.add("Example Merchant")
 
         monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
         monkeypatch.setattr(app, "_save_last_update_time", lambda: None)
@@ -312,7 +315,50 @@ class TestSimpleFinBackgroundRefresh:
         await app._simplefin_background_refresh()
 
         assert app.state.transactions_df["id"].to_list() == ["encoded-account:encoded-transaction"]
+        assert app.state.selected_ids == set()
+        assert app.state.selected_group_keys == set()
         assert app.controller.refresh_calls == [False]
+
+    async def test_delete_tracks_exact_successful_ids(self, monkeypatch):
+        """A failed deletion must not remove another transaction from local state."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        app = MoneyflowApp()
+        app.controller = RefreshController()
+        app.state.transactions_df = pl.DataFrame({"id": ["first", "second"]})
+        app.state.current_data = app.state.transactions_df
+        app.state.selected_ids.update({"first", "second"})
+        app.data_manager = type(
+            "DataManager",
+            (),
+            {"df": app.state.transactions_df, "categories": {}, "category_groups": []},
+        )()
+        app.cache_manager = None
+
+        class TaskRunner:
+            @staticmethod
+            async def delete_with_retry(transaction_id):
+                return transaction_id == "second"
+
+        app.task_runner = TaskRunner()
+        notifications = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+        monkeypatch.setattr(app, "push_screen", AsyncMock(return_value=True))
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda saved: None)
+        monkeypatch.setattr(app, "refresh_view", lambda: None)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._delete_transaction()
+
+        assert app.data_manager.df["id"].to_list() == ["first"]
+        assert ("Deleted 1, failed 1", "warning") in notifications
 
     async def test_background_refresh_blocks_edits_queued_while_migrating(self, monkeypatch):
         """An edit started during refresh must not retain a pre-migration ID."""
@@ -365,6 +411,214 @@ class TestSimpleFinBackgroundRefresh:
         assert app.controller.queued_ids == []
         assert app.controller.edits_enabled is True
         assert app.can_edit_transaction_snapshot(0) is False
+
+
+class TestBackendTaskRunnerDeletion:
+    async def test_false_backend_result_is_propagated(self):
+        from moneyflow.tui.backend_task_runner import BackendTaskRunner
+
+        class Backend:
+            @staticmethod
+            async def delete_transaction(transaction_id):
+                return False
+
+        app = type("App", (), {"backend": Backend()})()
+
+        assert await BackendTaskRunner(app).delete_with_retry("missing") is False
+
+
+class TestSimpleFinStaleDialogs:
+    async def test_merchant_dialog_rejects_refreshed_snapshot(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        context = type(
+            "EditContext",
+            (),
+            {
+                "transactions": pl.DataFrame({"id": ["legacy-id"], "merchant": ["Old"]}),
+                "current_value": "Old",
+                "transaction_count": 1,
+                "is_multi_select": False,
+            },
+        )()
+
+        class Controller:
+            edits_enabled = True
+            edit_calls = []
+
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return context
+
+            @staticmethod
+            def get_merchant_suggestions():
+                return []
+
+            def edit_merchant_current_selection(self, *args, **kwargs):
+                self.edit_calls.append((args, kwargs))
+                return 1
+
+        app = MoneyflowApp()
+        app.controller = Controller()
+        app.data_manager = object()
+        notifications = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def refresh_while_open(screen, **kwargs):
+            app._simplefin_refresh_generation += 1
+            return "New"
+
+        monkeypatch.setattr(app, "push_screen", refresh_while_open)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_merchant()
+
+        assert app.controller.edit_calls == []
+        assert notifications == [
+            ("Transactions refreshed; reopen the editor before making changes.", "warning")
+        ]
+
+    async def test_category_dialog_rejects_refreshed_snapshot(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        context = type(
+            "EditContext",
+            (),
+            {
+                "transactions": pl.DataFrame({"id": ["legacy-id"]}),
+                "current_value": "source",
+                "transaction_count": 1,
+                "is_multi_select": False,
+            },
+        )()
+
+        class Controller:
+            edits_enabled = True
+            edit_calls = []
+
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return context
+
+            def edit_category_current_selection(self, *args, **kwargs):
+                self.edit_calls.append((args, kwargs))
+                return 1
+
+        app = MoneyflowApp()
+        app.controller = Controller()
+        app.backend = type("Backend", (), {"supports_category_sync": True})()
+        app.data_manager = type("DataManager", (), {"categories": {}})()
+        notifications = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def refresh_while_open(screen, **kwargs):
+            app._simplefin_refresh_generation += 1
+            return "target"
+
+        monkeypatch.setattr(app, "push_screen", refresh_while_open)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert app.controller.edit_calls == []
+        assert notifications == [
+            ("Transactions refreshed; reopen the editor before making changes.", "warning")
+        ]
+
+    async def test_group_dialog_rejects_refreshed_categories(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManager:
+            categories = {"old": {"name": "Old", "group": "Old Group"}}
+            category_groups_config = {"Old Group": ["Old"]}
+            category_to_group = {"Old": "Old Group"}
+            pending_category_changes = []
+            pending_edits = []
+            pending_category_groups = None
+            profile_dir = object()
+
+        app = MoneyflowApp()
+        app.data_manager = DataManager()
+        notifications = []
+        saved_groups = []
+
+        async def refresh_while_open(screen, **kwargs):
+            app.data_manager.categories = {"new": {"name": "New", "group": "Current Group"}}
+            app._simplefin_refresh_generation += 1
+            return True
+
+        monkeypatch.setattr(app, "push_screen", refresh_while_open)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
+        )
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._manage_groups()
+
+        assert saved_groups == []
+        assert app.data_manager.category_groups_config == {"Old Group": ["Old"]}
+        assert notifications == [
+            ("Categories refreshed; reopen the group manager before making changes.", "warning")
+        ]
+
+    async def test_delete_dialog_rejects_refreshed_snapshot(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        app = MoneyflowApp()
+        app.controller = RefreshController()
+        app.state.transactions_df = pl.DataFrame({"id": ["legacy-id"]})
+        app.state.current_data = app.state.transactions_df
+        app.data_manager = type("DataManager", (), {"df": app.state.transactions_df})()
+        delete_calls = []
+
+        class TaskRunner:
+            @staticmethod
+            async def delete_with_retry(transaction_id):
+                delete_calls.append(transaction_id)
+                return True
+
+        app.task_runner = TaskRunner()
+        notifications = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def refresh_while_open(screen, **kwargs):
+            app._simplefin_refresh_generation += 1
+            return True
+
+        monkeypatch.setattr(app, "push_screen", refresh_while_open)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._delete_transaction()
+
+        assert delete_calls == []
+        assert notifications == [
+            ("Transactions refreshed; reopen the view before deleting.", "warning")
+        ]
 
 
 class TestLocalCategoryCreation:

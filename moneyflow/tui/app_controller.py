@@ -1321,7 +1321,12 @@ class AppController:
                 group_field=None,
             )
 
-    def edit_merchant_current_selection(self, new_merchant: str, cursor_row: int = 0) -> int:
+    def edit_merchant_current_selection(
+        self,
+        new_merchant: str,
+        cursor_row: int = 0,
+        context: EditContext | None = None,
+    ) -> int:
         """
         Edit merchant for current selection (context-aware).
 
@@ -1355,7 +1360,8 @@ class AppController:
         new_merchant = new_merchant.strip()
 
         # Determine what to edit
-        context = self.determine_edit_context("merchant", cursor_row=cursor_row)
+        if context is None:
+            context = self.determine_edit_context("merchant", cursor_row=cursor_row)
 
         # No transactions to edit
         if context.transactions.is_empty():
@@ -1377,7 +1383,12 @@ class AppController:
 
         return count
 
-    def edit_category_current_selection(self, new_category_id: str, cursor_row: int = 0) -> int:
+    def edit_category_current_selection(
+        self,
+        new_category_id: str,
+        cursor_row: int = 0,
+        context: EditContext | None = None,
+    ) -> int:
         """
         Edit category for current selection (context-aware).
 
@@ -1398,7 +1409,8 @@ class AppController:
             return 0
 
         # Determine what to edit
-        context = self.determine_edit_context("category", cursor_row=cursor_row)
+        if context is None:
+            context = self.determine_edit_context("category", cursor_row=cursor_row)
 
         # No transactions to edit
         if context.transactions.is_empty():
