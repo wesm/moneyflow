@@ -451,15 +451,15 @@ class TestCheckAmazonMigrationNeeded:
 
         assert needed is True
 
-    def test_migration_needed_when_amazon_account_already_exists(
+    def test_no_migration_when_amazon_account_already_exists(
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):
-        """Test migration needed when legacy db still exists at root."""
+        """Test migration skipped if Amazon account already configured."""
         account_manager.create_account("Amazon Orders", "amazon")
 
         needed = check_amazon_migration_needed(config_dir=temp_config_dir)
 
-        assert needed is True
+        assert needed is False
 
 
 class TestMigrateLegacyAmazonDb:
@@ -527,62 +527,18 @@ class TestMigrateLegacyAmazonDb:
 
         assert result is False
 
-    def test_unregistered_occupied_profile_rejects_migration(
+    def test_migration_with_existing_amazon_account_returns_false(
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):
-        profile_dir = temp_config_dir / "profiles" / "amazon"
-        profile_dir.mkdir(parents=True)
-        destination = profile_dir / "amazon.db"
-        destination.write_bytes(b"existing database")
-
-        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
-
-        assert result is False
-        assert legacy_amazon_db.exists()
-        assert destination.read_bytes() == b"existing database"
-        assert account_manager.list_accounts() == []
-
-    def test_migration_with_existing_amazon_account_moves_db(
-        self, temp_config_dir, legacy_amazon_db, account_manager
-    ):
-        """Test migration moves db into existing Amazon account profile."""
+        """Test migration skipped if Amazon account already exists."""
         existing = account_manager.create_account("My Amazon", "amazon")
         existing_profile = account_manager.get_profile_dir(existing.id)
 
         result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
 
-        assert result is True
-        assert not legacy_amazon_db.exists()
-        assert (existing_profile / "amazon.db").exists()
-
-    def test_multiple_amazon_profiles_leave_ambiguous_db_unmoved(
-        self, temp_config_dir, legacy_amazon_db, account_manager
-    ):
-        account_manager.create_account("Personal Orders", "amazon", account_id="personal")
-        account_manager.create_account("Business Orders", "amazon", account_id="business")
-
-        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
-
         assert result is False
         assert legacy_amazon_db.exists()
-        assert not (temp_config_dir / "profiles" / "personal" / "amazon.db").exists()
-        assert not (temp_config_dir / "profiles" / "business" / "amazon.db").exists()
-
-    def test_explicit_amazon_profile_receives_legacy_db(
-        self, temp_config_dir, legacy_amazon_db, account_manager
-    ):
-        account_manager.create_account("Personal Orders", "amazon", account_id="personal")
-        account_manager.create_account("Business Orders", "amazon", account_id="business")
-
-        result = migrate_legacy_amazon_db(
-            config_dir=temp_config_dir,
-            target_profile_id="business",
-        )
-
-        assert result is True
-        assert not legacy_amazon_db.exists()
-        assert (temp_config_dir / "profiles" / "business" / "amazon.db").exists()
-        assert not (temp_config_dir / "profiles" / "personal" / "amazon.db").exists()
+        assert not (existing_profile / "amazon.db").exists()
 
     def test_migration_works_with_other_accounts_present(
         self, temp_config_dir, legacy_amazon_db, account_manager

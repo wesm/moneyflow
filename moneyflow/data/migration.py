@@ -169,137 +169,67 @@ def migrate_legacy_credentials(
     return True
 
 
-def migrate_legacy_db(
-    config_dir: Optional[Path] = None,
-    db_filename: str = "amazon.db",
-    account_name: str = "Amazon",
-    backend_type: str = "amazon",
-    account_id: Optional[str] = None,
-    dry_run: bool = False,
-    target_profile_id: Optional[str] = None,
-) -> bool:
-    """
-    Migrate a legacy per-backend database to the multi-account profile system.
-
-    Checks if an old-style database file exists at ~/.moneyflow/<db_filename>
-    and migrates it to ~/.moneyflow/profiles/<account_id>/<db_filename>.
-
-    Args:
-        config_dir: Optional config directory (defaults to ~/.moneyflow)
-        db_filename: Legacy database filename (e.g., "amazon.db", "simplefin.db")
-        account_name: Display name for the migrated account
-        backend_type: Backend type identifier
-        account_id: Optional explicit account ID (defaults to backend_type)
-        dry_run: If True, only check if migration is needed without performing it
-        target_profile_id: Existing backend profile that should receive the legacy database.
-
-    Returns:
-        True if migration was performed (or would be performed in dry_run),
-        False if no migration needed
-    """
-    config_dir = _resolve_config_dir(config_dir)
-    account_id = account_id or backend_type
-
-    # Check if legacy database file exists
-    legacy_db = config_dir / db_filename
-
-    if not legacy_db.exists():
-        return False
-
-    if dry_run:
-        return True
-
-    account_manager = AccountManager(config_dir=config_dir)
-    existing_accounts = account_manager.list_accounts()
-    matching_accounts = [
-        account for account in existing_accounts if account.backend_type == backend_type
-    ]
-    target_account = None
-    if target_profile_id is not None:
-        candidate = account_manager.get_account(target_profile_id)
-        if candidate is None or candidate.backend_type != backend_type:
-            logger.warning(
-                "Cannot migrate %s: target profile %s is not a %s profile.",
-                legacy_db,
-                target_profile_id,
-                backend_type,
-            )
-            return False
-        target_account = candidate
-    elif len(matching_accounts) == 1:
-        target_account = matching_accounts[0]
-    elif len(matching_accounts) > 1:
-        logger.warning(
-            "Cannot migrate %s: multiple %s profiles exist and no destination was selected.",
-            legacy_db,
-            backend_type,
-        )
-        return False
-
-    if target_account is not None:
-        profile_dir = account_manager.get_profile_dir(target_account.id)
-        dest = profile_dir / db_filename
-        if dest.exists():
-            logger.warning(
-                "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
-                dest,
-                legacy_db,
-            )
-            return True
-        shutil.move(str(legacy_db), str(dest))
-        return True
-
-    profile_dir = account_manager.get_profile_dir(account_id)
-    dest = profile_dir / db_filename
-    if dest.exists():
-        logger.warning(
-            "Cannot migrate %s: unregistered destination %s already exists.",
-            legacy_db,
-            dest,
-        )
-        return False
-
-    profile_account = account_manager.create_account(
-        name=account_name,
-        backend_type=backend_type,
-        account_id=account_id,
-    )
-
-    profile_dir = account_manager.get_profile_dir(profile_account.id)
-    dest = profile_dir / db_filename
-    shutil.move(str(legacy_db), str(dest))
-
-    return True
-
-
-def migrate_legacy_amazon_db(
-    config_dir: Optional[Path] = None,
-    dry_run: bool = False,
-    target_profile_id: Optional[str] = None,
-) -> bool:
+def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
     """
     Migrate legacy Amazon database to multi-account profile system.
 
-    Convenience wrapper around migrate_legacy_db.
+    Checks if old-style Amazon DB exists at ~/.moneyflow/amazon.db
+    and migrates it to ~/.moneyflow/profiles/amazon/amazon.db
 
     Args:
         config_dir: Optional config directory (defaults to ~/.moneyflow)
         dry_run: If True, only check if migration is needed without performing it
-        target_profile_id: Existing Amazon profile that should receive the legacy database.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
         False if no migration needed
+
+    Example:
+        # Check if migration needed
+        if migrate_legacy_amazon_db(dry_run=True):
+            print("Amazon migration needed")
+
+        # Perform migration
+        migrate_legacy_amazon_db()
     """
-    return migrate_legacy_db(
-        config_dir=config_dir,
-        db_filename=AMAZON_DB_FILE,
-        account_name="Amazon",
+    config_dir = _resolve_config_dir(config_dir)
+
+    # Check if legacy amazon.db exists
+    legacy_amazon_db = config_dir / AMAZON_DB_FILE
+
+    if not legacy_amazon_db.exists():
+        # No legacy Amazon database to migrate
+        return False
+
+    # Check if an Amazon account already exists
+    account_manager = AccountManager(config_dir=config_dir)
+    existing_accounts = account_manager.list_accounts()
+
+    # Check if there's already an amazon account
+    for account in existing_accounts:
+        if account.backend_type == "amazon":
+            # Amazon account already exists - don't migrate
+            return False
+
+    if dry_run:
+        # Just report that migration is needed
+        return True
+
+    # Perform migration
+    # Step 1: Create "Amazon" account profile
+    amazon_account = account_manager.create_account(
+        name="Amazon",
         backend_type="amazon",
         account_id="amazon",
-        dry_run=dry_run,
-        target_profile_id=target_profile_id,
     )
+
+    # Step 2: Get profile directory
+    profile_dir = account_manager.get_profile_dir(amazon_account.id)
+
+    # Step 3: Move amazon.db to profile directory
+    shutil.move(str(legacy_amazon_db), str(profile_dir / AMAZON_DB_FILE))
+
+    return True
 
 
 def check_simplefin_migration_needed(config_dir: Optional[Path] = None) -> bool:
@@ -312,14 +242,7 @@ def check_simplefin_migration_needed(config_dir: Optional[Path] = None) -> bool:
     Returns:
         True if migration needed, False otherwise
     """
-    return migrate_legacy_db(
-        config_dir=config_dir,
-        db_filename=SIMPLEFIN_DB_FILE,
-        account_name="SimpleFIN",
-        backend_type="simplefin",
-        account_id="simplefin",
-        dry_run=True,
-    )
+    return (_resolve_config_dir(config_dir) / SIMPLEFIN_DB_FILE).exists()
 
 
 def _preflight_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> bool:
