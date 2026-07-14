@@ -387,6 +387,15 @@ def create_mcp_server(
 
         df = _state["transactions_df"]
         currency = df["currency"][0] if "currency" in df.columns and len(df) else None
+        account = _state["account"]
+        if currency is None and account.backend_type == "simplefin":
+            profile_currency = _state["backend"].get_currency_symbol()
+            if (
+                isinstance(profile_currency, str)
+                and len(profile_currency) == 3
+                and profile_currency.isalpha()
+            ):
+                currency = profile_currency.upper()
 
         # Default date range: last 30 days
         if not end_date:

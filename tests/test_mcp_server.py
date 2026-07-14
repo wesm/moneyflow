@@ -321,6 +321,7 @@ class TestSimplefinInitialization:
         )
         backend = AsyncMock()
         backend.supports_category_sync = False
+        backend.get_currency_symbol = MagicMock(return_value="EUR")
         data_manager = MagicMock()
         data_manager.fetch_all_data = AsyncMock(
             return_value=(sample_transactions := pl.DataFrame(), {}, {})
@@ -365,6 +366,7 @@ class TestSimplefinInitialization:
         summary_content, _ = summary_result
         summary = json.loads(summary_content[0].text)
         assert summary["transaction_count"] == 0
+        assert summary["total_spending"] == "EUR 0.00"
 
     @pytest.mark.asyncio
     async def test_loads_local_categories_and_persists_category_name(self, tmp_path):
