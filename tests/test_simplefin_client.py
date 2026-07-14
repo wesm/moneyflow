@@ -252,6 +252,23 @@ class TestSimpleFinClient:
         assert result[0]["id"] == "acct-1:txn-1"
 
     @pytest.mark.asyncio
+    async def test_fetch_transactions_deduplicates_overlapping_windows(self):
+        client = SimpleFinClient(VALID_ACCESS_URL)
+        first_response = _make_mock_response(200, MINIMAL_RESPONSE)
+        second_response = _make_mock_response(200, MINIMAL_RESPONSE)
+        mock_session = _make_mock_session(first_response)
+        mock_session.get.side_effect = [first_response, second_response]
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await client.fetch_transactions(
+                start_date="2025-01-01",
+                end_date="2025-06-30",
+            )
+
+        assert mock_session.get.call_count == 2
+        assert [transaction["id"] for transaction in result] == ["acct-1:txn-1"]
+
+    @pytest.mark.asyncio
     async def test_fetch_transactions_rejects_mixed_account_currencies(self):
         eur_account = {
             **MINIMAL_ACCOUNT,

@@ -334,7 +334,7 @@ class SimpleFinClient:
             return []
 
         batch_days = 90
-        all_transactions: List[Dict[str, Any]] = []
+        transactions_by_id: Dict[str, Dict[str, Any]] = {}
         currencies: set[str] = set()
         batch_start = start
 
@@ -383,8 +383,9 @@ class SimpleFinClient:
                         "SimpleFIN profile contains multiple currencies; "
                         "moneyflow cannot aggregate them safely."
                     )
-                all_transactions.extend(_parse_transactions(raw_accounts))
+                for transaction in _parse_transactions(raw_accounts):
+                    transactions_by_id[transaction["id"]] = transaction
                 batch_start = batch_end
 
         self.currency_code = next(iter(currencies), None)
-        return all_transactions
+        return list(transactions_by_id.values())

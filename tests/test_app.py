@@ -4,6 +4,8 @@ from datetime import datetime
 
 import polars as pl
 
+from moneyflow.data.state import TransactionEdit
+
 
 class RefreshingSimpleFinBackend:
     """SimpleFIN backend stub that reports one new transaction."""
@@ -257,3 +259,91 @@ class TestCategoryManagerSource:
         await app._manage_categories()
 
         assert app.controller.source_ids == ["visible", "older"]
+
+    async def test_manager_counts_pending_category_assignments(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        complete_df = pl.DataFrame(
+            {
+                "id": ["transaction-1"],
+                "category_id": ["source-category"],
+            }
+        )
+
+        class DataManagerStub:
+            categories = {
+                "source-category": {"name": "Source", "group": "Group"},
+                "target-category": {"name": "Target", "group": "Group"},
+            }
+            pending_edits = [
+                TransactionEdit(
+                    transaction_id="transaction-1",
+                    field="category",
+                    old_value="source-category",
+                    new_value="target-category",
+                )
+            ]
+
+            async def fetch_unfiltered_transactions(self):
+                return complete_df
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+
+        async def inspect_counts(screen, **kwargs):
+            assert screen.transaction_counts.get("source-category", 0) == 0
+            assert screen.transaction_counts["target-category"] == 1
+            return False
+
+        monkeypatch.setattr(app, "push_screen", inspect_counts)
+
+        await app._manage_categories()
+
+
+class TestGroupManagerPersistence:
+    async def test_group_changes_defer_while_category_edits_are_pending(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        profile_dir = object()
+
+        class DataManagerStub:
+            categories = {
+                "source-category": {"name": "Source", "group": "Renamed Group"},
+                "target-category": {"name": "Target", "group": "Renamed Group"},
+            }
+            pending_edits = [
+                TransactionEdit(
+                    transaction_id="transaction-1",
+                    field="category",
+                    old_value="source-category",
+                    new_value="target-category",
+                )
+            ]
+            pending_category_groups = None
+            category_groups_config = {}
+            category_to_group = {}
+            profile_dir = None
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.data_manager.profile_dir = profile_dir
+
+        async def finish_group_edit(screen, **kwargs):
+            return True
+
+        saved_groups = []
+        monkeypatch.setattr(app, "push_screen", finish_group_edit)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups),
+        )
+
+        await app._manage_groups()
+
+        assert saved_groups == []
+        assert app.data_manager.pending_category_groups is not None

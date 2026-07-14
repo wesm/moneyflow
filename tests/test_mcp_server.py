@@ -266,6 +266,58 @@ class TestEncryptedCredentials:
         assert "Environment Variables:" in content
 
 
+class TestSimplefinInitialization:
+    @pytest.mark.asyncio
+    async def test_initializes_profile_backend_and_refreshes_before_loading(self, tmp_path):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(
+            return_value=(sample_transactions := pl.DataFrame(), {}, {})
+        )
+
+        with (
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend) as get_backend,
+            patch(
+                "moneyflow.data.data_manager.DataManager", return_value=data_manager
+            ) as data_manager_cls,
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server()
+            await mcp.call_tool("search_transactions", {"query": ""})
+
+        get_backend.assert_called_once_with("simplefin", profile_dir=profile_dir)
+        backend.login.assert_awaited_once_with(
+            password="https://user:pass@bridge.simplefin.org/simplefin"
+        )
+        backend.refresh.assert_awaited_once_with()
+        data_manager_cls.assert_called_once()
+        assert data_manager_cls.call_args.kwargs["profile_dir"] == profile_dir
+        assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
+        data_manager.fetch_all_data.assert_awaited_once_with()
+        assert sample_transactions.is_empty()
+
+
 # ============================================================================
 # Test: Security - Batch Size Limit
 # ============================================================================

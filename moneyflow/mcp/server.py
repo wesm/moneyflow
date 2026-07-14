@@ -173,8 +173,10 @@ def create_mcp_server(
             # Plaintext credentials - load directly
             creds, encryption_key = cred_manager.load_credentials()
 
-        # Create backend
-        backend = get_backend(account.backend_type)
+        # SimpleFIN's SQLite store is profile-local, so preserve the managed
+        # profile context when constructing that backend.
+        backend_kwargs = {"profile_dir": profile_dir} if account.backend_type == "simplefin" else {}
+        backend = get_backend(account.backend_type, **backend_kwargs)
 
         # Login to backend
         if account.backend_type == "monarch":
@@ -192,6 +194,9 @@ def create_mcp_server(
                 await backend.login(password=creds["password"], budget_id=account.budget_id)
             else:
                 await backend.login(password=creds["password"])
+        elif account.backend_type == "simplefin":
+            await backend.login(password=creds["password"])
+            await backend.refresh()
 
         # Create data manager (caching handled separately if needed)
         config_dir_str = str(config_path) if config_path else str(Path.home() / ".moneyflow")

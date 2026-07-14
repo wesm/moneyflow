@@ -1486,10 +1486,15 @@ class MoneyflowApp(App):
         # must use every persisted row or older transactions can become orphaned.
         txn_counts: dict = {}
         source_df = await self.data_manager.fetch_unfiltered_transactions()
-        if source_df is not None and "category_id" in source_df.columns:
-            counts_df = source_df.group_by("category_id").agg(pl.len().alias("count"))
-            for row in counts_df.iter_rows(named=True):
-                txn_counts[row["category_id"]] = row["count"]
+        if source_df is not None and {"id", "category_id"}.issubset(source_df.columns):
+            effective_categories = {
+                row["id"]: row["category_id"] for row in source_df.iter_rows(named=True)
+            }
+            for edit in self.data_manager.pending_edits:
+                if edit.field == "category" and edit.transaction_id in effective_categories:
+                    effective_categories[edit.transaction_id] = edit.new_value
+            for category_id in effective_categories.values():
+                txn_counts[category_id] = txn_counts.get(category_id, 0) + 1
 
         def queue_reassign(source_id: str, target_id: str) -> None:
             """Queue TransactionEdits to reassign all txns from source to target."""
@@ -1551,13 +1556,20 @@ class MoneyflowApp(App):
 
         if dirty:
             groups = categories_dict_to_config_groups(self.data_manager.categories)
-            if self.data_manager.profile_dir:
-                save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
             self.data_manager.category_groups_config = groups
             self.data_manager.category_to_group = build_category_to_group_mapping(groups)
             self.refresh_view()
             self._restore_table_position(None)
-            self.notify("Groups updated.", timeout=2)
+            if self.data_manager.pending_edits:
+                self.data_manager.pending_category_groups = groups
+                self.notify(
+                    "Groups updated with pending recategorizations. Press w to commit.",
+                    timeout=4,
+                )
+            else:
+                if self.data_manager.profile_dir:
+                    save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
+                self.notify("Groups updated.", timeout=2)
 
     def action_toggle_hide_from_reports(self) -> None:
         """
