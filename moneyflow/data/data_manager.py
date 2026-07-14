@@ -17,7 +17,7 @@ import asyncio
 import inspect
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -48,6 +48,8 @@ class DeferredCategoryChange:
     after_groups: Dict[str, List[str]]
     before_edits: List[Any]
     dependent_timestamps: Set[datetime]
+    after_edits: List[Any] = field(default_factory=list)
+    operation_timestamp: datetime = field(default_factory=datetime.now)
 
 
 class MerchantCache:

@@ -1083,20 +1083,32 @@ class MoneyflowApp(App):
 
     def action_undo_pending_edits(self) -> None:
         """Undo the most recent pending edit or bulk edit batch."""
-        if self.data_manager is None or not self.data_manager.pending_edits:
+        if self.data_manager is None or (
+            not self.data_manager.pending_edits and not self.data_manager.pending_category_changes
+        ):
             self.notify("No pending edits to undo", timeout=2)
             return
 
         # Save cursor and scroll position
         saved_position = self._save_table_position()
 
-        # Get the timestamp of the most recent edit for notification
-        last_edit = self.data_manager.pending_edits[-1]
-        field_name = last_edit.field.replace("_", " ").title()
-
-        # Undo the last batch of edits
-        edits_to_undo = self.data_manager.undo_last_batch()
-        self._restore_deferred_category_groups_for_undo(edits_to_undo)
+        latest_change = (
+            self.data_manager.pending_category_changes[-1]
+            if self.data_manager.pending_category_changes
+            else None
+        )
+        latest_edit = (
+            self.data_manager.pending_edits[-1] if self.data_manager.pending_edits else None
+        )
+        undo_category_change = latest_change is not None and (
+            latest_edit is None or latest_change.operation_timestamp >= latest_edit.timestamp
+        )
+        if undo_category_change:
+            field_name = "Category"
+            edits_to_undo = self._undo_deferred_category_change()
+        else:
+            field_name = latest_edit.field.replace("_", " ").title()
+            edits_to_undo = self.data_manager.undo_last_batch()
 
         # Refresh view to update indicators
         self.refresh_view(force_rebuild=False)
@@ -1128,16 +1140,39 @@ class MoneyflowApp(App):
         self.data_manager.pending_category_groups = None
         self.data_manager.pending_category_changes.clear()
 
-    def _restore_deferred_category_groups_for_undo(self, undone_edits: list) -> None:
-        """Restore category config when undo removes one of its owning edit batches."""
+    def _undo_deferred_category_change(self) -> list[tuple[str, str, datetime]]:
+        """Undo the newest structural category operation without touching newer edits."""
         if self.data_manager is None or not self.data_manager.pending_category_changes:
-            return
+            return []
         change = self.data_manager.pending_category_changes[-1]
-        undone_timestamps = {edit.timestamp for edit in undone_edits}
-        if change.dependent_timestamps.isdisjoint(undone_timestamps):
-            return
+
+        def edit_key(edit) -> tuple[str, str, datetime]:
+            return edit.transaction_id, edit.field, edit.timestamp
+
+        before_by_key = {edit_key(edit): edit for edit in change.before_edits}
+        after_by_key = {edit_key(edit): edit for edit in change.after_edits}
+        affected_keys = {
+            key
+            for key in before_by_key.keys() | after_by_key.keys()
+            if before_by_key.get(key) != after_by_key.get(key)
+        }
+        current_by_key = {edit_key(edit): edit for edit in self.data_manager.pending_edits}
+        restored_edits = []
+        restored_keys = set()
+        for before_edit in change.before_edits:
+            key = edit_key(before_edit)
+            if key in affected_keys:
+                restored_edits.append(deepcopy(before_edit))
+            elif key in current_by_key:
+                restored_edits.append(current_by_key[key])
+            restored_keys.add(key)
+        for current_edit in self.data_manager.pending_edits:
+            key = edit_key(current_edit)
+            if key not in restored_keys and key not in affected_keys:
+                restored_edits.append(current_edit)
+
         self.data_manager.pending_category_changes.pop()
-        self.data_manager.pending_edits = deepcopy(change.before_edits)
+        self.data_manager.pending_edits = restored_edits
         self.data_manager.pending_category_groups = (
             change.before_groups if self.data_manager.pending_category_changes else None
         )
@@ -1145,12 +1180,14 @@ class MoneyflowApp(App):
         self.data_manager.category_to_group = build_category_to_group_mapping(change.before_groups)
         self.data_manager.categories = {}
         self.data_manager._populate_categories_from_config()
+        return list(affected_keys)
 
     @staticmethod
     def _apply_independent_category_changes(
         previous_groups: dict[str, list[str]],
         groups_before: dict[str, list[str]],
         groups_after: dict[str, list[str]],
+        propagate_group_moves: bool,
     ) -> dict[str, list[str]]:
         """Apply independent group moves while retaining structurally deferred categories."""
         before_by_category = {
@@ -1169,11 +1206,15 @@ class MoneyflowApp(App):
         for category_name, before_group in before_by_category.items():
             if category_name in after_by_category:
                 group_targets.setdefault(before_group, set()).add(after_by_category[category_name])
-        renamed_groups = {
-            before_group: next(iter(targets))
-            for before_group, targets in group_targets.items()
-            if len(targets) == 1
-        }
+        renamed_groups = (
+            {
+                before_group: next(iter(targets))
+                for before_group, targets in group_targets.items()
+                if len(targets) == 1
+            }
+            if propagate_group_moves
+            else {}
+        )
 
         previous_to_current_group: dict[str, str] = {}
         for previous_group, category_names in previous_groups.items():
@@ -1207,16 +1248,23 @@ class MoneyflowApp(App):
         self,
         groups_before: dict[str, list[str]],
         groups_after: dict[str, list[str]],
+        propagate_group_moves: bool,
     ) -> None:
         """Persist an independent config change across structural rollback boundaries."""
         if self.data_manager is None or not self.data_manager.pending_category_changes:
             return
         for change in self.data_manager.pending_category_changes:
             change.before_groups = self._apply_independent_category_changes(
-                change.before_groups, groups_before, groups_after
+                change.before_groups,
+                groups_before,
+                groups_after,
+                propagate_group_moves,
             )
             change.after_groups = self._apply_independent_category_changes(
-                change.after_groups, groups_before, groups_after
+                change.after_groups,
+                groups_before,
+                groups_after,
+                propagate_group_moves,
             )
         base_groups = self.data_manager.pending_category_changes[0].before_groups
         if self.data_manager.profile_dir:
@@ -1652,6 +1700,7 @@ class MoneyflowApp(App):
                         },
                         before_edits=pending_edits_before,
                         dependent_timestamps=dependent_timestamps,
+                        after_edits=deepcopy(self.data_manager.pending_edits),
                     )
                 )
                 self.notify(
@@ -1659,7 +1708,9 @@ class MoneyflowApp(App):
                     timeout=4,
                 )
             elif self.data_manager.pending_category_changes:
-                self._rebase_pending_category_changes(previous_groups, groups)
+                self._rebase_pending_category_changes(
+                    previous_groups, groups, propagate_group_moves=False
+                )
                 self.notify("Categories updated with pending recategorizations.", timeout=4)
             else:
                 # No pending edits, safe to persist config immediately
@@ -1703,7 +1754,9 @@ class MoneyflowApp(App):
             self.refresh_view()
             self._restore_table_position(None)
             if self.data_manager.pending_category_changes:
-                self._rebase_pending_category_changes(groups_before, groups)
+                self._rebase_pending_category_changes(
+                    groups_before, groups, propagate_group_moves=True
+                )
                 self.notify(
                     "Groups updated with pending recategorizations. Press w to commit.",
                     timeout=4,

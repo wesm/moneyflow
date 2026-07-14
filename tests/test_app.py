@@ -518,6 +518,139 @@ class TestCategoryManagerSource:
         assert len(app.data_manager.pending_edits) == 1
         assert app.data_manager.pending_edits[0].new_value == "category-b"
 
+    async def test_retarget_only_merge_undo_precedes_unrelated_edit(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        category_edit = TransactionEdit(
+            transaction_id="transaction-a",
+            field="category",
+            old_value="category-a",
+            new_value="category-b",
+            timestamp=datetime(2026, 1, 1),
+        )
+        unrelated_edit = TransactionEdit(
+            transaction_id="transaction-a",
+            field="merchant",
+            old_value="Old Merchant",
+            new_value="New Merchant",
+            timestamp=datetime(2026, 1, 2),
+        )
+        complete_df = pl.DataFrame({"id": ["transaction-a"], "category_id": ["category-a"]})
+
+        class DataManagerStub:
+            categories = {
+                "category-b": {"name": "B", "group": "Group"},
+                "category-c": {"name": "C", "group": "Group"},
+            }
+            pending_edits = [category_edit, unrelated_edit]
+            pending_category_groups = None
+            pending_category_changes = []
+            category_groups_config = {"Group": ["B", "C"]}
+            category_to_group = {"B": "Group", "C": "Group"}
+            profile_dir = object()
+
+            async def fetch_unfiltered_transactions(self):
+                return complete_df
+
+            def undo_last_batch(self):
+                edit = self.pending_edits.pop()
+                return [edit]
+
+            def _populate_categories_from_config(self):
+                self.categories = {
+                    name.lower(): {"name": name, "group": group}
+                    for group, names in self.category_groups_config.items()
+                    for name in names
+                }
+
+        class ControllerStub:
+            def queue_category_reassignment(self, source_df, source_id, target_id):
+                for edit in app.data_manager.pending_edits:
+                    if edit.field == "category" and edit.new_value == source_id:
+                        edit.new_value = target_id
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.controller = ControllerStub()
+
+        async def merge_empty_category(screen, **kwargs):
+            screen._queue_reassign("category-b", "category-c")
+            app.data_manager.categories.pop("category-b")
+            return True
+
+        monkeypatch.setattr(app, "push_screen", merge_empty_category)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+
+        await app._manage_categories()
+        app.action_undo_pending_edits()
+
+        assert app.data_manager.pending_category_changes == []
+        assert len(app.data_manager.pending_edits) == 2
+        assert app.data_manager.pending_edits[0].new_value == "category-b"
+        assert app.data_manager.pending_edits[1] == unrelated_edit
+
+    async def test_independent_category_move_does_not_move_hidden_source(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        dependent_edit = TransactionEdit(
+            transaction_id="transaction-a",
+            field="category",
+            old_value="category-a",
+            new_value="category-b",
+            timestamp=datetime(2026, 1, 1),
+        )
+        complete_df = pl.DataFrame({"id": ["transaction-a"], "category_id": ["category-a"]})
+
+        class DataManagerStub:
+            categories = {
+                "category-b": {"name": "B", "group": "Group G"},
+                "category-c": {"name": "C", "group": "Group H"},
+            }
+            pending_edits = [dependent_edit]
+            pending_category_groups = {"Group G": ["B"], "Group H": ["C"]}
+            pending_category_changes = [
+                DeferredCategoryChange(
+                    before_groups={"Group G": ["A", "B"], "Group H": ["C"]},
+                    after_groups={"Group G": ["B"], "Group H": ["C"]},
+                    before_edits=[],
+                    dependent_timestamps={dependent_edit.timestamp},
+                )
+            ]
+            category_groups_config = {"Group G": ["B"], "Group H": ["C"]}
+            category_to_group = {"B": "Group G", "C": "Group H"}
+            profile_dir = object()
+
+            async def fetch_unfiltered_transactions(self):
+                return complete_df
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        saved_groups = []
+
+        async def move_category(screen, **kwargs):
+            app.data_manager.categories["category-b"]["group"] = "Group H"
+            return True
+
+        monkeypatch.setattr(app, "push_screen", move_category)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups),
+        )
+
+        await app._manage_categories()
+
+        expected_base = {"Group G": ["A"], "Group H": ["B", "C"]}
+        assert saved_groups == [expected_base]
+        assert app.data_manager.pending_category_changes[0].before_groups == expected_base
+
 
 class TestGroupManagerPersistence:
     @pytest.mark.parametrize("pending_field", ["category", "merchant", "hide_from_reports"])
@@ -734,6 +867,7 @@ class TestGroupManagerPersistence:
                     after_groups=deferred_groups,
                     before_edits=[ordinary_category_edit],
                     dependent_timestamps={dependent_category_edit.timestamp},
+                    after_edits=[ordinary_category_edit, dependent_category_edit],
                 )
             ]
             profile_dir = object()
