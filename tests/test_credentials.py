@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from moneyflow.data import credentials as credentials_module
 from moneyflow.data.credentials import CredentialManager
 from tests.conftest import save_test_credentials
 
@@ -19,6 +20,71 @@ from tests.conftest import save_test_credentials
 def assert_file_permissions(file_path: Path, expected_mode: str):
     """Verify file has exact expected octal permissions (e.g., '600')."""
     assert oct(file_path.stat().st_mode)[-3:] == expected_mode
+
+
+class TestInteractiveSimplefinSetup:
+    def test_password_mismatch_does_not_claim_one_time_token(self, monkeypatch, capsys):
+        inputs = iter(["3", "y"])
+        passwords = iter(["one-time-token", "first-password", "different-password"])
+        claim_calls = []
+
+        def claim(token):
+            claim_calls.append(token)
+            return "https://example.invalid/access"
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: next(passwords))
+        monkeypatch.setattr("moneyflow.backends.simplefin_client.claim_token", claim)
+        monkeypatch.setattr(credentials_module, "claim_token", claim, raising=False)
+
+        credentials_module.setup_credentials_interactive()
+
+        assert claim_calls == []
+        assert "Passwords do not match!" in capsys.readouterr().out
+
+    def test_save_failure_displays_claimed_access_url_for_recovery(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        access_url = "https://example:credential@bridge.simplefin.org/simplefin"
+        inputs = iter(["3", "n"])
+
+        class AccountManagerStub:
+            @staticmethod
+            def create_account(name, backend_type):
+                return type("Account", (), {"id": "simplefin-account"})()
+
+            @staticmethod
+            def get_profile_dir(account_id):
+                return tmp_path
+
+        class CredentialManagerStub:
+            credentials_file = tmp_path / "credentials.enc"
+            plaintext_credentials_file = tmp_path / "credentials.json"
+
+            def __init__(self, profile_dir):
+                pass
+
+            @staticmethod
+            def save_credentials(*args, **kwargs):
+                raise OSError("simulated save failure")
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: "one-time-token")
+        monkeypatch.setattr(
+            "moneyflow.backends.simplefin_client.claim_token", lambda token: access_url
+        )
+        monkeypatch.setattr(
+            credentials_module, "claim_token", lambda token: access_url, raising=False
+        )
+        monkeypatch.setattr("moneyflow.data.account_manager.AccountManager", AccountManagerStub)
+        monkeypatch.setattr(credentials_module, "CredentialManager", CredentialManagerStub)
+
+        with pytest.raises(OSError, match="simulated save failure"):
+            credentials_module.setup_credentials_interactive()
+
+        output = capsys.readouterr().out
+        assert "save this Access URL securely" in output
+        assert access_url in output
 
 
 @pytest.fixture

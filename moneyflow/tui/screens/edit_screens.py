@@ -1741,10 +1741,9 @@ class ManageGroupsScreen(ModalScreen):
             self.app.notify(f"Group '{name}' already exists", timeout=3)
             return
         cat_id = group_id
-        counter = 2
-        while cat_id in self.categories:
-            cat_id = f"{group_id}_{counter}"
-            counter += 1
+        if cat_id in self.categories:
+            self.app.notify("A category with an equivalent name already exists", timeout=3)
+            return
         self.categories[cat_id] = {
             "name": name,
             "group": name,

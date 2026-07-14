@@ -441,6 +441,35 @@ class TestManageCategoriesScreen:
 
 class TestManageGroupsScreen:
     @pytest.mark.asyncio
+    async def test_create_group_rejects_normalized_category_id_collision(self, monkeypatch):
+        categories = {
+            "new_group": {
+                "name": "Existing Category",
+                "group": "Existing Group",
+                "group_id": "existing_group",
+                "group_type": "",
+            }
+        }
+        screen = ManageGroupsScreen(categories)
+        notifications = []
+
+        class GroupManagerApp(App):
+            async def on_mount(self) -> None:
+                await self.push_screen(screen)
+
+        async with GroupManagerApp().run_test() as pilot:
+            await pilot.pause()
+            monkeypatch.setattr(
+                screen.app,
+                "notify",
+                lambda message, **kwargs: notifications.append(message),
+            )
+            screen._handle_create_group("New Group")
+
+        assert set(categories) == {"new_group"}
+        assert notifications == ["A category with an equivalent name already exists"]
+
+    @pytest.mark.asyncio
     async def test_mounted_rows_render_names_and_actions_literally(self):
         categories = {
             "danger": {

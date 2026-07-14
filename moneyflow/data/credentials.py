@@ -21,6 +21,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from ..backends.simplefin_client import claim_token
 from .file_utils import secure_write_file
 
 
@@ -330,11 +331,10 @@ def _prompt_simplefin_credentials() -> Dict[str, str]:
 
     Accepts either a one-time Base64-encoded Setup Token (from the SimpleFIN
     Bridge website) or an already-claimed Access URL. If a Setup Token is
-    provided, it is claimed immediately and the resulting Access URL is stored
-    in the password field of the credential schema.
+    provided, it is returned for claiming after the security settings have been
+    validated. The resulting Access URL is stored in the password field of the
+    credential schema.
     """
-    from ..backends.simplefin_client import claim_token
-
     print()
     print("=" * 70)
     print("SimpleFIN Credential Setup")
@@ -368,11 +368,11 @@ def _prompt_simplefin_credentials() -> Dict[str, str]:
         print()
         print("Access URL accepted.")
     else:
-        # Treat as a one-time token and claim it.
+        # Defer the one-time claim until encryption settings and the profile
+        # destination have been validated.
         print()
-        print("Claiming your SimpleFIN token...")
-        access_url = claim_token(raw)
-        print("Token claimed successfully.")
+        print("Setup token accepted. It will be claimed after security setup.")
+        access_url = raw
 
     return {"email": "", "password": access_url, "mfa_secret": ""}
 
@@ -461,25 +461,41 @@ def setup_credentials_interactive() -> None:
     # Save credentials into the account's profile directory
     manager = CredentialManager(profile_dir=profile_dir)
 
-    if use_encryption:
-        manager.save_credentials(
-            email,
-            password,
-            mfa_secret,
-            encryption_password=encryption_password,
-            backend_type=backend_type,
-            use_encryption=True,
-        )
-        cred_file = manager.credentials_file
-        extra_step = "  2. You'll need to enter your encryption password each time"
-        print(f"Encrypted credentials saved to {cred_file}")
-    else:
-        manager.save_credentials(
-            email, password, mfa_secret, backend_type=backend_type, use_encryption=False
-        )
-        cred_file = manager.plaintext_credentials_file
-        extra_step = "  2. No password needed - credentials load automatically"
-        print(f"Credentials saved to {cred_file}")
+    claimed_access_url = None
+    if backend_type == "simplefin" and not password.startswith("https://"):
+        print()
+        print("Claiming your SimpleFIN token...")
+        password = claim_token(password)
+        claimed_access_url = password
+        print("Token claimed successfully.")
+
+    try:
+        if use_encryption:
+            manager.save_credentials(
+                email,
+                password,
+                mfa_secret,
+                encryption_password=encryption_password,
+                backend_type=backend_type,
+                use_encryption=True,
+            )
+            cred_file = manager.credentials_file
+            extra_step = "  2. You'll need to enter your encryption password each time"
+            print(f"Encrypted credentials saved to {cred_file}")
+        else:
+            manager.save_credentials(
+                email, password, mfa_secret, backend_type=backend_type, use_encryption=False
+            )
+            cred_file = manager.plaintext_credentials_file
+            extra_step = "  2. No password needed - credentials load automatically"
+            print(f"Credentials saved to {cred_file}")
+    except Exception:
+        if claimed_access_url is not None:
+            print()
+            print("Credentials could not be saved after the one-time token was claimed.")
+            print("Copy and save this Access URL securely, then rerun setup with the Access URL:")
+            print(claimed_access_url)
+        raise
 
     print()
     print("=" * 70)
