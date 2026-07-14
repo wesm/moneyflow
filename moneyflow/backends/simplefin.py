@@ -230,6 +230,7 @@ class SimpleFinBackend(FinanceBackend):
             )
 
         migration_targets: dict[str, set[str]] = {}
+        migration_plan: list[tuple[str, str]] = []
         for transaction in transactions:
             new_id = str(transaction["id"])
             legacy_id = transaction.get("legacy_id")
@@ -244,6 +245,7 @@ class SimpleFinBackend(FinanceBackend):
                 continue
 
             migration_targets.setdefault(legacy_id, set()).add(new_id)
+            migration_plan.append((legacy_id, new_id))
             if (
                 conn.execute("SELECT 1 FROM transactions WHERE id = ?", (new_id,)).fetchone()
                 is not None
@@ -258,32 +260,17 @@ class SimpleFinBackend(FinanceBackend):
                 "SimpleFIN refresh found a legacy transaction ID collision; data was not changed."
             )
 
-        for transaction in transactions:
-            new_id = str(transaction["id"])
-            legacy_id = transaction.get("legacy_id")
-            if not isinstance(legacy_id, str) or legacy_id == new_id:
-                continue
-
-            account_id = str(transaction.get("account", {}).get("id", ""))
-            legacy_row = conn.execute(
-                "SELECT account_id FROM transactions WHERE id = ?", (legacy_id,)
-            ).fetchone()
-            legacy_row_matches = legacy_row is not None and legacy_row[0] == account_id
-
+        for legacy_id, new_id in migration_plan:
             if new_id in deleted_ids:
-                conn.execute("DELETE FROM transactions WHERE id = ?", (new_id,))
-                if legacy_row_matches:
-                    conn.execute("DELETE FROM transactions WHERE id = ?", (legacy_id,))
+                conn.execute("DELETE FROM transactions WHERE id = ?", (legacy_id,))
                 continue
 
-            if legacy_row_matches:
-                # Prefer the legacy row because it can contain local merchant,
-                # category, or visibility edits from before the ID upgrade.
-                conn.execute("DELETE FROM transactions WHERE id = ?", (new_id,))
-                conn.execute(
-                    "UPDATE transactions SET id = ? WHERE id = ?",
-                    (new_id, legacy_id),
-                )
+            # Prefer the legacy row because it can contain local merchant,
+            # category, or visibility edits from before the ID upgrade.
+            conn.execute(
+                "UPDATE transactions SET id = ? WHERE id = ?",
+                (new_id, legacy_id),
+            )
 
         return deleted_ids
 

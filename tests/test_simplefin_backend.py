@@ -428,6 +428,41 @@ class TestRefresh:
         ]
 
     @pytest.mark.asyncio
+    async def test_refresh_uses_immutable_legacy_id_migration_plan(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            """INSERT INTO transactions
+               (id, date, merchant_name, account_id, currency)
+               VALUES (?, ?, ?, ?, ?)""",
+            (LEGACY_COLON_ID, "2024-03-15", "Locally Edited", "acct:1", "USD"),
+        )
+        conn.commit()
+        conn.close()
+        chained_transaction = {
+            **COLON_TRANSACTION,
+            "id": "chain-new-id",
+            "legacy_id": ENCODED_COLON_ID,
+            "merchant": {"id": "Second Transaction", "name": "Second Transaction"},
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(
+            return_value=[COLON_TRANSACTION, chained_transaction]
+        )
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        assert await backend.refresh() == 1
+
+        result = await backend.get_transactions(limit=100, offset=0)
+        transactions = {
+            transaction["id"]: transaction for transaction in result["allTransactions"]["results"]
+        }
+        assert transactions[ENCODED_COLON_ID]["merchant"]["name"] == "Locally Edited"
+        assert transactions["chain-new-id"]["merchant"]["name"] == "Second Transaction"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
     async def test_fetch_error_preserves_existing_data_and_metadata(
         self, logged_in_backend, method_name
