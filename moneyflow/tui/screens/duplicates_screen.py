@@ -303,6 +303,14 @@ class DuplicatesScreen(Screen):
         )
 
         if confirmed:
+            if not self.main_app.can_edit_transaction_snapshot(self.refresh_generation):
+                self.notify(
+                    "Transactions refreshed; close and reopen duplicate review before deleting.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Show progress notification for batch operations
             if len(to_delete) > 5:
                 self.notify(
