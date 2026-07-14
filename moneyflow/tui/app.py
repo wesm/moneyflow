@@ -1282,7 +1282,8 @@ class MoneyflowApp(App):
         """Persist an independent config change across structural rollback boundaries."""
         if self.data_manager is None or not self.data_manager.pending_category_changes:
             return True
-        for change in self.data_manager.pending_category_changes:
+        rebased_changes = deepcopy(self.data_manager.pending_category_changes)
+        for change in rebased_changes:
             change.before_groups = self._apply_independent_category_changes(
                 change.before_groups,
                 groups_before,
@@ -1295,20 +1296,27 @@ class MoneyflowApp(App):
                 groups_after,
                 propagate_group_moves,
             )
-        base_groups = self.data_manager.pending_category_changes[0].before_groups
+        base_groups = rebased_changes[0].before_groups
         saved = True
         if self.data_manager.profile_dir:
             saved = save_categories_to_profile(
                 base_groups, profile_dir=self.data_manager.profile_dir
             )
-        self.data_manager.pending_category_groups = groups_after
         if not saved:
+            self.data_manager.category_groups_config = groups_before
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups_before)
+            self.data_manager.categories = {}
+            self.data_manager._populate_categories_from_config()
+            self.refresh_view()
             self.notify(
-                "Category configuration could not be saved; changes remain pending for retry.",
+                "Category configuration could not be saved; the latest changes were reverted.",
                 severity="error",
                 timeout=6,
             )
-        return saved
+            return False
+        self.data_manager.pending_category_changes = rebased_changes
+        self.data_manager.pending_category_groups = groups_after
+        return True
 
     # Time navigation actions
     def action_toggle_time_granularity(self) -> None:
@@ -1643,6 +1651,10 @@ class MoneyflowApp(App):
                     if not chosen_group:
                         new_category_id = None
                     else:
+                        groups_before = {
+                            group_name: list(category_names)
+                            for group_name, category_names in self.data_manager.category_groups_config.items()
+                        }
                         self.data_manager.categories[cat_id] = {
                             "name": cat_name,
                             "group": chosen_group,
@@ -1651,18 +1663,29 @@ class MoneyflowApp(App):
                         }
                         new_category_id = cat_id
                         groups = categories_dict_to_config_groups(self.data_manager.categories)
-                        saved = True
-                        if self.data_manager.profile_dir:
+                        has_pending_structure = bool(
+                            getattr(self.data_manager, "pending_category_changes", [])
+                        )
+                        if has_pending_structure:
+                            saved = self._rebase_pending_category_changes(
+                                groups_before,
+                                groups,
+                                propagate_group_moves=False,
+                            )
+                        elif self.data_manager.profile_dir:
                             saved = save_categories_to_profile(
                                 groups, profile_dir=self.data_manager.profile_dir
                             )
+                        else:
+                            saved = True
                         if not saved:
-                            del self.data_manager.categories[cat_id]
-                            self.notify(
-                                "Category could not be saved. No transaction edit was queued.",
-                                severity="error",
-                                timeout=6,
-                            )
+                            self.data_manager.categories.pop(cat_id, None)
+                            if not has_pending_structure:
+                                self.notify(
+                                    "Category could not be saved. No transaction edit was queued.",
+                                    severity="error",
+                                    timeout=6,
+                                )
                             return
                         self.data_manager.category_groups_config = groups
                         self.data_manager.category_to_group = build_category_to_group_mapping(

@@ -96,6 +96,11 @@ def migrate_legacy_credentials(
         # User should manually handle this case
         return False
 
+    if dry_run:
+        # Report the pending migration before attempting to classify opaque
+        # encrypted credentials so an interactive caller can unlock them.
+        return True
+
     # Read backend_type from stored credentials before migration
     backend_type: BackendType = "monarch"  # default for true legacy
     try:
@@ -120,11 +125,11 @@ def migrate_legacy_credentials(
         elif (config_dir / SIMPLEFIN_DB_FILE).exists():
             backend_type = "simplefin"
         else:
-            backend_type = "monarch"
-
-    if dry_run:
-        # Just report that migration is needed
-        return True
+            logger.warning(
+                "Encrypted legacy credentials could not be classified; "
+                "migration requires an unlock password or trusted backend hint."
+            )
+            return False
 
     # Perform migration
     # Step 1: Create "default" account profile

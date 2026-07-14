@@ -707,6 +707,82 @@ class TestSimpleFinStaleDialogs:
 
 
 class TestLocalCategoryCreation:
+    async def test_creation_rebases_pending_structural_changes(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        dependent_edit = TransactionEdit(
+            transaction_id="transaction-1",
+            field="category",
+            old_value="source-category",
+            new_value="target-category",
+            timestamp=datetime(2026, 1, 2),
+        )
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-2"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+            @staticmethod
+            def edit_category_current_selection(*args, **kwargs):
+                return 1
+
+        class DataManagerStub:
+            categories = {"target-category": {"name": "Target", "group": "Group"}}
+            pending_edits = [dependent_edit]
+            pending_category_groups = {"Group": ["Target"]}
+            pending_category_changes = [
+                DeferredCategoryChange(
+                    before_groups={"Group": ["Source", "Target"]},
+                    after_groups={"Group": ["Target"]},
+                    before_edits=[],
+                    dependent_timestamps={dependent_edit.timestamp},
+                )
+            ]
+            category_groups_config = {"Group": ["Target"]}
+            category_to_group = {"Target": "Group"}
+            profile_dir = object()
+
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = DataManagerStub()
+        choices = iter(["__new__:New Category", "Group"])
+        saved_groups = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def choose(screen, **kwargs):
+            return next(choices)
+
+        monkeypatch.setattr(app, "push_screen", choose)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
+        )
+
+        await app._edit_category()
+
+        expected_base = {"Group": ["Source", "Target", "New Category"]}
+        assert saved_groups == [expected_base]
+        assert app.data_manager.pending_category_changes[0].before_groups == expected_base
+        assert app.data_manager.pending_category_groups == {"Group": ["Target", "New Category"]}
+
     async def test_rejects_normalized_id_collision(self, monkeypatch):
         from moneyflow.tui.app import MoneyflowApp
 
@@ -822,6 +898,52 @@ class TestLocalCategoryCreation:
 
 
 class TestCategoryManagerSource:
+    def test_failed_rebase_save_keeps_rollback_snapshots_unchanged(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        change = DeferredCategoryChange(
+            before_groups={"Group": ["Source", "Target"]},
+            after_groups={"Group": ["Target"]},
+            before_edits=[],
+            dependent_timestamps={datetime(2026, 1, 2)},
+        )
+
+        class DataManagerStub:
+            pending_category_changes = [change]
+            pending_category_groups = {"Group": ["Target"]}
+            category_groups_config = {"Group": ["Target", "New Category"]}
+            category_to_group = {"Target": "Group", "New Category": "Group"}
+            categories = {
+                "target": {"name": "Target", "group": "Group"},
+                "new_category": {"name": "New Category", "group": "Group"},
+            }
+            profile_dir = object()
+
+            def _populate_categories_from_config(self):
+                self.categories = {
+                    "target": {"name": "Target", "group": "Group"},
+                }
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *args, **kwargs: False)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+
+        saved = app._rebase_pending_category_changes(
+            {"Group": ["Target"]},
+            {"Group": ["Target", "New Category"]},
+            propagate_group_moves=False,
+        )
+
+        assert saved is False
+        assert change.before_groups == {"Group": ["Source", "Target"]}
+        assert change.after_groups == {"Group": ["Target"]}
+        assert app.data_manager.pending_category_groups == {"Group": ["Target"]}
+        assert app.data_manager.category_groups_config == {"Group": ["Target"]}
+        assert "new_category" not in app.data_manager.categories
+
     async def test_manager_uses_complete_unfiltered_transactions(self, monkeypatch):
         from moneyflow.tui.app import MoneyflowApp
 

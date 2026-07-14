@@ -125,7 +125,9 @@ class TestMigrateLegacyCredentials:
     ):
         """Test that migration creates a 'default' account."""
         # Migrate
-        migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrated = migrate_legacy_credentials(
+            config_dir=temp_config_dir, backend_type_hint="monarch"
+        )
 
         assert migrated is True
 
@@ -140,6 +142,22 @@ class TestMigrateLegacyCredentials:
         assert accounts[0].name == "Default Account"
         assert accounts[0].backend_type == "monarch"
 
+    def test_opaque_encrypted_credentials_defer_without_backend_hint(self, temp_config_dir):
+        credentials = CredentialManager(config_dir=temp_config_dir)
+        credentials.save_credentials(
+            email="",
+            password="https://user:pass@bridge.simplefin.org/simplefin",
+            mfa_secret="",
+            encryption_password="example-password",
+            backend_type="simplefin",
+        )
+
+        migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
+
+        assert migrated is False
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+
     def test_migrate_moves_credentials_to_profile(self, temp_config_dir, legacy_credentials):
         """Test that migration moves credentials.enc to profile directory."""
         # Verify legacy files exist
@@ -147,7 +165,7 @@ class TestMigrateLegacyCredentials:
         assert (temp_config_dir / "salt").exists()
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy files should be moved (not copied)
         assert not (temp_config_dir / "credentials.enc").exists()
@@ -171,7 +189,7 @@ class TestMigrateLegacyCredentials:
         )
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Load from new profile location
         profile_dir = temp_config_dir / "profiles" / "default"
@@ -199,7 +217,7 @@ class TestMigrateLegacyCredentials:
         )
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy merchant cache should be moved
         assert not merchant_cache.exists()
@@ -221,7 +239,7 @@ class TestMigrateLegacyCredentials:
         (cache_dir / "metadata.json").write_text("{}")
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy cache should be moved
         assert not cache_dir.exists()
@@ -275,7 +293,7 @@ class TestMigrationEdgeCases:
     def test_migration_with_only_credentials_no_cache(self, temp_config_dir, legacy_credentials):
         """Test migration works with only credentials, no merchant cache."""
         # Migrate
-        result = migrate_legacy_credentials(config_dir=temp_config_dir)
+        result = migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         assert result is True
 
@@ -289,7 +307,7 @@ class TestMigrationEdgeCases:
         (temp_config_dir / "credentials.enc").write_bytes(b"encrypted data")
 
         # Migrate
-        result = migrate_legacy_credentials(config_dir=temp_config_dir)
+        result = migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         assert result is True
 
@@ -337,7 +355,7 @@ class TestMigratePlaintextCredentials:
         assert (temp_config_dir / "credentials.enc").exists()
         assert (temp_config_dir / "salt").exists()
 
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         profile_dir = temp_config_dir / "profiles" / "default"
         assert (profile_dir / CREDENTIALS_FILE).exists()

@@ -1,9 +1,9 @@
 import logging
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 from moneyflow.backends import get_backend
-from moneyflow.data.account_manager import Account, AccountManager
+from moneyflow.data.account_manager import Account, AccountManager, BackendType
 from moneyflow.data.credentials import CredentialManager
 from moneyflow.data.migration import (
     migrate_global_categories_to_profiles,
@@ -85,7 +85,27 @@ class AccountFlowCoordinator:
         """Handle account selection flow for multi-account support."""
         config_path = Path(self.app.config_dir) if self.app.config_dir else None
 
-        migrated = migrate_legacy_credentials(config_dir=config_path)
+        unlocked_legacy_credentials = None
+        backend_type_hint = None
+        if migrate_legacy_credentials(config_dir=config_path, dry_run=True):
+            legacy_credential_manager = CredentialManager(config_dir=config_path)
+            if (
+                legacy_credential_manager.credentials_exist()
+                and not legacy_credential_manager.is_plaintext()
+            ):
+                unlocked = await self.app.push_screen(
+                    CredentialUnlockScreen(), wait_for_dismiss=True
+                )
+                if unlocked is None:
+                    return None, None, None
+                if isinstance(unlocked, dict):
+                    unlocked_legacy_credentials = unlocked
+                    backend_type_hint = cast(BackendType, unlocked.get("backend_type", "monarch"))
+
+        migrated = migrate_legacy_credentials(
+            config_dir=config_path,
+            backend_type_hint=backend_type_hint,
+        )
         if migrated:
             logger.info("Migrated legacy credentials to default profile")
 
@@ -143,6 +163,9 @@ class AccountFlowCoordinator:
             if account.backend_type == "amazon":
                 logger.info(f"Loading Amazon account {account.id} (no credentials needed)")
                 return account.id, profile_dir, None
+
+            if account.id == "default" and unlocked_legacy_credentials is not None:
+                return account.id, profile_dir, unlocked_legacy_credentials
 
             cred_manager = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
 
