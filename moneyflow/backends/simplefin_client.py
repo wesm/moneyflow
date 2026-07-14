@@ -243,8 +243,9 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
             if not txn_id:
                 raise RuntimeError("SimpleFIN response is missing required transaction ID.")
             description = _coerce_str(txn.get("description")) or ""
-            amount = _coerce_float(txn.get("amount"))
-            if amount is None or not math.isfinite(amount):
+            raw_amount = txn.get("amount")
+            amount = _coerce_float(raw_amount)
+            if isinstance(raw_amount, bool) or amount is None or not math.isfinite(amount):
                 raise RuntimeError("SimpleFIN response contains an invalid transaction amount.")
             pending = _coerce_bool(txn.get("pending"))
 
