@@ -504,6 +504,20 @@ class TestCommitHandling:
         # VERIFY: View refreshed
         assert len(mock_view.table_updates) > 0, "View should be refreshed"
 
+    async def test_successful_commit_clears_deferred_category_ownership(self, controller):
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        controller.data_manager.pending_category_groups = {"Group": ["Category"]}
+        controller.data_manager.pending_category_group_edit_timestamps = {edit.timestamp}
+        controller.data_manager.pending_category_groups_previous = {"Old Group": ["Category"]}
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert controller.data_manager.pending_category_groups is None
+        assert controller.data_manager.pending_category_group_edit_timestamps == set()
+        assert controller.data_manager.pending_category_groups_previous is None
+
     async def test_partial_failure_does_not_apply_edits(self, controller, mock_view):
         """
         CRITICAL: When ANY commits fail, edits should NOT be applied locally.

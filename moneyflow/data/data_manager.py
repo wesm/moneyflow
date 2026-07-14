@@ -204,6 +204,8 @@ class DataManager:
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
         self.pending_category_groups: Optional[Dict[str, List[str]]] = None
+        self.pending_category_group_edit_timestamps: Set[datetime] = set()
+        self.pending_category_groups_previous: Optional[Dict[str, List[str]]] = None
         self.all_merchants: List[str] = []  # Cached + current merchants
 
         # Merchant cache setup

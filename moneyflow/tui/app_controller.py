@@ -1655,6 +1655,8 @@ class AppController:
                         profile_dir=self.data_manager.profile_dir,
                     )
                 self.data_manager.pending_category_groups = None
+                self.data_manager.pending_category_group_edit_timestamps.clear()
+                self.data_manager.pending_category_groups_previous = None
                 logger.info("Saved deferred category config after successful commit")
 
             # Refresh to show updated data (smooth update)
