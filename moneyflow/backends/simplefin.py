@@ -211,6 +211,49 @@ class SimpleFinBackend(FinanceBackend):
         rows = conn.execute("SELECT id FROM deleted_transactions").fetchall()
         return {row[0] for row in rows}
 
+    def _migrate_legacy_transaction_ids(
+        self,
+        conn: sqlite3.Connection,
+        transactions: List[Dict[str, Any]],
+    ) -> set[str]:
+        """Migrate ambiguous legacy IDs while preserving local edits and deletions."""
+        deleted_ids = self._get_deleted_transaction_ids(conn)
+        deleted_at = datetime.now(timezone.utc).isoformat()
+
+        for transaction in transactions:
+            new_id = str(transaction["id"])
+            legacy_id = transaction.get("legacy_id")
+            if not isinstance(legacy_id, str) or legacy_id == new_id:
+                continue
+
+            account_id = str(transaction.get("account", {}).get("id", ""))
+            legacy_row = conn.execute(
+                "SELECT account_id FROM transactions WHERE id = ?", (legacy_id,)
+            ).fetchone()
+            legacy_row_matches = legacy_row is not None and legacy_row[0] == account_id
+
+            if legacy_id in deleted_ids or new_id in deleted_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+                    (new_id, deleted_at),
+                )
+                deleted_ids.add(new_id)
+                conn.execute("DELETE FROM transactions WHERE id = ?", (new_id,))
+                if legacy_row_matches:
+                    conn.execute("DELETE FROM transactions WHERE id = ?", (legacy_id,))
+                continue
+
+            if legacy_row_matches:
+                # Prefer the legacy row because it can contain local merchant,
+                # category, or visibility edits from before the ID upgrade.
+                conn.execute("DELETE FROM transactions WHERE id = ?", (new_id,))
+                conn.execute(
+                    "UPDATE transactions SET id = ? WHERE id = ?",
+                    (new_id, legacy_id),
+                )
+
+        return deleted_ids
+
     def _resolve_currency_code(
         self,
         transactions: List[Dict[str, Any]],
@@ -329,7 +372,7 @@ class SimpleFinBackend(FinanceBackend):
         non_pending = [t for t in transactions if not t.get("pending", False)]
 
         conn = self._get_connection()
-        deleted_ids = self._get_deleted_transaction_ids(conn)
+        deleted_ids = self._migrate_legacy_transaction_ids(conn, transactions)
         if currency_code:
             conn.execute(
                 "UPDATE transactions SET currency = ? WHERE currency = ''",
@@ -424,9 +467,9 @@ class SimpleFinBackend(FinanceBackend):
         non_pending = [t for t in transactions if not t.get("pending", False)]
 
         conn = self._get_connection()
+        deleted_ids = self._migrate_legacy_transaction_ids(conn, transactions)
         conn.execute("DELETE FROM transactions")
         conn.execute("DELETE FROM refresh_metadata")
-        deleted_ids = self._get_deleted_transaction_ids(conn)
         inserted = 0
 
         for txn in non_pending:

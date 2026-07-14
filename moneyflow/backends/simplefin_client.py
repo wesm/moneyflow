@@ -229,7 +229,7 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
     for acct in raw_accounts:
         acct_id = _coerce_str(acct.get("id")) or ""
         if not acct_id:
-            continue
+            raise RuntimeError("SimpleFIN response is missing required account ID.")
         acct_name = _coerce_str(acct.get("name")) or acct_id
         currency = _normalize_currency_code(acct.get("currency"))
         txns = acct.get("transactions") or []
@@ -237,7 +237,7 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
         for txn in txns:
             txn_id = _coerce_str(txn.get("id")) or ""
             if not txn_id:
-                continue
+                raise RuntimeError("SimpleFIN response is missing required transaction ID.")
             description = _coerce_str(txn.get("description")) or ""
             amount = _coerce_float(txn.get("amount"))
             pending = _coerce_bool(txn.get("pending"))
@@ -250,21 +250,24 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
                 # Skip transactions with no usable date
                 continue
 
-            result.append(
-                {
-                    "id": _transaction_id(acct_id, txn_id),
-                    "date": date_str,
-                    "amount": amount,
-                    "merchant": {"id": description, "name": description},
-                    "category": {"id": "uncategorized", "name": "Uncategorized"},
-                    "account": {"id": acct_id, "displayName": acct_name},
-                    "currency": currency,
-                    "notes": "",
-                    "hideFromReports": False,
-                    "pending": pending,
-                    "isRecurring": False,
-                }
-            )
+            transaction_id = _transaction_id(acct_id, txn_id)
+            legacy_id = f"{acct_id}:{txn_id}"
+            parsed_transaction = {
+                "id": transaction_id,
+                "date": date_str,
+                "amount": amount,
+                "merchant": {"id": description, "name": description},
+                "category": {"id": "uncategorized", "name": "Uncategorized"},
+                "account": {"id": acct_id, "displayName": acct_name},
+                "currency": currency,
+                "notes": "",
+                "hideFromReports": False,
+                "pending": pending,
+                "isRecurring": False,
+            }
+            if transaction_id != legacy_id:
+                parsed_transaction["legacy_id"] = legacy_id
+            result.append(parsed_transaction)
 
     return result
 

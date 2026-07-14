@@ -225,6 +225,7 @@ class TestParseTransactions:
         second = _parse_transactions([transaction_with_separator])[0]
 
         assert first["id"] != second["id"]
+        assert first["legacy_id"] == second["legacy_id"] == "acct:1:txn"
 
     @pytest.mark.parametrize(
         ("account_id", "transaction_id"),
@@ -237,7 +238,8 @@ class TestParseTransactions:
             "transactions": [{**MINIMAL_ACCOUNT["transactions"][0], "id": transaction_id}],
         }
 
-        assert _parse_transactions([account]) == []
+        with pytest.raises(RuntimeError, match="missing required .* ID"):
+            _parse_transactions([account])
 
     def test_account_with_no_transactions_produces_no_rows(self):
         acct = {"id": "a", "name": "Empty", "transactions": []}

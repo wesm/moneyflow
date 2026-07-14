@@ -63,6 +63,23 @@ SAMPLE_TRANSACTIONS = [
     },
 ]
 
+LEGACY_COLON_ID = "acct:1:txn"
+ENCODED_COLON_ID = "v2:6:acct:1txn"
+COLON_TRANSACTION = {
+    "id": ENCODED_COLON_ID,
+    "legacy_id": LEGACY_COLON_ID,
+    "date": "2024-03-15",
+    "amount": -42.50,
+    "merchant": {"id": "Example Merchant", "name": "Example Merchant"},
+    "category": {"id": "uncategorized", "name": "Uncategorized"},
+    "account": {"id": "acct:1", "displayName": "Checking"},
+    "currency": "USD",
+    "notes": "",
+    "hideFromReports": False,
+    "pending": False,
+    "isRecurring": False,
+}
+
 
 @pytest.fixture()
 def backend(tmp_path):
@@ -343,6 +360,49 @@ class TestRefresh:
         assert result["allTransactions"]["totalCount"] == 3
 
     @pytest.mark.asyncio
+    async def test_refresh_migrates_legacy_colon_id_without_losing_local_edits(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            """INSERT INTO transactions
+               (id, date, merchant_name, account_id, currency)
+               VALUES (?, ?, ?, ?, ?)""",
+            (LEGACY_COLON_ID, "2024-03-15", "Locally Edited", "acct:1", "USD"),
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(return_value=[COLON_TRANSACTION])
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        assert await backend.refresh() == 0
+
+        result = await backend.get_transactions(limit=100, offset=0)
+        assert result["allTransactions"]["totalCount"] == 1
+        transaction = result["allTransactions"]["results"][0]
+        assert transaction["id"] == ENCODED_COLON_ID
+        assert transaction["merchant"]["name"] == "Locally Edited"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
+    async def test_fetch_error_preserves_existing_data_and_metadata(
+        self, logged_in_backend, method_name
+    ):
+        backend, mock_client = logged_in_backend
+        await backend.refresh()
+        before_stats = backend.get_database_stats()
+        mock_client.fetch_transactions = AsyncMock(
+            side_effect=RuntimeError("SimpleFIN response is missing required transaction ID")
+        )
+
+        with pytest.raises(RuntimeError, match="missing required transaction ID"):
+            await getattr(backend, method_name)()
+
+        assert backend.get_database_stats() == before_stats
+
+    @pytest.mark.asyncio
     async def test_refresh_not_logged_in_raises(self, backend):
         with pytest.raises(RuntimeError, match="not logged in"):
             await backend.refresh()
@@ -442,6 +502,34 @@ class TestHardRefresh:
         call_kwargs = mock_client.fetch_transactions.call_args[1]
         assert call_kwargs["start_date"] == expected_start
         assert call_kwargs["end_date"] == (date.today() + timedelta(days=1)).isoformat()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
+    async def test_refreshes_migrate_legacy_colon_tombstone(self, tmp_path, method_name):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            "INSERT INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+            (LEGACY_COLON_ID, "2024-03-15T00:00:00+00:00"),
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(return_value=[COLON_TRANSACTION])
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        assert await getattr(backend, method_name)() == 0
+
+        conn = sqlite3.connect(backend._db_path)
+        transaction_count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        tombstones = {
+            row[0] for row in conn.execute("SELECT id FROM deleted_transactions").fetchall()
+        }
+        conn.close()
+        assert transaction_count == 0
+        assert tombstones == {LEGACY_COLON_ID, ENCODED_COLON_ID}
 
 
 # ---------------------------------------------------------------------------
