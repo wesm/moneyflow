@@ -462,14 +462,14 @@ def setup_credentials_interactive() -> None:
     manager = CredentialManager(profile_dir=profile_dir)
 
     claimed_access_url = None
-    if backend_type == "simplefin" and not password.startswith("https://"):
-        print()
-        print("Claiming your SimpleFIN token...")
-        password = claim_token(password)
-        claimed_access_url = password
-        print("Token claimed successfully.")
-
     try:
+        if backend_type == "simplefin" and not password.startswith("https://"):
+            print()
+            print("Claiming your SimpleFIN token...")
+            password = claim_token(password)
+            claimed_access_url = password
+            print("Token claimed successfully.")
+
         if use_encryption:
             manager.save_credentials(
                 email,
@@ -495,6 +495,10 @@ def setup_credentials_interactive() -> None:
             print("Credentials could not be saved after the one-time token was claimed.")
             print("Copy and save this Access URL securely, then rerun setup with the Access URL:")
             print(claimed_access_url)
+        try:
+            account_manager.delete_account(account.id)
+        except Exception as cleanup_error:
+            print(f"Warning: failed to remove incomplete account '{account.id}': {cleanup_error}")
         raise
 
     print()

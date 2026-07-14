@@ -47,6 +47,7 @@ class TestInteractiveSimplefinSetup:
     ):
         access_url = "https://example:credential@bridge.simplefin.org/simplefin"
         inputs = iter(["3", "n"])
+        deleted_accounts = []
 
         class AccountManagerStub:
             @staticmethod
@@ -56,6 +57,11 @@ class TestInteractiveSimplefinSetup:
             @staticmethod
             def get_profile_dir(account_id):
                 return tmp_path
+
+            @staticmethod
+            def delete_account(account_id):
+                deleted_accounts.append(account_id)
+                return True
 
         class CredentialManagerStub:
             credentials_file = tmp_path / "credentials.enc"
@@ -85,6 +91,39 @@ class TestInteractiveSimplefinSetup:
         output = capsys.readouterr().out
         assert "save this Access URL securely" in output
         assert access_url in output
+        assert deleted_accounts == ["simplefin-account"]
+
+    def test_claim_failure_removes_new_account(self, monkeypatch, tmp_path):
+        inputs = iter(["3", "n"])
+        deleted_accounts = []
+
+        class AccountManagerStub:
+            @staticmethod
+            def create_account(name, backend_type):
+                return type("Account", (), {"id": "simplefin-account"})()
+
+            @staticmethod
+            def get_profile_dir(account_id):
+                return tmp_path
+
+            @staticmethod
+            def delete_account(account_id):
+                deleted_accounts.append(account_id)
+                return True
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: "one-time-token")
+        monkeypatch.setattr(
+            credentials_module,
+            "claim_token",
+            lambda token: (_ for _ in ()).throw(ValueError("simulated claim failure")),
+        )
+        monkeypatch.setattr("moneyflow.data.account_manager.AccountManager", AccountManagerStub)
+
+        with pytest.raises(ValueError, match="simulated claim failure"):
+            credentials_module.setup_credentials_interactive()
+
+        assert deleted_accounts == ["simplefin-account"]
 
 
 @pytest.fixture
