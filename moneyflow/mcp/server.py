@@ -141,6 +141,7 @@ def create_mcp_server(
     from ..data.account_manager import AccountManager
     from ..data.credentials import CredentialManager
     from ..data.data_manager import DataManager
+    from ..data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
 
     mcp = FastMCP("moneyflow")
 
@@ -163,6 +164,20 @@ def create_mcp_server(
             return False
 
         config_path = Path(_state["config_dir"]) if _state["config_dir"] else None
+        resolved_config_path = config_path or Path.home() / ".moneyflow"
+        migration_password = os.environ.get(ENV_PASSWORD)
+        legacy_encrypted = resolved_config_path / "credentials.enc"
+        legacy_simplefin_db = resolved_config_path / "simplefin.db"
+        if (
+            not legacy_encrypted.exists()
+            or migration_password is not None
+            or legacy_simplefin_db.exists()
+        ):
+            migrate_legacy_credentials(
+                config_dir=resolved_config_path,
+                encryption_password=migration_password,
+            )
+        migrate_legacy_simplefin_db(config_dir=resolved_config_path)
         account_manager = AccountManager(config_dir=config_path)
 
         # Get account to use

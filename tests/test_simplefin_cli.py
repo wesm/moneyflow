@@ -38,7 +38,7 @@ class TestResolveSimplefinProfile:
         with pytest.raises(click.exceptions.Abort):
             _resolve_simplefin_profile(config_dir=str(tmp_path))
 
-    def test_encrypted_legacy_credentials_use_simplefin_context(self, tmp_path):
+    def test_encrypted_legacy_credentials_use_decrypted_backend(self, tmp_path, monkeypatch):
         """SimpleFIN CLI migration must not classify opaque credentials as Monarch."""
         credentials = CredentialManager(config_dir=tmp_path)
         credentials.save_credentials(
@@ -48,6 +48,7 @@ class TestResolveSimplefinProfile:
             encryption_password="example-password",
             backend_type="simplefin",
         )
+        monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "example-password")
 
         account_id, profile_dir = _resolve_simplefin_profile(config_dir=str(tmp_path))
 
@@ -55,6 +56,25 @@ class TestResolveSimplefinProfile:
         assert account is not None
         assert account.backend_type == "simplefin"
         assert (profile_dir / "credentials.enc").exists()
+
+    def test_encrypted_legacy_monarch_credentials_are_not_reclassified(self, tmp_path, monkeypatch):
+        """Entering SimpleFIN mode must preserve an encrypted Monarch profile's type."""
+        credentials = CredentialManager(config_dir=tmp_path)
+        credentials.save_credentials(
+            email="example@example.com",
+            password="example-password",
+            mfa_secret="EXAMPLESECRET",
+            encryption_password="legacy-password",
+            backend_type="monarch",
+        )
+        monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "legacy-password")
+
+        with pytest.raises(click.exceptions.Abort):
+            _resolve_simplefin_profile(config_dir=str(tmp_path))
+
+        accounts = AccountManager(config_dir=tmp_path).list_accounts()
+        assert len(accounts) == 1
+        assert accounts[0].backend_type == "monarch"
 
     def test_single_profile(self, tmp_path):
         """1 profile -> silently resolves."""

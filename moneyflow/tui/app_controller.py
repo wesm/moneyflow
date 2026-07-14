@@ -141,6 +141,11 @@ class AppController:
 
         # Track if current view shows Amazon column
         self._showing_amazon_column = False
+        self.edits_enabled = True
+
+    def set_edits_enabled(self, enabled: bool) -> None:
+        """Enable or suspend transaction edit queuing during data migrations."""
+        self.edits_enabled = enabled
 
     def _is_amazon_filtered_view(self, df: pl.DataFrame) -> bool:
         """
@@ -1340,6 +1345,9 @@ class AppController:
             >>> count  # All Amazon transactions edited
             50
         """
+        if not self.edits_enabled:
+            return 0
+
         # Validate input
         if not new_merchant or not new_merchant.strip():
             return 0
@@ -1382,6 +1390,9 @@ class AppController:
         Returns:
             Number of edits queued (0 if validation failed or no transactions)
         """
+        if not self.edits_enabled:
+            return 0
+
         # Validate input
         if not new_category_id or not new_category_id.strip():
             return 0
@@ -1417,6 +1428,9 @@ class AppController:
             - count: Number of edits queued or undone
             - was_undo: True if this was an undo operation, False if new toggles
         """
+        if not self.edits_enabled:
+            return (0, False)
+
         # Determine what to edit (use "merchant" as placeholder - hide works on any context)
         context = self.determine_edit_context("merchant", cursor_row=cursor_row)
 
@@ -1463,6 +1477,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0
@@ -1486,6 +1503,9 @@ class AppController:
         target_category_id: str,
     ) -> int:
         """Queue a category merge against effective assignments, including pending edits."""
+        if not self.edits_enabled:
+            return 0
+
         latest_category_edits = {}
         for edit in self.data_manager.pending_edits:
             if edit.field == "category":
@@ -1526,6 +1546,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0
@@ -1555,6 +1578,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0

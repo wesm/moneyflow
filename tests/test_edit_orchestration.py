@@ -100,6 +100,27 @@ class TestSetupViewHelper:
         assert controller.state.selected_ids == {1, 2}
 
 
+class TestEditSuspension:
+    """Transaction migrations can temporarily suspend all edit queueing."""
+
+    async def test_disabled_controller_rejects_transaction_edits(self, edit_controller):
+        controller = edit_controller
+        setup_view(controller, ViewMode.DETAIL)
+        initial_pending = list(controller.data_manager.pending_edits)
+
+        controller.set_edits_enabled(False)
+        merchant_count = controller.edit_merchant_current_selection(
+            "Example Merchant", cursor_row=0
+        )
+        category_count = controller.edit_category_current_selection("uncategorized", cursor_row=0)
+        hide_count, was_undo = controller.toggle_hide_current_selection(cursor_row=0)
+
+        assert merchant_count == 0
+        assert category_count == 0
+        assert (hide_count, was_undo) == (0, False)
+        assert controller.data_manager.pending_edits == initial_pending
+
+
 class TestDetermineEditContext:
     """Test that edit context is correctly determined for all view states."""
 

@@ -1,5 +1,6 @@
 """Tests for MoneyflowApp."""
 
+import asyncio
 from datetime import datetime
 
 import polars as pl
@@ -40,6 +41,10 @@ class RefreshController:
 
     def __init__(self):
         self.refresh_calls = []
+        self.edits_enabled = True
+
+    def set_edits_enabled(self, enabled: bool) -> None:
+        self.edits_enabled = enabled
 
     def refresh_view(self, force_rebuild: bool = True) -> None:
         self.refresh_calls.append(force_rebuild)
@@ -308,6 +313,56 @@ class TestSimpleFinBackgroundRefresh:
 
         assert app.state.transactions_df["id"].to_list() == ["encoded-account:encoded-transaction"]
         assert app.controller.refresh_calls == [False]
+
+    async def test_background_refresh_blocks_edits_queued_while_migrating(self, monkeypatch):
+        """An edit started during refresh must not retain a pre-migration ID."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+
+        class BlockingMigrationBackend(RefreshingSimpleFinBackend):
+            async def refresh(self) -> int:
+                refresh_started.set()
+                await release_refresh.wait()
+                return 0
+
+        class EditingRefreshController(RefreshController):
+            def __init__(self):
+                super().__init__()
+                self.edits_enabled = True
+                self.queued_ids = []
+
+            def set_edits_enabled(self, enabled: bool) -> None:
+                self.edits_enabled = enabled
+
+            def queue_edit(self, transaction_id: str) -> int:
+                if not self.edits_enabled:
+                    return 0
+                self.queued_ids.append(transaction_id)
+                return 1
+
+        app = MoneyflowApp(backend=BlockingMigrationBackend())
+        app.data_manager = FetchingDataManager(
+            pl.DataFrame({"id": ["encoded-account:encoded-transaction"]})
+        )
+        app.controller = EditingRefreshController()
+
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_save_last_update_time", lambda: None)
+        monkeypatch.setattr(app, "_refresh_subtitle", lambda: None)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda saved: None)
+
+        refresh_task = asyncio.create_task(app._simplefin_background_refresh())
+        await refresh_started.wait()
+        queued = app.controller.queue_edit("legacy-account:transaction")
+        release_refresh.set()
+        await refresh_task
+
+        assert queued == 0
+        assert app.controller.queued_ids == []
+        assert app.controller.edits_enabled is True
 
 
 class TestLocalCategoryCreation:

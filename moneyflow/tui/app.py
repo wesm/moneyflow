@@ -531,6 +531,14 @@ class MoneyflowApp(App):
         from SQLite and update the UI. Runs as an async task on the main
         event loop (not a thread) to avoid thread-safety issues.
         """
+        if getattr(self.data_manager, "pending_edits", []):
+            self.notify(
+                "SimpleFIN: Refresh postponed until pending edits are committed or undone",
+                timeout=4,
+            )
+            return
+
+        self.controller.set_edits_enabled(False)
         try:
             self.notify("SimpleFIN: Checking for new transactions...", timeout=10)
 
@@ -562,6 +570,8 @@ class MoneyflowApp(App):
         except Exception as e:
             logger.warning(f"SimpleFIN background refresh failed: {e}")
             self.notify(f"SimpleFIN: Refresh failed — {e}", severity="error", timeout=5)
+        finally:
+            self.controller.set_edits_enabled(True)
 
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.

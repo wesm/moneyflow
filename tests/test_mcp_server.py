@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import polars as pl
 import pytest
 
+from moneyflow.data.account_manager import AccountManager
+from moneyflow.data.credentials import CredentialManager
 from moneyflow.mcp.server import (
     ENV_PASSWORD,
     MAX_BATCH_SIZE,
@@ -43,7 +45,7 @@ def mock_account():
 
 
 @pytest.fixture
-def mcp_server_factory(mock_account):
+def mcp_server_factory(mock_account, tmp_path):
     """Fixture that yields a factory to create an MCP server with mocked dependencies."""
 
     def _factory(transactions, categories):
@@ -84,7 +86,7 @@ def mcp_server_factory(mock_account):
 
             mock_dm_cls.return_value = mock_dm
 
-            return create_mcp_server()
+            return create_mcp_server(config_dir=str(tmp_path))
 
     return _factory
 
@@ -271,6 +273,40 @@ class TestEncryptedCredentials:
 
 class TestSimplefinInitialization:
     @pytest.mark.asyncio
+    async def test_migrates_encrypted_legacy_simplefin_credentials_with_env_password(
+        self, tmp_path, monkeypatch
+    ):
+        credentials = CredentialManager(config_dir=tmp_path)
+        credentials.save_credentials(
+            email="",
+            password="https://example:secret@bridge.simplefin.org/simplefin",
+            mfa_secret="",
+            encryption_password="example-password",
+            backend_type="simplefin",
+        )
+        monkeypatch.setenv(ENV_PASSWORD, "example-password")
+
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(return_value=(pl.DataFrame(), {}, {}))
+
+        with (
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            mcp = create_mcp_server(config_dir=str(tmp_path))
+            await mcp.call_tool("search_transactions", {"query": ""})
+
+        accounts = AccountManager(config_dir=tmp_path).list_accounts()
+        assert len(accounts) == 1
+        assert accounts[0].backend_type == "simplefin"
+        assert (tmp_path / "profiles" / accounts[0].id / "credentials.enc").exists()
+        backend.login.assert_awaited_once_with(
+            password="https://example:secret@bridge.simplefin.org/simplefin"
+        )
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("initialize_before_refresh", [True, False])
     async def test_initializes_profile_backend_and_refreshes_before_loading(
         self, tmp_path, initialize_before_refresh
@@ -309,7 +345,7 @@ class TestSimplefinInitialization:
                 None,
             )
 
-            mcp = create_mcp_server()
+            mcp = create_mcp_server(config_dir=str(tmp_path))
             if initialize_before_refresh:
                 await mcp.call_tool("search_transactions", {"query": ""})
             await mcp.call_tool("refresh_data", {})
@@ -386,7 +422,7 @@ class TestSimplefinInitialization:
                 None,
             )
 
-            mcp = create_mcp_server()
+            mcp = create_mcp_server(config_dir=str(tmp_path))
             categories_result = await mcp.call_tool("get_categories", {})
             update_result = await mcp.call_tool(
                 "update_transaction_category",

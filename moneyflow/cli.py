@@ -105,7 +105,25 @@ def _resolve_simplefin_profile(
 
     config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
 
-    migrate_legacy_credentials(config_dir=config_path, backend_type_hint="simplefin")
+    legacy_encryption_password = None
+    if (
+        (config_path / "credentials.enc").exists()
+        and not (config_path / "simplefin.db").exists()
+        and not AccountManager(config_dir=config_path).list_accounts()
+    ):
+        legacy_encryption_password = click.prompt(
+            "Encryption password for legacy credentials",
+            hide_input=True,
+            err=True,
+        )
+    try:
+        migrate_legacy_credentials(
+            config_dir=config_path,
+            encryption_password=legacy_encryption_password,
+        )
+    except ValueError as error:
+        click.echo(f"Failed to load legacy credentials: {error}", err=True)
+        raise click.Abort() from error
     migrate_legacy_simplefin_db(config_dir=config_path)
 
     mgr = AccountManager(config_dir=config_path)

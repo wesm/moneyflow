@@ -47,6 +47,7 @@ def migrate_legacy_credentials(
     config_dir: Optional[Path] = None,
     dry_run: bool = False,
     backend_type_hint: Optional[BackendType] = None,
+    encryption_password: Optional[str] = None,
 ) -> bool:
     """
     Migrate legacy single-account credentials to multi-account profile system.
@@ -59,6 +60,7 @@ def migrate_legacy_credentials(
         dry_run: If True, only check if migration is needed without performing it
         backend_type_hint: Trusted backend context used only when encrypted credentials
             cannot be inspected during migration.
+        encryption_password: Password used to classify encrypted credentials before moving them.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
@@ -105,9 +107,11 @@ def migrate_legacy_credentials(
             from .credentials import CredentialManager
 
             cm = CredentialManager(config_dir=config_dir)
-            creds, _ = cm.load_credentials()
+            creds, _ = cm.load_credentials(encryption_password=encryption_password)
             backend_type = cast(BackendType, creds.get("backend_type", "monarch"))
     except Exception:
+        if legacy_cred_file.suffix == ".enc" and encryption_password is not None:
+            raise
         # Encrypted credentials can't be inspected without a password.
         # A trusted caller context or colocated SimpleFIN DB can classify credentials
         # whose encrypted contents are unavailable until after migration.
