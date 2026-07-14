@@ -412,6 +412,27 @@ class TestSimpleFinBackgroundRefresh:
         assert app.controller.edits_enabled is True
         assert app.can_edit_transaction_snapshot(0) is False
 
+    async def test_reload_failure_after_refresh_keeps_stale_edits_disabled(self, monkeypatch):
+        """Persisted ID changes invalidate the view even when reloading it fails."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        class FailingReloadDataManager(FetchingDataManager):
+            async def fetch_all_data(self):
+                raise RuntimeError("reload failed")
+
+        app = MoneyflowApp(backend=RefreshingSimpleFinBackend())
+        app.data_manager = FailingReloadDataManager(pl.DataFrame({"id": ["new-id"]}))
+        app.controller = RefreshController()
+        notifications = []
+        monkeypatch.setattr(app, "notify", lambda message, **kwargs: notifications.append(message))
+
+        await app._simplefin_background_refresh()
+
+        assert app._simplefin_refresh_generation == 1
+        assert app.controller.edits_enabled is False
+        assert app.can_edit_transaction_snapshot(0) is False
+        assert any("reload failed" in message for message in notifications)
+
 
 class TestBackendTaskRunnerDeletion:
     async def test_false_backend_result_is_propagated(self):
@@ -578,6 +599,70 @@ class TestSimpleFinStaleDialogs:
         assert app.data_manager.category_groups_config == {"Old Group": ["Old"]}
         assert notifications == [
             ("Categories refreshed; reopen the group manager before making changes.", "warning")
+        ]
+
+    async def test_nested_group_picker_rejects_refreshed_snapshot(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        context = type(
+            "EditContext",
+            (),
+            {
+                "transactions": pl.DataFrame({"id": ["legacy-id"]}),
+                "current_value": "source",
+                "transaction_count": 1,
+                "is_multi_select": False,
+            },
+        )()
+
+        class Controller:
+            edits_enabled = True
+            edit_calls = []
+
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return context
+
+            def edit_category_current_selection(self, *args, **kwargs):
+                self.edit_calls.append((args, kwargs))
+                return 1
+
+        app = MoneyflowApp()
+        app.controller = Controller()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = type(
+            "DataManager",
+            (),
+            {
+                "categories": {"source": {"name": "Source", "group": "Example Group"}},
+                "profile_dir": object(),
+            },
+        )()
+        choices = iter(["__new__:New Category", "Example Group"])
+        notifications = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def choose(screen, **kwargs):
+            choice = next(choices)
+            if choice == "Example Group":
+                app._simplefin_refresh_generation += 1
+            return choice
+
+        monkeypatch.setattr(app, "push_screen", choose)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert "new_category" not in app.data_manager.categories
+        assert app.controller.edit_calls == []
+        assert notifications == [
+            ("Transactions refreshed; reopen the editor before making changes.", "warning")
         ]
 
     async def test_delete_dialog_rejects_refreshed_snapshot(self, monkeypatch):

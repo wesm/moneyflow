@@ -93,9 +93,15 @@ class AccountFlowCoordinator:
         if amazon_migrated:
             logger.info("Migrated legacy Amazon database to amazon profile")
 
-        simplefin_migrated = migrate_legacy_simplefin_db(config_dir=config_path)
-        if simplefin_migrated:
-            logger.info("Migrated legacy SimpleFIN database to simplefin profile")
+        simplefin_accounts = [
+            account
+            for account in AccountManager(config_dir=config_path).list_accounts()
+            if account.backend_type == "simplefin"
+        ]
+        if len(simplefin_accounts) <= 1:
+            simplefin_migrated = migrate_legacy_simplefin_db(config_dir=config_path)
+            if simplefin_migrated:
+                logger.info("Migrated legacy SimpleFIN database to simplefin profile")
 
         categories_migrated = migrate_global_categories_to_profiles(config_dir=config_path)
         if categories_migrated:

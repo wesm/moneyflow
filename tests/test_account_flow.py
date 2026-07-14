@@ -68,3 +68,32 @@ class TestSimpleFINSetup:
 
         assert result is None
         assert account_manager.get_last_active_account() == active
+
+    async def test_profile_selection_targets_legacy_database_before_default(self, tmp_path):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+        account_manager.set_backend_default("simplefin", "personal")
+        (tmp_path / "simplefin.db").write_bytes(b"example database")
+        app = MagicMock()
+        app.config_dir = str(tmp_path)
+        app.push_screen = AsyncMock(
+            side_effect=[
+                "business",
+                {
+                    "email": "",
+                    "password": "https://user:pass@simplefin.example.com",
+                    "mfa_secret": "",
+                    "backend_type": "simplefin",
+                },
+            ]
+        )
+
+        result = await AccountFlowCoordinator(app).handle_account_selection()
+
+        assert result is not None
+        assert result[0] == "business"
+        assert (tmp_path / "profiles" / "business" / "simplefin.db").exists()
+        assert not (tmp_path / "profiles" / "personal" / "simplefin.db").exists()

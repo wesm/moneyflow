@@ -540,10 +540,14 @@ class MoneyflowApp(App):
             return
 
         self.controller.set_edits_enabled(False)
+        refresh_completed = False
+        reload_completed = False
         try:
             self.notify("SimpleFIN: Checking for new transactions...", timeout=10)
 
             added = await self.backend.refresh()
+            refresh_completed = True
+            self._simplefin_refresh_generation += 1
 
             # Refresh can migrate legacy SQLite IDs without adding rows. Always reload
             # after success so in-memory edits target the canonical persisted IDs.
@@ -552,7 +556,7 @@ class MoneyflowApp(App):
                 df = self._filter_df_by_start_date(df, self.display_start_date)
             self.state.clear_selection()
             self._store_data(df, categories, category_groups)
-            self._simplefin_refresh_generation += 1
+            reload_completed = True
             self._last_update_time = self.backend.get_last_update_time() or datetime.now()
             self._save_last_update_time()
             self._refresh_subtitle()
@@ -574,7 +578,8 @@ class MoneyflowApp(App):
             logger.warning(f"SimpleFIN background refresh failed: {e}")
             self.notify(f"SimpleFIN: Refresh failed — {e}", severity="error", timeout=5)
         finally:
-            self.controller.set_edits_enabled(True)
+            if not refresh_completed or reload_completed:
+                self.controller.set_edits_enabled(True)
 
     def can_edit_transaction_snapshot(self, refresh_generation: int) -> bool:
         """Return whether a screen's transaction snapshot is current and editable."""
@@ -1628,6 +1633,13 @@ class MoneyflowApp(App):
                         GroupSelectScreen(all_groups),
                         wait_for_dismiss=True,
                     )
+                    if not self.can_edit_transaction_snapshot(refresh_generation):
+                        self.notify(
+                            "Transactions refreshed; reopen the editor before making changes.",
+                            severity="warning",
+                            timeout=4,
+                        )
+                        return
                     if not chosen_group:
                         new_category_id = None
                     else:
