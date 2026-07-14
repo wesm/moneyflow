@@ -133,7 +133,10 @@ class TestInteractiveSimplefinSetup:
 
         assert deleted_accounts == ["simplefin-account"]
 
-    def test_failed_setup_restores_previously_active_account(self, monkeypatch, tmp_path):
+    @pytest.mark.parametrize("delete_profile_fails", [False, True])
+    def test_failed_setup_restores_previously_active_account(
+        self, monkeypatch, tmp_path, delete_profile_fails
+    ):
         from moneyflow.data.account_manager import AccountManager
 
         account_manager = AccountManager(config_dir=tmp_path)
@@ -159,6 +162,11 @@ class TestInteractiveSimplefinSetup:
             "moneyflow.data.account_manager.AccountManager", lambda: account_manager
         )
         monkeypatch.setattr(credentials_module, "CredentialManager", CredentialManagerStub)
+        if delete_profile_fails:
+            monkeypatch.setattr(
+                "moneyflow.data.account_manager.shutil.rmtree",
+                lambda path: (_ for _ in ()).throw(OSError("simulated delete failure")),
+            )
 
         with pytest.raises(OSError, match="simulated save failure"):
             credentials_module.setup_credentials_interactive()

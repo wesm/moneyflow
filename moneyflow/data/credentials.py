@@ -498,10 +498,16 @@ def setup_credentials_interactive() -> None:
             print(claimed_access_url)
         try:
             account_manager.delete_account(account.id)
-            if previous_active_account is not None:
-                account_manager.set_last_active_account(previous_active_account.id)
         except Exception as cleanup_error:
             print(f"Warning: failed to remove incomplete account '{account.id}': {cleanup_error}")
+        if previous_active_account is not None:
+            try:
+                account_manager.set_last_active_account(previous_active_account.id)
+            except Exception as restore_error:
+                print(
+                    "Warning: failed to restore previously active account "
+                    f"'{previous_active_account.id}': {restore_error}"
+                )
         raise
 
     print()
