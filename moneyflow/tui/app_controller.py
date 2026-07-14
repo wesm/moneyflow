@@ -1485,12 +1485,31 @@ class AppController:
         source_category_id: str,
         target_category_id: str,
     ) -> int:
-        """Queue a category merge while preserving earlier pending merge chains."""
+        """Queue a category merge against effective assignments, including pending edits."""
+        latest_category_edits = {}
         for edit in self.data_manager.pending_edits:
-            if edit.field == "category" and edit.new_value == source_category_id:
-                edit.new_value = target_category_id
+            if edit.field == "category":
+                latest_category_edits[edit.transaction_id] = edit
 
-        source_transactions = transactions_df.filter(pl.col("category_id") == source_category_id)
+        effective_source_ids = set(
+            transactions_df.filter(pl.col("category_id") == source_category_id)["id"].to_list()
+        )
+        for transaction_id, edit in latest_category_edits.items():
+            if edit.new_value == source_category_id:
+                effective_source_ids.add(transaction_id)
+            else:
+                effective_source_ids.discard(transaction_id)
+
+        retargeted_ids = set()
+        for transaction_id in effective_source_ids:
+            edit = latest_category_edits.get(transaction_id)
+            if edit is not None and edit.new_value == source_category_id:
+                edit.new_value = target_category_id
+                retargeted_ids.add(transaction_id)
+
+        source_transactions = transactions_df.filter(
+            pl.col("id").is_in(effective_source_ids - retargeted_ids)
+        )
         return self.queue_category_edits(source_transactions, target_category_id)
 
     def queue_merchant_edits(self, transactions_df, old_merchant: str, new_merchant: str) -> int:

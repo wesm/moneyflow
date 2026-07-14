@@ -11,7 +11,7 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import polars as pl
 import pytest
@@ -322,6 +322,96 @@ class TestSimplefinInitialization:
         assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
         assert data_manager.fetch_all_data.await_count == expected_calls
         assert sample_transactions.is_empty()
+
+    @pytest.mark.asyncio
+    async def test_loads_local_categories_and_persists_category_name(self, tmp_path):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        transactions = pl.DataFrame(
+            {
+                "id": ["transaction-1"],
+                "date": [date(2026, 1, 1)],
+                "merchant": ["Example Merchant"],
+                "category": ["Uncategorized"],
+                "category_id": ["uncategorized"],
+                "amount": [-10.0],
+                "account": ["Example Account"],
+                "notes": [None],
+                "is_hidden": [False],
+            }
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.mm = backend
+        data_manager.category_groups_config = {"Food": ["Groceries"]}
+        data_manager.categories = {}
+        data_manager.fetch_all_data = AsyncMock(return_value=(transactions, {}, {}))
+
+        def populate_categories():
+            data_manager.categories = {
+                "groceries": {
+                    "name": "Groceries",
+                    "group": "Food",
+                    "group_id": "food",
+                    "group_type": "",
+                }
+            }
+
+        data_manager._populate_categories_from_config.side_effect = populate_categories
+
+        with (
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server()
+            categories_result = await mcp.call_tool("get_categories", {})
+            update_result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "transaction-1", "category_id": "groceries"},
+            )
+            batch_result = await mcp.call_tool(
+                "batch_update_category",
+                {"transaction_ids": ["transaction-1"], "category_name": "Groceries"},
+            )
+
+        categories_content, _ = categories_result
+        assert json.loads(categories_content[0].text) == {"Food": ["Groceries"]}
+        update_content, _ = update_result
+        assert json.loads(update_content[0].text)["status"] == "success"
+        batch_content, _ = batch_result
+        assert json.loads(batch_content[0].text)["status"] == "success"
+        assert backend.update_transaction.await_args_list == [
+            call(
+                transaction_id="transaction-1",
+                category_id="groceries",
+                category_name="Groceries",
+            ),
+            call(
+                transaction_id="transaction-1",
+                category_id="groceries",
+                category_name="Groceries",
+            ),
+        ]
 
 
 # ============================================================================

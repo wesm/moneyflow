@@ -87,6 +87,36 @@ def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
     return records
 
 
+def _normalize_category_state(
+    data_manager: Any,
+    categories: Dict[str, Any],
+    category_groups: Dict[str, Any],
+) -> tuple[Dict[str, str], Dict[str, str]]:
+    """Return the category-name and category-to-group maps expected by MCP tools."""
+    data_manager.categories = categories
+    if not categories:
+        data_manager._populate_categories_from_config()
+
+    category_names: Dict[str, str] = {}
+    groups_by_category: Dict[str, str] = {}
+    for category_id, category in data_manager.categories.items():
+        if isinstance(category, dict):
+            category_names[category_id] = category.get("name", category_id)
+            group_name = category.get("group")
+            if group_name is None and category.get("group_id") in category_groups:
+                group = category_groups[category["group_id"]]
+                group_name = group.get("name") if isinstance(group, dict) else group
+            groups_by_category[category_id] = group_name or "Other"
+        else:
+            category_names[category_id] = str(category)
+            group = category_groups.get(category_id, "Other")
+            groups_by_category[category_id] = (
+                group.get("name", "Other") if isinstance(group, dict) else str(group)
+            )
+
+    return category_names, groups_by_category
+
+
 def create_mcp_server(
     account_id: Optional[str] = None,
     config_dir: Optional[str] = None,
@@ -213,10 +243,14 @@ def create_mcp_server(
         # Fetch data (uses cache if available)
         df, categories, category_groups = await data_manager.fetch_all_data()
 
+        category_names, groups_by_category = _normalize_category_state(
+            data_manager, categories, category_groups
+        )
+
         _state["data_manager"] = data_manager
         _state["transactions_df"] = df
-        _state["categories"] = categories
-        _state["category_groups"] = category_groups
+        _state["categories"] = category_names
+        _state["category_groups"] = groups_by_category
         _state["initialized"] = True
         _state["account"] = account
 
@@ -484,9 +518,12 @@ def create_mcp_server(
             # Fetch fresh data from API (DataManager doesn't use cache)
             df, categories, category_groups = await dm.fetch_all_data()
 
+            category_names, groups_by_category = _normalize_category_state(
+                dm, categories, category_groups
+            )
             _state["transactions_df"] = df
-            _state["categories"] = categories
-            _state["category_groups"] = category_groups
+            _state["categories"] = category_names
+            _state["category_groups"] = groups_by_category
 
         return json.dumps(
             {
@@ -685,10 +722,13 @@ def create_mcp_server(
 
         # Update via backend API
         try:
-            await dm.mm.update_transaction(
-                transaction_id=transaction_id,
-                category_id=resolved_category_id,
-            )
+            update_kwargs = {
+                "transaction_id": transaction_id,
+                "category_id": resolved_category_id,
+            }
+            if _state["account"].backend_type == "simplefin":
+                update_kwargs["category_name"] = resolved_category_name
+            await dm.mm.update_transaction(**update_kwargs)
 
             # Update local DataFrame
             _state["transactions_df"] = df.with_columns(
@@ -817,10 +857,13 @@ def create_mcp_server(
                 continue
 
             try:
-                await dm.mm.update_transaction(
-                    transaction_id=tx_id,
-                    category_id=category_id,
-                )
+                update_kwargs = {
+                    "transaction_id": tx_id,
+                    "category_id": category_id,
+                }
+                if _state["account"].backend_type == "simplefin":
+                    update_kwargs["category_name"] = category_name
+                await dm.mm.update_transaction(**update_kwargs)
                 success_count += 1
             except Exception as e:
                 failure_count += 1

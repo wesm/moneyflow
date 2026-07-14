@@ -215,6 +215,100 @@ class TestSimpleFinBackgroundRefresh:
         assert app.state.transactions_df["id"].to_list() == ["new"]
         assert controller.refresh_calls == [False]
 
+    async def test_background_refresh_preserves_pending_category_structure(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        class PendingCategoryDataManager(FetchingDataManager):
+            def __init__(self):
+                super().__init__(pl.DataFrame({"id": ["new"]}))
+                self.category_groups_config = {"Persisted Group": ["Old Category"]}
+                self.pending_category_groups = {"Pending Group": ["New Category"]}
+                self.pending_category_changes = [object()]
+
+            async def fetch_all_data(self):
+                return self._df, {}, {}
+
+            def _populate_categories_from_config(self) -> None:
+                group_name, category_names = next(iter(self.category_groups_config.items()))
+                self.categories = {
+                    "new_category": {
+                        "name": category_names[0],
+                        "group": group_name,
+                    }
+                }
+
+        app = MoneyflowApp(backend=RefreshingSimpleFinBackend())
+        app.data_manager = PendingCategoryDataManager()
+        app.controller = RefreshController()
+
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_save_last_update_time", lambda: None)
+        monkeypatch.setattr(app, "_refresh_subtitle", lambda: None)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda saved: None)
+
+        await app._simplefin_background_refresh()
+
+        assert app.data_manager.category_groups_config == {"Pending Group": ["New Category"]}
+        assert app.data_manager.categories["new_category"] == {
+            "name": "New Category",
+            "group": "Pending Group",
+        }
+
+
+class TestLocalCategoryCreation:
+    async def test_rejects_normalized_id_collision(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        categories = {
+            "food_dining": {
+                "name": "Food & Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-1"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = type("DataManager", (), {"categories": categories})()
+        notifications = []
+
+        monkeypatch.setattr(
+            app,
+            "query_one",
+            lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})(),
+        )
+
+        async def choose_colliding_category(screen, **kwargs):
+            return "__new__:Food Dining"
+
+        monkeypatch.setattr(app, "push_screen", choose_colliding_category)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert set(categories) == {"food_dining"}
+        assert notifications == [("A category with an equivalent name already exists.", "error")]
+
 
 class TestCategoryManagerSource:
     async def test_manager_uses_complete_unfiltered_transactions(self, monkeypatch):

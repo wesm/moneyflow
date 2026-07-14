@@ -2114,6 +2114,31 @@ class TestCategoryManagerDataSource:
         }
         assert targets == {"txn-a": "category-c", "txn-b": "category-c"}
 
+    def test_reassignment_preserves_pending_assignment_outside_source(self, controller):
+        source_df = pl.DataFrame(
+            {
+                "id": ["txn-a", "txn-b"],
+                "category_id": ["category-a", "category-a"],
+            }
+        )
+        existing_edit = TransactionEdit(
+            transaction_id="txn-a",
+            field="category",
+            old_value="category-a",
+            new_value="category-c",
+        )
+        controller.data_manager.pending_edits.append(existing_edit)
+
+        count = controller.queue_category_reassignment(source_df, "category-a", "category-b")
+
+        targets = {
+            edit.transaction_id: edit.new_value
+            for edit in controller.data_manager.pending_edits
+            if edit.field == "category"
+        }
+        assert count == 1
+        assert targets == {"txn-a": "category-c", "txn-b": "category-b"}
+
 
 class TestCategoryRenameReassign:
     """Tests for category rename queuing transaction reassignments.

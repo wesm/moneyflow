@@ -494,6 +494,10 @@ class MoneyflowApp(App):
 
     def _store_data(self, df, categories, category_groups):
         """Store data in data manager and state."""
+        pending_groups = getattr(self.data_manager, "pending_category_groups", None)
+        if pending_groups is not None:
+            self.data_manager.category_groups_config = deepcopy(pending_groups)
+            self.data_manager.category_to_group = build_category_to_group_mapping(pending_groups)
         self.data_manager.df = df
         self.data_manager.categories = categories
         self.data_manager._populate_categories_from_config()
@@ -1555,13 +1559,13 @@ class MoneyflowApp(App):
                         "Category name must contain at least one letter or number.",
                         severity="error",
                     )
-                    new_category_id = None
+                    return
                 elif cat_id in self.data_manager.categories:
-                    base_id = cat_id
-                    suffix = 2
-                    while cat_id in self.data_manager.categories:
-                        cat_id = f"{base_id}_{suffix}"
-                        suffix += 1
+                    self.notify(
+                        "A category with an equivalent name already exists.",
+                        severity="error",
+                    )
+                    return
 
                 if new_category_id is not None:
                     all_groups = sorted(
