@@ -523,6 +523,35 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_groups is None
         assert controller.data_manager.pending_category_changes == []
 
+    async def test_category_save_failure_retains_deferred_state(
+        self, controller, mock_view, monkeypatch
+    ):
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        groups = {"Group": ["Category"]}
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = groups
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Old Group": ["Category"]},
+                after_groups=groups,
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert controller.data_manager.pending_category_groups == groups
+        assert len(controller.data_manager.pending_category_changes) == 1
+        assert mock_view.notifications[-1]["severity"] == "error"
+
     async def test_partial_failure_does_not_apply_edits(self, controller, mock_view):
         """
         CRITICAL: When ANY commits fail, edits should NOT be applied locally.

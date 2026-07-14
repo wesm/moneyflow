@@ -45,11 +45,13 @@ MAX_LIMIT = 1000
 MAX_BATCH_SIZE = 100
 
 
-def _format_amount(amount: float) -> str:
+def _format_amount(amount: float, currency: Optional[str] = None) -> str:
     """Format amount as currency string."""
+    currency_code = str(currency or "USD").upper()
+    unit = "$" if currency_code == "USD" else f"{currency_code} "
     if amount < 0:
-        return f"-${abs(amount):,.2f}"
-    return f"${amount:,.2f}"
+        return f"-{unit}{abs(amount):,.2f}"
+    return f"{unit}{amount:,.2f}"
 
 
 def _clamp_limit(limit: int) -> int:
@@ -75,7 +77,7 @@ def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
             "merchant": row.get("merchant", ""),
             "category": row.get("category", ""),
             "amount": row.get("amount", 0),
-            "amount_formatted": _format_amount(row.get("amount", 0)),
+            "amount_formatted": _format_amount(row.get("amount", 0), row.get("currency")),
             "account": row.get("account", ""),
         }
         if row.get("notes"):
@@ -364,6 +366,9 @@ def create_mcp_server(
 
         # Filter to expenses only (negative amounts)
         expenses = df.filter(pl.col("amount") < 0)
+        currency = (
+            expenses["currency"][0] if "currency" in expenses.columns and len(expenses) else None
+        )
 
         # Group and sum
         group_col = "category" if group_by == "category" else "merchant"
@@ -376,7 +381,7 @@ def create_mcp_server(
         # Format results
         results = {
             "period": {"start": start_date, "end": end_date},
-            "total_spending": _format_amount(expenses["amount"].sum()),
+            "total_spending": _format_amount(expenses["amount"].sum(), currency),
             "transaction_count": len(expenses),
             "by_" + group_by: [],
         }
@@ -385,7 +390,7 @@ def create_mcp_server(
             results["by_" + group_by].append(
                 {
                     group_by: row[group_col],
-                    "total": _format_amount(row["total"]),
+                    "total": _format_amount(row["total"], currency),
                     "count": row["count"],
                 }
             )
@@ -711,7 +716,7 @@ def create_mcp_server(
                     "would_update": {
                         "transaction_id": transaction_id,
                         "merchant": tx.get("merchant"),
-                        "amount": _format_amount(tx.get("amount", 0)),
+                        "amount": _format_amount(tx.get("amount", 0), tx.get("currency")),
                         "date": str(tx.get("date")),
                         "old_category": old_category,
                         "new_category": resolved_category_name,
@@ -826,7 +831,7 @@ def create_mcp_server(
                     {
                         "transaction_id": tx_id,
                         "merchant": tx.get("merchant"),
-                        "amount": _format_amount(tx.get("amount", 0)),
+                        "amount": _format_amount(tx.get("amount", 0), tx.get("currency")),
                         "date": str(tx.get("date")),
                         "old_category": tx.get("category"),
                     }
@@ -1046,7 +1051,7 @@ def create_mcp_server(
                 "merchant": tx.get("merchant"),
                 "category": tx.get("category"),
                 "amount": tx.get("amount"),
-                "amount_formatted": _format_amount(tx.get("amount", 0)),
+                "amount_formatted": _format_amount(tx.get("amount", 0), tx.get("currency")),
                 "account": tx.get("account"),
                 "notes": tx.get("notes"),
                 "is_hidden": tx.get("is_hidden", False),

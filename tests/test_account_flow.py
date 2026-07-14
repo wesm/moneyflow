@@ -46,3 +46,25 @@ class TestSimpleFINSetup:
         assert isinstance(screen, CredentialSetupScreen)
         assert screen.profile_dir is not None
         assert screen.profile_dir == profile_dir
+
+    async def test_cancelled_setup_restores_active_account_even_if_cleanup_fails(
+        self, mock_app, tmp_path, monkeypatch
+    ):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        account_manager.create_account("First", "demo")
+        active = account_manager.create_account("Active", "demo")
+        mock_app.push_screen.return_value = None
+        monkeypatch.setattr(
+            "moneyflow.tui.account_flow.AccountManager", lambda config_dir=None: account_manager
+        )
+        monkeypatch.setattr(
+            "moneyflow.data.account_manager.shutil.rmtree",
+            lambda path: (_ for _ in ()).throw(OSError("simulated cleanup failure")),
+        )
+
+        result = await AccountFlowCoordinator(mock_app).handle_new_simplefin_setup()
+
+        assert result is None
+        assert account_manager.get_last_active_account() == active

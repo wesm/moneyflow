@@ -441,6 +441,8 @@ class CredentialSetupScreen(ModalScreen):
     async def save_credentials(self) -> None:
         """Validate and save credentials."""
         error_label = self.query_one("#error-label", Label)
+        cred_manager: Optional[CredentialManager] = None
+        claimed_access_url: Optional[str] = None
 
         # Check if encryption is enabled
         use_encryption = self.query_one("#encryption-checkbox", Checkbox).value
@@ -473,6 +475,16 @@ class CredentialSetupScreen(ModalScreen):
                 error_label.update("❌ Please enter your SimpleFIN setup token or Access URL")
                 return
 
+            # Validate and prepare the destination before consuming a one-time token.
+            try:
+                config_path = Path(self.app.config_dir) if self.app.config_dir else None
+                cred_manager = CredentialManager(
+                    config_dir=config_path, profile_dir=self.profile_dir
+                )
+            except Exception as e:
+                error_label.update(f"❌ Cannot prepare credential storage: {e}")
+                return
+
             radio_set = self.query_one("#simplefin-mode", RadioSet)
             pressed = radio_set.pressed_button
             if pressed is None or pressed.id == "token-radio":
@@ -480,6 +492,7 @@ class CredentialSetupScreen(ModalScreen):
                 error_label.update("🔑 Claiming SimpleFIN token...")
                 try:
                     password = await _claim_simplefin_token(raw)
+                    claimed_access_url = password
                 except ValueError as e:
                     error_label.update(f"❌ Invalid token: {e}")
                     return
@@ -519,8 +532,11 @@ class CredentialSetupScreen(ModalScreen):
         try:
             error_label.update("💾 Saving credentials...")
             # Get config_dir from app and pass to CredentialManager
-            config_path = Path(self.app.config_dir) if self.app.config_dir else None
-            cred_manager = CredentialManager(config_dir=config_path, profile_dir=self.profile_dir)
+            if cred_manager is None:
+                config_path = Path(self.app.config_dir) if self.app.config_dir else None
+                cred_manager = CredentialManager(
+                    config_dir=config_path, profile_dir=self.profile_dir
+                )
             cred_manager.save_credentials(
                 email=email,
                 password=password,
@@ -549,7 +565,16 @@ class CredentialSetupScreen(ModalScreen):
             )
 
         except Exception as e:
-            error_label.update(f"❌ Error saving credentials: {e}")
+            if claimed_access_url is not None:
+                password_input = self.query_one("#password-input", Input)
+                password_input.value = claimed_access_url
+                self.query_one("#url-radio", RadioButton).value = True
+                error_label.update(
+                    "❌ Credentials were not saved. The claimed Access URL is retained "
+                    f"in the field above so you can copy it or retry: {e}"
+                )
+            else:
+                error_label.update(f"❌ Error saving credentials: {e}")
 
 
 class CredentialUnlockScreen(ModalScreen):

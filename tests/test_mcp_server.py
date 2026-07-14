@@ -225,6 +225,9 @@ class TestToolOutputFormat:
         """Large amounts should include comma separators."""
         assert _format_amount(1234567.89) == "$1,234,567.89"
 
+    def test_format_amount_uses_non_usd_iso_code(self):
+        assert _format_amount(-50, "EUR") == "-EUR 50.00"
+
 
 # ============================================================================
 # Test: Security - Read-Only Mode
@@ -554,6 +557,11 @@ class TestDataFrameConversion:
         for field in required_fields:
             assert field in record
 
+    def test_records_format_each_rows_currency(self, sample_transactions):
+        transactions = sample_transactions.with_columns(pl.lit("GBP").alias("currency"))
+        record = _df_to_records(transactions, limit=1)[0]
+        assert record["amount_formatted"] == "-GBP 50.00"
+
 
 # ============================================================================
 # Test: Category Lookup
@@ -724,6 +732,18 @@ class TestSpendingSummary:
         assert len(response["by_category"]) > 0
         categories = [item["category"] for item in response["by_category"]]
         assert "Income" not in categories
+
+    @pytest.mark.asyncio
+    async def test_uses_profile_currency(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.with_columns(pl.lit("EUR").alias("currency"))
+        mcp = mcp_server_factory(transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["total_spending"].startswith("-EUR ")
+        assert all(item["total"].startswith("-EUR ") for item in response["by_category"])
 
 
 # ============================================================================

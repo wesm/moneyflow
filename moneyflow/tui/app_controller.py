@@ -1668,14 +1668,24 @@ class AppController:
 
             # Persist deferred category config if any (from category manager)
             if self.data_manager.pending_category_groups:
+                categories_saved = True
                 if self.data_manager.profile_dir:
-                    save_categories_to_profile(
+                    categories_saved = save_categories_to_profile(
                         self.data_manager.pending_category_groups,
                         profile_dir=self.data_manager.profile_dir,
                     )
-                self.data_manager.pending_category_groups = None
-                self.data_manager.pending_category_changes.clear()
-                logger.info("Saved deferred category config after successful commit")
+                if categories_saved:
+                    self.data_manager.pending_category_groups = None
+                    self.data_manager.pending_category_changes.clear()
+                    logger.info("Saved deferred category config after successful commit")
+                else:
+                    logger.error("Failed to save deferred category config after commit")
+                    self.view.show_notification(
+                        "Transactions were saved, but category configuration could not be saved. "
+                        "The category changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
 
             # Refresh to show updated data (smooth update)
             # Note: View already restored in app.py before commit started

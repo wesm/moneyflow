@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from textual.containers import Container
-from textual.widgets import Checkbox, DataTable, Input, RadioButton, RadioSet, Static
+from textual.widgets import Checkbox, DataTable, Input, Label, RadioButton, RadioSet, Static
 
 from moneyflow.tui.app import MoneyflowApp
 from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
@@ -433,6 +433,43 @@ class TestCredentialSetupWorkflow:
             )
             assert token_help.display is True, "Token help should be visible again"
             assert url_help.display is False, "URL help should be hidden again"
+
+    @pytest.mark.integration
+    async def test_simplefin_claimed_url_survives_save_failure(self, tmp_path, monkeypatch):
+        from moneyflow.tui.screens import credential_screens
+
+        access_url = "https://example:credential@bridge.simplefin.org/simplefin"
+
+        class FailingCredentialManager:
+            def __init__(self, config_dir=None, profile_dir=None):
+                pass
+
+            @staticmethod
+            def save_credentials(**kwargs):
+                raise OSError("simulated save failure")
+
+        async def claim(token):
+            return access_url
+
+        monkeypatch.setattr(credential_screens, "_claim_simplefin_token", claim)
+        monkeypatch.setattr(credential_screens, "CredentialManager", FailingCredentialManager)
+
+        app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
+        profile_dir = tmp_path / "profiles" / "test"
+        profile_dir.mkdir(parents=True)
+        async with app.run_test() as pilot:
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
+            screen = CredentialSetupScreen(backend_type="simplefin", profile_dir=profile_dir)
+            app.push_screen(screen)
+            await pilot.pause()
+            screen.query_one("#password-input", Input).value = "one-time-token"
+
+            await screen.save_credentials()
+            await pilot.pause()
+
+            assert screen.query_one("#password-input", Input).value == access_url
+            assert screen.query_one("#simplefin-mode", RadioSet).pressed_button.id == "url-radio"
+            assert "retained" in str(screen.query_one("#error-label", Label).render()).lower()
 
     @pytest.mark.integration
     async def test_backend_selection_screen_mounts(self, tmp_path):

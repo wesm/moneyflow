@@ -333,6 +333,7 @@ class AccountFlowCoordinator:
         """
         config_path = Path(self.app.config_dir) if self.app.config_dir else None
         account_manager = AccountManager(config_dir=config_path)
+        previous_active_account = account_manager.get_last_active_account()
 
         # Create a SimpleFIN account in the registry first
         try:
@@ -346,13 +347,40 @@ class AccountFlowCoordinator:
 
         profile_dir = account_manager.get_profile_dir(account.id)
 
-        creds = await self.app.push_screen(
-            CredentialSetupScreen(backend_type="simplefin", profile_dir=profile_dir),
-            wait_for_dismiss=True,
-        )
+        try:
+            creds = await self.app.push_screen(
+                CredentialSetupScreen(backend_type="simplefin", profile_dir=profile_dir),
+                wait_for_dismiss=True,
+            )
+        except Exception:
+            self._rollback_simplefin_account(
+                account_manager,
+                account.id,
+                previous_active_account.id if previous_active_account else None,
+            )
+            raise
 
         if not creds:
-            account_manager.delete_account(account.id)
+            self._rollback_simplefin_account(
+                account_manager,
+                account.id,
+                previous_active_account.id if previous_active_account else None,
+            )
             return None
 
         return account.id, profile_dir, creds
+
+    @staticmethod
+    def _rollback_simplefin_account(
+        account_manager: AccountManager, account_id: str, previous_active_account_id: Optional[str]
+    ) -> None:
+        """Remove an incomplete profile and independently restore active-account state."""
+        try:
+            account_manager.delete_account(account_id)
+        except Exception as error:
+            logger.warning(f"Failed to remove incomplete SimpleFIN account: {error}")
+        if previous_active_account_id is not None:
+            try:
+                account_manager.set_last_active_account(previous_active_account_id)
+            except Exception as error:
+                logger.warning(f"Failed to restore previous active account: {error}")

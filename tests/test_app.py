@@ -309,6 +309,67 @@ class TestLocalCategoryCreation:
         assert set(categories) == {"food_dining"}
         assert notifications == [("A category with an equivalent name already exists.", "error")]
 
+    async def test_aborts_creation_when_category_config_cannot_be_saved(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        categories = {}
+
+        class ControllerStub:
+            edit_calls = []
+
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-1"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+            def edit_category_current_selection(self, category_id, cursor_row):
+                self.edit_calls.append(category_id)
+                return 1
+
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = type(
+            "DataManager",
+            (),
+            {
+                "categories": categories,
+                "profile_dir": object(),
+                "category_groups_config": {},
+                "category_to_group": {},
+            },
+        )()
+        notifications = []
+        choices = iter(["__new__:New Category", "Group"])
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def choose(screen, **kwargs):
+            return next(choices)
+
+        monkeypatch.setattr(app, "push_screen", choose)
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *args, **kwargs: False)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert categories == {}
+        assert app.controller.edit_calls == []
+        assert notifications[-1][1] == "error"
+
 
 class TestCategoryManagerSource:
     async def test_manager_uses_complete_unfiltered_transactions(self, monkeypatch):
@@ -510,7 +571,7 @@ class TestCategoryManagerSource:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_categories()
@@ -736,7 +797,7 @@ class TestCategoryManagerSource:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_categories()
@@ -747,6 +808,37 @@ class TestCategoryManagerSource:
 
 
 class TestGroupManagerPersistence:
+    def test_write_retries_pending_category_config(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        groups = {"Group": ["Category"]}
+
+        class DataManagerStub:
+            pending_category_groups = groups
+            pending_category_changes = [object()]
+            profile_dir = object()
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        notifications = []
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *args, **kwargs: True)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        app.action_review_and_commit()
+
+        assert app.data_manager.pending_category_groups is None
+        assert app.data_manager.pending_category_changes == []
+        assert notifications == [("Category configuration saved.", None)]
+
     @pytest.mark.parametrize("pending_field", ["category", "merchant", "hide_from_reports"])
     async def test_group_changes_save_with_pending_transaction_edits(
         self, monkeypatch, pending_field
@@ -790,7 +882,7 @@ class TestGroupManagerPersistence:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_groups()
@@ -825,7 +917,7 @@ class TestGroupManagerPersistence:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_groups()
@@ -871,7 +963,7 @@ class TestGroupManagerPersistence:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_groups()
@@ -922,7 +1014,7 @@ class TestGroupManagerPersistence:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
 
         await app._manage_groups()
@@ -991,7 +1083,7 @@ class TestGroupManagerPersistence:
         monkeypatch.setattr(
             app_module,
             "save_categories_to_profile",
-            lambda groups, profile_dir: saved_groups.append(groups),
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
         )
         app.action_undo_pending_edits()
 

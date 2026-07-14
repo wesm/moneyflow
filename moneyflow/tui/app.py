@@ -1253,10 +1253,10 @@ class MoneyflowApp(App):
         groups_before: dict[str, list[str]],
         groups_after: dict[str, list[str]],
         propagate_group_moves: bool,
-    ) -> None:
+    ) -> bool:
         """Persist an independent config change across structural rollback boundaries."""
         if self.data_manager is None or not self.data_manager.pending_category_changes:
-            return
+            return True
         for change in self.data_manager.pending_category_changes:
             change.before_groups = self._apply_independent_category_changes(
                 change.before_groups,
@@ -1271,9 +1271,19 @@ class MoneyflowApp(App):
                 propagate_group_moves,
             )
         base_groups = self.data_manager.pending_category_changes[0].before_groups
+        saved = True
         if self.data_manager.profile_dir:
-            save_categories_to_profile(base_groups, profile_dir=self.data_manager.profile_dir)
+            saved = save_categories_to_profile(
+                base_groups, profile_dir=self.data_manager.profile_dir
+            )
         self.data_manager.pending_category_groups = groups_after
+        if not saved:
+            self.notify(
+                "Category configuration could not be saved; changes remain pending for retry.",
+                severity="error",
+                timeout=6,
+            )
+        return saved
 
     # Time navigation actions
     def action_toggle_time_granularity(self) -> None:
@@ -1589,10 +1599,19 @@ class MoneyflowApp(App):
                         }
                         new_category_id = cat_id
                         groups = categories_dict_to_config_groups(self.data_manager.categories)
+                        saved = True
                         if self.data_manager.profile_dir:
-                            save_categories_to_profile(
+                            saved = save_categories_to_profile(
                                 groups, profile_dir=self.data_manager.profile_dir
                             )
+                        if not saved:
+                            del self.data_manager.categories[cat_id]
+                            self.notify(
+                                "Category could not be saved. No transaction edit was queued.",
+                                severity="error",
+                                timeout=6,
+                            )
+                            return
                         self.data_manager.category_groups_config = groups
                         self.data_manager.category_to_group = build_category_to_group_mapping(
                             groups
@@ -1712,16 +1731,28 @@ class MoneyflowApp(App):
                     timeout=4,
                 )
             elif self.data_manager.pending_category_changes:
-                self._rebase_pending_category_changes(
+                saved = self._rebase_pending_category_changes(
                     previous_groups, groups, propagate_group_moves=False
                 )
-                self.notify("Categories updated with pending recategorizations.", timeout=4)
+                if saved:
+                    self.notify("Categories updated with pending recategorizations.", timeout=4)
             else:
                 # No pending edits, safe to persist config immediately
+                saved = True
                 if self.data_manager.profile_dir:
-                    save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
-                self._clear_deferred_category_groups()
-                self.notify("Categories updated.", timeout=2)
+                    saved = save_categories_to_profile(
+                        groups, profile_dir=self.data_manager.profile_dir
+                    )
+                if saved:
+                    self._clear_deferred_category_groups()
+                    self.notify("Categories updated.", timeout=2)
+                else:
+                    self.data_manager.pending_category_groups = groups
+                    self.notify(
+                        "Category configuration could not be saved; changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
 
     def action_manage_groups(self) -> None:
         """Open the group manager (create, rename, delete groups).
@@ -1758,18 +1789,30 @@ class MoneyflowApp(App):
             self.refresh_view()
             self._restore_table_position(None)
             if self.data_manager.pending_category_changes:
-                self._rebase_pending_category_changes(
+                saved = self._rebase_pending_category_changes(
                     groups_before, groups, propagate_group_moves=True
                 )
-                self.notify(
-                    "Groups updated with pending recategorizations. Press w to commit.",
-                    timeout=4,
-                )
+                if saved:
+                    self.notify(
+                        "Groups updated with pending recategorizations. Press w to commit.",
+                        timeout=4,
+                    )
             else:
+                saved = True
                 if self.data_manager.profile_dir:
-                    save_categories_to_profile(groups, profile_dir=self.data_manager.profile_dir)
-                self._clear_deferred_category_groups()
-                self.notify("Groups updated.", timeout=2)
+                    saved = save_categories_to_profile(
+                        groups, profile_dir=self.data_manager.profile_dir
+                    )
+                if saved:
+                    self._clear_deferred_category_groups()
+                    self.notify("Groups updated.", timeout=2)
+                else:
+                    self.data_manager.pending_category_groups = groups
+                    self.notify(
+                        "Category configuration could not be saved; changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
 
     def action_toggle_hide_from_reports(self) -> None:
         """
@@ -2006,6 +2049,20 @@ class MoneyflowApp(App):
 
         count = self.data_manager.get_stats()["pending_changes"]
         if count == 0:
+            pending_groups = self.data_manager.pending_category_groups
+            if pending_groups is not None and self.data_manager.profile_dir:
+                if save_categories_to_profile(
+                    pending_groups, profile_dir=self.data_manager.profile_dir
+                ):
+                    self._clear_deferred_category_groups()
+                    self.notify("Category configuration saved.", timeout=2)
+                else:
+                    self.notify(
+                        "Category configuration still could not be saved; changes remain pending.",
+                        severity="error",
+                        timeout=6,
+                    )
+                return
             self._notify(notification_helper.NO_PENDING_CHANGES)
             return
 
