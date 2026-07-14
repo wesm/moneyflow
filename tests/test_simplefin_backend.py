@@ -568,6 +568,33 @@ class TestHardRefresh:
         assert tombstones == {LEGACY_COLON_ID}
 
     @pytest.mark.asyncio
+    async def test_migrated_tombstone_allows_exact_id_but_rejects_later_collision(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.executemany(
+            "INSERT INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+            [
+                (LEGACY_COLON_ID, "2024-03-15T00:00:00+00:00"),
+                (ENCODED_COLON_ID, "2024-03-15T00:00:00+00:00"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(
+            side_effect=[[COLON_TRANSACTION], [COLLIDING_COLON_TRANSACTION]]
+        )
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        assert await backend.refresh() == 0
+        with pytest.raises(RuntimeError, match="ambiguous legacy deletion tombstone"):
+            await backend.refresh()
+
+        assert backend.get_database_stats()["total_transactions"] == 0
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
     async def test_refreshes_reject_ambiguous_legacy_tombstone(self, tmp_path, method_name):
         backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))

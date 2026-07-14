@@ -219,7 +219,9 @@ class SimpleFinBackend(FinanceBackend):
         """Migrate ambiguous legacy IDs while preserving local edits and deletions."""
         deleted_ids = self._get_deleted_transaction_ids(conn)
         if any(
-            isinstance(legacy_id := transaction.get("legacy_id"), str) and legacy_id in deleted_ids
+            isinstance(legacy_id := transaction.get("legacy_id"), str)
+            and legacy_id in deleted_ids
+            and str(transaction["id"]) not in deleted_ids
             for transaction in transactions
         ):
             raise RuntimeError(
