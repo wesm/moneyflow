@@ -51,6 +51,10 @@ class TestInteractiveSimplefinSetup:
 
         class AccountManagerStub:
             @staticmethod
+            def get_last_active_account():
+                return None
+
+            @staticmethod
             def create_account(name, backend_type):
                 return type("Account", (), {"id": "simplefin-account"})()
 
@@ -99,6 +103,10 @@ class TestInteractiveSimplefinSetup:
 
         class AccountManagerStub:
             @staticmethod
+            def get_last_active_account():
+                return None
+
+            @staticmethod
             def create_account(name, backend_type):
                 return type("Account", (), {"id": "simplefin-account"})()
 
@@ -124,6 +132,39 @@ class TestInteractiveSimplefinSetup:
             credentials_module.setup_credentials_interactive()
 
         assert deleted_accounts == ["simplefin-account"]
+
+    def test_failed_setup_restores_previously_active_account(self, monkeypatch, tmp_path):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        first = account_manager.create_account("First", "demo")
+        active = account_manager.create_account("Active", "demo")
+        assert account_manager.get_last_active_account() == active
+
+        inputs = iter(["3", "n"])
+
+        class CredentialManagerStub:
+            def __init__(self, profile_dir):
+                pass
+
+            @staticmethod
+            def save_credentials(*args, **kwargs):
+                raise OSError("simulated save failure")
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(
+            credentials_module, "getpass", lambda prompt: "https://example.invalid/access"
+        )
+        monkeypatch.setattr(
+            "moneyflow.data.account_manager.AccountManager", lambda: account_manager
+        )
+        monkeypatch.setattr(credentials_module, "CredentialManager", CredentialManagerStub)
+
+        with pytest.raises(OSError, match="simulated save failure"):
+            credentials_module.setup_credentials_interactive()
+
+        assert account_manager.list_accounts() == [first, active]
+        assert account_manager.get_last_active_account() == active
 
 
 @pytest.fixture

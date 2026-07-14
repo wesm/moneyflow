@@ -339,6 +339,14 @@ class AccountManager:
 
         return None
 
+    def set_last_active_account(self, account_id: Optional[str]) -> None:
+        """Set the active account without changing its last-used timestamp."""
+        self.load_registry()
+        if account_id is not None and account_id not in self._registry.accounts:
+            raise ValueError(f"Account ID '{account_id}' does not exist")
+        self._registry.last_active_account = account_id
+        self.save_registry()
+
     # ------------------------------------------------------------------
     # Per-backend defaults
     # ------------------------------------------------------------------

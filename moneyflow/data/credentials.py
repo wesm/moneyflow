@@ -452,6 +452,7 @@ def setup_credentials_interactive() -> None:
     from .account_manager import AccountManager
 
     account_manager = AccountManager()
+    previous_active_account = account_manager.get_last_active_account()
     account = account_manager.create_account(
         name=f"{backend_type.title()} Account",
         backend_type=backend_type,
@@ -497,6 +498,8 @@ def setup_credentials_interactive() -> None:
             print(claimed_access_url)
         try:
             account_manager.delete_account(account.id)
+            if previous_active_account is not None:
+                account_manager.set_last_active_account(previous_active_account.id)
         except Exception as cleanup_error:
             print(f"Warning: failed to remove incomplete account '{account.id}': {cleanup_error}")
         raise
