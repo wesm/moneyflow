@@ -510,7 +510,7 @@ class TestHardRefresh:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])
-    async def test_refreshes_migrate_legacy_colon_tombstone(self, tmp_path, method_name):
+    async def test_refreshes_reject_legacy_colon_tombstone(self, tmp_path, method_name):
         backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
         backend._ensure_db_initialized()
         conn = sqlite3.connect(backend._db_path)
@@ -525,7 +525,8 @@ class TestHardRefresh:
         mock_client.currency_code = "USD"
         backend._client = mock_client
 
-        assert await getattr(backend, method_name)() == 0
+        with pytest.raises(RuntimeError, match="ambiguous legacy deletion tombstone"):
+            await getattr(backend, method_name)()
 
         conn = sqlite3.connect(backend._db_path)
         transaction_count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
@@ -534,7 +535,37 @@ class TestHardRefresh:
         }
         conn.close()
         assert transaction_count == 0
-        assert tombstones == {LEGACY_COLON_ID, ENCODED_COLON_ID}
+        assert tombstones == {LEGACY_COLON_ID}
+
+    @pytest.mark.asyncio
+    async def test_consecutive_refreshes_do_not_propagate_legacy_tombstone(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        backend._ensure_db_initialized()
+        conn = sqlite3.connect(backend._db_path)
+        conn.execute(
+            "INSERT INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
+            (LEGACY_COLON_ID, "2024-03-15T00:00:00+00:00"),
+        )
+        conn.commit()
+        conn.close()
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(
+            side_effect=[[COLON_TRANSACTION], [COLLIDING_COLON_TRANSACTION]]
+        )
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match="ambiguous legacy deletion tombstone"):
+                await backend.refresh()
+
+        assert backend.get_database_stats()["total_transactions"] == 0
+        conn = sqlite3.connect(backend._db_path)
+        tombstones = {
+            row[0] for row in conn.execute("SELECT id FROM deleted_transactions").fetchall()
+        }
+        conn.close()
+        assert tombstones == {LEGACY_COLON_ID}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("method_name", ["refresh", "hard_refresh"])

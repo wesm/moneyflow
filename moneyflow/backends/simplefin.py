@@ -218,22 +218,14 @@ class SimpleFinBackend(FinanceBackend):
     ) -> set[str]:
         """Migrate ambiguous legacy IDs while preserving local edits and deletions."""
         deleted_ids = self._get_deleted_transaction_ids(conn)
-        legacy_mappings: Dict[str, set[str]] = {}
-        for transaction in transactions:
-            legacy_id = transaction.get("legacy_id")
-            if isinstance(legacy_id, str):
-                legacy_mappings.setdefault(legacy_id, set()).add(str(transaction["id"]))
-
         if any(
-            legacy_id in deleted_ids and len(new_ids) > 1
-            for legacy_id, new_ids in legacy_mappings.items()
+            isinstance(legacy_id := transaction.get("legacy_id"), str) and legacy_id in deleted_ids
+            for transaction in transactions
         ):
             raise RuntimeError(
                 "SimpleFIN refresh found an ambiguous legacy deletion tombstone; "
                 "data was not changed. Resolve the legacy tombstone before refreshing."
             )
-
-        deleted_at = datetime.now(timezone.utc).isoformat()
 
         for transaction in transactions:
             new_id = str(transaction["id"])
@@ -247,12 +239,7 @@ class SimpleFinBackend(FinanceBackend):
             ).fetchone()
             legacy_row_matches = legacy_row is not None and legacy_row[0] == account_id
 
-            if legacy_id in deleted_ids or new_id in deleted_ids:
-                conn.execute(
-                    "INSERT OR IGNORE INTO deleted_transactions (id, deleted_at) VALUES (?, ?)",
-                    (new_id, deleted_at),
-                )
-                deleted_ids.add(new_id)
+            if new_id in deleted_ids:
                 conn.execute("DELETE FROM transactions WHERE id = ?", (new_id,))
                 if legacy_row_matches:
                     conn.execute("DELETE FROM transactions WHERE id = ?", (legacy_id,))
