@@ -44,6 +44,7 @@ from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.categories import (
     build_category_to_group_mapping,
     categories_dict_to_config_groups,
+    load_categories_from_profile,
     save_categories_to_profile,
 )
 from ..data.data_manager import DataManager
@@ -1095,7 +1096,7 @@ class MoneyflowApp(App):
 
         # Undo the last batch of edits
         edits_to_undo = self.data_manager.undo_last_batch()
-        self._persist_deferred_category_groups_if_ready()
+        self._discard_deferred_category_groups_if_unblocked()
 
         # Refresh view to update indicators
         self.refresh_view(force_rebuild=False)
@@ -1120,18 +1121,22 @@ class MoneyflowApp(App):
                 timeout=2,
             )
 
-    def _persist_deferred_category_groups_if_ready(self) -> None:
-        """Save deferred category config once no category edits remain."""
+    def _discard_deferred_category_groups_if_unblocked(self) -> None:
+        """Discard dependent category config when its last edit is undone."""
         if self.data_manager is None or not self.data_manager.pending_category_groups:
             return
         if any(edit.field == "category" for edit in self.data_manager.pending_edits):
             return
-        if self.data_manager.profile_dir:
-            save_categories_to_profile(
-                self.data_manager.pending_category_groups,
-                profile_dir=self.data_manager.profile_dir,
-            )
         self.data_manager.pending_category_groups = None
+        if not self.data_manager.profile_dir:
+            return
+        persisted_groups = load_categories_from_profile(self.data_manager.profile_dir)
+        if persisted_groups is None:
+            return
+        self.data_manager.category_groups_config = persisted_groups
+        self.data_manager.category_to_group = build_category_to_group_mapping(persisted_groups)
+        self.data_manager.categories = {}
+        self.data_manager._populate_categories_from_config()
 
     # Time navigation actions
     def action_toggle_time_granularity(self) -> None:

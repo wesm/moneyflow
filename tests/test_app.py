@@ -382,11 +382,12 @@ class TestGroupManagerPersistence:
         assert saved_groups == [{"Current Group": ["Category"]}]
         assert app.data_manager.pending_category_groups is None
 
-    def test_undo_last_category_edit_persists_deferred_config(self, monkeypatch):
+    def test_undo_last_category_edit_discards_dependent_config(self, monkeypatch):
         from moneyflow.tui import app as app_module
         from moneyflow.tui.app import MoneyflowApp
 
         deferred_groups = {"Renamed Group": ["Source", "Target"]}
+        persisted_groups = {"Original Group": ["Source", "Target"]}
         category_edit = TransactionEdit(
             transaction_id="transaction-1",
             field="category",
@@ -398,10 +399,21 @@ class TestGroupManagerPersistence:
             pending_edits = [category_edit]
             pending_category_groups = deferred_groups
             profile_dir = object()
+            categories = {
+                "target-category": {"name": "Target", "group": "Renamed Group"},
+            }
+            category_groups_config = deferred_groups
+            category_to_group = {"Target": "Renamed Group"}
 
             def undo_last_batch(self):
                 self.pending_edits.clear()
                 return [category_edit]
+
+            def _populate_categories_from_config(self):
+                self.categories = {
+                    "source-category": {"name": "Source", "group": "Original Group"},
+                    "target-category": {"name": "Target", "group": "Original Group"},
+                }
 
         app = MoneyflowApp()
         app.data_manager = DataManagerStub()
@@ -415,8 +427,16 @@ class TestGroupManagerPersistence:
             "save_categories_to_profile",
             lambda groups, profile_dir: saved_groups.append(groups),
         )
+        monkeypatch.setattr(
+            app_module,
+            "load_categories_from_profile",
+            lambda profile_dir: persisted_groups,
+            raising=False,
+        )
 
         app.action_undo_pending_edits()
 
-        assert saved_groups == [deferred_groups]
+        assert saved_groups == []
         assert app.data_manager.pending_category_groups is None
+        assert app.data_manager.category_groups_config == persisted_groups
+        assert "source-category" in app.data_manager.categories

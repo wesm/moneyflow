@@ -268,7 +268,10 @@ class TestEncryptedCredentials:
 
 class TestSimplefinInitialization:
     @pytest.mark.asyncio
-    async def test_initializes_profile_backend_and_refreshes_before_loading(self, tmp_path):
+    @pytest.mark.parametrize("initialize_before_refresh", [True, False])
+    async def test_initializes_profile_backend_and_refreshes_before_loading(
+        self, tmp_path, initialize_before_refresh
+    ):
         profile_dir = tmp_path / "profiles" / "simplefin-profile"
         profile_dir.mkdir(parents=True)
         account = SimpleNamespace(
@@ -304,18 +307,20 @@ class TestSimplefinInitialization:
             )
 
             mcp = create_mcp_server()
-            await mcp.call_tool("search_transactions", {"query": ""})
+            if initialize_before_refresh:
+                await mcp.call_tool("search_transactions", {"query": ""})
             await mcp.call_tool("refresh_data", {})
 
         get_backend.assert_called_once_with("simplefin", profile_dir=profile_dir)
         backend.login.assert_awaited_once_with(
             password="https://user:pass@bridge.simplefin.org/simplefin"
         )
-        assert backend.refresh.await_count == 2
+        expected_calls = 2 if initialize_before_refresh else 1
+        assert backend.refresh.await_count == expected_calls
         data_manager_cls.assert_called_once()
         assert data_manager_cls.call_args.kwargs["profile_dir"] == profile_dir
         assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
-        assert data_manager.fetch_all_data.await_count == 2
+        assert data_manager.fetch_all_data.await_count == expected_calls
         assert sample_transactions.is_empty()
 
 

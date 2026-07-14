@@ -128,7 +128,7 @@ def create_mcp_server(
     async def _ensure_initialized():
         """Lazy initialization of the data manager and data."""
         if _state["initialized"]:
-            return
+            return False
 
         config_path = Path(_state["config_dir"]) if _state["config_dir"] else None
         account_manager = AccountManager(config_dir=config_path)
@@ -221,6 +221,7 @@ def create_mcp_server(
         _state["account"] = account
 
         logger.info(f"Loaded {len(df)} transactions")
+        return True
 
     # ========== TOOLS ==========
 
@@ -469,20 +470,23 @@ def create_mcp_server(
         Returns:
             JSON object with refresh status
         """
-        await _ensure_initialized()
+        initialized_now = await _ensure_initialized()
 
         dm = _state["data_manager"]
         account = _state["account"]
 
-        if account.backend_type == "simplefin":
-            await _state["backend"].refresh()
+        if initialized_now:
+            df = _state["transactions_df"]
+        else:
+            if account.backend_type == "simplefin":
+                await _state["backend"].refresh()
 
-        # Fetch fresh data from API (DataManager doesn't use cache)
-        df, categories, category_groups = await dm.fetch_all_data()
+            # Fetch fresh data from API (DataManager doesn't use cache)
+            df, categories, category_groups = await dm.fetch_all_data()
 
-        _state["transactions_df"] = df
-        _state["categories"] = categories
-        _state["category_groups"] = category_groups
+            _state["transactions_df"] = df
+            _state["categories"] = categories
+            _state["category_groups"] = category_groups
 
         return json.dumps(
             {
