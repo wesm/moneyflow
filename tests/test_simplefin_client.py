@@ -183,7 +183,7 @@ class TestParseTransactions:
         expected = datetime.fromtimestamp(1700000000, tz=timezone.utc).strftime("%Y-%m-%d")
         assert result[0]["date"] == expected
 
-    def test_txn_with_no_usable_date_is_skipped(self):
+    def test_txn_with_no_usable_date_fails_the_response(self):
         acct = {
             "id": "a",
             "name": "X",
@@ -199,8 +199,8 @@ class TestParseTransactions:
                 }
             ],
         }
-        result = _parse_transactions([acct])
-        assert result == []
+        with pytest.raises(RuntimeError, match="unusable transaction date"):
+            _parse_transactions([acct])
 
     def test_multiple_accounts_flattened(self):
         acct2 = {

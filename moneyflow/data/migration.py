@@ -176,6 +176,7 @@ def migrate_legacy_db(
     backend_type: str = "amazon",
     account_id: Optional[str] = None,
     dry_run: bool = False,
+    target_profile_id: Optional[str] = None,
 ) -> bool:
     """
     Migrate a legacy per-backend database to the multi-account profile system.
@@ -190,6 +191,7 @@ def migrate_legacy_db(
         backend_type: Backend type identifier
         account_id: Optional explicit account ID (defaults to backend_type)
         dry_run: If True, only check if migration is needed without performing it
+        target_profile_id: Existing backend profile that should receive the legacy database.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
@@ -204,27 +206,47 @@ def migrate_legacy_db(
     if not legacy_db.exists():
         return False
 
-    # Check if an account of this backend type already exists
+    if dry_run:
+        return True
+
     account_manager = AccountManager(config_dir=config_dir)
     existing_accounts = account_manager.list_accounts()
+    matching_accounts = [
+        account for account in existing_accounts if account.backend_type == backend_type
+    ]
+    target_account = None
+    if target_profile_id is not None:
+        candidate = account_manager.get_account(target_profile_id)
+        if candidate is None or candidate.backend_type != backend_type:
+            logger.warning(
+                "Cannot migrate %s: target profile %s is not a %s profile.",
+                legacy_db,
+                target_profile_id,
+                backend_type,
+            )
+            return False
+        target_account = candidate
+    elif len(matching_accounts) == 1:
+        target_account = matching_accounts[0]
+    elif len(matching_accounts) > 1:
+        logger.warning(
+            "Cannot migrate %s: multiple %s profiles exist and no destination was selected.",
+            legacy_db,
+            backend_type,
+        )
+        return False
 
-    for account in existing_accounts:
-        if account.backend_type == backend_type:
-            if dry_run:
-                return True
-            profile_dir = account_manager.get_profile_dir(account.id)
-            dest = profile_dir / db_filename
-            if dest.exists():
-                logger.warning(
-                    "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
-                    dest,
-                    legacy_db,
-                )
-                return True
-            shutil.move(str(legacy_db), str(dest))
+    if target_account is not None:
+        profile_dir = account_manager.get_profile_dir(target_account.id)
+        dest = profile_dir / db_filename
+        if dest.exists():
+            logger.warning(
+                "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
+                dest,
+                legacy_db,
+            )
             return True
-
-    if dry_run:
+        shutil.move(str(legacy_db), str(dest))
         return True
 
     profile_account = account_manager.create_account(
@@ -247,7 +269,11 @@ def migrate_legacy_db(
     return True
 
 
-def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
+def migrate_legacy_amazon_db(
+    config_dir: Optional[Path] = None,
+    dry_run: bool = False,
+    target_profile_id: Optional[str] = None,
+) -> bool:
     """
     Migrate legacy Amazon database to multi-account profile system.
 
@@ -256,6 +282,7 @@ def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = 
     Args:
         config_dir: Optional config directory (defaults to ~/.moneyflow)
         dry_run: If True, only check if migration is needed without performing it
+        target_profile_id: Existing Amazon profile that should receive the legacy database.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
@@ -268,6 +295,7 @@ def migrate_legacy_amazon_db(config_dir: Optional[Path] = None, dry_run: bool = 
         backend_type="amazon",
         account_id="amazon",
         dry_run=dry_run,
+        target_profile_id=target_profile_id,
     )
 
 
@@ -419,10 +447,12 @@ def migrate_legacy_simplefin_db(
         )
         return False
 
+    profile_dir_existed = False
     if simplefin_account is not None:
         profile_dir = account_manager.get_profile_dir(simplefin_account.id)
     else:
         profile_dir = account_manager.get_profile_dir("simplefin")
+        profile_dir_existed = profile_dir.exists()
 
     # An occupied destination means these root artifacts cannot be proven to
     # belong to this profile. Reject the entire migration before creating an
@@ -436,26 +466,42 @@ def migrate_legacy_simplefin_db(
         )
         return False
 
+    _preflight_legacy_credentials_to_profile(config_dir, profile_dir)
+
+    created_account_id = None
+    previous_active = account_manager.get_last_active_account()
+    previous_active_id = previous_active.id if previous_active is not None else None
     if simplefin_account is None:
         profile_account = account_manager.create_account(
             name="SimpleFIN",
             backend_type="simplefin",
             account_id="simplefin",
         )
+        created_account_id = profile_account.id
         profile_dir = account_manager.get_profile_dir(profile_account.id)
 
     # Move the database and credentials as one recoverable operation. If a
     # later credential artifact fails to move, restore the database so the
     # next startup can retry the complete migration.
     dest = profile_dir / SIMPLEFIN_DB_FILE
-    shutil.move(str(legacy_db), str(dest))
-
+    database_moved = False
     try:
+        shutil.move(str(legacy_db), str(dest))
+        database_moved = True
         # Migrate legacy credentials if they are still sitting at the root
         _move_legacy_credentials_to_profile(config_dir, profile_dir)
     except Exception:
-        if dest.exists() and not legacy_db.exists():
-            shutil.move(str(dest), str(legacy_db))
+        try:
+            if database_moved and dest.exists() and not legacy_db.exists():
+                shutil.move(str(dest), str(legacy_db))
+        finally:
+            if created_account_id is not None:
+                account_manager.delete_account(
+                    created_account_id,
+                    delete_profile=not profile_dir_existed and not dest.exists(),
+                )
+                if previous_active_id is not None:
+                    account_manager.set_last_active_account(previous_active_id)
         raise
 
     return True

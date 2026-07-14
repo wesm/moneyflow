@@ -263,8 +263,10 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
             if date_str is None:
                 date_str = _unix_to_date_str(txn.get("transacted_at"))
             if date_str is None:
-                # Skip transactions with no usable date
-                continue
+                raise RuntimeError(
+                    "SimpleFIN response contains an unusable transaction date "
+                    f"for transaction {txn_id}."
+                )
 
             transaction_id = _transaction_id(acct_id, txn_id)
             legacy_id = f"{acct_id}:{txn_id}"

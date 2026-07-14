@@ -158,6 +158,12 @@ class AccountFlowCoordinator:
                     target_profile_id=account.id,
                 )
 
+            if account.backend_type == "amazon":
+                migrate_legacy_amazon_db(
+                    config_dir=config_path,
+                    target_profile_id=account.id,
+                )
+
             profile_dir = account_manager.get_profile_dir(account.id)
 
             if account.backend_type == "amazon":

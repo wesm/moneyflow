@@ -540,6 +540,35 @@ class TestMigrateLegacyAmazonDb:
         assert not legacy_amazon_db.exists()
         assert (existing_profile / "amazon.db").exists()
 
+    def test_multiple_amazon_profiles_leave_ambiguous_db_unmoved(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
+        account_manager.create_account("Personal Orders", "amazon", account_id="personal")
+        account_manager.create_account("Business Orders", "amazon", account_id="business")
+
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_amazon_db.exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "amazon.db").exists()
+        assert not (temp_config_dir / "profiles" / "business" / "amazon.db").exists()
+
+    def test_explicit_amazon_profile_receives_legacy_db(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
+        account_manager.create_account("Personal Orders", "amazon", account_id="personal")
+        account_manager.create_account("Business Orders", "amazon", account_id="business")
+
+        result = migrate_legacy_amazon_db(
+            config_dir=temp_config_dir,
+            target_profile_id="business",
+        )
+
+        assert result is True
+        assert not legacy_amazon_db.exists()
+        assert (temp_config_dir / "profiles" / "business" / "amazon.db").exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "amazon.db").exists()
+
     def test_migration_works_with_other_accounts_present(
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):
@@ -790,8 +819,13 @@ class TestMigrateLegacySimplefinDb:
         assert (profile_dir / "salt").exists()
 
     def test_encrypted_migration_requires_matching_source_salt(
-        self, temp_config_dir, legacy_simplefin_db, legacy_credentials
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
     ):
+        previous = account_manager.create_account("Monarch", "monarch")
         (temp_config_dir / "salt").unlink()
 
         with pytest.raises(RuntimeError, match="missing their matching salt"):
@@ -802,6 +836,63 @@ class TestMigrateLegacySimplefinDb:
         profile_dir = temp_config_dir / "profiles" / "simplefin"
         assert not (profile_dir / "simplefin.db").exists()
         assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert [account.id for account in account_manager.list_accounts()] == [previous.id]
+        assert account_manager.get_last_active_account().id == previous.id
+
+    def test_failed_move_preserves_unregistered_simplefin_profile_directory(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
+        monkeypatch,
+    ):
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        profile_dir.mkdir(parents=True)
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_data.read_text() == "existing data"
+        assert account_manager.list_accounts() == []
+
+    def test_failed_move_restores_previous_active_profile(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
+        monkeypatch,
+    ):
+        account_manager.create_account("First", "monarch", account_id="first")
+        previous = account_manager.create_account("Second", "ynab", account_id="second")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert account_manager.get_last_active_account().id == previous.id
+        assert {account.id for account in account_manager.list_accounts()} == {"first", "second"}
 
     @pytest.mark.parametrize("existing_name", [CREDENTIALS_FILE, CREDENTIALS_FILE_JSON])
     def test_migration_rejects_cross_format_destination_credentials(

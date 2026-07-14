@@ -311,6 +311,34 @@ class TestRefresh:
         assert result["allTransactions"]["totalCount"] == 3
 
     @pytest.mark.asyncio
+    async def test_undated_old_transaction_keeps_full_lookback_until_corrected(self, tmp_path):
+        backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))
+        corrected = {
+            **SAMPLE_TRANSACTIONS[0],
+            "id": "acct-1:old-corrected",
+            "date": (date.today() - timedelta(days=365)).isoformat(),
+        }
+        mock_client = MagicMock()
+        mock_client.fetch_transactions = AsyncMock(
+            side_effect=[
+                RuntimeError("SimpleFIN response contains an unusable transaction date."),
+                [corrected],
+            ]
+        )
+        mock_client.currency_code = "USD"
+        backend._client = mock_client
+
+        with pytest.raises(RuntimeError, match="unusable transaction date"):
+            await backend.refresh()
+
+        assert backend._get_refresh_metadata() == {}
+        assert await backend.refresh() == 1
+        expected_start = (date.today() - timedelta(days=365 * 3)).isoformat()
+        assert [
+            call.kwargs["start_date"] for call in mock_client.fetch_transactions.call_args_list
+        ] == [expected_start, expected_start]
+
+    @pytest.mark.asyncio
     async def test_refresh_persists_currency_and_uses_iso_code_for_display(self, tmp_path):
         transactions = [{**transaction, "currency": "EUR"} for transaction in SAMPLE_TRANSACTIONS]
         backend = SimpleFinBackend(db_path=str(tmp_path / "test.db"))

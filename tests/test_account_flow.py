@@ -98,6 +98,23 @@ class TestSimpleFINSetup:
         assert (tmp_path / "profiles" / "business" / "simplefin.db").exists()
         assert not (tmp_path / "profiles" / "personal" / "simplefin.db").exists()
 
+    async def test_amazon_profile_selection_targets_ambiguous_legacy_database(self, tmp_path):
+        account_manager = AccountManager(config_dir=tmp_path)
+        account_manager.create_account("Personal Orders", "amazon", account_id="personal")
+        account_manager.create_account("Business Orders", "amazon", account_id="business")
+        (tmp_path / "amazon.db").write_bytes(b"example database")
+        app = MagicMock()
+        app.config_dir = str(tmp_path)
+        app.push_screen = AsyncMock(return_value="business")
+
+        result = await AccountFlowCoordinator(app).handle_account_selection()
+
+        assert result is not None
+        assert result[0] == "business"
+        assert (tmp_path / "profiles" / "business" / "amazon.db").exists()
+        assert not (tmp_path / "profiles" / "personal" / "amazon.db").exists()
+        assert not (tmp_path / "amazon.db").exists()
+
     async def test_encrypted_legacy_credentials_are_classified_after_unlock(self, tmp_path):
         credentials = CredentialManager(config_dir=tmp_path)
         credentials.save_credentials(
