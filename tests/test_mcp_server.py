@@ -349,6 +349,7 @@ class TestSimplefinInitialization:
             if initialize_before_refresh:
                 await mcp.call_tool("search_transactions", {"query": ""})
             await mcp.call_tool("refresh_data", {})
+            summary_result = await mcp.call_tool("get_spending_summary", {})
 
         get_backend.assert_called_once_with("simplefin", profile_dir=profile_dir)
         backend.login.assert_awaited_once_with(
@@ -361,6 +362,9 @@ class TestSimplefinInitialization:
         assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
         assert data_manager.fetch_all_data.await_count == expected_calls
         assert sample_transactions.is_empty()
+        summary_content, _ = summary_result
+        summary = json.loads(summary_content[0].text)
+        assert summary["transaction_count"] == 0
 
     @pytest.mark.asyncio
     async def test_loads_local_categories_and_persists_category_name(self, tmp_path):

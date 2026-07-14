@@ -432,7 +432,7 @@ class CredentialSetupScreen(ModalScreen):
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "exit-button":
-            self.app.exit()
+            self.dismiss(None)
             return
 
         if event.button.id == "save-button":

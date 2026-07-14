@@ -155,6 +155,7 @@ class TestParseTransactions:
         acct = {
             "id": "a",
             "name": "Savings",
+            "currency": "USD",
             "transactions": [
                 {
                     "id": "p1",
@@ -175,6 +176,7 @@ class TestParseTransactions:
         acct = {
             "id": "a",
             "name": "X",
+            "currency": "USD",
             "transactions": [
                 {
                     "id": "no-date",
@@ -193,6 +195,7 @@ class TestParseTransactions:
         acct2 = {
             "id": "acct-2",
             "name": "Savings",
+            "currency": "USD",
             "transactions": [
                 {
                     "id": "txn-2",
@@ -242,7 +245,7 @@ class TestParseTransactions:
             _parse_transactions([account])
 
     def test_account_with_no_transactions_produces_no_rows(self):
-        acct = {"id": "a", "name": "Empty", "transactions": []}
+        acct = {"id": "a", "name": "Empty", "currency": "USD", "transactions": []}
         result = _parse_transactions([acct])
         assert result == []
 
@@ -334,6 +337,23 @@ class TestSimpleFinClient:
 
         with patch("aiohttp.ClientSession", return_value=mock_session):
             with pytest.raises(RuntimeError, match="custom currency"):
+                await client.fetch_transactions()
+
+    @pytest.mark.asyncio
+    async def test_fetch_transactions_rejects_account_without_currency(self):
+        missing_currency_account = {**MINIMAL_ACCOUNT}
+        missing_currency_account.pop("currency")
+        response = {
+            "accounts": [MINIMAL_ACCOUNT, missing_currency_account],
+            "connections": [],
+            "errlist": [],
+        }
+        client = SimpleFinClient(VALID_ACCESS_URL)
+        mock_resp = _make_mock_response(200, response)
+        mock_session = _make_mock_session(mock_resp)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(RuntimeError, match="missing.*currency"):
                 await client.fetch_transactions()
 
     @pytest.mark.asyncio

@@ -59,6 +59,13 @@ def _clamp_limit(limit: int) -> int:
     return max(1, min(limit, MAX_LIMIT))
 
 
+def _date_filter_value(df: pl.DataFrame, value: str) -> Any:
+    """Match an ISO date filter to the DataFrame's date representation."""
+    if df.schema.get("date") == pl.Date:
+        return date.fromisoformat(value)
+    return value
+
+
 def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
     """Convert DataFrame to list of records with formatting."""
     if len(df) == 0:
@@ -140,7 +147,7 @@ def create_mcp_server(
     from ..backends import get_backend
     from ..data.account_manager import AccountManager
     from ..data.credentials import CredentialManager
-    from ..data.data_manager import DataManager
+    from ..data.data_manager import DataManager, ensure_transaction_schema
     from ..data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
 
     mcp = FastMCP("moneyflow")
@@ -268,6 +275,7 @@ def create_mcp_server(
 
         # Fetch data (uses cache if available)
         df, categories, category_groups = await data_manager.fetch_all_data()
+        df = ensure_transaction_schema(df)
 
         category_names, groups_by_category = _normalize_category_state(
             data_manager, categories, category_groups
@@ -341,9 +349,9 @@ def create_mcp_server(
 
         # Apply filters
         if start_date:
-            df = df.filter(pl.col("date") >= start_date)
+            df = df.filter(pl.col("date") >= _date_filter_value(df, start_date))
         if end_date:
-            df = df.filter(pl.col("date") <= end_date)
+            df = df.filter(pl.col("date") <= _date_filter_value(df, end_date))
         if category:
             df = df.filter(pl.col("category") == category)
         if merchant:
@@ -387,7 +395,9 @@ def create_mcp_server(
             start_date = (date.today() - timedelta(days=30)).isoformat()
 
         # Filter by date
-        df = df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
+        start_value = _date_filter_value(df, start_date)
+        end_value = _date_filter_value(df, end_date)
+        df = df.filter((pl.col("date") >= start_value) & (pl.col("date") <= end_value))
 
         # Filter to expenses only (negative amounts)
         expenses = df.filter(pl.col("amount") < 0)
@@ -548,6 +558,7 @@ def create_mcp_server(
 
             # Fetch fresh data from API (DataManager doesn't use cache)
             df, categories, category_groups = await dm.fetch_all_data()
+            df = ensure_transaction_schema(df)
 
             category_names, groups_by_category = _normalize_category_state(
                 dm, categories, category_groups

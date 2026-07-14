@@ -77,7 +77,10 @@ def _normalize_currency_code(x: Any) -> str:
     """Return a normalized ISO 4217 code or reject unsupported custom currencies."""
     currency = _coerce_str(x) or ""
     if not currency:
-        return ""
+        raise RuntimeError(
+            "SimpleFIN account is missing a valid ISO 4217 currency; "
+            "moneyflow cannot aggregate it safely."
+        )
     if not re.fullmatch(r"[A-Za-z]{3}", currency):
         raise RuntimeError(
             "SimpleFIN account uses a custom currency; "

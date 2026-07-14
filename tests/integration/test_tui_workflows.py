@@ -17,6 +17,7 @@ import pytest
 from textual.containers import Container
 from textual.widgets import Checkbox, DataTable, Input, Label, RadioButton, RadioSet, Static
 
+from moneyflow.tui.account_flow import AccountFlowCoordinator
 from moneyflow.tui.app import MoneyflowApp
 from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
 from moneyflow.tui.screens.batch_scope_screen import BatchScopeScreen
@@ -470,6 +471,27 @@ class TestCredentialSetupWorkflow:
             assert screen.query_one("#password-input", Input).value == access_url
             assert screen.query_one("#simplefin-mode", RadioSet).pressed_button.id == "url-radio"
             assert "retained" in str(screen.query_one("#error-label", Label).render()).lower()
+
+    @pytest.mark.integration
+    async def test_simplefin_exit_button_rolls_back_incomplete_profile(self, tmp_path):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        previous = account_manager.create_account("Existing", "demo", account_id="existing")
+        app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
+
+        async with app.run_test() as pilot:
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
+            setup_worker = app.run_worker(AccountFlowCoordinator(app).handle_new_simplefin_setup())
+            await pilot.pause()
+
+            await pilot.click("#exit-button")
+            result = await setup_worker.wait()
+
+        account_manager.load_registry()
+        assert result is None
+        assert account_manager.get_last_active_account() == previous
+        assert [account.id for account in account_manager.list_accounts()] == ["existing"]
 
     @pytest.mark.integration
     async def test_backend_selection_screen_mounts(self, tmp_path):

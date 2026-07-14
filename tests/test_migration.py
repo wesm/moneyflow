@@ -590,7 +590,7 @@ class TestMigrateLegacySimplefinDb:
         assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
         assert not (temp_config_dir / "profiles" / "personal" / CREDENTIALS_FILE_JSON).exists()
 
-    def test_default_simplefin_profile_receives_legacy_db(
+    def test_default_simplefin_profile_does_not_resolve_ambiguous_legacy_db(
         self, temp_config_dir, legacy_simplefin_db, account_manager
     ):
         account_manager.create_account("Personal", "simplefin", account_id="personal")
@@ -599,8 +599,9 @@ class TestMigrateLegacySimplefinDb:
 
         result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
 
-        assert result is True
-        assert (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert not (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
         assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
 
     def test_migration_works_with_other_accounts_present(

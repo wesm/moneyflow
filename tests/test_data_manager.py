@@ -641,6 +641,21 @@ class TestEdgeCases:
 
         assert df is not None
         assert df.is_empty()
+        assert df.schema == {
+            "id": pl.String,
+            "date": pl.Date,
+            "amount": pl.Float64,
+            "merchant": pl.String,
+            "merchant_id": pl.String,
+            "category": pl.String,
+            "category_id": pl.String,
+            "account": pl.String,
+            "account_id": pl.String,
+            "notes": pl.String,
+            "hideFromReports": pl.Boolean,
+            "pending": pl.Boolean,
+            "isRecurring": pl.Boolean,
+        }
 
     async def test_transactions_to_dataframe_none_merchant(self, data_manager):
         """Test transaction with None merchant field."""

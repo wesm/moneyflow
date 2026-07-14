@@ -39,6 +39,34 @@ from .state import TimeGranularity
 
 logger = get_logger(__name__)
 
+TRANSACTION_SCHEMA: Dict[str, Any] = {
+    "id": pl.String,
+    "date": pl.Date,
+    "amount": pl.Float64,
+    "merchant": pl.String,
+    "merchant_id": pl.String,
+    "category": pl.String,
+    "category_id": pl.String,
+    "account": pl.String,
+    "account_id": pl.String,
+    "notes": pl.String,
+    "hideFromReports": pl.Boolean,
+    "pending": pl.Boolean,
+    "isRecurring": pl.Boolean,
+}
+
+
+def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:
+    """Add canonical transaction columns to an empty DataFrame."""
+    if not df.is_empty():
+        return df
+    missing_columns = [
+        pl.Series(name=name, values=[], dtype=dtype)
+        for name, dtype in TRANSACTION_SCHEMA.items()
+        if name not in df.columns
+    ]
+    return df.with_columns(missing_columns)
+
 
 @dataclass
 class DeferredCategoryChange:
@@ -536,7 +564,7 @@ class DataManager:
         on cached data.
         """
         if not transactions:
-            return pl.DataFrame()
+            return ensure_transaction_schema(pl.DataFrame())
 
         # Prepare data for DataFrame
         rows = []
