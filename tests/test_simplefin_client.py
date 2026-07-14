@@ -456,11 +456,13 @@ class TestClaimToken:
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
 
-        with patch("urllib.request.urlopen", return_value=mock_resp) as urlopen:
+        opener = MagicMock()
+        opener.open.return_value = mock_resp
+        with patch("urllib.request.build_opener", return_value=opener):
             result = claim_token(token)
 
         assert result == access_url
-        assert urlopen.call_args.kwargs["timeout"] == 15.0
+        assert opener.open.call_args.kwargs["timeout"] == 15.0
 
     def test_bad_base64_raises_value_error(self):
         with pytest.raises(ValueError, match="Base64"):
@@ -482,23 +484,44 @@ class TestClaimToken:
             hdrs=MagicMock(),
             fp=None,
         )
-        with patch("urllib.request.urlopen", side_effect=http_error):
+        opener = MagicMock()
+        opener.open.side_effect = http_error
+        with patch("urllib.request.build_opener", return_value=opener):
             with pytest.raises(PermissionError, match="403"):
                 claim_token(token)
 
     def test_network_error_raises_runtime_error(self):
         token = self._make_token("https://bridge.simplefin.org/claim/unavailable")
 
-        with patch(
-            "urllib.request.urlopen",
-            side_effect=urllib.error.URLError("connection unavailable"),
-        ):
+        opener = MagicMock()
+        opener.open.side_effect = urllib.error.URLError("connection unavailable")
+        with patch("urllib.request.build_opener", return_value=opener):
             with pytest.raises(RuntimeError, match="Unable to reach"):
                 claim_token(token)
 
     def test_timeout_raises_runtime_error(self):
         token = self._make_token("https://bridge.simplefin.org/claim/slow")
 
-        with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+        opener = MagicMock()
+        opener.open.side_effect = TimeoutError("timed out")
+        with patch("urllib.request.build_opener", return_value=opener):
             with pytest.raises(RuntimeError, match="Unable to reach"):
                 claim_token(token)
+
+    def test_redirect_response_is_rejected(self):
+        token = self._make_token("https://bridge.simplefin.org/claim/redirect")
+        redirect = urllib.error.HTTPError(
+            url="https://bridge.simplefin.org/claim/redirect",
+            code=302,
+            msg="Found",
+            hdrs=MagicMock(),
+            fp=None,
+        )
+        opener = MagicMock()
+        opener.open.side_effect = redirect
+
+        with patch("urllib.request.build_opener", return_value=opener) as build_opener:
+            with pytest.raises(RuntimeError, match="Unexpected HTTP 302"):
+                claim_token(token)
+
+        assert build_opener.call_args.args[0].__class__.__name__ == "_RejectRedirects"

@@ -696,6 +696,20 @@ class TestMigrateLegacySimplefinDb:
         assert (profile_dir / CREDENTIALS_FILE).exists()
         assert (profile_dir / "salt").exists()
 
+    def test_encrypted_migration_requires_matching_source_salt(
+        self, temp_config_dir, legacy_simplefin_db, legacy_credentials
+    ):
+        (temp_config_dir / "salt").unlink()
+
+        with pytest.raises(RuntimeError, match="missing their matching salt"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert not (profile_dir / "simplefin.db").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+
 
 class TestMigrateGlobalCategoriesToProfiles:
     """Tests for migrating global config.yaml categories to profiles."""

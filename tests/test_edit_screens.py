@@ -244,6 +244,20 @@ class TestManageCategoriesScreen:
             "Transactions refreshed; reopen the category manager before changing categories."
         ]
 
+    def test_rename_moves_effective_transaction_count(self):
+        categories = {"source": {"name": "Source", "group": "Expenses", "group_id": "expenses"}}
+        screen = ManageCategoriesScreen(
+            categories,
+            transaction_counts={"source": 3},
+            queue_reassign_callback=lambda *args: None,
+        )
+        screen._pending_cat_id = "source"
+        screen._update_display = lambda: None
+
+        screen._handle_rename("Renamed")
+
+        assert screen.transaction_counts == {"renamed": 3}
+
     def test_uncategorized_fallback_cannot_be_renamed(self, monkeypatch):
         categories = {
             "uncategorized": {

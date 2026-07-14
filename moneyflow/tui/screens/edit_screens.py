@@ -1201,6 +1201,11 @@ class ManageCategoriesScreen(ModalScreen):
                 severity="warning",
             )
             return False
+        if source_id != target_id:
+            moved_count = self.transaction_counts.pop(source_id, 0)
+            self.transaction_counts[target_id] = (
+                self.transaction_counts.get(target_id, 0) + moved_count
+            )
         return True
 
     def _rename_selected(self) -> None:

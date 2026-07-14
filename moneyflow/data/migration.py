@@ -304,6 +304,16 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
     dest_filename = CREDENTIALS_FILE if is_encrypted else CREDENTIALS_FILE_JSON
     dest = profile_dir / dest_filename
 
+    if is_encrypted:
+        salt_file = config_dir / "salt"
+        salt_dest = profile_dir / "salt"
+        if not salt_file.exists():
+            raise RuntimeError("Encrypted legacy credentials are missing their matching salt.")
+        if dest.exists() or salt_dest.exists():
+            raise RuntimeError(
+                "Encrypted legacy credentials cannot be migrated over existing credential artifacts."
+            )
+
     if dest.exists():
         logger.warning(
             "Credentials already exist at %s. Skipping move of %s to avoid overwriting.",
@@ -318,12 +328,8 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
         completed_moves.append((legacy_cred_file, dest))
 
         if is_encrypted:
-            salt_file = config_dir / "salt"
-            if salt_file.exists():
-                salt_dest = profile_dir / "salt"
-                if not salt_dest.exists():
-                    shutil.move(str(salt_file), str(salt_dest))
-                    completed_moves.append((salt_file, salt_dest))
+            shutil.move(str(salt_file), str(salt_dest))
+            completed_moves.append((salt_file, salt_dest))
     except Exception:
         for source, destination in reversed(completed_moves):
             if destination.exists() and not source.exists():

@@ -29,6 +29,14 @@ _SIMPLEFIN_CLAIM_HOSTS = frozenset(
 )
 _CLAIM_TIMEOUT_SECONDS = 15.0
 
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Keep token claims on the validated endpoint."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
@@ -190,7 +198,8 @@ def claim_token(token: str) -> str:
     req = urllib.request.Request(claim_url, method="POST")
     req.add_header("User-Agent", "moneyflow/1.0")
     try:
-        with urllib.request.urlopen(req, timeout=_CLAIM_TIMEOUT_SECONDS) as resp:
+        opener = urllib.request.build_opener(_RejectRedirects())
+        with opener.open(req, timeout=_CLAIM_TIMEOUT_SECONDS) as resp:
             if resp.status != 200:
                 raise RuntimeError(
                     f"Unexpected HTTP {resp.status} response while claiming the token."
