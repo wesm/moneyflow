@@ -745,6 +745,19 @@ class TestSpendingSummary:
         assert response["total_spending"].startswith("-EUR ")
         assert all(item["total"].startswith("-EUR ") for item in response["by_category"])
 
+    @pytest.mark.asyncio
+    async def test_uses_profile_currency_when_period_has_no_expenses(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.filter(pl.col("amount") > 0).with_columns(
+            pl.lit("EUR").alias("currency")
+        )
+        mcp = mcp_server_factory(transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["total_spending"] == "EUR 0.00"
+
 
 # ============================================================================
 # Test: Resources

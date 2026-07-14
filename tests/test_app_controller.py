@@ -549,7 +549,7 @@ class TestCommitHandling:
         self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
 
         assert controller.data_manager.pending_category_groups == groups
-        assert len(controller.data_manager.pending_category_changes) == 1
+        assert controller.data_manager.pending_category_changes == []
         assert mock_view.notifications[-1]["severity"] == "error"
 
     async def test_partial_failure_does_not_apply_edits(self, controller, mock_view):

@@ -354,6 +354,7 @@ def create_mcp_server(
         await _ensure_initialized()
 
         df = _state["transactions_df"]
+        currency = df["currency"][0] if "currency" in df.columns and len(df) else None
 
         # Default date range: last 30 days
         if not end_date:
@@ -366,9 +367,6 @@ def create_mcp_server(
 
         # Filter to expenses only (negative amounts)
         expenses = df.filter(pl.col("amount") < 0)
-        currency = (
-            expenses["currency"][0] if "currency" in expenses.columns and len(expenses) else None
-        )
 
         # Group and sum
         group_col = "category" if group_by == "category" else "merchant"

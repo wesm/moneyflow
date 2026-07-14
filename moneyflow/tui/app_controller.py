@@ -1668,6 +1668,9 @@ class AppController:
 
             # Persist deferred category config if any (from category manager)
             if self.data_manager.pending_category_groups:
+                # Transaction-backed structural operations are now committed and cannot be undone.
+                # Retain only the config snapshot if persistence needs to be retried.
+                self.data_manager.pending_category_changes.clear()
                 categories_saved = True
                 if self.data_manager.profile_dir:
                     categories_saved = save_categories_to_profile(
@@ -1676,7 +1679,6 @@ class AppController:
                     )
                 if categories_saved:
                     self.data_manager.pending_category_groups = None
-                    self.data_manager.pending_category_changes.clear()
                     logger.info("Saved deferred category config after successful commit")
                 else:
                     logger.error("Failed to save deferred category config after commit")
