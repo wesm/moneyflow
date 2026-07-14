@@ -14,6 +14,7 @@ import pytest
 from moneyflow.backends.simplefin_client import (
     SimpleFinClient,
     _parse_transactions,
+    _RejectRedirects,
     _unix_to_date_str,
     claim_token,
     parse_access_url,
@@ -525,3 +526,7 @@ class TestClaimToken:
                 claim_token(token)
 
         assert build_opener.call_args.args[0].__class__.__name__ == "_RejectRedirects"
+
+    def test_redirect_handler_refuses_redirect_request(self):
+        handler = _RejectRedirects()
+        assert handler.redirect_request(None, None, 302, "Found", {}, "http://example.com") is None

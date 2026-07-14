@@ -710,6 +710,20 @@ class TestMigrateLegacySimplefinDb:
         assert not (profile_dir / "simplefin.db").exists()
         assert not (profile_dir / CREDENTIALS_FILE).exists()
 
+    @pytest.mark.parametrize("existing_name", [CREDENTIALS_FILE, CREDENTIALS_FILE_JSON])
+    def test_migration_rejects_cross_format_destination_credentials(
+        self, temp_config_dir, legacy_simplefin_db, legacy_credentials, existing_name
+    ):
+        manager = AccountManager(config_dir=temp_config_dir)
+        account = manager.create_account("SimpleFIN", "simplefin")
+        profile_dir = manager.get_profile_dir(account.id)
+        (profile_dir / existing_name).write_text("existing")
+
+        with pytest.raises(RuntimeError, match="existing credential artifacts"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
+
 
 class TestMigrateGlobalCategoriesToProfiles:
     """Tests for migrating global config.yaml categories to profiles."""

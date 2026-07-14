@@ -303,16 +303,21 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
     is_encrypted = legacy_cred_file.suffix == ".enc"
     dest_filename = CREDENTIALS_FILE if is_encrypted else CREDENTIALS_FILE_JSON
     dest = profile_dir / dest_filename
+    existing_artifacts = [
+        profile_dir / CREDENTIALS_FILE,
+        profile_dir / CREDENTIALS_FILE_JSON,
+        profile_dir / "salt",
+    ]
+    if any(path.exists() for path in existing_artifacts):
+        raise RuntimeError(
+            "Legacy credentials cannot be migrated over existing credential artifacts."
+        )
 
     if is_encrypted:
         salt_file = config_dir / "salt"
         salt_dest = profile_dir / "salt"
         if not salt_file.exists():
             raise RuntimeError("Encrypted legacy credentials are missing their matching salt.")
-        if dest.exists() or salt_dest.exists():
-            raise RuntimeError(
-                "Encrypted legacy credentials cannot be migrated over existing credential artifacts."
-            )
 
     if dest.exists():
         logger.warning(
