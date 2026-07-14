@@ -210,6 +210,49 @@ class TestMigrateLegacyCredentials:
         assert (profile_dir / CREDENTIALS_FILE).exists()
         assert (profile_dir / "salt").exists()
 
+    def test_credential_collision_preserves_unregistered_profile_directory(
+        self, temp_config_dir, legacy_credentials
+    ):
+        profile_dir = temp_config_dir / "profiles" / "default"
+        profile_dir.mkdir(parents=True)
+        existing_credentials = profile_dir / CREDENTIALS_FILE_JSON
+        existing_credentials.write_text("existing credentials")
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+
+        with pytest.raises(RuntimeError, match="existing credential artifacts"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_credentials.read_text() == "existing credentials"
+        assert existing_data.read_text() == "existing data"
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
+    def test_move_failure_preserves_unregistered_profile_directory(
+        self, temp_config_dir, legacy_credentials, monkeypatch
+    ):
+        profile_dir = temp_config_dir / "profiles" / "default"
+        profile_dir.mkdir(parents=True)
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_data.read_text() == "existing data"
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
     def test_migrate_preserves_credential_data(self, temp_config_dir):
         """Test that migrated credentials can still be decrypted."""
         # Create legacy credentials

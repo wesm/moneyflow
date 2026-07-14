@@ -255,9 +255,9 @@ class AccountManager:
 
         return account
 
-    def delete_account(self, account_id: str) -> bool:
+    def delete_account(self, account_id: str, *, delete_profile: bool = True) -> bool:
         """
-        Delete an account profile and all its data.
+        Delete an account registration and optionally its profile data.
         """
         self.load_registry()
 
@@ -276,10 +276,11 @@ class AccountManager:
 
         self.save_registry()
 
-        # Delete profile directory and all contents
-        profile_dir = self.get_profile_dir(account_id)
-        if profile_dir.exists():
-            shutil.rmtree(profile_dir)
+        # Delete profile directory and all contents when the caller owns it.
+        if delete_profile:
+            profile_dir = self.get_profile_dir(account_id)
+            if profile_dir.exists():
+                shutil.rmtree(profile_dir)
 
         return True
 

@@ -130,6 +130,10 @@ def migrate_legacy_credentials(
             )
             return False
 
+    profile_dir = account_manager.get_profile_dir("default")
+    profile_dir_existed = profile_dir.exists()
+    _preflight_legacy_credentials_to_profile(config_dir, profile_dir)
+
     # Perform migration
     # Step 1: Create "default" account profile
     default_account = account_manager.create_account(
@@ -147,7 +151,10 @@ def migrate_legacy_credentials(
     try:
         _move_legacy_credentials_to_profile(config_dir, profile_dir)
     except Exception:
-        account_manager.delete_account(default_account.id)
+        account_manager.delete_account(
+            default_account.id,
+            delete_profile=not profile_dir_existed,
+        )
         raise
 
     # Step 4: Move merchant cache if it exists
@@ -284,15 +291,8 @@ def check_simplefin_migration_needed(config_dir: Optional[Path] = None) -> bool:
     )
 
 
-def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> bool:
-    """Move legacy credential files from config_dir root into *profile_dir*.
-
-    Handles both encrypted (.enc + salt) and plaintext (.json) credentials.
-    Does NOT move merchants.json or cache/ — those belong to
-    ``migrate_legacy_credentials()``.
-
-    Returns True if credentials were moved, False if none existed.
-    """
+def _preflight_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> bool:
+    """Validate a legacy credential move without changing either location."""
     legacy_cred_file = config_dir / CREDENTIALS_FILE
     if not legacy_cred_file.exists():
         legacy_cred_file = config_dir / CREDENTIALS_FILE_JSON
@@ -300,8 +300,6 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
             return False
 
     is_encrypted = legacy_cred_file.suffix == ".enc"
-    dest_filename = CREDENTIALS_FILE if is_encrypted else CREDENTIALS_FILE_JSON
-    dest = profile_dir / dest_filename
     existing_artifacts = [
         profile_dir / CREDENTIALS_FILE,
         profile_dir / CREDENTIALS_FILE_JSON,
@@ -314,9 +312,31 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
 
     if is_encrypted:
         salt_file = config_dir / "salt"
-        salt_dest = profile_dir / "salt"
         if not salt_file.exists():
             raise RuntimeError("Encrypted legacy credentials are missing their matching salt.")
+
+    return True
+
+
+def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> bool:
+    """Move legacy credential files from config_dir root into *profile_dir*.
+
+    Handles both encrypted (.enc + salt) and plaintext (.json) credentials.
+    Does NOT move merchants.json or cache/ — those belong to
+    ``migrate_legacy_credentials()``.
+
+    Returns True if credentials were moved, False if none existed.
+    """
+    if not _preflight_legacy_credentials_to_profile(config_dir, profile_dir):
+        return False
+
+    legacy_cred_file = config_dir / CREDENTIALS_FILE
+    if not legacy_cred_file.exists():
+        legacy_cred_file = config_dir / CREDENTIALS_FILE_JSON
+
+    is_encrypted = legacy_cred_file.suffix == ".enc"
+    dest_filename = CREDENTIALS_FILE if is_encrypted else CREDENTIALS_FILE_JSON
+    dest = profile_dir / dest_filename
 
     if dest.exists():
         logger.warning(
@@ -332,6 +352,8 @@ def _move_legacy_credentials_to_profile(config_dir: Path, profile_dir: Path) -> 
         completed_moves.append((legacy_cred_file, dest))
 
         if is_encrypted:
+            salt_file = config_dir / "salt"
+            salt_dest = profile_dir / "salt"
             shutil.move(str(salt_file), str(salt_dest))
             completed_moves.append((salt_file, salt_dest))
     except Exception:
