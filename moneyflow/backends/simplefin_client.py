@@ -228,12 +228,16 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
 
     for acct in raw_accounts:
         acct_id = _coerce_str(acct.get("id")) or ""
+        if not acct_id:
+            continue
         acct_name = _coerce_str(acct.get("name")) or acct_id
         currency = _normalize_currency_code(acct.get("currency"))
         txns = acct.get("transactions") or []
 
         for txn in txns:
             txn_id = _coerce_str(txn.get("id")) or ""
+            if not txn_id:
+                continue
             description = _coerce_str(txn.get("description")) or ""
             amount = _coerce_float(txn.get("amount"))
             pending = _coerce_bool(txn.get("pending"))
@@ -248,7 +252,7 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
 
             result.append(
                 {
-                    "id": f"{acct_id}:{txn_id}",
+                    "id": _transaction_id(acct_id, txn_id),
                     "date": date_str,
                     "amount": amount,
                     "merchant": {"id": description, "name": description},
@@ -263,6 +267,13 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
             )
 
     return result
+
+
+def _transaction_id(account_id: str, transaction_id: str) -> str:
+    """Build a stable transaction key without ambiguous separator collisions."""
+    if ":" not in account_id and ":" not in transaction_id:
+        return f"{account_id}:{transaction_id}"
+    return f"v2:{len(account_id)}:{account_id}{transaction_id}"
 
 
 # ---------------------------------------------------------------------------

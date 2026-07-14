@@ -2280,6 +2280,10 @@ class MoneyflowApp(App):
             if self.data_manager
             else False
         )
+        has_changes = has_changes or (
+            self.data_manager is not None
+            and getattr(self.data_manager, "pending_category_groups", None) is not None
+        )
 
         should_quit = await self.push_screen(
             QuitConfirmationScreen(has_unsaved_changes=has_changes), wait_for_dismiss=True

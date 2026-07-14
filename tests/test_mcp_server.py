@@ -760,6 +760,45 @@ class TestSpendingSummary:
 
 
 # ============================================================================
+# Test: Merchant Summary
+# ============================================================================
+
+
+class TestMerchantSummary:
+    """Tests for merchant aggregate formatting."""
+
+    @pytest.mark.asyncio
+    async def test_preserves_non_usd_currency(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.with_columns(pl.lit("EUR").alias("currency"))
+        mcp = mcp_server_factory(transactions, sample_categories)
+
+        result = await mcp.call_tool("get_merchants", {})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+
+        amazon = next(row for row in response if row["merchant"] == "Amazon")
+        assert amazon["total_amount"] == "-EUR 175.00"
+
+    @pytest.mark.asyncio
+    async def test_keeps_mixed_currency_totals_separate(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.head(2).with_columns(
+            pl.Series("merchant", ["Example Merchant", "Example Merchant"]),
+            pl.Series("currency", ["EUR", "GBP"]),
+        )
+        mcp = mcp_server_factory(transactions, sample_categories)
+
+        result = await mcp.call_tool("get_merchants", {})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+
+        assert {row["total_amount"] for row in response} == {"-EUR 50.00", "-GBP 5.50"}
+
+
+# ============================================================================
 # Test: Resources
 # ============================================================================
 

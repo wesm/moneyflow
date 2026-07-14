@@ -45,6 +45,35 @@ class RefreshController:
         self.refresh_calls.append(force_rebuild)
 
 
+class TestQuitConfirmation:
+    """Quit confirmation includes retryable category configuration changes."""
+
+    @pytest.mark.asyncio
+    async def test_pending_category_groups_are_reported_as_unsaved(self, monkeypatch):
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            pending_category_groups = {"Example Group": ["Example Category"]}
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        confirmations = []
+
+        async def inspect_confirmation(screen, *, wait_for_dismiss):
+            confirmations.append((screen.has_unsaved_changes, wait_for_dismiss))
+            return False
+
+        monkeypatch.setattr(app, "push_screen", inspect_confirmation)
+
+        await app._confirm_and_quit()
+
+        assert confirmations == [(True, True)]
+
+
 class TestCacheDataFiltering:
     """Test filtering cached data by date range (for --mtd, --since flags)."""
 

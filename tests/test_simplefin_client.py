@@ -209,6 +209,36 @@ class TestParseTransactions:
         ids = {t["id"] for t in result}
         assert ids == {"acct-1:txn-1", "acct-2:txn-2"}
 
+    def test_ids_with_separator_are_unambiguous(self):
+        account_with_separator = {
+            **MINIMAL_ACCOUNT,
+            "id": "acct:1",
+            "transactions": [{**MINIMAL_ACCOUNT["transactions"][0], "id": "txn"}],
+        }
+        transaction_with_separator = {
+            **MINIMAL_ACCOUNT,
+            "id": "acct",
+            "transactions": [{**MINIMAL_ACCOUNT["transactions"][0], "id": "1:txn"}],
+        }
+
+        first = _parse_transactions([account_with_separator])[0]
+        second = _parse_transactions([transaction_with_separator])[0]
+
+        assert first["id"] != second["id"]
+
+    @pytest.mark.parametrize(
+        ("account_id", "transaction_id"),
+        [(None, "txn-1"), ("acct-1", None), ("", "txn-1"), ("acct-1", "")],
+    )
+    def test_missing_identifiers_are_rejected(self, account_id, transaction_id):
+        account = {
+            **MINIMAL_ACCOUNT,
+            "id": account_id,
+            "transactions": [{**MINIMAL_ACCOUNT["transactions"][0], "id": transaction_id}],
+        }
+
+        assert _parse_transactions([account]) == []
+
     def test_account_with_no_transactions_produces_no_rows(self):
         acct = {"id": "a", "name": "Empty", "transactions": []}
         result = _parse_transactions([acct])

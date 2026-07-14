@@ -438,8 +438,12 @@ def create_mcp_server(
         df = _state["transactions_df"]
         limit = _clamp_limit(limit)
 
+        group_columns = ["merchant"]
+        if "currency" in df.columns:
+            group_columns.append("currency")
+
         merchant_counts = (
-            df.group_by("merchant")
+            df.group_by(group_columns)
             .agg(
                 [
                     pl.col("id").count().alias("transaction_count"),
@@ -456,7 +460,7 @@ def create_mcp_server(
                 {
                     "merchant": row["merchant"],
                     "transaction_count": row["transaction_count"],
-                    "total_amount": _format_amount(row["total_amount"]),
+                    "total_amount": _format_amount(row["total_amount"], row.get("currency")),
                 }
             )
 

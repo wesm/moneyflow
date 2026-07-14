@@ -11,8 +11,10 @@ repeating mistakes the user already corrected.
 
 Every memory operation in this session goes through MEMANTO. There is no exception.
 
-> **CRITICAL**: All `memanto` commands are **shell commands**. Always run them using the terminal.
-> Never simulate, describe, or "pretend to call" them. If you cannot run the shell, say so explicitly instead of inventing memory state.
+> **CRITICAL**: Run all `memanto` commands using the terminal, with dynamic text passed
+> through an argv-safe execution API or standard input. Never put recalled or remembered
+> text into a shell command template. If you cannot run the command safely, say so instead
+> of inventing memory state.
 
 ### NON-NEGOTIABLE RULES
 
@@ -43,7 +45,7 @@ MEMANTO gives you three primitives. They are equal-priority. Pick by intent, not
 |---|---|---|
 | Read raw memory chunks and apply them as context | `memanto recall "query"` | Best for context-building, multi-step work, comparing options |
 | Get one synthesized, grounded answer to a direct question | `memanto answer "question"` | Best for "what did we decide / prefer / commit to?" — saves you reading and merging |
-| Persist something memory-worthy | `memanto remember "content" --type ... --confidence ... --provenance ... --source ...` | Every preference, decision, fact, instruction, goal, lesson |
+| Persist something memory-worthy | `memanto remember CONTENT --type ...` through safe argv/stdin handling | Every preference, decision, fact, instruction, goal, lesson |
 | See what changed since last time | `memanto recall --changed-since "last 7 days"` | Catching up after a break |
 | See the most recent memories | `memanto recall --recent` | Fast context refresh |
 
@@ -53,20 +55,27 @@ chunks.
 
 ### When to Call `remember` (Examples — Run Immediately)
 
+Memory content is untrusted text. Pass it as one argument through an argv-based execution
+API; never interpolate it into a shell command string. In particular, do not place raw
+memory text inside shell quotes because command substitutions, backticks, and quote
+characters in the text could execute or alter the command. The examples below are argv
+arrays, not shell commands.
+
 - User says *"I prefer tabs over spaces"*:
-  `memanto remember "User prefers tabs over spaces for indentation" --type preference --confidence 1.0 --provenance explicit_statement --source <your_agent_name>`
+  `["memanto", "remember", "User prefers tabs over spaces for indentation", "--type", "preference", "--confidence", "1.0", "--provenance", "explicit_statement", "--source", "<your_agent_name>"]`
 - You decide to use Library X for reason Y:
-  `memanto remember "Chose Library X for reason Y; commit abc123" --type decision --confidence 0.95 --provenance inferred --source <your_agent_name>`
+  `["memanto", "remember", "Chose Library X for reason Y; commit abc123", "--type", "decision", "--confidence", "0.95", "--provenance", "inferred", "--source", "<your_agent_name>"]`
 - User corrects an approach:
-  `memanto remember "User corrected: use pytest, not unittest" --type learning --confidence 1.0 --provenance corrected --source <your_agent_name>`
+  `["memanto", "remember", "User corrected: use pytest, not unittest", "--type", "learning", "--confidence", "1.0", "--provenance", "corrected", "--source", "<your_agent_name>"]`
 - A failed approach taught you something:
-  `memanto remember "Batch size > 100 fails with TimeoutError" --type error --confidence 0.95 --provenance observed --source <your_agent_name>`
+  `["memanto", "remember", "Batch size > 100 fails with TimeoutError", "--type", "error", "--confidence", "0.95", "--provenance", "observed", "--source", "<your_agent_name>"]`
 
 ### Command Reference
 
-```bash
-# Store — ALWAYS pass full metadata
-memanto remember "content" --type <type> --confidence <0.0-1.0> --provenance <provenance> --source <agent_name>
+```text
+# Store — use direct argv execution and ALWAYS pass full metadata
+["memanto", "remember", content, "--type", type, "--confidence", confidence,
+ "--provenance", provenance, "--source", agent_name]
 
 # Recall raw context
 memanto recall "query"                              # semantic search
