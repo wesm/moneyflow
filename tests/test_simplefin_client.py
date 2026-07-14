@@ -146,6 +146,16 @@ class TestParseTransactions:
         assert txn["category"] == {"id": "uncategorized", "name": "Uncategorized"}
         assert txn["currency"] == "USD"
 
+    @pytest.mark.parametrize("amount", [None, "not-a-number", "nan", "inf", "-inf"])
+    def test_rejects_missing_invalid_or_non_finite_amount(self, amount):
+        account = {
+            **MINIMAL_ACCOUNT,
+            "transactions": [{**MINIMAL_ACCOUNT["transactions"][0], "amount": amount}],
+        }
+
+        with pytest.raises(RuntimeError, match="invalid transaction amount"):
+            _parse_transactions([account])
+
     def test_date_from_posted_timestamp(self):
         result = _parse_transactions([MINIMAL_ACCOUNT])
         expected = datetime.fromtimestamp(1700000000, tz=timezone.utc).strftime("%Y-%m-%d")

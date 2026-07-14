@@ -273,6 +273,48 @@ class TestEncryptedCredentials:
 
 class TestSimplefinInitialization:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("account_id", [None, "simplefin-profile"])
+    async def test_only_explicit_profile_becomes_migration_target(self, tmp_path, account_id):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(return_value=(pl.DataFrame(), {}, {}))
+
+        with (
+            patch("moneyflow.data.migration.migrate_legacy_credentials"),
+            patch("moneyflow.data.migration.migrate_legacy_simplefin_db") as migrate_db,
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server(account_id=account_id, config_dir=str(tmp_path))
+            await mcp.call_tool("search_transactions", {"query": ""})
+
+        expected_target = {"target_profile_id": "simplefin-profile"} if account_id else {}
+        migrate_db.assert_called_once_with(config_dir=tmp_path, **expected_target)
+
+    @pytest.mark.asyncio
     async def test_migrates_encrypted_legacy_simplefin_credentials_with_env_password(
         self, tmp_path, monkeypatch
     ):

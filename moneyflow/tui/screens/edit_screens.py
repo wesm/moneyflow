@@ -1319,12 +1319,14 @@ class ManageCategoriesScreen(ModalScreen):
             new_id = self._validated_category_id(name)
             if new_id is None:
                 return
-            first_group = next(iter(self._group_order), "Uncategorized")
+            source_category = self.categories.get(source_id, {})
+            source_group = source_category.get("group", "Uncategorized")
             self.categories[new_id] = {
                 "name": name,
-                "group": first_group,
-                "group_id": re.sub(r"[^a-z0-9]+", "_", first_group.lower()).strip("_"),
-                "group_type": "",
+                "group": source_group,
+                "group_id": source_category.get("group_id")
+                or re.sub(r"[^a-z0-9]+", "_", source_group.lower()).strip("_"),
+                "group_type": source_category.get("group_type", ""),
             }
             target_id = new_id
             created_target_id = new_id

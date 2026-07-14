@@ -9,6 +9,7 @@ HTTP/parse logic adapted from andtheWings/simplefin2polars (MIT (c) 2026 Daniel 
 
 import base64
 import ipaddress
+import math
 import re
 import urllib.error
 import urllib.parse
@@ -243,6 +244,8 @@ def _parse_transactions(raw_accounts: List[Dict[str, Any]]) -> List[Dict[str, An
                 raise RuntimeError("SimpleFIN response is missing required transaction ID.")
             description = _coerce_str(txn.get("description")) or ""
             amount = _coerce_float(txn.get("amount"))
+            if amount is None or not math.isfinite(amount):
+                raise RuntimeError("SimpleFIN response contains an invalid transaction amount.")
             pending = _coerce_bool(txn.get("pending"))
 
             # Date: prefer posted; fall back to transacted_at for pending txns

@@ -442,6 +442,34 @@ class TestManageCategoriesScreen:
         assert queued == []
         assert notifications == [notification]
 
+    def test_merge_into_new_category_inherits_source_group(self):
+        categories = {
+            "other": {
+                "name": "Other",
+                "group": "A Group",
+                "group_id": "a_group",
+                "group_type": "expense",
+            },
+            "source": {
+                "name": "Source",
+                "group": "Z Group",
+                "group_id": "z_group",
+                "group_type": "expense",
+            },
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._pending_cat_id = "source"
+        screen._update_display = lambda: None
+
+        screen._handle_merge("__new__:Replacement")
+
+        assert categories["replacement"]["group"] == "Z Group"
+        assert categories["replacement"]["group_id"] == "z_group"
+        assert queued == [("source", "replacement")]
+
     def test_create_category_rejects_normalized_id_collision(self, monkeypatch):
         categories = {
             "food_dining": {

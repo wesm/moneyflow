@@ -201,10 +201,8 @@ def create_mcp_server(
                 raise ValueError("No accounts configured. Run 'moneyflow' to set up.")
 
         if account.backend_type == "simplefin":
-            migrate_legacy_simplefin_db(
-                config_dir=resolved_config_path,
-                target_profile_id=account.id,
-            )
+            migration_kwargs = {"target_profile_id": account.id} if _state["account_id"] else {}
+            migrate_legacy_simplefin_db(config_dir=resolved_config_path, **migration_kwargs)
 
         profile_dir = account_manager.get_profile_dir(account.id)
         logger.info(f"Using account: {account.name} ({account.backend_type})")
