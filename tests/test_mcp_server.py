@@ -305,16 +305,17 @@ class TestSimplefinInitialization:
 
             mcp = create_mcp_server()
             await mcp.call_tool("search_transactions", {"query": ""})
+            await mcp.call_tool("refresh_data", {})
 
         get_backend.assert_called_once_with("simplefin", profile_dir=profile_dir)
         backend.login.assert_awaited_once_with(
             password="https://user:pass@bridge.simplefin.org/simplefin"
         )
-        backend.refresh.assert_awaited_once_with()
+        assert backend.refresh.await_count == 2
         data_manager_cls.assert_called_once()
         assert data_manager_cls.call_args.kwargs["profile_dir"] == profile_dir
         assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
-        data_manager.fetch_all_data.assert_awaited_once_with()
+        assert data_manager.fetch_all_data.await_count == 2
         assert sample_transactions.is_empty()
 
 

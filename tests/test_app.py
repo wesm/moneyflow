@@ -347,3 +347,76 @@ class TestGroupManagerPersistence:
 
         assert saved_groups == []
         assert app.data_manager.pending_category_groups is not None
+
+    async def test_immediate_group_save_clears_stale_deferred_config(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            categories = {"category": {"name": "Category", "group": "Current Group"}}
+            pending_edits = []
+            pending_category_groups = {"Stale Group": ["Category"]}
+            category_groups_config = {}
+            category_to_group = {}
+            profile_dir = object()
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        saved_groups = []
+
+        async def finish_group_edit(screen, **kwargs):
+            return True
+
+        monkeypatch.setattr(app, "push_screen", finish_group_edit)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups),
+        )
+
+        await app._manage_groups()
+
+        assert saved_groups == [{"Current Group": ["Category"]}]
+        assert app.data_manager.pending_category_groups is None
+
+    def test_undo_last_category_edit_persists_deferred_config(self, monkeypatch):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        deferred_groups = {"Renamed Group": ["Source", "Target"]}
+        category_edit = TransactionEdit(
+            transaction_id="transaction-1",
+            field="category",
+            old_value="source-category",
+            new_value="target-category",
+        )
+
+        class DataManagerStub:
+            pending_edits = [category_edit]
+            pending_category_groups = deferred_groups
+            profile_dir = object()
+
+            def undo_last_batch(self):
+                self.pending_edits.clear()
+                return [category_edit]
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        saved_groups = []
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups),
+        )
+
+        app.action_undo_pending_edits()
+
+        assert saved_groups == [deferred_groups]
+        assert app.data_manager.pending_category_groups is None

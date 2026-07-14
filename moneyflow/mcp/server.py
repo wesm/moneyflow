@@ -118,6 +118,7 @@ def create_mcp_server(
         "transactions_df": None,
         "categories": None,
         "category_groups": None,
+        "backend": None,
         "initialized": False,
         "account_id": account_id,
         "config_dir": config_dir,
@@ -197,6 +198,8 @@ def create_mcp_server(
         elif account.backend_type == "simplefin":
             await backend.login(password=creds["password"])
             await backend.refresh()
+
+        _state["backend"] = backend
 
         # Create data manager (caching handled separately if needed)
         config_dir_str = str(config_path) if config_path else str(Path.home() / ".moneyflow")
@@ -469,6 +472,10 @@ def create_mcp_server(
         await _ensure_initialized()
 
         dm = _state["data_manager"]
+        account = _state["account"]
+
+        if account.backend_type == "simplefin":
+            await _state["backend"].refresh()
 
         # Fetch fresh data from API (DataManager doesn't use cache)
         df, categories, category_groups = await dm.fetch_all_data()
