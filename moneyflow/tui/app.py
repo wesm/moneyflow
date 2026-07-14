@@ -265,6 +265,7 @@ class MoneyflowApp(App):
         self.data_manager: Optional[DataManager] = None
         self.state = AppState()
         self._last_update_time: Optional[datetime] = None
+        self._simplefin_refresh_generation = 0
 
         # Store profile_dir and backend_type for pre-configured backends (e.g., Amazon via CLI)
         self._preconfigured_profile_dir = profile_dir
@@ -550,6 +551,7 @@ class MoneyflowApp(App):
             if self.display_start_date:
                 df = self._filter_df_by_start_date(df, self.display_start_date)
             self._store_data(df, categories, category_groups)
+            self._simplefin_refresh_generation += 1
             self._last_update_time = self.backend.get_last_update_time() or datetime.now()
             self._save_last_update_time()
             self._refresh_subtitle()
@@ -572,6 +574,14 @@ class MoneyflowApp(App):
             self.notify(f"SimpleFIN: Refresh failed — {e}", severity="error", timeout=5)
         finally:
             self.controller.set_edits_enabled(True)
+
+    def can_edit_transaction_snapshot(self, refresh_generation: int) -> bool:
+        """Return whether a screen's transaction snapshot is current and editable."""
+        return (
+            self.controller is not None
+            and getattr(self.controller, "edits_enabled", True)
+            and refresh_generation == self._simplefin_refresh_generation
+        )
 
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
@@ -1666,6 +1676,7 @@ class MoneyflowApp(App):
 
     async def _manage_categories(self) -> None:
         """Run the category manager modal and handle results."""
+        refresh_generation = self._simplefin_refresh_generation
         # Startup date filters also narrow state.transactions_df. Category removal
         # must use every persisted row or older transactions can become orphaned.
         txn_counts: dict = {}
@@ -1680,9 +1691,11 @@ class MoneyflowApp(App):
             for category_id in effective_categories.values():
                 txn_counts[category_id] = txn_counts.get(category_id, 0) + 1
 
-        def queue_reassign(source_id: str, target_id: str) -> None:
+        def queue_reassign(source_id: str, target_id: str) -> int | bool:
             """Queue TransactionEdits to reassign all txns from source to target."""
-            self.controller.queue_category_reassignment(source_df, source_id, target_id)
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                return False
+            return self.controller.queue_category_reassignment(source_df, source_id, target_id)
 
         previous_groups = {
             group_name: list(category_names)
@@ -1703,6 +1716,14 @@ class MoneyflowApp(App):
             ),
             wait_for_dismiss=True,
         )
+
+        if refresh_generation != self._simplefin_refresh_generation:
+            self.notify(
+                "Categories were not changed because transaction data refreshed; reopen the manager.",
+                severity="warning",
+                timeout=5,
+            )
+            return
 
         if dirty:
             # Rebuild in-memory mappings immediately

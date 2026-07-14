@@ -211,6 +211,39 @@ class TestManageCategoriesScreen:
 
         assert screen._can_delete("uncategorized") is False
 
+    def test_stale_snapshot_reassignment_does_not_mutate_categories(self, monkeypatch):
+        categories = {
+            "source": {
+                "name": "Source",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "target": {
+                "name": "Target",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: False,
+        )
+        screen._pending_cat_id = "source"
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        screen._handle_merge("target")
+
+        assert set(categories) == {"source", "target"}
+        assert notifications == [
+            "Transactions refreshed; reopen the category manager before changing categories."
+        ]
+
     def test_uncategorized_fallback_cannot_be_renamed(self, monkeypatch):
         categories = {
             "uncategorized": {

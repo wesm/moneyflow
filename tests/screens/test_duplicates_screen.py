@@ -55,3 +55,34 @@ async def test_duplicates_screen_delete_action(empty_df):
 
         # Verify task_runner.delete_with_retry was called with correct txn_id
         mock_app.task_runner.delete_with_retry.assert_called_once_with(txn_id)
+
+
+def test_duplicates_screen_rejects_stale_snapshot_hide():
+    """A refresh invalidates duplicate rows before they can queue legacy IDs."""
+    transactions = pl.DataFrame(
+        {
+            "id": ["legacy-account:transaction"],
+            "date": ["2026-01-01"],
+            "merchant": ["Example Merchant"],
+            "amount": [-10.0],
+            "category": ["Uncategorized"],
+            "account": ["Example Account"],
+            "hideFromReports": [False],
+        }
+    )
+    main_app = MagicMock()
+    main_app._simplefin_refresh_generation = 1
+    main_app.can_edit_transaction_snapshot.return_value = False
+    screen = DuplicatesScreen(
+        transactions, [["legacy-account:transaction"]], transactions, main_app
+    )
+    screen.selected_ids.add("legacy-account:transaction")
+    notifications = []
+    screen.notify = lambda message, **kwargs: notifications.append(message)
+
+    screen.action_toggle_hide()
+
+    main_app.controller.queue_hide_toggle_edits.assert_not_called()
+    assert notifications == [
+        "Transactions refreshed; close and reopen duplicate review before editing."
+    ]

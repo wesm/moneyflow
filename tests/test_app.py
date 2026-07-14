@@ -356,6 +356,7 @@ class TestSimpleFinBackgroundRefresh:
 
         refresh_task = asyncio.create_task(app._simplefin_background_refresh())
         await refresh_started.wait()
+        assert app.can_edit_transaction_snapshot(0) is False
         queued = app.controller.queue_edit("legacy-account:transaction")
         release_refresh.set()
         await refresh_task
@@ -363,6 +364,7 @@ class TestSimpleFinBackgroundRefresh:
         assert queued == 0
         assert app.controller.queued_ids == []
         assert app.controller.edits_enabled is True
+        assert app.can_edit_transaction_snapshot(0) is False
 
 
 class TestLocalCategoryCreation:

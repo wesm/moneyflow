@@ -1193,6 +1193,16 @@ class ManageCategoriesScreen(ModalScreen):
             return None
         return category_id
 
+    def _queue_reassignment(self, source_id: str, target_id: str) -> bool:
+        """Queue reassignment, returning False when the caller rejects a stale snapshot."""
+        if self._queue_reassign and self._queue_reassign(source_id, target_id) is False:
+            self.notify(
+                "Transactions refreshed; reopen the category manager before changing categories.",
+                severity="warning",
+            )
+            return False
+        return True
+
     def _rename_selected(self) -> None:
         cat_id = self._get_selected_cat_id()
         if not cat_id:
@@ -1226,8 +1236,8 @@ class ManageCategoriesScreen(ModalScreen):
         if new_id is None:
             return
 
-        if self._queue_reassign:
-            self._queue_reassign(cat_id, new_id)
+        if not self._queue_reassignment(cat_id, new_id):
+            return
 
         if new_id != cat_id:
             if new_id not in self.categories:
@@ -1302,6 +1312,7 @@ class ManageCategoriesScreen(ModalScreen):
                 severity="warning",
             )
             return
+        created_target_id = None
         if target_id.startswith("__new__:"):
             # Target is a new category — create it first
             name = target_id[8:]
@@ -1316,9 +1327,12 @@ class ManageCategoriesScreen(ModalScreen):
                 "group_type": "",
             }
             target_id = new_id
+            created_target_id = new_id
         # Queue edits (reassign transactions from source to target)
-        if self._queue_reassign:
-            self._queue_reassign(source_id, target_id)
+        if not self._queue_reassignment(source_id, target_id):
+            if created_target_id is not None:
+                self.categories.pop(created_target_id, None)
+            return
         # Remove source
         self.categories.pop(source_id, None)
         self._dirty = True
@@ -1377,6 +1391,7 @@ class ManageCategoriesScreen(ModalScreen):
         action, target_id = result
 
         if action == "reassign":
+            created_fallback = False
             if target_id == "uncategorized" and target_id not in self.categories:
                 self.categories[target_id] = {
                     "name": "Uncategorized",
@@ -1384,8 +1399,11 @@ class ManageCategoriesScreen(ModalScreen):
                     "group_id": "uncategorized",
                     "group_type": "",
                 }
-            if self._queue_reassign:
-                self._queue_reassign(cat_id, target_id)
+                created_fallback = True
+            if not self._queue_reassignment(cat_id, target_id):
+                if created_fallback:
+                    self.categories.pop(target_id, None)
+                return
 
         self.categories.pop(cat_id, None)
         self._dirty = True
