@@ -536,28 +536,27 @@ class MoneyflowApp(App):
 
             added = await self.backend.refresh()
 
+            # Refresh can migrate legacy SQLite IDs without adding rows. Always reload
+            # after success so in-memory edits target the canonical persisted IDs.
+            df, categories, category_groups = await self.data_manager.fetch_all_data()
+            if self.display_start_date:
+                df = self._filter_df_by_start_date(df, self.display_start_date)
+            self._store_data(df, categories, category_groups)
+            self._last_update_time = self.backend.get_last_update_time() or datetime.now()
+            self._save_last_update_time()
+            self._refresh_subtitle()
+
+            saved = self._save_table_position()
+            self.controller.refresh_view(force_rebuild=False)
+            self._restore_table_position(saved)
+
             if added > 0:
-                df, categories, category_groups = await self.data_manager.fetch_all_data()
-                if self.display_start_date:
-                    df = self._filter_df_by_start_date(df, self.display_start_date)
-                self._store_data(df, categories, category_groups)
-                self._last_update_time = self.backend.get_last_update_time() or datetime.now()
-                self._save_last_update_time()
-                self._refresh_subtitle()
-
-                saved = self._save_table_position()
-                self.controller.refresh_view(force_rebuild=False)
-                self._restore_table_position(saved)
-
                 self.notify(
                     f"SimpleFIN: Added {added} new transaction{'s' if added != 1 else ''}",
                     severity="information",
                     timeout=4,
                 )
             else:
-                self._last_update_time = self.backend.get_last_update_time() or datetime.now()
-                self._save_last_update_time()
-                self._refresh_subtitle()
                 self.notify("SimpleFIN: No new transactions found", timeout=3)
 
         except Exception as e:

@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from moneyflow.cli import _build_simplefin_backend, _resolve_simplefin_profile, simplefin
 from moneyflow.data.account_manager import AccountManager
+from moneyflow.data.credentials import CredentialManager
 
 
 class TestBuildSimplefinBackend:
@@ -36,6 +37,24 @@ class TestResolveSimplefinProfile:
         """0 profiles -> error."""
         with pytest.raises(click.exceptions.Abort):
             _resolve_simplefin_profile(config_dir=str(tmp_path))
+
+    def test_encrypted_legacy_credentials_use_simplefin_context(self, tmp_path):
+        """SimpleFIN CLI migration must not classify opaque credentials as Monarch."""
+        credentials = CredentialManager(config_dir=tmp_path)
+        credentials.save_credentials(
+            email="",
+            password="https://example:secret@bridge.simplefin.org/simplefin",
+            mfa_secret="",
+            encryption_password="example-password",
+            backend_type="simplefin",
+        )
+
+        account_id, profile_dir = _resolve_simplefin_profile(config_dir=str(tmp_path))
+
+        account = AccountManager(config_dir=tmp_path).get_account(account_id)
+        assert account is not None
+        assert account.backend_type == "simplefin"
+        assert (profile_dir / "credentials.enc").exists()
 
     def test_single_profile(self, tmp_path):
         """1 profile -> silently resolves."""
@@ -156,6 +175,21 @@ class TestSimplefinCommand:
         launch_mock.assert_called_once()
         _, _, kwargs = launch_mock.mock_calls[0]
         assert (tmp_path / "profiles" / "simplefin-personal").samefile(kwargs["profile_dir"])
+
+    def test_invalid_multiple_profile_selection_aborts_without_setup(self, tmp_path, monkeypatch):
+        """A selection error must not be mistaken for the no-profile setup case."""
+        mgr = AccountManager(config_dir=tmp_path)
+        mgr.create_account("Personal", "simplefin", account_id="simplefin-personal")
+        mgr.create_account("Business", "simplefin", account_id="simplefin-business")
+        monkeypatch.setattr("click.prompt", lambda *args, **kwargs: "invalid-profile")
+
+        launch_mock = Mock()
+        with patch("moneyflow.tui.app.launch_simplefin_mode", launch_mock):
+            result = CliRunner().invoke(simplefin, ["--config-dir", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert "Invalid selection" in result.output
+        launch_mock.assert_not_called()
 
 
 class TestSimplefinRefresh:

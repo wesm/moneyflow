@@ -20,6 +20,10 @@ CONFIG_DIR_HELP = (
 )
 
 
+class _NoSimplefinProfiles(click.Abort):
+    """Signal the one recoverable profile-resolution case: first-time setup."""
+
+
 def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
     """
     Helper to create an AmazonBackend with profile-aware database path resolution.
@@ -81,7 +85,7 @@ def _resolve_simplefin_profile(
 
     Resolution rules:
     - If profile_id is provided: validate and return that profile directly
-    - 0 SimpleFIN profiles -> click.Abort with setup instructions
+    - 0 SimpleFIN profiles -> _NoSimplefinProfiles with setup instructions
     - 1 profile -> silently resolve (no output)
     - 2+ profiles with a default set -> auto-resolve, print confirmation
     - 2+ profiles without a default -> prompt user to pick, save as default
@@ -94,14 +98,14 @@ def _resolve_simplefin_profile(
         tuple: (account_id, profile_dir)
 
     Raises:
-        click.Abort if no profiles found or invalid profile_id given
+        _NoSimplefinProfiles if no profiles are found; click.Abort for invalid selection
     """
     from moneyflow.data.account_manager import AccountManager
     from moneyflow.data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
 
     config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
 
-    migrate_legacy_credentials(config_dir=config_path)
+    migrate_legacy_credentials(config_dir=config_path, backend_type_hint="simplefin")
     migrate_legacy_simplefin_db(config_dir=config_path)
 
     mgr = AccountManager(config_dir=config_path)
@@ -125,7 +129,7 @@ def _resolve_simplefin_profile(
             "No SimpleFIN account configured. Run 'moneyflow simplefin' to set one up.",
             err=True,
         )
-        raise click.Abort()
+        raise _NoSimplefinProfiles()
 
     if len(simplefin_accounts) == 1:
         acct = simplefin_accounts[0]
@@ -669,7 +673,7 @@ def simplefin(ctx, year, since, mtd, config_dir, no_cache, profile):
     else:
         try:
             _, profile_dir = _resolve_simplefin_profile(config_dir=config_dir, profile_id=None)
-        except click.Abort:
+        except _NoSimplefinProfiles:
             profile_dir = None
 
     from moneyflow.tui.app import launch_simplefin_mode

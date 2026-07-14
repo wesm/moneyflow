@@ -284,6 +284,31 @@ class TestSimpleFinBackgroundRefresh:
             "group": "Pending Group",
         }
 
+    async def test_background_refresh_reloads_after_zero_addition_migration(self, monkeypatch):
+        """An ID-only SQLite migration must still replace stale in-memory rows."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        class MigratingSimpleFinBackend(RefreshingSimpleFinBackend):
+            async def refresh(self) -> int:
+                return 0
+
+        migrated_df = pl.DataFrame({"id": ["encoded-account:encoded-transaction"]})
+        app = MoneyflowApp(backend=MigratingSimpleFinBackend())
+        app.data_manager = FetchingDataManager(migrated_df)
+        app.controller = RefreshController()
+        app.state.transactions_df = pl.DataFrame({"id": ["legacy-account:transaction"]})
+
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "_save_last_update_time", lambda: None)
+        monkeypatch.setattr(app, "_refresh_subtitle", lambda: None)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda saved: None)
+
+        await app._simplefin_background_refresh()
+
+        assert app.state.transactions_df["id"].to_list() == ["encoded-account:encoded-transaction"]
+        assert app.controller.refresh_calls == [False]
+
 
 class TestLocalCategoryCreation:
     async def test_rejects_normalized_id_collision(self, monkeypatch):

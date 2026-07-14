@@ -9,11 +9,11 @@ import json
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 import yaml
 
-from .account_manager import AccountManager
+from .account_manager import AccountManager, BackendType
 
 CREDENTIALS_FILE = "credentials.enc"
 CREDENTIALS_FILE_JSON = "credentials.json"
@@ -43,7 +43,11 @@ def _save_yaml(path: Path, data: dict) -> None:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
-def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool = False) -> bool:
+def migrate_legacy_credentials(
+    config_dir: Optional[Path] = None,
+    dry_run: bool = False,
+    backend_type_hint: Optional[BackendType] = None,
+) -> bool:
     """
     Migrate legacy single-account credentials to multi-account profile system.
 
@@ -53,6 +57,8 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
     Args:
         config_dir: Optional config directory (defaults to ~/.moneyflow)
         dry_run: If True, only check if migration is needed without performing it
+        backend_type_hint: Trusted backend context used only when encrypted credentials
+            cannot be inspected during migration.
 
     Returns:
         True if migration was performed (or would be performed in dry_run),
@@ -89,23 +95,25 @@ def migrate_legacy_credentials(config_dir: Optional[Path] = None, dry_run: bool 
         return False
 
     # Read backend_type from stored credentials before migration
-    backend_type = "monarch"  # default for true legacy
+    backend_type: BackendType = "monarch"  # default for true legacy
     try:
         if legacy_cred_file.suffix == ".json":
             with open(legacy_cred_file) as f:
                 data = json.load(f)
-                backend_type = data.get("backend_type", "monarch")
+                backend_type = cast(BackendType, data.get("backend_type", "monarch"))
         elif legacy_cred_file.suffix == ".enc":
             from .credentials import CredentialManager
 
             cm = CredentialManager(config_dir=config_dir)
             creds, _ = cm.load_credentials()
-            backend_type = creds.get("backend_type", "monarch")
+            backend_type = cast(BackendType, creds.get("backend_type", "monarch"))
     except Exception:
         # Encrypted credentials can't be inspected without a password.
-        # If a legacy SimpleFIN DB exists alongside, assume SimpleFIN
-        # so credentials and DB migrate into the same profile.
-        if (config_dir / SIMPLEFIN_DB_FILE).exists():
+        # A trusted caller context or colocated SimpleFIN DB can classify credentials
+        # whose encrypted contents are unavailable until after migration.
+        if legacy_cred_file.suffix == ".enc" and backend_type_hint is not None:
+            backend_type = backend_type_hint
+        elif (config_dir / SIMPLEFIN_DB_FILE).exists():
             backend_type = "simplefin"
         else:
             backend_type = "monarch"
