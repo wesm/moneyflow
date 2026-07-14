@@ -178,6 +178,38 @@ class TestMigrateLegacyCredentials:
         assert (profile_dir / "credentials.enc").exists()
         assert (profile_dir / "salt").exists()
 
+    def test_encrypted_migration_rolls_back_when_salt_move_fails(
+        self, temp_config_dir, legacy_credentials, monkeypatch
+    ):
+        original_move = migration_module.shutil.move
+        salt_move_failed = False
+
+        def fail_first_salt_move(source, destination):
+            nonlocal salt_move_failed
+            if Path(source).name == "salt" and not salt_move_failed:
+                salt_move_failed = True
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_first_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        profile_dir = temp_config_dir / "profiles" / "default"
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert not (profile_dir / "salt").exists()
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
+        assert (
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+            is True
+        )
+        assert (profile_dir / CREDENTIALS_FILE).exists()
+        assert (profile_dir / "salt").exists()
+
     def test_migrate_preserves_credential_data(self, temp_config_dir):
         """Test that migrated credentials can still be decrypted."""
         # Create legacy credentials
@@ -303,19 +335,16 @@ class TestMigrationEdgeCases:
         profile_dir = temp_config_dir / "profiles" / "default"
         assert (profile_dir / "credentials.enc").exists()
 
-    def test_migration_with_partial_files(self, temp_config_dir):
-        """Test migration when only some files exist."""
-        # Create only credentials.enc (no salt - unusual but possible)
+    def test_encrypted_migration_rejects_missing_salt(self, temp_config_dir):
         (temp_config_dir / "credentials.enc").write_bytes(b"encrypted data")
 
-        # Migrate
-        result = migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+        with pytest.raises(RuntimeError, match="missing their matching salt"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
-        assert result is True
-
-        # credentials.enc moved
         profile_dir = temp_config_dir / "profiles" / "default"
-        assert (profile_dir / "credentials.enc").exists()
+        assert (temp_config_dir / "credentials.enc").exists()
+        assert not profile_dir.exists()
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
 
 
 class TestMigratePlaintextCredentials:
@@ -575,6 +604,27 @@ class TestMigrateLegacySimplefinDb:
         assert result is True
         assert not legacy_simplefin_db.exists()
         assert (existing_profile / "simplefin.db").exists()
+
+    def test_occupied_database_destination_rejects_all_legacy_artifacts(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_plaintext_credentials,
+        account_manager,
+    ):
+        existing = account_manager.create_account("My SimpleFIN", "simplefin")
+        existing_profile = account_manager.get_profile_dir(existing.id)
+        destination_db = existing_profile / "simplefin.db"
+        destination_db.write_text("existing database")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert legacy_simplefin_db.read_text() == "fake simplefin database content"
+        assert (temp_config_dir / CREDENTIALS_FILE_JSON).exists()
+        assert destination_db.read_text() == "existing database"
+        assert not (existing_profile / CREDENTIALS_FILE_JSON).exists()
 
     def test_multiple_simplefin_profiles_leave_ambiguous_db_unmoved(
         self, temp_config_dir, legacy_simplefin_db, account_manager

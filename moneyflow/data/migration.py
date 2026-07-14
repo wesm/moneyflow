@@ -78,7 +78,6 @@ def migrate_legacy_credentials(
 
     # Check if legacy credentials exist (encrypted or plaintext)
     legacy_cred_file = config_dir / CREDENTIALS_FILE
-    legacy_salt_file = config_dir / "salt"
     legacy_merchant_cache = config_dir / "merchants.json"
 
     if not legacy_cred_file.exists():
@@ -142,14 +141,14 @@ def migrate_legacy_credentials(
     # Step 2: Get profile directory
     profile_dir = account_manager.get_profile_dir(default_account.id)
 
-    # Step 3: Move credentials and salt to profile directory
-    # Preserve the filename so plaintext stays as .json and encrypted as .enc
-    is_encrypted_source = legacy_cred_file.suffix == ".enc"
-    dest_filename = CREDENTIALS_FILE if is_encrypted_source else CREDENTIALS_FILE_JSON
-    shutil.move(str(legacy_cred_file), str(profile_dir / dest_filename))
-
-    if is_encrypted_source and legacy_salt_file.exists():
-        shutil.move(str(legacy_salt_file), str(profile_dir / "salt"))
+    # Step 3: Move credentials and salt as one recoverable operation. Remove
+    # the newly-created account if either artifact cannot be migrated so the
+    # root files remain eligible for a retry.
+    try:
+        _move_legacy_credentials_to_profile(config_dir, profile_dir)
+    except Exception:
+        account_manager.delete_account(default_account.id)
+        raise
 
     # Step 4: Move merchant cache if it exists
     if legacy_merchant_cache.exists():
@@ -401,6 +400,21 @@ def migrate_legacy_simplefin_db(
     if simplefin_account is not None:
         profile_dir = account_manager.get_profile_dir(simplefin_account.id)
     else:
+        profile_dir = account_manager.get_profile_dir("simplefin")
+
+    # An occupied destination means these root artifacts cannot be proven to
+    # belong to this profile. Reject the entire migration before creating an
+    # account or moving its credentials.
+    dest = profile_dir / SIMPLEFIN_DB_FILE
+    if dest.exists():
+        logger.warning(
+            "Destination %s already exists. Cannot migrate %s without explicit conflict resolution.",
+            dest,
+            legacy_db,
+        )
+        return False
+
+    if simplefin_account is None:
         profile_account = account_manager.create_account(
             name="SimpleFIN",
             backend_type="simplefin",
@@ -412,22 +426,13 @@ def migrate_legacy_simplefin_db(
     # later credential artifact fails to move, restore the database so the
     # next startup can retry the complete migration.
     dest = profile_dir / SIMPLEFIN_DB_FILE
-    database_moved = False
-    if dest.exists():
-        logger.warning(
-            "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
-            dest,
-            legacy_db,
-        )
-    else:
-        shutil.move(str(legacy_db), str(dest))
-        database_moved = True
+    shutil.move(str(legacy_db), str(dest))
 
     try:
         # Migrate legacy credentials if they are still sitting at the root
         _move_legacy_credentials_to_profile(config_dir, profile_dir)
     except Exception:
-        if database_moved and dest.exists() and not legacy_db.exists():
+        if dest.exists() and not legacy_db.exists():
             shutil.move(str(dest), str(legacy_db))
         raise
 
