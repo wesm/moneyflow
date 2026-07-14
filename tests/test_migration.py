@@ -527,6 +527,21 @@ class TestMigrateLegacyAmazonDb:
 
         assert result is False
 
+    def test_unregistered_occupied_profile_rejects_migration(
+        self, temp_config_dir, legacy_amazon_db, account_manager
+    ):
+        profile_dir = temp_config_dir / "profiles" / "amazon"
+        profile_dir.mkdir(parents=True)
+        destination = profile_dir / "amazon.db"
+        destination.write_bytes(b"existing database")
+
+        result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_amazon_db.exists()
+        assert destination.read_bytes() == b"existing database"
+        assert account_manager.list_accounts() == []
+
     def test_migration_with_existing_amazon_account_moves_db(
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):

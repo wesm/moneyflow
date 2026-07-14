@@ -249,6 +249,16 @@ def migrate_legacy_db(
         shutil.move(str(legacy_db), str(dest))
         return True
 
+    profile_dir = account_manager.get_profile_dir(account_id)
+    dest = profile_dir / db_filename
+    if dest.exists():
+        logger.warning(
+            "Cannot migrate %s: unregistered destination %s already exists.",
+            legacy_db,
+            dest,
+        )
+        return False
+
     profile_account = account_manager.create_account(
         name=account_name,
         backend_type=backend_type,
@@ -257,13 +267,6 @@ def migrate_legacy_db(
 
     profile_dir = account_manager.get_profile_dir(profile_account.id)
     dest = profile_dir / db_filename
-    if dest.exists():
-        logger.warning(
-            "Destination %s already exists. Skipping migration of %s to avoid overwriting existing data.",
-            dest,
-            legacy_db,
-        )
-        return True
     shutil.move(str(legacy_db), str(dest))
 
     return True
