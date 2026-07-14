@@ -811,6 +811,7 @@ def create_mcp_server(
                 {"status": "error", "message": f"Category '{category_name}' not found"},
                 indent=2,
             )
+        resolved_category_name = categories[category_id]
 
         # Find all transactions and validate they exist
         found_transactions = []
@@ -839,7 +840,7 @@ def create_mcp_server(
                     "message": "No changes made (dry run)",
                     "would_update": len(found_transactions),
                     "not_found": len(not_found),
-                    "new_category": category_name,
+                    "new_category": resolved_category_name,
                     "transactions": found_transactions,
                     "not_found_ids": not_found if not_found else None,
                 },
@@ -862,7 +863,7 @@ def create_mcp_server(
                     "category_id": category_id,
                 }
                 if _state["account"].backend_type == "simplefin":
-                    update_kwargs["category_name"] = category_name
+                    update_kwargs["category_name"] = resolved_category_name
                 await dm.mm.update_transaction(**update_kwargs)
                 success_count += 1
             except Exception as e:
@@ -878,7 +879,7 @@ def create_mcp_server(
             ]
             _state["transactions_df"] = df.with_columns(
                 pl.when(pl.col("id").is_in(successful_ids))
-                .then(pl.lit(category_name))
+                .then(pl.lit(resolved_category_name))
                 .otherwise(pl.col("category"))
                 .alias("category")
             )
@@ -888,7 +889,7 @@ def create_mcp_server(
                 "status": "success" if failure_count == 0 else "partial",
                 "success_count": success_count,
                 "failure_count": failure_count,
-                "new_category": category_name,
+                "new_category": resolved_category_name,
                 "errors": errors if errors else None,
             },
             indent=2,

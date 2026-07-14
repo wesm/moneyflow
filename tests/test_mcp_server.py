@@ -391,7 +391,7 @@ class TestSimplefinInitialization:
             )
             batch_result = await mcp.call_tool(
                 "batch_update_category",
-                {"transaction_ids": ["transaction-1"], "category_name": "Groceries"},
+                {"transaction_ids": ["transaction-1"], "category_name": "gRoCeRiEs"},
             )
 
         categories_content, _ = categories_result
@@ -399,7 +399,9 @@ class TestSimplefinInitialization:
         update_content, _ = update_result
         assert json.loads(update_content[0].text)["status"] == "success"
         batch_content, _ = batch_result
-        assert json.loads(batch_content[0].text)["status"] == "success"
+        batch_response = json.loads(batch_content[0].text)
+        assert batch_response["status"] == "success"
+        assert batch_response["new_category"] == "Groceries"
         assert backend.update_transaction.await_args_list == [
             call(
                 transaction_id="transaction-1",
