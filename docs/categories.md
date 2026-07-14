@@ -2,14 +2,16 @@
 
 ## Overview
 
-moneyflow automatically uses your backend's category structure with **profile-local isolation**:
+moneyflow selects a category structure for each backend with **profile-local isolation**:
 
 - **Monarch Money** - Fetches your actual Monarch categories and saves to your Monarch profile
 - **YNAB** - Fetches your actual YNAB budget categories and saves to your YNAB profile
 - **Amazon Mode** - Inherits categories from your primary backend (Monarch/YNAB) or uses built-in defaults
+- **SimpleFIN** - Uses built-in default categories (user assigns categories locally)
 - **Demo Mode** - Uses built-in default categories
 
-**No manual configuration needed!** Categories are automatically synced from your finance platform and isolated per account.
+Backends that provide categories are synchronized separately for each profile.
+Backends without category data use moneyflow's built-in defaults.
 
 ---
 
@@ -27,8 +29,11 @@ Each account has its own category configuration:
       │   └── config.yaml                  # Monarch categories (auto-synced)
       ├── ynab1/
       │   └── config.yaml                  # YNAB categories (auto-synced)
-      └── amazon/
+      ├── amazon/
           └── config.yaml                  # Amazon categories (optional, inherits by default)
+      └── simplefin/
+          ├── config.yaml                  # Local category definitions
+          └── simplefin.db                # Local transaction assignments
 ```
 
 **Benefits:**
@@ -107,6 +112,18 @@ To specify which profile Amazon should inherit from, add to global `~/.moneyflow
 version: 1
 amazon_categories_source: monarch1  # Use monarch1's categories for Amazon
 ```
+
+### For SimpleFIN Users
+
+moneyflow's SimpleFIN backend does not import a category hierarchy. It starts
+with the built-in category groups and categories. Category definitions are
+stored in the profile's `config.yaml`; transaction assignments are stored in
+the profile's `simplefin.db` SQLite database.
+
+Use the Category Manager (**`SHIFT-C`**) to create, rename, merge, delete, and
+move categories between local groups. Use the Group Manager (**`SHIFT-G`**) to
+create, rename, or delete the local category groups themselves. These changes
+are profile-local and do not sync to the SimpleFIN API.
 
 ### For Demo Mode Users
 

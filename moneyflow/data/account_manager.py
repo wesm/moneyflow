@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-BackendType = Literal["monarch", "ynab", "amazon", "demo"]
+BackendType = Literal["monarch", "ynab", "amazon", "simplefin", "demo"]
 
 
 @dataclass
@@ -80,12 +80,16 @@ class AccountRegistry:
 
     accounts: Dict[str, Account] = dataclass_field(default_factory=dict)
     last_active_account: Optional[str] = None  # Account ID
+    backend_defaults: Dict[str, str] = dataclass_field(
+        default_factory=dict
+    )  # backend_type → account_id
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "accounts": [acc.to_dict() for acc in self.accounts.values()],
             "last_active_account": self.last_active_account,
+            "backend_defaults": self.backend_defaults,
         }
 
     @staticmethod
@@ -97,6 +101,7 @@ class AccountRegistry:
         return AccountRegistry(
             accounts=accounts,
             last_active_account=data.get("last_active_account"),
+            backend_defaults=data.get("backend_defaults", {}),
         )
 
 
@@ -250,9 +255,9 @@ class AccountManager:
 
         return account
 
-    def delete_account(self, account_id: str) -> bool:
+    def delete_account(self, account_id: str, *, delete_profile: bool = True) -> bool:
         """
-        Delete an account profile and all its data.
+        Delete an account registration and optionally its profile data.
         """
         self.load_registry()
 
@@ -271,10 +276,11 @@ class AccountManager:
 
         self.save_registry()
 
-        # Delete profile directory and all contents
-        profile_dir = self.get_profile_dir(account_id)
-        if profile_dir.exists():
-            shutil.rmtree(profile_dir)
+        # Delete profile directory and all contents when the caller owns it.
+        if delete_profile:
+            profile_dir = self.get_profile_dir(account_id)
+            if profile_dir.exists():
+                shutil.rmtree(profile_dir)
 
         return True
 
@@ -333,3 +339,51 @@ class AccountManager:
             return next(iter(self._registry.accounts.values()))
 
         return None
+
+    def set_last_active_account(self, account_id: Optional[str]) -> None:
+        """Set the active account without changing its last-used timestamp."""
+        self.load_registry()
+        if account_id is not None and account_id not in self._registry.accounts:
+            raise ValueError(f"Account ID '{account_id}' does not exist")
+        self._registry.last_active_account = account_id
+        self.save_registry()
+
+    # ------------------------------------------------------------------
+    # Per-backend defaults
+    # ------------------------------------------------------------------
+
+    def get_backend_default(self, backend_type: str) -> Optional[str]:
+        """
+        Get the default account ID for a given backend type.
+
+        Args:
+            backend_type: Backend type (e.g., "simplefin", "monarch").
+
+        Returns:
+            Account ID or None if no default is set.
+        """
+        self.load_registry()
+        return self._registry.backend_defaults.get(backend_type)
+
+    def set_backend_default(self, backend_type: str, account_id: str) -> None:
+        """
+        Set the default account ID for a given backend type.
+
+        Args:
+            backend_type: Backend type (e.g., "simplefin", "monarch").
+            account_id: Account ID to set as default.
+        """
+        self.load_registry()
+        self._registry.backend_defaults[backend_type] = account_id
+        self.save_registry()
+
+    def clear_backend_default(self, backend_type: str) -> None:
+        """
+        Clear the default account ID for a given backend type.
+
+        Args:
+            backend_type: Backend type (e.g., "simplefin", "monarch").
+        """
+        self.load_registry()
+        self._registry.backend_defaults.pop(backend_type, None)
+        self.save_registry()

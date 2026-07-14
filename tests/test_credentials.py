@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from moneyflow.data import credentials as credentials_module
 from moneyflow.data.credentials import CredentialManager
 from tests.conftest import save_test_credentials
 
@@ -19,6 +20,159 @@ from tests.conftest import save_test_credentials
 def assert_file_permissions(file_path: Path, expected_mode: str):
     """Verify file has exact expected octal permissions (e.g., '600')."""
     assert oct(file_path.stat().st_mode)[-3:] == expected_mode
+
+
+class TestInteractiveSimplefinSetup:
+    def test_password_mismatch_does_not_claim_one_time_token(self, monkeypatch, capsys):
+        inputs = iter(["3", "y"])
+        passwords = iter(["one-time-token", "first-password", "different-password"])
+        claim_calls = []
+
+        def claim(token):
+            claim_calls.append(token)
+            return "https://example.invalid/access"
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: next(passwords))
+        monkeypatch.setattr("moneyflow.backends.simplefin_client.claim_token", claim)
+        monkeypatch.setattr(credentials_module, "claim_token", claim, raising=False)
+
+        credentials_module.setup_credentials_interactive()
+
+        assert claim_calls == []
+        assert "Passwords do not match!" in capsys.readouterr().out
+
+    def test_save_failure_displays_claimed_access_url_for_recovery(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        access_url = "https://example:credential@bridge.simplefin.org/simplefin"
+        inputs = iter(["3", "n"])
+        deleted_accounts = []
+
+        class AccountManagerStub:
+            @staticmethod
+            def get_last_active_account():
+                return None
+
+            @staticmethod
+            def create_account(name, backend_type):
+                return type("Account", (), {"id": "simplefin-account"})()
+
+            @staticmethod
+            def get_profile_dir(account_id):
+                return tmp_path
+
+            @staticmethod
+            def delete_account(account_id):
+                deleted_accounts.append(account_id)
+                return True
+
+        class CredentialManagerStub:
+            credentials_file = tmp_path / "credentials.enc"
+            plaintext_credentials_file = tmp_path / "credentials.json"
+
+            def __init__(self, profile_dir):
+                pass
+
+            @staticmethod
+            def save_credentials(*args, **kwargs):
+                raise OSError("simulated save failure")
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: "one-time-token")
+        monkeypatch.setattr(
+            "moneyflow.backends.simplefin_client.claim_token", lambda token: access_url
+        )
+        monkeypatch.setattr(
+            credentials_module, "claim_token", lambda token: access_url, raising=False
+        )
+        monkeypatch.setattr("moneyflow.data.account_manager.AccountManager", AccountManagerStub)
+        monkeypatch.setattr(credentials_module, "CredentialManager", CredentialManagerStub)
+
+        with pytest.raises(OSError, match="simulated save failure"):
+            credentials_module.setup_credentials_interactive()
+
+        output = capsys.readouterr().out
+        assert "save this Access URL securely" in output
+        assert access_url in output
+        assert deleted_accounts == ["simplefin-account"]
+
+    def test_claim_failure_removes_new_account(self, monkeypatch, tmp_path):
+        inputs = iter(["3", "n"])
+        deleted_accounts = []
+
+        class AccountManagerStub:
+            @staticmethod
+            def get_last_active_account():
+                return None
+
+            @staticmethod
+            def create_account(name, backend_type):
+                return type("Account", (), {"id": "simplefin-account"})()
+
+            @staticmethod
+            def get_profile_dir(account_id):
+                return tmp_path
+
+            @staticmethod
+            def delete_account(account_id):
+                deleted_accounts.append(account_id)
+                return True
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(credentials_module, "getpass", lambda prompt: "one-time-token")
+        monkeypatch.setattr(
+            credentials_module,
+            "claim_token",
+            lambda token: (_ for _ in ()).throw(ValueError("simulated claim failure")),
+        )
+        monkeypatch.setattr("moneyflow.data.account_manager.AccountManager", AccountManagerStub)
+
+        with pytest.raises(ValueError, match="simulated claim failure"):
+            credentials_module.setup_credentials_interactive()
+
+        assert deleted_accounts == ["simplefin-account"]
+
+    @pytest.mark.parametrize("delete_profile_fails", [False, True])
+    def test_failed_setup_restores_previously_active_account(
+        self, monkeypatch, tmp_path, delete_profile_fails
+    ):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        first = account_manager.create_account("First", "demo")
+        active = account_manager.create_account("Active", "demo")
+        assert account_manager.get_last_active_account() == active
+
+        inputs = iter(["3", "n"])
+
+        class CredentialManagerStub:
+            def __init__(self, profile_dir):
+                pass
+
+            @staticmethod
+            def save_credentials(*args, **kwargs):
+                raise OSError("simulated save failure")
+
+        monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+        monkeypatch.setattr(
+            credentials_module, "getpass", lambda prompt: "https://example.invalid/access"
+        )
+        monkeypatch.setattr(
+            "moneyflow.data.account_manager.AccountManager", lambda: account_manager
+        )
+        monkeypatch.setattr(credentials_module, "CredentialManager", CredentialManagerStub)
+        if delete_profile_fails:
+            monkeypatch.setattr(
+                "moneyflow.data.account_manager.shutil.rmtree",
+                lambda path: (_ for _ in ()).throw(OSError("simulated delete failure")),
+            )
+
+        with pytest.raises(OSError, match="simulated save failure"):
+            credentials_module.setup_credentials_interactive()
+
+        assert account_manager.list_accounts() == [first, active]
+        assert account_manager.get_last_active_account() == active
 
 
 @pytest.fixture

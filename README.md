@@ -17,6 +17,7 @@ direct control over their financial data.
 - ✅ **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full integration with editing and sync
 - ✅ **YNAB** - Full integration with editing and sync
 - ✅ **Amazon Purchases** - Import and analyze purchase history
+- ✅ **SimpleFIN** - Import read-only account and transaction data; edits remain local
 - ✅ **Demo Mode** - Try it without an account
 
 **Documentation:** [moneyflow.dev](https://moneyflow.dev)
@@ -190,6 +191,7 @@ Restart moneyflow for the theme to take effect.
 - [Keyboard Shortcuts](https://moneyflow.dev/guide/keyboard-shortcuts)
 - [Monarch Money Setup](https://moneyflow.dev/guide/monarch)
 - [YNAB Setup](https://moneyflow.dev/guide/ynab)
+- [SimpleFIN Setup](https://moneyflow.dev/guide/simplefin)
 - [Amazon Mode](https://moneyflow.dev/guide/amazon-mode)
 
 ---

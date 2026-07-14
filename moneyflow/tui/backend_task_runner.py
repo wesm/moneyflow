@@ -179,14 +179,14 @@ class BackendTaskRunner:
             self.app._notify(notification_helper.session_refresh_failed(str(e)))
             return False
 
-    async def delete_with_retry(self, transaction_id: str) -> None:
+    async def delete_with_retry(self, transaction_id: str) -> bool:
         try:
-            await self.app.backend.delete_transaction(transaction_id)
+            return await self.app.backend.delete_transaction(transaction_id)
         except Exception as e:
             error_msg = str(e).lower()
             if "401" in error_msg or "unauthorized" in error_msg or "token" in error_msg:
                 if await self.refresh_session():
-                    await self.app.backend.delete_transaction(transaction_id)
+                    return await self.app.backend.delete_transaction(transaction_id)
                 else:
                     raise Exception("Session refresh failed - cannot delete transaction")
             else:

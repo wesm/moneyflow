@@ -29,6 +29,7 @@ import polars as pl
 from moneyflow.tui.formatters import PreparedView
 
 from ..data.amazon_linker import AmazonLinker
+from ..data.categories import save_categories_to_profile
 from ..data.commit_orchestrator import apply_edits_to_dataframe
 from ..data.data_manager import DataManager
 from ..data.state import (
@@ -140,6 +141,11 @@ class AppController:
 
         # Track if current view shows Amazon column
         self._showing_amazon_column = False
+        self.edits_enabled = True
+
+    def set_edits_enabled(self, enabled: bool) -> None:
+        """Enable or suspend transaction edit queuing during data migrations."""
+        self.edits_enabled = enabled
 
     def _is_amazon_filtered_view(self, df: pl.DataFrame) -> bool:
         """
@@ -1315,7 +1321,12 @@ class AppController:
                 group_field=None,
             )
 
-    def edit_merchant_current_selection(self, new_merchant: str, cursor_row: int = 0) -> int:
+    def edit_merchant_current_selection(
+        self,
+        new_merchant: str,
+        cursor_row: int = 0,
+        context: EditContext | None = None,
+    ) -> int:
         """
         Edit merchant for current selection (context-aware).
 
@@ -1339,6 +1350,9 @@ class AppController:
             >>> count  # All Amazon transactions edited
             50
         """
+        if not self.edits_enabled:
+            return 0
+
         # Validate input
         if not new_merchant or not new_merchant.strip():
             return 0
@@ -1346,7 +1360,8 @@ class AppController:
         new_merchant = new_merchant.strip()
 
         # Determine what to edit
-        context = self.determine_edit_context("merchant", cursor_row=cursor_row)
+        if context is None:
+            context = self.determine_edit_context("merchant", cursor_row=cursor_row)
 
         # No transactions to edit
         if context.transactions.is_empty():
@@ -1368,7 +1383,12 @@ class AppController:
 
         return count
 
-    def edit_category_current_selection(self, new_category_id: str, cursor_row: int = 0) -> int:
+    def edit_category_current_selection(
+        self,
+        new_category_id: str,
+        cursor_row: int = 0,
+        context: EditContext | None = None,
+    ) -> int:
         """
         Edit category for current selection (context-aware).
 
@@ -1381,12 +1401,16 @@ class AppController:
         Returns:
             Number of edits queued (0 if validation failed or no transactions)
         """
+        if not self.edits_enabled:
+            return 0
+
         # Validate input
         if not new_category_id or not new_category_id.strip():
             return 0
 
         # Determine what to edit
-        context = self.determine_edit_context("category", cursor_row=cursor_row)
+        if context is None:
+            context = self.determine_edit_context("category", cursor_row=cursor_row)
 
         # No transactions to edit
         if context.transactions.is_empty():
@@ -1416,6 +1440,9 @@ class AppController:
             - count: Number of edits queued or undone
             - was_undo: True if this was an undo operation, False if new toggles
         """
+        if not self.edits_enabled:
+            return (0, False)
+
         # Determine what to edit (use "merchant" as placeholder - hide works on any context)
         context = self.determine_edit_context("merchant", cursor_row=cursor_row)
 
@@ -1462,6 +1489,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0
@@ -1478,6 +1508,42 @@ class AppController:
             count += 1
         return count
 
+    def queue_category_reassignment(
+        self,
+        transactions_df: pl.DataFrame,
+        source_category_id: str,
+        target_category_id: str,
+    ) -> int:
+        """Queue a category merge against effective assignments, including pending edits."""
+        if not self.edits_enabled:
+            return 0
+
+        latest_category_edits = {}
+        for edit in self.data_manager.pending_edits:
+            if edit.field == "category":
+                latest_category_edits[edit.transaction_id] = edit
+
+        effective_source_ids = set(
+            transactions_df.filter(pl.col("category_id") == source_category_id)["id"].to_list()
+        )
+        for transaction_id, edit in latest_category_edits.items():
+            if edit.new_value == source_category_id:
+                effective_source_ids.add(transaction_id)
+            else:
+                effective_source_ids.discard(transaction_id)
+
+        retargeted_ids = set()
+        for transaction_id in effective_source_ids:
+            edit = latest_category_edits.get(transaction_id)
+            if edit is not None and edit.new_value == source_category_id:
+                edit.new_value = target_category_id
+                retargeted_ids.add(transaction_id)
+
+        source_transactions = transactions_df.filter(
+            pl.col("id").is_in(effective_source_ids - retargeted_ids)
+        )
+        return self.queue_category_edits(source_transactions, target_category_id)
+
     def queue_merchant_edits(self, transactions_df, old_merchant: str, new_merchant: str) -> int:
         """
         Queue merchant edits for a set of transactions.
@@ -1492,6 +1558,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0
@@ -1521,6 +1590,9 @@ class AppController:
         Returns:
             int: Number of edits queued
         """
+        if not self.edits_enabled:
+            return 0
+
         # Create single timestamp for entire batch so undo recognizes them as a group
         batch_timestamp = datetime.now()
         count = 0
@@ -1631,6 +1703,29 @@ class AppController:
             # Clear pending edits on success (after cache update to preserve edits list)
             self.data_manager.pending_edits.clear()
             logger.info("Cleared pending edits")
+
+            # Persist deferred category config if any (from category manager)
+            if self.data_manager.pending_category_groups:
+                # Transaction-backed structural operations are now committed and cannot be undone.
+                # Retain only the config snapshot if persistence needs to be retried.
+                self.data_manager.pending_category_changes.clear()
+                categories_saved = True
+                if self.data_manager.profile_dir:
+                    categories_saved = save_categories_to_profile(
+                        self.data_manager.pending_category_groups,
+                        profile_dir=self.data_manager.profile_dir,
+                    )
+                if categories_saved:
+                    self.data_manager.pending_category_groups = None
+                    logger.info("Saved deferred category config after successful commit")
+                else:
+                    logger.error("Failed to save deferred category config after commit")
+                    self.view.show_notification(
+                        "Transactions were saved, but category configuration could not be saved. "
+                        "The category changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
 
             # Refresh to show updated data (smooth update)
             # Note: View already restored in app.py before commit started

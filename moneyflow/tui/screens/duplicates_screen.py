@@ -1,6 +1,5 @@
 """Duplicates detection and review screen."""
 
-from datetime import datetime
 from typing import Optional, Set
 
 import polars as pl
@@ -11,7 +10,6 @@ from textual.screen import Screen
 from textual.widgets import DataTable, Label, Static
 
 from ...data.duplicate_detector import DuplicateDetector
-from ...data.state import TransactionEdit
 from ...logging_config import get_logger
 from ..formatters import ViewPresenter
 from .edit_screens import DeleteConfirmationScreen
@@ -86,6 +84,7 @@ class DuplicatesScreen(Screen):
         self.duplicate_groups = groups
         self.full_df = full_df
         self.main_app = main_app  # Reference to MoneyflowApp for backend operations
+        self.refresh_generation = getattr(main_app, "_simplefin_refresh_generation", 0)
         # Map table row index to transaction ID for lookups
         self.row_to_txn_id: dict[int, str] = {}
         # Track selected transaction IDs
@@ -304,6 +303,14 @@ class DuplicatesScreen(Screen):
         )
 
         if confirmed:
+            if not self.main_app.can_edit_transaction_snapshot(self.refresh_generation):
+                self.notify(
+                    "Transactions refreshed; close and reopen duplicate review before deleting.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Show progress notification for batch operations
             if len(to_delete) > 5:
                 self.notify(
@@ -314,11 +321,15 @@ class DuplicatesScreen(Screen):
             # Delete transactions via backend
             success_count = 0
             failure_count = 0
+            deleted_ids = []
 
             for i, txn_id in enumerate(to_delete, 1):
                 try:
-                    await self.main_app.task_runner.delete_with_retry(txn_id)
-                    success_count += 1
+                    if await self.main_app.task_runner.delete_with_retry(txn_id):
+                        success_count += 1
+                        deleted_ids.append(txn_id)
+                    else:
+                        failure_count += 1
 
                     # Show progress every 10 transactions for large batches
                     if len(to_delete) > 20 and i % 10 == 0:
@@ -332,7 +343,6 @@ class DuplicatesScreen(Screen):
 
             # Update main app's DataFrame to remove deleted transactions
             if success_count > 0:
-                deleted_ids = to_delete[:success_count]
                 if self.main_app.data_manager.df is not None:
                     self.main_app.data_manager.df = self.main_app.data_manager.df.filter(
                         ~pl.col("id").is_in(deleted_ids)
@@ -396,6 +406,14 @@ class DuplicatesScreen(Screen):
 
     def action_toggle_hide(self) -> None:
         """Toggle hide from reports for current transaction(s)."""
+        if not self.main_app.can_edit_transaction_snapshot(self.refresh_generation):
+            self.notify(
+                "Transactions refreshed; close and reopen duplicate review before editing.",
+                severity="warning",
+                timeout=4,
+            )
+            return
+
         # Get transactions to toggle
         if len(self.selected_ids) > 0:
             to_toggle = list(self.selected_ids)
@@ -405,29 +423,15 @@ class DuplicatesScreen(Screen):
                 return
             to_toggle = [txn_id]
 
-        # Queue hide toggle edits to main app
-        timestamp = datetime.now()
-        for txn_id in to_toggle:
-            txn_rows = self.full_df.filter(pl.col("id") == txn_id)
-            if not txn_rows.is_empty():
-                txn = txn_rows.row(0, named=True)
-                current_hide = txn.get("hideFromReports", False)
-
-                edit = TransactionEdit(
-                    transaction_id=txn_id,
-                    field="hide_from_reports",
-                    old_value=current_hide,
-                    new_value=not current_hide,
-                    timestamp=timestamp,
-                )
-                self.main_app.data_manager.pending_edits.append(edit)
+        txn_rows = self.full_df.filter(pl.col("id").is_in(to_toggle))
+        queued = self.main_app.controller.queue_hide_toggle_edits(txn_rows)
 
         self.selected_ids.clear()
         self.refresh_table()
         self.update_status_line()
 
         self.notify(
-            f"Queued {len(to_toggle)} hide/unhide changes. Close and press w to commit.",
+            f"Queued {queued} hide/unhide changes. Close and press w to commit.",
             timeout=3,
         )
 

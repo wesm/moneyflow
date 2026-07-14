@@ -41,6 +41,59 @@ class MockBackendNoCount:
     pass
 
 
+class StrictCategoryBackend:
+    """Backend whose client does not accept backend-specific category names."""
+
+    def __init__(self):
+        self.update_calls = []
+
+    def get_backend_type(self):
+        return "monarch"
+
+    async def update_transaction(
+        self,
+        transaction_id,
+        merchant_name=None,
+        category_id=None,
+        hide_from_reports=None,
+    ):
+        self.update_calls.append(
+            {
+                "transaction_id": transaction_id,
+                "merchant_name": merchant_name,
+                "category_id": category_id,
+                "hide_from_reports": hide_from_reports,
+            }
+        )
+        return {"updateTransaction": {"transaction": {"id": transaction_id}}}
+
+
+class CategoryNameBackend(StrictCategoryBackend):
+    """Backend that persists local display category names."""
+
+    def get_backend_type(self):
+        return "simplefin"
+
+    async def update_transaction(
+        self,
+        transaction_id,
+        merchant_name=None,
+        category_id=None,
+        hide_from_reports=None,
+        category_name=None,
+    ):
+        self.update_calls.append(
+            {
+                "transaction_id": transaction_id,
+                "merchant_name": merchant_name,
+                "category_id": category_id,
+                "hide_from_reports": hide_from_reports,
+                "category_name": category_name,
+            }
+        )
+        return {"updateTransaction": {"transaction": {"id": transaction_id}}}
+
+
 class MockBackendWithCount:
     """Mock backend that returns specific counts."""
 
@@ -93,6 +146,18 @@ class TestDataFetching:
             assert d.year == 2024
             assert d.month == 10
             assert 1 <= d.day <= 3
+
+    async def test_fetch_unfiltered_transactions_ignores_startup_date_range(self, data_manager):
+        filtered_df, categories, _ = await data_manager.fetch_all_data(
+            start_date="2024-10-02",
+            end_date="2024-10-03",
+        )
+        data_manager.categories = categories
+
+        complete_df = await data_manager.fetch_unfiltered_transactions()
+
+        assert len(filtered_df) < len(complete_df)
+        assert len(complete_df) == 6
 
 
 class TestAggregation:
@@ -495,6 +560,41 @@ class TestCommitEdits:
         assert txn is not None
         assert txn["category"]["id"] == "cat_shopping"
 
+    async def test_commit_category_change_omits_category_name_for_strict_backends(self, tmp_path):
+        """Category display names must not leak into remote backend client calls."""
+        backend = StrictCategoryBackend()
+        dm = DataManager(backend, config_dir=str(tmp_path))
+        dm.categories = {"cat_new": {"name": "New Category"}}
+
+        edits = [TransactionEdit("txn_1", "category", "cat_old", "cat_new", datetime.now())]
+
+        success, failure, _ = await dm.commit_pending_edits(edits)
+
+        assert success == 1
+        assert failure == 0
+        assert backend.update_calls == [
+            {
+                "transaction_id": "txn_1",
+                "merchant_name": None,
+                "category_id": "cat_new",
+                "hide_from_reports": None,
+            }
+        ]
+
+    async def test_commit_category_change_includes_category_name_for_simplefin(self, tmp_path):
+        """SimpleFIN stores both category ID and display name locally."""
+        backend = CategoryNameBackend()
+        dm = DataManager(backend, config_dir=str(tmp_path))
+        dm.categories = {"cat_new": {"name": "New Category"}}
+
+        edits = [TransactionEdit("txn_1", "category", "cat_old", "cat_new", datetime.now())]
+
+        success, failure, _ = await dm.commit_pending_edits(edits)
+
+        assert success == 1
+        assert failure == 0
+        assert backend.update_calls[0]["category_name"] == "New Category"
+
     async def test_commit_hide_toggle(self, data_manager, mock_mm):
         """Test committing hide from reports toggle."""
         edits = [TransactionEdit("txn_1", "hide_from_reports", False, True, datetime.now())]
@@ -541,6 +641,21 @@ class TestEdgeCases:
 
         assert df is not None
         assert df.is_empty()
+        assert df.schema == {
+            "id": pl.String,
+            "date": pl.Date,
+            "amount": pl.Float64,
+            "merchant": pl.String,
+            "merchant_id": pl.String,
+            "category": pl.String,
+            "category_id": pl.String,
+            "account": pl.String,
+            "account_id": pl.String,
+            "notes": pl.String,
+            "hideFromReports": pl.Boolean,
+            "pending": pl.Boolean,
+            "isRecurring": pl.Boolean,
+        }
 
     async def test_transactions_to_dataframe_none_merchant(self, data_manager):
         """Test transaction with None merchant field."""

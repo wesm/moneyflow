@@ -1,18 +1,24 @@
 """Tests for credential migration from single-account to multi-account."""
 
 import json
+from pathlib import Path
 
 import pytest
 import yaml
 
+from moneyflow.data import migration as migration_module
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.credentials import CredentialManager
 from moneyflow.data.migration import (
+    CREDENTIALS_FILE,
+    CREDENTIALS_FILE_JSON,
     check_amazon_migration_needed,
     check_migration_needed,
+    check_simplefin_migration_needed,
     migrate_global_categories_to_profiles,
     migrate_legacy_amazon_db,
     migrate_legacy_credentials,
+    migrate_legacy_simplefin_db,
 )
 
 
@@ -44,6 +50,20 @@ def legacy_credentials(temp_config_dir):
 
 
 @pytest.fixture
+def legacy_plaintext_credentials(temp_config_dir):
+    """Fixture to provide legacy plaintext (unencrypted) credentials."""
+    legacy_cred = CredentialManager(config_dir=temp_config_dir)
+    legacy_cred.save_credentials(
+        email="plain@example.com",
+        password="plainpass",
+        mfa_secret="PLAINSECRET",
+        backend_type="simplefin",
+        use_encryption=False,
+    )
+    return legacy_cred
+
+
+@pytest.fixture
 def legacy_amazon_db(temp_config_dir):
     """Fixture to provide a standard legacy amazon.db setup."""
     amazon_db = temp_config_dir / "amazon.db"
@@ -59,6 +79,14 @@ def legacy_config_yaml(temp_config_dir):
     with open(config_path, "w") as f:
         yaml.dump({"version": 1, "fetched_categories": categories}, f)
     return config_path
+
+
+@pytest.fixture
+def legacy_simplefin_db(temp_config_dir):
+    """Fixture to provide a standard legacy simplefin.db setup."""
+    simplefin_db = temp_config_dir / "simplefin.db"
+    simplefin_db.write_text("fake simplefin database content")
+    return simplefin_db
 
 
 class TestCheckMigrationNeeded:
@@ -99,7 +127,9 @@ class TestMigrateLegacyCredentials:
     ):
         """Test that migration creates a 'default' account."""
         # Migrate
-        migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrated = migrate_legacy_credentials(
+            config_dir=temp_config_dir, backend_type_hint="monarch"
+        )
 
         assert migrated is True
 
@@ -114,6 +144,22 @@ class TestMigrateLegacyCredentials:
         assert accounts[0].name == "Default Account"
         assert accounts[0].backend_type == "monarch"
 
+    def test_opaque_encrypted_credentials_defer_without_backend_hint(self, temp_config_dir):
+        credentials = CredentialManager(config_dir=temp_config_dir)
+        credentials.save_credentials(
+            email="",
+            password="https://user:pass@bridge.simplefin.org/simplefin",
+            mfa_secret="",
+            encryption_password="example-password",
+            backend_type="simplefin",
+        )
+
+        migrated = migrate_legacy_credentials(config_dir=temp_config_dir)
+
+        assert migrated is False
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+
     def test_migrate_moves_credentials_to_profile(self, temp_config_dir, legacy_credentials):
         """Test that migration moves credentials.enc to profile directory."""
         # Verify legacy files exist
@@ -121,7 +167,7 @@ class TestMigrateLegacyCredentials:
         assert (temp_config_dir / "salt").exists()
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy files should be moved (not copied)
         assert not (temp_config_dir / "credentials.enc").exists()
@@ -131,6 +177,81 @@ class TestMigrateLegacyCredentials:
         profile_dir = temp_config_dir / "profiles" / "default"
         assert (profile_dir / "credentials.enc").exists()
         assert (profile_dir / "salt").exists()
+
+    def test_encrypted_migration_rolls_back_when_salt_move_fails(
+        self, temp_config_dir, legacy_credentials, monkeypatch
+    ):
+        original_move = migration_module.shutil.move
+        salt_move_failed = False
+
+        def fail_first_salt_move(source, destination):
+            nonlocal salt_move_failed
+            if Path(source).name == "salt" and not salt_move_failed:
+                salt_move_failed = True
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_first_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        profile_dir = temp_config_dir / "profiles" / "default"
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert not (profile_dir / "salt").exists()
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
+        assert (
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+            is True
+        )
+        assert (profile_dir / CREDENTIALS_FILE).exists()
+        assert (profile_dir / "salt").exists()
+
+    def test_credential_collision_preserves_unregistered_profile_directory(
+        self, temp_config_dir, legacy_credentials
+    ):
+        profile_dir = temp_config_dir / "profiles" / "default"
+        profile_dir.mkdir(parents=True)
+        existing_credentials = profile_dir / CREDENTIALS_FILE_JSON
+        existing_credentials.write_text("existing credentials")
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+
+        with pytest.raises(RuntimeError, match="existing credential artifacts"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_credentials.read_text() == "existing credentials"
+        assert existing_data.read_text() == "existing data"
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
+    def test_move_failure_preserves_unregistered_profile_directory(
+        self, temp_config_dir, legacy_credentials, monkeypatch
+    ):
+        profile_dir = temp_config_dir / "profiles" / "default"
+        profile_dir.mkdir(parents=True)
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_data.read_text() == "existing data"
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
 
     def test_migrate_preserves_credential_data(self, temp_config_dir):
         """Test that migrated credentials can still be decrypted."""
@@ -145,7 +266,7 @@ class TestMigrateLegacyCredentials:
         )
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Load from new profile location
         profile_dir = temp_config_dir / "profiles" / "default"
@@ -173,7 +294,7 @@ class TestMigrateLegacyCredentials:
         )
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy merchant cache should be moved
         assert not merchant_cache.exists()
@@ -195,7 +316,7 @@ class TestMigrateLegacyCredentials:
         (cache_dir / "metadata.json").write_text("{}")
 
         # Migrate
-        migrate_legacy_credentials(config_dir=temp_config_dir)
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         # Legacy cache should be moved
         assert not cache_dir.exists()
@@ -249,7 +370,7 @@ class TestMigrationEdgeCases:
     def test_migration_with_only_credentials_no_cache(self, temp_config_dir, legacy_credentials):
         """Test migration works with only credentials, no merchant cache."""
         # Migrate
-        result = migrate_legacy_credentials(config_dir=temp_config_dir)
+        result = migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
         assert result is True
 
@@ -257,19 +378,62 @@ class TestMigrationEdgeCases:
         profile_dir = temp_config_dir / "profiles" / "default"
         assert (profile_dir / "credentials.enc").exists()
 
-    def test_migration_with_partial_files(self, temp_config_dir):
-        """Test migration when only some files exist."""
-        # Create only credentials.enc (no salt - unusual but possible)
+    def test_encrypted_migration_rejects_missing_salt(self, temp_config_dir):
         (temp_config_dir / "credentials.enc").write_bytes(b"encrypted data")
 
-        # Migrate
-        result = migrate_legacy_credentials(config_dir=temp_config_dir)
+        with pytest.raises(RuntimeError, match="missing their matching salt"):
+            migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
 
-        assert result is True
-
-        # credentials.enc moved
         profile_dir = temp_config_dir / "profiles" / "default"
-        assert (profile_dir / "credentials.enc").exists()
+        assert (temp_config_dir / "credentials.enc").exists()
+        assert not profile_dir.exists()
+        assert AccountManager(config_dir=temp_config_dir).list_accounts() == []
+
+
+class TestMigratePlaintextCredentials:
+    """Tests for migrating legacy plaintext (unencrypted) credentials."""
+
+    def test_plaintext_migrates_to_json_not_enc(
+        self, temp_config_dir, legacy_plaintext_credentials
+    ):
+        """Test that plaintext credentials move to credentials.json, not .enc."""
+        assert (temp_config_dir / "credentials.json").exists()
+        assert not (temp_config_dir / "credentials.enc").exists()
+
+        migrate_legacy_credentials(config_dir=temp_config_dir)
+
+        profile_dir = temp_config_dir / "profiles" / "default"
+        assert (profile_dir / CREDENTIALS_FILE_JSON).exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert not (profile_dir / "salt").exists()
+
+    def test_plaintext_credentials_loadable_after_migration(
+        self, temp_config_dir, legacy_plaintext_credentials
+    ):
+        """Test that migrated plaintext credentials load without password."""
+        migrate_legacy_credentials(config_dir=temp_config_dir)
+
+        profile_dir = temp_config_dir / "profiles" / "default"
+        profile_cred = CredentialManager(config_dir=temp_config_dir, profile_dir=profile_dir)
+
+        creds, key = profile_cred.load_credentials()
+
+        assert creds["email"] == "plain@example.com"
+        assert creds["password"] == "plainpass"
+        assert creds["mfa_secret"] == "PLAINSECRET"
+        assert creds["backend_type"] == "simplefin"
+        assert key is None  # No encryption key for plaintext
+
+    def test_encrypted_migration_still_works(self, temp_config_dir, legacy_credentials):
+        """Test that encrypted credentials still migrate to .enc."""
+        assert (temp_config_dir / "credentials.enc").exists()
+        assert (temp_config_dir / "salt").exists()
+
+        migrate_legacy_credentials(config_dir=temp_config_dir, backend_type_hint="monarch")
+
+        profile_dir = temp_config_dir / "profiles" / "default"
+        assert (profile_dir / CREDENTIALS_FILE).exists()
+        assert (profile_dir / "salt").exists()
 
 
 class TestCheckAmazonMigrationNeeded:
@@ -290,11 +454,9 @@ class TestCheckAmazonMigrationNeeded:
     def test_no_migration_when_amazon_account_already_exists(
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):
-        """Test that migration skipped if Amazon account already configured."""
-        # Create an Amazon account
+        """Test migration skipped if Amazon account already configured."""
         account_manager.create_account("Amazon Orders", "amazon")
 
-        # Should not migrate because Amazon account already exists
         needed = check_amazon_migration_needed(config_dir=temp_config_dir)
 
         assert needed is False
@@ -369,16 +531,14 @@ class TestMigrateLegacyAmazonDb:
         self, temp_config_dir, legacy_amazon_db, account_manager
     ):
         """Test migration skipped if Amazon account already exists."""
-        # Create an existing Amazon account
-        account_manager.create_account("My Amazon", "amazon")
+        existing = account_manager.create_account("My Amazon", "amazon")
+        existing_profile = account_manager.get_profile_dir(existing.id)
 
-        # Try to migrate - should be skipped
         result = migrate_legacy_amazon_db(config_dir=temp_config_dir)
 
         assert result is False
-
-        # Legacy database should still exist (not moved)
         assert legacy_amazon_db.exists()
+        assert not (existing_profile / "amazon.db").exists()
 
     def test_migration_works_with_other_accounts_present(
         self, temp_config_dir, legacy_amazon_db, account_manager
@@ -402,6 +562,322 @@ class TestMigrateLegacyAmazonDb:
         backend_types = {acc.backend_type for acc in accounts}
         assert "monarch" in backend_types
         assert "amazon" in backend_types
+
+
+class TestCheckSimplefinMigrationNeeded:
+    """Tests for checking if SimpleFIN migration is needed."""
+
+    def test_no_migration_when_no_legacy_db(self, temp_config_dir):
+        """Test no migration needed when no legacy db exists."""
+        assert check_simplefin_migration_needed(config_dir=temp_config_dir) is False
+
+    def test_migration_needed_when_legacy_db_exists(self, temp_config_dir, legacy_simplefin_db):
+        """Test migration needed when legacy db exists."""
+        assert check_simplefin_migration_needed(config_dir=temp_config_dir) is True
+
+    def test_no_migration_when_simplefin_account_already_exists(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        """Test no migration needed when SimpleFIN account already exists."""
+        account_manager.create_account("SimpleFIN", "simplefin")
+        assert check_simplefin_migration_needed(config_dir=temp_config_dir) is True
+
+
+class TestMigrateLegacySimplefinDb:
+    """Tests for migrating legacy SimpleFIN database."""
+
+    def test_migrate_creates_simplefin_account(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        """Test that migration creates a 'simplefin' account."""
+        migrated = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert migrated is True
+
+        account_manager.load_registry()
+        accounts = account_manager.list_accounts()
+
+        assert len(accounts) == 1
+        assert accounts[0].id == "simplefin"
+        assert accounts[0].name == "SimpleFIN"
+        assert accounts[0].backend_type == "simplefin"
+
+    def test_migrate_moves_db_to_profile(self, temp_config_dir):
+        """Test that migration moves simplefin.db to profile directory."""
+        simplefin_db = temp_config_dir / "simplefin.db"
+        test_content = "fake simplefin database content"
+        simplefin_db.write_text(test_content)
+
+        assert simplefin_db.exists()
+
+        migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert not simplefin_db.exists()
+
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        profile_db = profile_dir / "simplefin.db"
+        assert profile_db.exists()
+        assert profile_db.read_text() == test_content
+
+    def test_dry_run_does_not_modify_files(self, temp_config_dir, legacy_simplefin_db):
+        """Test that dry_run mode doesn't modify any files."""
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir, dry_run=True)
+
+        assert result is True
+        assert legacy_simplefin_db.exists()
+
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert not profile_dir.exists()
+
+    def test_no_migration_returns_false(self, temp_config_dir):
+        """Test that migration returns False when nothing to migrate."""
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+
+    def test_migration_with_existing_simplefin_account_moves_db(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        """Test migration moves db into existing SimpleFIN account profile."""
+        existing = account_manager.create_account("My SimpleFIN", "simplefin")
+        existing_profile = account_manager.get_profile_dir(existing.id)
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is True
+        assert not legacy_simplefin_db.exists()
+        assert (existing_profile / "simplefin.db").exists()
+
+    def test_occupied_database_destination_rejects_all_legacy_artifacts(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_plaintext_credentials,
+        account_manager,
+    ):
+        existing = account_manager.create_account("My SimpleFIN", "simplefin")
+        existing_profile = account_manager.get_profile_dir(existing.id)
+        destination_db = existing_profile / "simplefin.db"
+        destination_db.write_text("existing database")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert legacy_simplefin_db.read_text() == "fake simplefin database content"
+        assert (temp_config_dir / CREDENTIALS_FILE_JSON).exists()
+        assert destination_db.read_text() == "existing database"
+        assert not (existing_profile / CREDENTIALS_FILE_JSON).exists()
+
+    def test_multiple_simplefin_profiles_leave_ambiguous_db_unmoved(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+
+    def test_explicit_simplefin_profile_receives_legacy_db(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_plaintext_credentials,
+        account_manager,
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+
+        result = migrate_legacy_simplefin_db(
+            config_dir=temp_config_dir, target_profile_id="business"
+        )
+
+        assert result is True
+        assert not legacy_simplefin_db.exists()
+        assert (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+        assert (temp_config_dir / "profiles" / "business" / CREDENTIALS_FILE_JSON).exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "personal" / CREDENTIALS_FILE_JSON).exists()
+
+    def test_default_simplefin_profile_does_not_resolve_ambiguous_legacy_db(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        account_manager.create_account("Personal", "simplefin", account_id="personal")
+        account_manager.create_account("Business", "simplefin", account_id="business")
+        account_manager.set_backend_default("simplefin", "business")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is False
+        assert legacy_simplefin_db.exists()
+        assert not (temp_config_dir / "profiles" / "business" / "simplefin.db").exists()
+        assert not (temp_config_dir / "profiles" / "personal" / "simplefin.db").exists()
+
+    def test_migration_works_with_other_accounts_present(
+        self, temp_config_dir, legacy_simplefin_db, account_manager
+    ):
+        """Test that SimpleFIN migration works even if other accounts exist."""
+        account_manager.create_account("Monarch", "monarch")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is True
+
+        accounts = account_manager.list_accounts()
+        assert len(accounts) == 2
+
+        backend_types = {acc.backend_type for acc in accounts}
+        assert "monarch" in backend_types
+        assert "simplefin" in backend_types
+
+    def test_migration_with_existing_profiles_and_credentials_migrates_both(
+        self, temp_config_dir, legacy_simplefin_db, legacy_plaintext_credentials, account_manager
+    ):
+        """When another profile exists and both legacy SimpleFIN DB + credentials
+        are at the config root, migrate_legacy_simplefin_db creates a SimpleFIN
+        profile and moves the DB *and* the unmigrated credentials there.
+
+        This is the roborev scenario: migrate_legacy_credentials bailed out
+        because profiles already exist, but migrate_legacy_simplefin_db still
+        creates a profile — it must also move the credentials so the profile
+        is usable."""
+        account_manager.create_account("Monarch", "monarch")
+
+        result = migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert result is True
+
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert (profile_dir / "simplefin.db").exists()
+        assert (profile_dir / CREDENTIALS_FILE_JSON).exists()
+
+        creds_data = json.loads((profile_dir / CREDENTIALS_FILE_JSON).read_text())
+        assert creds_data["backend_type"] == "simplefin"
+
+    def test_encrypted_migration_rolls_back_when_salt_move_fails(
+        self, temp_config_dir, legacy_simplefin_db, legacy_credentials, monkeypatch
+    ):
+        original_move = migration_module.shutil.move
+        salt_move_failed = False
+
+        def fail_first_salt_move(source, destination):
+            nonlocal salt_move_failed
+            if Path(source).name == "salt" and not salt_move_failed:
+                salt_move_failed = True
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_first_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert not (profile_dir / "simplefin.db").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert not (profile_dir / "salt").exists()
+
+        assert migrate_legacy_simplefin_db(config_dir=temp_config_dir) is True
+        assert (profile_dir / "simplefin.db").exists()
+        assert (profile_dir / CREDENTIALS_FILE).exists()
+        assert (profile_dir / "salt").exists()
+
+    def test_encrypted_migration_requires_matching_source_salt(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
+    ):
+        previous = account_manager.create_account("Monarch", "monarch")
+        (temp_config_dir / "salt").unlink()
+
+        with pytest.raises(RuntimeError, match="missing their matching salt"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        assert not (profile_dir / "simplefin.db").exists()
+        assert not (profile_dir / CREDENTIALS_FILE).exists()
+        assert [account.id for account in account_manager.list_accounts()] == [previous.id]
+        assert account_manager.get_last_active_account().id == previous.id
+
+    def test_failed_move_preserves_unregistered_simplefin_profile_directory(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
+        monkeypatch,
+    ):
+        profile_dir = temp_config_dir / "profiles" / "simplefin"
+        profile_dir.mkdir(parents=True)
+        existing_data = profile_dir / "existing.db"
+        existing_data.write_text("existing data")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
+        assert (temp_config_dir / CREDENTIALS_FILE).exists()
+        assert (temp_config_dir / "salt").exists()
+        assert existing_data.read_text() == "existing data"
+        assert account_manager.list_accounts() == []
+
+    def test_failed_move_restores_previous_active_profile(
+        self,
+        temp_config_dir,
+        legacy_simplefin_db,
+        legacy_credentials,
+        account_manager,
+        monkeypatch,
+    ):
+        account_manager.create_account("First", "monarch", account_id="first")
+        previous = account_manager.create_account("Second", "ynab", account_id="second")
+        original_move = migration_module.shutil.move
+
+        def fail_salt_move(source, destination):
+            if Path(source).name == "salt":
+                raise OSError("simulated salt move failure")
+            return original_move(source, destination)
+
+        monkeypatch.setattr(migration_module.shutil, "move", fail_salt_move)
+
+        with pytest.raises(OSError, match="simulated salt move failure"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert account_manager.get_last_active_account().id == previous.id
+        assert {account.id for account in account_manager.list_accounts()} == {"first", "second"}
+
+    @pytest.mark.parametrize("existing_name", [CREDENTIALS_FILE, CREDENTIALS_FILE_JSON])
+    def test_migration_rejects_cross_format_destination_credentials(
+        self, temp_config_dir, legacy_simplefin_db, legacy_credentials, existing_name
+    ):
+        manager = AccountManager(config_dir=temp_config_dir)
+        account = manager.create_account("SimpleFIN", "simplefin")
+        profile_dir = manager.get_profile_dir(account.id)
+        (profile_dir / existing_name).write_text("existing")
+
+        with pytest.raises(RuntimeError, match="existing credential artifacts"):
+            migrate_legacy_simplefin_db(config_dir=temp_config_dir)
+
+        assert legacy_simplefin_db.exists()
 
 
 class TestMigrateGlobalCategoriesToProfiles:

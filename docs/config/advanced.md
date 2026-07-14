@@ -52,11 +52,25 @@ All moneyflow configuration is stored in `~/.moneyflow/`:
 ```text
 ~/.moneyflow/
 ├── config.yaml        # Application configuration (categories, settings, etc.) - optional
-├── credentials.enc    # Encrypted credentials
+├── credentials.enc    # Encrypted credentials (when encryption is enabled)
+├── credentials.json   # Plaintext credentials (when encryption is disabled)
 ├── salt               # Encryption salt
 ├── merchants.json     # Merchant name cache
-├── cache/             # Encrypted transaction cache
+├── cache/             # Encrypted transaction cache (Monarch/YNAB)
+├── profiles/          # Per-account profile directories
+│   └── <profile-id>/
+│       ├── credentials.enc    # Encrypted credentials for this account
+│       ├── credentials.json   # Plaintext credentials (when encryption is disabled)
+│       ├── salt               # Encryption salt
+│       ├── config.yaml        # Profile-specific configuration
+│       ├── merchants.json     # Per-profile merchant cache
+│       ├── simplefin.db       # SimpleFIN local SQLite database
+│       ├── last_update.json   # Last refresh timestamp
+│       └── cache/             # Per-profile transaction cache (Monarch/YNAB)
 └── moneyflow.log      # Application logs
 ```
 
-**Security note:** credentials.enc is encrypted with AES-128. Safe to backup but keep private.
+**Security note:** `credentials.enc` is encrypted with AES-128 but still contains
+sensitive material and should be kept private. `credentials.json` is plaintext —
+restrict file permissions (0600 is set automatically) and avoid backing it up to
+untrusted locations.

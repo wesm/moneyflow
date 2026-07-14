@@ -51,6 +51,8 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding("i", "show_info", "Show transaction info/details", "Actions"),
     KeyBinding("m", "edit_merchant", "Edit merchant name (or bulk rename)", "Actions"),
     KeyBinding("r", "edit_category", "Change category (or bulk change)", "Actions"),
+    KeyBinding("C", "manage_categories", "Manage categories (rename, merge, delete)", "Actions"),
+    KeyBinding("G", "manage_groups", "Manage category groups (create, rename, delete)", "Actions"),
     KeyBinding("h", "toggle_hide", "Toggle hide from reports", "Actions"),
     KeyBinding("d", "delete", "Delete transaction (with confirmation)", "Actions"),
     KeyBinding("space", "toggle_select", "Toggle selection (for bulk operations)", "Actions"),

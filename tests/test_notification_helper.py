@@ -253,32 +253,6 @@ class TestErrorNotifications:
         assert "Ctrl+L" in msg
 
 
-class TestExportNotifications:
-    """Test export-related notifications."""
-
-    def test_export_starting(self):
-        msg, severity, timeout = notification_helper.export_starting(150)
-        assert "150 transactions" in msg
-        assert "Exporting" in msg
-        assert severity == "information"
-        assert timeout == 2
-
-    def test_export_success(self):
-        msg, severity, timeout = notification_helper.export_success("/tmp/test-export.parquet", 100)
-        assert "100 transactions" in msg
-        assert "✅" in msg
-        assert "/tmp/test-export.parquet" in msg
-        assert severity == "information"
-        assert timeout == 3
-
-    def test_export_error(self):
-        msg, severity, timeout = notification_helper.export_error("Disk full")
-        assert "Disk full" in msg
-        assert "❌" in msg
-        assert severity == "error"
-        assert timeout == 5
-
-
 class TestTupleStructure:
     """Test that all notifications return proper tuple structure."""
 

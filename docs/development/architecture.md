@@ -20,6 +20,7 @@ TUI (Textual app)
         |-- YNAB API
         |-- Amazon Orders scraper
         |-- Demo data
+        |-- SimpleFIN API (read-only, SQLite-backed local store)
 ```
 
 ## Startup Data Flow
@@ -168,6 +169,46 @@ Supported backends:
 - **YNAB** (`moneyflow/backends/ynab.py`) — REST API client
 - **Amazon Orders** (`moneyflow/backends/amazon.py`) — Amazon order history scraper
 - **Demo** (`moneyflow/backends/demo.py`) — Built-in sample data for evaluation
+- **SimpleFIN** (`moneyflow/backends/simplefin.py`) — SimpleFIN API client with
+  local SQLite persistence for edits
+
+### Backend Design Divergences
+
+Not all backends follow the same storage and caching strategy. SimpleFIN in
+particular differs from Monarch/YNAB in several important ways:
+
+**Storage model**: SimpleFIN stores transaction data in a profile-local SQLite
+database (`~/.moneyflow/profiles/<profile-id>/simplefin.db`) rather than in the
+two-tier Parquet cache. The `CacheOrchestrator` is bypassed. On first access,
+the backend fetches data from the API and writes posted transactions to SQLite.
+Subsequent reads come from SQLite, not from Parquet files.
+
+**Read-only API, locally writable**: The SimpleFIN protocol is read-only
+(`read_only=True`), but edits are persisted in the local SQLite store
+(`can_write_transactions=True`). The commit pipeline writes to SQLite via
+`update_transaction()` and `delete_transaction()`. A one-time notification
+warns the user that edits are local-only.
+
+**Local category hierarchy**: The backend does not import categories or category
+groups (`supports_category_sync=False`). moneyflow supplies local categories,
+including the GROUP view and category/group management screens.
+
+**Auth mechanism**: SimpleFIN uses an HTTPS Access URL supplied as the `password`
+field. Setup also accepts one-time Base64 tokens issued by the allowlisted
+SimpleFIN Bridge claim hosts. The `email` and `mfa_secret_key` parameters are
+ignored.
+
+**Additive merge**: When refreshing data, SimpleFIN uses `INSERT OR IGNORE` —
+new transactions are added; existing ones are never overwritten. This preserves
+user edits but means that corrected transaction data from the institution (e.g.,
+an updated amount) is NOT reflected locally after import.
+
+**Merchant field**: SimpleFIN uses "Description" (mapped to `merchant_name` in
+the standard schema), matching the SimpleFIN protocol's taxonomy.
+
+**Request batching**: The client splits requested date ranges into 90-day
+windows and merges the responses. At the SQLite layer, UI scrolling is handled
+via `LIMIT`/`OFFSET`.
 
 ## File Format Reference
 

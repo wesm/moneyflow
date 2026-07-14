@@ -55,6 +55,19 @@ NO_PENDING_CHANGES: NotificationTuple = (
     NotificationSeverity.INFO,
     2,
 )
+
+
+def commit_read_only_warning(
+    severity: NotificationSeverity = NotificationSeverity.WARNING, timeout: int = 8
+) -> NotificationTuple:
+    """Warning shown first time committing on a locally-persisted backend."""
+    return (
+        "⚠ Changes saved to local database only. This backend's API is read-only — edits won't sync to the server.",
+        severity,
+        timeout,
+    )
+
+
 COMMIT_CANCELLED: NotificationTuple = ("Commit cancelled", NotificationSeverity.INFO, 2)
 
 # ==================== Session & Auth ====================

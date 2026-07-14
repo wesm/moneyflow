@@ -18,8 +18,9 @@ class YNABBackend(FinanceBackend):
     FinanceBackend interface for moneyflow.
     """
 
-    def __init__(self):
-        """Initialize the YNAB backend."""
+    def __init__(self, profile_dir: Optional[str] = None):
+        """Initialize the YNAB backend for an optional account profile."""
+        self.profile_dir = profile_dir
         self.client = YNABClient()
         self._currency_symbol: Optional[str] = None
 

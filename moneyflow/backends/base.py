@@ -7,6 +7,7 @@ to be compatible with moneyflow.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -273,6 +274,16 @@ class FinanceBackend(ABC):
         """
         return "$"  # Default to USD
 
+    def get_last_update_time(self) -> Optional[datetime]:
+        """Return the time of the last successful API refresh, or None.
+
+        Returns a timezone-naive datetime in the local timezone, matching
+        the convention of datetime.now(). Backends without an internal
+        refresh-timestamp store return None, and the TUI falls back to its
+        JSON-file mechanism.
+        """
+        return None
+
     def get_computed_columns(self) -> List[ComputedColumn]:
         """
         Get backend-specific computed columns for aggregated views.
@@ -334,10 +345,97 @@ class FinanceBackend(ABC):
         """
         pass  # Default: no-op
 
+    async def refresh(self) -> int:
+        """
+        Refresh data from the backend (additive).
+
+        Fetches new transactions since the last refresh and merges them into
+        local storage without overwriting existing data. Default no-op —
+        only backends with local caching (e.g. SimpleFIN) need to override this.
+
+        Returns:
+            Number of new transactions added (0 for default no-op)
+        """
+        return 0
+
+    async def hard_refresh(self, lookback_days: int = 1095) -> int:
+        """
+        Completely replace local data with fresh data from the backend.
+
+        Clears the local cache and re-fetches all transactions. All local edits
+        will be discarded. Default no-op — only backends with local caching
+        (e.g. SimpleFIN) need to override this.
+
+        Args:
+            lookback_days: Number of days of history to fetch (default: 3 years)
+
+        Returns:
+            Number of transactions loaded (0 for default no-op)
+        """
+        return 0
+
+    def is_refresh_stale(self, max_age_hours: int = 24) -> bool:
+        """
+        Check whether locally-cached data is stale and should be refreshed.
+
+        Only backends with an internal persistence layer (e.g. SimpleFIN with
+        its SQLite store) override this to check a persisted timestamp. The
+        default implementation returns False — backends without local storage
+        are never "stale" in this sense.
+
+        Args:
+            max_age_hours: Age threshold in hours. If the last successful API
+                          call was longer ago than this, data is considered
+                          stale.
+
+        Returns:
+            True if a refresh call to the backend API is recommended.
+        """
+        return False
+
+    def get_database_stats(self) -> Dict[str, Any]:
+        """
+        Return statistics about the backend's local data store.
+
+        Override this in backends with local persistence (e.g. SQLite-based
+        Amazon, SimpleFIN) to provide meaningful stats.
+
+        Canonical keys (all backends with local storage should provide these):
+          - total_transactions (int)
+          - total_amount (float)
+          - earliest_date (str | None)
+          - latest_date (str | None)
+
+        Backends MAY add backend-specific keys beyond this set.
+
+        Returns:
+            Empty dict by default (backends without local storage).
+        """
+        return {}
+
     @property
     def supports_category_sync(self) -> bool:
         """Whether this backend supports syncing categories."""
         return True
+
+    @property
+    def read_only(self) -> bool:
+        """Whether this backend is read-only (no write operations supported)."""
+        return False
+
+    @property
+    def can_write_transactions(self) -> bool:
+        """
+        Whether the backend can persist transaction edits.
+
+        This is separate from read_only: a backend can be read-only at the API
+        level (read_only=True) while still being able to persist edits locally
+        (can_write_transactions=True). The commit pipeline uses this to decide
+        whether to call update_transaction() on the backend.
+
+        Default implementation returns the inverse of read_only.
+        """
+        return not self.read_only
 
     @abstractmethod
     def get_backend_type(self) -> str:

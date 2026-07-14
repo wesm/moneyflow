@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+**New:**
+
+- **SimpleFIN support** - Import read-only account and transaction data from a
+  SimpleFIN server, with moneyflow edits stored in a profile-local SQLite database
+
+---
+
 ## v0.8.0 - December 2025
 
 **New:**

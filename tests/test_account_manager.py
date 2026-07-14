@@ -600,6 +600,62 @@ class TestGetLastActiveAccount:
         assert last_active.id == "monarch-first"
 
 
+class TestBackendDefaults:
+    """Tests for per-backend default profile selection."""
+
+    def test_backend_default_none(self, account_manager):
+        """No default set → returns None."""
+        assert account_manager.get_backend_default("simplefin") is None
+
+    def test_backend_default_set_and_get(self, account_manager):
+        """Set a default → returns it."""
+        account = account_manager.create_account("Test SimpleFIN", "simplefin")
+        account_manager.set_backend_default("simplefin", account.id)
+        assert account_manager.get_backend_default("simplefin") == account.id
+
+    def test_backend_default_clear(self, account_manager):
+        """Clear a default → returns None."""
+        account = account_manager.create_account("Test SimpleFIN", "simplefin")
+        account_manager.set_backend_default("simplefin", account.id)
+        account_manager.clear_backend_default("simplefin")
+        assert account_manager.get_backend_default("simplefin") is None
+
+    def test_backend_default_persists_across_reload(self, temp_config_dir):
+        """Default survives AccountManager re-creation."""
+        mgr1 = AccountManager(config_dir=temp_config_dir)
+        account = mgr1.create_account("Test SimpleFIN", "simplefin")
+        mgr1.set_backend_default("simplefin", account.id)
+
+        mgr2 = AccountManager(config_dir=temp_config_dir)
+        assert mgr2.get_backend_default("simplefin") == account.id
+
+    def test_backend_default_unknown_backend(self, account_manager):
+        """Unknown backend type → returns None."""
+        assert account_manager.get_backend_default("nonexistent") is None
+
+    def test_backend_default_isolation(self, account_manager):
+        """Defaults for different backends don't interfere."""
+        sf = account_manager.create_account("SF", "simplefin")
+        mn = account_manager.create_account("MN", "monarch")
+        account_manager.set_backend_default("simplefin", sf.id)
+        account_manager.set_backend_default("monarch", mn.id)
+        assert account_manager.get_backend_default("simplefin") == sf.id
+        assert account_manager.get_backend_default("monarch") == mn.id
+
+    def test_backend_default_clear_unknown(self, account_manager):
+        """Clearing a default that doesn't exist should not error."""
+        account_manager.clear_backend_default("simplefin")  # no-op
+
+    def test_registry_serialization_roundtrip(self, account_manager):
+        """backend_defaults survives to_dict/from_dict roundtrip."""
+        account = account_manager.create_account("Test", "simplefin")
+        account_manager.set_backend_default("simplefin", account.id)
+
+        data = account_manager._registry.to_dict()
+        restored = AccountRegistry.from_dict(data)
+        assert restored.backend_defaults == {"simplefin": account.id}
+
+
 class TestEndToEndScenarios:
     """End-to-end integration tests."""
 

@@ -94,6 +94,7 @@ class AccountNameInputScreen(ModalScreen):
         backend_labels = {
             "monarch": "Monarch Money",
             "ynab": "YNAB",
+            "simplefin": "SimpleFIN",
             "amazon": "Amazon Purchases",
         }
         backend_label = backend_labels.get(self.backend_type, self.backend_type.capitalize())

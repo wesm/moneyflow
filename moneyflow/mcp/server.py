@@ -45,16 +45,25 @@ MAX_LIMIT = 1000
 MAX_BATCH_SIZE = 100
 
 
-def _format_amount(amount: float) -> str:
+def _format_amount(amount: float, currency: Optional[str] = None) -> str:
     """Format amount as currency string."""
+    currency_code = str(currency or "USD").upper()
+    unit = "$" if currency_code == "USD" else f"{currency_code} "
     if amount < 0:
-        return f"-${abs(amount):,.2f}"
-    return f"${amount:,.2f}"
+        return f"-{unit}{abs(amount):,.2f}"
+    return f"{unit}{amount:,.2f}"
 
 
 def _clamp_limit(limit: int) -> int:
     """Clamp limit to MAX_LIMIT to prevent memory issues."""
     return max(1, min(limit, MAX_LIMIT))
+
+
+def _date_filter_value(df: pl.DataFrame, value: str) -> Any:
+    """Match an ISO date filter to the DataFrame's date representation."""
+    if df.schema.get("date") == pl.Date:
+        return date.fromisoformat(value)
+    return value
 
 
 def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
@@ -75,7 +84,7 @@ def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
             "merchant": row.get("merchant", ""),
             "category": row.get("category", ""),
             "amount": row.get("amount", 0),
-            "amount_formatted": _format_amount(row.get("amount", 0)),
+            "amount_formatted": _format_amount(row.get("amount", 0), row.get("currency")),
             "account": row.get("account", ""),
         }
         if row.get("notes"):
@@ -85,6 +94,36 @@ def _df_to_records(df: pl.DataFrame, limit: int = 100) -> List[Dict[str, Any]]:
         records.append(record)
 
     return records
+
+
+def _normalize_category_state(
+    data_manager: Any,
+    categories: Dict[str, Any],
+    category_groups: Dict[str, Any],
+) -> tuple[Dict[str, str], Dict[str, str]]:
+    """Return the category-name and category-to-group maps expected by MCP tools."""
+    data_manager.categories = categories
+    if not categories:
+        data_manager._populate_categories_from_config()
+
+    category_names: Dict[str, str] = {}
+    groups_by_category: Dict[str, str] = {}
+    for category_id, category in data_manager.categories.items():
+        if isinstance(category, dict):
+            category_names[category_id] = category.get("name", category_id)
+            group_name = category.get("group")
+            if group_name is None and category.get("group_id") in category_groups:
+                group = category_groups[category["group_id"]]
+                group_name = group.get("name") if isinstance(group, dict) else group
+            groups_by_category[category_id] = group_name or "Other"
+        else:
+            category_names[category_id] = str(category)
+            group = category_groups.get(category_id, "Other")
+            groups_by_category[category_id] = (
+                group.get("name", "Other") if isinstance(group, dict) else str(group)
+            )
+
+    return category_names, groups_by_category
 
 
 def create_mcp_server(
@@ -108,7 +147,8 @@ def create_mcp_server(
     from ..backends import get_backend
     from ..data.account_manager import AccountManager
     from ..data.credentials import CredentialManager
-    from ..data.data_manager import DataManager
+    from ..data.data_manager import DataManager, ensure_transaction_schema
+    from ..data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
 
     mcp = FastMCP("moneyflow")
 
@@ -118,6 +158,7 @@ def create_mcp_server(
         "transactions_df": None,
         "categories": None,
         "category_groups": None,
+        "backend": None,
         "initialized": False,
         "account_id": account_id,
         "config_dir": config_dir,
@@ -127,9 +168,22 @@ def create_mcp_server(
     async def _ensure_initialized():
         """Lazy initialization of the data manager and data."""
         if _state["initialized"]:
-            return
+            return False
 
         config_path = Path(_state["config_dir"]) if _state["config_dir"] else None
+        resolved_config_path = config_path or Path.home() / ".moneyflow"
+        migration_password = os.environ.get(ENV_PASSWORD)
+        legacy_encrypted = resolved_config_path / "credentials.enc"
+        legacy_simplefin_db = resolved_config_path / "simplefin.db"
+        if (
+            not legacy_encrypted.exists()
+            or migration_password is not None
+            or legacy_simplefin_db.exists()
+        ):
+            migrate_legacy_credentials(
+                config_dir=resolved_config_path,
+                encryption_password=migration_password,
+            )
         account_manager = AccountManager(config_dir=config_path)
 
         # Get account to use
@@ -140,7 +194,15 @@ def create_mcp_server(
         else:
             account = account_manager.get_last_active_account()
             if not account:
+                migrate_legacy_simplefin_db(config_dir=resolved_config_path)
+                account_manager.load_registry()
+                account = account_manager.get_last_active_account()
+            if not account:
                 raise ValueError("No accounts configured. Run 'moneyflow' to set up.")
+
+        if account.backend_type == "simplefin":
+            migration_kwargs = {"target_profile_id": account.id} if _state["account_id"] else {}
+            migrate_legacy_simplefin_db(config_dir=resolved_config_path, **migration_kwargs)
 
         profile_dir = account_manager.get_profile_dir(account.id)
         logger.info(f"Using account: {account.name} ({account.backend_type})")
@@ -173,8 +235,10 @@ def create_mcp_server(
             # Plaintext credentials - load directly
             creds, encryption_key = cred_manager.load_credentials()
 
-        # Create backend
-        backend = get_backend(account.backend_type)
+        # SimpleFIN's SQLite store is profile-local, so preserve the managed
+        # profile context when constructing that backend.
+        backend_kwargs = {"profile_dir": profile_dir} if account.backend_type == "simplefin" else {}
+        backend = get_backend(account.backend_type, **backend_kwargs)
 
         # Login to backend
         if account.backend_type == "monarch":
@@ -192,6 +256,11 @@ def create_mcp_server(
                 await backend.login(password=creds["password"], budget_id=account.budget_id)
             else:
                 await backend.login(password=creds["password"])
+        elif account.backend_type == "simplefin":
+            await backend.login(password=creds["password"])
+            await backend.refresh()
+
+        _state["backend"] = backend
 
         # Create data manager (caching handled separately if needed)
         config_dir_str = str(config_path) if config_path else str(Path.home() / ".moneyflow")
@@ -204,15 +273,21 @@ def create_mcp_server(
 
         # Fetch data (uses cache if available)
         df, categories, category_groups = await data_manager.fetch_all_data()
+        df = ensure_transaction_schema(df)
+
+        category_names, groups_by_category = _normalize_category_state(
+            data_manager, categories, category_groups
+        )
 
         _state["data_manager"] = data_manager
         _state["transactions_df"] = df
-        _state["categories"] = categories
-        _state["category_groups"] = category_groups
+        _state["categories"] = category_names
+        _state["category_groups"] = groups_by_category
         _state["initialized"] = True
         _state["account"] = account
 
         logger.info(f"Loaded {len(df)} transactions")
+        return True
 
     # ========== TOOLS ==========
 
@@ -272,9 +347,9 @@ def create_mcp_server(
 
         # Apply filters
         if start_date:
-            df = df.filter(pl.col("date") >= start_date)
+            df = df.filter(pl.col("date") >= _date_filter_value(df, start_date))
         if end_date:
-            df = df.filter(pl.col("date") <= end_date)
+            df = df.filter(pl.col("date") <= _date_filter_value(df, end_date))
         if category:
             df = df.filter(pl.col("category") == category)
         if merchant:
@@ -309,6 +384,16 @@ def create_mcp_server(
         await _ensure_initialized()
 
         df = _state["transactions_df"]
+        currency = df["currency"][0] if "currency" in df.columns and len(df) else None
+        account = _state["account"]
+        if currency is None and account.backend_type == "simplefin":
+            profile_currency = _state["backend"].get_currency_symbol()
+            if (
+                isinstance(profile_currency, str)
+                and len(profile_currency) == 3
+                and profile_currency.isalpha()
+            ):
+                currency = profile_currency.upper()
 
         # Default date range: last 30 days
         if not end_date:
@@ -317,7 +402,9 @@ def create_mcp_server(
             start_date = (date.today() - timedelta(days=30)).isoformat()
 
         # Filter by date
-        df = df.filter((pl.col("date") >= start_date) & (pl.col("date") <= end_date))
+        start_value = _date_filter_value(df, start_date)
+        end_value = _date_filter_value(df, end_date)
+        df = df.filter((pl.col("date") >= start_value) & (pl.col("date") <= end_value))
 
         # Filter to expenses only (negative amounts)
         expenses = df.filter(pl.col("amount") < 0)
@@ -333,7 +420,7 @@ def create_mcp_server(
         # Format results
         results = {
             "period": {"start": start_date, "end": end_date},
-            "total_spending": _format_amount(expenses["amount"].sum()),
+            "total_spending": _format_amount(expenses["amount"].sum(), currency),
             "transaction_count": len(expenses),
             "by_" + group_by: [],
         }
@@ -342,7 +429,7 @@ def create_mcp_server(
             results["by_" + group_by].append(
                 {
                     group_by: row[group_col],
-                    "total": _format_amount(row["total"]),
+                    "total": _format_amount(row["total"], currency),
                     "count": row["count"],
                 }
             )
@@ -392,8 +479,12 @@ def create_mcp_server(
         df = _state["transactions_df"]
         limit = _clamp_limit(limit)
 
+        group_columns = ["merchant"]
+        if "currency" in df.columns:
+            group_columns.append("currency")
+
         merchant_counts = (
-            df.group_by("merchant")
+            df.group_by(group_columns)
             .agg(
                 [
                     pl.col("id").count().alias("transaction_count"),
@@ -410,7 +501,7 @@ def create_mcp_server(
                 {
                     "merchant": row["merchant"],
                     "transaction_count": row["transaction_count"],
-                    "total_amount": _format_amount(row["total_amount"]),
+                    "total_amount": _format_amount(row["total_amount"], row.get("currency")),
                 }
             )
 
@@ -461,16 +552,27 @@ def create_mcp_server(
         Returns:
             JSON object with refresh status
         """
-        await _ensure_initialized()
+        initialized_now = await _ensure_initialized()
 
         dm = _state["data_manager"]
+        account = _state["account"]
 
-        # Fetch fresh data from API (DataManager doesn't use cache)
-        df, categories, category_groups = await dm.fetch_all_data()
+        if initialized_now:
+            df = _state["transactions_df"]
+        else:
+            if account.backend_type == "simplefin":
+                await _state["backend"].refresh()
 
-        _state["transactions_df"] = df
-        _state["categories"] = categories
-        _state["category_groups"] = category_groups
+            # Fetch fresh data from API (DataManager doesn't use cache)
+            df, categories, category_groups = await dm.fetch_all_data()
+            df = ensure_transaction_schema(df)
+
+            category_names, groups_by_category = _normalize_category_state(
+                dm, categories, category_groups
+            )
+            _state["transactions_df"] = df
+            _state["categories"] = category_names
+            _state["category_groups"] = groups_by_category
 
         return json.dumps(
             {
@@ -658,7 +760,7 @@ def create_mcp_server(
                     "would_update": {
                         "transaction_id": transaction_id,
                         "merchant": tx.get("merchant"),
-                        "amount": _format_amount(tx.get("amount", 0)),
+                        "amount": _format_amount(tx.get("amount", 0), tx.get("currency")),
                         "date": str(tx.get("date")),
                         "old_category": old_category,
                         "new_category": resolved_category_name,
@@ -669,10 +771,13 @@ def create_mcp_server(
 
         # Update via backend API
         try:
-            await dm.mm.update_transaction(
-                transaction_id=transaction_id,
-                category_id=resolved_category_id,
-            )
+            update_kwargs = {
+                "transaction_id": transaction_id,
+                "category_id": resolved_category_id,
+            }
+            if _state["account"].backend_type == "simplefin":
+                update_kwargs["category_name"] = resolved_category_name
+            await dm.mm.update_transaction(**update_kwargs)
 
             # Update local DataFrame
             _state["transactions_df"] = df.with_columns(
@@ -755,6 +860,7 @@ def create_mcp_server(
                 {"status": "error", "message": f"Category '{category_name}' not found"},
                 indent=2,
             )
+        resolved_category_name = categories[category_id]
 
         # Find all transactions and validate they exist
         found_transactions = []
@@ -769,7 +875,7 @@ def create_mcp_server(
                     {
                         "transaction_id": tx_id,
                         "merchant": tx.get("merchant"),
-                        "amount": _format_amount(tx.get("amount", 0)),
+                        "amount": _format_amount(tx.get("amount", 0), tx.get("currency")),
                         "date": str(tx.get("date")),
                         "old_category": tx.get("category"),
                     }
@@ -783,7 +889,7 @@ def create_mcp_server(
                     "message": "No changes made (dry run)",
                     "would_update": len(found_transactions),
                     "not_found": len(not_found),
-                    "new_category": category_name,
+                    "new_category": resolved_category_name,
                     "transactions": found_transactions,
                     "not_found_ids": not_found if not_found else None,
                 },
@@ -801,10 +907,13 @@ def create_mcp_server(
                 continue
 
             try:
-                await dm.mm.update_transaction(
-                    transaction_id=tx_id,
-                    category_id=category_id,
-                )
+                update_kwargs = {
+                    "transaction_id": tx_id,
+                    "category_id": category_id,
+                }
+                if _state["account"].backend_type == "simplefin":
+                    update_kwargs["category_name"] = resolved_category_name
+                await dm.mm.update_transaction(**update_kwargs)
                 success_count += 1
             except Exception as e:
                 failure_count += 1
@@ -819,7 +928,7 @@ def create_mcp_server(
             ]
             _state["transactions_df"] = df.with_columns(
                 pl.when(pl.col("id").is_in(successful_ids))
-                .then(pl.lit(category_name))
+                .then(pl.lit(resolved_category_name))
                 .otherwise(pl.col("category"))
                 .alias("category")
             )
@@ -829,7 +938,7 @@ def create_mcp_server(
                 "status": "success" if failure_count == 0 else "partial",
                 "success_count": success_count,
                 "failure_count": failure_count,
-                "new_category": category_name,
+                "new_category": resolved_category_name,
                 "errors": errors if errors else None,
             },
             indent=2,
@@ -986,7 +1095,7 @@ def create_mcp_server(
                 "merchant": tx.get("merchant"),
                 "category": tx.get("category"),
                 "amount": tx.get("amount"),
-                "amount_formatted": _format_amount(tx.get("amount", 0)),
+                "amount_formatted": _format_amount(tx.get("amount", 0), tx.get("currency")),
                 "account": tx.get("account"),
                 "notes": tx.get("notes"),
                 "is_hidden": tx.get("is_hidden", False),

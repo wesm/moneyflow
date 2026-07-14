@@ -11,11 +11,13 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import polars as pl
 import pytest
 
+from moneyflow.data.account_manager import AccountManager
+from moneyflow.data.credentials import CredentialManager
 from moneyflow.mcp.server import (
     ENV_PASSWORD,
     MAX_BATCH_SIZE,
@@ -43,7 +45,7 @@ def mock_account():
 
 
 @pytest.fixture
-def mcp_server_factory(mock_account):
+def mcp_server_factory(mock_account, tmp_path):
     """Fixture that yields a factory to create an MCP server with mocked dependencies."""
 
     def _factory(transactions, categories):
@@ -84,7 +86,7 @@ def mcp_server_factory(mock_account):
 
             mock_dm_cls.return_value = mock_dm
 
-            return create_mcp_server()
+            return create_mcp_server(config_dir=str(tmp_path))
 
     return _factory
 
@@ -225,6 +227,9 @@ class TestToolOutputFormat:
         """Large amounts should include comma separators."""
         assert _format_amount(1234567.89) == "$1,234,567.89"
 
+    def test_format_amount_uses_non_usd_iso_code(self):
+        assert _format_amount(-50, "EUR") == "-EUR 50.00"
+
 
 # ============================================================================
 # Test: Security - Read-Only Mode
@@ -264,6 +269,238 @@ class TestEncryptedCredentials:
 
         assert "MONEYFLOW_PASSWORD" in content
         assert "Environment Variables:" in content
+
+
+class TestSimplefinInitialization:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("account_id", [None, "simplefin-profile"])
+    async def test_only_explicit_profile_becomes_migration_target(self, tmp_path, account_id):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(return_value=(pl.DataFrame(), {}, {}))
+
+        with (
+            patch("moneyflow.data.migration.migrate_legacy_credentials"),
+            patch("moneyflow.data.migration.migrate_legacy_simplefin_db") as migrate_db,
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server(account_id=account_id, config_dir=str(tmp_path))
+            await mcp.call_tool("search_transactions", {"query": ""})
+
+        expected_target = {"target_profile_id": "simplefin-profile"} if account_id else {}
+        migrate_db.assert_called_once_with(config_dir=tmp_path, **expected_target)
+
+    @pytest.mark.asyncio
+    async def test_migrates_encrypted_legacy_simplefin_credentials_with_env_password(
+        self, tmp_path, monkeypatch
+    ):
+        credentials = CredentialManager(config_dir=tmp_path)
+        credentials.save_credentials(
+            email="",
+            password="https://example:secret@bridge.simplefin.org/simplefin",
+            mfa_secret="",
+            encryption_password="example-password",
+            backend_type="simplefin",
+        )
+        monkeypatch.setenv(ENV_PASSWORD, "example-password")
+
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(return_value=(pl.DataFrame(), {}, {}))
+
+        with (
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            mcp = create_mcp_server(config_dir=str(tmp_path))
+            await mcp.call_tool("search_transactions", {"query": ""})
+
+        accounts = AccountManager(config_dir=tmp_path).list_accounts()
+        assert len(accounts) == 1
+        assert accounts[0].backend_type == "simplefin"
+        assert (tmp_path / "profiles" / accounts[0].id / "credentials.enc").exists()
+        backend.login.assert_awaited_once_with(
+            password="https://example:secret@bridge.simplefin.org/simplefin"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("initialize_before_refresh", [True, False])
+    async def test_initializes_profile_backend_and_refreshes_before_loading(
+        self, tmp_path, initialize_before_refresh
+    ):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        backend.get_currency_symbol = MagicMock(return_value="EUR")
+        data_manager = MagicMock()
+        data_manager.fetch_all_data = AsyncMock(
+            return_value=(sample_transactions := pl.DataFrame(), {}, {})
+        )
+
+        with (
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend) as get_backend,
+            patch(
+                "moneyflow.data.data_manager.DataManager", return_value=data_manager
+            ) as data_manager_cls,
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server(config_dir=str(tmp_path))
+            if initialize_before_refresh:
+                await mcp.call_tool("search_transactions", {"query": ""})
+            await mcp.call_tool("refresh_data", {})
+            summary_result = await mcp.call_tool("get_spending_summary", {})
+
+        get_backend.assert_called_once_with("simplefin", profile_dir=profile_dir)
+        backend.login.assert_awaited_once_with(
+            password="https://user:pass@bridge.simplefin.org/simplefin"
+        )
+        expected_calls = 2 if initialize_before_refresh else 1
+        assert backend.refresh.await_count == expected_calls
+        data_manager_cls.assert_called_once()
+        assert data_manager_cls.call_args.kwargs["profile_dir"] == profile_dir
+        assert data_manager_cls.call_args.kwargs["backend_type"] == "simplefin"
+        assert data_manager.fetch_all_data.await_count == expected_calls
+        assert sample_transactions.is_empty()
+        summary_content, _ = summary_result
+        summary = json.loads(summary_content[0].text)
+        assert summary["transaction_count"] == 0
+        assert summary["total_spending"] == "EUR 0.00"
+
+    @pytest.mark.asyncio
+    async def test_loads_local_categories_and_persists_category_name(self, tmp_path):
+        profile_dir = tmp_path / "profiles" / "simplefin-profile"
+        profile_dir.mkdir(parents=True)
+        account = SimpleNamespace(
+            id="simplefin-profile",
+            name="SimpleFIN Profile",
+            backend_type="simplefin",
+            budget_id=None,
+        )
+        transactions = pl.DataFrame(
+            {
+                "id": ["transaction-1"],
+                "date": [date(2026, 1, 1)],
+                "merchant": ["Example Merchant"],
+                "category": ["Uncategorized"],
+                "category_id": ["uncategorized"],
+                "amount": [-10.0],
+                "account": ["Example Account"],
+                "notes": [None],
+                "is_hidden": [False],
+            }
+        )
+        backend = AsyncMock()
+        backend.supports_category_sync = False
+        data_manager = MagicMock()
+        data_manager.mm = backend
+        data_manager.category_groups_config = {"Food": ["Groceries"]}
+        data_manager.categories = {}
+        data_manager.fetch_all_data = AsyncMock(return_value=(transactions, {}, {}))
+
+        def populate_categories():
+            data_manager.categories = {
+                "groceries": {
+                    "name": "Groceries",
+                    "group": "Food",
+                    "group_id": "food",
+                    "group_type": "",
+                }
+            }
+
+        data_manager._populate_categories_from_config.side_effect = populate_categories
+
+        with (
+            patch("moneyflow.data.account_manager.AccountManager") as account_manager_cls,
+            patch("moneyflow.data.credentials.CredentialManager") as credential_manager_cls,
+            patch("moneyflow.backends.get_backend", return_value=backend),
+            patch("moneyflow.data.data_manager.DataManager", return_value=data_manager),
+        ):
+            account_manager = account_manager_cls.return_value
+            account_manager.get_last_active_account.return_value = account
+            account_manager.get_profile_dir.return_value = profile_dir
+            credential_manager = credential_manager_cls.return_value
+            credential_manager.credentials_exist.return_value = True
+            credential_manager.is_encrypted.return_value = False
+            credential_manager.load_credentials.return_value = (
+                {"password": "https://user:pass@bridge.simplefin.org/simplefin"},
+                None,
+            )
+
+            mcp = create_mcp_server(config_dir=str(tmp_path))
+            categories_result = await mcp.call_tool("get_categories", {})
+            update_result = await mcp.call_tool(
+                "update_transaction_category",
+                {"transaction_id": "transaction-1", "category_id": "groceries"},
+            )
+            batch_result = await mcp.call_tool(
+                "batch_update_category",
+                {"transaction_ids": ["transaction-1"], "category_name": "gRoCeRiEs"},
+            )
+
+        categories_content, _ = categories_result
+        assert json.loads(categories_content[0].text) == {"Food": ["Groceries"]}
+        update_content, _ = update_result
+        assert json.loads(update_content[0].text)["status"] == "success"
+        batch_content, _ = batch_result
+        batch_response = json.loads(batch_content[0].text)
+        assert batch_response["status"] == "success"
+        assert batch_response["new_category"] == "Groceries"
+        assert backend.update_transaction.await_args_list == [
+            call(
+                transaction_id="transaction-1",
+                category_id="groceries",
+                category_name="Groceries",
+            ),
+            call(
+                transaction_id="transaction-1",
+                category_id="groceries",
+                category_name="Groceries",
+            ),
+        ]
 
 
 # ============================================================================
@@ -403,6 +640,11 @@ class TestDataFrameConversion:
         required_fields = ["id", "date", "merchant", "category", "amount", "account"]
         for field in required_fields:
             assert field in record
+
+    def test_records_format_each_rows_currency(self, sample_transactions):
+        transactions = sample_transactions.with_columns(pl.lit("GBP").alias("currency"))
+        record = _df_to_records(transactions, limit=1)[0]
+        assert record["amount_formatted"] == "-GBP 50.00"
 
 
 # ============================================================================
@@ -574,6 +816,70 @@ class TestSpendingSummary:
         assert len(response["by_category"]) > 0
         categories = [item["category"] for item in response["by_category"]]
         assert "Income" not in categories
+
+    @pytest.mark.asyncio
+    async def test_uses_profile_currency(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.with_columns(pl.lit("EUR").alias("currency"))
+        mcp = mcp_server_factory(transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["total_spending"].startswith("-EUR ")
+        assert all(item["total"].startswith("-EUR ") for item in response["by_category"])
+
+    @pytest.mark.asyncio
+    async def test_uses_profile_currency_when_period_has_no_expenses(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.filter(pl.col("amount") > 0).with_columns(
+            pl.lit("EUR").alias("currency")
+        )
+        mcp = mcp_server_factory(transactions, sample_categories)
+        result = await mcp.call_tool("get_spending_summary", {"group_by": "category"})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+        assert response["total_spending"] == "EUR 0.00"
+
+
+# ============================================================================
+# Test: Merchant Summary
+# ============================================================================
+
+
+class TestMerchantSummary:
+    """Tests for merchant aggregate formatting."""
+
+    @pytest.mark.asyncio
+    async def test_preserves_non_usd_currency(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.with_columns(pl.lit("EUR").alias("currency"))
+        mcp = mcp_server_factory(transactions, sample_categories)
+
+        result = await mcp.call_tool("get_merchants", {})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+
+        amazon = next(row for row in response if row["merchant"] == "Amazon")
+        assert amazon["total_amount"] == "-EUR 175.00"
+
+    @pytest.mark.asyncio
+    async def test_keeps_mixed_currency_totals_separate(
+        self, mcp_server_factory, sample_transactions, sample_categories
+    ):
+        transactions = sample_transactions.head(2).with_columns(
+            pl.Series("merchant", ["Example Merchant", "Example Merchant"]),
+            pl.Series("currency", ["EUR", "GBP"]),
+        )
+        mcp = mcp_server_factory(transactions, sample_categories)
+
+        result = await mcp.call_tool("get_merchants", {})
+        content_list, _ = result
+        response = json.loads(content_list[0].text)
+
+        assert {row["total_amount"] for row in response} == {"-EUR 50.00", "-GBP 5.50"}
 
 
 # ============================================================================

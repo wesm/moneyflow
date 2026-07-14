@@ -21,8 +21,11 @@ the UI layer thin and focused on rendering and user interaction.
 
 import argparse
 import asyncio
+import json
+import re
 import sys
 import traceback
+from copy import deepcopy
 from datetime import date as date_type
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +42,12 @@ from ..backends import DemoBackend, get_backend
 from ..data.account_manager import AccountManager
 from ..data.cache_manager import CacheManager, RefreshStrategy
 from ..data.cache_orchestrator import CacheOrchestrator
-from ..data.data_manager import DataManager
+from ..data.categories import (
+    build_category_to_group_mapping,
+    categories_dict_to_config_groups,
+    save_categories_to_profile,
+)
+from ..data.data_manager import DataManager, DeferredCategoryChange
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
@@ -62,7 +70,14 @@ from .screens.credential_screens import (
     QuitConfirmationScreen,
 )
 from .screens.duplicates_screen import DuplicatesScreen
-from .screens.edit_screens import DeleteConfirmationScreen, EditMerchantScreen, SelectCategoryScreen
+from .screens.edit_screens import (
+    DeleteConfirmationScreen,
+    EditMerchantScreen,
+    GroupSelectScreen,
+    ManageCategoriesScreen,
+    ManageGroupsScreen,
+    SelectCategoryScreen,
+)
 from .screens.export_screen import ExportScreen
 from .screens.review_screen import ReviewChangesScreen
 from .screens.search_screen import SearchScreen
@@ -142,6 +157,8 @@ class MoneyflowApp(App):
         # Editing
         Binding("m", "edit_merchant", "Edit Merchant", show=False),
         Binding("c", "edit_category", "Edit Category", show=False),
+        Binding("C", "manage_categories", "Manage Categories", show=False),
+        Binding("G", "manage_groups", "Manage Groups", show=False),
         Binding("h", "toggle_hide_from_reports", "Hide/Unhide", show=False),
         Binding("x", "delete_transaction", "Delete", show=False),
         Binding("i", "show_transaction_details", "Info", show=False),
@@ -247,6 +264,8 @@ class MoneyflowApp(App):
 
         self.data_manager: Optional[DataManager] = None
         self.state = AppState()
+        self._last_update_time: Optional[datetime] = None
+        self._simplefin_refresh_generation = 0
 
         # Store profile_dir and backend_type for pre-configured backends (e.g., Amazon via CLI)
         self._preconfigured_profile_dir = profile_dir
@@ -264,8 +283,48 @@ class MoneyflowApp(App):
         self.display_start_date = None  # Display filter (--mtd/--since) separate from cache
         self.config_dir = config_dir  # Custom config directory (None = default ~/.moneyflow)
         self.encryption_key: Optional[bytes] = None  # Encryption key for cache (set after login)
+        self._read_only_warning_shown = False  # One-time warning per session for read-only backends
         # Controller will be initialized after data_manager is ready
         self.controller: Optional[AppController] = None
+
+    def _refresh_subtitle(self) -> None:
+        backend_name = self.backend.get_backend_type().capitalize() if self.backend else ""
+        time_str = ""
+        if self._last_update_time:
+            time_str = self._last_update_time.strftime("%I:%M %p").lstrip("0")
+        parts = [p for p in [backend_name, time_str and f"Last update: {time_str}"] if p]
+        self.sub_title = " | ".join(parts) if parts else ""
+
+    def _get_last_update_path(self) -> Path:
+        if self.data_manager and self.data_manager.profile_dir:
+            return Path(self.data_manager.profile_dir) / "last_update.json"
+        config_dir = Path(self.config_dir) if self.config_dir else Path.home() / ".moneyflow"
+        return config_dir / "last_update.json"
+
+    def _load_last_update_time(self) -> None:
+        # Prefer the backend's own refresh timestamp (SimpleFIN SQLite)
+        if self.backend:
+            backend_ts = self.backend.get_last_update_time()
+            if backend_ts is not None:
+                self._last_update_time = backend_ts
+                return
+        # Fall back to JSON file mechanism (Monarch and others)
+        path = self._get_last_update_path()
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                iso = data.get("iso")
+                if iso:
+                    self._last_update_time = datetime.fromisoformat(iso)
+            except Exception:
+                pass
+
+    def _save_last_update_time(self) -> None:
+        if self._last_update_time is None:
+            return
+        path = self._get_last_update_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"iso": self._last_update_time.isoformat()}))
 
     def compose(self) -> ComposeResult:
         """Compose the main UI."""
@@ -358,6 +417,10 @@ class MoneyflowApp(App):
             backend_type=backend_type,
         )
 
+        # Skip CacheManager for backends with their own local persistence layer.
+        if backend_type == "simplefin":
+            self.cache_path = None
+
         # Initialize cache manager for backends that support caching
         # cache_path is None for backends like Amazon that don't need caching
         # encryption_key can be None for plaintext credentials (CacheManager supports both modes)
@@ -432,8 +495,13 @@ class MoneyflowApp(App):
 
     def _store_data(self, df, categories, category_groups):
         """Store data in data manager and state."""
+        pending_groups = getattr(self.data_manager, "pending_category_groups", None)
+        if pending_groups is not None:
+            self.data_manager.category_groups_config = deepcopy(pending_groups)
+            self.data_manager.category_to_group = build_category_to_group_mapping(pending_groups)
         self.data_manager.df = df
         self.data_manager.categories = categories
+        self.data_manager._populate_categories_from_config()
         self.data_manager.category_groups = category_groups
         self.state.transactions_df = df
 
@@ -444,6 +512,82 @@ class MoneyflowApp(App):
 
         # Show initial view (merchants)
         self.refresh_view()
+
+    def _schedule_simplefin_background_refresh(self) -> None:
+        """If SimpleFIN data is stale, schedule a background API refresh."""
+        if self.backend is None:
+            return
+        if self.backend.get_backend_type() != "simplefin":
+            return
+        if not self.backend.is_refresh_stale():
+            logger.debug("SimpleFIN data is fresh — no background refresh")
+            return
+
+        logger.info("SimpleFIN data is stale — scheduling background refresh")
+        self.run_worker(self._simplefin_background_refresh(), exclusive=False)
+
+    async def _simplefin_background_refresh(self) -> None:
+        """
+        Background worker: refresh SimpleFIN data from API, then re-load
+        from SQLite and update the UI. Runs as an async task on the main
+        event loop (not a thread) to avoid thread-safety issues.
+        """
+        if getattr(self.data_manager, "pending_edits", []):
+            self.notify(
+                "SimpleFIN: Refresh postponed until pending edits are committed or undone",
+                timeout=4,
+            )
+            return
+
+        self.controller.set_edits_enabled(False)
+        refresh_completed = False
+        reload_completed = False
+        try:
+            self.notify("SimpleFIN: Checking for new transactions...", timeout=10)
+
+            added = await self.backend.refresh()
+            refresh_completed = True
+            self._simplefin_refresh_generation += 1
+
+            # Refresh can migrate legacy SQLite IDs without adding rows. Always reload
+            # after success so in-memory edits target the canonical persisted IDs.
+            df, categories, category_groups = await self.data_manager.fetch_all_data()
+            if self.display_start_date:
+                df = self._filter_df_by_start_date(df, self.display_start_date)
+            self.state.clear_selection()
+            self._store_data(df, categories, category_groups)
+            reload_completed = True
+            self._last_update_time = self.backend.get_last_update_time() or datetime.now()
+            self._save_last_update_time()
+            self._refresh_subtitle()
+
+            saved = self._save_table_position()
+            self.controller.refresh_view(force_rebuild=False)
+            self._restore_table_position(saved)
+
+            if added > 0:
+                self.notify(
+                    f"SimpleFIN: Added {added} new transaction{'s' if added != 1 else ''}",
+                    severity="information",
+                    timeout=4,
+                )
+            else:
+                self.notify("SimpleFIN: No new transactions found", timeout=3)
+
+        except Exception as e:
+            logger.warning(f"SimpleFIN background refresh failed: {e}")
+            self.notify(f"SimpleFIN: Refresh failed — {e}", severity="error", timeout=5)
+        finally:
+            if not refresh_completed or reload_completed:
+                self.controller.set_edits_enabled(True)
+
+    def can_edit_transaction_snapshot(self, refresh_generation: int) -> bool:
+        """Return whether a screen's transaction snapshot is current and editable."""
+        return (
+            self.controller is not None
+            and getattr(self.controller, "edits_enabled", True)
+            and refresh_generation == self._simplefin_refresh_generation
+        )
 
     async def _check_and_load_cache(self, loading_status):
         """Check cache status and determine refresh strategy.
@@ -582,6 +726,24 @@ class MoneyflowApp(App):
                     creds = await self.account_flow.handle_credentials()
                     if creds is None:
                         return  # User exited
+            elif self._preconfigured_backend_type == "simplefin":
+                # SimpleFIN CLI mode — skip account selector and backend picker
+                if self._preconfigured_profile_dir:
+                    # Existing account — use profile-aware credential unlock
+                    creds = await self.account_flow.handle_profile_credentials(
+                        profile_dir=self._preconfigured_profile_dir,
+                    )
+                    if creds is None:
+                        return  # User exited unlock screen
+                    account_id = None
+                    profile_dir = self._preconfigured_profile_dir
+                else:
+                    # New account — go straight to SimpleFIN credential setup
+                    result = await self.account_flow.handle_new_simplefin_setup()
+                    if result is None:
+                        self.exit()
+                        return
+                    account_id, profile_dir, creds = result
             else:
                 # Normal multi-account flow
                 account_id, profile_dir, creds = await self.account_flow.handle_account_selection()
@@ -620,10 +782,11 @@ class MoneyflowApp(App):
                 backend_type = creds.get("backend_type", "monarch")
                 loading_status.update(f"🔄 Initializing {backend_type} backend...")
 
-                # Pass profile_dir for Monarch backend to store session in profile
+                # Pass profile_dir for backends that support profile-local storage
                 backend_kwargs = {}
-                if backend_type == "monarch" and self._preconfigured_profile_dir:
-                    backend_kwargs["profile_dir"] = str(self._preconfigured_profile_dir)
+                resolved_profile_dir = self._preconfigured_profile_dir or profile_dir
+                if resolved_profile_dir:
+                    backend_kwargs["profile_dir"] = str(resolved_profile_dir)
 
                 self.backend = get_backend(backend_type, **backend_kwargs)
                 self.backend_config = get_backend_config(backend_type)
@@ -670,10 +833,19 @@ class MoneyflowApp(App):
                 profile_dir=determined_profile_dir, backend_type=determined_backend_type
             )
 
+            # Load persisted last-update timestamp from previous session
+            self._load_last_update_time()
+
             # Step 4: Determine display filter (separate from cache)
             self.display_start_date, self.cache_year_filter, self.cache_since_filter = (
                 self._determine_date_range()
             )
+
+            # Step 4a: Handle SimpleFIN refresh before cache/API fetch
+            if determined_backend_type == "simplefin" and self.backend:
+                if self.force_refresh:
+                    loading_status.update("🔄 SimpleFIN refresh: fetching new data from API...")
+                    await self.backend.refresh()
 
             # Step 5: Check cache and determine refresh strategy
             cached_data, strategy = await self._check_and_load_cache(loading_status)
@@ -733,12 +905,22 @@ class MoneyflowApp(App):
                         f"📦 Filtered: {len(df):,} of {original_count:,} transactions"
                     )
 
+            # Track last API update time
+            if strategy != RefreshStrategy.NONE:
+                backend_ts = self.backend.get_last_update_time() if self.backend else None
+                self._last_update_time = backend_ts or datetime.now()
+                self._save_last_update_time()
+            self._refresh_subtitle()
+
             # Step 7: Store data
             self._store_data(df, categories, category_groups)
 
             # Step 8: Initialize view
             loading_status.update(f"✅ Ready! Showing {len(df):,} transactions")
             self._initialize_view()
+
+            # Step 9: Schedule background refresh for SimpleFIN if stale
+            self._schedule_simplefin_background_refresh()
 
         except Exception as e:
             await self._handle_init_error(e, loading_status)
@@ -902,79 +1084,6 @@ class MoneyflowApp(App):
         self.controller.switch_to_detail_view(set_default_sort=True)
         self._notify(notification_helper.ALL_TRANSACTIONS_VIEW)
 
-    def action_export_data(self) -> None:
-        """Show export format and scope selection modal."""
-        if self.data_manager is None or self.data_manager.df is None:
-            self.notify("No data to export", timeout=2)
-            return
-        if self.data_manager.df.is_empty():
-            self.notify("No data to export", timeout=2)
-            return
-        self.run_worker(self._show_export_screen(), exclusive=False)
-
-    async def _show_export_screen(self) -> None:
-        """Push the export screen and handle its result."""
-        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
-        if result is None:
-            return
-        export_format, export_scope = result
-
-        if export_scope == ExportScope.SNAPSHOT:
-            df = self.state.get_filtered_df()
-        else:
-            df = self.data_manager.df
-
-        if df is None or df.is_empty():
-            self.notify("No data to export", timeout=2)
-            return
-
-        df = self.data_manager.apply_category_groups(df)
-
-        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
-
-        category_groups = (
-            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
-            if self.data_manager.category_groups
-            else []
-        )
-
-        metadata = ExportMetadata(
-            app_version=get_version(),
-            export_timestamp=datetime.now().isoformat(),
-            transaction_count=len(df),
-            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
-            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
-            backend_type=self.data_manager.backend_type or "unknown",
-            category_groups=category_groups,
-        )
-
-        path = build_export_path(config_dir, export_format, export_scope)
-
-        self._notify(notification_helper.export_starting(len(df)))
-        await self._export_data_async(
-            df=df, path=path, export_format=export_format, metadata=metadata
-        )
-
-    async def _export_data_async(
-        self,
-        df: pl.DataFrame,
-        path: Path,
-        export_format: ExportFormat,
-        metadata: ExportMetadata,
-    ) -> None:
-        """Export data using the exporter module in a background thread."""
-        try:
-            await asyncio.to_thread(
-                export_dataframe,
-                df,
-                path=path,
-                metadata=metadata,
-                fmt=export_format,
-            )
-            self._notify(notification_helper.export_success(str(path), len(df)))
-        except Exception as e:
-            self._notify(notification_helper.export_error(str(e)))
-
     def action_find_duplicates(self) -> None:
         """Find and display duplicate transactions."""
         if self.data_manager is None or self.data_manager.df is None:
@@ -1003,19 +1112,32 @@ class MoneyflowApp(App):
 
     def action_undo_pending_edits(self) -> None:
         """Undo the most recent pending edit or bulk edit batch."""
-        if self.data_manager is None or not self.data_manager.pending_edits:
+        if self.data_manager is None or (
+            not self.data_manager.pending_edits and not self.data_manager.pending_category_changes
+        ):
             self.notify("No pending edits to undo", timeout=2)
             return
 
         # Save cursor and scroll position
         saved_position = self._save_table_position()
 
-        # Get the timestamp of the most recent edit for notification
-        last_edit = self.data_manager.pending_edits[-1]
-        field_name = last_edit.field.replace("_", " ").title()
-
-        # Undo the last batch of edits
-        edits_to_undo = self.data_manager.undo_last_batch()
+        latest_change = (
+            self.data_manager.pending_category_changes[-1]
+            if self.data_manager.pending_category_changes
+            else None
+        )
+        latest_edit = (
+            self.data_manager.pending_edits[-1] if self.data_manager.pending_edits else None
+        )
+        undo_category_change = latest_change is not None and (
+            latest_edit is None or latest_change.operation_timestamp >= latest_edit.timestamp
+        )
+        if undo_category_change:
+            field_name = "Category"
+            edits_to_undo = self._undo_deferred_category_change()
+        else:
+            field_name = latest_edit.field.replace("_", " ").title()
+            edits_to_undo = self.data_manager.undo_last_batch()
 
         # Refresh view to update indicators
         self.refresh_view(force_rebuild=False)
@@ -1039,6 +1161,162 @@ class MoneyflowApp(App):
                 severity="information",
                 timeout=2,
             )
+
+    def _clear_deferred_category_groups(self) -> None:
+        """Clear category configuration waiting on transaction edits."""
+        if self.data_manager is None:
+            return
+        self.data_manager.pending_category_groups = None
+        self.data_manager.pending_category_changes.clear()
+
+    def _undo_deferred_category_change(self) -> list[tuple[str, str, datetime]]:
+        """Undo the newest structural category operation without touching newer edits."""
+        if self.data_manager is None or not self.data_manager.pending_category_changes:
+            return []
+        change = self.data_manager.pending_category_changes[-1]
+
+        def edit_key(edit) -> tuple[str, str, datetime]:
+            return edit.transaction_id, edit.field, edit.timestamp
+
+        before_by_key = {edit_key(edit): edit for edit in change.before_edits}
+        after_by_key = {edit_key(edit): edit for edit in change.after_edits}
+        affected_keys = {
+            key
+            for key in before_by_key.keys() | after_by_key.keys()
+            if before_by_key.get(key) != after_by_key.get(key)
+        }
+        current_by_key = {edit_key(edit): edit for edit in self.data_manager.pending_edits}
+        restored_edits = []
+        restored_keys = set()
+        for before_edit in change.before_edits:
+            key = edit_key(before_edit)
+            if key in affected_keys:
+                restored_edits.append(deepcopy(before_edit))
+            elif key in current_by_key:
+                restored_edits.append(current_by_key[key])
+            restored_keys.add(key)
+        for current_edit in self.data_manager.pending_edits:
+            key = edit_key(current_edit)
+            if key not in restored_keys and key not in affected_keys:
+                restored_edits.append(current_edit)
+
+        self.data_manager.pending_category_changes.pop()
+        self.data_manager.pending_edits = restored_edits
+        self.data_manager.pending_category_groups = (
+            change.before_groups if self.data_manager.pending_category_changes else None
+        )
+        self.data_manager.category_groups_config = change.before_groups
+        self.data_manager.category_to_group = build_category_to_group_mapping(change.before_groups)
+        self.data_manager.categories = {}
+        self.data_manager._populate_categories_from_config()
+        return list(affected_keys)
+
+    @staticmethod
+    def _apply_independent_category_changes(
+        previous_groups: dict[str, list[str]],
+        groups_before: dict[str, list[str]],
+        groups_after: dict[str, list[str]],
+        propagate_group_moves: bool,
+    ) -> dict[str, list[str]]:
+        """Apply independent group moves while retaining structurally deferred categories."""
+        before_by_category = {
+            category_name: group_name
+            for group_name, category_names in groups_before.items()
+            for category_name in category_names
+        }
+        after_by_category = {
+            category_name: group_name
+            for group_name, category_names in groups_after.items()
+            for category_name in category_names
+        }
+        removed_categories = set(before_by_category) - set(after_by_category)
+
+        group_targets: dict[str, set[str]] = {}
+        for category_name, before_group in before_by_category.items():
+            if category_name in after_by_category:
+                group_targets.setdefault(before_group, set()).add(after_by_category[category_name])
+        renamed_groups = (
+            {
+                before_group: next(iter(targets))
+                for before_group, targets in group_targets.items()
+                if len(targets) == 1
+            }
+            if propagate_group_moves
+            else {}
+        )
+
+        previous_to_current_group: dict[str, str] = {}
+        for previous_group, category_names in previous_groups.items():
+            current_groups = {
+                before_by_category[category_name]
+                for category_name in category_names
+                if category_name in before_by_category
+            }
+            if len(current_groups) == 1:
+                previous_to_current_group[previous_group] = next(iter(current_groups))
+
+        rebased: dict[str, list[str]] = {}
+        for previous_group, category_names in previous_groups.items():
+            current_group = previous_to_current_group.get(previous_group, previous_group)
+            renamed_group = renamed_groups.get(current_group, previous_group)
+            for category_name in category_names:
+                if category_name in removed_categories:
+                    continue
+                destination = after_by_category.get(category_name, renamed_group)
+                rebased.setdefault(destination, []).append(category_name)
+        rebased_categories = {
+            category_name for category_names in rebased.values() for category_name in category_names
+        }
+        for group_name, category_names in groups_after.items():
+            for category_name in category_names:
+                if category_name not in rebased_categories:
+                    rebased.setdefault(group_name, []).append(category_name)
+        return rebased
+
+    def _rebase_pending_category_changes(
+        self,
+        groups_before: dict[str, list[str]],
+        groups_after: dict[str, list[str]],
+        propagate_group_moves: bool,
+    ) -> bool:
+        """Persist an independent config change across structural rollback boundaries."""
+        if self.data_manager is None or not self.data_manager.pending_category_changes:
+            return True
+        rebased_changes = deepcopy(self.data_manager.pending_category_changes)
+        for change in rebased_changes:
+            change.before_groups = self._apply_independent_category_changes(
+                change.before_groups,
+                groups_before,
+                groups_after,
+                propagate_group_moves,
+            )
+            change.after_groups = self._apply_independent_category_changes(
+                change.after_groups,
+                groups_before,
+                groups_after,
+                propagate_group_moves,
+            )
+        base_groups = rebased_changes[0].before_groups
+        saved = True
+        if self.data_manager.profile_dir:
+            saved = save_categories_to_profile(
+                base_groups, profile_dir=self.data_manager.profile_dir
+            )
+        if not saved:
+            self.data_manager.category_groups_config = groups_before
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups_before)
+            self.data_manager.categories = {}
+            self.data_manager._populate_categories_from_config()
+            self.refresh_view()
+            self.notify(
+                "Category configuration could not be saved; the latest changes were reverted.",
+                severity="error",
+                timeout=6,
+            )
+            return False
+        self.data_manager.pending_category_changes = rebased_changes
+        self.data_manager.pending_category_groups = groups_after
+        return True
 
     # Time navigation actions
     def action_toggle_time_granularity(self) -> None:
@@ -1229,6 +1507,8 @@ class MoneyflowApp(App):
         4. Call controller to execute edit
         5. Display result
         """
+        refresh_generation = self._simplefin_refresh_generation
+
         # Get cursor position
         table = self.query_one("#data-table", DataTable)
         cursor_row = table.cursor_row if table.cursor_row >= 0 else 0
@@ -1255,12 +1535,20 @@ class MoneyflowApp(App):
         )
 
         if new_merchant:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the editor before making changes.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Save position before refresh
             saved_position = self._save_table_position()
 
             # Execute edit via controller (business logic)
             count = self.controller.edit_merchant_current_selection(
-                new_merchant, cursor_row=cursor_row
+                new_merchant, cursor_row=cursor_row, context=context
             )
 
             # Clear selection if multi-select
@@ -1285,6 +1573,8 @@ class MoneyflowApp(App):
 
     async def _edit_category(self) -> None:
         """Simplified category edit using controller orchestration."""
+        refresh_generation = self._simplefin_refresh_generation
+
         # Get cursor position
         table = self.query_one("#data-table", DataTable)
         cursor_row = table.cursor_row if table.cursor_row >= 0 else 0
@@ -1303,17 +1593,115 @@ class MoneyflowApp(App):
                 current_category_id=None,
                 transaction_details=None,
                 transaction_count=context.transaction_count,
+                allow_create=not self.backend.supports_category_sync,
             ),
             wait_for_dismiss=True,
         )
 
         if new_category_id:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the editor before making changes.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
+            # Handle "create new category" flow
+            if new_category_id.startswith("__new__:"):
+                if self.backend.supports_category_sync:
+                    self.notify(
+                        "New categories must be created in the connected finance service.",
+                        severity="warning",
+                    )
+                    return
+                cat_name = new_category_id[8:]
+                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                if not cat_id:
+                    self.notify(
+                        "Category name must contain at least one letter or number.",
+                        severity="error",
+                    )
+                    return
+                elif cat_id in self.data_manager.categories:
+                    self.notify(
+                        "A category with an equivalent name already exists.",
+                        severity="error",
+                    )
+                    return
+
+                if new_category_id is not None:
+                    all_groups = sorted(
+                        set(
+                            c.get("group", "Uncategorized")
+                            for c in self.data_manager.categories.values()
+                        )
+                    )
+                    chosen_group = await self.push_screen(
+                        GroupSelectScreen(all_groups),
+                        wait_for_dismiss=True,
+                    )
+                    if not self.can_edit_transaction_snapshot(refresh_generation):
+                        self.notify(
+                            "Transactions refreshed; reopen the editor before making changes.",
+                            severity="warning",
+                            timeout=4,
+                        )
+                        return
+                    if not chosen_group:
+                        new_category_id = None
+                    else:
+                        groups_before = {
+                            group_name: list(category_names)
+                            for group_name, category_names in self.data_manager.category_groups_config.items()
+                        }
+                        self.data_manager.categories[cat_id] = {
+                            "name": cat_name,
+                            "group": chosen_group,
+                            "group_id": re.sub(r"[^a-z0-9]+", "_", chosen_group.lower()).strip("_"),
+                            "group_type": "",
+                        }
+                        new_category_id = cat_id
+                        groups = categories_dict_to_config_groups(self.data_manager.categories)
+                        has_pending_structure = bool(
+                            getattr(self.data_manager, "pending_category_changes", [])
+                        )
+                        if has_pending_structure:
+                            saved = self._rebase_pending_category_changes(
+                                groups_before,
+                                groups,
+                                propagate_group_moves=False,
+                            )
+                        elif self.data_manager.profile_dir:
+                            saved = save_categories_to_profile(
+                                groups, profile_dir=self.data_manager.profile_dir
+                            )
+                        else:
+                            saved = True
+                        if not saved:
+                            self.data_manager.categories.pop(cat_id, None)
+                            if not has_pending_structure:
+                                self.notify(
+                                    "Category could not be saved. No transaction edit was queued.",
+                                    severity="error",
+                                    timeout=6,
+                                )
+                            return
+                        self.data_manager.category_groups_config = groups
+                        self.data_manager.category_to_group = build_category_to_group_mapping(
+                            groups
+                        )
+            else:
+                cat_name = self.data_manager.categories.get(new_category_id, {}).get(
+                    "name", "Unknown"
+                )
+
             # Save position before refresh
             saved_position = self._save_table_position()
 
             # Execute edit via controller
             count = self.controller.edit_category_current_selection(
-                new_category_id, cursor_row=cursor_row
+                new_category_id, cursor_row=cursor_row, context=context
             )
 
             # Clear selection if multi-select
@@ -1321,14 +1709,205 @@ class MoneyflowApp(App):
                 self.state.clear_selection()
 
             # Display result
-            new_cat_name = self.data_manager.categories.get(new_category_id, {}).get(
-                "name", "Unknown"
-            )
             self.notify(
-                f"Queued {count} category changes to {new_cat_name}. Press w to commit.", timeout=3
+                f"Queued {count} category changes to {cat_name}. Press w to commit.", timeout=3
             )
             self.refresh_view()
             self._restore_table_position(saved_position)
+
+    def action_manage_categories(self) -> None:
+        """Open the category manager (rename, merge, delete categories).
+
+        Only available for read-only backends (SimpleFIN) where categories
+        are managed locally rather than synced from an API.
+        """
+        if self.data_manager is None or self.state.current_data is None:
+            return
+
+        if not getattr(self.backend, "read_only", False):
+            self.notify("Category manager is only available for read-only backends", timeout=3)
+            return
+
+        self.run_worker(self._manage_categories(), exclusive=False)
+
+    async def _manage_categories(self) -> None:
+        """Run the category manager modal and handle results."""
+        refresh_generation = self._simplefin_refresh_generation
+        # Startup date filters also narrow state.transactions_df. Category removal
+        # must use every persisted row or older transactions can become orphaned.
+        txn_counts: dict = {}
+        source_df = await self.data_manager.fetch_unfiltered_transactions()
+        if source_df is not None and {"id", "category_id"}.issubset(source_df.columns):
+            effective_categories = {
+                row["id"]: row["category_id"] for row in source_df.iter_rows(named=True)
+            }
+            for edit in self.data_manager.pending_edits:
+                if edit.field == "category" and edit.transaction_id in effective_categories:
+                    effective_categories[edit.transaction_id] = edit.new_value
+            for category_id in effective_categories.values():
+                txn_counts[category_id] = txn_counts.get(category_id, 0) + 1
+
+        def queue_reassign(source_id: str, target_id: str) -> int | bool:
+            """Queue TransactionEdits to reassign all txns from source to target."""
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                return False
+            return self.controller.queue_category_reassignment(source_df, source_id, target_id)
+
+        previous_groups = {
+            group_name: list(category_names)
+            for group_name, category_names in self.data_manager.category_groups_config.items()
+        }
+        pending_edits_before = deepcopy(self.data_manager.pending_edits)
+        category_edits_before = {
+            id(edit): edit.new_value
+            for edit in self.data_manager.pending_edits
+            if edit.field == "category"
+        }
+
+        dirty = await self.push_screen(
+            ManageCategoriesScreen(
+                categories=self.data_manager.categories,
+                transaction_counts=txn_counts,
+                queue_reassign_callback=queue_reassign,
+            ),
+            wait_for_dismiss=True,
+        )
+
+        if refresh_generation != self._simplefin_refresh_generation:
+            self.notify(
+                "Categories were not changed because transaction data refreshed; reopen the manager.",
+                severity="warning",
+                timeout=5,
+            )
+            return
+
+        if dirty:
+            # Rebuild in-memory mappings immediately
+            groups = categories_dict_to_config_groups(self.data_manager.categories)
+            self.data_manager.category_groups_config = groups
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups)
+            self.refresh_view()
+            self._restore_table_position(None)
+            dependent_timestamps = {
+                edit.timestamp
+                for edit in self.data_manager.pending_edits
+                if edit.field == "category"
+                and (
+                    id(edit) not in category_edits_before
+                    or category_edits_before[id(edit)] != edit.new_value
+                )
+            }
+            if dependent_timestamps:
+                # Defer config save until pending edits commit successfully
+                self.data_manager.pending_category_groups = groups
+                self.data_manager.pending_category_changes.append(
+                    DeferredCategoryChange(
+                        before_groups=previous_groups,
+                        after_groups={
+                            group_name: list(category_names)
+                            for group_name, category_names in groups.items()
+                        },
+                        before_edits=pending_edits_before,
+                        dependent_timestamps=dependent_timestamps,
+                        after_edits=deepcopy(self.data_manager.pending_edits),
+                    )
+                )
+                self.notify(
+                    "Categories updated with pending recategorizations. Press w to commit.",
+                    timeout=4,
+                )
+            elif self.data_manager.pending_category_changes:
+                saved = self._rebase_pending_category_changes(
+                    previous_groups, groups, propagate_group_moves=False
+                )
+                if saved:
+                    self.notify("Categories updated with pending recategorizations.", timeout=4)
+            else:
+                # No pending edits, safe to persist config immediately
+                saved = True
+                if self.data_manager.profile_dir:
+                    saved = save_categories_to_profile(
+                        groups, profile_dir=self.data_manager.profile_dir
+                    )
+                if saved:
+                    self._clear_deferred_category_groups()
+                    self.notify("Categories updated.", timeout=2)
+                else:
+                    self.data_manager.pending_category_groups = groups
+                    self.notify(
+                        "Category configuration could not be saved; changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
+
+    def action_manage_groups(self) -> None:
+        """Open the group manager (create, rename, delete groups).
+
+        Only available for read-only backends (SimpleFIN) where categories
+        are managed locally rather than synced from an API.
+        """
+        if self.data_manager is None or self.state.current_data is None:
+            return
+
+        if not getattr(self.backend, "read_only", False):
+            self.notify("Group manager is only available for read-only backends", timeout=3)
+            return
+
+        self.run_worker(self._manage_groups(), exclusive=False)
+
+    async def _manage_groups(self) -> None:
+        """Run the group manager modal and handle results."""
+        refresh_generation = self._simplefin_refresh_generation
+        groups_before = {
+            group_name: list(category_names)
+            for group_name, category_names in self.data_manager.category_groups_config.items()
+        }
+        dirty = await self.push_screen(
+            ManageGroupsScreen(
+                categories=self.data_manager.categories,
+            ),
+            wait_for_dismiss=True,
+        )
+
+        if refresh_generation != self._simplefin_refresh_generation:
+            self.notify(
+                "Categories refreshed; reopen the group manager before making changes.",
+                severity="warning",
+                timeout=4,
+            )
+            return
+
+        if dirty:
+            groups = categories_dict_to_config_groups(self.data_manager.categories)
+            self.data_manager.category_groups_config = groups
+            self.data_manager.category_to_group = build_category_to_group_mapping(groups)
+            self.refresh_view()
+            self._restore_table_position(None)
+            if self.data_manager.pending_category_changes:
+                saved = self._rebase_pending_category_changes(
+                    groups_before, groups, propagate_group_moves=True
+                )
+                if saved:
+                    self.notify(
+                        "Groups updated with pending recategorizations. Press w to commit.",
+                        timeout=4,
+                    )
+            else:
+                saved = True
+                if self.data_manager.profile_dir:
+                    saved = save_categories_to_profile(
+                        groups, profile_dir=self.data_manager.profile_dir
+                    )
+                if saved:
+                    self._clear_deferred_category_groups()
+                    self.notify("Groups updated.", timeout=2)
+                else:
+                    self.data_manager.pending_category_groups = groups
+                    self.notify(
+                        "Category configuration could not be saved; changes remain pending for retry.",
+                        severity="error",
+                        timeout=6,
+                    )
 
     def action_toggle_hide_from_reports(self) -> None:
         """
@@ -1455,6 +2034,7 @@ class MoneyflowApp(App):
 
     async def _delete_transaction(self) -> None:
         """Show delete confirmation and delete if confirmed."""
+        refresh_generation = self._simplefin_refresh_generation
         if self.state.current_data is None:
             return
 
@@ -1479,6 +2059,14 @@ class MoneyflowApp(App):
         )
 
         if confirmed:
+            if not self.can_edit_transaction_snapshot(refresh_generation):
+                self.notify(
+                    "Transactions refreshed; reopen the view before deleting.",
+                    severity="warning",
+                    timeout=4,
+                )
+                return
+
             # Save position for refresh
             saved_position = self._save_table_position()
 
@@ -1488,21 +2076,23 @@ class MoneyflowApp(App):
 
             success_count = 0
             failure_count = 0
+            deleted_ids = []
 
             try:
                 # Delete each transaction via API (with session renewal if needed)
                 for txn_id in transaction_ids:
                     try:
-                        await self.task_runner.delete_with_retry(txn_id)
-                        success_count += 1
+                        if await self.task_runner.delete_with_retry(txn_id):
+                            success_count += 1
+                            deleted_ids.append(txn_id)
+                        else:
+                            failure_count += 1
                     except Exception as e:
                         logger.error(f"Failed to delete transaction {txn_id}: {e}")
                         failure_count += 1
 
                 # Update local DataFrame to remove deleted transactions
                 if success_count > 0 and self.data_manager.df is not None:
-                    # Remove deleted transactions from DataFrame
-                    deleted_ids = transaction_ids[:success_count]
                     self.data_manager.df = self.data_manager.df.filter(
                         ~pl.col("id").is_in(deleted_ids)
                     )
@@ -1565,6 +2155,20 @@ class MoneyflowApp(App):
 
         count = self.data_manager.get_stats()["pending_changes"]
         if count == 0:
+            pending_groups = self.data_manager.pending_category_groups
+            if pending_groups is not None and self.data_manager.profile_dir:
+                if save_categories_to_profile(
+                    pending_groups, profile_dir=self.data_manager.profile_dir
+                ):
+                    self._clear_deferred_category_groups()
+                    self.notify("Category configuration saved.", timeout=2)
+                else:
+                    self.notify(
+                        "Category configuration still could not be saved; changes remain pending.",
+                        severity="error",
+                        timeout=6,
+                    )
+                return
             self._notify(notification_helper.NO_PENDING_CHANGES)
             return
 
@@ -1592,6 +2196,12 @@ class MoneyflowApp(App):
         )
 
         if should_commit:
+            # One-time warning for read-only backends (e.g., SimpleFIN) that edits
+            # are saved locally only and won't sync to the server
+            if getattr(self.backend, "read_only", False) and not self._read_only_warning_shown:
+                self._read_only_warning_shown = True
+                self._notify(notification_helper.commit_read_only_warning())
+
             # Restore view IMMEDIATELY after review screen dismisses to avoid flash
             # User should see their original view while commits are happening
             logger.debug(f"Before restore: view_mode={self.state.view_mode}")
@@ -1687,6 +2297,79 @@ class MoneyflowApp(App):
             # Restore table position after cancel
             self._restore_table_position(saved_table_position)
 
+    def action_export_data(self) -> None:
+        """Show export format and scope selection modal."""
+        if self.data_manager is None or self.data_manager.df is None:
+            self.notify("No data to export", timeout=2)
+            return
+        if self.data_manager.df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+        self.run_worker(self._show_export_screen(), exclusive=False)
+
+    async def _show_export_screen(self) -> None:
+        """Push the export screen and handle its result."""
+        result = await self.push_screen(ExportScreen(), wait_for_dismiss=True)
+        if result is None:
+            return
+        export_format, export_scope = result
+
+        if export_scope == ExportScope.SNAPSHOT:
+            df = self.state.get_filtered_df()
+        else:
+            df = self.data_manager.df
+
+        if df is None or df.is_empty():
+            self.notify("No data to export", timeout=2)
+            return
+
+        df = self.data_manager.apply_category_groups(df)
+
+        config_dir = Path(self.config_dir if self.config_dir else Path.home() / ".moneyflow")
+
+        category_groups = (
+            sorted(set(g["name"] for g in (self.data_manager.category_groups or {}).values()))
+            if self.data_manager.category_groups
+            else []
+        )
+
+        metadata = ExportMetadata(
+            app_version=get_version(),
+            export_timestamp=datetime.now().isoformat(),
+            transaction_count=len(df),
+            earliest_date=str(df["date"].min()) if "date" in df.columns and len(df) > 0 else None,
+            latest_date=str(df["date"].max()) if "date" in df.columns and len(df) > 0 else None,
+            backend_type=self.data_manager.backend_type or "unknown",
+            category_groups=category_groups,
+        )
+
+        path = build_export_path(config_dir, export_format, export_scope)
+
+        self._notify(notification_helper.export_starting(len(df)))
+        await self._export_data_async(
+            df=df, path=path, export_format=export_format, metadata=metadata
+        )
+
+    async def _export_data_async(
+        self,
+        df: pl.DataFrame,
+        path: Path,
+        export_format: ExportFormat,
+        metadata: ExportMetadata,
+    ) -> None:
+        """Export data using the exporter module in a background thread."""
+        try:
+            await asyncio.to_thread(
+                export_dataframe,
+                df,
+                path=path,
+                metadata=metadata,
+                fmt=export_format,
+            )
+            self._notify(notification_helper.export_success(str(path), len(df)))
+        except Exception as e:
+            self._notify(notification_helper.export_error(str(e)))
+
     def action_quit_app(self) -> None:
         """Quit the application - show confirmation first."""
         # If we're in an error state (no data_manager), just exit immediately
@@ -1702,6 +2385,10 @@ class MoneyflowApp(App):
             (self.data_manager and self.data_manager.get_stats()["pending_changes"] > 0)
             if self.data_manager
             else False
+        )
+        has_changes = has_changes or (
+            self.data_manager is not None
+            and getattr(self.data_manager, "pending_category_groups", None) is not None
         )
 
         should_quit = await self.push_screen(
@@ -1871,6 +2558,35 @@ def main():
         sys.exit(1)
 
 
+def _compute_date_filter_params(
+    year: Optional[int],
+    since: Optional[str],
+    mtd: bool,
+) -> tuple[Optional[int], Optional[str]]:
+    """Convert CLI date-filter flags to MoneyflowApp constructor params.
+
+    Single source of truth for the year/since/mtd → start_year/custom_start_date
+    conversion used by all launch_*_mode functions.
+
+    Args:
+        year: Start year (e.g. 2025 means "from 2025-01-01").
+        since: Start date in YYYY-MM-DD format (overrides year).
+        mtd: If true, show month-to-date (overrides year and since).
+
+    Returns:
+        Tuple of (start_year, custom_start_date). At most one is set.
+    """
+    if mtd:
+        today = date_type.today()
+        first_of_month = date_type(today.year, today.month, 1)
+        return None, first_of_month.strftime("%Y-%m-%d")
+    if since:
+        return None, since
+    if year:
+        return year, None
+    return None, None
+
+
 def launch_monarch_mode(
     year: Optional[int] = None,
     since: Optional[str] = None,
@@ -1894,26 +2610,13 @@ def launch_monarch_mode(
         config_dir: Config directory (None = ~/.moneyflow)
         theme: Override theme (temporary, doesn't modify config.yaml)
     """
-    from datetime import date as date_type
-
     # Initialize logging
     logger = setup_logging(console_output=False, config_dir=config_dir)
     logger.info("Starting moneyflow with Monarch Money backend")
     if config_dir:
         logger.info(f"Using custom config directory: {config_dir}")
 
-    # Determine start year or date range
-    start_year = None
-    custom_start_date = None
-
-    if mtd:
-        today = date_type.today()
-        first_of_month = date_type(today.year, today.month, 1)
-        custom_start_date = first_of_month.strftime("%Y-%m-%d")
-    elif since:
-        custom_start_date = since
-    elif year:
-        start_year = year
+    start_year, custom_start_date = _compute_date_filter_params(year, since, mtd)
 
     try:
         app = MoneyflowApp(
@@ -1983,6 +2686,62 @@ def launch_amazon_mode(
     except Exception:
         print("\n" + "=" * 80, file=sys.stderr)
         print("FATAL ERROR - moneyflow Amazon mode crashed!", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("Please report this error with the traceback above.", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+
+def launch_simplefin_mode(
+    year: Optional[int] = None,
+    since: Optional[str] = None,
+    mtd: bool = False,
+    profile_dir: Optional[Path] = None,
+    config_dir: Optional[str] = None,
+) -> None:
+    """
+    Launch moneyflow in SimpleFIN open banking mode.
+
+    Args:
+        year: Only load transactions from this year onwards
+        since: Only load transactions from this date onwards (overrides year)
+        mtd: Load month-to-date transactions only
+        profile_dir: Profile directory for existing SimpleFIN account.
+                     If None, triggers first-time credential setup.
+        config_dir: Config directory (default: ~/.moneyflow)
+    """
+    from moneyflow.tui.backend_config import get_backend_config
+
+    # Initialize logging
+    logger = setup_logging(console_output=False, config_dir=config_dir)
+    logger.info("Starting moneyflow in SimpleFIN mode")
+    if config_dir:
+        logger.info(f"Using custom config directory: {config_dir}")
+    if profile_dir:
+        logger.info(f"Using profile directory: {profile_dir}")
+
+    start_year, custom_start_date = _compute_date_filter_params(year, since, mtd)
+
+    try:
+        config = get_backend_config("simplefin")
+
+        app = MoneyflowApp(
+            start_year=start_year,
+            custom_start_date=custom_start_date,
+            demo_mode=False,
+            config=config,
+            config_dir=config_dir,
+            profile_dir=profile_dir,
+            backend_type="simplefin",
+        )
+        app.title = "moneyflow [SimpleFIN]"
+
+        app.run()
+    except Exception:
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("FATAL ERROR - moneyflow SimpleFIN mode crashed!", file=sys.stderr)
         print("=" * 80, file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         print("\n" + "=" * 80, file=sys.stderr)

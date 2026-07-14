@@ -15,8 +15,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from textual.containers import Container
-from textual.widgets import Checkbox, DataTable
+from textual.widgets import Checkbox, DataTable, Input, Label, RadioButton, RadioSet, Static
 
+from moneyflow.tui.account_flow import AccountFlowCoordinator
 from moneyflow.tui.app import MoneyflowApp
 from moneyflow.tui.screens.account_selector_screen import AccountSelectorScreen
 from moneyflow.tui.screens.batch_scope_screen import BatchScopeScreen
@@ -66,6 +67,11 @@ class TestScreenCSSValidation:
     def test_credential_setup_screen_ynab_css_parses(self, tmp_path):
         """CredentialSetupScreen for YNAB should parse without errors."""
         screen = CredentialSetupScreen(backend_type="ynab", profile_dir=tmp_path)
+        assert screen is not None
+
+    def test_credential_setup_screen_simplefin_css_parses(self, tmp_path):
+        """CredentialSetupScreen for SimpleFIN should parse without errors."""
+        screen = CredentialSetupScreen(backend_type="simplefin", profile_dir=tmp_path)
         assert screen is not None
 
     def test_credential_unlock_screen_css_parses(self, tmp_path):
@@ -377,6 +383,115 @@ class TestCredentialSetupWorkflow:
             # Fields should be hidden again
             assert checkbox.value is False, "Encryption should be disabled"
             assert encryption_fields.display is False, "Encryption fields should be hidden again"
+
+    @pytest.mark.integration
+    async def test_simplefin_radio_toggle_help_text(self, tmp_path):
+        """SimpleFIN radio buttons should toggle help text and placeholder."""
+        app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
+
+        async with app.run_test() as pilot:
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
+
+            screen = CredentialSetupScreen(
+                backend_type="simplefin",
+                profile_dir=tmp_path / "profiles" / "test",
+            )
+            app.push_screen(screen)
+            await pilot.pause()
+
+            assert isinstance(app.screen, CredentialSetupScreen)
+
+            radio_set = screen.query_one("#simplefin-mode", RadioSet)
+            token_help = screen.query_one("#token-help", Static)
+            url_help = screen.query_one("#url-help", Static)
+            password_input = screen.query_one("#password-input", Input)
+
+            # Default: token-radio selected, token-help visible, url-help hidden
+            assert radio_set.pressed_button.id == "token-radio", (
+                "Token radio should be selected by default"
+            )
+            assert token_help.display is True, "Token help should be visible"
+            assert url_help.display is False, "URL help should be hidden"
+            assert "Base64" in password_input.placeholder, "Placeholder should mention Base64"
+
+            # Switch to URL radio
+            url_radio = screen.query_one("#url-radio", RadioButton)
+            url_radio.value = True
+            await pilot.pause()
+
+            assert radio_set.pressed_button.id == "url-radio", "URL radio should be selected"
+            assert token_help.display is False, "Token help should be hidden"
+            assert url_help.display is True, "URL help should be visible"
+            assert "https://" in password_input.placeholder, "Placeholder should mention https://"
+
+            # Switch back to token radio
+            token_radio = screen.query_one("#token-radio", RadioButton)
+            token_radio.value = True
+            await pilot.pause()
+
+            assert radio_set.pressed_button.id == "token-radio", (
+                "Token radio should be selected again"
+            )
+            assert token_help.display is True, "Token help should be visible again"
+            assert url_help.display is False, "URL help should be hidden again"
+
+    @pytest.mark.integration
+    async def test_simplefin_claimed_url_survives_save_failure(self, tmp_path, monkeypatch):
+        from moneyflow.tui.screens import credential_screens
+
+        access_url = "https://example:credential@bridge.simplefin.org/simplefin"
+
+        class FailingCredentialManager:
+            def __init__(self, config_dir=None, profile_dir=None):
+                pass
+
+            @staticmethod
+            def save_credentials(**kwargs):
+                raise OSError("simulated save failure")
+
+        async def claim(token):
+            return access_url
+
+        monkeypatch.setattr(credential_screens, "_claim_simplefin_token", claim)
+        monkeypatch.setattr(credential_screens, "CredentialManager", FailingCredentialManager)
+
+        app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
+        profile_dir = tmp_path / "profiles" / "test"
+        profile_dir.mkdir(parents=True)
+        async with app.run_test() as pilot:
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
+            screen = CredentialSetupScreen(backend_type="simplefin", profile_dir=profile_dir)
+            app.push_screen(screen)
+            await pilot.pause()
+            screen.query_one("#password-input", Input).value = "one-time-token"
+
+            await screen.save_credentials()
+            await pilot.pause()
+
+            assert screen.query_one("#password-input", Input).value == access_url
+            assert screen.query_one("#simplefin-mode", RadioSet).pressed_button.id == "url-radio"
+            assert "retained" in str(screen.query_one("#error-label", Label).render()).lower()
+
+    @pytest.mark.integration
+    async def test_simplefin_exit_button_rolls_back_incomplete_profile(self, tmp_path):
+        from moneyflow.data.account_manager import AccountManager
+
+        account_manager = AccountManager(config_dir=tmp_path)
+        previous = account_manager.create_account("Existing", "demo", account_id="existing")
+        app = MoneyflowApp(demo_mode=True, config_dir=str(tmp_path))
+
+        async with app.run_test() as pilot:
+            assert await _wait_for_app_ready(app, pilot), "App failed to initialize"
+            setup_worker = app.run_worker(AccountFlowCoordinator(app).handle_new_simplefin_setup())
+            await pilot.pause()
+
+            await pilot.click("#exit-button")
+            result = await setup_worker.wait()
+
+        account_manager.load_registry()
+        assert result is None
+        assert account_manager.get_last_active_account() == previous
+        assert [account.id for account in account_manager.list_accounts()] == ["existing"]
 
     @pytest.mark.integration
     async def test_backend_selection_screen_mounts(self, tmp_path):

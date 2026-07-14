@@ -2,6 +2,14 @@
 
 moneyflow caches your transaction data locally for fast startup. Caching is **enabled by default**.
 
+!!! info "SimpleFIN"
+    SimpleFIN backends bypass the two-tier cache entirely. Data is stored in a
+    profile-local SQLite database
+    (`~/.moneyflow/profiles/<profile-id>/simplefin.db`) and refreshed from the
+    API on demand. Use `moneyflow simplefin refresh` for an additive refresh
+    (see [SimpleFIN guide](../guide/simplefin.md)). The `--no-cache` flag does
+    not apply to this backend, and moneyflow does not encrypt the SQLite file.
+
 ## How It Works
 
 1. **First run**: Downloads all transactions from your backend (Monarch Money, YNAB, etc.)
@@ -22,8 +30,9 @@ Or within your profile directory if using multiple accounts:
 
 ## Security
 
-The cache is **encrypted** using the same AES-128 encryption as your credentials. Your transaction data is never
-stored in plain text.
+The two-tier Parquet cache is **encrypted** using the same AES-128 encryption
+as your credentials. This does not apply to the SimpleFIN SQLite database
+described above.
 
 ## CLI Options
 

@@ -82,11 +82,23 @@ YNAB_CONFIG = BackendConfig(
     requires_auth=True,  # YNAB requires access token
 )
 
+SIMPLEFIN_CONFIG = BackendConfig(
+    backend_type="simplefin",
+    merchant_field_name="Description",
+    grouping_modes=("merchant", "account"),  # No category hierarchy in SimpleFIN
+    show_quantity=False,
+    show_price_per_item=False,
+    has_accounts=True,
+    has_groups=False,  # SimpleFIN has no category groups
+    requires_auth=True,  # Access URL required
+)
+
 BACKEND_CONFIGS = {
     "monarch": MONARCH_CONFIG,
     "amazon": AMAZON_CONFIG,
     "demo": DEMO_CONFIG,
     "ynab": YNAB_CONFIG,
+    "simplefin": SIMPLEFIN_CONFIG,
 }
 
 
@@ -94,11 +106,12 @@ def get_backend_config(backend_type: str) -> BackendConfig:
     """
     Get BackendConfig for a backend type.
 
-    This is the single source of truth for backend type → BackendConfig mapping.
+    This is the single source of truth for backend type -> BackendConfig mapping.
     Use this instead of duplicating the mapping logic throughout the codebase.
 
     Args:
-        backend_type: Backend type identifier ("monarch", "ynab", "amazon", "demo")
+        backend_type: Backend type identifier ("monarch", "ynab", "amazon", "demo",
+                      "simplefin")
 
     Returns:
         BackendConfig for the specified backend type.

@@ -444,3 +444,30 @@ def format_categories_readable(category_groups: Dict[str, List[str]]) -> str:
             lines.append(f"  - {cat}")
 
     return "\n".join(lines)
+
+
+def categories_dict_to_config_groups(categories: Dict[str, Dict[str, str]]) -> Dict[str, List[str]]:
+    """
+    Reverse-engineer ``category_groups_config`` format from a ``self.categories`` dict.
+
+    ``self.categories`` maps ``category_id -> {name, group, group_id, group_type}``.
+    This converts it back to the config format ``{group_name: [cat_name, ...]}``.
+
+    Args:
+        categories: The ``self.categories`` dict from DataManager.
+
+    Returns:
+        Dict suitable for ``save_categories_to_config()`` or
+        ``save_categories_to_profile()``.
+    """
+    groups: Dict[str, List[str]] = {}
+    for cat_data in categories.values():
+        group_name = cat_data.get("group", "Uncategorized")
+        cat_name = cat_data.get("name", "")
+        if not cat_name:
+            continue
+        groups.setdefault(group_name, []).append(cat_name)
+    # Deduplicate category names within each group (shouldn't happen, but be safe)
+    for group_name in groups:
+        groups[group_name] = list(dict.fromkeys(groups[group_name]))
+    return groups

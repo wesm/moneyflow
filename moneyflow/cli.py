@@ -6,10 +6,22 @@ Provides Click-based CLI for launching moneyflow with different backends
 """
 
 from pathlib import Path
+from typing import Optional
 
 import click
 
+from .data.account_manager import AccountManager
 from .tui.formatters import ViewPresenter
+
+CONFIG_DIR_HELP = (
+    "Specifies root configuration directory containing accounts, "
+    "profiles, and log (default: ~/.moneyflow). "
+    "Useful for testing with isolated configs."
+)
+
+
+class _NoSimplefinProfiles(click.Abort):
+    """Signal the one recoverable profile-resolution case: first-time setup."""
 
 
 def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
@@ -64,6 +76,183 @@ def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
     return backend, config_dir, amazon_profile_dir
 
 
+def _resolve_simplefin_profile(
+    config_dir: Optional[str] = None,
+    profile_id: Optional[str] = None,
+):
+    """
+    Resolve the target SimpleFIN profile for CLI subcommands.
+
+    Resolution rules:
+    - If profile_id is provided: validate and return that profile directly
+    - 0 SimpleFIN profiles -> _NoSimplefinProfiles with setup instructions
+    - 1 profile -> silently resolve (no output)
+    - 2+ profiles with a default set -> auto-resolve, print confirmation
+    - 2+ profiles without a default -> prompt user to pick, save as default
+
+    Args:
+        config_dir: Optional config directory (defaults to ~/.moneyflow)
+        profile_id: Optional explicit profile ID to use (overrides defaults/prompts)
+
+    Returns:
+        tuple: (account_id, profile_dir)
+
+    Raises:
+        _NoSimplefinProfiles if no profiles are found; click.Abort for invalid selection
+    """
+    from moneyflow.data.account_manager import AccountManager
+    from moneyflow.data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
+
+    config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+
+    legacy_encryption_password = None
+    if (
+        (config_path / "credentials.enc").exists()
+        and not (config_path / "simplefin.db").exists()
+        and not AccountManager(config_dir=config_path).list_accounts()
+    ):
+        legacy_encryption_password = click.prompt(
+            "Encryption password for legacy credentials",
+            hide_input=True,
+            err=True,
+        )
+    try:
+        migrate_legacy_credentials(
+            config_dir=config_path,
+            encryption_password=legacy_encryption_password,
+        )
+    except ValueError as error:
+        click.echo(f"Failed to load legacy credentials: {error}", err=True)
+        raise click.Abort() from error
+    migrate_legacy_simplefin_db(config_dir=config_path, target_profile_id=profile_id)
+
+    mgr = AccountManager(config_dir=config_path)
+
+    # If an explicit profile_id is given, validate and return directly
+    if profile_id is not None:
+        account = mgr.get_account(profile_id)
+        if not account or account.backend_type != "simplefin":
+            click.echo(
+                f"Profile '{profile_id}' not found or is not a SimpleFIN account.",
+                err=True,
+            )
+            raise click.Abort()
+        return account.id, mgr.get_profile_dir(account.id)
+
+    all_accounts = mgr.list_accounts()
+    simplefin_accounts = [a for a in all_accounts if a.backend_type == "simplefin"]
+
+    if len(simplefin_accounts) == 0:
+        click.echo(
+            "No SimpleFIN account configured. Run 'moneyflow simplefin' to set one up.",
+            err=True,
+        )
+        raise _NoSimplefinProfiles()
+
+    if len(simplefin_accounts) == 1:
+        acct = simplefin_accounts[0]
+        return acct.id, mgr.get_profile_dir(acct.id)
+
+    # 2+ profiles -- check for default
+    default_id = mgr.get_backend_default("simplefin")
+    if default_id:
+        acct = mgr.get_account(default_id)
+        if acct and acct.backend_type == "simplefin":
+            click.echo(
+                f"Using profile '{acct.id}' (set as default for SimpleFIN).",
+            )
+            return acct.id, mgr.get_profile_dir(acct.id)
+
+    # No default -- prompt user to pick
+    click.echo("Multiple SimpleFIN profiles found. Please select one:")
+    for i, acct in enumerate(simplefin_accounts, 1):
+        click.echo(f"  {i}. {acct.id} -- {acct.name}")
+    choice = click.prompt("Enter number or profile ID", type=str)
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(simplefin_accounts):
+            selected = simplefin_accounts[idx]
+        else:
+            raise ValueError
+    except (ValueError, IndexError):
+        matches = [a for a in simplefin_accounts if a.id == choice]
+        if not matches:
+            click.echo(f"Invalid selection: {choice}", err=True)
+            raise click.Abort()
+        selected = matches[0]
+
+    mgr.set_backend_default("simplefin", selected.id)
+    migrate_legacy_simplefin_db(config_dir=config_path, target_profile_id=selected.id)
+    click.echo(f"Set '{selected.id}' as default for SimpleFIN.")
+    return selected.id, mgr.get_profile_dir(selected.id)
+
+
+def _build_simplefin_backend(profile_dir: Path):
+    """Build a SimpleFinBackend for the given profile directory.
+
+    Args:
+        profile_dir: Profile directory containing the SimpleFIN SQLite database.
+
+    Returns:
+        A configured SimpleFinBackend instance.
+    """
+    from moneyflow.backends.simplefin import SimpleFinBackend
+
+    return SimpleFinBackend(profile_dir=profile_dir)
+
+
+def _load_simplefin_credentials(
+    account_id: str, profile_dir: Path, config_dir: Optional[str] = None
+) -> str:
+    """Load the SimpleFIN Access URL from the profile's credential store.
+
+    Args:
+        account_id: Account identifier (for error messages).
+        profile_dir: Profile directory containing credentials.
+        config_dir: Config directory for CredentialManager fallback.
+
+    Returns:
+        The SimpleFIN Access URL.
+
+    Raises:
+        click.Abort if credentials cannot be loaded.
+    """
+    from moneyflow.data.credentials import CredentialManager
+
+    config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+    cred_mgr = CredentialManager(config_dir=config_path, profile_dir=profile_dir)
+
+    if not cred_mgr.credentials_exist():
+        click.echo(f"No credentials found for profile '{account_id}'.", err=True)
+        click.echo("Run 'moneyflow simplefin' to set up SimpleFIN via the TUI.", err=True)
+        raise click.Abort()
+
+    try:
+        if cred_mgr.is_encrypted():
+            encryption_password = click.prompt(
+                "Encryption password for SimpleFIN credentials",
+                hide_input=True,
+                err=True,
+            )
+            creds, _ = cred_mgr.load_credentials(encryption_password=encryption_password)
+        else:
+            creds, _ = cred_mgr.load_credentials()
+    except FileNotFoundError:
+        click.echo(f"Credentials file missing for profile '{account_id}'.", err=True)
+        raise click.Abort()
+    except ValueError as e:
+        click.echo(f"Failed to load credentials: {e}", err=True)
+        raise click.Abort()
+
+    access_url = creds.get("password")
+    if not access_url:
+        click.echo(f"No Access URL found in credentials for profile '{account_id}'.", err=True)
+        raise click.Abort()
+
+    return access_url
+
+
 @click.group(invoke_without_command=True)
 @click.option(
     "--year",
@@ -93,7 +282,7 @@ def _get_amazon_backend_with_profile_support(db_path=None, config_dir=None):
     "--config-dir",
     type=click.Path(),
     default=None,
-    help="Config directory (default: ~/.moneyflow). Useful for testing with isolated configs.",
+    help=CONFIG_DIR_HELP,
 )
 @click.option(
     "--theme",
@@ -153,7 +342,7 @@ def cli(ctx, year, since, mtd, no_cache, refresh, demo, config_dir, theme):
     "--config-dir",
     type=click.Path(),
     default=None,
-    help="Config directory (default: ~/.moneyflow). Used for loading categories from config.yaml.",
+    help=CONFIG_DIR_HELP,
 )
 @click.pass_context
 def amazon(ctx, db_path, config_dir):
@@ -313,7 +502,7 @@ def categories():
     "--config-dir",
     type=click.Path(),
     default=None,
-    help="Config directory (default: ~/.moneyflow)",
+    help=CONFIG_DIR_HELP,
 )
 @click.option(
     "--format",
@@ -369,7 +558,7 @@ def categories_dump(config_dir, format):
     "--config-dir",
     type=click.Path(),
     default=None,
-    help="Config directory (default: ~/.moneyflow)",
+    help=CONFIG_DIR_HELP,
 )
 @click.option(
     "--cache-dir",
@@ -438,6 +627,231 @@ def categories_audit(config_dir, cache_dir):
         click.echo(f"❌ {e}")
     except Exception as e:
         click.echo(f"❌ {e}")
+
+
+@cli.group(invoke_without_command=True)
+@click.option(
+    "--year",
+    type=int,
+    metavar="YYYY",
+    help="Only load transactions from this year onwards (e.g., --year 2025)",
+)
+@click.option(
+    "--since",
+    type=str,
+    metavar="YYYY-MM-DD",
+    help="Only load transactions from this date onwards (overrides --year)",
+)
+@click.option(
+    "--mtd", is_flag=True, help="Load month-to-date transactions (from 1st of current month)"
+)
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
+@click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Ignored. SimpleFIN uses a local SQLite database, not the encrypted cache system.",
+)
+@click.option(
+    "--profile",
+    metavar="PROFILE_ID",
+    default=None,
+    help="Use the specified SimpleFIN profile instead of the default.",
+)
+@click.pass_context
+def simplefin(ctx, year, since, mtd, config_dir, no_cache, profile):
+    """SimpleFIN open banking mode.
+
+    Run 'moneyflow simplefin' to launch the UI with SimpleFIN backend.
+    Skips the backend picker — goes straight to SimpleFIN setup or data.
+    """
+    # Store profile and config_dir in context for subcommands
+    ctx.ensure_object(dict)
+    if ctx.invoked_subcommand is not None:
+        ctx.obj["profile"] = profile
+        ctx.obj["config_dir"] = config_dir
+        return
+
+    if no_cache:
+        click.echo(
+            "⚠️  --no-cache has no effect in SimpleFIN mode.\n"
+            "  SimpleFIN stores data in a local SQLite database (~/.moneyflow/simplefin.db),\n"
+            "  not the encrypted cache system used by Monarch. Caching is not applicable."
+        )
+
+    # Resolve profile: explicit --profile or default-aware resolution
+    if profile:
+        account_id, profile_dir = _resolve_simplefin_profile(
+            config_dir=config_dir, profile_id=profile
+        )
+    else:
+        try:
+            _, profile_dir = _resolve_simplefin_profile(config_dir=config_dir, profile_id=None)
+        except _NoSimplefinProfiles:
+            profile_dir = None
+
+    from moneyflow.tui.app import launch_simplefin_mode
+
+    launch_simplefin_mode(
+        year=year,
+        since=since,
+        mtd=mtd,
+        profile_dir=profile_dir,
+        config_dir=config_dir,
+    )
+
+
+@simplefin.command()
+@click.option("--force", is_flag=True, help="Clear local data and re-fetch all from API")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
+@click.option(
+    "--profile",
+    metavar="PROFILE_ID",
+    default=None,
+    help="Use the specified SimpleFIN profile instead of the default.",
+)
+@click.pass_context
+def refresh(ctx, force, config_dir, profile):
+    """Fetch latest transactions from SimpleFIN API.
+
+    By default, performs an additive merge — new transactions are added;
+    existing local edits are preserved.
+
+    Use --force to clear the local database and re-fetch everything from
+    the API (discards local edits).
+    """
+    import asyncio
+
+    config_dir = config_dir or ctx.obj.get("config_dir")
+    profile_id = profile or ctx.obj.get("profile")
+    account_id, profile_dir = _resolve_simplefin_profile(
+        config_dir=config_dir, profile_id=profile_id
+    )
+    access_url = _load_simplefin_credentials(account_id, profile_dir, config_dir)
+
+    backend = _build_simplefin_backend(profile_dir)
+    asyncio.run(backend.login(password=access_url))
+
+    if force:
+        count = asyncio.run(backend.hard_refresh())
+        click.echo(f"Hard refresh complete: {count:,} transactions imported.")
+    else:
+        count = asyncio.run(backend.refresh())
+    click.echo(f"Refresh complete: {count:,} new transactions added.")
+
+
+@simplefin.command()
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
+@click.option(
+    "--profile",
+    metavar="PROFILE_ID",
+    default=None,
+    help="Use the specified SimpleFIN profile instead of the default.",
+)
+@click.pass_context
+def status(ctx, config_dir, profile):
+    """Show SimpleFIN database statistics.
+
+    Displays transaction count, date range, total amount, and last refresh info.
+    """
+    config_dir = config_dir or ctx.obj.get("config_dir")
+    profile_id = profile or ctx.obj.get("profile")
+    account_id, profile_dir = _resolve_simplefin_profile(
+        config_dir=config_dir, profile_id=profile_id
+    )
+
+    backend = _build_simplefin_backend(profile_dir)
+    backend._ensure_db_initialized()
+    stats = backend.get_database_stats()
+
+    click.echo("SimpleFIN Database")
+    click.echo(f"  Profile: {account_id}")
+    click.echo(f"  Location: {profile_dir / 'simplefin.db'}")
+    click.echo()
+    click.echo("Statistics:")
+    click.echo(f"  Total transactions: {stats.get('total_transactions', '?'):,}")
+    if stats.get("earliest_date"):
+        click.echo(f"  Date range: {stats['earliest_date']} to {stats['latest_date']}")
+    currency_suffix = f" ({stats['currency_code']})" if stats.get("currency_code") else ""
+    click.echo(
+        f"  Total amount{currency_suffix}: "
+        f"{ViewPresenter.format_amount(stats.get('total_amount', 0.0))}"
+    )
+    if stats.get("last_refresh_timestamp"):
+        click.echo(f"  Last refresh: {stats['last_refresh_timestamp']}")
+    if stats.get("last_refresh_count"):
+        click.echo(f"  Last refresh count: {stats['last_refresh_count']}")
+
+
+@simplefin.command()
+@click.option("--set", "set_id", metavar="PROFILE_ID", help="Set default SimpleFIN profile")
+@click.option("--clear", is_flag=True, help="Clear the default SimpleFIN profile selection")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
+@click.pass_context
+def default(ctx, set_id, clear, config_dir):
+    """View or manage the default SimpleFIN profile.
+
+    With no arguments, shows the current default (if set) or lists all
+    available SimpleFIN profiles.
+
+    Use --set <profile-id> to choose a default, or --clear to remove the
+    current default.
+    """
+    config_dir = config_dir or ctx.obj.get("config_dir")
+    config_path = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+    mgr = AccountManager(config_dir=config_path)
+    simplefin_accounts = [a for a in mgr.list_accounts() if a.backend_type == "simplefin"]
+
+    if not simplefin_accounts:
+        click.echo("No SimpleFIN accounts configured.", err=True)
+        raise click.Abort()
+
+    if clear:
+        mgr.clear_backend_default("simplefin")
+        click.echo("Default SimpleFIN profile cleared.")
+        return
+
+    if set_id:
+        account = mgr.get_account(set_id)
+        if not account or account.backend_type != "simplefin":
+            click.echo(f"Invalid SimpleFIN profile ID: {set_id}", err=True)
+            click.echo("Available profiles:")
+            for a in simplefin_accounts:
+                click.echo(f"  {a.id} — {a.name}")
+            raise click.Abort()
+        mgr.set_backend_default("simplefin", set_id)
+        click.echo(f"Set '{set_id}' as default for SimpleFIN.")
+        return
+
+    # Show all profiles with default marked
+    current = mgr.get_backend_default("simplefin")
+    click.echo("Available SimpleFIN profiles:")
+    for a in simplefin_accounts:
+        if a.id == current:
+            click.echo(f"  * {a.id} — {a.name} (current default)")
+        else:
+            click.echo(f"    {a.id} — {a.name}")
+    click.echo("\nSet or change the default with: moneyflow simplefin default --set <profile-id>")
 
 
 if __name__ == "__main__":
