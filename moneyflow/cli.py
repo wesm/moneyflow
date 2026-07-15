@@ -932,8 +932,14 @@ def import_institution(name, path, force, config_dir):
 
 
 @cli.group(invoke_without_command=True, name="chase_credit")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
 @click.pass_context
-def chase_credit(ctx):
+def chase_credit(ctx, config_dir):
     """Chase Credit Card CSV import mode.
 
     Run 'moneyflow chase_credit' to launch the UI.
@@ -946,8 +952,8 @@ def chase_credit(ctx):
 
     from moneyflow.tui.app import launch_csv_mode
 
-    config_dir = str(Path.home() / ".moneyflow")
-    launch_csv_mode(institution_name="chase_credit", config_dir=config_dir)
+    cfg = config_dir or str(Path.home() / ".moneyflow")
+    launch_csv_mode(institution_name="chase_credit", config_dir=cfg)
 
 
 if __name__ == "__main__":

@@ -1,11 +1,35 @@
 """Generic CSV-backed FinanceBackend for imported transaction data."""
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
+
+STANDARD_FIELDS = frozenset(
+    {
+        "id",
+        "date",
+        "amount",
+        "merchant",
+        "category",
+        "category_id",
+        "account",
+        "notes",
+        "hideFromReports",
+        "pending",
+        "isRecurring",
+        "imported_at",
+    }
+)
+
+
+def _stable_category_id(name: str) -> str:
+    """Generate a stable category_id from a category name."""
+    slug = "".join(c if c.isalnum() else "_" for c in name).rstrip("_")
+    return f"cat_{slug}" if slug else "cat_uncategorized"
 
 
 class CsvFinanceBackend(FinanceBackend):
@@ -34,7 +58,16 @@ class CsvFinanceBackend(FinanceBackend):
             return
 
         db_path = Path(self.db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        fd = os.open(db_path, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
 
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
@@ -75,6 +108,7 @@ class CsvFinanceBackend(FinanceBackend):
 
     def _row_to_transaction_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         extras = json.loads(row["extras"] or "{}")
+        safe_extras = {k: v for k, v in extras.items() if k not in STANDARD_FIELDS}
         return {
             "id": row["id"],
             "date": row["date"],
@@ -86,7 +120,7 @@ class CsvFinanceBackend(FinanceBackend):
             "hideFromReports": bool(row["hideFromReports"]),
             "pending": False,
             "isRecurring": False,
-            **extras,
+            **safe_extras,
         }
 
     def get_backend_type(self) -> str:
@@ -114,6 +148,11 @@ class CsvFinanceBackend(FinanceBackend):
         if end_date:
             conditions.append("date <= ?")
             params.append(end_date)
+
+        hidden = kwargs.get("hidden_from_reports")
+        if hidden is not None:
+            conditions.append("hideFromReports = ?")
+            params.append(1 if hidden else 0)
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
         count_query = f"SELECT COUNT(*) FROM transactions WHERE {where_clause}"
@@ -148,6 +187,9 @@ class CsvFinanceBackend(FinanceBackend):
         if category_id is not None:
             updates.append("category_id = ?")
             params.append(category_id)
+            if kwargs.get("category_name"):
+                updates.append("category = ?")
+                params.append(kwargs["category_name"])
         if hide_from_reports is not None:
             updates.append("hideFromReports = ?")
             params.append(int(hide_from_reports))

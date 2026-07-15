@@ -2777,6 +2777,7 @@ def launch_csv_mode(
             demo_mode=False,
             backend=backend,
             config=config,
+            config_dir=config_dir,
             profile_dir=profile_dir,
             backend_type=f"csv_{institution_name}",
         )
