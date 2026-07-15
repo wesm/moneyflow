@@ -104,6 +104,8 @@ them from the account selector.
 - **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
 - **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official
   data exports
+- **[CSV Import](guide/csv-import.md)** - Import transaction histories from bank CSV exports with
+  pluggable institution mappings
 - **Demo Mode** - Synthetic data for testing features
 - **[SimpleFIN](guide/simplefin.md)** - Import read-only account and transaction
   data from a SimpleFIN server; moneyflow edits are stored locally
@@ -112,7 +114,6 @@ them from the account selector.
 
 - Lunch Money
 - Actual Budget
-- Generic CSV import for any platform
 
 The backend system is pluggable—adding new platforms is straightforward.
 See [Contributing](development/contributing.md) if you want to add support for your platform.
