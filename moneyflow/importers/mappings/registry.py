@@ -1,4 +1,5 @@
 """Registry of institution mappings."""
+
 from moneyflow.importers.engine import InstitutionMapping
 
 from .chase import chase_credit_mapping

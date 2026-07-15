@@ -1,4 +1,5 @@
 """Chase credit card CSV mapping."""
+
 from moneyflow.importers.engine import InstitutionMapping
 
 chase_credit_mapping = InstitutionMapping(

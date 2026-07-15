@@ -1,4 +1,5 @@
 """Generic CSV import engine with pluggable institution mappings."""
+
 import json
 import re
 from dataclasses import dataclass
@@ -59,9 +60,7 @@ class InstitutionMapping:
                     "Cannot specify both 'amount' column and split debit/credit columns"
                 )
         elif self.debit_column is not None or self.credit_column is not None:
-            raise ValueError(
-                "Must specify both debit_column and credit_column, or neither"
-            )
+            raise ValueError("Must specify both debit_column and credit_column, or neither")
         else:
             missing = required_standard - mapped_values
             if missing:
@@ -82,9 +81,7 @@ def import_csv(
 
     csv_files = sorted(Path(path).rglob(mapping.file_pattern))
     if not csv_files:
-        raise FileNotFoundError(
-            f"No files matching '{mapping.file_pattern}' found in {path}"
-        )
+        raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
 
     imported_filenames: set[str] = set()
     if not force:
@@ -133,7 +130,8 @@ def import_csv(
         if date_col in combined.columns:
             if mapping.date_fmt:
                 combined = combined.with_columns(
-                    pl.col(date_col).str.to_date(mapping.date_fmt, strict=False)
+                    pl.col(date_col)
+                    .str.to_date(mapping.date_fmt, strict=False)
                     .cast(pl.String)
                     .alias(date_col)
                 )
@@ -158,8 +156,7 @@ def import_csv(
     # Flip amount sign
     if "amount" in combined.columns:
         combined = combined.with_columns(
-            (pl.col("amount").cast(pl.Float64, strict=False) * mapping.amount_sign)
-            .alias("amount")
+            (pl.col("amount").cast(pl.Float64, strict=False) * mapping.amount_sign).alias("amount")
         )
 
     # Collect existing IDs for dedup
@@ -203,17 +200,21 @@ def import_csv(
         account_val = _safe_str(row.get("account"))
         notes_val = _safe_str(row.get("notes"))
 
-        extras = {
-            col: _safe_str(row.get(col))
-            for col in mapping.extra_columns
-            if col in row
-        }
+        extras = {col: _safe_str(row.get(col)) for col in mapping.extra_columns if col in row}
 
-        insert_batch.append((
-            txn_id, date_val, amount_val, merchant_val,
-            category_val, category_id_val, account_val, notes_val,
-            json.dumps(extras),
-        ))
+        insert_batch.append(
+            (
+                txn_id,
+                date_val,
+                amount_val,
+                merchant_val,
+                category_val,
+                category_id_val,
+                account_val,
+                notes_val,
+                json.dumps(extras),
+            )
+        )
         imported += 1
 
     if insert_batch:

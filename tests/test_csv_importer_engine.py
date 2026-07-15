@@ -1,4 +1,5 @@
 """Tests for CSV import engine and InstitutionMapping."""
+
 import dataclasses
 import json
 from pathlib import Path
@@ -199,10 +200,7 @@ class TestImportCsv:
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
         csv_file.write_text(
-            "Transaction Date,Description,Amount\n"
-            "7/12/2026,Real Transaction,-50.00\n"
-            ",,,\n"
-            ",,,\n"
+            "Transaction Date,Description,Amount\n7/12/2026,Real Transaction,-50.00\n,,,\n,,,\n"
         )
 
         trail_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
@@ -215,13 +213,12 @@ class TestImportCsv:
         csv_dir.mkdir()
         csv_file = csv_dir / "test_dup.csv"
         csv_file.write_text(
-            "Transaction Date,Description,Amount\n"
-            "7/12/2026,Coffee,-4.50\n"
-            "7/12/2026,Coffee,-4.50\n"
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/12/2026,Coffee,-4.50\n"
         )
 
-        dup_mapping = _copy_mapping(test_mapping, file_pattern="test_dup.csv",
-                                     id_fields=("date", "amount", "merchant"))
+        dup_mapping = _copy_mapping(
+            test_mapping, file_pattern="test_dup.csv", id_fields=("date", "amount", "merchant")
+        )
 
         result = import_csv(str(csv_dir), dup_mapping, test_backend)
         assert result["imported"] == 2
@@ -252,6 +249,7 @@ class TestChaseCreditIntegration:
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()
         import shutil
+
         shutil.copy(sample, csv_dir / "Chase1234_Activity.csv")
 
         result = import_csv(str(csv_dir), mapping, backend)

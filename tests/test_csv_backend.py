@@ -1,4 +1,5 @@
 """Tests for CsvFinanceBackend."""
+
 import asyncio
 
 import pytest
@@ -53,16 +54,24 @@ class TestCsvFinanceBackend:
         conn.close()
         col_names = {row[1] for row in cols}
         for col in (
-            "id", "date", "amount", "merchant", "category", "category_id",
-            "account", "notes", "extras", "hideFromReports", "imported_at",
+            "id",
+            "date",
+            "amount",
+            "merchant",
+            "category",
+            "category_id",
+            "account",
+            "notes",
+            "extras",
+            "hideFromReports",
+            "imported_at",
         ):
             assert col in col_names
 
     def test_insert_and_get_transactions(self, chase_backend):
         conn = chase_backend._get_connection()
         conn.execute(
-            "INSERT INTO transactions (id, date, amount, merchant, extras) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO transactions (id, date, amount, merchant, extras) VALUES (?, ?, ?, ?, ?)",
             ("chase_001", "2026-07-12", -50.0, "EXAMPLE GIFT SHOP", '{"raw_category":"Gifts"}'),
         )
         conn.commit()
@@ -122,9 +131,7 @@ class TestCsvFinanceBackend:
         asyncio.run(_run())
 
         conn = chase_backend._get_connection()
-        exists = conn.execute(
-            "SELECT 1 FROM transactions WHERE id = ?", ("chase_003",)
-        ).fetchone()
+        exists = conn.execute("SELECT 1 FROM transactions WHERE id = ?", ("chase_003",)).fetchone()
         conn.close()
         assert exists is None
 
@@ -154,8 +161,7 @@ class TestCsvFinanceBackend:
     def test_get_import_history(self, chase_backend):
         conn = chase_backend._get_connection()
         conn.execute(
-            "INSERT INTO import_history (filename, record_count, duplicate_count) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO import_history (filename, record_count, duplicate_count) VALUES (?, ?, ?)",
             ("test.csv", 100, 5),
         )
         conn.commit()

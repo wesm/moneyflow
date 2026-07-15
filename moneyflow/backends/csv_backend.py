@@ -1,8 +1,9 @@
 """Generic CSV-backed FinanceBackend for imported transaction data."""
+
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
 
@@ -119,8 +120,7 @@ class CsvFinanceBackend(FinanceBackend):
         total = conn.execute(count_query, params).fetchone()[0]
 
         query = (
-            f"SELECT * FROM transactions WHERE {where_clause} "
-            "ORDER BY date DESC LIMIT ? OFFSET ?"
+            f"SELECT * FROM transactions WHERE {where_clause} ORDER BY date DESC LIMIT ? OFFSET ?"
         )
         params.extend([limit, offset])
         rows = conn.execute(query, params).fetchall()
@@ -160,9 +160,7 @@ class CsvFinanceBackend(FinanceBackend):
             )
             conn.commit()
 
-        row = conn.execute(
-            "SELECT * FROM transactions WHERE id = ?", (transaction_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
         conn.close()
         if row is None:
             return {"updateTransaction": {"transaction": {"id": transaction_id}}}
@@ -186,13 +184,10 @@ class CsvFinanceBackend(FinanceBackend):
 
     async def get_transaction_categories(self) -> dict[str, Any]:
         conn = self._get_connection()
-        rows = conn.execute(
-            "SELECT DISTINCT category_id, category FROM transactions"
-        ).fetchall()
+        rows = conn.execute("SELECT DISTINCT category_id, category FROM transactions").fetchall()
         conn.close()
         categories = [
-            {"id": row[0], "name": row[1], "group": {"id": "", "type": "expense"}}
-            for row in rows
+            {"id": row[0], "name": row[1], "group": {"id": "", "type": "expense"}} for row in rows
         ]
         return {"categories": categories}
 
@@ -209,9 +204,7 @@ class CsvFinanceBackend(FinanceBackend):
     def get_import_history(self) -> list[dict[str, Any]]:
         conn = self._get_connection()
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM import_history ORDER BY import_date DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM import_history ORDER BY import_date DESC").fetchall()
         conn.close()
         return [dict(row) for row in rows]
 
@@ -223,8 +216,7 @@ class CsvFinanceBackend(FinanceBackend):
             "SELECT MIN(date) AS earliest, MAX(date) AS latest FROM transactions"
         ).fetchone()
         total_amount = (
-            conn.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions").fetchone()[0]
-            or 0.0
+            conn.execute("SELECT COALESCE(SUM(amount), 0) FROM transactions").fetchone()[0] or 0.0
         )
         conn.close()
         return {
