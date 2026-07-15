@@ -2750,5 +2750,49 @@ def launch_simplefin_mode(
         sys.exit(1)
 
 
+def launch_csv_mode(
+    institution_name: str,
+    config_dir: str | None = None,
+    profile_dir: Path | None = None,
+) -> None:
+    """Launch moneyflow for a CSV-backed institution."""
+    from moneyflow.backends.csv_backend import CsvFinanceBackend
+    from moneyflow.tui.backend_config import get_csv_backend_config
+
+    logger = setup_logging(console_output=False, config_dir=config_dir)
+    logger.info(f"Starting moneyflow in CSV mode for {institution_name}")
+
+    if profile_dir is None:
+        profile_dir = Path.home() / ".moneyflow" / "profiles" / f"csv_{institution_name}"
+
+    try:
+        backend = CsvFinanceBackend(
+            profile_dir=profile_dir,
+            config_dir=config_dir,
+            institution_name=institution_name,
+        )
+        config = get_csv_backend_config(institution_name)
+
+        app = MoneyflowApp(
+            demo_mode=False,
+            backend=backend,
+            config=config,
+            profile_dir=profile_dir,
+            backend_type=f"csv_{institution_name}",
+        )
+        app.title = f"moneyflow [CSV: {institution_name}]"
+
+        app.run()
+    except Exception:
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("FATAL ERROR - moneyflow CSV mode crashed!", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("Please report this error with the traceback above.", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     main()

@@ -854,5 +854,103 @@ def default(ctx, set_id, clear, config_dir):
     click.echo("\nSet or change the default with: moneyflow simplefin default --set <profile-id>")
 
 
+@cli.group(name="import", invoke_without_command=True)
+@click.pass_context
+def import_group(ctx):
+    """Import transactions from CSV files."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@import_group.command(name="list")
+def import_list():
+    """List available institution mappings."""
+    from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+    click.echo("Available institution mappings:\n")
+    for name, mapping in sorted(INSTITUTION_MAPPINGS.items()):
+        click.echo(f"  {name:20s} {mapping.display_name}")
+    click.echo()
+
+
+@import_group.command(name="institution")
+@click.argument("name")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--force", is_flag=True, help="Force re-import of already-imported files")
+@click.option("--config-dir", type=click.Path(), default=None, help=CONFIG_DIR_HELP)
+def import_institution(name, path, force, config_dir):
+    """Import CSV files for an institution."""
+    from pathlib import Path as PathLib
+
+    from moneyflow.backends.csv_backend import CsvFinanceBackend
+    from moneyflow.importers.engine import import_csv as do_import
+    from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+    if name not in INSTITUTION_MAPPINGS:
+        click.echo(f"Unknown institution: {name}", err=True)
+        click.echo("Available:", err=True)
+        for n in sorted(INSTITUTION_MAPPINGS.keys()):
+            click.echo(f"  {n}", err=True)
+        raise click.Abort()
+
+    mapping = INSTITUTION_MAPPINGS[name]
+    config = config_dir or str(PathLib.home() / ".moneyflow")
+    profile = PathLib(config) / "profiles" / f"csv_{name}"
+    profile.mkdir(parents=True, exist_ok=True)
+
+    backend = CsvFinanceBackend(
+        profile_dir=profile, config_dir=config, institution_name=name
+    )
+
+    click.echo(f"Importing {mapping.display_name} transactions from {path}...")
+
+    try:
+        stats = do_import(path, mapping, backend, force=force)
+
+        click.echo(f"\n  Imported: {stats['imported']:,} new transactions")
+        if stats["duplicates"] > 0:
+            click.echo(f"  Duplicates: {stats['duplicates']:,} (already in database)")
+        if stats["skipped"] > 0:
+            click.echo(f"  Skipped: {stats['skipped']:,}")
+
+        db_stats = backend.get_database_stats()
+        click.echo("\nDatabase summary:")
+        click.echo(f"  Total transactions: {db_stats['total_transactions']:,}")
+        if db_stats["earliest_date"] and db_stats["latest_date"]:
+            click.echo(
+                f"  Date range: {db_stats['earliest_date']} \u2192 {db_stats['latest_date']}"
+            )
+        click.echo(f"  Total amount: ${db_stats['total_amount']:,.2f}")
+
+        click.echo("\n  Ready! Launch moneyflow:")
+        click.echo(f"  $ moneyflow {name}")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Import failed: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.group(invoke_without_command=True, name="chase_credit")
+@click.pass_context
+def chase_credit(ctx):
+    """Chase Credit Card CSV import mode.
+
+    Run 'moneyflow chase_credit' to launch the UI.
+    Import data first: moneyflow import institution chase_credit <path>
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from pathlib import Path
+
+    from moneyflow.tui.app import launch_csv_mode
+
+    config_dir = str(Path.home() / ".moneyflow")
+    launch_csv_mode(institution_name="chase_credit", config_dir=config_dir)
+
+
 if __name__ == "__main__":
     cli()

@@ -123,3 +123,17 @@ def get_backend_config(backend_type: str) -> BackendConfig:
         'Payee'
     """
     return BACKEND_CONFIGS.get(backend_type, MONARCH_CONFIG)
+
+
+def get_csv_backend_config(institution_name: str) -> BackendConfig:
+    """Create a BackendConfig for a CSV-backed institution."""
+    return BackendConfig(
+        backend_type=f"csv_{institution_name}",
+        merchant_field_name="Description",
+        grouping_modes=("merchant", "category"),
+        show_quantity=False,
+        show_price_per_item=False,
+        has_accounts=False,
+        has_groups=False,
+        requires_auth=False,
+    )
