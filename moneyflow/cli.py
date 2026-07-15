@@ -898,9 +898,7 @@ def import_institution(name, path, force, config_dir):
     profile = PathLib(config) / "profiles" / f"csv_{name}"
     profile.mkdir(parents=True, exist_ok=True)
 
-    backend = CsvFinanceBackend(
-        profile_dir=profile, config_dir=config, institution_name=name
-    )
+    backend = CsvFinanceBackend(profile_dir=profile, config_dir=config, institution_name=name)
 
     click.echo(f"Importing {mapping.display_name} transactions from {path}...")
 
