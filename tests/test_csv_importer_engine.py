@@ -231,3 +231,44 @@ class TestImportCsv:
         conn.close()
         assert len(ids) == 2
         assert ids[0] != ids[1]
+
+
+class TestChaseCreditIntegration:
+    def test_import_chase_csv(self, tmp_path):
+        from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+        mapping = INSTITUTION_MAPPINGS["chase_credit"]
+        profile = tmp_path / "chase_profile"
+        profile.mkdir()
+        config = tmp_path / "chase_config"
+        config.mkdir()
+        backend = CsvFinanceBackend(
+            profile_dir=profile,
+            config_dir=str(config),
+            institution_name="chase_credit",
+        )
+
+        sample = Path(__file__).parent / "data" / "chase_sample.csv"
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        import shutil
+        shutil.copy(sample, csv_dir / "Chase1234_Activity.csv")
+
+        result = import_csv(str(csv_dir), mapping, backend)
+        assert result["imported"] == 5
+        assert result["duplicates"] == 0
+        assert result["skipped"] == 0
+
+        conn = backend._get_connection()
+        row = conn.execute(
+            "SELECT id, date, amount, merchant, category, notes, extras "
+            "FROM transactions WHERE amount = -50.0"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[1] == "2026-07-12"
+        assert row[3] == "EXAMPLE GIFT SHOP"
+        assert row[4] == "Gifts & Donations"
+        assert row[5] == ""
+        extras = json.loads(row[6])
+        assert extras["type"] == "Sale"

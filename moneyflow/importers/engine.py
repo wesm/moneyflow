@@ -9,6 +9,13 @@ import polars as pl
 from moneyflow.backends.csv_backend import CsvFinanceBackend
 
 
+def _safe_str(val: object) -> str:
+    """Convert a value to string, treating None as empty."""
+    if val is None:
+        return ""
+    return str(val)
+
+
 def _slugify(text: str) -> str:
     """Convert a string into a safe identifier fragment."""
     return re.sub(r"[^a-zA-Z0-9_.-]", "_", str(text))
@@ -174,7 +181,7 @@ def import_csv(
         # Generate ID from field values
         id_parts = []
         for field in mapping.id_fields:
-            val = str(row.get(field, "")).strip()
+            val = _safe_str(row.get(field)).strip()
             id_parts.append(val)
         raw_id = mapping.id_prefix + "_".join(_slugify(p) for p in id_parts)
 
@@ -187,17 +194,17 @@ def import_csv(
             duplicates += 1
             continue
 
-        date_val = str(row.get("date", ""))
+        date_val = _safe_str(row.get("date"))
         amount_raw = row.get("amount", 0.0)
         amount_val = float(amount_raw) if amount_raw is not None else 0.0
-        merchant_val = str(row.get("merchant", ""))
-        category_val = str(row.get("category", mapping.default_category))
-        category_id_val = str(row.get("category_id", mapping.default_category_id))
-        account_val = str(row.get("account", ""))
-        notes_val = str(row.get("notes", ""))
+        merchant_val = _safe_str(row.get("merchant"))
+        category_val = _safe_str(row.get("category")) or mapping.default_category
+        category_id_val = _safe_str(row.get("category_id")) or mapping.default_category_id
+        account_val = _safe_str(row.get("account"))
+        notes_val = _safe_str(row.get("notes"))
 
         extras = {
-            col: str(row.get(col, ""))
+            col: _safe_str(row.get(col))
             for col in mapping.extra_columns
             if col in row
         }
