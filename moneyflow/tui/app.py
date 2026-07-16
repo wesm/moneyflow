@@ -2763,7 +2763,8 @@ def launch_csv_mode(
     logger.info(f"Starting moneyflow in CSV mode for {institution_name}")
 
     if profile_dir is None:
-        profile_dir = Path.home() / ".moneyflow" / "profiles" / f"csv_{institution_name}"
+        base = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+        profile_dir = base / "profiles" / f"csv_{institution_name}"
 
     try:
         backend = CsvFinanceBackend(

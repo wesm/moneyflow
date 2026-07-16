@@ -5,6 +5,7 @@ Provides Click-based CLI for launching moneyflow with different backends
 (Monarch Money, Amazon, Demo) and managing data imports.
 """
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -897,6 +898,7 @@ def import_institution(name, path, force, config_dir):
     config = config_dir or str(PathLib.home() / ".moneyflow")
     profile = PathLib(config) / "profiles" / f"csv_{name}"
     profile.mkdir(parents=True, exist_ok=True)
+    os.chmod(profile, 0o700)
 
     backend = CsvFinanceBackend(profile_dir=profile, config_dir=config, institution_name=name)
 

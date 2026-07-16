@@ -59,6 +59,7 @@ class CsvFinanceBackend(FinanceBackend):
 
         db_path = Path(self.db_path)
         db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(db_path.parent, 0o700)
 
         flags = os.O_RDWR | os.O_CREAT
         if hasattr(os, "O_CLOEXEC"):
@@ -174,6 +175,7 @@ class CsvFinanceBackend(FinanceBackend):
         merchant_name: str | None = None,
         category_id: str | None = None,
         hide_from_reports: bool | None = None,
+        category_name: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         conn = self._get_connection()
@@ -187,9 +189,10 @@ class CsvFinanceBackend(FinanceBackend):
         if category_id is not None:
             updates.append("category_id = ?")
             params.append(category_id)
-            if kwargs.get("category_name"):
-                updates.append("category = ?")
-                params.append(kwargs["category_name"])
+        if category_name is not None or kwargs.get("category_name"):
+            name = category_name or kwargs.get("category_name", "")
+            updates.append("category = ?")
+            params.append(name)
         if hide_from_reports is not None:
             updates.append("hideFromReports = ?")
             params.append(int(hide_from_reports))

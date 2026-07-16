@@ -187,10 +187,16 @@ def import_csv(
     imported = 0
     duplicates = 0
     skipped = 0
-    id_counts: dict[str, int] = {}
+
+    # Track dedup keys per-source-file to reset between files
     insert_batch: list[tuple] = []
 
     rows_iter = combined.iter_rows(named=True)
+    id_counts: dict[str, int] = {}
+
+    # Count rows before date filtering to track date-parse failures
+    total_before_date_filter = combined.height
+    good_rows = 0
     for row in rows_iter:
         # Validate required values
         date_val = _safe_str(row.get("date"))
@@ -201,18 +207,26 @@ def import_csv(
             skipped += 1
             continue
 
+        good_rows += 1
         amount_val = float(amount_raw)
 
-        # Generate ID from field values
+        # Build dedup key from dedup_fields
+        dedup_parts = []
+        for field in mapping.dedup_fields:
+            val = _safe_str(row.get(field)).strip()
+            dedup_parts.append(val)
+        dedup_key = "|".join(_slugify(p) for p in dedup_parts)
+
+        # Build transaction ID from id_fields
         id_parts = []
         for field in mapping.id_fields:
             val = _safe_str(row.get(field)).strip()
             id_parts.append(val)
         raw_id = mapping.id_prefix + "_".join(_slugify(p) for p in id_parts)
 
-        # Handle duplicate IDs within batch
-        seq = id_counts.get(raw_id, 0) + 1
-        id_counts[raw_id] = seq
+        # Handle duplicate dedup_keys within source file
+        seq = id_counts.get(dedup_key, 0) + 1
+        id_counts[dedup_key] = seq
         txn_id = f"{raw_id}_{seq}"
 
         if not force and txn_id in existing_ids:
@@ -250,6 +264,10 @@ def import_csv(
             )
         )
         imported += 1
+
+    # Count date-parsing failures as skipped
+    date_parse_failures = total_before_date_filter - good_rows - skipped
+    skipped += max(0, date_parse_failures)
 
     if insert_batch:
         conn = backend._get_connection()

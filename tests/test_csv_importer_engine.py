@@ -260,13 +260,13 @@ class TestChaseCreditIntegration:
         conn = backend._get_connection()
         row = conn.execute(
             "SELECT id, date, amount, merchant, category, notes, extras "
-            "FROM transactions WHERE amount = -50.0"
+            "FROM transactions WHERE amount = -25.0"
         ).fetchone()
         conn.close()
         assert row is not None
-        assert row[1] == "2026-07-12"
-        assert row[3] == "EXAMPLE GIFT SHOP"
-        assert row[4] == "Gifts & Donations"
-        assert row[5] == ""
+        assert row[1] == "2024-01-15"
+        assert row[3] == "EXAMPLE MERCHANT 1"
+        assert row[4] == "Shopping"
+        assert row[5] == "Test memo one"
         extras = json.loads(row[6])
         assert extras["type"] == "Sale"
