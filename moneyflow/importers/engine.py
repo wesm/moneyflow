@@ -1,7 +1,7 @@
 """Generic CSV import engine with pluggable institution mappings."""
 
+import hashlib
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,9 +17,11 @@ def _safe_str(val: object) -> str:
     return str(val)
 
 
-def _slugify(text: str) -> str:
-    """Convert a string into a safe identifier fragment."""
-    return re.sub(r"[^a-zA-Z0-9_.-]", "_", str(text))
+def _hash_id(prefix: str, fields: list[str]) -> str:
+    """Generate a collision-resistant transaction ID from field values."""
+    joined = "\x00".join(_safe_str(f) for f in fields)
+    digest = hashlib.sha256(joined.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"{prefix}{digest}"
 
 
 @dataclass(frozen=True)
@@ -82,123 +84,91 @@ class InstitutionMapping:
         return issues
 
 
-def import_csv(
-    path: str,
-    mapping: InstitutionMapping,
-    backend: CsvFinanceBackend,
-    *,
-    force: bool = False,
-) -> dict[str, int]:
-    """Import CSV files matching the institution's file pattern into the backend."""
-    mapping.validate()
-
-    csv_files = sorted(Path(path).rglob(mapping.file_pattern))
-    if not csv_files:
-        raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
-
-    imported_filenames: set[str] = set()
-    if not force:
-        history = backend.get_import_history()
-        imported_filenames = {h["filename"] for h in history}
-
-    new_files = [f for f in csv_files if f.name not in imported_filenames]
-    files_to_read = csv_files if force else new_files
-
-    dfs = []
-    for csv_file in files_to_read:
-        try:
-            df = pl.read_csv(
-                str(csv_file),
-                infer_schema_length=0,
-                encoding=mapping.encoding,
-                truncate_ragged_lines=True,
-                skip_rows=mapping.skip_rows,
-            )
-        except Exception as e:
-            raise ValueError(f"Failed to read {csv_file}: {e}") from e
-
-        column_issues = mapping.validate_csv_columns(set(df.columns))
-        if column_issues:
-            raise ValueError(
-                f"Column validation failed for {csv_file.name}: {'; '.join(column_issues)}"
-            )
-        dfs.append(df)
-
-    if not dfs:
-        return {"imported": 0, "duplicates": 0, "skipped": 0}
-
-    combined = pl.concat(dfs)
-
+def _prepare_dataframe(df: pl.DataFrame, mapping: InstitutionMapping) -> pl.DataFrame:
+    """Apply column rename, date parsing, garbage filtering, and sign flip."""
     # Handle split Debit/Credit columns
     if mapping.debit_column and mapping.credit_column:
         debit_col = mapping.debit_column
         credit_col = mapping.credit_column
-        if debit_col in combined.columns and credit_col in combined.columns:
-            debit = combined[debit_col].cast(pl.Float64, strict=False).fill_null(0)
-            credit = combined[credit_col].cast(pl.Float64, strict=False).fill_null(0)
-            combined = combined.with_columns((credit - debit).alias("amount"))
+        if debit_col in df.columns and credit_col in df.columns:
+            debit = df[debit_col].cast(pl.Float64, strict=False).fill_null(0)
+            credit = df[credit_col].cast(pl.Float64, strict=False).fill_null(0)
+            df = df.with_columns((credit - debit).alias("amount"))
 
     # Rename columns
-    combined = combined.rename(mapping.column_map, strict=False)
+    df = df.rename(mapping.column_map, strict=False)
 
     # Parse dates
     date_fields = mapping.date_columns or ("date",)
     for date_col in date_fields:
-        if date_col in combined.columns:
+        if date_col in df.columns:
             if mapping.date_fmt:
-                combined = combined.with_columns(
+                df = df.with_columns(
                     pl.col(date_col)
                     .str.to_date(mapping.date_fmt, strict=False)
                     .cast(pl.String)
                     .alias(date_col)
                 )
             else:
-                combined = combined.with_columns(
+                df = df.with_columns(
                     pl.col(date_col).str.to_date(strict=False).cast(pl.String).alias(date_col)
                 )
 
-    # Drop rows where date parsing failed
+    # Drop malformed-date rows (null after parse)
     for date_col in date_fields:
-        if date_col in combined.columns:
-            combined = combined.filter(pl.col(date_col).is_not_null())
+        if date_col in df.columns:
+            df = df.filter(pl.col(date_col).is_not_null())
 
-    # Filter trailing garbage rows: drop rows where all core columns are null
-    core_cols = [c for c in ("date", "amount", "merchant") if c in combined.columns]
+    # Filter trailing garbage rows
+    core_cols = [c for c in ("date", "amount", "merchant") if c in df.columns]
     if core_cols:
         has_data = pl.lit(False)
         for col in core_cols:
-            has_data = has_data | combined[col].is_not_null()
-        combined = combined.filter(has_data)
+            has_data = has_data | df[col].is_not_null()
+        df = df.filter(has_data)
 
     # Flip amount sign
-    if "amount" in combined.columns:
-        combined = combined.with_columns(
+    if "amount" in df.columns:
+        df = df.with_columns(
             (pl.col("amount").cast(pl.Float64, strict=False) * mapping.amount_sign).alias("amount")
         )
 
-    # Collect existing IDs for dedup
-    existing_ids: set[str] = set()
-    if not force:
-        conn = backend._get_connection()
-        rows = conn.execute("SELECT id FROM transactions").fetchall()
-        conn.close()
-        existing_ids = {row[0] for row in rows}
+    return df
+
+
+def _process_file(
+    csv_file: Path,
+    mapping: InstitutionMapping,
+    backend: CsvFinanceBackend,
+    existing_ids: set[str],
+    seen_dedup_keys: set[str],
+) -> dict[str, int]:
+    """Process a single CSV file, returning {imported, duplicates, skipped}."""
+    df = pl.read_csv(
+        str(csv_file),
+        infer_schema_length=0,
+        encoding=mapping.encoding,
+        truncate_ragged_lines=True,
+        skip_rows=mapping.skip_rows,
+    )
+
+    column_issues = mapping.validate_csv_columns(set(df.columns))
+    if column_issues:
+        raise ValueError(
+            f"Column validation failed for {csv_file.name}: {'; '.join(column_issues)}"
+        )
+
+    raw_row_count = df.height
+    df = _prepare_dataframe(df, mapping)
+    post_filter_count = df.height
 
     imported = 0
     duplicates = 0
-    skipped = 0
-
-    # Track dedup keys per-source-file to reset between files
+    skipped = raw_row_count - post_filter_count
+    dedup_counts: dict[str, int] = {}
     insert_batch: list[tuple] = []
 
-    rows_iter = combined.iter_rows(named=True)
-    id_counts: dict[str, int] = {}
-
-    # Count rows before date filtering to track date-parse failures
-    total_before_date_filter = combined.height
-    good_rows = 0
-    for row in rows_iter:
-        # Validate required values
+    for row in df.iter_rows(named=True):
         date_val = _safe_str(row.get("date"))
         merchant_val = _safe_str(row.get("merchant"))
         amount_raw = row.get("amount")
@@ -207,31 +177,31 @@ def import_csv(
             skipped += 1
             continue
 
-        good_rows += 1
         amount_val = float(amount_raw)
 
         # Build dedup key from dedup_fields
-        dedup_parts = []
-        for field in mapping.dedup_fields:
-            val = _safe_str(row.get(field)).strip()
-            dedup_parts.append(val)
-        dedup_key = "|".join(_slugify(p) for p in dedup_parts)
+        dedup_parts = [_safe_str(row.get(f)).strip() for f in mapping.dedup_fields]
+        dedup_key = "\x00".join(dedup_parts)
 
-        # Build transaction ID from id_fields
-        id_parts = []
-        for field in mapping.id_fields:
-            val = _safe_str(row.get(field)).strip()
-            id_parts.append(val)
-        raw_id = mapping.id_prefix + "_".join(_slugify(p) for p in id_parts)
-
-        # Handle duplicate dedup_keys within source file
-        seq = id_counts.get(dedup_key, 0) + 1
-        id_counts[dedup_key] = seq
-        txn_id = f"{raw_id}_{seq}"
-
-        if not force and txn_id in existing_ids:
+        # Cross-file dedup: skip only if key was accepted from a previous file
+        if dedup_key in seen_dedup_keys:
             duplicates += 1
             continue
+
+        # In-file dedup: handle same-day identical transactions via sequence suffix
+        seq = dedup_counts.get(dedup_key, 0) + 1
+        dedup_counts[dedup_key] = seq
+
+        # Generate hash-based ID from id_fields
+        id_parts = [_safe_str(row.get(f)).strip() for f in mapping.id_fields]
+        id_suffix = f"_{seq}" if seq > 1 else ""
+        txn_id = _hash_id(mapping.id_prefix, id_parts) + id_suffix
+
+        if txn_id in existing_ids:
+            duplicates += 1
+            continue
+
+        existing_ids.add(txn_id)
 
         category_val = _safe_str(row.get("category")) or mapping.default_category
         category_id_val = _safe_str(row.get("category_id"))
@@ -240,9 +210,6 @@ def import_csv(
                 category_id_val = _stable_category_id(category_val)
             else:
                 category_id_val = mapping.default_category_id
-
-        account_val = _safe_str(row.get("account"))
-        notes_val = _safe_str(row.get("notes"))
 
         extras = {
             col: _safe_str(row.get(col))
@@ -258,26 +225,23 @@ def import_csv(
                 merchant_val,
                 category_val,
                 category_id_val,
-                account_val,
-                notes_val,
+                _safe_str(row.get("account")),
+                _safe_str(row.get("notes")),
                 json.dumps(extras),
             )
         )
         imported += 1
 
-    # Count date-parsing failures as skipped
-    date_parse_failures = total_before_date_filter - good_rows - skipped
-    skipped += max(0, date_parse_failures)
+        # Mark dedup key as seen only after successfully accepting the row
+        # (in-file duplicates get suffix, cross-file duplicates get skipped)
+        if imported == dedup_counts.get(dedup_key, 0):
+            pass  # dedup_counts already tracks this
+
+    # After processing all rows in this file, add accepted keys to seen set
+    seen_dedup_keys |= set(dedup_counts.keys())
 
     if insert_batch:
         conn = backend._get_connection()
-        if force:
-            conn.execute(
-                "DELETE FROM transactions WHERE id IN ({})".format(
-                    ",".join("?" for _ in insert_batch)
-                ),
-                [row[0] for row in insert_batch],
-            )
         conn.executemany(
             """INSERT OR IGNORE INTO transactions
                (id, date, amount, merchant, category, category_id, account, notes, extras)
@@ -287,16 +251,78 @@ def import_csv(
         conn.commit()
         conn.close()
 
+    return {"imported": imported, "duplicates": duplicates, "skipped": skipped}
+
+
+def import_csv(
+    path: str,
+    mapping: InstitutionMapping,
+    backend: CsvFinanceBackend,
+    *,
+    force: bool = False,
+) -> dict[str, int]:
+    """Import CSV files matching the institution's file pattern into the backend."""
+    mapping.validate()
+
+    csv_files = sorted(Path(path).rglob(mapping.file_pattern))
+    if not csv_files:
+        raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
+
+    # Build lookup of already-imported files by (resolved_path, file_size)
+    imported_snapshots: dict[str, int] = {}
+    if not force:
+        history = backend.get_import_history()
+        for h in history:
+            fname = h.get("filename", "")
+            fsize = h.get("file_size", 0)
+            if fname and fsize:
+                imported_snapshots[fname] = fsize
+
+    # Load existing IDs once
+    existing_ids: set[str] = set()
+    if not force:
+        conn = backend._get_connection()
+        rows = conn.execute("SELECT id FROM transactions").fetchall()
+        conn.close()
+        existing_ids = {row[0] for row in rows}
+
+    seen_dedup_keys: set[str] = set()
+    total_imported = 0
+    total_duplicates = 0
+    total_skipped = 0
+    new_files: list[tuple[Path, dict[str, int]]] = []
+
+    for csv_file in csv_files:
+        resolved = str(csv_file.resolve())
+        file_size = csv_file.stat().st_size
+
+        # Skip files already imported with same size
+        if resolved in imported_snapshots and imported_snapshots[resolved] == file_size:
+            continue
+
+        try:
+            stats = _process_file(csv_file, mapping, backend, existing_ids, seen_dedup_keys)
+        except Exception as e:
+            raise ValueError(f"Failed to process {csv_file}: {e}") from e
+
+        total_imported += stats["imported"]
+        total_duplicates += stats["duplicates"]
+        total_skipped += stats["skipped"]
+        new_files.append((csv_file, stats))
+
     # Record import history per file
     if new_files:
         import_conn = backend._get_connection()
-        for csv_file in new_files:
+        for csv_file, stats in new_files:
+            resolved = str(csv_file.resolve())
+            file_size = csv_file.stat().st_size
             import_conn.execute(
-                "INSERT INTO import_history (filename, record_count, duplicate_count, "
-                "skipped_count) VALUES (?, ?, ?, ?)",
-                (csv_file.name, imported, duplicates, skipped),
+                "INSERT INTO import_history "
+                "(filename, file_size, record_count, duplicate_count, skipped_count) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (resolved, file_size, stats["imported"], stats["duplicates"], stats["skipped"]),
             )
         import_conn.commit()
         import_conn.close()
 
-    return {"imported": imported, "duplicates": duplicates, "skipped": skipped}
+    return {"imported": total_imported, "duplicates": total_duplicates, "skipped": total_skipped}

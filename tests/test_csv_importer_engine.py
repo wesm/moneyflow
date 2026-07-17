@@ -25,11 +25,7 @@ class TestInstitutionMapping:
             file_pattern="test_*.csv",
             id_prefix="test_",
             date_fmt="%m/%d/%Y",
-            column_map={
-                "Date": "date",
-                "Description": "merchant",
-                "Amount": "amount",
-            },
+            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
             amount_sign=1,
             skip_rows=0,
             dedup_fields=("date", "amount", "merchant"),
@@ -76,11 +72,7 @@ class TestInstitutionMapping:
             file_pattern="*.csv",
             id_prefix="c_",
             date_fmt=None,
-            column_map={
-                "Date": "date",
-                "Description": "merchant",
-                "Amount": "amount",
-            },
+            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
             amount_sign=1,
             skip_rows=0,
             dedup_fields=("date", "amount", "merchant"),
@@ -106,11 +98,7 @@ def test_mapping():
         file_pattern="test_*.csv",
         id_prefix="test_",
         date_fmt="%m/%d/%Y",
-        column_map={
-            "Transaction Date": "date",
-            "Description": "merchant",
-            "Amount": "amount",
-        },
+        column_map={"Transaction Date": "date", "Description": "merchant", "Amount": "amount"},
         amount_sign=1,
         skip_rows=0,
         dedup_fields=("date", "amount", "merchant"),
@@ -131,11 +119,8 @@ def test_csv_dir(tmp_path):
     csv_dir = tmp_path / "csvs"
     csv_dir.mkdir()
     csv_file = csv_dir / "test_data.csv"
-    csv_file.write_text(
-        "Transaction Date,Description,Amount\n"
-        "7/12/2026,EXAMPLE GIFT SHOP,-50.00\n"
-        "7/9/2026,EXAMPLE CAFE,-19.35\n"
-    )
+    csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,EXAMPLE GIFT SHOP,-50.00\n"
+                        "7/9/2026,EXAMPLE CAFE,-19.35\n")
     return str(csv_dir)
 
 
@@ -145,11 +130,8 @@ def test_backend(tmp_path):
     profile.mkdir()
     config = tmp_path / "test_config"
     config.mkdir()
-    return CsvFinanceBackend(
-        profile_dir=profile,
-        config_dir=str(config),
-        institution_name="test_bank",
-    )
+    return CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
+                             institution_name="test_bank")
 
 
 class TestImportCsv:
@@ -158,7 +140,6 @@ class TestImportCsv:
         assert result["imported"] == 2
         assert result["duplicates"] == 0
         assert result["skipped"] == 0
-
         conn = test_backend._get_connection()
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
@@ -167,46 +148,51 @@ class TestImportCsv:
     def test_force_flag_reimports(self, test_csv_dir, test_mapping, test_backend):
         result1 = import_csv(test_csv_dir, test_mapping, test_backend)
         assert result1["imported"] == 2
-
         result2 = import_csv(test_csv_dir, test_mapping, test_backend)
-        assert result2["imported"] == 0  # Already imported files skipped
-
+        assert result2["imported"] == 0  # Already imported (same file size)
         result3 = import_csv(test_csv_dir, test_mapping, test_backend, force=True)
-        assert result3["imported"] == 2  # Force re-reads, same IDs hit INSERT OR IGNORE
-
+        assert result3["imported"] == 2  # Force re-processes
         conn = test_backend._get_connection()
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
-        assert count == 2  # INSERT OR IGNORE prevents true duplicates
+        assert count == 2  # INSERT OR IGNORE prevents duplicates
 
     def test_amount_sign_flipping(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs2"
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
         csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Buy Stuff,50.00\n")
-
         signed_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv", amount_sign=-1)
-
         result = import_csv(str(csv_dir), signed_mapping, test_backend)
         assert result["imported"] == 1
-
         conn = test_backend._get_connection()
         amount = conn.execute("SELECT amount FROM transactions LIMIT 1").fetchone()[0]
         conn.close()
-        assert amount == -50.0  # Flipped from +50.0
+        assert amount == -50.0
 
-    def test_trailing_empty_rows_filtered(self, tmp_path, test_mapping, test_backend):
+    def test_trailing_empty_rows_filtered_as_skipped(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_trail"
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
-        csv_file.write_text(
-            "Transaction Date,Description,Amount\n7/12/2026,Real Transaction,-50.00\n,,,\n,,,\n"
-        )
-
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Real,-50.00\n,,,\n,,,\n")
         trail_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
-
         result = import_csv(str(csv_dir), trail_mapping, test_backend)
         assert result["imported"] == 1
+        # 2 garbage rows after filtering = counted as skipped
+        assert result["skipped"] == 2
+
+    def test_malformed_dates_counted_as_skipped(self, tmp_path, test_mapping, test_backend):
+        csv_dir = tmp_path / "csvs_bad_date"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text("Transaction Date,Description,Amount\n"
+                            "7/12/2026,Real Transaction,-50.00\n"
+                            "NOT_A_DATE,Bad Row,-10.00\n")
+        bad_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
+        result = import_csv(str(csv_dir), bad_mapping, test_backend)
+        assert result["imported"] == 1
+        # Malformed date row filtered out and counted
+        assert result["skipped"] == 1
 
     def test_duplicate_ids_within_batch_get_suffixed(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_dup"
@@ -215,19 +201,32 @@ class TestImportCsv:
         csv_file.write_text(
             "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/12/2026,Coffee,-4.50\n"
         )
-
-        dup_mapping = _copy_mapping(
-            test_mapping, file_pattern="test_dup.csv", id_fields=("date", "amount", "merchant")
-        )
-
+        dup_mapping = _copy_mapping(test_mapping, file_pattern="test_dup.csv",
+                                     id_fields=("date", "amount", "merchant"))
         result = import_csv(str(csv_dir), dup_mapping, test_backend)
         assert result["imported"] == 2
-
         conn = test_backend._get_connection()
-        ids = [row[0] for row in conn.execute("SELECT id FROM transactions ORDER BY id").fetchall()]
+        ids = [r[0] for r in conn.execute("SELECT id FROM transactions ORDER BY id").fetchall()]
         conn.close()
         assert len(ids) == 2
         assert ids[0] != ids[1]
+
+    def test_overlapping_files_deduplicated(self, tmp_path, test_mapping, test_backend):
+        """Same transaction in two files should be deduplicated across files."""
+        csv_dir = tmp_path / "csvs_overlap"
+        csv_dir.mkdir()
+        (csv_dir / "file_a.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Shared TXN,-50.00\n"
+        )
+        (csv_dir / "file_b.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Shared TXN,-50.00\n"
+            "7/9/2026,Unique TXN,-19.35\n"
+        )
+        olap_mapping = _copy_mapping(test_mapping, file_pattern="file_*.csv")
+        result = import_csv(str(csv_dir), olap_mapping, test_backend)
+        # Shared TXN appears in both, dedup catches it — only 1 imported from file_b
+        assert result["imported"] == 2  # Shared + Unique
+        assert result["duplicates"] == 1  # second Shared from file_b
 
 
 class TestChaseCreditIntegration:
@@ -239,17 +238,13 @@ class TestChaseCreditIntegration:
         profile.mkdir()
         config = tmp_path / "chase_config"
         config.mkdir()
-        backend = CsvFinanceBackend(
-            profile_dir=profile,
-            config_dir=str(config),
-            institution_name="chase_credit",
-        )
+        backend = CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
+                                    institution_name="chase_credit")
 
         sample = Path(__file__).parent / "data" / "chase_sample.csv"
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()
         import shutil
-
         shutil.copy(sample, csv_dir / "Chase1234_Activity.csv")
 
         result = import_csv(str(csv_dir), mapping, backend)
@@ -270,3 +265,42 @@ class TestChaseCreditIntegration:
         assert row[5] == "Test memo one"
         extras = json.loads(row[6])
         assert extras["type"] == "Sale"
+
+    def test_reimport_with_changed_file_size(self, tmp_path):
+        """A file with the same name but different content should be re-imported."""
+        from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+        mapping = INSTITUTION_MAPPINGS["chase_credit"]
+        profile = tmp_path / "chase_profile"
+        profile.mkdir()
+        config = tmp_path / "chase_config"
+        config.mkdir()
+        backend = CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
+                                    institution_name="chase_credit")
+
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+
+        # First import with 2 rows
+        csv_file = csv_dir / "Chase_export.csv"
+        csv_file.write_text(
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT A,Shopping,Sale,-25.00,Note\n"
+            "01/12/2024,01/13/2024,MERCHANT B,Food,Sale,-10.00,\n"
+        )
+        result1 = import_csv(str(csv_dir), mapping, backend)
+        assert result1["imported"] == 2
+
+        # Same file, same size — skipped
+        result2 = import_csv(str(csv_dir), mapping, backend)
+        assert result2["imported"] == 0
+
+        # Change content (different size) — re-imports
+        csv_file.write_text(
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT A,Shopping,Sale,-25.00,Note\n"
+            "01/12/2024,01/13/2024,MERCHANT B,Food,Sale,-10.00,\n"
+            "01/10/2024,01/11/2024,MERCHANT C,Groceries,Sale,-5.00,\n"
+        )
+        result3 = import_csv(str(csv_dir), mapping, backend)
+        assert result3["imported"] == 1  # New row only (others already in DB)
