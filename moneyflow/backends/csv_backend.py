@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import stat as stat_module
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,34 @@ def _stable_category_id(name: str) -> str:
     return f"cat_{slug}" if slug else "cat_uncategorized"
 
 
+def _secure_open_db(db_path_str: str) -> None:
+    """Create or verify the database file with symlink protection."""
+    db_path = Path(db_path_str)
+    db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(db_path.parent, 0o700)
+
+    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+
+    # Resolve parent directory and verify the path lives under it
+    real_parent = os.path.realpath(db_path.parent)
+    fd = os.open(db_path, flags, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat_module.S_ISREG(st.st_mode):
+            raise OSError(f"Database path is not a regular file: {db_path}")
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+
+    # Verify the real path lives under the expected parent
+    real_db = os.path.realpath(db_path)
+    real_parent_path = Path(real_db).parent
+    if real_parent_path != Path(real_parent):
+        raise OSError(f"Database path escapes parent directory: {db_path}")
+
+
 class CsvFinanceBackend(FinanceBackend):
     """FinanceBackend that stores transactions in per-institution SQLite databases."""
 
@@ -57,18 +86,7 @@ class CsvFinanceBackend(FinanceBackend):
         if self._db_initialized:
             return
 
-        db_path = Path(self.db_path)
-        db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(db_path.parent, 0o700)
-
-        flags = os.O_RDWR | os.O_CREAT
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        fd = os.open(db_path, flags, 0o600)
-        try:
-            os.fchmod(fd, 0o600)
-        finally:
-            os.close(fd)
+        _secure_open_db(self.db_path)
 
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
@@ -90,12 +108,21 @@ class CsvFinanceBackend(FinanceBackend):
             CREATE TABLE IF NOT EXISTS import_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT NOT NULL,
+                file_size INTEGER NOT NULL DEFAULT 0,
                 record_count INTEGER NOT NULL,
                 duplicate_count INTEGER NOT NULL,
                 skipped_count INTEGER NOT NULL DEFAULT 0,
                 import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migrate existing import_history tables that lack file_size
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(import_history)")}
+        if "file_size" not in cols:
+            conn.execute(
+                "ALTER TABLE import_history ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0"
+            )
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_date ON transactions(date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_merchant ON transactions(merchant)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_category ON transactions(category)")
