@@ -97,7 +97,6 @@ def ensure_restrictive_directory(path: Path | str, *, parents: bool = False) -> 
 
     if not existing_ancestor.is_dir():
         raise NotADirectoryError(errno.ENOTDIR, "Directory parent does not exist", str(path))
-    require_current_user_ownership(existing_ancestor)
     if not parents and len(missing_directories) > 1:
         raise FileNotFoundError(errno.ENOENT, "Directory parent does not exist", str(path))
 
@@ -108,6 +107,7 @@ def ensure_restrictive_directory(path: Path | str, *, parents: bool = False) -> 
     if not missing_directories:
         if not directory.is_dir():
             raise NotADirectoryError(errno.ENOTDIR, "Path is not a directory", str(path))
+        require_current_user_ownership(directory)
         os.chmod(directory, 0o700)
 
 

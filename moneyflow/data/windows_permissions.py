@@ -186,7 +186,6 @@ def ensure_owner_only_directory(path: Path | str, *, parents: bool) -> None:
 
     if not existing_ancestor.is_dir():
         raise NotADirectoryError(errno.ENOTDIR, "Directory parent does not exist", str(path))
-    require_current_user_ownership(existing_ancestor)
     if not parents and len(missing_directories) > 1:
         raise FileNotFoundError(errno.ENOENT, "Directory parent does not exist", str(path))
 
