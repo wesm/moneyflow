@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from ..backends.simplefin_client import claim_token
-from .file_utils import secure_write_file, set_restrictive_directory_permissions
+from .file_utils import ensure_restrictive_directory, secure_write_file
 
 
 class CredentialManager:
@@ -77,8 +77,7 @@ class CredentialManager:
         self.salt_file = storage_dir / "salt"
 
         # Create storage directory if it doesn't exist
-        self.storage_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        set_restrictive_directory_permissions(self.storage_dir)
+        ensure_restrictive_directory(self.storage_dir, parents=True)
 
     def _derive_key(self, password: str, salt: bytes) -> bytes:
         """

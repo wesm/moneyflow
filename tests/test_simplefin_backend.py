@@ -1270,6 +1270,17 @@ class TestProfileIntegration:
 
         assert db_path.exists()
 
+    def test_database_initialization_allows_concurrent_sqlite_open(self, tmp_path):
+        """Permission hardening must preserve SQLite's Windows sharing contract."""
+        db_path = tmp_path / "simplefin.db"
+        first_backend = SimpleFinBackend(db_path=str(db_path))
+        first_backend._ensure_db_initialized()
+
+        with sqlite3.connect(db_path) as existing_connection:
+            assert existing_connection.execute("SELECT 1").fetchone() == (1,)
+            second_backend = SimpleFinBackend(db_path=str(db_path))
+            second_backend._ensure_db_initialized()
+
     def test_existing_managed_profile_directory_permissions_are_restricted(self, tmp_path):
         profile_dir = tmp_path / "simplefin-profile"
         profile_dir.mkdir(mode=0o755)

@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from .file_utils import secure_atomic_write, set_restrictive_directory_permissions
+from .file_utils import ensure_restrictive_directory, secure_atomic_write
 
 BackendType = Literal["monarch", "ynab", "amazon", "simplefin", "demo"]
 
@@ -128,10 +128,8 @@ class AccountManager:
         self.accounts_file = self.config_dir / "accounts.json"
 
         # Create directories if they don't exist
-        self.config_dir.mkdir(mode=0o700, exist_ok=True)
-        self.profiles_dir.mkdir(mode=0o700, exist_ok=True)
-        set_restrictive_directory_permissions(self.config_dir)
-        set_restrictive_directory_permissions(self.profiles_dir)
+        ensure_restrictive_directory(self.config_dir, parents=True)
+        ensure_restrictive_directory(self.profiles_dir, parents=True)
 
         self._registry = self.load_registry()
 
@@ -223,8 +221,7 @@ class AccountManager:
 
         # Create profile directory
         profile_dir = self.get_profile_dir(account_id)
-        profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        set_restrictive_directory_permissions(profile_dir)
+        ensure_restrictive_directory(profile_dir, parents=True)
 
         # Create account object
         account = Account(

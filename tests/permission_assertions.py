@@ -22,7 +22,7 @@ def assert_owner_only_permissions(path: Path, expected_posix_mode: int) -> None:
     security_descriptor = win32security.GetNamedSecurityInfo(
         str(path),
         win32security.SE_FILE_OBJECT,
-        win32security.DACL_SECURITY_INFORMATION,
+        win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
     )
     dacl = security_descriptor.GetSecurityDescriptorDacl()
     control, _revision = security_descriptor.GetSecurityDescriptorControl()
@@ -40,6 +40,10 @@ def assert_owner_only_permissions(path: Path, expected_posix_mode: int) -> None:
         win32api.CloseHandle(process_token)
 
     assert control & win32security.SE_DACL_PROTECTED
+    owner_sid = security_descriptor.GetSecurityDescriptorOwner()
+    assert win32security.ConvertSidToStringSid(owner_sid) == win32security.ConvertSidToStringSid(
+        current_user_sid
+    )
     assert dacl is not None
     assert dacl.GetAceCount() == 1
     (ace_type, ace_flags), access_mask, sid = dacl.GetAce(0)

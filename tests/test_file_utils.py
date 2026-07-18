@@ -73,6 +73,7 @@ def test_windows_acl_errors_use_os_error_contract(
             Mock(side_effect=native_error),
         )
     else:
+        path.mkdir()
         monkeypatch.setattr(
             windows_permissions.win32security,
             "SetNamedSecurityInfo",
@@ -91,6 +92,107 @@ def test_windows_acl_errors_use_os_error_contract(
 
     assert error_info.value.winerror == 5
     assert error_info.value.filename == str(path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+@pytest.mark.parametrize("setter_kind", ["file", "directory"])
+def test_windows_acl_setters_reject_foreign_owners(
+    setter_kind: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Existing objects must be owned by the current user before ACL changes."""
+    path = tmp_path / "foreign-owned"
+    descriptor = Mock()
+    descriptor.GetSecurityDescriptorOwner.return_value = (
+        windows_permissions.win32security.ConvertStringSidToSid("S-1-5-18")
+    )
+    fd: int | None = None
+
+    if setter_kind == "file":
+        path.touch()
+        fd = os.open(path, os.O_WRONLY)
+        monkeypatch.setattr(
+            windows_permissions.win32security,
+            "GetSecurityInfo",
+            Mock(return_value=descriptor),
+        )
+    else:
+        path.mkdir()
+        monkeypatch.setattr(
+            windows_permissions.win32security,
+            "GetNamedSecurityInfo",
+            Mock(return_value=descriptor),
+        )
+
+    try:
+        with pytest.raises(PermissionError, match="not owned by the current user"):
+            if fd is not None:
+                windows_permissions.set_owner_only_file_permissions(fd, path)
+            else:
+                windows_permissions.set_owner_only_directory_permissions(path)
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+def test_windows_directory_creation_supplies_protected_security_attributes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Managed directories must receive their protected DACL at creation time."""
+    create_directory = Mock(wraps=windows_permissions.win32file.CreateDirectory)
+    monkeypatch.setattr(windows_permissions.win32file, "CreateDirectory", create_directory)
+    private_dir = tmp_path / "new-private-directory"
+
+    windows_permissions.ensure_owner_only_directory(private_dir, parents=False)
+
+    security_attributes = create_directory.call_args.args[1]
+    security_descriptor = security_attributes.SECURITY_DESCRIPTOR
+    control, _revision = security_descriptor.GetSecurityDescriptorControl()
+    assert control & windows_permissions.win32security.SE_DACL_PROTECTED
+
+
+def test_ensure_restrictive_directory_creates_private_parents(tmp_path: Path) -> None:
+    """Managed directory trees must be private from their initial creation."""
+    private_dir = tmp_path / "managed" / "nested"
+
+    file_utils.ensure_restrictive_directory(private_dir, parents=True)
+
+    assert_owner_only_permissions(private_dir.parent, 0o700)
+    assert_owner_only_permissions(private_dir, 0o700)
+
+
+def test_restrictive_replacement_rejects_untrusted_existing_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Atomic replacement must fail closed when the existing target is untrusted."""
+    source = tmp_path / "source"
+    target = tmp_path / "target"
+    source.write_bytes(b"new")
+    target.write_bytes(b"old")
+    ownership_check = Mock(side_effect=PermissionError("foreign owner"))
+    monkeypatch.setattr(file_utils, "require_current_user_ownership", ownership_check)
+
+    with pytest.raises(PermissionError, match="foreign owner"):
+        file_utils.replace_restrictive_file(source, target)
+
+    assert source.read_bytes() == b"new"
+    assert target.read_bytes() == b"old"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode assertion")
+def test_secure_write_does_not_tighten_existing_parent_directory(tmp_path: Path) -> None:
+    """Writing one file must not revoke access to unrelated sibling files."""
+    existing_parent = tmp_path / "existing-parent"
+    existing_parent.mkdir(mode=0o755)
+    existing_parent.chmod(0o755)
+
+    secure_write_file(existing_parent / "private.bin", b"content")
+
+    assert existing_parent.stat().st_mode & 0o777 == 0o755
 
 
 class TestSecureWriteFile:
@@ -147,10 +249,12 @@ class TestSecureWriteFile:
         """Should overwrite existing file content."""
         test_file = tmp_path / "test.txt"
         test_file.write_text("old content")
+        original_inode = test_file.stat().st_ino
 
         secure_write_file(test_file, "new content", "w")
 
         assert test_file.read_text() == "new content"
+        assert test_file.stat().st_ino != original_inode
 
     def test_maintains_permissions_on_overwrite(self, tmp_path):
         """Permissions should remain 0o600 after overwrite."""

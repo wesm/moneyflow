@@ -1,5 +1,6 @@
 """Windows helpers for creating files with owner-only access control lists."""
 
+import errno
 import msvcrt
 import os
 from pathlib import Path
@@ -41,13 +42,13 @@ def _owner_only_dacl(*, inherit_to_children: bool = False) -> Any:
     return dacl
 
 
-def _owner_only_security_attributes() -> Any:
+def _owner_only_security_attributes(*, inherit_to_children: bool = False) -> Any:
     security_attributes = win32security.SECURITY_ATTRIBUTES()
     security_attributes.bInheritHandle = False
     security_descriptor = security_attributes.SECURITY_DESCRIPTOR
     set_dacl = getattr(security_descriptor, "SetSecurityDescriptorDacl")
     set_control = getattr(security_descriptor, "SetSecurityDescriptorControl")
-    set_dacl(True, _owner_only_dacl(), False)
+    set_dacl(True, _owner_only_dacl(inherit_to_children=inherit_to_children), False)
     set_control(
         win32security.SE_DACL_PROTECTED,
         win32security.SE_DACL_PROTECTED,
@@ -62,12 +63,46 @@ def _as_os_error(error: Any, path: Path | str) -> OSError:
     return OSError(0, message, str(path), winerror)
 
 
+def _sid_string(sid: Any) -> str:
+    return win32security.ConvertSidToStringSid(sid)
+
+
+def _require_current_user_owner(security_descriptor: Any, path: Path | str) -> None:
+    owner_sid = security_descriptor.GetSecurityDescriptorOwner()
+    if _sid_string(owner_sid) != _sid_string(_current_user_sid()):
+        raise PermissionError(
+            errno.EACCES,
+            "Sensitive path is not owned by the current user",
+            str(path),
+        )
+
+
+def require_current_user_ownership(path: Path | str) -> None:
+    """Fail unless an existing filesystem object is owned by the current user."""
+    try:
+        security_descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    _require_current_user_owner(security_descriptor, path)
+
+
 def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
     """Replace an open file's DACL with one granting access only to its owner."""
     get_osfhandle = getattr(msvcrt, "get_osfhandle")
+    handle = get_osfhandle(fd)
     try:
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        _require_current_user_owner(security_descriptor, path)
         win32security.SetSecurityInfo(
-            get_osfhandle(fd),
+            handle,
             win32security.SE_FILE_OBJECT,
             win32security.DACL_SECURITY_INFORMATION
             | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
@@ -82,6 +117,7 @@ def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
 
 def set_owner_only_directory_permissions(path: Path | str) -> None:
     """Protect a directory and let its owner-only DACL propagate to children."""
+    require_current_user_ownership(path)
     try:
         win32security.SetNamedSecurityInfo(
             str(path),
@@ -97,14 +133,58 @@ def set_owner_only_directory_permissions(path: Path | str) -> None:
         raise _as_os_error(error, path) from error
 
 
+def ensure_owner_only_directory(path: Path | str, *, parents: bool) -> None:
+    """Create managed directories with protected ACLs and validate existing owners."""
+    directory = Path(path)
+    missing_directories: list[Path] = []
+    existing_ancestor = directory
+    while not existing_ancestor.exists():
+        missing_directories.append(existing_ancestor)
+        parent = existing_ancestor.parent
+        if parent == existing_ancestor:
+            break
+        existing_ancestor = parent
+
+    if not existing_ancestor.is_dir():
+        raise NotADirectoryError(errno.ENOTDIR, "Directory parent does not exist", str(path))
+    require_current_user_ownership(existing_ancestor)
+    if not parents and len(missing_directories) > 1:
+        raise FileNotFoundError(errno.ENOENT, "Directory parent does not exist", str(path))
+
+    for missing_directory in reversed(missing_directories):
+        try:
+            win32file.CreateDirectory(
+                str(missing_directory),
+                _owner_only_security_attributes(inherit_to_children=True),
+            )
+        except pywintypes.error as error:
+            error_code = getattr(error, "winerror", error.args[0])
+            if error_code not in (80, 183):
+                raise _as_os_error(error, missing_directory) from error
+        if not missing_directory.is_dir():
+            raise FileExistsError(
+                errno.EEXIST,
+                "Managed directory path is not a directory",
+                str(missing_directory),
+            )
+        set_owner_only_directory_permissions(missing_directory)
+
+    if not missing_directories:
+        set_owner_only_directory_permissions(directory)
+
+
 def has_owner_only_directory_permissions(path: Path | str) -> bool:
     """Return whether a directory has a protected, inheritable owner-only DACL."""
     try:
         security_descriptor = win32security.GetNamedSecurityInfo(
             str(path),
             win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
+            win32security.OWNER_SECURITY_INFORMATION | win32security.DACL_SECURITY_INFORMATION,
         )
+        if _sid_string(security_descriptor.GetSecurityDescriptorOwner()) != _sid_string(
+            _current_user_sid()
+        ):
+            return False
         dacl = security_descriptor.GetSecurityDescriptorDacl()
         control, _revision = security_descriptor.GetSecurityDescriptorControl()
         if not control & win32security.SE_DACL_PROTECTED:
@@ -134,6 +214,7 @@ def open_owner_only_file(
     read_write: bool,
     truncate: bool,
     exclusive: bool,
+    shared: bool,
 ) -> int:
     """Open a file with an owner-only DACL applied atomically at creation."""
     desired_access = win32con.GENERIC_WRITE | win32con.WRITE_DAC
@@ -147,11 +228,17 @@ def open_owner_only_file(
     else:
         creation_disposition = win32con.OPEN_ALWAYS
 
+    share_mode = 0
+    if shared:
+        share_mode = (
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE
+        )
+
     try:
         handle = win32file.CreateFile(
             str(path),
             desired_access,
-            0,
+            share_mode,
             _owner_only_security_attributes(),
             creation_disposition,
             win32con.FILE_ATTRIBUTE_NORMAL,
@@ -161,6 +248,12 @@ def open_owner_only_file(
         raise _as_os_error(error, path) from error
     detached_handle = None
     try:
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        _require_current_user_owner(security_descriptor, path)
         win32security.SetSecurityInfo(
             handle,
             win32security.SE_FILE_OBJECT,

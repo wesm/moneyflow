@@ -14,8 +14,9 @@ import polars as pl
 
 from .file_utils import (
     create_restrictive_temp_file,
+    ensure_restrictive_directory,
+    replace_restrictive_file,
     secure_write_file,
-    set_restrictive_directory_permissions,
 )
 
 DANGEROUS_PREFIX_PATTERN = r"^\s*[=+\-@\t\r]"
@@ -97,8 +98,7 @@ def build_export_path(config_dir: Path, fmt: ExportFormat, scope: ExportScope) -
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
     filename = f"{timestamp}-{scope.value}-export.{fmt.extension}"
     exports_dir = config_dir / "exports"
-    exports_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    set_restrictive_directory_permissions(exports_dir)
+    ensure_restrictive_directory(exports_dir, parents=True)
     return exports_dir / filename
 
 
@@ -146,7 +146,7 @@ def _export_parquet(
     os.close(fd)
     try:
         df.write_parquet(str(tmp_path))
-        os.replace(tmp_path, path)
+        replace_restrictive_file(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -213,7 +213,7 @@ def _export_sqlite(
 
     conn.close()
     try:
-        os.replace(tmp_path, path)
+        replace_restrictive_file(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
