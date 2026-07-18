@@ -14,6 +14,8 @@ Tests cover:
 
 import base64
 import json
+import os
+import stat
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -1574,9 +1576,8 @@ class TestCachePersistenceAfterEdits:
 
 def assert_secure_permissions(file_path):
     """Helper to assert files are created with 0o600 permissions."""
-    import os
-    import stat
-
+    if os.name == "nt":
+        pytest.skip("Windows does not expose POSIX permission bits")
     assert file_path.exists()
     mode = stat.S_IMODE(os.stat(file_path).st_mode)
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
@@ -1626,3 +1627,16 @@ class TestCacheFilePermissions:
         """Unencrypted categories file should have 0o600 permissions."""
         unencrypted_cache_manager.save_cache(dummy_df, {"cat1": "Test"}, {"grp1": "TestGroup"})
         assert_secure_permissions(Path(temp_cache_dir) / "categories.json")
+
+    def test_unencrypted_cache_saves_without_fchmod(
+        self, unencrypted_cache_manager, dummy_df, temp_cache_dir, monkeypatch
+    ):
+        """Unencrypted cache writes should support runtimes without os.fchmod."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+
+        unencrypted_cache_manager.save_cache(dummy_df, {"cat1": "Test"}, {"grp1": "TestGroup"})
+
+        cache_dir = Path(temp_cache_dir)
+        assert (cache_dir / "hot_transactions.parquet").exists()
+        assert (cache_dir / "categories.json").exists()
+        assert (cache_dir / "cache_metadata.json").exists()

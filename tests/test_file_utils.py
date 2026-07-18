@@ -11,11 +11,15 @@ import os
 import stat
 from pathlib import Path
 
+import pytest
+
 from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
 
 
 def assert_secure_permissions(file_path: Path):
     """Helper to assert files are created with 0o600 permissions."""
+    if os.name == "nt":
+        pytest.skip("Windows does not expose POSIX permission bits")
     assert file_path.exists()
     mode = stat.S_IMODE(os.stat(file_path).st_mode)
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
@@ -37,6 +41,15 @@ class TestSecureWriteFile:
         secure_write_file(test_file, content, "wb")
 
         assert test_file.read_bytes() == content
+
+    def test_writes_without_fchmod(self, tmp_path, monkeypatch):
+        """Path-based permissions should support runtimes without os.fchmod."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        test_file = tmp_path / "test.bin"
+
+        secure_write_file(test_file, b"test content", "wb")
+
+        assert test_file.read_bytes() == b"test content"
 
     def test_writes_text_content(self, tmp_path):
         """Should correctly write text content."""
@@ -80,8 +93,7 @@ class TestSecureWriteFile:
 
         secure_write_file(test_file, "new content", "w")
 
-        mode = stat.S_IMODE(os.stat(test_file).st_mode)
-        assert mode == 0o600
+        assert_secure_permissions(test_file)
 
 
 class TestSecureAtomicWrite:
@@ -100,6 +112,15 @@ class TestSecureAtomicWrite:
         secure_atomic_write(test_file, content)
 
         assert test_file.read_bytes() == content
+
+    def test_writes_without_fchmod(self, tmp_path, monkeypatch):
+        """Atomic writes should support runtimes without os.fchmod."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        test_file = tmp_path / "test.bin"
+
+        secure_atomic_write(test_file, b"test content")
+
+        assert test_file.read_bytes() == b"test content"
 
     def test_atomic_overwrite(self, tmp_path):
         """Should atomically replace existing file."""

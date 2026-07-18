@@ -11,6 +11,20 @@ from pathlib import Path
 from typing import Union
 
 
+def set_restrictive_file_permissions(fd: int, path: Path | str) -> None:
+    """Restrict an open file to its owner using the platform's available API.
+
+    Python versions before 3.13 do not expose ``os.fchmod`` on Windows. In
+    that environment, use the path-based operation as a best-effort fallback;
+    Windows ACLs, rather than POSIX mode bits, ultimately govern access.
+    """
+    fchmod = getattr(os, "fchmod", None)
+    if fchmod is not None:
+        fchmod(fd, 0o600)
+    else:
+        os.chmod(path, 0o600)
+
+
 def secure_write_file(path: Path, data: Union[bytes, str], mode: str = "wb") -> None:
     """
     Write data to a file with restrictive permissions (0o600) from creation.
@@ -31,7 +45,7 @@ def secure_write_file(path: Path, data: Union[bytes, str], mode: str = "wb") -> 
     fd = os.open(path, flags, 0o600)
     try:
         # Explicitly set permissions - os.open mode is only applied for new files
-        os.fchmod(fd, 0o600)
+        set_restrictive_file_permissions(fd, path)
         # os.fdopen takes ownership of the fd and closes it when the file object closes
         with os.fdopen(fd, mode) as f:
             if mode == "w" and isinstance(data, bytes):
@@ -73,7 +87,7 @@ def secure_atomic_write(path: Path, data: bytes) -> None:
     # Create temp file with secure permissions
     fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_")
     try:
-        os.fchmod(fd, 0o600)
+        set_restrictive_file_permissions(fd, temp_path)
         # Use fdopen for proper write handling (handles short writes, interrupts)
         with os.fdopen(fd, "wb") as f:
             f.write(data)

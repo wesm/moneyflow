@@ -9,11 +9,20 @@ import os
 import sqlite3
 import stat
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from moneyflow.backends.simplefin import SimpleFinBackend
+
+
+def assert_posix_permissions(path: Path, expected_mode: int) -> None:
+    """Verify exact permission bits on platforms that implement POSIX modes."""
+    if os.name == "nt":
+        pytest.skip("Windows does not expose POSIX permission bits")
+    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1231,8 +1240,8 @@ class TestProfileIntegration:
         finally:
             os.umask(original_umask)
 
-        assert stat.S_IMODE(db_path.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert_posix_permissions(db_path.parent, 0o700)
+        assert_posix_permissions(db_path, 0o600)
 
     def test_existing_database_permissions_are_restricted(self, tmp_path):
         db_path = tmp_path / "simplefin.db"
@@ -1242,7 +1251,17 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert_posix_permissions(db_path, 0o600)
+
+    def test_database_initializes_without_fchmod(self, tmp_path, monkeypatch):
+        """Database creation should support runtimes without os.fchmod."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        db_path = tmp_path / "simplefin.db"
+        backend = SimpleFinBackend(db_path=str(db_path))
+
+        backend._ensure_db_initialized()
+
+        assert db_path.exists()
 
     def test_existing_managed_profile_directory_permissions_are_restricted(self, tmp_path):
         profile_dir = tmp_path / "simplefin-profile"
@@ -1252,7 +1271,7 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(profile_dir.stat().st_mode) == 0o700
+        assert_posix_permissions(profile_dir, 0o700)
 
     def test_existing_custom_database_directory_permissions_are_preserved(self, tmp_path):
         custom_dir = tmp_path / "shared-data"
@@ -1262,7 +1281,7 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(custom_dir.stat().st_mode) == 0o755
+        assert_posix_permissions(custom_dir, 0o755)
 
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"

@@ -14,6 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..data.file_utils import set_restrictive_file_permissions
 from .base import FinanceBackend
 from .simplefin_client import SimpleFinClient, parse_access_url
 
@@ -100,7 +101,7 @@ class SimpleFinBackend(FinanceBackend):
             try:
                 # os.open's mode only applies to new files, so also restrict
                 # databases created by older versions.
-                os.fchmod(fd, 0o600)
+                set_restrictive_file_permissions(fd, db_path)
             finally:
                 os.close(fd)
 

@@ -25,7 +25,7 @@ from typing import Any, Dict, Optional, Protocol, Tuple
 import polars as pl
 from cryptography.fernet import Fernet, InvalidToken
 
-from .file_utils import secure_write_file
+from .file_utils import secure_write_file, set_restrictive_file_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class PlainStorage:
         dir_path = path.parent
         fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_parquet_")
         try:
-            os.fchmod(fd, 0o600)
+            set_restrictive_file_permissions(fd, temp_path)
             os.close(fd)
             fd = -1
             df.write_parquet(temp_path)
