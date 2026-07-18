@@ -6,23 +6,87 @@ avoiding race conditions where files briefly have default permissions.
 """
 
 import os
+import secrets
+import sys
 import tempfile
 from pathlib import Path
 from typing import Union
 
+IS_WINDOWS = sys.platform == "win32"
+
+if IS_WINDOWS:
+    from .windows_permissions import (
+        open_owner_only_file,
+        set_owner_only_directory_permissions,
+        set_owner_only_file_permissions,
+    )
+
+    set_windows_owner_only_permissions = set_owner_only_file_permissions
+else:
+    open_owner_only_file = None
+    set_owner_only_directory_permissions = None
+    set_windows_owner_only_permissions = None
+
 
 def set_restrictive_file_permissions(fd: int, path: Path | str) -> None:
-    """Restrict an open file to its owner using the platform's available API.
+    """Restrict an open file to its owner using native platform controls."""
+    if IS_WINDOWS:
+        assert set_windows_owner_only_permissions is not None
+        set_windows_owner_only_permissions(fd, path)
+        return
 
-    Python versions before 3.13 do not expose ``os.fchmod`` on Windows. In
-    that environment, use the path-based operation as a best-effort fallback;
-    Windows ACLs, rather than POSIX mode bits, ultimately govern access.
-    """
     fchmod = getattr(os, "fchmod", None)
     if fchmod is not None:
         fchmod(fd, 0o600)
     else:
         os.chmod(path, 0o600)
+
+
+def set_restrictive_directory_permissions(path: Path | str) -> None:
+    """Restrict a directory to its owner using native platform controls."""
+    if IS_WINDOWS:
+        assert set_owner_only_directory_permissions is not None
+        set_owner_only_directory_permissions(path)
+    else:
+        os.chmod(path, 0o700)
+
+
+def open_restrictive_file(
+    path: Path | str,
+    *,
+    read_write: bool = False,
+    truncate: bool = False,
+    exclusive: bool = False,
+) -> int:
+    """Open a file with owner-only permissions, including at creation time."""
+    if IS_WINDOWS:
+        assert open_owner_only_file is not None
+        return open_owner_only_file(
+            path,
+            read_write=read_write,
+            truncate=truncate,
+            exclusive=exclusive,
+        )
+
+    flags = os.O_RDWR if read_write else os.O_WRONLY
+    flags |= os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+    if truncate:
+        flags |= os.O_TRUNC
+    if exclusive:
+        flags |= os.O_EXCL
+    return os.open(path, flags, 0o600)
+
+
+def create_restrictive_temp_file(directory: Path, prefix: str) -> tuple[int, str]:
+    """Create a same-directory temporary file with owner-only permissions."""
+    if IS_WINDOWS:
+        temp_path = directory / f"{prefix}{secrets.token_hex(16)}"
+        fd = open_restrictive_file(temp_path, exclusive=True)
+        return fd, str(temp_path)
+
+    fd, temp_path = tempfile.mkstemp(dir=directory, prefix=prefix)
+    set_restrictive_file_permissions(fd, temp_path)
+    return fd, temp_path
 
 
 def secure_write_file(path: Path, data: Union[bytes, str], mode: str = "wb") -> None:
@@ -40,9 +104,7 @@ def secure_write_file(path: Path, data: Union[bytes, str], mode: str = "wb") -> 
     Raises:
         OSError: If file operations fail
     """
-    # O_WRONLY: write only, O_CREAT: create if not exists, O_TRUNC: truncate if exists
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    fd = os.open(path, flags, 0o600)
+    fd = open_restrictive_file(path, truncate=True)
     try:
         # Explicitly set permissions - os.open mode is only applied for new files
         set_restrictive_file_permissions(fd, path)
@@ -85,9 +147,8 @@ def secure_atomic_write(path: Path, data: bytes) -> None:
     dir_path.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     # Create temp file with secure permissions
-    fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_")
+    fd, temp_path = create_restrictive_temp_file(dir_path, prefix=".tmp_")
     try:
-        set_restrictive_file_permissions(fd, temp_path)
         # Use fdopen for proper write handling (handles short writes, interrupts)
         with os.fdopen(fd, "wb") as f:
             f.write(data)

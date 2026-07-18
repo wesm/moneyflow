@@ -14,7 +14,11 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..data.file_utils import set_restrictive_file_permissions
+from ..data.file_utils import (
+    open_restrictive_file,
+    set_restrictive_directory_permissions,
+    set_restrictive_file_permissions,
+)
 from .base import FinanceBackend
 from .simplefin_client import SimpleFinClient, parse_access_url
 
@@ -93,9 +97,8 @@ class SimpleFinBackend(FinanceBackend):
             db_path = Path(self._db_path)
             db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             if self._managed_db_directory:
-                os.chmod(db_path.parent, 0o700)
-            flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
-            fd = os.open(db_path, flags, 0o600)
+                set_restrictive_directory_permissions(db_path.parent)
+            fd = open_restrictive_file(db_path, read_write=True)
             try:
                 # os.open's mode only applies to new files, so also restrict
                 # databases created by older versions.

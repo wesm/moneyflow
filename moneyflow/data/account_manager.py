@@ -16,15 +16,15 @@ Account metadata is stored in ~/.moneyflow/accounts.json
 
 import json
 import logging
-import os
 import re
 import shutil
-import tempfile
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+
+from .file_utils import secure_atomic_write
 
 BackendType = Literal["monarch", "ynab", "amazon", "simplefin", "demo"]
 
@@ -165,23 +165,8 @@ class AccountManager:
         if registry is not None:
             self._registry = registry
 
-        # Write atomically via temp file + rename to prevent torn reads
-        fd, tmp_path = tempfile.mkstemp(
-            dir=self.accounts_file.parent,
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(self._registry.to_dict(), f, indent=2)
-            os.chmod(tmp_path, 0o600)
-            os.replace(tmp_path, self.accounts_file)
-        except BaseException:
-            # Clean up temp file on failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        registry_json = json.dumps(self._registry.to_dict(), indent=2).encode()
+        secure_atomic_write(self.accounts_file, registry_json)
 
     def generate_account_id(self, backend_type: str, account_name: str) -> str:
         """
