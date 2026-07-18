@@ -96,6 +96,12 @@ COLLIDING_COLON_TRANSACTION = {
 }
 
 
+@pytest.fixture(autouse=True)
+def private_database_parent(tmp_path: Path) -> None:
+    """Make the explicit test database parent satisfy the production contract."""
+    set_restrictive_directory_permissions(tmp_path)
+
+
 @pytest.fixture()
 def backend(tmp_path):
     db_path = str(tmp_path / "test.db")
