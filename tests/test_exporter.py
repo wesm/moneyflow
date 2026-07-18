@@ -840,10 +840,14 @@ class TestExportDataframeDispatcher:
 class TestExportDataframeEdgeCases:
     """Tests for edge cases in the export pipeline."""
 
-    def test_unwritable_directory_raises_error(self, sample_metadata: ExportMetadata) -> None:
-        """Verify export raises an error when the directory is not writable."""
+    def test_invalid_output_directory_raises_error(
+        self, tmp_path: Path, sample_metadata: ExportMetadata
+    ) -> None:
+        """Verify export raises an error when the output parent is not a directory."""
         df = pl.DataFrame({"id": ["test"], "amount": [1.0]})
-        path = Path("/dev/null/no-permission/test.parquet")
+        parent_file = tmp_path / "not-a-directory"
+        parent_file.write_text("placeholder", encoding="utf-8")
+        path = parent_file / "test.parquet"
         with pytest.raises((PermissionError, OSError)):
             export_dataframe(df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET)
 
