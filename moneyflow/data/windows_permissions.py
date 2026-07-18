@@ -43,8 +43,9 @@ def _owner_only_dacl(*, inherit_to_children: bool = False) -> Any:
 def _owner_only_security_attributes() -> Any:
     security_attributes = win32security.SECURITY_ATTRIBUTES()
     security_attributes.bInheritHandle = False
-    set_dacl = getattr(security_attributes, "SetSecurityDescriptorDacl")
-    set_control = getattr(security_attributes, "SetSecurityDescriptorControl")
+    security_descriptor = security_attributes.SECURITY_DESCRIPTOR
+    set_dacl = getattr(security_descriptor, "SetSecurityDescriptorDacl")
+    set_control = getattr(security_descriptor, "SetSecurityDescriptorControl")
     set_dacl(True, _owner_only_dacl(), False)
     set_control(
         win32security.SE_DACL_PROTECTED,
@@ -102,7 +103,7 @@ def open_owner_only_file(
     handle = win32file.CreateFile(
         str(path),
         desired_access,
-        win32con.FILE_SHARE_READ,
+        0,
         _owner_only_security_attributes(),
         creation_disposition,
         win32con.FILE_ATTRIBUTE_NORMAL,

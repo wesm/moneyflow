@@ -15,7 +15,6 @@ Tests cover:
 import base64
 import json
 import os
-import stat
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -26,6 +25,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from moneyflow.data.cache_manager import CacheManager, RefreshStrategy
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 @pytest.fixture
@@ -1575,12 +1575,8 @@ class TestCachePersistenceAfterEdits:
 
 
 def assert_secure_permissions(file_path):
-    """Helper to assert files are created with 0o600 permissions."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert file_path.exists()
-    mode = stat.S_IMODE(os.stat(file_path).st_mode)
-    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(file_path, 0o600)
 
 
 @pytest.fixture

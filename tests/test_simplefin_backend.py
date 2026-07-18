@@ -7,7 +7,6 @@ Tests use an in-memory SQLite database to avoid filesystem side effects.
 
 import os
 import sqlite3
-import stat
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -15,13 +14,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from moneyflow.backends.simplefin import SimpleFinBackend
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_posix_permissions(path: Path, expected_mode: int) -> None:
-    """Verify exact permission bits on platforms that implement POSIX modes."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+    """Verify owner-only permissions, except for intentionally shared directories."""
+    if os.name == "nt" and expected_mode == 0o755:
+        pytest.skip("Windows does not expose equivalent POSIX shared-directory bits")
+    assert_owner_only_permissions(path, expected_mode)
 
 
 # ---------------------------------------------------------------------------

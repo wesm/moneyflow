@@ -1,19 +1,17 @@
 """Tests for account manager - multi-account profile management."""
 
-import os
 from pathlib import Path
 
 import pytest
 from freezegun import freeze_time
 
 from moneyflow.data.account_manager import Account, AccountManager, AccountRegistry
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_posix_permissions(path: Path, expected_mode: str) -> None:
-    """Verify exact permission bits on platforms that implement POSIX modes."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert oct(path.stat().st_mode)[-3:] == expected_mode
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, int(expected_mode, 8))
 
 
 @pytest.fixture

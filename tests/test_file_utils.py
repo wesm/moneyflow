@@ -8,8 +8,6 @@ Tests cover:
 """
 
 import os
-import stat
-import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -17,52 +15,12 @@ import pytest
 
 from moneyflow.data import file_utils
 from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
-
-if sys.platform == "win32":
-    import ntsecuritycon
-    import win32api
-    import win32con
-    import win32security
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_secure_permissions(file_path: Path) -> None:
     """Assert files use owner-only permissions on the current platform."""
-    if os.name == "nt":
-        security_descriptor = win32security.GetNamedSecurityInfo(
-            str(file_path),
-            win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
-        )
-        dacl = security_descriptor.GetSecurityDescriptorDacl()
-        control, _revision = security_descriptor.GetSecurityDescriptorControl()
-
-        process_token = win32security.OpenProcessToken(
-            win32api.GetCurrentProcess(),
-            win32con.TOKEN_QUERY,
-        )
-        try:
-            current_user_sid = win32security.GetTokenInformation(
-                process_token,
-                win32security.TokenUser,
-            )[0]
-        finally:
-            process_token.Close()
-
-        assert control & win32security.SE_DACL_PROTECTED
-        assert dacl is not None
-        assert dacl.GetAceCount() == 1
-        (ace_type, ace_flags), access_mask, sid = dacl.GetAce(0)
-        assert ace_type == win32security.ACCESS_ALLOWED_ACE_TYPE
-        assert not ace_flags & win32security.INHERITED_ACE
-        assert access_mask & ntsecuritycon.FILE_ALL_ACCESS == ntsecuritycon.FILE_ALL_ACCESS
-        assert win32security.ConvertSidToStringSid(sid) == win32security.ConvertSidToStringSid(
-            current_user_sid
-        )
-        return
-
-    assert file_path.exists()
-    mode = stat.S_IMODE(os.stat(file_path).st_mode)
-    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+    assert_owner_only_permissions(file_path, 0o600)
 
 
 def test_windows_permissions_use_owner_only_acl(

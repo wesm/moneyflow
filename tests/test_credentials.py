@@ -15,13 +15,12 @@ import pytest
 from moneyflow.data import credentials as credentials_module
 from moneyflow.data.credentials import CredentialManager
 from tests.conftest import save_test_credentials
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_file_permissions(file_path: Path, expected_mode: str):
-    """Verify file has exact expected octal permissions (e.g., '600')."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert oct(file_path.stat().st_mode)[-3:] == expected_mode
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(file_path, int(expected_mode, 8))
 
 
 class TestInteractiveSimplefinSetup:

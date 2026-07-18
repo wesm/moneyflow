@@ -2,7 +2,6 @@
 
 import csv
 import json
-import os
 import re
 import sqlite3
 from datetime import date
@@ -19,13 +18,12 @@ from moneyflow.data.exporter import (
     build_export_path,
     export_dataframe,
 )
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_posix_permissions(path: Path, expected_mode: int) -> None:
-    """Verify exact permission bits on platforms that implement POSIX modes."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert os.stat(path).st_mode & 0o777 == expected_mode
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, expected_mode)
 
 
 class TestExportFormat:
@@ -302,7 +300,7 @@ class TestExportDataframeParquet:
                 export_dataframe(
                     sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET
                 )
-        assert len(list(path.parent.glob("*.tmp.*"))) == 0
+        assert len(list(path.parent.glob(".tmp_parquet_*"))) == 0
 
 
 class TestExportDataframeCsv:
@@ -815,7 +813,7 @@ class TestExportDataframeSqlite:
                 export_dataframe(
                     sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.SQLITE
                 )
-        assert len(list(path.parent.glob("*.tmp.*"))) == 0
+        assert len(list(path.parent.glob(".tmp_sqlite_*"))) == 0
 
 
 class TestExportDataframeDispatcher:

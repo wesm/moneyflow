@@ -5,8 +5,6 @@ Tests use CliRunner for Click command invocation and isolated
 tmp_path config directories to avoid touching real profiles.
 """
 
-import os
-import stat
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -17,13 +15,12 @@ from click.testing import CliRunner
 from moneyflow.cli import _build_simplefin_backend, _resolve_simplefin_profile, simplefin
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.credentials import CredentialManager
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_posix_permissions(path: Path, expected_mode: int) -> None:
-    """Verify exact permission bits on platforms that implement POSIX modes."""
-    if os.name == "nt":
-        pytest.skip("Windows does not expose POSIX permission bits")
-    assert stat.S_IMODE(path.stat().st_mode) == expected_mode
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, expected_mode)
 
 
 class TestBuildSimplefinBackend:
