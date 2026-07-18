@@ -17,6 +17,11 @@ from moneyflow.data import file_utils
 from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
 from tests.permission_assertions import assert_owner_only_permissions
 
+if os.name == "nt":
+    import pywintypes
+
+    from moneyflow.data import windows_permissions
+
 
 def assert_secure_permissions(file_path: Path) -> None:
     """Assert files use owner-only permissions on the current platform."""
@@ -45,6 +50,40 @@ def test_windows_permissions_use_owner_only_acl(
         os.close(fd)
 
     acl_setter.assert_called_once_with(fd, test_file)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+@pytest.mark.parametrize("setter_kind", ["file", "directory"])
+def test_windows_acl_errors_use_os_error_contract(
+    setter_kind: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public ACL helpers must expose native failures as mapped OSErrors."""
+    native_error = pywintypes.error(5, "SetSecurityInfo", "Access is denied.")
+    path = tmp_path / "protected"
+
+    if setter_kind == "file":
+        monkeypatch.setattr(
+            windows_permissions.win32security,
+            "SetSecurityInfo",
+            Mock(side_effect=native_error),
+        )
+    else:
+        monkeypatch.setattr(
+            windows_permissions.win32security,
+            "SetNamedSecurityInfo",
+            Mock(side_effect=native_error),
+        )
+
+    with pytest.raises(PermissionError) as error_info:
+        if setter_kind == "file":
+            windows_permissions.set_owner_only_file_permissions(-1, path)
+        else:
+            windows_permissions.set_owner_only_directory_permissions(path)
+
+    assert error_info.value.winerror == 5
+    assert error_info.value.filename == str(path)
 
 
 class TestSecureWriteFile:

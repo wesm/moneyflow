@@ -70,7 +70,6 @@ class SimpleFinBackend(FinanceBackend):
                          profile_dir.
         """
         self.profile_dir = profile_dir
-        self._managed_db_directory = db_path is None
         if db_path is None and profile_dir is not None:
             db_path = str(Path(profile_dir) / "simplefin.db")
         self._client: Optional[SimpleFinClient] = None
@@ -95,10 +94,8 @@ class SimpleFinBackend(FinanceBackend):
 
         if self._db_path != ":memory:":
             db_path = Path(self._db_path)
-            directory_existed = db_path.parent.exists()
             db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if self._managed_db_directory or not directory_existed:
-                set_restrictive_directory_permissions(db_path.parent)
+            set_restrictive_directory_permissions(db_path.parent)
             fd = open_restrictive_file(db_path, read_write=True)
             try:
                 # os.open's mode only applies to new files, so also restrict

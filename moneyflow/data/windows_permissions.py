@@ -59,34 +59,42 @@ def _as_os_error(error: Any, path: Path | str) -> OSError:
     """Convert a pywin32 filesystem failure to Python's public OSError API."""
     winerror = getattr(error, "winerror", error.args[0])
     message = getattr(error, "strerror", error.args[-1])
-    return OSError(winerror, message, str(path))
+    return OSError(0, message, str(path), winerror)
 
 
-def set_owner_only_file_permissions(fd: int, _path: Path | str) -> None:
+def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
     """Replace an open file's DACL with one granting access only to its owner."""
     get_osfhandle = getattr(msvcrt, "get_osfhandle")
-    win32security.SetSecurityInfo(
-        get_osfhandle(fd),
-        win32security.SE_FILE_OBJECT,
-        win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
-        None,
-        None,
-        _owner_only_dacl(),
-        None,
-    )
+    try:
+        win32security.SetSecurityInfo(
+            get_osfhandle(fd),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            _owner_only_dacl(),
+            None,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
 
 
 def set_owner_only_directory_permissions(path: Path | str) -> None:
     """Protect a directory and let its owner-only DACL propagate to children."""
-    win32security.SetNamedSecurityInfo(
-        str(path),
-        win32security.SE_FILE_OBJECT,
-        win32security.DACL_SECURITY_INFORMATION | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
-        None,
-        None,
-        _owner_only_dacl(inherit_to_children=True),
-        None,
-    )
+    try:
+        win32security.SetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            _owner_only_dacl(inherit_to_children=True),
+            None,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
 
 
 def open_owner_only_file(

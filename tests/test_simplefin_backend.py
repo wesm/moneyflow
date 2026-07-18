@@ -1273,7 +1273,7 @@ class TestProfileIntegration:
 
         assert_posix_permissions(profile_dir, 0o700)
 
-    def test_existing_custom_database_directory_permissions_are_preserved(self, tmp_path):
+    def test_existing_custom_database_directory_permissions_are_restricted(self, tmp_path):
         custom_dir = tmp_path / "shared-data"
         custom_dir.mkdir(mode=0o755)
         custom_dir.chmod(0o755)
@@ -1281,7 +1281,7 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert_posix_permissions(custom_dir, 0o755)
+        assert_posix_permissions(custom_dir, 0o700)
 
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"
