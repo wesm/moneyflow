@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import ntsecuritycon  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
+import pywintypes  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 import win32api  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 import win32con  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 import win32file  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
@@ -54,6 +55,13 @@ def _owner_only_security_attributes() -> Any:
     return security_attributes
 
 
+def _as_os_error(error: Any, path: Path | str) -> OSError:
+    """Convert a pywin32 filesystem failure to Python's public OSError API."""
+    winerror = getattr(error, "winerror", error.args[0])
+    message = getattr(error, "strerror", error.args[-1])
+    return OSError(winerror, message, str(path))
+
+
 def set_owner_only_file_permissions(fd: int, _path: Path | str) -> None:
     """Replace an open file's DACL with one granting access only to its owner."""
     get_osfhandle = getattr(msvcrt, "get_osfhandle")
@@ -100,15 +108,18 @@ def open_owner_only_file(
     else:
         creation_disposition = win32con.OPEN_ALWAYS
 
-    handle = win32file.CreateFile(
-        str(path),
-        desired_access,
-        0,
-        _owner_only_security_attributes(),
-        creation_disposition,
-        win32con.FILE_ATTRIBUTE_NORMAL,
-        None,
-    )
+    try:
+        handle = win32file.CreateFile(
+            str(path),
+            desired_access,
+            0,
+            _owner_only_security_attributes(),
+            creation_disposition,
+            win32con.FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
     detached_handle = None
     try:
         win32security.SetSecurityInfo(
@@ -126,9 +137,11 @@ def open_owner_only_file(
         open_osfhandle = getattr(msvcrt, "open_osfhandle")
         binary_flag = getattr(os, "O_BINARY", 0)
         return open_osfhandle(detached_handle, descriptor_flags | binary_flag)
-    except Exception:
+    except Exception as error:
         if detached_handle is None:
             handle.Close()
         else:
             win32api.CloseHandle(detached_handle)
+        if isinstance(error, pywintypes.error):
+            raise _as_os_error(error, path) from error
         raise
