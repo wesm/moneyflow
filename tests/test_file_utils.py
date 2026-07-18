@@ -62,8 +62,11 @@ def test_windows_acl_errors_use_os_error_contract(
     """Public ACL helpers must expose native failures as mapped OSErrors."""
     native_error = pywintypes.error(5, "SetSecurityInfo", "Access is denied.")
     path = tmp_path / "protected"
+    fd: int | None = None
 
     if setter_kind == "file":
+        path.touch()
+        fd = os.open(path, os.O_WRONLY)
         monkeypatch.setattr(
             windows_permissions.win32security,
             "SetSecurityInfo",
@@ -76,11 +79,15 @@ def test_windows_acl_errors_use_os_error_contract(
             Mock(side_effect=native_error),
         )
 
-    with pytest.raises(PermissionError) as error_info:
-        if setter_kind == "file":
-            windows_permissions.set_owner_only_file_permissions(-1, path)
-        else:
-            windows_permissions.set_owner_only_directory_permissions(path)
+    try:
+        with pytest.raises(PermissionError) as error_info:
+            if fd is not None:
+                windows_permissions.set_owner_only_file_permissions(fd, path)
+            else:
+                windows_permissions.set_owner_only_directory_permissions(path)
+    finally:
+        if fd is not None:
+            os.close(fd)
 
     assert error_info.value.winerror == 5
     assert error_info.value.filename == str(path)
