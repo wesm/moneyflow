@@ -7,6 +7,7 @@ SQLite store, enabling category/merchant/hide changes even though the API itself
 is read-only.
 """
 
+import errno
 import logging
 import os
 import sqlite3
@@ -14,6 +15,12 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..data.file_utils import (
+    ensure_restrictive_directory,
+    has_restrictive_directory_permissions,
+    open_restrictive_file,
+    set_restrictive_file_permissions,
+)
 from .base import FinanceBackend
 from .simplefin_client import SimpleFinClient, parse_access_url
 
@@ -90,17 +97,20 @@ class SimpleFinBackend(FinanceBackend):
 
         if self._db_path != ":memory:":
             db_path = Path(self._db_path)
-            db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if self._managed_db_directory:
-                os.chmod(db_path.parent, 0o700)
-            flags = os.O_RDWR | os.O_CREAT
-            if hasattr(os, "O_CLOEXEC"):
-                flags |= os.O_CLOEXEC
-            fd = os.open(db_path, flags, 0o600)
+            directory_existed = db_path.parent.exists()
+            if self._managed_db_directory or not directory_existed:
+                ensure_restrictive_directory(db_path.parent, parents=True)
+            elif not has_restrictive_directory_permissions(db_path.parent):
+                raise PermissionError(
+                    errno.EACCES,
+                    "SimpleFIN custom database directory must be owner-only",
+                    str(db_path.parent),
+                )
+            fd = open_restrictive_file(db_path, read_write=True, shared=True)
             try:
                 # os.open's mode only applies to new files, so also restrict
                 # databases created by older versions.
-                os.fchmod(fd, 0o600)
+                set_restrictive_file_permissions(fd, db_path)
             finally:
                 os.close(fd)
 

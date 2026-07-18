@@ -6,6 +6,12 @@ import pytest
 from freezegun import freeze_time
 
 from moneyflow.data.account_manager import Account, AccountManager, AccountRegistry
+from tests.permission_assertions import assert_owner_only_permissions
+
+
+def assert_posix_permissions(path: Path, expected_mode: str) -> None:
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, int(expected_mode, 8))
 
 
 @pytest.fixture
@@ -201,7 +207,7 @@ class TestLoadSaveRegistry:
 
         # Verify file was created with correct permissions
         assert account_manager.accounts_file.exists()
-        assert oct(account_manager.accounts_file.stat().st_mode)[-3:] == "600"
+        assert_posix_permissions(account_manager.accounts_file, "600")
 
         # Load and verify
         loaded = account_manager.load_registry()
@@ -318,8 +324,7 @@ class TestCreateAccount:
 
         assert profile_dir.exists()
         assert profile_dir.is_dir()
-        # Check permissions (should be 700)
-        assert oct(profile_dir.stat().st_mode)[-3:] == "700"
+        assert_posix_permissions(profile_dir, "700")
 
     def test_create_multiple_accounts(self, account_manager):
         """Test creating multiple accounts."""

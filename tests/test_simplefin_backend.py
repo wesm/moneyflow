@@ -7,13 +7,23 @@ Tests use an in-memory SQLite database to avoid filesystem side effects.
 
 import os
 import sqlite3
-import stat
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from moneyflow.backends.simplefin import SimpleFinBackend
+from moneyflow.data.file_utils import set_restrictive_directory_permissions
+from tests.permission_assertions import assert_owner_only_permissions
+
+
+def assert_posix_permissions(path: Path, expected_mode: int) -> None:
+    """Verify owner-only permissions, except for intentionally shared directories."""
+    if os.name == "nt" and expected_mode == 0o755:
+        pytest.skip("Windows does not expose equivalent POSIX shared-directory bits")
+    assert_owner_only_permissions(path, expected_mode)
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -84,6 +94,12 @@ COLLIDING_COLON_TRANSACTION = {
     "id": "v2:4:acct1:txn",
     "account": {"id": "acct", "displayName": "Savings"},
 }
+
+
+@pytest.fixture(autouse=True)
+def private_database_parent(tmp_path: Path) -> None:
+    """Make the explicit test database parent satisfy the production contract."""
+    set_restrictive_directory_permissions(tmp_path)
 
 
 @pytest.fixture()
@@ -1231,8 +1247,8 @@ class TestProfileIntegration:
         finally:
             os.umask(original_umask)
 
-        assert stat.S_IMODE(db_path.parent.stat().st_mode) == 0o700
-        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert_posix_permissions(db_path.parent, 0o700)
+        assert_posix_permissions(db_path, 0o600)
 
     def test_existing_database_permissions_are_restricted(self, tmp_path):
         db_path = tmp_path / "simplefin.db"
@@ -1242,7 +1258,28 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+        assert_posix_permissions(db_path, 0o600)
+
+    def test_database_initializes_without_fchmod(self, tmp_path, monkeypatch):
+        """Database creation should support runtimes without os.fchmod."""
+        monkeypatch.delattr(os, "fchmod", raising=False)
+        db_path = tmp_path / "simplefin.db"
+        backend = SimpleFinBackend(db_path=str(db_path))
+
+        backend._ensure_db_initialized()
+
+        assert db_path.exists()
+
+    def test_database_initialization_allows_concurrent_sqlite_open(self, tmp_path):
+        """Permission hardening must preserve SQLite's Windows sharing contract."""
+        db_path = tmp_path / "simplefin.db"
+        first_backend = SimpleFinBackend(db_path=str(db_path))
+        first_backend._ensure_db_initialized()
+
+        with sqlite3.connect(db_path) as existing_connection:
+            assert existing_connection.execute("SELECT 1").fetchone() == (1,)
+            second_backend = SimpleFinBackend(db_path=str(db_path))
+            second_backend._ensure_db_initialized()
 
     def test_existing_managed_profile_directory_permissions_are_restricted(self, tmp_path):
         profile_dir = tmp_path / "simplefin-profile"
@@ -1252,17 +1289,31 @@ class TestProfileIntegration:
 
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(profile_dir.stat().st_mode) == 0o700
+        assert_posix_permissions(profile_dir, 0o700)
 
-    def test_existing_custom_database_directory_permissions_are_preserved(self, tmp_path):
+    def test_existing_custom_database_directory_must_already_be_private(self, tmp_path):
         custom_dir = tmp_path / "shared-data"
         custom_dir.mkdir(mode=0o755)
         custom_dir.chmod(0o755)
         backend = SimpleFinBackend(db_path=str(custom_dir / "simplefin.db"))
 
+        with pytest.raises(PermissionError, match="owner-only"):
+            backend._ensure_db_initialized()
+
+        if os.name != "nt":
+            assert custom_dir.stat().st_mode & 0o777 == 0o755
+
+    def test_existing_private_custom_database_directory_is_accepted(self, tmp_path):
+        custom_dir = tmp_path / "private-data"
+        custom_dir.mkdir()
+        set_restrictive_directory_permissions(custom_dir)
+        db_path = custom_dir / "simplefin.db"
+        backend = SimpleFinBackend(db_path=str(db_path))
+
         backend._ensure_db_initialized()
 
-        assert stat.S_IMODE(custom_dir.stat().st_mode) == 0o755
+        assert_posix_permissions(custom_dir, 0o700)
+        assert_posix_permissions(db_path, 0o600)
 
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"

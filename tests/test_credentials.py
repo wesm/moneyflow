@@ -15,11 +15,12 @@ import pytest
 from moneyflow.data import credentials as credentials_module
 from moneyflow.data.credentials import CredentialManager
 from tests.conftest import save_test_credentials
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 def assert_file_permissions(file_path: Path, expected_mode: str):
-    """Verify file has exact expected octal permissions (e.g., '600')."""
-    assert oct(file_path.stat().st_mode)[-3:] == expected_mode
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(file_path, int(expected_mode, 8))
 
 
 class TestInteractiveSimplefinSetup:
@@ -654,7 +655,7 @@ class TestProfileDirectory:
         _manager = CredentialManager(config_dir=temp_config_dir, profile_dir=profile_dir)
 
         assert profile_dir.exists()
-        assert oct(profile_dir.stat().st_mode)[-3:] == "700"
+        assert_file_permissions(profile_dir, "700")
 
     def test_legacy_mode_without_profile_dir(self, temp_config_dir):
         """Test legacy mode (no profile_dir) still works."""
@@ -730,9 +731,7 @@ class TestPlaintextCredentials:
         )
 
         plaintext_file = temp_config_dir / "credentials.json"
-        stat_info = plaintext_file.stat()
-        # Should be owner read/write only (0600)
-        assert oct(stat_info.st_mode)[-3:] == "600"
+        assert_file_permissions(plaintext_file, "600")
 
     def test_load_plaintext_credentials(self, credential_manager, default_creds):
         """Test loading plaintext credentials."""

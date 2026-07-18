@@ -5,7 +5,7 @@ Tests use CliRunner for Click command invocation and isolated
 tmp_path config directories to avoid touching real profiles.
 """
 
-import stat
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import click
@@ -15,6 +15,12 @@ from click.testing import CliRunner
 from moneyflow.cli import _build_simplefin_backend, _resolve_simplefin_profile, simplefin
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.credentials import CredentialManager
+from tests.permission_assertions import assert_owner_only_permissions
+
+
+def assert_posix_permissions(path: Path, expected_mode: int) -> None:
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, expected_mode)
 
 
 class TestBuildSimplefinBackend:
@@ -27,7 +33,7 @@ class TestBuildSimplefinBackend:
         backend._ensure_db_initialized()
 
         assert backend.profile_dir == profile_dir
-        assert stat.S_IMODE(profile_dir.stat().st_mode) == 0o700
+        assert_posix_permissions(profile_dir, 0o700)
 
 
 class TestResolveSimplefinProfile:

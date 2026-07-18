@@ -4,7 +4,6 @@ import json
 import os
 import re
 import sqlite3
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -13,7 +12,12 @@ from typing import Optional
 
 import polars as pl
 
-from .file_utils import secure_write_file
+from .file_utils import (
+    create_restrictive_temp_file,
+    ensure_restrictive_directory,
+    replace_restrictive_file,
+    secure_write_file,
+)
 
 DANGEROUS_PREFIX_PATTERN = r"^\s*[=+\-@\t\r]"
 
@@ -94,7 +98,7 @@ def build_export_path(config_dir: Path, fmt: ExportFormat, scope: ExportScope) -
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
     filename = f"{timestamp}-{scope.value}-export.{fmt.extension}"
     exports_dir = config_dir / "exports"
-    exports_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ensure_restrictive_directory(exports_dir, parents=True)
     return exports_dir / filename
 
 
@@ -137,12 +141,12 @@ def _export_parquet(
     metadata: ExportMetadata,
 ) -> Path:
     """Write DataFrame as Parquet with sidecar metadata."""
-    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp.parquet")
+    fd, tmp_path_str = create_restrictive_temp_file(path.parent, prefix=".tmp_parquet_")
     tmp_path = Path(tmp_path_str)
     os.close(fd)
     try:
         df.write_parquet(str(tmp_path))
-        os.replace(tmp_path, path)
+        replace_restrictive_file(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise
@@ -170,7 +174,7 @@ def _export_sqlite(
     metadata: ExportMetadata,
 ) -> Path:
     """Write DataFrame as SQLite database with transactions and metadata tables."""
-    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp.db")
+    fd, tmp_path_str = create_restrictive_temp_file(path.parent, prefix=".tmp_sqlite_")
     tmp_path = Path(tmp_path_str)
     os.close(fd)
 
@@ -209,7 +213,7 @@ def _export_sqlite(
 
     conn.close()
     try:
-        os.replace(tmp_path, path)
+        replace_restrictive_file(tmp_path, path)
     except Exception:
         tmp_path.unlink(missing_ok=True)
         raise

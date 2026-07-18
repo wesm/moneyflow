@@ -16,7 +16,6 @@ import io
 import json
 import logging
 import os
-import tempfile
 from datetime import date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -25,7 +24,12 @@ from typing import Any, Dict, Optional, Protocol, Tuple
 import polars as pl
 from cryptography.fernet import Fernet, InvalidToken
 
-from .file_utils import secure_write_file
+from .file_utils import (
+    create_restrictive_temp_file,
+    ensure_restrictive_directory,
+    replace_restrictive_file,
+    secure_write_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,13 +102,12 @@ class EncryptedStorage:
 class PlainStorage:
     def save_parquet(self, df: pl.DataFrame, path: Path) -> None:
         dir_path = path.parent
-        fd, temp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_parquet_")
+        fd, temp_path = create_restrictive_temp_file(dir_path, prefix=".tmp_parquet_")
         try:
-            os.fchmod(fd, 0o600)
             os.close(fd)
             fd = -1
             df.write_parquet(temp_path)
-            os.replace(temp_path, path)
+            replace_restrictive_file(temp_path, path)
         except Exception:
             if fd >= 0:
                 try:
@@ -188,7 +191,7 @@ class CacheManager:
             self.cache_dir = Path.home() / ".moneyflow" / "cache"
 
         # Create cache directory if it doesn't exist
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        ensure_restrictive_directory(self.cache_dir, parents=True)
 
         # Storage setup
         self.is_encrypted = encryption_key is not None

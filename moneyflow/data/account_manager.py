@@ -16,15 +16,15 @@ Account metadata is stored in ~/.moneyflow/accounts.json
 
 import json
 import logging
-import os
 import re
 import shutil
-import tempfile
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
+
+from .file_utils import ensure_restrictive_directory, secure_atomic_write
 
 BackendType = Literal["monarch", "ynab", "amazon", "simplefin", "demo"]
 
@@ -128,8 +128,8 @@ class AccountManager:
         self.accounts_file = self.config_dir / "accounts.json"
 
         # Create directories if they don't exist
-        self.config_dir.mkdir(mode=0o700, exist_ok=True)
-        self.profiles_dir.mkdir(mode=0o700, exist_ok=True)
+        ensure_restrictive_directory(self.config_dir, parents=True)
+        ensure_restrictive_directory(self.profiles_dir, parents=True)
 
         self._registry = self.load_registry()
 
@@ -165,23 +165,8 @@ class AccountManager:
         if registry is not None:
             self._registry = registry
 
-        # Write atomically via temp file + rename to prevent torn reads
-        fd, tmp_path = tempfile.mkstemp(
-            dir=self.accounts_file.parent,
-            suffix=".tmp",
-        )
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(self._registry.to_dict(), f, indent=2)
-            os.chmod(tmp_path, 0o600)
-            os.replace(tmp_path, self.accounts_file)
-        except BaseException:
-            # Clean up temp file on failure
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        registry_json = json.dumps(self._registry.to_dict(), indent=2).encode()
+        secure_atomic_write(self.accounts_file, registry_json)
 
     def generate_account_id(self, backend_type: str, account_name: str) -> str:
         """
@@ -236,7 +221,7 @@ class AccountManager:
 
         # Create profile directory
         profile_dir = self.get_profile_dir(account_id)
-        profile_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        ensure_restrictive_directory(profile_dir, parents=True)
 
         # Create account object
         account = Account(

@@ -2,7 +2,6 @@
 
 import csv
 import json
-import os
 import re
 import sqlite3
 from datetime import date
@@ -19,6 +18,12 @@ from moneyflow.data.exporter import (
     build_export_path,
     export_dataframe,
 )
+from tests.permission_assertions import assert_owner_only_permissions
+
+
+def assert_posix_permissions(path: Path, expected_mode: int) -> None:
+    """Verify owner-only permissions on the current platform."""
+    assert_owner_only_permissions(path, expected_mode)
 
 
 class TestExportFormat:
@@ -163,8 +168,7 @@ class TestBuildExportPath:
         """Verify the exports directory has 0o700 permissions."""
         build_export_path(tmp_path, ExportFormat.PARQUET, ExportScope.FULL)
         exports_dir = tmp_path / "exports"
-        mode = os.stat(exports_dir).st_mode & 0o777
-        assert mode == 0o700
+        assert_posix_permissions(exports_dir, 0o700)
 
     def test_is_under_exports_subdirectory(self, tmp_path: Path) -> None:
         """Verify path is inside an 'exports' subdirectory."""
@@ -230,8 +234,7 @@ class TestExportDataframeParquet:
         path = tmp_path / "exports" / "test.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
         export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET)
-        mode = os.stat(path).st_mode & 0o777
-        assert mode == 0o600
+        assert_posix_permissions(path, 0o600)
 
     def test_writes_sidecar_metadata(self, sample_df, sample_metadata, tmp_path: Path) -> None:
         """Verify a .meta.json sidecar file is written alongside the Parquet."""
@@ -264,8 +267,7 @@ class TestExportDataframeParquet:
         path.parent.mkdir(parents=True, exist_ok=True)
         export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET)
         meta_path = path.with_suffix(".meta.json")
-        mode = os.stat(meta_path).st_mode & 0o777
-        assert mode == 0o600
+        assert_posix_permissions(meta_path, 0o600)
 
     def test_empty_dataframe(self, tmp_path: Path) -> None:
         """Verify exporting an empty DataFrame produces valid files."""
@@ -298,7 +300,7 @@ class TestExportDataframeParquet:
                 export_dataframe(
                     sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET
                 )
-        assert len(list(path.parent.glob("*.tmp.*"))) == 0
+        assert len(list(path.parent.glob(".tmp_parquet_*"))) == 0
 
 
 class TestExportDataframeCsv:
@@ -351,8 +353,7 @@ class TestExportDataframeCsv:
         path = tmp_path / "exports" / "test.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.CSV)
-        mode = os.stat(path).st_mode & 0o777
-        assert mode == 0o600
+        assert_posix_permissions(path, 0o600)
 
     def test_csv_has_metadata_header(self, sample_df, sample_metadata, tmp_path: Path) -> None:
         """Verify first lines of CSV are #-prefixed metadata."""
@@ -719,8 +720,7 @@ class TestExportDataframeSqlite:
         path = tmp_path / "exports" / "test.db"
         path.parent.mkdir(parents=True, exist_ok=True)
         export_dataframe(sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.SQLITE)
-        mode = os.stat(path).st_mode & 0o777
-        assert mode == 0o600
+        assert_posix_permissions(path, 0o600)
 
     def test_sqlite_has_transactions_table(
         self, sample_df, sample_metadata, tmp_path: Path
@@ -813,7 +813,7 @@ class TestExportDataframeSqlite:
                 export_dataframe(
                     sample_df, path=path, metadata=sample_metadata, fmt=ExportFormat.SQLITE
                 )
-        assert len(list(path.parent.glob("*.tmp.*"))) == 0
+        assert len(list(path.parent.glob(".tmp_sqlite_*"))) == 0
 
 
 class TestExportDataframeDispatcher:
@@ -840,10 +840,14 @@ class TestExportDataframeDispatcher:
 class TestExportDataframeEdgeCases:
     """Tests for edge cases in the export pipeline."""
 
-    def test_unwritable_directory_raises_error(self, sample_metadata: ExportMetadata) -> None:
-        """Verify export raises an error when the directory is not writable."""
+    def test_invalid_output_directory_raises_error(
+        self, tmp_path: Path, sample_metadata: ExportMetadata
+    ) -> None:
+        """Verify export raises an error when the output parent is not a directory."""
         df = pl.DataFrame({"id": ["test"], "amount": [1.0]})
-        path = Path("/dev/null/no-permission/test.parquet")
+        parent_file = tmp_path / "not-a-directory"
+        parent_file.write_text("placeholder", encoding="utf-8")
+        path = parent_file / "test.parquet"
         with pytest.raises((PermissionError, OSError)):
             export_dataframe(df, path=path, metadata=sample_metadata, fmt=ExportFormat.PARQUET)
 
