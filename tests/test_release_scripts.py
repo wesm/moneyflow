@@ -7,6 +7,13 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="release automation scripts require a POSIX shell",
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RELEASE_SCRIPT = REPO_ROOT / "scripts" / "release.sh"
 CHANGELOG_SCRIPT = REPO_ROOT / "scripts" / "changelog.sh"
