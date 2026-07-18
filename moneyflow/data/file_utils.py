@@ -7,6 +7,7 @@ avoiding race conditions where files briefly have default permissions.
 
 import os
 import secrets
+import stat
 import sys
 import tempfile
 from pathlib import Path
@@ -16,6 +17,7 @@ IS_WINDOWS = sys.platform == "win32"
 
 if IS_WINDOWS:
     from .windows_permissions import (
+        has_owner_only_directory_permissions,
         open_owner_only_file,
         set_owner_only_directory_permissions,
         set_owner_only_file_permissions,
@@ -23,6 +25,7 @@ if IS_WINDOWS:
 
     set_windows_owner_only_permissions = set_owner_only_file_permissions
 else:
+    has_owner_only_directory_permissions = None
     open_owner_only_file = None
     set_owner_only_directory_permissions = None
     set_windows_owner_only_permissions = None
@@ -49,6 +52,14 @@ def set_restrictive_directory_permissions(path: Path | str) -> None:
         set_owner_only_directory_permissions(path)
     else:
         os.chmod(path, 0o700)
+
+
+def has_restrictive_directory_permissions(path: Path | str) -> bool:
+    """Return whether a directory safely contains owner-only child files."""
+    if IS_WINDOWS:
+        assert has_owner_only_directory_permissions is not None
+        return has_owner_only_directory_permissions(path)
+    return stat.S_IMODE(Path(path).stat().st_mode) == 0o700
 
 
 def open_restrictive_file(

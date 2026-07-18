@@ -7,6 +7,7 @@ SQLite store, enabling category/merchant/hide changes even though the API itself
 is read-only.
 """
 
+import errno
 import logging
 import os
 import sqlite3
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..data.file_utils import (
+    has_restrictive_directory_permissions,
     open_restrictive_file,
     set_restrictive_directory_permissions,
     set_restrictive_file_permissions,
@@ -70,6 +72,7 @@ class SimpleFinBackend(FinanceBackend):
                          profile_dir.
         """
         self.profile_dir = profile_dir
+        self._managed_db_directory = db_path is None
         if db_path is None and profile_dir is not None:
             db_path = str(Path(profile_dir) / "simplefin.db")
         self._client: Optional[SimpleFinClient] = None
@@ -94,8 +97,16 @@ class SimpleFinBackend(FinanceBackend):
 
         if self._db_path != ":memory:":
             db_path = Path(self._db_path)
+            directory_existed = db_path.parent.exists()
             db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            set_restrictive_directory_permissions(db_path.parent)
+            if self._managed_db_directory or not directory_existed:
+                set_restrictive_directory_permissions(db_path.parent)
+            elif not has_restrictive_directory_permissions(db_path.parent):
+                raise PermissionError(
+                    errno.EACCES,
+                    "SimpleFIN custom database directory must be owner-only",
+                    str(db_path.parent),
+                )
             fd = open_restrictive_file(db_path, read_write=True)
             try:
                 # os.open's mode only applies to new files, so also restrict

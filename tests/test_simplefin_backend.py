@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from moneyflow.backends.simplefin import SimpleFinBackend
+from moneyflow.data.file_utils import set_restrictive_directory_permissions
 from tests.permission_assertions import assert_owner_only_permissions
 
 
@@ -1273,15 +1274,29 @@ class TestProfileIntegration:
 
         assert_posix_permissions(profile_dir, 0o700)
 
-    def test_existing_custom_database_directory_permissions_are_restricted(self, tmp_path):
+    def test_existing_custom_database_directory_must_already_be_private(self, tmp_path):
         custom_dir = tmp_path / "shared-data"
         custom_dir.mkdir(mode=0o755)
         custom_dir.chmod(0o755)
         backend = SimpleFinBackend(db_path=str(custom_dir / "simplefin.db"))
 
+        with pytest.raises(PermissionError, match="owner-only"):
+            backend._ensure_db_initialized()
+
+        if os.name != "nt":
+            assert custom_dir.stat().st_mode & 0o777 == 0o755
+
+    def test_existing_private_custom_database_directory_is_accepted(self, tmp_path):
+        custom_dir = tmp_path / "private-data"
+        custom_dir.mkdir()
+        set_restrictive_directory_permissions(custom_dir)
+        db_path = custom_dir / "simplefin.db"
+        backend = SimpleFinBackend(db_path=str(db_path))
+
         backend._ensure_db_initialized()
 
         assert_posix_permissions(custom_dir, 0o700)
+        assert_posix_permissions(db_path, 0o600)
 
     def test_existing_database_adds_currency_column(self, tmp_path):
         db_path = tmp_path / "legacy.db"

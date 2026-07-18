@@ -97,6 +97,37 @@ def set_owner_only_directory_permissions(path: Path | str) -> None:
         raise _as_os_error(error, path) from error
 
 
+def has_owner_only_directory_permissions(path: Path | str) -> bool:
+    """Return whether a directory has a protected, inheritable owner-only DACL."""
+    try:
+        security_descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+        dacl = security_descriptor.GetSecurityDescriptorDacl()
+        control, _revision = security_descriptor.GetSecurityDescriptorControl()
+        if not control & win32security.SE_DACL_PROTECTED:
+            return False
+        if dacl is None or dacl.GetAceCount() != 1:
+            return False
+
+        (ace_type, ace_flags), access_mask, sid = dacl.GetAce(0)
+        required_inheritance = (
+            win32security.CONTAINER_INHERIT_ACE | win32security.OBJECT_INHERIT_ACE
+        )
+        return (
+            ace_type == win32security.ACCESS_ALLOWED_ACE_TYPE
+            and not ace_flags & win32security.INHERITED_ACE
+            and ace_flags & required_inheritance == required_inheritance
+            and access_mask & ntsecuritycon.FILE_ALL_ACCESS == ntsecuritycon.FILE_ALL_ACCESS
+            and win32security.ConvertSidToStringSid(sid)
+            == win32security.ConvertSidToStringSid(_current_user_sid())
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+
+
 def open_owner_only_file(
     path: Path | str,
     *,
