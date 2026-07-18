@@ -28,6 +28,20 @@ def _current_user_sid() -> Any:
         win32api.CloseHandle(process_token)
 
 
+def _current_default_owner_sid() -> Any:
+    process_token = win32security.OpenProcessToken(
+        win32api.GetCurrentProcess(),
+        win32con.TOKEN_QUERY,
+    )
+    try:
+        return win32security.GetTokenInformation(
+            process_token,
+            win32security.TokenOwner,
+        )
+    finally:
+        win32api.CloseHandle(process_token)
+
+
 def _owner_only_dacl(*, inherit_to_children: bool = False) -> Any:
     dacl = win32security.ACL()
     inheritance_flags = 0
@@ -48,6 +62,8 @@ def _owner_only_security_attributes(*, inherit_to_children: bool = False) -> Any
     security_descriptor = security_attributes.SECURITY_DESCRIPTOR
     set_dacl = getattr(security_descriptor, "SetSecurityDescriptorDacl")
     set_control = getattr(security_descriptor, "SetSecurityDescriptorControl")
+    set_owner = getattr(security_descriptor, "SetSecurityDescriptorOwner")
+    set_owner(_current_user_sid(), False)
     set_dacl(True, _owner_only_dacl(inherit_to_children=inherit_to_children), False)
     set_control(
         win32security.SE_DACL_PROTECTED,
@@ -67,14 +83,18 @@ def _sid_string(sid: Any) -> str:
     return win32security.ConvertSidToStringSid(sid)
 
 
-def _require_current_user_owner(security_descriptor: Any, path: Path | str) -> None:
+def _require_current_user_owner(security_descriptor: Any, path: Path | str) -> bool:
     owner_sid = security_descriptor.GetSecurityDescriptorOwner()
-    if _sid_string(owner_sid) != _sid_string(_current_user_sid()):
+    owner_sid_string = _sid_string(owner_sid)
+    is_user_owner = owner_sid_string == _sid_string(_current_user_sid())
+    is_token_owner = owner_sid_string == _sid_string(_current_default_owner_sid())
+    if not is_user_owner and not is_token_owner:
         raise PermissionError(
             errno.EACCES,
             "Sensitive path is not owned by the current user",
             str(path),
         )
+    return is_user_owner
 
 
 def require_current_user_ownership(path: Path | str) -> None:
@@ -100,13 +120,20 @@ def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
             win32security.SE_FILE_OBJECT,
             win32security.OWNER_SECURITY_INFORMATION,
         )
-        _require_current_user_owner(security_descriptor, path)
+        is_user_owner = _require_current_user_owner(security_descriptor, path)
+        security_information = (
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION
+        )
+        owner_sid = None
+        if not is_user_owner:
+            security_information |= win32security.OWNER_SECURITY_INFORMATION
+            owner_sid = _current_user_sid()
         win32security.SetSecurityInfo(
             handle,
             win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION
-            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
-            None,
+            security_information,
+            owner_sid,
             None,
             _owner_only_dacl(),
             None,
@@ -117,14 +144,26 @@ def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
 
 def set_owner_only_directory_permissions(path: Path | str) -> None:
     """Protect a directory and let its owner-only DACL propagate to children."""
-    require_current_user_ownership(path)
     try:
+        security_descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        is_user_owner = _require_current_user_owner(security_descriptor, path)
+        security_information = (
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION
+        )
+        owner_sid = None
+        if not is_user_owner:
+            security_information |= win32security.OWNER_SECURITY_INFORMATION
+            owner_sid = _current_user_sid()
         win32security.SetNamedSecurityInfo(
             str(path),
             win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION
-            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
-            None,
+            security_information,
+            owner_sid,
             None,
             _owner_only_dacl(inherit_to_children=True),
             None,
@@ -217,7 +256,7 @@ def open_owner_only_file(
     shared: bool,
 ) -> int:
     """Open a file with an owner-only DACL applied atomically at creation."""
-    desired_access = win32con.GENERIC_WRITE | win32con.WRITE_DAC
+    desired_access = win32con.GENERIC_WRITE | win32con.WRITE_DAC | win32con.WRITE_OWNER
     if read_write:
         desired_access |= win32con.GENERIC_READ
 
@@ -253,13 +292,20 @@ def open_owner_only_file(
             win32security.SE_FILE_OBJECT,
             win32security.OWNER_SECURITY_INFORMATION,
         )
-        _require_current_user_owner(security_descriptor, path)
+        is_user_owner = _require_current_user_owner(security_descriptor, path)
+        security_information = (
+            win32security.DACL_SECURITY_INFORMATION
+            | win32security.PROTECTED_DACL_SECURITY_INFORMATION
+        )
+        owner_sid = None
+        if not is_user_owner:
+            security_information |= win32security.OWNER_SECURITY_INFORMATION
+            owner_sid = _current_user_sid()
         win32security.SetSecurityInfo(
             handle,
             win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION
-            | win32security.PROTECTED_DACL_SECURITY_INFORMATION,
-            None,
+            security_information,
+            owner_sid,
             None,
             _owner_only_dacl(),
             None,
