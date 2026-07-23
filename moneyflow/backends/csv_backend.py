@@ -63,7 +63,7 @@ def _validate_path_security(db_path_str: str) -> None:
     # When the database file has not been created yet (e.g. first call to
     # _secure_open_db), only the parent directory can be validated. File-level
     # checks will run after creation.
-    if not db_path.exists():
+    if not db_path.exists() and not db_path.is_symlink():
         return
 
     st_db = os.lstat(db_path)

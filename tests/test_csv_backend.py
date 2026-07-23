@@ -216,6 +216,21 @@ class TestCsvFinanceBackend:
         with pytest.raises(OSError):
             _validate_path_security(backend.db_path)
 
+    def test_rejects_dangling_symlinked_database_path(self, tmp_path, tmp_config_dir):
+        profile = tmp_path / "dangling_symlink_profile"
+        profile.mkdir(mode=0o700)
+        dangling_database = profile / "chase_credit_transactions.db"
+        dangling_database.symlink_to(profile / "missing_database.db")
+
+        backend = CsvFinanceBackend(
+            profile_dir=profile,
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+
+        with pytest.raises(OSError, match="symlink"):
+            _validate_path_security(backend.db_path)
+
     def test_rejects_profile_path_with_symlinked_intermediate_component(
         self, tmp_path, tmp_config_dir
     ):
