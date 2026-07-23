@@ -92,7 +92,10 @@ def _secure_open_db(db_path_str: str) -> None:
             os.close(fd)
     else:
         # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective.
-        # Validate via lstat and apply permissions through the path.
+        # Validate via lstat and apply permissions through the path. Windows
+        # symlink creation is privileged by default, so the path check plus
+        # os.chmod (which toggles the read-only attribute) is the equivalent
+        # platform-specific strategy.
         st = os.lstat(db_path)
         if stat_module.S_ISLNK(st.st_mode):
             raise OSError(f"Database path is a symlink: {db_path}")
