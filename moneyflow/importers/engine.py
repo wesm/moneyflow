@@ -141,7 +141,7 @@ def _process_file(
     mapping: InstitutionMapping,
     backend: CsvFinanceBackend,
     existing_ids: set[str],
-    seen_dedup_keys: set[str],
+    seen_dedup_counts: dict[str, int],
 ) -> dict[str, int]:
     """Process a single CSV file, returning {imported, duplicates, skipped}."""
     df = pl.read_csv(
@@ -183,14 +183,19 @@ def _process_file(
         dedup_parts = [_safe_str(row.get(f)).strip() for f in mapping.dedup_fields]
         dedup_key = "\x00".join(dedup_parts)
 
-        # Cross-file dedup: skip only if key was accepted from a previous file
-        if dedup_key in seen_dedup_keys:
-            duplicates += 1
-            continue
-
-        # In-file dedup: handle same-day identical transactions via sequence suffix
+        # In-file sequence number for this key (counts every row, including
+        # cross-file duplicates, so that suffixes are stable across files).
         seq = dedup_counts.get(dedup_key, 0) + 1
         dedup_counts[dedup_key] = seq
+
+        # Cross-file dedup: skip only occurrences already represented by earlier
+        # files. If earlier files accepted N occurrences of this key, the first
+        # N occurrences in this file are duplicates; any additional occurrences
+        # are legitimate new transactions.
+        prior_count = seen_dedup_counts.get(dedup_key, 0)
+        if seq <= prior_count:
+            duplicates += 1
+            continue
 
         # Generate hash-based ID from id_fields
         id_parts = [_safe_str(row.get(f)).strip() for f in mapping.id_fields]
@@ -232,13 +237,10 @@ def _process_file(
         )
         imported += 1
 
-        # Mark dedup key as seen only after successfully accepting the row
-        # (in-file duplicates get suffix, cross-file duplicates get skipped)
-        if imported == dedup_counts.get(dedup_key, 0):
-            pass  # dedup_counts already tracks this
-
-    # After processing all rows in this file, add accepted keys to seen set
-    seen_dedup_keys |= set(dedup_counts.keys())
+    # After processing all rows in this file, update the global count for each
+    # key to the maximum number of occurrences seen so far.
+    for key, count in dedup_counts.items():
+        seen_dedup_counts[key] = max(seen_dedup_counts.get(key, 0), count)
 
     if insert_batch:
         conn = backend._get_connection()
@@ -286,7 +288,7 @@ def import_csv(
         conn.close()
         existing_ids = {row[0] for row in rows}
 
-    seen_dedup_keys: set[str] = set()
+    seen_dedup_counts: dict[str, int] = {}
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
@@ -301,7 +303,7 @@ def import_csv(
             continue
 
         try:
-            stats = _process_file(csv_file, mapping, backend, existing_ids, seen_dedup_keys)
+            stats = _process_file(csv_file, mapping, backend, existing_ids, seen_dedup_counts)
         except Exception as e:
             raise ValueError(f"Failed to process {csv_file}: {e}") from e
 

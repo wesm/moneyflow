@@ -228,6 +228,30 @@ class TestImportCsv:
         assert result["imported"] == 2  # Shared + Unique
         assert result["duplicates"] == 1  # second Shared from file_b
 
+    def test_cross_file_dedup_counts_multiple_occurrences(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """Later files with more occurrences of a key import only the extras."""
+        csv_dir = tmp_path / "csvs_counts"
+        csv_dir.mkdir()
+        (csv_dir / "file_one.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Same Coffee,-4.50\n"
+        )
+        (csv_dir / "file_two.csv").write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Same Coffee,-4.50\n"
+            "7/12/2026,Same Coffee,-4.50\n"
+        )
+        counts_mapping = _copy_mapping(test_mapping, file_pattern="file_*.csv")
+        result = import_csv(str(csv_dir), counts_mapping, test_backend)
+        # file_one imports 1; file_two has 2, but 1 was already imported, so 1 new
+        assert result["imported"] == 2
+        assert result["duplicates"] == 1
+        conn = test_backend._get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 2
+
 
 class TestChaseCreditIntegration:
     def test_import_chase_csv(self, tmp_path):
