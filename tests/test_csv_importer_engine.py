@@ -151,11 +151,37 @@ class TestImportCsv:
         result2 = import_csv(test_csv_dir, test_mapping, test_backend)
         assert result2["imported"] == 0  # Already imported (same file size)
         result3 = import_csv(test_csv_dir, test_mapping, test_backend, force=True)
-        assert result3["imported"] == 2  # Force re-processes
+        assert result3["imported"] == 0  # Re-processed, but IDs already exist
+        assert result3["duplicates"] == 2  # Counted accurately, not silently ignored
         conn = test_backend._get_connection()
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         assert count == 2  # INSERT OR IGNORE prevents duplicates
+
+    def test_force_true_reports_actual_imports_after_content_change(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """force=True re-processes a file, but counts only rows that are new."""
+        csv_dir = tmp_path / "csvs_force"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,First Coffee,-4.50\n"
+        )
+        mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
+
+        result1 = import_csv(str(csv_dir), mapping, test_backend)
+        assert result1["imported"] == 1
+
+        # Append a new row (changes size, so it would be re-imported anyway)
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,First Coffee,-4.50\n"
+            "7/12/2026,Second Coffee,-5.00\n"
+        )
+        result2 = import_csv(str(csv_dir), mapping, test_backend, force=True)
+        assert result2["imported"] == 1
+        assert result2["duplicates"] == 1
 
     def test_amount_sign_flipping(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs2"

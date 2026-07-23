@@ -280,13 +280,12 @@ def import_csv(
             if fname and fsize:
                 imported_snapshots[fname] = fsize
 
-    # Load existing IDs once
-    existing_ids: set[str] = set()
-    if not force:
-        conn = backend._get_connection()
-        rows = conn.execute("SELECT id FROM transactions").fetchall()
-        conn.close()
-        existing_ids = {row[0] for row in rows}
+    # Load existing IDs once so duplicate detection is accurate even when
+    # force=True re-processes files that were previously imported.
+    conn = backend._get_connection()
+    rows = conn.execute("SELECT id FROM transactions").fetchall()
+    conn.close()
+    existing_ids: set[str] = {row[0] for row in rows}
 
     seen_dedup_counts: dict[str, int] = {}
     total_imported = 0
