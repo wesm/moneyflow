@@ -153,6 +153,7 @@ class CsvFinanceBackend(FinanceBackend):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT NOT NULL,
                 file_size INTEGER NOT NULL DEFAULT 0,
+                file_hash TEXT NOT NULL DEFAULT '',
                 record_count INTEGER NOT NULL,
                 duplicate_count INTEGER NOT NULL,
                 skipped_count INTEGER NOT NULL DEFAULT 0,
@@ -160,11 +161,15 @@ class CsvFinanceBackend(FinanceBackend):
             )
         """)
 
-        # Migrate existing import_history tables that lack file_size
+        # Migrate existing import_history tables that lack file_size or file_hash
         cols = {row[1] for row in conn.execute("PRAGMA table_info(import_history)")}
         if "file_size" not in cols:
             conn.execute(
                 "ALTER TABLE import_history ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0"
+            )
+        if "file_hash" not in cols:
+            conn.execute(
+                "ALTER TABLE import_history ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''"
             )
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_date ON transactions(date)")

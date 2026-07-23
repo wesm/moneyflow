@@ -393,3 +393,36 @@ class TestChaseCreditIntegration:
         csv_file.write_text(content_v1)
         result = import_csv(str(csv_dir), mapping, backend)
         assert result["imported"] == 0
+
+    def test_same_size_content_change_is_reimported(self, tmp_path):
+        """Content changes are detected even when byte size stays the same."""
+        from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+        mapping = INSTITUTION_MAPPINGS["chase_credit"]
+        profile = tmp_path / "chase_profile"
+        profile.mkdir()
+        config = tmp_path / "chase_config"
+        config.mkdir()
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=str(config), institution_name="chase_credit"
+        )
+
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "Chase_export.csv"
+
+        csv_file.write_text(
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT A,Shopping,Sale,-25.00,Note\n"
+        )
+        result1 = import_csv(str(csv_dir), mapping, backend)
+        assert result1["imported"] == 1
+
+        # Same byte size, different merchant. Hash must detect the change and
+        # the new row (different ID) is imported as a new transaction.
+        csv_file.write_text(
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT B,Shopping,Sale,-25.00,Note\n"
+        )
+        result2 = import_csv(str(csv_dir), mapping, backend)
+        assert result2["imported"] == 1

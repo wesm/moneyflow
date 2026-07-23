@@ -270,17 +270,17 @@ def import_csv(
     if not csv_files:
         raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
 
-    # Build lookup of already-imported files by (resolved_path, file_size).
+    # Build lookup of already-imported files by (resolved_path, file_hash).
     # get_import_history returns newest-first, so setdefault preserves the
-    # most recent size for each filename rather than leaving the oldest size.
-    imported_snapshots: dict[str, int] = {}
+    # most recent hash for each filename rather than leaving the oldest entry.
+    imported_snapshots: dict[str, str] = {}
     if not force:
         history = backend.get_import_history()
         for h in history:
             fname = h.get("filename", "")
-            fsize = h.get("file_size", 0)
-            if fname and fsize:
-                imported_snapshots.setdefault(fname, fsize)
+            fhash = h.get("file_hash", "")
+            if fname and fhash:
+                imported_snapshots.setdefault(fname, fhash)
 
     # Load existing IDs once so duplicate detection is accurate even when
     # force=True re-processes files that were previously imported.
@@ -298,9 +298,10 @@ def import_csv(
     for csv_file in csv_files:
         resolved = str(csv_file.resolve())
         file_size = csv_file.stat().st_size
+        file_hash = hashlib.sha256(csv_file.read_bytes()).hexdigest()
 
-        # Skip files already imported with same size
-        if resolved in imported_snapshots and imported_snapshots[resolved] == file_size:
+        # Skip files already imported with the same content hash
+        if resolved in imported_snapshots and imported_snapshots[resolved] == file_hash:
             continue
 
         try:
@@ -319,11 +320,12 @@ def import_csv(
         for csv_file, stats in new_files:
             resolved = str(csv_file.resolve())
             file_size = csv_file.stat().st_size
+            file_hash = hashlib.sha256(csv_file.read_bytes()).hexdigest()
             import_conn.execute(
                 "INSERT INTO import_history "
-                "(filename, file_size, record_count, duplicate_count, skipped_count) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (resolved, file_size, stats["imported"], stats["duplicates"], stats["skipped"]),
+                "(filename, file_size, file_hash, record_count, duplicate_count, skipped_count) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (resolved, file_size, file_hash, stats["imported"], stats["duplicates"], stats["skipped"]),
             )
         import_conn.commit()
         import_conn.close()
