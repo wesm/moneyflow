@@ -76,7 +76,7 @@ class TestCsvFinanceBackend:
         conn = chase_backend._get_connection()
         conn.execute(
             "INSERT INTO transactions (id, date, amount, merchant, extras) VALUES (?, ?, ?, ?, ?)",
-            ("chase_001", "2026-07-12", -50.0, "EXAMPLE GIFT SHOP", '{"raw_category":"Gifts"}'),
+            ("chase_001", "2024-01-15", -12.34, "EXAMPLE GIFT SHOP", '{"raw_category":"Gifts"}'),
         )
         conn.commit()
         conn.close()
@@ -86,8 +86,8 @@ class TestCsvFinanceBackend:
             assert result["totalCount"] == 1
             txn = result["results"][0]
             assert txn["id"] == "chase_001"
-            assert txn["date"] == "2026-07-12"
-            assert txn["amount"] == -50.0
+            assert txn["date"] == "2024-01-15"
+            assert txn["amount"] == -12.34
             assert txn["merchant"]["name"] == "EXAMPLE GIFT SHOP"
             assert txn["raw_category"] == "Gifts"
             assert txn["hideFromReports"] is False

@@ -120,8 +120,8 @@ def test_csv_dir(tmp_path):
     csv_dir.mkdir()
     csv_file = csv_dir / "test_data.csv"
     csv_file.write_text(
-        "Transaction Date,Description,Amount\n7/12/2026,EXAMPLE GIFT SHOP,-50.00\n"
-        "7/9/2026,EXAMPLE CAFE,-19.35\n"
+        "Transaction Date,Description,Amount\n1/15/2024,EXAMPLE GIFT SHOP,-12.34\n"
+        "1/12/2024,EXAMPLE CAFE,-8.90\n"
     )
     return str(csv_dir)
 
@@ -195,7 +195,7 @@ class TestImportCsv:
         conn = test_backend._get_connection()
         amount = conn.execute("SELECT amount FROM transactions LIMIT 1").fetchone()[0]
         conn.close()
-        assert amount == -50.0
+        assert amount == -12.34
 
     def test_trailing_empty_rows_filtered_as_skipped(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_trail"
