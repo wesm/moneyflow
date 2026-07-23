@@ -1,6 +1,7 @@
 """Generic CSV import engine with pluggable institution mappings."""
 
 import hashlib
+import io
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,7 +138,8 @@ def _prepare_dataframe(df: pl.DataFrame, mapping: InstitutionMapping) -> pl.Data
 
 
 def _process_file(
-    csv_file: Path,
+    csv_contents: bytes,
+    filename: str,
     mapping: InstitutionMapping,
     backend: CsvFinanceBackend,
     existing_ids: set[str],
@@ -145,7 +147,7 @@ def _process_file(
 ) -> dict[str, int]:
     """Process a single CSV file, returning {imported, duplicates, skipped}."""
     df = pl.read_csv(
-        str(csv_file),
+        io.BytesIO(csv_contents),
         infer_schema_length=0,
         encoding=mapping.encoding,
         truncate_ragged_lines=True,
@@ -155,7 +157,7 @@ def _process_file(
     column_issues = mapping.validate_csv_columns(set(df.columns))
     if column_issues:
         raise ValueError(
-            f"Column validation failed for {csv_file.name}: {'; '.join(column_issues)}"
+            f"Column validation failed for {filename}: {'; '.join(column_issues)}"
         )
 
     raw_row_count = df.height
@@ -293,34 +295,40 @@ def import_csv(
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
-    new_files: list[tuple[Path, dict[str, int]]] = []
+    new_files: list[tuple[Path, int, str, dict[str, int]]] = []
 
     for csv_file in csv_files:
         resolved = str(csv_file.resolve())
-        file_size = csv_file.stat().st_size
-        file_hash = hashlib.sha256(csv_file.read_bytes()).hexdigest()
+        csv_contents = csv_file.read_bytes()
+        file_size = len(csv_contents)
+        file_hash = hashlib.sha256(csv_contents).hexdigest()
 
         # Skip files already imported with the same content hash
         if resolved in imported_snapshots and imported_snapshots[resolved] == file_hash:
             continue
 
         try:
-            stats = _process_file(csv_file, mapping, backend, existing_ids, seen_dedup_counts)
+            stats = _process_file(
+                csv_contents,
+                csv_file.name,
+                mapping,
+                backend,
+                existing_ids,
+                seen_dedup_counts,
+            )
         except Exception as e:
             raise ValueError(f"Failed to process {csv_file}: {e}") from e
 
         total_imported += stats["imported"]
         total_duplicates += stats["duplicates"]
         total_skipped += stats["skipped"]
-        new_files.append((csv_file, stats))
+        new_files.append((csv_file, file_size, file_hash, stats))
 
     # Record import history per file
     if new_files:
         import_conn = backend._get_connection()
-        for csv_file, stats in new_files:
+        for csv_file, file_size, file_hash, stats in new_files:
             resolved = str(csv_file.resolve())
-            file_size = csv_file.stat().st_size
-            file_hash = hashlib.sha256(csv_file.read_bytes()).hexdigest()
             import_conn.execute(
                 "INSERT INTO import_history "
                 "(filename, file_size, file_hash, record_count, duplicate_count, skipped_count) "

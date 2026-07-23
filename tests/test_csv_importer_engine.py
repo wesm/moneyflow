@@ -1,12 +1,14 @@
 """Tests for CSV import engine and InstitutionMapping."""
 
 import dataclasses
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from moneyflow.backends.csv_backend import CsvFinanceBackend
+from moneyflow.importers import engine
 from moneyflow.importers.engine import InstitutionMapping, import_csv
 
 
@@ -147,6 +149,28 @@ class TestImportCsv:
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         assert count == 2
+
+    def test_records_hash_for_exact_bytes_processed(
+        self, test_csv_dir, test_mapping, test_backend, monkeypatch
+    ):
+        csv_file = Path(test_csv_dir) / "test_data.csv"
+        original_contents = csv_file.read_bytes()
+        original_process_file = engine._process_file
+
+        def mutate_file_after_processing(*args, **kwargs):
+            stats = original_process_file(*args, **kwargs)
+            csv_file.write_text(
+                "Transaction Date,Description,Amount\n"
+                "1/16/2024,EXAMPLE CHANGED STORE,-99.99\n"
+            )
+            return stats
+
+        monkeypatch.setattr(engine, "_process_file", mutate_file_after_processing)
+
+        import_csv(test_csv_dir, test_mapping, test_backend)
+
+        history = test_backend.get_import_history()
+        assert history[0]["file_hash"] == hashlib.sha256(original_contents).hexdigest()
 
     def test_force_flag_reimports(self, test_csv_dir, test_mapping, test_backend):
         result1 = import_csv(test_csv_dir, test_mapping, test_backend)
