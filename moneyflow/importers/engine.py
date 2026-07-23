@@ -56,8 +56,12 @@ class InstitutionMapping:
 
     def validate(self) -> None:
         """Raise ValueError if the mapping is missing required fields."""
-        required_standard = {"date", "amount", "merchant"}
         mapped_values = set(self.column_map.values())
+        required_standard = {"date", "merchant"}
+        missing = required_standard - mapped_values
+        if missing:
+            raise ValueError(f"Missing required column_map targets: {', '.join(sorted(missing))}")
+
         if self.debit_column is not None and self.credit_column is not None:
             if "amount" in mapped_values:
                 raise ValueError(
@@ -65,12 +69,8 @@ class InstitutionMapping:
                 )
         elif self.debit_column is not None or self.credit_column is not None:
             raise ValueError("Must specify both debit_column and credit_column, or neither")
-        else:
-            missing = required_standard - mapped_values
-            if missing:
-                raise ValueError(
-                    f"Missing required column_map targets: {', '.join(sorted(missing))}"
-                )
+        elif "amount" not in mapped_values:
+            raise ValueError("Missing required column_map targets: amount")
 
     def validate_csv_columns(self, csv_columns: set[str]) -> list[str]:
         """Validate CSV has required columns. Returns list of missing column issues."""

@@ -91,6 +91,31 @@ class TestInstitutionMapping:
         with pytest.raises(ValueError, match="Cannot specify both"):
             mapping.validate()
 
+    def test_split_mapping_requires_date_and_merchant(self):
+        mapping = InstitutionMapping(
+            name="split_bank",
+            display_name="Split Bank",
+            file_pattern="*.csv",
+            id_prefix="split_",
+            date_fmt=None,
+            column_map={},
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=("date", "merchant"),
+            extra_columns=(),
+            date_columns=("date",),
+            id_fields=("date", "merchant"),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column="Debit",
+            credit_column="Credit",
+        )
+
+        with pytest.raises(ValueError, match="date.*merchant"):
+            mapping.validate()
+
 
 @pytest.fixture
 def test_mapping():
