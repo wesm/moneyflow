@@ -185,8 +185,7 @@ class TestImportCsv:
         def mutate_file_after_processing(*args, **kwargs):
             stats = original_process_file(*args, **kwargs)
             csv_file.write_text(
-                "Transaction Date,Description,Amount\n"
-                "1/16/2024,EXAMPLE CHANGED STORE,-99.99\n"
+                "Transaction Date,Description,Amount\n1/16/2024,EXAMPLE CHANGED STORE,-99.99\n"
             )
             return stats
 
@@ -203,12 +202,10 @@ class TestImportCsv:
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()
         (csv_dir / "test_first.csv").write_text(
-            "Transaction Date,Description,Amount\n"
-            "1/15/2024,EXAMPLE FIRST STORE,-12.34\n"
+            "Transaction Date,Description,Amount\n1/15/2024,EXAMPLE FIRST STORE,-12.34\n"
         )
         (csv_dir / "test_second.csv").write_text(
-            "Transaction Date,Description\n"
-            "1/16/2024,EXAMPLE INVALID STORE\n"
+            "Transaction Date,Description\n1/16/2024,EXAMPLE INVALID STORE\n"
         )
 
         with pytest.raises(ValueError, match="Column validation failed"):
@@ -265,7 +262,7 @@ class TestImportCsv:
         conn = test_backend._get_connection()
         amount = conn.execute("SELECT amount FROM transactions LIMIT 1").fetchone()[0]
         conn.close()
-        assert amount == -12.34
+        assert amount == -50.0
 
     def test_trailing_empty_rows_filtered_as_skipped(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_trail"

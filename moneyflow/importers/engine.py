@@ -58,6 +58,8 @@ class InstitutionMapping:
         """Raise ValueError if the mapping is missing required fields."""
         mapped_values = set(self.column_map.values())
         required_standard = {"date", "merchant"}
+        if self.debit_column is None and self.credit_column is None:
+            required_standard.add("amount")
         missing = required_standard - mapped_values
         if missing:
             raise ValueError(f"Missing required column_map targets: {', '.join(sorted(missing))}")
@@ -69,8 +71,6 @@ class InstitutionMapping:
                 )
         elif self.debit_column is not None or self.credit_column is not None:
             raise ValueError("Must specify both debit_column and credit_column, or neither")
-        elif "amount" not in mapped_values:
-            raise ValueError("Missing required column_map targets: amount")
 
     def validate_csv_columns(self, csv_columns: set[str]) -> list[str]:
         """Validate CSV has required columns. Returns list of missing column issues."""
@@ -157,9 +157,7 @@ def _process_file(
 
     column_issues = mapping.validate_csv_columns(set(df.columns))
     if column_issues:
-        raise ValueError(
-            f"Column validation failed for {filename}: {'; '.join(column_issues)}"
-        )
+        raise ValueError(f"Column validation failed for {filename}: {'; '.join(column_issues)}")
 
     raw_row_count = df.height
     df = _prepare_dataframe(df, mapping)
