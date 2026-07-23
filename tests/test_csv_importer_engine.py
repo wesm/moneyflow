@@ -172,6 +172,27 @@ class TestImportCsv:
         history = test_backend.get_import_history()
         assert history[0]["file_hash"] == hashlib.sha256(original_contents).hexdigest()
 
+    def test_records_history_for_successful_file_before_later_file_fails(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        (csv_dir / "test_first.csv").write_text(
+            "Transaction Date,Description,Amount\n"
+            "1/15/2024,EXAMPLE FIRST STORE,-12.34\n"
+        )
+        (csv_dir / "test_second.csv").write_text(
+            "Transaction Date,Description\n"
+            "1/16/2024,EXAMPLE INVALID STORE\n"
+        )
+
+        with pytest.raises(ValueError, match="Column validation failed"):
+            import_csv(str(csv_dir), test_mapping, test_backend)
+
+        history = test_backend.get_import_history()
+        assert len(history) == 1
+        assert history[0]["record_count"] == 1
+
     def test_force_flag_reimports(self, test_csv_dir, test_mapping, test_backend):
         result1 = import_csv(test_csv_dir, test_mapping, test_backend)
         assert result1["imported"] == 2

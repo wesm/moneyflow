@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -141,7 +142,7 @@ def _process_file(
     csv_contents: bytes,
     filename: str,
     mapping: InstitutionMapping,
-    backend: CsvFinanceBackend,
+    connection: sqlite3.Connection,
     existing_ids: set[str],
     seen_dedup_counts: dict[str, int],
 ) -> dict[str, int]:
@@ -245,15 +246,12 @@ def _process_file(
         seen_dedup_counts[key] = max(seen_dedup_counts.get(key, 0), count)
 
     if insert_batch:
-        conn = backend._get_connection()
-        conn.executemany(
+        connection.executemany(
             """INSERT OR IGNORE INTO transactions
                (id, date, amount, merchant, category, category_id, account, notes, extras)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             insert_batch,
         )
-        conn.commit()
-        conn.close()
 
     return {"imported": imported, "duplicates": duplicates, "skipped": skipped}
 
@@ -295,8 +293,6 @@ def import_csv(
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
-    new_files: list[tuple[Path, int, str, dict[str, int]]] = []
-
     for csv_file in csv_files:
         resolved = str(csv_file.resolve())
         csv_contents = csv_file.read_bytes()
@@ -307,28 +303,16 @@ def import_csv(
         if resolved in imported_snapshots and imported_snapshots[resolved] == file_hash:
             continue
 
+        import_conn = backend._get_connection()
         try:
             stats = _process_file(
                 csv_contents,
                 csv_file.name,
                 mapping,
-                backend,
+                import_conn,
                 existing_ids,
                 seen_dedup_counts,
             )
-        except Exception as e:
-            raise ValueError(f"Failed to process {csv_file}: {e}") from e
-
-        total_imported += stats["imported"]
-        total_duplicates += stats["duplicates"]
-        total_skipped += stats["skipped"]
-        new_files.append((csv_file, file_size, file_hash, stats))
-
-    # Record import history per file
-    if new_files:
-        import_conn = backend._get_connection()
-        for csv_file, file_size, file_hash, stats in new_files:
-            resolved = str(csv_file.resolve())
             import_conn.execute(
                 "INSERT INTO import_history "
                 "(filename, file_size, file_hash, record_count, duplicate_count, skipped_count) "
@@ -342,7 +326,15 @@ def import_csv(
                     stats["skipped"],
                 ),
             )
-        import_conn.commit()
-        import_conn.close()
+            import_conn.commit()
+        except Exception as e:
+            import_conn.rollback()
+            raise ValueError(f"Failed to process {csv_file}: {e}") from e
+        finally:
+            import_conn.close()
+
+        total_imported += stats["imported"]
+        total_duplicates += stats["duplicates"]
+        total_skipped += stats["skipped"]
 
     return {"imported": total_imported, "duplicates": total_duplicates, "skipped": total_skipped}
