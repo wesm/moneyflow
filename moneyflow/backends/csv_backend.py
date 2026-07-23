@@ -33,32 +33,75 @@ def _stable_category_id(name: str) -> str:
     return f"cat_{slug}" if slug else "cat_uncategorized"
 
 
+def _validate_path_security(db_path_str: str) -> None:
+    """Validate that the database path and parent directory are secure.
+
+    Checks are performed on every database connection to defend against
+    symlink/time-of-check-to-time-of-use races on the path.
+    """
+    db_path = Path(db_path_str)
+    parent = db_path.parent
+
+    if not parent.exists():
+        raise OSError(f"Parent directory does not exist: {parent}")
+
+    st_parent = os.lstat(parent)
+    if not stat_module.S_ISDIR(st_parent.st_mode):
+        raise OSError(f"Parent is not a directory: {parent}")
+    if os.name == "posix" and st_parent.st_uid != os.getuid():
+        raise OSError(f"Parent directory not owned by current user: {parent}")
+    if stat_module.S_IMODE(st_parent.st_mode) & 0o077:
+        raise OSError(f"Parent directory is group/other writable: {parent}")
+
+    st_db = os.lstat(db_path)
+    if stat_module.S_ISLNK(st_db.st_mode):
+        raise OSError(f"Database path is a symlink: {db_path}")
+    if not stat_module.S_ISREG(st_db.st_mode):
+        raise OSError(f"Database is not a regular file: {db_path}")
+    if os.name == "posix" and st_db.st_uid != os.getuid():
+        raise OSError(f"Database not owned by current user: {db_path}")
+    if stat_module.S_IMODE(st_db.st_mode) != 0o600:
+        raise OSError(f"Database permissions are not 0o600: {db_path}")
+
+    real_db = os.path.realpath(db_path)
+    real_parent = os.path.realpath(parent)
+    if not Path(real_db).is_relative_to(real_parent):
+        raise OSError(f"Database path escapes parent directory: {db_path}")
+
+
 def _secure_open_db(db_path_str: str) -> None:
     """Create or verify the database file with symlink protection."""
     db_path = Path(db_path_str)
     db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(db_path.parent, 0o700)
 
-    flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
-    if hasattr(os, "O_CLOEXEC"):
-        flags |= os.O_CLOEXEC
+    _validate_path_security(db_path_str)
 
-    # Resolve parent directory and verify the path lives under it
-    real_parent = os.path.realpath(db_path.parent)
-    fd = os.open(db_path, flags, 0o600)
-    try:
-        st = os.fstat(fd)
+    if os.name == "posix":
+        flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+
+        fd = os.open(db_path, flags, 0o600)
+        try:
+            st = os.fstat(fd)
+            if not stat_module.S_ISREG(st.st_mode):
+                raise OSError(f"Database path is not a regular file: {db_path}")
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
+    else:
+        # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective.
+        # Validate via lstat and apply permissions through the path.
+        st = os.lstat(db_path)
+        if stat_module.S_ISLNK(st.st_mode):
+            raise OSError(f"Database path is a symlink: {db_path}")
         if not stat_module.S_ISREG(st.st_mode):
             raise OSError(f"Database path is not a regular file: {db_path}")
-        os.fchmod(fd, 0o600)
-    finally:
-        os.close(fd)
+        os.chmod(db_path, 0o600)
 
-    # Verify the real path lives under the expected parent
-    real_db = os.path.realpath(db_path)
-    real_parent_path = Path(real_db).parent
-    if real_parent_path != Path(real_parent):
-        raise OSError(f"Database path escapes parent directory: {db_path}")
+    # Re-validate after the secure create/verify to catch any race.
+    _validate_path_security(db_path_str)
 
 
 class CsvFinanceBackend(FinanceBackend):
@@ -88,6 +131,7 @@ class CsvFinanceBackend(FinanceBackend):
 
         _secure_open_db(self.db_path)
 
+        _validate_path_security(self.db_path)
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
@@ -132,6 +176,7 @@ class CsvFinanceBackend(FinanceBackend):
 
     def _get_connection(self) -> sqlite3.Connection:
         self._ensure_db_initialized()
+        _validate_path_security(self.db_path)
         return sqlite3.connect(self.db_path)
 
     def _row_to_transaction_dict(self, row: sqlite3.Row) -> dict[str, Any]:

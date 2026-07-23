@@ -1,10 +1,14 @@
 """Tests for CsvFinanceBackend."""
 
 import asyncio
+import os
 
 import pytest
 
-from moneyflow.backends.csv_backend import CsvFinanceBackend
+from moneyflow.backends.csv_backend import (
+    CsvFinanceBackend,
+    _validate_path_security,
+)
 
 
 @pytest.fixture
@@ -190,3 +194,36 @@ class TestCsvFinanceBackend:
         assert stats["total_amount"] == -80.0
         assert stats["earliest_date"] == "2026-01-01"
         assert stats["latest_date"] == "2026-12-31"
+
+    def test_db_file_has_restrictive_permissions(self, chase_backend):
+        chase_backend._get_connection().close()
+        mode = os.stat(chase_backend.db_path).st_mode & 0o777
+        assert mode == 0o600
+
+    def test_rejects_symlinked_database_path(self, tmp_path, tmp_config_dir):
+        profile = tmp_path / "symlink_profile"
+        profile.mkdir()
+        real_db = profile / "real_chase_credit_transactions.db"
+        symlink_db = profile / "chase_credit_transactions.db"
+        symlink_db.symlink_to(real_db)
+
+        backend = CsvFinanceBackend(
+            profile_dir=profile,
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+        with pytest.raises(OSError):
+            _validate_path_security(backend.db_path)
+
+    def test_rejects_group_writable_parent_directory(self, tmp_path, tmp_config_dir):
+        profile = tmp_path / "insecure_profile"
+        profile.mkdir()
+        profile.chmod(0o777)
+
+        backend = CsvFinanceBackend(
+            profile_dir=profile,
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+        with pytest.raises(OSError):
+            _validate_path_security(backend.db_path)
