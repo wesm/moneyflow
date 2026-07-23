@@ -42,6 +42,8 @@ def _validate_path_security(db_path_str: str) -> None:
     db_path = Path(db_path_str)
     parent = db_path.parent
 
+    _validate_path_components(parent)
+
     if not parent.exists():
         raise OSError(f"Parent directory does not exist: {parent}")
 
@@ -73,6 +75,23 @@ def _validate_path_security(db_path_str: str) -> None:
     real_parent = os.path.realpath(parent)
     if not Path(real_db).is_relative_to(real_parent):
         raise OSError(f"Database path escapes parent directory: {db_path}")
+
+
+def _validate_path_components(path: Path) -> None:
+    """Reject symlinked or unsafe directory components before opening a database."""
+    absolute_path = Path(os.path.abspath(path))
+    current = Path(absolute_path.anchor)
+
+    for component in absolute_path.parts[1:]:
+        current /= component
+        st_component = os.lstat(current)
+        mode = st_component.st_mode
+        if stat_module.S_ISLNK(mode):
+            raise OSError(f"Database path contains a symlinked component: {current}")
+        if not stat_module.S_ISDIR(mode):
+            raise OSError(f"Database path component is not a directory: {current}")
+        if stat_module.S_IMODE(mode) & 0o022 and not mode & stat_module.S_ISVTX:
+            raise OSError(f"Database path component is group/other writable: {current}")
 
 
 def _secure_open_db(db_path_str: str) -> None:

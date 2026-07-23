@@ -215,6 +215,24 @@ class TestCsvFinanceBackend:
         with pytest.raises(OSError):
             _validate_path_security(backend.db_path)
 
+    def test_rejects_profile_path_with_symlinked_intermediate_component(
+        self, tmp_path, tmp_config_dir
+    ):
+        real_parent = tmp_path / "real_parent"
+        profile = real_parent / "profile"
+        profile.mkdir(parents=True)
+        symlinked_parent = tmp_path / "symlinked_parent"
+        symlinked_parent.symlink_to(real_parent, target_is_directory=True)
+
+        backend = CsvFinanceBackend(
+            profile_dir=symlinked_parent / "profile",
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+
+        with pytest.raises(OSError, match="symlink"):
+            backend._get_connection()
+
     def test_rejects_group_writable_parent_directory(self, tmp_path, tmp_config_dir):
         profile = tmp_path / "insecure_profile"
         profile.mkdir()
