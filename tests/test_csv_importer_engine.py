@@ -354,3 +354,42 @@ class TestChaseCreditIntegration:
         )
         result3 = import_csv(str(csv_dir), mapping, backend)
         assert result3["imported"] == 1  # New row only (others already in DB)
+
+    def test_revert_to_original_size_not_reimported(self, tmp_path):
+        """The most recent import history size wins, not the oldest."""
+        from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+        mapping = INSTITUTION_MAPPINGS["chase_credit"]
+        profile = tmp_path / "chase_profile"
+        profile.mkdir()
+        config = tmp_path / "chase_config"
+        config.mkdir()
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=str(config), institution_name="chase_credit"
+        )
+
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "Chase_export.csv"
+
+        content_v1 = (
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT A,Shopping,Sale,-25.00,Note\n"
+        )
+        content_v2 = (
+            "Transaction Date,Post Date,Description,Category,Type,Amount,Memo\n"
+            "01/15/2024,01/16/2024,MERCHANT A,Shopping,Sale,-25.00,Note\n"
+            "01/12/2024,01/13/2024,MERCHANT B,Food,Sale,-10.00,\n"
+        )
+
+        csv_file.write_text(content_v1)
+        assert import_csv(str(csv_dir), mapping, backend)["imported"] == 1
+
+        csv_file.write_text(content_v2)
+        assert import_csv(str(csv_dir), mapping, backend)["imported"] == 1
+
+        # Reverting to the original size should not be reprocessed, because the
+        # newest history entry (content_v2 size) is retained.
+        csv_file.write_text(content_v1)
+        result = import_csv(str(csv_dir), mapping, backend)
+        assert result["imported"] == 0

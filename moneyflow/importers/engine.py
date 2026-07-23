@@ -270,7 +270,9 @@ def import_csv(
     if not csv_files:
         raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
 
-    # Build lookup of already-imported files by (resolved_path, file_size)
+    # Build lookup of already-imported files by (resolved_path, file_size).
+    # get_import_history returns newest-first, so setdefault preserves the
+    # most recent size for each filename rather than leaving the oldest size.
     imported_snapshots: dict[str, int] = {}
     if not force:
         history = backend.get_import_history()
@@ -278,7 +280,7 @@ def import_csv(
             fname = h.get("filename", "")
             fsize = h.get("file_size", 0)
             if fname and fsize:
-                imported_snapshots[fname] = fsize
+                imported_snapshots.setdefault(fname, fsize)
 
     # Load existing IDs once so duplicate detection is accurate even when
     # force=True re-processes files that were previously imported.
