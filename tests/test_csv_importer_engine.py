@@ -119,8 +119,10 @@ def test_csv_dir(tmp_path):
     csv_dir = tmp_path / "csvs"
     csv_dir.mkdir()
     csv_file = csv_dir / "test_data.csv"
-    csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,EXAMPLE GIFT SHOP,-50.00\n"
-                        "7/9/2026,EXAMPLE CAFE,-19.35\n")
+    csv_file.write_text(
+        "Transaction Date,Description,Amount\n7/12/2026,EXAMPLE GIFT SHOP,-50.00\n"
+        "7/9/2026,EXAMPLE CAFE,-19.35\n"
+    )
     return str(csv_dir)
 
 
@@ -130,8 +132,9 @@ def test_backend(tmp_path):
     profile.mkdir()
     config = tmp_path / "test_config"
     config.mkdir()
-    return CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
-                             institution_name="test_bank")
+    return CsvFinanceBackend(
+        profile_dir=profile, config_dir=str(config), institution_name="test_bank"
+    )
 
 
 class TestImportCsv:
@@ -165,9 +168,7 @@ class TestImportCsv:
         csv_dir = tmp_path / "csvs_force"
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
-        csv_file.write_text(
-            "Transaction Date,Description,Amount\n7/12/2026,First Coffee,-4.50\n"
-        )
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,First Coffee,-4.50\n")
         mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
 
         result1 = import_csv(str(csv_dir), mapping, test_backend)
@@ -200,7 +201,9 @@ class TestImportCsv:
         csv_dir = tmp_path / "csvs_trail"
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
-        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Real,-50.00\n,,,\n,,,\n")
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Real,-50.00\n,,,\n,,,\n"
+        )
         trail_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
         result = import_csv(str(csv_dir), trail_mapping, test_backend)
         assert result["imported"] == 1
@@ -211,9 +214,11 @@ class TestImportCsv:
         csv_dir = tmp_path / "csvs_bad_date"
         csv_dir.mkdir()
         csv_file = csv_dir / "test_data.csv"
-        csv_file.write_text("Transaction Date,Description,Amount\n"
-                            "7/12/2026,Real Transaction,-50.00\n"
-                            "NOT_A_DATE,Bad Row,-10.00\n")
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Real Transaction,-50.00\n"
+            "NOT_A_DATE,Bad Row,-10.00\n"
+        )
         bad_mapping = _copy_mapping(test_mapping, file_pattern="test_data.csv")
         result = import_csv(str(csv_dir), bad_mapping, test_backend)
         assert result["imported"] == 1
@@ -227,8 +232,9 @@ class TestImportCsv:
         csv_file.write_text(
             "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/12/2026,Coffee,-4.50\n"
         )
-        dup_mapping = _copy_mapping(test_mapping, file_pattern="test_dup.csv",
-                                     id_fields=("date", "amount", "merchant"))
+        dup_mapping = _copy_mapping(
+            test_mapping, file_pattern="test_dup.csv", id_fields=("date", "amount", "merchant")
+        )
         result = import_csv(str(csv_dir), dup_mapping, test_backend)
         assert result["imported"] == 2
         conn = test_backend._get_connection()
@@ -288,13 +294,15 @@ class TestChaseCreditIntegration:
         profile.mkdir()
         config = tmp_path / "chase_config"
         config.mkdir()
-        backend = CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
-                                    institution_name="chase_credit")
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=str(config), institution_name="chase_credit"
+        )
 
         sample = Path(__file__).parent / "data" / "chase_sample.csv"
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()
         import shutil
+
         shutil.copy(sample, csv_dir / "Chase1234_Activity.csv")
 
         result = import_csv(str(csv_dir), mapping, backend)
@@ -325,8 +333,9 @@ class TestChaseCreditIntegration:
         profile.mkdir()
         config = tmp_path / "chase_config"
         config.mkdir()
-        backend = CsvFinanceBackend(profile_dir=profile, config_dir=str(config),
-                                    institution_name="chase_credit")
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=str(config), institution_name="chase_credit"
+        )
 
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()

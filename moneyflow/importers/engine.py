@@ -325,7 +325,14 @@ def import_csv(
                 "INSERT INTO import_history "
                 "(filename, file_size, file_hash, record_count, duplicate_count, skipped_count) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (resolved, file_size, file_hash, stats["imported"], stats["duplicates"], stats["skipped"]),
+                (
+                    resolved,
+                    file_size,
+                    file_hash,
+                    stats["imported"],
+                    stats["duplicates"],
+                    stats["skipped"],
+                ),
             )
         import_conn.commit()
         import_conn.close()

@@ -177,9 +177,7 @@ class CsvFinanceBackend(FinanceBackend):
                 "ALTER TABLE import_history ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0"
             )
         if "file_hash" not in cols:
-            conn.execute(
-                "ALTER TABLE import_history ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''"
-            )
+            conn.execute("ALTER TABLE import_history ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_date ON transactions(date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_merchant ON transactions(merchant)")
