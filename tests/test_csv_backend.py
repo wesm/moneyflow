@@ -5,6 +5,7 @@ import os
 
 import pytest
 
+from moneyflow.backends import csv_backend
 from moneyflow.backends.csv_backend import (
     CsvFinanceBackend,
     _validate_path_security,
@@ -245,3 +246,12 @@ class TestCsvFinanceBackend:
         )
         with pytest.raises(OSError):
             _validate_path_security(backend.db_path)
+
+    def test_allows_windows_path_with_posix_mode_bits(self, tmp_path, monkeypatch):
+        profile = tmp_path / "windows_profile"
+        profile.mkdir(mode=0o755)
+        database_path = profile / "transactions.db"
+
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        _validate_path_security(str(database_path))

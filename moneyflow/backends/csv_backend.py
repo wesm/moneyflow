@@ -33,6 +33,11 @@ def _stable_category_id(name: str) -> str:
     return f"cat_{slug}" if slug else "cat_uncategorized"
 
 
+def _requires_posix_mode_checks() -> bool:
+    """Return whether Unix ownership and mode checks are meaningful."""
+    return os.name == "posix"
+
+
 def _validate_path_security(db_path_str: str) -> None:
     """Validate that the database path and parent directory are secure.
 
@@ -50,9 +55,9 @@ def _validate_path_security(db_path_str: str) -> None:
     st_parent = os.lstat(parent)
     if not stat_module.S_ISDIR(st_parent.st_mode):
         raise OSError(f"Parent is not a directory: {parent}")
-    if os.name == "posix" and st_parent.st_uid != os.getuid():
+    if _requires_posix_mode_checks() and st_parent.st_uid != os.getuid():
         raise OSError(f"Parent directory not owned by current user: {parent}")
-    if stat_module.S_IMODE(st_parent.st_mode) & 0o077:
+    if _requires_posix_mode_checks() and stat_module.S_IMODE(st_parent.st_mode) & 0o077:
         raise OSError(f"Parent directory is group/other writable: {parent}")
 
     # When the database file has not been created yet (e.g. first call to
@@ -66,9 +71,9 @@ def _validate_path_security(db_path_str: str) -> None:
         raise OSError(f"Database path is a symlink: {db_path}")
     if not stat_module.S_ISREG(st_db.st_mode):
         raise OSError(f"Database is not a regular file: {db_path}")
-    if os.name == "posix" and st_db.st_uid != os.getuid():
+    if _requires_posix_mode_checks() and st_db.st_uid != os.getuid():
         raise OSError(f"Database not owned by current user: {db_path}")
-    if stat_module.S_IMODE(st_db.st_mode) != 0o600:
+    if _requires_posix_mode_checks() and stat_module.S_IMODE(st_db.st_mode) != 0o600:
         raise OSError(f"Database permissions are not 0o600: {db_path}")
 
     real_db = os.path.realpath(db_path)
