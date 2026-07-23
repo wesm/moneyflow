@@ -53,6 +53,12 @@ def _validate_path_security(db_path_str: str) -> None:
     if stat_module.S_IMODE(st_parent.st_mode) & 0o077:
         raise OSError(f"Parent directory is group/other writable: {parent}")
 
+    # When the database file has not been created yet (e.g. first call to
+    # _secure_open_db), only the parent directory can be validated. File-level
+    # checks will run after creation.
+    if not db_path.exists():
+        return
+
     st_db = os.lstat(db_path)
     if stat_module.S_ISLNK(st_db.st_mode):
         raise OSError(f"Database path is a symlink: {db_path}")
