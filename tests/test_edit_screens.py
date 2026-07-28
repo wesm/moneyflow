@@ -513,6 +513,45 @@ class TestManageCategoriesScreen:
         }
         assert notifications == ["A category with an equivalent name already exists"]
 
+    @pytest.mark.asyncio
+    async def test_handle_create_name_skips_none_groups(self):
+        """CSV backend returns categories with group: None. The all_groups set
+        must not include None (it would crash sorted() with TypeError)."""
+        categories = {
+            "uncategorized": {
+                "name": "Uncategorized",
+                "group": None,
+                "group_id": "",
+                "group_type": "expense",
+            },
+            "shopping": {
+                "name": "Shopping",
+                "group": None,
+                "group_id": "",
+                "group_type": "expense",
+            },
+        }
+        screen = ManageCategoriesScreen(categories)
+        pushed: list = []
+
+        class _CategoryManagerApp(App):
+            async def on_mount(self) -> None:
+                # Capture the screen the handler tries to push instead of
+                # actually pushing it (so the test doesn't need a real modal).
+                self.push_screen = lambda target, *a, **kw: pushed.append(target)
+                screen._handle_create_name("Brand New Category")
+                self.exit()
+
+        async with _CategoryManagerApp().run_test() as pilot:
+            await pilot.pause()
+
+        assert len(pushed) == 1
+        # None must be excluded; the picker should not crash on sort.
+        group_screen = pushed[0]
+        assert None not in group_screen.groups
+        assert all(isinstance(g, str) for g in group_screen.groups)
+        assert group_screen.groups == sorted(group_screen.groups)
+
 
 class TestManageGroupsScreen:
     @pytest.mark.asyncio
