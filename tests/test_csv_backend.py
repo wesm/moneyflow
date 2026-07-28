@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,7 @@ from moneyflow.backends.csv_backend import (
     _validate_path_components,
     _validate_path_security,
 )
+from moneyflow.data import file_utils
 
 
 @pytest.fixture
@@ -299,4 +301,45 @@ class TestCsvFinanceBackend:
 
         # Should not raise FileNotFoundError; file should be created.
         _secure_open_db(str(db_path))
+        assert db_path.exists()
+
+    def test_secure_open_db_uses_file_utils_helpers_on_windows(
+        self, tmp_path, monkeypatch
+    ):
+        """Windows branch must use the project file_utils helpers (which know
+        about owner-only DACLs) rather than Path.touch + os.chmod."""
+        profile = tmp_path / "windows_profile"
+        profile.mkdir(parents=True, mode=0o700)
+        db_path = profile / "transactions.db"
+        assert not db_path.exists()
+
+        # Force the function into the Windows branch.
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        ensure_called = {"ensure_restrictive_directory": 0, "open_restrictive_file": 0}
+
+        def fake_ensure(path, *, parents=False):
+            ensure_called["ensure_restrictive_directory"] += 1
+            Path(path).mkdir(parents=parents, exist_ok=True)
+
+        def fake_open(path, **kwargs):
+            ensure_called["open_restrictive_file"] += 1
+            p = Path(path)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.touch()
+            return os.open(str(p), os.O_RDWR)
+
+        monkeypatch.setattr(
+            csv_backend, "ensure_restrictive_directory", fake_ensure
+        )
+        monkeypatch.setattr(
+            csv_backend, "open_restrictive_file", fake_open
+        )
+
+        _secure_open_db(str(db_path))
+
+        # The owner-only helpers were used for both the directory and the
+        # file, not the touch/chmod fallback.
+        assert ensure_called["ensure_restrictive_directory"] >= 1
+        assert ensure_called["open_restrictive_file"] >= 1
         assert db_path.exists()

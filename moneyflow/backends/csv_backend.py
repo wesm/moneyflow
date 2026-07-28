@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
+from moneyflow.data.file_utils import (
+    ensure_restrictive_directory,
+    open_restrictive_file,
+    require_current_user_ownership,
+)
 
 STANDARD_FIELDS = frozenset(
     {
@@ -106,8 +111,9 @@ def _validate_path_components(path: Path) -> None:
 def _secure_open_db(db_path_str: str) -> None:
     """Create or verify the database file with symlink protection."""
     db_path = Path(db_path_str)
-    db_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    os.chmod(db_path.parent, 0o700)
+    # Create the parent with owner-only permissions using the platform-aware
+    # helper (handles Windows DACLs in addition to POSIX mode bits).
+    ensure_restrictive_directory(db_path.parent, parents=True)
 
     _validate_path_security(db_path_str)
 
@@ -126,19 +132,27 @@ def _secure_open_db(db_path_str: str) -> None:
             os.close(fd)
     else:
         # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective.
-        # First-time init: the file does not exist yet, so create it before
-        # the lstat-based validation. Touch applies 0o600 best-effort (Windows
-        # honors only the read-only attribute, not POSIX mode bits). Windows
-        # symlink creation is privileged by default, so the path check plus
-        # os.chmod is the equivalent platform-specific strategy.
-        if not db_path.exists():
-            db_path.touch(mode=0o600)
-        st = os.lstat(db_path)
-        if stat_module.S_ISLNK(st.st_mode):
-            raise OSError(f"Database path is a symlink: {db_path}")
-        if not stat_module.S_ISREG(st.st_mode):
-            raise OSError(f"Database path is not a regular file: {db_path}")
-        os.chmod(db_path, 0o600)
+        # Use the platform-aware helper that sets an owner-only DACL at
+        # creation time (and handles the case where the file already exists
+        # by reopening it). Owner-only Windows permissions matter because
+        # mode bits are not honored — DACLs are the only effective control.
+        if db_path.exists() or db_path.is_symlink():
+            fd = os.open(db_path, os.O_RDWR)
+            try:
+                require_current_user_ownership(db_path)
+                st = os.fstat(fd)
+                if not stat_module.S_ISREG(st.st_mode):
+                    raise OSError(f"Database path is not a regular file: {db_path}")
+            finally:
+                os.close(fd)
+        else:
+            fd = open_restrictive_file(db_path, read_write=True)
+            try:
+                st = os.fstat(fd)
+                if not stat_module.S_ISREG(st.st_mode):
+                    raise OSError(f"Database path is not a regular file: {db_path}")
+            finally:
+                os.close(fd)
 
     # Re-validate after the secure create/verify to catch any race.
     _validate_path_security(db_path_str)
