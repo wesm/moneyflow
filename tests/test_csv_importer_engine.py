@@ -43,6 +43,30 @@ class TestInstitutionMapping:
         )
         mapping.validate()
 
+    def test_account_label_defaults_to_empty(self):
+        """account_label is opt-in; existing mappings keep current behavior."""
+        mapping = InstitutionMapping(
+            name="test_bank",
+            display_name="Test Bank",
+            file_pattern="test_*.csv",
+            id_prefix="test_",
+            date_fmt="%m/%d/%Y",
+            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=("date", "amount", "merchant"),
+            extra_columns=(),
+            date_columns=("date",),
+            id_fields=("date", "amount", "merchant"),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column=None,
+            credit_column=None,
+        )
+        assert mapping.account_label == ""
+
     def test_missing_required_column_map_raises_value_error(self):
         mapping = InstitutionMapping(
             name="bad_bank",
@@ -350,6 +374,44 @@ class TestImportCsv:
         count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
         conn.close()
         assert count == 2
+
+    def test_account_label_disambiguates_same_dedup_key(self, tmp_path, test_mapping):
+        """Two mappings sharing a dedup key but with different account_label
+        must not cross-dedup — each represents a distinct account."""
+        profile = tmp_path / "shared_profile"
+        profile.mkdir()
+        config = tmp_path / "shared_config"
+        config.mkdir()
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=str(config), institution_name="test_bank"
+        )
+        csv_dir = tmp_path / "csvs_account"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "card_export.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Same Coffee,-4.50\n"
+        )
+        mapping_a = _copy_mapping(
+            test_mapping, file_pattern="card_export.csv", account_label="card_a"
+        )
+        mapping_b = _copy_mapping(
+            test_mapping, file_pattern="card_export.csv", account_label="card_b"
+        )
+        result_a = import_csv(str(csv_dir), mapping_a, backend)
+        # force=True re-processes the same file under mapping_b. The dedup key
+        # and txn_id both include account_label, so the row is treated as new.
+        result_b = import_csv(str(csv_dir), mapping_b, backend, force=True)
+        assert result_a["imported"] == 1
+        assert result_b["imported"] == 1
+        assert result_b["duplicates"] == 0
+        conn = backend._get_connection()
+        rows = conn.execute(
+            "SELECT id, amount, merchant FROM transactions ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert len(rows) == 2
+        assert rows[0][1:] == rows[1][1:]  # same amount, merchant
+        assert rows[0][0] != rows[1][0]  # different IDs because account_label differs
 
 
 class TestChaseCreditIntegration:

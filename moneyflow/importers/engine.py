@@ -54,6 +54,8 @@ class InstitutionMapping:
     debit_column: str | None
     credit_column: str | None
 
+    account_label: str = ""
+
     def validate(self) -> None:
         """Raise ValueError if the mapping is missing required fields."""
         mapped_values = set(self.column_map.values())
@@ -182,6 +184,8 @@ def _process_file(
 
         # Build dedup key from dedup_fields
         dedup_parts = [_safe_str(row.get(f)).strip() for f in mapping.dedup_fields]
+        if mapping.account_label:
+            dedup_parts.append(mapping.account_label)
         dedup_key = "\x00".join(dedup_parts)
 
         # In-file sequence number for this key (counts every row, including
@@ -200,6 +204,8 @@ def _process_file(
 
         # Generate hash-based ID from id_fields
         id_parts = [_safe_str(row.get(f)).strip() for f in mapping.id_fields]
+        if mapping.account_label:
+            id_parts.append(mapping.account_label)
         id_suffix = f"_{seq}" if seq > 1 else ""
         txn_id = _hash_id(mapping.id_prefix, id_parts) + id_suffix
 
