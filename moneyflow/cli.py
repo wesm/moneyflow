@@ -5,6 +5,7 @@ Provides Click-based CLI for launching moneyflow with different backends
 (Monarch Money, Amazon, Demo) and managing data imports.
 """
 
+import dataclasses
 import os
 from pathlib import Path
 from typing import Optional
@@ -878,8 +879,18 @@ def import_list():
 @click.argument("name")
 @click.argument("path", type=click.Path(exists=True))
 @click.option("--force", is_flag=True, help="Force re-import of already-imported files")
+@click.option(
+    "--account",
+    default=None,
+    help=(
+        "Account/card label to disambiguate imports of multiple cards under "
+        "the same institution. Required if you import two cards of the same "
+        "type (e.g. two Chase credits) into one profile, otherwise overlapping "
+        "transactions will be deduplicated. Example: --account personal_card."
+    ),
+)
 @click.option("--config-dir", type=click.Path(), default=None, help=CONFIG_DIR_HELP)
-def import_institution(name, path, force, config_dir):
+def import_institution(name, path, force, account, config_dir):
     """Import CSV files for an institution."""
     from pathlib import Path as PathLib
 
@@ -895,6 +906,8 @@ def import_institution(name, path, force, config_dir):
         raise click.Abort()
 
     mapping = INSTITUTION_MAPPINGS[name]
+    if account:
+        mapping = dataclasses.replace(mapping, account_label=account)
     config = config_dir or str(PathLib.home() / ".moneyflow")
     profile = PathLib(config) / "profiles" / f"csv_{name}"
     profile.mkdir(parents=True, exist_ok=True)

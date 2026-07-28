@@ -13,7 +13,6 @@ from moneyflow.backends.csv_backend import (
     _validate_path_components,
     _validate_path_security,
 )
-from moneyflow.data import file_utils
 
 
 @pytest.fixture
@@ -303,9 +302,7 @@ class TestCsvFinanceBackend:
         _secure_open_db(str(db_path))
         assert db_path.exists()
 
-    def test_secure_open_db_uses_file_utils_helpers_on_windows(
-        self, tmp_path, monkeypatch
-    ):
+    def test_secure_open_db_uses_file_utils_helpers_on_windows(self, tmp_path, monkeypatch):
         """Windows branch must use the project file_utils helpers (which know
         about owner-only DACLs) rather than Path.touch + os.chmod."""
         profile = tmp_path / "windows_profile"
@@ -329,12 +326,8 @@ class TestCsvFinanceBackend:
             p.touch()
             return os.open(str(p), os.O_RDWR)
 
-        monkeypatch.setattr(
-            csv_backend, "ensure_restrictive_directory", fake_ensure
-        )
-        monkeypatch.setattr(
-            csv_backend, "open_restrictive_file", fake_open
-        )
+        monkeypatch.setattr(csv_backend, "ensure_restrictive_directory", fake_ensure)
+        monkeypatch.setattr(csv_backend, "open_restrictive_file", fake_open)
 
         _secure_open_db(str(db_path))
 
