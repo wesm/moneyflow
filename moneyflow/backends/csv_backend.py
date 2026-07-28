@@ -95,7 +95,11 @@ def _validate_path_components(path: Path) -> None:
             raise OSError(f"Database path contains a symlinked component: {current}")
         if not stat_module.S_ISDIR(mode):
             raise OSError(f"Database path component is not a directory: {current}")
-        if stat_module.S_IMODE(mode) & 0o022 and not mode & stat_module.S_ISVTX:
+        if (
+            _requires_posix_mode_checks()
+            and stat_module.S_IMODE(mode) & 0o022
+            and not mode & stat_module.S_ISVTX
+        ):
             raise OSError(f"Database path component is group/other writable: {current}")
 
 
@@ -107,7 +111,7 @@ def _secure_open_db(db_path_str: str) -> None:
 
     _validate_path_security(db_path_str)
 
-    if os.name == "posix":
+    if _requires_posix_mode_checks():
         flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
         if hasattr(os, "O_CLOEXEC"):
             flags |= os.O_CLOEXEC
@@ -122,10 +126,13 @@ def _secure_open_db(db_path_str: str) -> None:
             os.close(fd)
     else:
         # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective.
-        # Validate via lstat and apply permissions through the path. Windows
+        # First-time init: the file does not exist yet, so create it before
+        # the lstat-based validation. Touch applies 0o600 best-effort (Windows
+        # honors only the read-only attribute, not POSIX mode bits). Windows
         # symlink creation is privileged by default, so the path check plus
-        # os.chmod (which toggles the read-only attribute) is the equivalent
-        # platform-specific strategy.
+        # os.chmod is the equivalent platform-specific strategy.
+        if not db_path.exists():
+            db_path.touch(mode=0o600)
         st = os.lstat(db_path)
         if stat_module.S_ISLNK(st.st_mode):
             raise OSError(f"Database path is a symlink: {db_path}")

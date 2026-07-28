@@ -2,12 +2,15 @@
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
 
 from moneyflow.backends import csv_backend
 from moneyflow.backends.csv_backend import (
     CsvFinanceBackend,
+    _secure_open_db,
+    _validate_path_components,
     _validate_path_security,
 )
 
@@ -270,3 +273,31 @@ class TestCsvFinanceBackend:
         monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
 
         _validate_path_security(str(database_path))
+
+    def test_validate_path_components_skips_posix_mode_check_on_windows(
+        self, tmp_path, monkeypatch
+    ):
+        """On Windows, the path-components walker must not raise on group/other
+        writable mode bits — those checks are POSIX-only."""
+        # Make the parent group-writable (would fail the POSIX check).
+        profile = tmp_path / "windows_profile"
+        profile.mkdir(mode=0o755)
+        profile.chmod(0o775)
+
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        # Should not raise.
+        _validate_path_components(profile)
+
+    def test_secure_open_db_creates_missing_file_on_windows(self, tmp_path, monkeypatch):
+        """First-time init on Windows must not call os.lstat before the file exists."""
+        profile = tmp_path / "windows_profile"
+        profile.mkdir(parents=True, mode=0o700)
+        db_path = profile / "transactions.db"
+        assert not db_path.exists()
+
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        # Should not raise FileNotFoundError; file should be created.
+        _secure_open_db(str(db_path))
+        assert db_path.exists()
