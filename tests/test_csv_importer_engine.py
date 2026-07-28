@@ -388,9 +388,7 @@ class TestImportCsv:
         csv_dir = tmp_path / "csvs_account"
         csv_dir.mkdir()
         csv_file = csv_dir / "card_export.csv"
-        csv_file.write_text(
-            "Transaction Date,Description,Amount\n7/12/2026,Same Coffee,-4.50\n"
-        )
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Same Coffee,-4.50\n")
         mapping_a = _copy_mapping(
             test_mapping, file_pattern="card_export.csv", account_label="card_a"
         )
@@ -405,9 +403,7 @@ class TestImportCsv:
         assert result_b["imported"] == 1
         assert result_b["duplicates"] == 0
         conn = backend._get_connection()
-        rows = conn.execute(
-            "SELECT id, amount, merchant FROM transactions ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT id, amount, merchant FROM transactions ORDER BY id").fetchall()
         conn.close()
         assert len(rows) == 2
         assert rows[0][1:] == rows[1][1:]  # same amount, merchant

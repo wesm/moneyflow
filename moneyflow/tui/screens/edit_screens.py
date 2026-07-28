@@ -1432,13 +1432,7 @@ class ManageCategoriesScreen(ModalScreen):
         if not new_name:
             return
         self._pending_name = new_name
-        all_groups = sorted(
-            {
-                c["group"]
-                for c in self.categories.values()
-                if c.get("group")
-            }
-        )
+        all_groups = sorted({c["group"] for c in self.categories.values() if c.get("group")})
         self.app.push_screen(
             GroupSelectScreen(all_groups),
             self._handle_create_group,
