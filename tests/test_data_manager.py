@@ -159,6 +159,79 @@ class TestDataFetching:
         assert len(filtered_df) < len(complete_df)
         assert len(complete_df) == 6
 
+    async def test_csv_backend_groups_recovered_from_profile_config(self, tmp_path):
+        """CSV backend returns categories with no group name. The DataManager
+        must fall back to the profile's category config so the category picker
+        has usable group names instead of None for every category."""
+
+        from moneyflow.backends.csv_backend import CsvFinanceBackend
+        from moneyflow.data.categories import save_categories_to_profile
+
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        # Seed the profile config so the DataManager has a category_to_group
+        # mapping to fall back to.
+        save_categories_to_profile(
+            {"Shopping": ["EXAMPLE STORE"]},
+            profile_dir=profile_dir,
+        )
+
+        backend = CsvFinanceBackend(
+            profile_dir=profile_dir,
+            config_dir=str(config_dir),
+            institution_name="chase_credit",
+        )
+        # Import one transaction so the backend has a category to surface.
+        from moneyflow.importers.engine import InstitutionMapping, import_csv
+
+        mapping = InstitutionMapping(
+            name="chase_credit",
+            display_name="Chase Credit Card",
+            file_pattern="Chase*.csv",
+            id_prefix="chase_",
+            date_fmt="%m/%d/%Y",
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=("date", "amount", "merchant"),
+            extra_columns=(),
+            date_columns=("date",),
+            id_fields=("date", "amount", "merchant"),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column=None,
+            credit_column=None,
+        )
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        (csv_dir / "Chase_sample.csv").write_text(
+            "Transaction Date,Description,Category,Amount\n"
+            "01/15/2024,EXAMPLE STORE,EXAMPLE STORE,-25.00\n"
+        )
+        import_csv(str(csv_dir), mapping, backend)
+
+        dm = DataManager(
+            backend,
+            config_dir=str(config_dir),
+            profile_dir=profile_dir,
+            backend_type="csv",
+        )
+        _, categories, _ = await dm.fetch_all_data()
+        # Find the category by name (ids are hash-derived).
+        by_name = {v["name"]: v for v in categories.values()}
+        assert "EXAMPLE STORE" in by_name
+        # Group name must be recovered from the profile config, not None.
+        assert by_name["EXAMPLE STORE"]["group"] == "Shopping"
+
 
 class TestAggregation:
     """Test data aggregation functions."""

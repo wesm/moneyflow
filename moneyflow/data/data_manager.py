@@ -359,13 +359,20 @@ class DataManager:
 
         categories_data, groups_data = await asyncio.gather(categories_task, groups_task)
 
-        # Parse categories
+        # Parse categories. For backends that don't supply a group name
+        # (the CSV backend returns only a placeholder group id and type),
+        # fall back to the profile's category config to recover the real
+        # group name. Without this, every category in the picker shows
+        # group=None and the user has no usable group list to pick from.
         categories = {}
         for cat in categories_data.get("categories", []):
             group_data = cat.get("group") or {}
+            group_name = group_data.get("name") if group_data else None
+            if not group_name:
+                group_name = self.category_to_group.get(cat["name"], "Uncategorized")
             categories[cat["id"]] = {
                 "name": cat["name"],
-                "group": group_data.get("name") if group_data else None,
+                "group": group_name,
                 "group_id": group_data.get("id") if group_data else None,
                 "group_type": group_data.get("type") if group_data else None,
             }
