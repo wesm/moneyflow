@@ -326,6 +326,18 @@ class CsvFinanceBackend(FinanceBackend):
             updates.append("hideFromReports = ?")
             params.append(int(hide_from_reports))
 
+        # Verify the row exists before attempting the UPDATE. A missing or
+        # stale transaction_id should raise rather than silently report
+        # success — the commit pipeline counts returned updates as persisted.
+        existing = conn.execute(
+            "SELECT 1 FROM transactions WHERE id = ?", (transaction_id,)
+        ).fetchone()
+        if existing is None:
+            conn.close()
+            raise ValueError(
+                f"Cannot update transaction: no transaction with id {transaction_id!r} exists"
+            )
+
         if updates:
             params.append(transaction_id)
             conn.execute(
@@ -337,7 +349,12 @@ class CsvFinanceBackend(FinanceBackend):
         row = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
         conn.close()
         if row is None:
-            return {"updateTransaction": {"transaction": {"id": transaction_id}}}
+            # Row was deleted between the existence check and the UPDATE —
+            # the caller raced a concurrent delete. Raise rather than
+            # silently report success.
+            raise ValueError(
+                f"Cannot update transaction: no transaction with id {transaction_id!r} exists"
+            )
         return {"updateTransaction": {"transaction": self._row_to_transaction_dict(row)}}
 
     async def delete_transaction(self, transaction_id: str) -> bool:

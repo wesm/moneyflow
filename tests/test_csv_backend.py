@@ -123,6 +123,17 @@ class TestCsvFinanceBackend:
         conn.close()
         assert row[0] == "NEW MERCHANT"
 
+    def test_update_nonexistent_transaction_raises(self, chase_backend):
+        """Updating a transaction that does not exist must raise rather than
+        silently report success — otherwise the commit pipeline incorrectly
+        counts a missed update as persisted."""
+
+        async def _run():
+            await chase_backend.update_transaction("chase_does_not_exist", merchant_name="WHATEVER")
+
+        with pytest.raises(ValueError, match="not found|does not exist|no transaction"):
+            asyncio.run(_run())
+
     def test_delete_transaction(self, chase_backend):
         conn = chase_backend._get_connection()
         conn.execute(
