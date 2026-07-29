@@ -74,6 +74,14 @@ class InstitutionMapping:
         elif self.debit_column is not None or self.credit_column is not None:
             raise ValueError("Must specify both debit_column and credit_column, or neither")
 
+        # A typo or missing entry that resolves to an empty tuple would
+        # silently produce empty dedup keys (collapsing every row into one)
+        # or empty IDs. Catch that at validate time.
+        if not self.dedup_fields:
+            raise ValueError("dedup_fields must be non-empty")
+        if not self.id_fields:
+            raise ValueError("id_fields must be non-empty")
+
     def validate_csv_columns(self, csv_columns: set[str]) -> list[str]:
         """Validate CSV has required columns. Returns list of missing column issues."""
         issues: list[str] = []
@@ -164,6 +172,23 @@ def _process_file(
     raw_row_count = df.height
     df = _prepare_dataframe(df, mapping)
     post_filter_count = df.height
+
+    # Validate every field referenced by dedup_fields and id_fields against
+    # the prepared dataframe. A typo or missing entry would silently
+    # produce an empty key, collapsing rows or generating ID collisions.
+    prepared_columns = set(df.columns)
+    missing_dedup = [f for f in mapping.dedup_fields if f not in prepared_columns]
+    if missing_dedup:
+        raise ValueError(
+            f"Column validation failed for {filename}: dedup_fields reference "
+            f"unknown column(s): {', '.join(missing_dedup)}"
+        )
+    missing_id = [f for f in mapping.id_fields if f not in prepared_columns]
+    if missing_id:
+        raise ValueError(
+            f"Column validation failed for {filename}: id_fields reference "
+            f"unknown column(s): {', '.join(missing_id)}"
+        )
 
     imported = 0
     duplicates = 0

@@ -140,6 +140,58 @@ class TestInstitutionMapping:
         with pytest.raises(ValueError, match="date.*merchant"):
             mapping.validate()
 
+    def test_validate_rejects_empty_dedup_fields(self):
+        """A typo or missing dedup_fields entry that resolves to an empty
+        list would silently produce empty dedup keys, collapsing every row
+        into one. Catch that at validate time."""
+        mapping = InstitutionMapping(
+            name="empty_dedup",
+            display_name="Empty Dedup",
+            file_pattern="*.csv",
+            id_prefix="e_",
+            date_fmt=None,
+            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=(),
+            extra_columns=(),
+            date_columns=("date",),
+            id_fields=("date", "amount", "merchant"),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column=None,
+            credit_column=None,
+        )
+        with pytest.raises(ValueError, match="dedup_fields"):
+            mapping.validate()
+
+    def test_validate_rejects_empty_id_fields(self):
+        """Same defense for id_fields — an empty list would produce empty IDs."""
+        mapping = InstitutionMapping(
+            name="empty_id",
+            display_name="Empty ID",
+            file_pattern="*.csv",
+            id_prefix="i_",
+            date_fmt=None,
+            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=("date", "amount", "merchant"),
+            extra_columns=(),
+            date_columns=("date",),
+            id_fields=(),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column=None,
+            credit_column=None,
+        )
+        with pytest.raises(ValueError, match="id_fields"):
+            mapping.validate()
+
 
 @pytest.fixture
 def test_mapping():
@@ -287,6 +339,39 @@ class TestImportCsv:
         amount = conn.execute("SELECT amount FROM transactions LIMIT 1").fetchone()[0]
         conn.close()
         assert amount == -50.0
+
+    def test_typo_in_dedup_field_raises(self, tmp_path, test_mapping, test_backend):
+        """A typo in dedup_fields (e.g. 'datte' instead of 'date') would
+        silently produce an empty key and collapse all rows. The engine
+        must validate every field against the prepared dataframe."""
+        csv_dir = tmp_path / "csvs_typo"
+        csv_dir.mkdir()
+        (csv_dir / "typo.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n"
+        )
+        # 'datte' is a typo — not in the prepared dataframe.
+        typo_mapping = _copy_mapping(
+            test_mapping,
+            file_pattern="typo.csv",
+            dedup_fields=("datte", "amount", "merchant"),
+        )
+        with pytest.raises(ValueError, match="datte"):
+            import_csv(str(csv_dir), typo_mapping, test_backend)
+
+    def test_typo_in_id_field_raises(self, tmp_path, test_mapping, test_backend):
+        """Same defense for id_fields."""
+        csv_dir = tmp_path / "csvs_idtypo"
+        csv_dir.mkdir()
+        (csv_dir / "idtypo.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n"
+        )
+        typo_mapping = _copy_mapping(
+            test_mapping,
+            file_pattern="idtypo.csv",
+            id_fields=("date", "amont", "merchant"),  # 'amont' typo
+        )
+        with pytest.raises(ValueError, match="amont"):
+            import_csv(str(csv_dir), typo_mapping, test_backend)
 
     def test_trailing_empty_rows_filtered_as_skipped(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_trail"
