@@ -246,6 +246,20 @@ class CsvFinanceBackend(FinanceBackend):
     def supports_category_sync(self) -> bool:
         return False
 
+    @property
+    def read_only(self) -> bool:
+        """There is no remote API to sync edits to.
+
+        Gates the local category/group manager features and the one-time
+        "changes saved locally only" warning in the TUI, matching SimpleFIN.
+        """
+        return True
+
+    @property
+    def can_write_transactions(self) -> bool:
+        """Edits persist to the local SQLite database."""
+        return True
+
     def _ensure_db_initialized(self) -> None:
         if self._db_initialized:
             return

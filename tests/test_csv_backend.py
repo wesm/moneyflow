@@ -44,6 +44,15 @@ class TestCsvFinanceBackend:
     def test_get_backend_type(self, chase_backend):
         assert chase_backend.get_backend_type() == "csv_chase_credit"
 
+    def test_capability_flags(self, chase_backend):
+        """read_only=True gates the local category/group managers and the
+        local-only edit warning in the TUI; can_write_transactions=True lets
+        the commit pipeline persist edits to the local database (matching
+        the SimpleFIN capability pattern)."""
+        assert chase_backend.read_only is True
+        assert chase_backend.can_write_transactions is True
+        assert chase_backend.supports_category_sync is False
+
     def test_db_path_derived_from_institution_name(self, chase_backend, tmp_profile_dir):
         expected = str(tmp_profile_dir / "chase_credit_transactions.db")
         assert chase_backend.db_path == expected
@@ -405,7 +414,11 @@ class TestCsvFinanceBackend:
     ):
         """If the database path is redirected to a different file while the
         SQLite connection is being established, the connection must be
-        rejected rather than silently operating on the replacement."""
+        rejected rather than silently operating on the replacement.
+
+        On POSIX the post-connect device/inode comparison detects the swap.
+        On Windows the held verification descriptor blocks the deletion
+        itself (sharing violation), so the swap cannot even occur."""
         chase_backend._get_connection().close()
         db_path = Path(chase_backend.db_path)
         real_connect = csv_backend.sqlite3.connect
@@ -413,13 +426,18 @@ class TestCsvFinanceBackend:
         def redirecting_connect(path, *args, **kwargs):
             conn = real_connect(path, *args, **kwargs)
             # Swap the database for a different file (new inode) mid-connect.
-            db_path.unlink()
-            db_path.touch(mode=0o600)
+            try:
+                db_path.unlink()
+                db_path.touch(mode=0o600)
+            except OSError:
+                conn.close()
+                raise
             return conn
 
         monkeypatch.setattr(csv_backend.sqlite3, "connect", redirecting_connect)
 
-        with pytest.raises(OSError, match="redirected"):
+        expected_error = "redirected" if os.name == "posix" else ""
+        with pytest.raises(OSError, match=expected_error):
             chase_backend._get_connection()
 
     def test_configured_categories_merged_with_transaction_categories(

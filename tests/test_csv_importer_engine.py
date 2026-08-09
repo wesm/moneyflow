@@ -521,6 +521,27 @@ class TestImportCsv:
         conn.close()
         assert merchants == ["CARD A ONLY"]
 
+    def test_non_finite_amounts_skipped(self, tmp_path, test_mapping, test_backend):
+        """NaN and infinity must be skipped: SQLite stores NaN as NULL (which
+        would violate NOT NULL and roll back the whole file) and infinity
+        would corrupt totals."""
+        csv_dir = tmp_path / "csvs_nonfinite"
+        csv_dir.mkdir()
+        (csv_dir / "test_amounts.csv").write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Not A Number,NaN\n"
+            "7/13/2026,Positive Infinity,inf\n"
+            "7/14/2026,Negative Infinity,-inf\n"
+            "7/15/2026,Valid,-4.50\n"
+        )
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["skipped"] == 3
+        conn = test_backend._get_connection()
+        rows = conn.execute("SELECT merchant, amount FROM transactions").fetchall()
+        conn.close()
+        assert rows == [("Valid", -4.5)]
+
     def test_split_columns_blank_and_malformed_amounts_skipped(
         self, tmp_path, test_mapping, test_backend
     ):

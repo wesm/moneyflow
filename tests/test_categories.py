@@ -543,6 +543,14 @@ class TestCategoryIdNormalization:
         assert category_slug("  Groceries  ") == "groceries"
         assert category_slug("!!!") == ""
 
+    def test_category_slug_preserves_non_ascii_letters(self):
+        """Distinct non-Latin category names must not collapse into one id
+        (stripping non-ASCII would map them all to "cat_uncategorized")."""
+        assert category_slug("Продукты") == "продукты"
+        assert category_slug("Продукты") != category_slug("Аптека")
+        assert stable_category_id("食料品") == "cat_食料品"
+        assert stable_category_id("Кафе и рестораны") == "cat_кафе_и_рестораны"
+
     def test_stable_category_id_prefixes_slug(self):
         assert stable_category_id("Food & Dining") == "cat_food_dining"
         assert stable_category_id("Groceries") == "cat_groceries"

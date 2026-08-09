@@ -27,9 +27,13 @@ def category_slug(name: str) -> str:
 
     This is the single normalization used to compare category names for
     equivalence. Config-backed backends (e.g. SimpleFIN) also use the bare
-    slug directly as the category id, so its format must stay stable.
+    slug directly as the category id, so ASCII names must keep producing the
+    exact ids they always have. Unicode letters and digits are preserved
+    (lowercased) rather than stripped — discarding them would collapse
+    distinct non-Latin category names into one id.
     """
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    slug = re.sub(r"\W+", "_", name.lower())
+    return re.sub(r"_+", "_", slug).strip("_")
 
 
 def stable_category_id(name: str) -> str:

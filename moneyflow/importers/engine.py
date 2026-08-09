@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import math
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -214,7 +215,13 @@ def _process_file(
             skipped += 1
             continue
 
+        # Reject NaN/infinity: SQLite stores NaN as NULL (violating the NOT
+        # NULL constraint and rolling back the whole file), and infinity
+        # would corrupt totals.
         amount_val = float(amount_raw)
+        if not math.isfinite(amount_val):
+            skipped += 1
+            continue
 
         # Build dedup key from dedup_fields
         dedup_parts = [_safe_str(row.get(f)).strip() for f in mapping.dedup_fields]
