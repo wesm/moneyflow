@@ -50,9 +50,8 @@ def test_account_flag_overrides_mapping_account_label(tmp_path):
 def test_account_flag_disambiguates_two_cards_in_one_profile(tmp_path):
     """Two imports with different --account values must not cross-dedup.
 
-    Uses --force on the second import so the per-file hash cache does not
-    skip the re-processing — what we are testing is the dedup-key behavior,
-    which is independent of the file-cache behavior.
+    No --force is needed: import history is keyed by account label, so the
+    second account's import re-processes the same files.
     """
     csv_dir = tmp_path / "csvs"
     csv_dir.mkdir()
@@ -93,7 +92,6 @@ def test_account_flag_disambiguates_two_cards_in_one_profile(tmp_path):
             str(csv_dir),
             "--account",
             "card_b",
-            "--force",
             "--config-dir",
             str(config_dir),
         ],
@@ -110,8 +108,8 @@ def test_account_flag_disambiguates_two_cards_in_one_profile(tmp_path):
         conn.close()
     # Both card A and card B copies of the same (date, amount, merchant) row
     # must be present, plus the per-card unique rows. card A's import produced
-    # 3 rows (X + Y + Z with X deduped between files); card B's force import
-    # produced 3 more (the same 3 dedup-keys with the card_b suffix, which
+    # 3 rows (X + Y + Z with X deduped between files); card B's import
+    # produced 3 more (the same 3 dedup-keys with the card_b label, which
     # differ from card_a's, so they all import).
     assert len(rows) == 6
     ids = {row[0] for row in rows}

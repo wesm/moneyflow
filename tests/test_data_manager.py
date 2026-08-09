@@ -203,7 +203,6 @@ class TestDataFetching:
             dedup_fields=("date", "amount", "merchant"),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "amount", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",

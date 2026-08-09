@@ -44,7 +44,6 @@ class InstitutionMapping:
     extra_columns: tuple[str, ...]
 
     date_columns: tuple[str, ...] | None
-    id_fields: tuple[str, ...]
 
     currency: str
     default_category: str
@@ -76,11 +75,9 @@ class InstitutionMapping:
 
         # A typo or missing entry that resolves to an empty tuple would
         # silently produce empty dedup keys (collapsing every row into one)
-        # or empty IDs. Catch that at validate time.
+        # and empty transaction IDs. Catch that at validate time.
         if not self.dedup_fields:
             raise ValueError("dedup_fields must be non-empty")
-        if not self.id_fields:
-            raise ValueError("id_fields must be non-empty")
 
     def validate_csv_columns(self, csv_columns: set[str]) -> list[str]:
         """Validate CSV has required columns. Returns list of missing column issues."""
@@ -154,7 +151,6 @@ def _process_file(
     mapping: InstitutionMapping,
     connection: sqlite3.Connection,
     existing_ids: set[str],
-    seen_dedup_counts: dict[str, int],
 ) -> dict[str, int]:
     """Process a single CSV file, returning {imported, duplicates, skipped}."""
     df = pl.read_csv(
@@ -173,21 +169,15 @@ def _process_file(
     df = _prepare_dataframe(df, mapping)
     post_filter_count = df.height
 
-    # Validate every field referenced by dedup_fields and id_fields against
-    # the prepared dataframe. A typo or missing entry would silently
-    # produce an empty key, collapsing rows or generating ID collisions.
+    # Validate every field referenced by dedup_fields against the prepared
+    # dataframe. A typo or missing entry would silently produce an empty
+    # key, collapsing rows and generating ID collisions.
     prepared_columns = set(df.columns)
     missing_dedup = [f for f in mapping.dedup_fields if f not in prepared_columns]
     if missing_dedup:
         raise ValueError(
             f"Column validation failed for {filename}: dedup_fields reference "
             f"unknown column(s): {', '.join(missing_dedup)}"
-        )
-    missing_id = [f for f in mapping.id_fields if f not in prepared_columns]
-    if missing_id:
-        raise ValueError(
-            f"Column validation failed for {filename}: id_fields reference "
-            f"unknown column(s): {', '.join(missing_id)}"
         )
 
     imported = 0
@@ -213,26 +203,17 @@ def _process_file(
             dedup_parts.append(mapping.account_label)
         dedup_key = "\x00".join(dedup_parts)
 
-        # In-file sequence number for this key (counts every row, including
-        # cross-file duplicates, so that suffixes are stable across files).
+        # In-file occurrence number for this dedup key. Transaction IDs are
+        # derived from the key plus this number, so a key's Nth occurrence
+        # always hashes to the same ID — across files and across import
+        # invocations. Duplicate detection is therefore a membership test
+        # against IDs already in the database (or accepted earlier in this
+        # run): re-importing overlapping data regenerates the same IDs.
         seq = dedup_counts.get(dedup_key, 0) + 1
         dedup_counts[dedup_key] = seq
 
-        # Cross-file dedup: skip only occurrences already represented by earlier
-        # files. If earlier files accepted N occurrences of this key, the first
-        # N occurrences in this file are duplicates; any additional occurrences
-        # are legitimate new transactions.
-        prior_count = seen_dedup_counts.get(dedup_key, 0)
-        if seq <= prior_count:
-            duplicates += 1
-            continue
-
-        # Generate hash-based ID from id_fields
-        id_parts = [_safe_str(row.get(f)).strip() for f in mapping.id_fields]
-        if mapping.account_label:
-            id_parts.append(mapping.account_label)
         id_suffix = f"_{seq}" if seq > 1 else ""
-        txn_id = _hash_id(mapping.id_prefix, id_parts) + id_suffix
+        txn_id = _hash_id(mapping.id_prefix, dedup_parts) + id_suffix
 
         if txn_id in existing_ids:
             duplicates += 1
@@ -269,11 +250,6 @@ def _process_file(
         )
         imported += 1
 
-    # After processing all rows in this file, update the global count for each
-    # key to the maximum number of occurrences seen so far.
-    for key, count in dedup_counts.items():
-        seen_dedup_counts[key] = max(seen_dedup_counts.get(key, 0), count)
-
     if insert_batch:
         connection.executemany(
             """INSERT OR IGNORE INTO transactions
@@ -299,17 +275,20 @@ def import_csv(
     if not csv_files:
         raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
 
-    # Build lookup of already-imported files by (resolved_path, file_hash).
+    # Build lookup of already-imported files keyed by (resolved_path,
+    # account_label, mapping_name) so that importing the same file for a
+    # different card/account or through a different mapping is not skipped.
     # get_import_history returns newest-first, so setdefault preserves the
-    # most recent hash for each filename rather than leaving the oldest entry.
-    imported_snapshots: dict[str, str] = {}
+    # most recent hash for each key rather than leaving the oldest entry.
+    imported_snapshots: dict[tuple[str, str, str], str] = {}
     if not force:
         history = backend.get_import_history()
         for h in history:
             fname = h.get("filename", "")
             fhash = h.get("file_hash", "")
             if fname and fhash:
-                imported_snapshots.setdefault(fname, fhash)
+                key = (fname, h.get("account", ""), h.get("mapping_name", ""))
+                imported_snapshots.setdefault(key, fhash)
 
     # Load existing IDs once so duplicate detection is accurate even when
     # force=True re-processes files that were previously imported.
@@ -318,7 +297,6 @@ def import_csv(
     conn.close()
     existing_ids: set[str] = {row[0] for row in rows}
 
-    seen_dedup_counts: dict[str, int] = {}
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
@@ -328,8 +306,10 @@ def import_csv(
         file_size = len(csv_contents)
         file_hash = hashlib.sha256(csv_contents).hexdigest()
 
-        # Skip files already imported with the same content hash
-        if resolved in imported_snapshots and imported_snapshots[resolved] == file_hash:
+        # Skip files already imported with the same content hash for this
+        # account label and mapping
+        snapshot_key = (resolved, mapping.account_label, mapping.name)
+        if imported_snapshots.get(snapshot_key) == file_hash:
             continue
 
         import_conn = backend._get_connection()
@@ -340,12 +320,12 @@ def import_csv(
                 mapping,
                 import_conn,
                 existing_ids,
-                seen_dedup_counts,
             )
             import_conn.execute(
                 "INSERT INTO import_history "
-                "(filename, file_size, file_hash, record_count, duplicate_count, skipped_count) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(filename, file_size, file_hash, record_count, duplicate_count, "
+                "skipped_count, account, mapping_name) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     resolved,
                     file_size,
@@ -353,6 +333,8 @@ def import_csv(
                     stats["imported"],
                     stats["duplicates"],
                     stats["skipped"],
+                    mapping.account_label,
+                    mapping.name,
                 ),
             )
             import_conn.commit()

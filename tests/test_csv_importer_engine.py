@@ -33,7 +33,6 @@ class TestInstitutionMapping:
             dedup_fields=("date", "amount", "merchant"),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "amount", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -57,7 +56,6 @@ class TestInstitutionMapping:
             dedup_fields=("date", "amount", "merchant"),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "amount", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -80,7 +78,6 @@ class TestInstitutionMapping:
             dedup_fields=("date",),
             extra_columns=(),
             date_columns=None,
-            id_fields=("date",),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -104,7 +101,6 @@ class TestInstitutionMapping:
             dedup_fields=("date", "amount", "merchant"),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "amount", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -128,7 +124,6 @@ class TestInstitutionMapping:
             dedup_fields=("date", "merchant"),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -156,7 +151,6 @@ class TestInstitutionMapping:
             dedup_fields=(),
             extra_columns=(),
             date_columns=("date",),
-            id_fields=("date", "amount", "merchant"),
             currency="USD",
             default_category="Uncategorized",
             default_category_id="cat_uncategorized",
@@ -165,31 +159,6 @@ class TestInstitutionMapping:
             credit_column=None,
         )
         with pytest.raises(ValueError, match="dedup_fields"):
-            mapping.validate()
-
-    def test_validate_rejects_empty_id_fields(self):
-        """Same defense for id_fields — an empty list would produce empty IDs."""
-        mapping = InstitutionMapping(
-            name="empty_id",
-            display_name="Empty ID",
-            file_pattern="*.csv",
-            id_prefix="i_",
-            date_fmt=None,
-            column_map={"Date": "date", "Description": "merchant", "Amount": "amount"},
-            amount_sign=1,
-            skip_rows=0,
-            dedup_fields=("date", "amount", "merchant"),
-            extra_columns=(),
-            date_columns=("date",),
-            id_fields=(),
-            currency="USD",
-            default_category="Uncategorized",
-            default_category_id="cat_uncategorized",
-            encoding="utf-8",
-            debit_column=None,
-            credit_column=None,
-        )
-        with pytest.raises(ValueError, match="id_fields"):
             mapping.validate()
 
 
@@ -207,7 +176,6 @@ def test_mapping():
         dedup_fields=("date", "amount", "merchant"),
         extra_columns=(),
         date_columns=("date",),
-        id_fields=("date", "amount", "merchant"),
         currency="USD",
         default_category="Uncategorized",
         default_category_id="cat_uncategorized",
@@ -358,21 +326,6 @@ class TestImportCsv:
         with pytest.raises(ValueError, match="datte"):
             import_csv(str(csv_dir), typo_mapping, test_backend)
 
-    def test_typo_in_id_field_raises(self, tmp_path, test_mapping, test_backend):
-        """Same defense for id_fields."""
-        csv_dir = tmp_path / "csvs_idtypo"
-        csv_dir.mkdir()
-        (csv_dir / "idtypo.csv").write_text(
-            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n"
-        )
-        typo_mapping = _copy_mapping(
-            test_mapping,
-            file_pattern="idtypo.csv",
-            id_fields=("date", "amont", "merchant"),  # 'amont' typo
-        )
-        with pytest.raises(ValueError, match="amont"):
-            import_csv(str(csv_dir), typo_mapping, test_backend)
-
     def test_trailing_empty_rows_filtered_as_skipped(self, tmp_path, test_mapping, test_backend):
         csv_dir = tmp_path / "csvs_trail"
         csv_dir.mkdir()
@@ -408,9 +361,7 @@ class TestImportCsv:
         csv_file.write_text(
             "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/12/2026,Coffee,-4.50\n"
         )
-        dup_mapping = _copy_mapping(
-            test_mapping, file_pattern="test_dup.csv", id_fields=("date", "amount", "merchant")
-        )
+        dup_mapping = _copy_mapping(test_mapping, file_pattern="test_dup.csv")
         result = import_csv(str(csv_dir), dup_mapping, test_backend)
         assert result["imported"] == 2
         conn = test_backend._get_connection()
@@ -481,9 +432,10 @@ class TestImportCsv:
             test_mapping, file_pattern="card_export.csv", account_label="card_b"
         )
         result_a = import_csv(str(csv_dir), mapping_a, backend)
-        # force=True re-processes the same file under mapping_b. The dedup key
-        # and txn_id both include account_label, so the row is treated as new.
-        result_b = import_csv(str(csv_dir), mapping_b, backend, force=True)
+        # No force needed: import history is keyed by account label, so the
+        # same file is re-processed under mapping_b. The dedup key and txn_id
+        # both include account_label, so the row is treated as new.
+        result_b = import_csv(str(csv_dir), mapping_b, backend)
         assert result_a["imported"] == 1
         assert result_b["imported"] == 1
         assert result_b["duplicates"] == 0
@@ -493,6 +445,51 @@ class TestImportCsv:
         assert len(rows) == 2
         assert rows[0][1:] == rows[1][1:]  # same amount, merchant
         assert rows[0][0] != rows[1][0]  # different IDs because account_label differs
+
+    def test_dedup_persists_across_import_invocations(self, tmp_path, test_mapping, test_backend):
+        """Overlapping data imported in a later invocation must be detected as
+        duplicates: transaction IDs are derived from the dedup key, so the same
+        key regenerates the same IDs already stored in the database."""
+        csv_dir = tmp_path / "csvs_invocations"
+        csv_dir.mkdir()
+        (csv_dir / "test_january.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Same Coffee,-4.50\n"
+        )
+        result1 = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result1["imported"] == 1
+
+        # A later export overlaps the first and adds a second occurrence of
+        # the same dedup key. Only the extra occurrence is imported.
+        (csv_dir / "test_february.csv").write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Same Coffee,-4.50\n"
+            "7/12/2026,Same Coffee,-4.50\n"
+        )
+        result2 = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result2["imported"] == 1
+        assert result2["duplicates"] == 1
+        conn = test_backend._get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 2
+
+    def test_import_history_records_account_and_mapping(
+        self, test_csv_dir, test_mapping, test_backend
+    ):
+        mapping = dataclasses.replace(test_mapping, account_label="card_a")
+        import_csv(test_csv_dir, mapping, test_backend)
+        history = test_backend.get_import_history()
+        assert len(history) == 1
+        assert history[0]["account"] == "card_a"
+        assert history[0]["mapping_name"] == "test_bank"
+
+    def test_same_account_reimport_still_skipped(self, test_csv_dir, test_mapping, test_backend):
+        mapping = dataclasses.replace(test_mapping, account_label="card_a")
+        assert import_csv(test_csv_dir, mapping, test_backend)["imported"] == 2
+        result = import_csv(test_csv_dir, mapping, test_backend)
+        assert result["imported"] == 0
+        assert result["duplicates"] == 0  # file skipped entirely, not re-processed
+        assert len(test_backend.get_import_history()) == 1
 
 
 class TestChaseCreditIntegration:

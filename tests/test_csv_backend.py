@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
 from moneyflow.backends import csv_backend
 from moneyflow.backends.csv_backend import (
@@ -13,6 +14,7 @@ from moneyflow.backends.csv_backend import (
     _validate_path_components,
     _validate_path_security,
 )
+from tests.permission_assertions import assert_owner_only_permissions
 
 
 @pytest.fixture
@@ -212,8 +214,7 @@ class TestCsvFinanceBackend:
 
     def test_db_file_has_restrictive_permissions(self, chase_backend):
         chase_backend._get_connection().close()
-        mode = os.stat(chase_backend.db_path).st_mode & 0o777
-        assert mode == 0o600
+        assert_owner_only_permissions(Path(chase_backend.db_path), 0o600)
 
     def test_rejects_symlinked_database_path(self, tmp_path, tmp_config_dir):
         profile = tmp_path / "symlink_profile"
@@ -263,6 +264,7 @@ class TestCsvFinanceBackend:
         with pytest.raises(OSError, match="symlink"):
             backend._get_connection()
 
+    @pytest.mark.skipif(os.name != "posix", reason="POSIX mode-bit check")
     def test_rejects_group_writable_parent_directory(self, tmp_path, tmp_config_dir):
         profile = tmp_path / "insecure_profile"
         profile.mkdir()
@@ -347,3 +349,105 @@ class TestCsvFinanceBackend:
         assert ensure_called["ensure_restrictive_directory"] >= 1
         assert ensure_called["open_restrictive_file"] >= 1
         assert db_path.exists()
+
+    def test_secure_open_db_tightens_existing_file_on_windows(self, tmp_path, monkeypatch):
+        """An existing database must also go through the owner-only helper,
+        which re-applies a restrictive DACL — a permissive DACL left on an
+        existing file would otherwise be silently retained."""
+        profile = tmp_path / "windows_profile"
+        profile.mkdir(parents=True, mode=0o700)
+        db_path = profile / "transactions.db"
+        db_path.touch(mode=0o600)
+
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        calls: list[dict] = []
+        real_open = csv_backend.open_restrictive_file
+
+        def counting_open(path, **kwargs):
+            calls.append(kwargs)
+            return real_open(path, **kwargs)
+
+        monkeypatch.setattr(csv_backend, "open_restrictive_file", counting_open)
+
+        _secure_open_db(str(db_path))
+
+        assert calls == [{"read_write": True}]
+
+    def test_get_connection_retightens_permissions_on_windows(
+        self, tmp_profile_dir, tmp_config_dir, monkeypatch
+    ):
+        """On Windows every connection must re-apply the owner-only DACL to
+        the database and its parent, not only the first initialization."""
+        monkeypatch.setattr(csv_backend, "_requires_posix_mode_checks", lambda: False)
+
+        calls: list[str] = []
+        real_open = csv_backend.open_restrictive_file
+
+        def counting_open(path, **kwargs):
+            calls.append(str(path))
+            return real_open(path, **kwargs)
+
+        monkeypatch.setattr(csv_backend, "open_restrictive_file", counting_open)
+
+        backend = CsvFinanceBackend(
+            profile_dir=tmp_profile_dir,
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+        backend._get_connection().close()
+        first_count = len(calls)
+        backend._get_connection().close()
+        assert len(calls) > first_count
+
+    def test_configured_categories_merged_with_transaction_categories(
+        self, chase_backend, tmp_profile_dir
+    ):
+        """Profile-configured categories must appear in the picker even when
+        no transaction uses them, and transaction-derived categories pick up
+        their configured group name."""
+        conn = chase_backend._get_connection()
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c1", "2026-07-12", -5.0, "STORE", "Groceries", "cat_Groceries"),
+        )
+        conn.commit()
+        conn.close()
+
+        config = {
+            "fetched_categories": {
+                "Essentials": ["Groceries", "Utilities"],
+                "Fun": ["Travel"],
+            }
+        }
+        (tmp_profile_dir / "config.yaml").write_text(yaml.safe_dump(config))
+
+        result = asyncio.run(chase_backend.get_transaction_categories())
+        by_name = {cat["name"]: cat for cat in result["categories"]}
+
+        assert set(by_name) == {"Groceries", "Utilities", "Travel"}
+        # Transaction-derived category keeps its stored id and gains a group
+        assert by_name["Groceries"]["id"] == "cat_Groceries"
+        assert by_name["Groceries"]["group"]["name"] == "Essentials"
+        # Configured-but-unused categories are exposed with stable ids
+        assert by_name["Utilities"]["id"] == "cat_Utilities"
+        assert by_name["Utilities"]["group"]["name"] == "Essentials"
+        assert by_name["Travel"]["group"]["name"] == "Fun"
+
+    def test_transaction_categories_without_profile_config(self, chase_backend):
+        """Without a profile config, transaction-derived categories are
+        returned unchanged (placeholder group, as before)."""
+        conn = chase_backend._get_connection()
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c1", "2026-07-12", -5.0, "STORE", "Groceries", "cat_Groceries"),
+        )
+        conn.commit()
+        conn.close()
+
+        result = asyncio.run(chase_backend.get_transaction_categories())
+        assert result["categories"] == [
+            {"id": "cat_Groceries", "name": "Groceries", "group": {"id": "", "type": "expense"}}
+        ]

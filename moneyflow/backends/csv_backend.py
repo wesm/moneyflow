@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
+from moneyflow.data.categories import load_categories_from_profile
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_restrictive_file,
@@ -43,6 +44,19 @@ def _requires_posix_mode_checks() -> bool:
     return os.name == "posix"
 
 
+def _current_uid() -> int:
+    """Return the current POSIX uid.
+
+    Accessed via getattr because os.getuid does not exist on Windows and
+    direct attribute access fails pyright's Windows platform analysis. Only
+    called when _requires_posix_mode_checks() is true.
+    """
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        raise OSError("POSIX ownership checks require os.getuid")
+    return getuid()
+
+
 def _validate_path_security(db_path_str: str) -> None:
     """Validate that the database path and parent directory are secure.
 
@@ -60,7 +74,7 @@ def _validate_path_security(db_path_str: str) -> None:
     st_parent = os.lstat(parent)
     if not stat_module.S_ISDIR(st_parent.st_mode):
         raise OSError(f"Parent is not a directory: {parent}")
-    if _requires_posix_mode_checks() and st_parent.st_uid != os.getuid():
+    if _requires_posix_mode_checks() and st_parent.st_uid != _current_uid():
         raise OSError(f"Parent directory not owned by current user: {parent}")
     if _requires_posix_mode_checks() and stat_module.S_IMODE(st_parent.st_mode) & 0o077:
         raise OSError(f"Parent directory is group/other writable: {parent}")
@@ -76,7 +90,7 @@ def _validate_path_security(db_path_str: str) -> None:
         raise OSError(f"Database path is a symlink: {db_path}")
     if not stat_module.S_ISREG(st_db.st_mode):
         raise OSError(f"Database is not a regular file: {db_path}")
-    if _requires_posix_mode_checks() and st_db.st_uid != os.getuid():
+    if _requires_posix_mode_checks() and st_db.st_uid != _current_uid():
         raise OSError(f"Database not owned by current user: {db_path}")
     if _requires_posix_mode_checks() and stat_module.S_IMODE(st_db.st_mode) != 0o600:
         raise OSError(f"Database permissions are not 0o600: {db_path}")
@@ -118,41 +132,38 @@ def _secure_open_db(db_path_str: str) -> None:
     _validate_path_security(db_path_str)
 
     if _requires_posix_mode_checks():
-        flags = os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-
+        # O_NOFOLLOW/O_CLOEXEC/fchmod are accessed via getattr because they
+        # do not exist on Windows and direct access fails pyright's Windows
+        # platform analysis; they are always present on POSIX.
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
         fd = os.open(db_path, flags, 0o600)
         try:
             st = os.fstat(fd)
             if not stat_module.S_ISREG(st.st_mode):
                 raise OSError(f"Database path is not a regular file: {db_path}")
-            os.fchmod(fd, 0o600)
+            fchmod = getattr(os, "fchmod", None)
+            if fchmod is not None:
+                fchmod(fd, 0o600)
+            else:
+                os.chmod(db_path, 0o600)
         finally:
             os.close(fd)
     else:
-        # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective.
-        # Use the platform-aware helper that sets an owner-only DACL at
-        # creation time (and handles the case where the file already exists
-        # by reopening it). Owner-only Windows permissions matter because
-        # mode bits are not honored — DACLs are the only effective control.
+        # Windows: os.O_NOFOLLOW / os.fchmod are unavailable or ineffective,
+        # and mode bits are not honored — an owner-only DACL is the only
+        # effective control. The platform-aware helper applies a protected
+        # owner-only DACL when creating the file and re-applies it when the
+        # file already exists, tightening any database left with a
+        # permissive DACL by an earlier version or external tool.
         if db_path.exists() or db_path.is_symlink():
-            fd = os.open(db_path, os.O_RDWR)
-            try:
-                require_current_user_ownership(db_path)
-                st = os.fstat(fd)
-                if not stat_module.S_ISREG(st.st_mode):
-                    raise OSError(f"Database path is not a regular file: {db_path}")
-            finally:
-                os.close(fd)
-        else:
-            fd = open_restrictive_file(db_path, read_write=True)
-            try:
-                st = os.fstat(fd)
-                if not stat_module.S_ISREG(st.st_mode):
-                    raise OSError(f"Database path is not a regular file: {db_path}")
-            finally:
-                os.close(fd)
+            require_current_user_ownership(db_path)
+        fd = open_restrictive_file(db_path, read_write=True)
+        try:
+            st = os.fstat(fd)
+            if not stat_module.S_ISREG(st.st_mode):
+                raise OSError(f"Database path is not a regular file: {db_path}")
+        finally:
+            os.close(fd)
 
     # Re-validate after the secure create/verify to catch any race.
     _validate_path_security(db_path_str)
@@ -172,6 +183,7 @@ class CsvFinanceBackend(FinanceBackend):
             profile_dir = Path.home() / ".moneyflow"
         self.institution_name = institution_name
         self.config_dir = config_dir or str(Path.home() / ".moneyflow")
+        self.profile_dir = profile_dir
         self.db_path = str(profile_dir / f"{institution_name}_transactions.db")
         self._db_initialized = False
 
@@ -211,11 +223,13 @@ class CsvFinanceBackend(FinanceBackend):
                 record_count INTEGER NOT NULL,
                 duplicate_count INTEGER NOT NULL,
                 skipped_count INTEGER NOT NULL DEFAULT 0,
+                account TEXT NOT NULL DEFAULT '',
+                mapping_name TEXT NOT NULL DEFAULT '',
                 import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # Migrate existing import_history tables that lack file_size or file_hash
+        # Migrate existing import_history tables that lack newer columns
         cols = {row[1] for row in conn.execute("PRAGMA table_info(import_history)")}
         if "file_size" not in cols:
             conn.execute(
@@ -223,6 +237,12 @@ class CsvFinanceBackend(FinanceBackend):
             )
         if "file_hash" not in cols:
             conn.execute("ALTER TABLE import_history ADD COLUMN file_hash TEXT NOT NULL DEFAULT ''")
+        if "account" not in cols:
+            conn.execute("ALTER TABLE import_history ADD COLUMN account TEXT NOT NULL DEFAULT ''")
+        if "mapping_name" not in cols:
+            conn.execute(
+                "ALTER TABLE import_history ADD COLUMN mapping_name TEXT NOT NULL DEFAULT ''"
+            )
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_date ON transactions(date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_csv_merchant ON transactions(merchant)")
@@ -233,6 +253,11 @@ class CsvFinanceBackend(FinanceBackend):
 
     def _get_connection(self) -> sqlite3.Connection:
         self._ensure_db_initialized()
+        if not _requires_posix_mode_checks():
+            # POSIX platforms validate mode bits below on every connection.
+            # Windows has no meaningful mode bits, so re-apply the owner-only
+            # DACL to the database and its parent directory instead.
+            _secure_open_db(self.db_path)
         _validate_path_security(self.db_path)
         return sqlite3.connect(self.db_path)
 
@@ -377,9 +402,39 @@ class CsvFinanceBackend(FinanceBackend):
         conn = self._get_connection()
         rows = conn.execute("SELECT DISTINCT category_id, category FROM transactions").fetchall()
         conn.close()
+
+        # Merge transaction-derived categories with the profile's configured
+        # category groups (fetched_categories in profile config.yaml) so that
+        # configured-but-unused categories still appear in category pickers.
+        configured = load_categories_from_profile(self.profile_dir) or {}
+        name_to_group = {
+            name: group_name for group_name, names in configured.items() for name in names
+        }
+
+        def _group_payload(name: str) -> dict[str, str]:
+            group_name = name_to_group.get(name, "")
+            if group_name:
+                return {"id": group_name, "name": group_name, "type": "expense"}
+            return {"id": "", "type": "expense"}
+
         categories = [
-            {"id": row[0], "name": row[1], "group": {"id": "", "type": "expense"}} for row in rows
+            {"id": row[0], "name": row[1], "group": _group_payload(row[1])} for row in rows
         ]
+        seen_ids = {row[0] for row in rows}
+        seen_names = {row[1] for row in rows}
+        for group_name, names in configured.items():
+            for name in names:
+                cat_id = _stable_category_id(name)
+                if name in seen_names or cat_id in seen_ids:
+                    continue
+                seen_ids.add(cat_id)
+                categories.append(
+                    {
+                        "id": cat_id,
+                        "name": name,
+                        "group": {"id": group_name, "name": group_name, "type": "expense"},
+                    }
+                )
         return {"categories": categories}
 
     async def get_transaction_category_groups(self) -> dict[str, Any]:
