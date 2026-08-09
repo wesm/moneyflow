@@ -22,7 +22,6 @@ the UI layer thin and focused on rendering and user interaction.
 import argparse
 import asyncio
 import json
-import re
 import sys
 import traceback
 from copy import deepcopy
@@ -45,6 +44,7 @@ from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.categories import (
     build_category_to_group_mapping,
     categories_dict_to_config_groups,
+    category_slug,
     save_categories_to_profile,
 )
 from ..data.data_manager import DataManager, DeferredCategoryChange
@@ -1616,14 +1616,21 @@ class MoneyflowApp(App):
                     )
                     return
                 cat_name = new_category_id[8:]
-                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                cat_id = category_slug(cat_name)
                 if not cat_id:
                     self.notify(
                         "Category name must contain at least one letter or number.",
                         severity="error",
                     )
                     return
-                elif cat_id in self.data_manager.categories:
+                # Compare by normalized name as well as id: CSV-imported
+                # categories carry ids in a different format (e.g.
+                # "cat_food_dining"), and equivalent names must still be
+                # detected as duplicates.
+                if cat_id in self.data_manager.categories or any(
+                    category_slug(existing.get("name", "")) == cat_id
+                    for existing in self.data_manager.categories.values()
+                ):
                     self.notify(
                         "A category with an equivalent name already exists.",
                         severity="error",
@@ -1658,7 +1665,7 @@ class MoneyflowApp(App):
                         self.data_manager.categories[cat_id] = {
                             "name": cat_name,
                             "group": chosen_group,
-                            "group_id": re.sub(r"[^a-z0-9]+", "_", chosen_group.lower()).strip("_"),
+                            "group_id": category_slug(chosen_group),
                             "group_type": "",
                         }
                         new_category_id = cat_id

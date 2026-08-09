@@ -16,7 +16,6 @@ providing a clean interface for data operations without exposing API details.
 import asyncio
 import inspect
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +27,7 @@ from ..backends.base import FinanceBackend
 from ..logging_config import get_logger
 from .categories import (
     build_category_to_group_mapping,
+    category_slug,
     convert_api_categories_to_groups,
     get_effective_category_groups,
     get_profile_category_groups,
@@ -1365,9 +1365,9 @@ class DataManager:
 
         categories: Dict[str, Dict[str, str]] = {}
         for group_name, cat_names in self.category_groups_config.items():
-            group_id = re.sub(r"[^a-z0-9]+", "_", group_name.lower()).strip("_")
+            group_id = category_slug(group_name)
             for cat_name in cat_names:
-                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                cat_id = category_slug(cat_name)
                 categories[cat_id] = {
                     "name": cat_name,
                     "group": group_name,

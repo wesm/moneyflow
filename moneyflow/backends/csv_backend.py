@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
-from moneyflow.data.categories import load_categories_from_profile
+from moneyflow.data.categories import load_categories_from_profile, stable_category_id
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_restrictive_file,
@@ -34,9 +34,12 @@ STANDARD_FIELDS = frozenset(
 
 
 def _stable_category_id(name: str) -> str:
-    """Generate a stable category_id from a category name."""
-    slug = "".join(c if c.isalnum() else "_" for c in name).rstrip("_")
-    return f"cat_{slug}" if slug else "cat_uncategorized"
+    """Generate a stable category_id from a category name.
+
+    Delegates to the shared normalizer so CSV imports, profile config
+    merging, and TUI category creation all agree on category ids.
+    """
+    return stable_category_id(name)
 
 
 def _requires_posix_mode_checks() -> bool:
@@ -88,6 +91,7 @@ def _validate_path_security(db_path_str: str) -> None:
     st_db = os.lstat(db_path)
     if stat_module.S_ISLNK(st_db.st_mode):
         raise OSError(f"Database path is a symlink: {db_path}")
+    _reject_reparse_point(st_db, db_path)
     if not stat_module.S_ISREG(st_db.st_mode):
         raise OSError(f"Database is not a regular file: {db_path}")
     if _requires_posix_mode_checks() and st_db.st_uid != _current_uid():
@@ -101,8 +105,26 @@ def _validate_path_security(db_path_str: str) -> None:
         raise OSError(f"Database path escapes parent directory: {db_path}")
 
 
+def _reject_reparse_point(st: os.stat_result, path: Path | str) -> None:
+    """Reject Windows reparse points (junctions, mount points, name surrogates).
+
+    lstat's S_ISLNK covers real symlinks only; junctions and other reparse
+    points can equally redirect a path to another volume or directory.
+    st_file_attributes only exists on Windows, so this is a no-op elsewhere.
+    """
+    attributes = getattr(st, "st_file_attributes", 0)
+    if attributes & stat_module.FILE_ATTRIBUTE_REPARSE_POINT:
+        raise OSError(f"Database path contains a reparse point: {path}")
+
+
 def _validate_path_components(path: Path) -> None:
-    """Reject symlinked or unsafe directory components before opening a database."""
+    """Reject symlinked, replaceable, or unsafe directory components.
+
+    Every ancestor must be a real directory (no symlinks or reparse points)
+    that other users cannot replace: on POSIX each component must be owned by
+    the current user or root and must not be group/other writable (unless
+    sticky), so no other account can swap a component for a redirection.
+    """
     absolute_path = Path(os.path.abspath(path))
     current = Path(absolute_path.anchor)
 
@@ -112,14 +134,16 @@ def _validate_path_components(path: Path) -> None:
         mode = st_component.st_mode
         if stat_module.S_ISLNK(mode):
             raise OSError(f"Database path contains a symlinked component: {current}")
+        _reject_reparse_point(st_component, current)
         if not stat_module.S_ISDIR(mode):
             raise OSError(f"Database path component is not a directory: {current}")
-        if (
-            _requires_posix_mode_checks()
-            and stat_module.S_IMODE(mode) & 0o022
-            and not mode & stat_module.S_ISVTX
-        ):
-            raise OSError(f"Database path component is group/other writable: {current}")
+        if _requires_posix_mode_checks():
+            if st_component.st_uid not in (0, _current_uid()):
+                raise OSError(
+                    f"Database path component not owned by current user or root: {current}"
+                )
+            if stat_module.S_IMODE(mode) & 0o022 and not mode & stat_module.S_ISVTX:
+                raise OSError(f"Database path component is group/other writable: {current}")
 
 
 def _secure_open_db(db_path_str: str) -> None:
@@ -169,6 +193,37 @@ def _secure_open_db(db_path_str: str) -> None:
     _validate_path_security(db_path_str)
 
 
+def _connect_verified(db_path_str: str) -> sqlite3.Connection:
+    """Connect to SQLite and verify the connection references the validated file.
+
+    sqlite3 cannot open a database from a file descriptor, so the path-based
+    connect is inherently racy. To narrow the window, hold a descriptor opened
+    with O_NOFOLLOW on the validated file across the connect, then require
+    that the path still resolves to that same device/inode afterwards. A
+    persistent redirection of the path (symlink, junction, replaced ancestor)
+    is detected here; combined with the ancestor ownership checks in
+    _validate_path_components, an attacker would have to win a sub-millisecond
+    double race on every single connection to go unnoticed.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(db_path_str, flags)
+    try:
+        expected = os.fstat(fd)
+        if not stat_module.S_ISREG(expected.st_mode):
+            raise OSError(f"Database path is not a regular file: {db_path_str}")
+        conn = sqlite3.connect(db_path_str)
+        try:
+            actual = os.stat(db_path_str)
+            if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+                raise OSError(f"Database path was redirected during connection: {db_path_str}")
+        except BaseException:
+            conn.close()
+            raise
+        return conn
+    finally:
+        os.close(fd)
+
+
 class CsvFinanceBackend(FinanceBackend):
     """FinanceBackend that stores transactions in per-institution SQLite databases."""
 
@@ -198,7 +253,7 @@ class CsvFinanceBackend(FinanceBackend):
         _secure_open_db(self.db_path)
 
         _validate_path_security(self.db_path)
-        conn = sqlite3.connect(self.db_path)
+        conn = _connect_verified(self.db_path)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS transactions (
                 id TEXT PRIMARY KEY,
@@ -259,7 +314,7 @@ class CsvFinanceBackend(FinanceBackend):
             # DACL to the database and its parent directory instead.
             _secure_open_db(self.db_path)
         _validate_path_security(self.db_path)
-        return sqlite3.connect(self.db_path)
+        return _connect_verified(self.db_path)
 
     def _row_to_transaction_dict(self, row: sqlite3.Row) -> dict[str, Any]:
         extras = json.loads(row["extras"] or "{}")

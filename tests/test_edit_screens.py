@@ -414,6 +414,26 @@ class TestManageCategoriesScreen:
         assert queued == []
         assert notifications == [notification]
 
+    def test_validated_category_id_rejects_csv_import_style_duplicate(self, monkeypatch):
+        """CSV-imported categories carry "cat_"-prefixed ids; a name that
+        normalizes to the same slug must still be detected as a duplicate."""
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(categories, queue_reassign_callback=lambda *args: None)
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._validated_category_id("Food & Dining") is None
+        assert notifications == ["A category with an equivalent name already exists"]
+
     @pytest.mark.parametrize(
         ("target_id", "notification"),
         [

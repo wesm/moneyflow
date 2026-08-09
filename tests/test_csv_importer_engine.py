@@ -491,6 +491,66 @@ class TestImportCsv:
         assert result["duplicates"] == 0  # file skipped entirely, not re-processed
         assert len(test_backend.get_import_history()) == 1
 
+    def test_account_label_persisted_to_transactions(
+        self, test_csv_dir, test_mapping, test_backend
+    ):
+        """--account imports must label the stored transactions, not only
+        namespace their IDs — otherwise multi-card data is indistinguishable."""
+        mapping = dataclasses.replace(test_mapping, account_label="card_a")
+        import_csv(test_csv_dir, mapping, test_backend)
+        conn = test_backend._get_connection()
+        accounts = {row[0] for row in conn.execute("SELECT account FROM transactions").fetchall()}
+        conn.close()
+        assert accounts == {"card_a"}
+
+    def test_single_file_path_imports_only_that_file(self, tmp_path, test_mapping, test_backend):
+        """Passing a file path imports exactly that file, so a multi-card
+        directory can be imported one card at a time with --account."""
+        csv_dir = tmp_path / "csvs_single"
+        csv_dir.mkdir()
+        (csv_dir / "test_card_a.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,CARD A ONLY,-4.50\n"
+        )
+        (csv_dir / "test_card_b.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,CARD B ONLY,-9.00\n"
+        )
+        result = import_csv(str(csv_dir / "test_card_a.csv"), test_mapping, test_backend)
+        assert result["imported"] == 1
+        conn = test_backend._get_connection()
+        merchants = [r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()]
+        conn.close()
+        assert merchants == ["CARD A ONLY"]
+
+    def test_split_columns_blank_and_malformed_amounts_skipped(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """Rows whose debit/credit values are both blank or contain unparsable
+        text must be skipped, not imported as zero-dollar transactions."""
+        csv_dir = tmp_path / "csvs_split"
+        csv_dir.mkdir()
+        (csv_dir / "test_split.csv").write_text(
+            "Transaction Date,Description,Debit,Credit\n"
+            "7/12/2026,Valid Debit,4.50,\n"
+            "7/13/2026,Valid Credit,,5.00\n"
+            "7/14/2026,Both Blank,,\n"
+            "7/15/2026,Bad Debit,abc,\n"
+            "7/16/2026,Bad Debit Valid Credit,abc,5.00\n"
+        )
+        split_mapping = _copy_mapping(
+            test_mapping,
+            file_pattern="test_split.csv",
+            column_map={"Transaction Date": "date", "Description": "merchant"},
+            debit_column="Debit",
+            credit_column="Credit",
+        )
+        result = import_csv(str(csv_dir), split_mapping, test_backend)
+        assert result["imported"] == 2
+        assert result["skipped"] == 3
+        conn = test_backend._get_connection()
+        rows = conn.execute("SELECT merchant, amount FROM transactions ORDER BY amount").fetchall()
+        conn.close()
+        assert rows == [("Valid Debit", -4.5), ("Valid Credit", 5.0)]
+
 
 class TestChaseCreditIntegration:
     def test_import_chase_csv(self, tmp_path):

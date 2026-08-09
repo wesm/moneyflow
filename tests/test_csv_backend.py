@@ -400,6 +400,28 @@ class TestCsvFinanceBackend:
         backend._get_connection().close()
         assert len(calls) > first_count
 
+    def test_get_connection_rejects_path_redirected_during_connect(
+        self, chase_backend, monkeypatch
+    ):
+        """If the database path is redirected to a different file while the
+        SQLite connection is being established, the connection must be
+        rejected rather than silently operating on the replacement."""
+        chase_backend._get_connection().close()
+        db_path = Path(chase_backend.db_path)
+        real_connect = csv_backend.sqlite3.connect
+
+        def redirecting_connect(path, *args, **kwargs):
+            conn = real_connect(path, *args, **kwargs)
+            # Swap the database for a different file (new inode) mid-connect.
+            db_path.unlink()
+            db_path.touch(mode=0o600)
+            return conn
+
+        monkeypatch.setattr(csv_backend.sqlite3, "connect", redirecting_connect)
+
+        with pytest.raises(OSError, match="redirected"):
+            chase_backend._get_connection()
+
     def test_configured_categories_merged_with_transaction_categories(
         self, chase_backend, tmp_profile_dir
     ):
@@ -431,7 +453,7 @@ class TestCsvFinanceBackend:
         assert by_name["Groceries"]["id"] == "cat_Groceries"
         assert by_name["Groceries"]["group"]["name"] == "Essentials"
         # Configured-but-unused categories are exposed with stable ids
-        assert by_name["Utilities"]["id"] == "cat_Utilities"
+        assert by_name["Utilities"]["id"] == "cat_utilities"
         assert by_name["Utilities"]["group"]["name"] == "Essentials"
         assert by_name["Travel"]["group"]["name"] == "Fun"
 

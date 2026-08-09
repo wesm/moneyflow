@@ -835,6 +835,61 @@ class TestLocalCategoryCreation:
         assert set(categories) == {"food_dining"}
         assert notifications == [("A category with an equivalent name already exists.", "error")]
 
+    async def test_rejects_name_collision_with_csv_import_style_id(self, monkeypatch):
+        """CSV-imported categories carry "cat_"-prefixed ids. Creating a
+        category with an equivalent name must still be rejected even though
+        the generated id differs from the stored one."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-1"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = type("DataManager", (), {"categories": categories})()
+        notifications = []
+
+        monkeypatch.setattr(
+            app,
+            "query_one",
+            lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})(),
+        )
+
+        async def choose_colliding_category(screen, **kwargs):
+            return "__new__:Food & Dining"
+
+        monkeypatch.setattr(app, "push_screen", choose_colliding_category)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert set(categories) == {"cat_food_dining"}
+        assert notifications == [("A category with an equivalent name already exists.", "error")]
+
     async def test_aborts_creation_when_category_config_cannot_be_saved(self, monkeypatch):
         from moneyflow.tui import app as app_module
         from moneyflow.tui.app import MoneyflowApp

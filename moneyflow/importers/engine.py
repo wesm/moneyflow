@@ -95,14 +95,33 @@ class InstitutionMapping:
 
 def _prepare_dataframe(df: pl.DataFrame, mapping: InstitutionMapping) -> pl.DataFrame:
     """Apply column rename, date parsing, garbage filtering, and sign flip."""
-    # Handle split Debit/Credit columns
+    # Handle split Debit/Credit columns. The amount stays null (so the row is
+    # skipped, not imported as $0) when both sides are blank or when either
+    # side is non-empty but unparsable — filling nulls with 0 up front would
+    # turn invalid rows into valid-looking zero-dollar transactions.
     if mapping.debit_column and mapping.credit_column:
         debit_col = mapping.debit_column
         credit_col = mapping.credit_column
         if debit_col in df.columns and credit_col in df.columns:
-            debit = df[debit_col].cast(pl.Float64, strict=False).fill_null(0)
-            credit = df[credit_col].cast(pl.Float64, strict=False).fill_null(0)
-            df = df.with_columns((credit - debit).alias("amount"))
+
+            def parsed(col: str) -> pl.Expr:
+                return pl.col(col).cast(pl.Float64, strict=False)
+
+            def invalid(col: str) -> pl.Expr:
+                text = pl.col(col).cast(pl.String).str.strip_chars()
+                return text.is_not_null() & (text != "") & parsed(col).is_null()
+
+            amount = (
+                pl.when(
+                    invalid(debit_col)
+                    | invalid(credit_col)
+                    | (parsed(debit_col).is_null() & parsed(credit_col).is_null())
+                )
+                .then(None)
+                .otherwise(parsed(credit_col).fill_null(0.0) - parsed(debit_col).fill_null(0.0))
+                .alias("amount")
+            )
+            df = df.with_columns(amount)
 
     # Rename columns
     df = df.rename(mapping.column_map, strict=False)
@@ -235,6 +254,10 @@ def _process_file(
             if col in row and col not in STANDARD_FIELDS
         }
 
+        # Persist the account label so multi-card imports are distinguishable
+        # in the transactions themselves, not only in their generated IDs.
+        account_val = _safe_str(row.get("account")) or mapping.account_label
+
         insert_batch.append(
             (
                 txn_id,
@@ -243,7 +266,7 @@ def _process_file(
                 merchant_val,
                 category_val,
                 category_id_val,
-                _safe_str(row.get("account")),
+                account_val,
                 _safe_str(row.get("notes")),
                 json.dumps(extras),
             )
@@ -268,10 +291,18 @@ def import_csv(
     *,
     force: bool = False,
 ) -> dict[str, int]:
-    """Import CSV files matching the institution's file pattern into the backend."""
+    """Import CSV files from a directory (matching the mapping's file pattern)
+    or from a single explicitly named CSV file."""
     mapping.validate()
 
-    csv_files = sorted(Path(path).rglob(mapping.file_pattern))
+    source = Path(path)
+    if source.is_file():
+        # An explicit file wins over the mapping's file pattern. This lets a
+        # multi-card directory be imported one card at a time with --account,
+        # without pulling in the other cards' files.
+        csv_files = [source]
+    else:
+        csv_files = sorted(source.rglob(mapping.file_pattern))
     if not csv_files:
         raise FileNotFoundError(f"No files matching '{mapping.file_pattern}' found in {path}")
 

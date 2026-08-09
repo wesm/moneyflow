@@ -24,6 +24,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from ...data.categories import category_slug
 from ..formatters import ViewPresenter
 
 
@@ -1174,7 +1175,7 @@ class ManageCategoriesScreen(ModalScreen):
 
     @staticmethod
     def _category_id_from_name(name: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+        return category_slug(name)
 
     def _validated_category_id(self, name: str, current_id: Optional[str] = None) -> Optional[str]:
         """Return a normalized ID unless it is empty or collides with another category."""
@@ -1185,12 +1186,18 @@ class ManageCategoriesScreen(ModalScreen):
                 severity="warning",
             )
             return None
-        if category_id in self.categories and category_id != current_id:
-            self.notify(
-                "A category with an equivalent name already exists",
-                severity="warning",
-            )
-            return None
+        # Compare by normalized name as well as id: CSV-imported categories
+        # carry ids in a different format (e.g. "cat_food_dining"), and
+        # equivalent names must still be detected as duplicates.
+        for existing_id, existing in self.categories.items():
+            if existing_id == current_id:
+                continue
+            if existing_id == category_id or category_slug(existing.get("name", "")) == category_id:
+                self.notify(
+                    "A category with an equivalent name already exists",
+                    severity="warning",
+                )
+                return None
         return category_id
 
     def _queue_reassignment(self, source_id: str, target_id: str) -> bool:

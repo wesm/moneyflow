@@ -886,7 +886,10 @@ def import_list():
         "Account/card label to disambiguate imports of multiple cards under "
         "the same institution. Required if you import two cards of the same "
         "type (e.g. two Chase credits) into one profile, otherwise overlapping "
-        "transactions will be deduplicated. Example: --account personal_card."
+        "transactions will be deduplicated. Point PATH at that card's CSV file "
+        "(or a directory containing only that card's files) so other cards' "
+        "files are not imported under the wrong label. "
+        "Example: --account personal_card."
     ),
 )
 @click.option("--config-dir", type=click.Path(), default=None, help=CONFIG_DIR_HELP)

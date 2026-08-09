@@ -12,12 +12,14 @@ from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
+    category_slug,
     get_effective_category_groups,
     get_profile_category_groups,
     load_categories_from_profile,
     load_custom_categories,
     merge_category_groups,
     save_categories_to_profile,
+    stable_category_id,
 )
 
 
@@ -529,3 +531,22 @@ class TestGetAmazonCategorySource:
         result = get_amazon_category_source(config_dir=str(tmp_path))
 
         assert result == "monarch1"
+
+
+class TestCategoryIdNormalization:
+    """category_slug/stable_category_id are the single source of category-id
+    normalization across imports, configuration, and TUI creation."""
+
+    def test_category_slug_normalizes_equivalent_names(self):
+        assert category_slug("Food & Dining") == "food_dining"
+        assert category_slug("food   dining") == "food_dining"
+        assert category_slug("  Groceries  ") == "groceries"
+        assert category_slug("!!!") == ""
+
+    def test_stable_category_id_prefixes_slug(self):
+        assert stable_category_id("Food & Dining") == "cat_food_dining"
+        assert stable_category_id("Groceries") == "cat_groceries"
+
+    def test_stable_category_id_falls_back_for_empty_names(self):
+        assert stable_category_id("") == "cat_uncategorized"
+        assert stable_category_id("!!!") == "cat_uncategorized"
