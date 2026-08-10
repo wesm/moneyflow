@@ -483,6 +483,91 @@ class TestManageCategoriesScreen:
         assert "uncategorized" not in categories  # no duplicate created
         assert "cat_uncategorized" in categories
 
+    def test_category_id_factory_used_for_rename(self):
+        """With a CSV backend's id factory, renaming generates the same
+        "cat_"-prefixed id a later import of that name would produce."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: queued.append(args),
+            category_id_factory=stable_category_id,
+        )
+        screen._pending_cat_id = "cat_coffee"
+        screen._category_order = ["cat_coffee"]
+        screen._filtered_order = ["cat_coffee"]
+        screen._update_display = lambda: None
+
+        screen._handle_rename("Espresso")
+
+        assert queued == [("cat_coffee", "cat_espresso")]
+        assert set(categories) == {"cat_espresso"}
+        assert categories["cat_espresso"]["name"] == "Espresso"
+
+    def test_category_id_factory_rejects_garbage_names(self, monkeypatch):
+        """With the CSV factory, a garbage name maps to "cat_uncategorized";
+        it must be rejected as invalid, not accepted under the fallback id."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: None,
+            category_id_factory=stable_category_id,
+        )
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._validated_category_id("!!!") is None
+        assert notifications == ["Category name must contain a letter or number"]
+
+    def test_delete_reassign_creates_fallback_with_factory_id(self):
+        """When no Uncategorized category exists, the created fallback uses
+        the backend's id format so later imports map to the same category."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: queued.append(args),
+            category_id_factory=stable_category_id,
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert queued == [("cat_groceries", "cat_uncategorized")]
+        assert set(categories) == {"cat_uncategorized"}
+        assert categories["cat_uncategorized"]["name"] == "Uncategorized"
+
     def test_validated_category_id_rejects_csv_import_style_duplicate(self, monkeypatch):
         """CSV-imported categories carry "cat_"-prefixed ids; a name that
         normalizes to the same slug must still be detected as a duplicate."""

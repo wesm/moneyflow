@@ -960,11 +960,16 @@ class ManageCategoriesScreen(ModalScreen):
         categories: Dict[str, Dict[str, str]],
         transaction_counts: Optional[Dict[str, int]] = None,
         queue_reassign_callback=None,
+        category_id_factory=None,
     ) -> None:
         super().__init__()
         self.categories = categories
         self.transaction_counts = transaction_counts or {}
         self._queue_reassign = queue_reassign_callback
+        # The backend owns the persistent id format (CSV backends use
+        # "cat_"-prefixed ids matching their imports); default to the legacy
+        # config slug used by config-backed backends.
+        self._category_id_factory = category_id_factory or category_slug
         self._selected_index = 0
         self._category_order: List[str] = []  # flat list of cat IDs in display order
         self._group_order: List[str] = []  # group names in display order
@@ -1185,14 +1190,13 @@ class ManageCategoriesScreen(ModalScreen):
     # Operations
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _category_id_from_name(name: str) -> str:
-        return category_slug(name)
+    def _category_id_from_name(self, name: str) -> str:
+        return self._category_id_factory(name)
 
     def _validated_category_id(self, name: str, current_id: Optional[str] = None) -> Optional[str]:
         """Return a normalized ID unless it is empty or collides with another category."""
         category_id = self._category_id_from_name(name)
-        if not category_id:
+        if not category_id or not category_equivalence_key(name):
             self.notify(
                 "Category name must contain a letter or number",
                 severity="warning",
@@ -1256,9 +1260,8 @@ class ManageCategoriesScreen(ModalScreen):
             )
             return
 
-        # Compute new category ID from new name (same logic as
-        # _populate_categories_from_config in data_manager.py).
-        # If the ID changed, reassign transactions so they aren't
+        # Compute the new category ID from the new name using the backend's
+        # id format. If the ID changed, reassign transactions so they aren't
         # orphaned on restart when IDs are regenerated from names.
         new_id = self._validated_category_id(new_name, current_id=cat_id)
         if new_id is None:
@@ -1437,6 +1440,9 @@ class ManageCategoriesScreen(ModalScreen):
                 if existing_uncategorized is not None:
                     target_id = existing_uncategorized
                 else:
+                    # Create the fallback with the backend's id format so a
+                    # later CSV import maps to the same category.
+                    target_id = self._category_id_from_name("Uncategorized")
                     self.categories[target_id] = {
                         "name": "Uncategorized",
                         "group": "Uncategorized",

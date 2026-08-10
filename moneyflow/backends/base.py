@@ -11,6 +11,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from moneyflow.data.categories import category_slug
+
 
 class AggregationFunc(Enum):
     """Aggregation functions for computed columns."""
@@ -436,6 +438,17 @@ class FinanceBackend(ABC):
         Default implementation returns the inverse of read_only.
         """
         return not self.read_only
+
+    def make_category_id(self, name: str) -> str:
+        """Generate the persistent id for a locally created or renamed category.
+
+        Backends that persist their own category ids must override this so
+        that local creation and renaming produce the same id a later import
+        or regeneration would — otherwise one category name ends up split
+        across two ids. The default is the legacy config slug used by
+        config-backed backends (e.g. SimpleFIN).
+        """
+        return category_slug(name)
 
     @abstractmethod
     def get_backend_type(self) -> str:

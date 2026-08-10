@@ -565,6 +565,30 @@ class TestImportCsv:
         conn.close()
         assert merchants == {"Keep Me", "New Row"}
 
+    def test_garbage_category_name_folds_into_default(self, tmp_path, test_mapping, test_backend):
+        """A category name that normalizes to nothing (e.g. "!!!") must
+        become the default category, not squat on the fallback id with its
+        own display name."""
+        csv_dir = tmp_path / "csvs_garbage_cat"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount,Category\n7/12/2026,Coffee,-4.50,!!!\n"
+        )
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+        )
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT category, category_id FROM transactions").fetchone()
+        conn.close()
+        assert row == ("Uncategorized", "cat_uncategorized")
+
     def test_non_finite_amounts_skipped(self, tmp_path, test_mapping, test_backend):
         """NaN and infinity must be skipped: SQLite stores NaN as NULL (which
         would violate NOT NULL and roll back the whole file) and infinity

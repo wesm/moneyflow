@@ -270,6 +270,12 @@ class CsvFinanceBackend(FinanceBackend):
         """Edits persist to the local SQLite database."""
         return True
 
+    def make_category_id(self, name: str) -> str:
+        """Locally created or renamed categories must use the same
+        "cat_"-prefixed ids that imports generate, or one category name
+        would split across two ids."""
+        return _stable_category_id(name)
+
     def _ensure_db_initialized(self) -> None:
         if self._db_initialized:
             return

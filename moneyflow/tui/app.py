@@ -1617,8 +1617,13 @@ class MoneyflowApp(App):
                     )
                     return
                 cat_name = new_category_id[8:]
-                cat_id = category_slug(cat_name)
-                if not cat_id:
+                # The backend owns the persistent id format: CSV backends use
+                # "cat_"-prefixed ids matching their imports, config-backed
+                # backends the legacy bare slug. Mixing formats would split
+                # one category name across two ids.
+                make_category_id = getattr(self.backend, "make_category_id", category_slug)
+                cat_id = make_category_id(cat_name)
+                if not cat_id or not category_equivalence_key(cat_name):
                     self.notify(
                         "Category name must contain at least one letter or number.",
                         severity="error",
@@ -1778,6 +1783,7 @@ class MoneyflowApp(App):
                 categories=self.data_manager.categories,
                 transaction_counts=txn_counts,
                 queue_reassign_callback=queue_reassign,
+                category_id_factory=getattr(self.backend, "make_category_id", None),
             ),
             wait_for_dismiss=True,
         )

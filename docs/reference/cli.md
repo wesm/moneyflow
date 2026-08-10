@@ -40,7 +40,7 @@ Available institution mappings:
 Import CSV files for a specific institution.
 
 ```bash
-moneyflow import institution <institution> <path> [--force]
+moneyflow import institution <institution> <path> [--account <label>] [--force]
 ```
 
 **Arguments:**
@@ -48,12 +48,13 @@ moneyflow import institution <institution> <path> [--force]
 | Argument | Description |
 |----------|-------------|
 | `<institution>` | Institution identifier (e.g., `chase_credit`) |
-| `<path>` | Directory containing CSV files |
+| `<path>` | CSV file, or directory containing CSV files |
 
 **Options:**
 
 | Option | Description |
 |--------|-------------|
+| `--account <label>` | Account/card label stored on each transaction. Required when importing multiple cards of the same institution — without it, transactions from different cards sharing a date, amount, and merchant are silently deduplicated. Import each card from its own file or card-specific directory. |
 | `--force` | Re-import already-imported files |
 | `--config-dir <path>` | Custom config directory (default: `~/.moneyflow`) |
 
@@ -62,6 +63,10 @@ moneyflow import institution <institution> <path> [--force]
 ```bash
 moneyflow import institution chase_credit ~/Downloads/
 moneyflow import institution chase_credit ~/Downloads/ --force
+
+# Two cards of the same institution: one import per card, each with its own label
+moneyflow import institution chase_credit ~/Downloads/Chase1234_Activity.csv --account personal_card
+moneyflow import institution chase_credit ~/Downloads/Chase5678_Activity.csv --account business_card
 ```
 
 ## Backend-Specific Commands

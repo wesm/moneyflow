@@ -53,6 +53,12 @@ class TestCsvFinanceBackend:
         assert chase_backend.can_write_transactions is True
         assert chase_backend.supports_category_sync is False
 
+    def test_make_category_id_matches_import_format(self, chase_backend):
+        """Locally created categories must get the same "cat_"-prefixed ids
+        that imports generate, or one name would split across two ids."""
+        assert chase_backend.make_category_id("Food & Dining") == "cat_food_dining"
+        assert chase_backend.make_category_id("Groceries") == "cat_groceries"
+
     def test_db_path_derived_from_institution_name(self, chase_backend, tmp_profile_dir):
         expected = str(tmp_profile_dir / "chase_credit_transactions.db")
         assert chase_backend.db_path == expected

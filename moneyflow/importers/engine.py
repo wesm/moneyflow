@@ -252,6 +252,13 @@ def _process_file(
         if not category_id_val or category_id_val == mapping.default_category_id:
             if category_val and category_val != mapping.default_category:
                 category_id_val = _stable_category_id(category_val)
+                if category_id_val == "cat_uncategorized":
+                    # The name normalized to nothing (e.g. "!!!"). Fold the
+                    # row into the default category — keeping the original
+                    # name under the fallback id would hijack the real
+                    # Uncategorized category's display name.
+                    category_val = mapping.default_category
+                    category_id_val = mapping.default_category_id
             else:
                 category_id_val = mapping.default_category_id
 

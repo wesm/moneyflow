@@ -45,6 +45,23 @@ moneyflow import list
 moneyflow import institution chase_credit ~/Downloads/ --force
 ```
 
+!!! warning "Importing multiple cards of the same institution"
+
+    If you have more than one card of the same type (e.g., two Chase credit
+    cards), import each card with its own `--account` label and point the
+    import at that card's CSV file (or a directory containing only that
+    card's files):
+
+    ```bash
+    moneyflow import institution chase_credit ~/Downloads/Chase1234_Activity.csv --account personal_card
+    moneyflow import institution chase_credit ~/Downloads/Chase5678_Activity.csv --account business_card
+    ```
+
+    Without `--account`, transactions from different cards that share a
+    date, amount, and merchant are treated as duplicates and silently
+    dropped. The label is stored on each transaction so the cards remain
+    distinguishable in the UI.
+
 The import will:
 
 - Scan for files matching the institution's expected filename pattern
@@ -94,6 +111,10 @@ moneyflow import institution chase_credit ~/Downloads/ --force
 
 If you make two identical purchases on the same day from the same merchant (e.g., two $4.50 coffees),
 moneyflow automatically adds a sequence suffix to keep them distinct.
+
+Deduplication is scoped per account label: imports with different `--account` values never
+deduplicate against each other, which is why each card of the same institution must be
+imported with its own label (see the warning above).
 
 ### Storage
 
