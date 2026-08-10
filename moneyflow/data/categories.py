@@ -13,13 +13,14 @@ The category system supports:
 """
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
 
-from .file_utils import secure_atomic_write
+from .file_utils import open_verified_no_follow, secure_atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,14 @@ def _load_yaml(path: Path) -> dict:
     if not path.exists():
         return {}
     try:
-        with open(path, "r") as f:
+        # The config is authoritative (category structure, alias remapping),
+        # so it must not be read through a planted symlink or reparse point,
+        # and must be owned by the current user and unreadable by others —
+        # otherwise another local account could dictate how imports are
+        # categorized. open_verified_no_follow enforces all of that on the
+        # opened descriptor before any content is parsed.
+        fd = open_verified_no_follow(path)
+        with os.fdopen(fd, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
             return data if isinstance(data, dict) else {}
     except Exception as e:

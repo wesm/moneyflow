@@ -617,3 +617,47 @@ class TestPendingCategoryAliasStorage:
             "- [1, 2, 3]\n"
         )
         assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B")]
+
+
+class TestConfigLoadValidation:
+    def test_symlinked_config_is_not_followed(self, tmp_path):
+        """An authoritative config planted as a symlink must not be read —
+        it could dictate category structure and alias remapping."""
+        outside = tmp_path / "outside.yaml"
+        outside.write_text("fetched_categories:\n  Evil: [Injected]\n")
+        outside.chmod(0o600)
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(outside)
+
+        assert load_categories_from_profile(profile) is None
+        assert load_pending_category_aliases(profile) == []
+
+    def test_group_writable_config_is_rejected(self, tmp_path):
+        """A config another local account can write must not be trusted — it
+        could dictate category structure and alias remapping."""
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        config = profile / "config.yaml"
+        config.write_text("fetched_categories:\n  Group: [Category]\n")
+        config.chmod(0o666)
+
+        assert load_categories_from_profile(profile) is None
+
+    def test_group_readable_config_is_still_read(self, tmp_path):
+        """A config written by an older version under a permissive umask is
+        still the user's own data — refusing it would discard their
+        categories."""
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        config = profile / "config.yaml"
+        config.write_text("fetched_categories:\n  Group: [Category]\n")
+        config.chmod(0o644)
+
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+    def test_owner_only_config_is_read(self, tmp_path):
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}

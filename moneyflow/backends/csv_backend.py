@@ -353,6 +353,7 @@ class CsvFinanceBackend(FinanceBackend):
                 notes TEXT NOT NULL DEFAULT '',
                 extras TEXT NOT NULL DEFAULT '{}',
                 hideFromReports INTEGER NOT NULL DEFAULT 0,
+                local_edits TEXT NOT NULL DEFAULT '[]',
                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -392,6 +393,13 @@ class CsvFinanceBackend(FinanceBackend):
                 import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Migrate existing transactions tables that lack local_edits
+        txn_cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)")}
+        if "local_edits" not in txn_cols:
+            conn.execute(
+                "ALTER TABLE transactions ADD COLUMN local_edits TEXT NOT NULL DEFAULT '[]'"
+            )
 
         # Migrate existing import_history tables that lack newer columns
         cols = {row[1] for row in conn.execute("PRAGMA table_info(import_history)")}
@@ -559,8 +567,9 @@ class CsvFinanceBackend(FinanceBackend):
         # stale transaction_id should raise rather than silently report
         # success — the commit pipeline counts returned updates as persisted.
         existing = conn.execute(
-            "SELECT 1 FROM transactions WHERE id = ?", (transaction_id,)
+            "SELECT local_edits FROM transactions WHERE id = ?", (transaction_id,)
         ).fetchone()
+        existing_edits = existing[0] if existing is not None else "[]"
         if existing is None:
             conn.close()
             raise ValueError(
@@ -568,6 +577,18 @@ class CsvFinanceBackend(FinanceBackend):
             )
 
         if updates:
+            # Record which fields the user changed locally so a later import
+            # of corrected file content does not overwrite them.
+            edited_fields = {"category"} if (category_id is not None or category_name) else set()
+            if merchant_name is not None:
+                edited_fields.add("merchant")
+            if hide_from_reports is not None:
+                edited_fields.add("hideFromReports")
+            if edited_fields:
+                current = json.loads(existing_edits or "[]")
+                merged = sorted(set(current) | edited_fields)
+                updates.append("local_edits = ?")
+                params.append(json.dumps(merged))
             params.append(transaction_id)
             conn.execute(
                 f"UPDATE transactions SET {', '.join(updates)} WHERE id = ?",

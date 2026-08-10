@@ -212,6 +212,7 @@ def _process_file(
     skipped = raw_row_count - post_filter_count
     dedup_counts: dict[str, int] = {}
     insert_batch: list[tuple] = []
+    update_batch: list[tuple] = []
     produced_ids: set[str] = set()
 
     for row in df.iter_rows(named=True):
@@ -250,12 +251,6 @@ def _process_file(
         txn_id = _hash_id(mapping.id_prefix, dedup_parts) + id_suffix
         produced_ids.add(txn_id)
 
-        if txn_id in existing_ids:
-            duplicates += 1
-            continue
-
-        existing_ids.add(txn_id)
-
         category_val = _safe_str(row.get("category")) or mapping.default_category
         category_id_val = _safe_str(row.get("category_id"))
         if not category_id_val or category_id_val == mapping.default_category_id:
@@ -287,6 +282,28 @@ def _process_file(
         # Persist the account label so multi-card imports are distinguishable
         # in the transactions themselves, not only in their generated IDs.
         account_val = _safe_str(row.get("account")) or mapping.account_label
+        notes_val = _safe_str(row.get("notes"))
+        extras_json = json.dumps(extras)
+
+        if txn_id in existing_ids:
+            # The identity fields (the dedup key) are unchanged, but a
+            # reissued file may carry corrected category, notes, account, or
+            # extra columns. Refresh those, skipping any field the user has
+            # edited locally, so corrections are not permanently discarded.
+            duplicates += 1
+            update_batch.append(
+                (
+                    category_val,
+                    category_id_val,
+                    account_val,
+                    notes_val,
+                    extras_json,
+                    txn_id,
+                )
+            )
+            continue
+
+        existing_ids.add(txn_id)
 
         insert_batch.append(
             (
@@ -297,8 +314,8 @@ def _process_file(
                 category_val,
                 category_id_val,
                 account_val,
-                _safe_str(row.get("notes")),
-                json.dumps(extras),
+                notes_val,
+                extras_json,
             )
         )
         imported += 1
@@ -309,6 +326,23 @@ def _process_file(
                (id, date, amount, merchant, category, category_id, account, notes, extras)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             insert_batch,
+        )
+
+    if update_batch:
+        # Locally edited fields are protected per row: the JSON list in
+        # local_edits names the fields the user changed in the TUI, and each
+        # column keeps its current value when named there.
+        connection.executemany(
+            """UPDATE transactions SET
+                   category = CASE WHEN instr(local_edits, '"category"') > 0
+                       THEN category ELSE ? END,
+                   category_id = CASE WHEN instr(local_edits, '"category"') > 0
+                       THEN category_id ELSE ? END,
+                   account = ?,
+                   notes = ?,
+                   extras = ?
+               WHERE id = ?""",
+            update_batch,
         )
 
     return {"imported": imported, "duplicates": duplicates, "skipped": skipped}, produced_ids

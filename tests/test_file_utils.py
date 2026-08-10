@@ -402,3 +402,39 @@ def test_log_file_and_directory_are_owner_only(tmp_path: Path) -> None:
         assert_owner_only_permissions(log_file, 0o600)
     finally:
         handler.close()
+
+
+def test_open_verified_no_follow_rejects_symlink(tmp_path: Path) -> None:
+    """A planted symlink must not be followed, so a trusted read/write
+    cannot be redirected to another file."""
+    target = tmp_path / "target.txt"
+    target.write_text("data")
+    target.chmod(0o600)
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+
+    with pytest.raises(OSError):
+        file_utils.open_verified_no_follow(link)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode assertion")
+def test_open_verified_no_follow_rejects_group_writable(tmp_path: Path) -> None:
+    """A file another local account can modify must not be trusted."""
+    target = tmp_path / "loose.txt"
+    target.write_text("data")
+    target.chmod(0o666)
+
+    with pytest.raises(PermissionError):
+        file_utils.open_verified_no_follow(target)
+
+
+def test_open_verified_no_follow_accepts_private_file(tmp_path: Path) -> None:
+    target = tmp_path / "private.txt"
+    target.write_text("data")
+    target.chmod(0o600)
+
+    fd = file_utils.open_verified_no_follow(target)
+    try:
+        assert os.read(fd, 4) == b"data"
+    finally:
+        os.close(fd)

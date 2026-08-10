@@ -25,6 +25,9 @@ if IS_WINDOWS:
         set_owner_only_file_permissions,
     )
     from .windows_permissions import (
+        open_no_follow as open_windows_no_follow,
+    )
+    from .windows_permissions import (
         require_current_user_ownership as require_windows_current_user_ownership,
     )
     from .windows_permissions import (
@@ -39,6 +42,7 @@ else:
     ensure_owner_only_directory = None
     has_owner_only_directory_permissions = None
     open_owner_only_file = None
+    open_windows_no_follow = None
     require_windows_current_user_ownership = None
     require_windows_dir_not_replaceable = None
     require_windows_fd_ownership = None
@@ -84,6 +88,47 @@ def require_current_user_ownership(path: Path | str) -> None:
             "Sensitive path is not owned by the current user",
             str(path),
         )
+
+
+def open_verified_no_follow(path: Path | str, *, append: bool = False, create: bool = False) -> int:
+    """Open a file without following symlinks/reparse points, then validate it.
+
+    The returned descriptor is guaranteed to refer to a regular file owned by
+    the current user that no other account can modify (not group/other
+    writable on POSIX; current-user-owned on Windows). Use for any file whose
+    contents the application trusts (configuration) or whose contents are
+    sensitive (logs), so a planted symlink/junction cannot redirect the read
+    or write and no other account can dictate the contents.
+
+    Group/other *readability* is not rejected: config files written by older
+    versions under a permissive umask are still the user's own data, and
+    refusing them would silently discard the user's category structure.
+    Callers that care about confidentiality tighten the file separately.
+    """
+    if IS_WINDOWS:
+        assert open_windows_no_follow is not None
+        return open_windows_no_follow(path, append=append, create=create)
+
+    flags = os.O_APPEND | os.O_WRONLY if append else os.O_RDONLY
+    flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    if create:
+        flags |= os.O_CREAT
+    fd = os.open(path, flags, 0o600)
+    try:
+        file_stat = os.fstat(fd)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise OSError(errno.EINVAL, "Path is not a regular file", str(path))
+        get_effective_uid = getattr(os, "geteuid", None)
+        if get_effective_uid is not None and file_stat.st_uid != get_effective_uid():
+            raise PermissionError(
+                errno.EACCES, "Sensitive file is not owned by the current user", str(path)
+            )
+        if stat.S_IMODE(file_stat.st_mode) & 0o022:
+            raise PermissionError(errno.EACCES, "Sensitive file is group/other writable", str(path))
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def require_directory_not_replaceable(path: Path | str) -> None:

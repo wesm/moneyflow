@@ -13,6 +13,7 @@ from typing import Optional
 
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
+    open_verified_no_follow,
     set_restrictive_file_permissions,
 )
 
@@ -31,14 +32,11 @@ class _RestrictiveFileHandler(logging.FileHandler):
     """
 
     def _open(self):
-        flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_APPEND
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0)
-        )
-        fd = os.open(self.baseFilename, flags, 0o600)
+        # Reparse-point-safe on Windows too: the handle is validated (regular
+        # file, current-user-owned, not a reparse point) before it becomes a
+        # descriptor, so a planted junction cannot redirect the appends into
+        # another of the user's files.
+        fd = open_verified_no_follow(self.baseFilename, append=True, create=True)
         try:
             set_restrictive_file_permissions(fd, self.baseFilename)
         except Exception:

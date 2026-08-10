@@ -118,14 +118,19 @@ _TRUSTED_ANCESTOR_SIDS = frozenset(
     }
 )
 
-# Rights that let a principal delete, rename, or re-ACL a directory (or
-# delete its children) — any of which would allow swapping a validated path
-# component for a junction.
+# Rights that let a principal subvert a directory: delete, rename, or re-ACL
+# it (swapping a validated component for a junction), delete its children, or
+# create children in it (planting an authoritative config.yaml or database
+# that the application would then trust).
 _DIRECTORY_REPLACE_MASK = (
     ntsecuritycon.DELETE
     | ntsecuritycon.WRITE_DAC
     | ntsecuritycon.WRITE_OWNER
     | ntsecuritycon.FILE_DELETE_CHILD
+    | ntsecuritycon.FILE_ADD_FILE
+    | ntsecuritycon.FILE_ADD_SUBDIRECTORY
+    | ntsecuritycon.FILE_WRITE_ATTRIBUTES
+    | ntsecuritycon.FILE_WRITE_EA
     | ntsecuritycon.GENERIC_ALL
     | ntsecuritycon.GENERIC_WRITE
 )
@@ -344,6 +349,62 @@ def has_owner_only_directory_permissions(path: Path | str) -> bool:
         )
     except pywintypes.error as error:
         raise _as_os_error(error, path) from error
+
+
+# Not exposed by win32con in all pywin32 releases; value from winbase.h.
+_FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+
+
+def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
+    """Open a file without following symlinks, junctions, or mount points.
+
+    Windows lacks O_NOFOLLOW; FILE_FLAG_OPEN_REPARSE_POINT opens the reparse
+    point itself instead of its target, which is then rejected outright. The
+    handle is converted to a descriptor only after that check, so no read or
+    write can reach a redirected file.
+    """
+    desired_access = win32con.GENERIC_READ
+    if append:
+        desired_access = win32con.GENERIC_WRITE
+    creation_disposition = win32con.OPEN_ALWAYS if create else win32con.OPEN_EXISTING
+    try:
+        handle = win32file.CreateFile(
+            str(path),
+            desired_access,
+            win32con.FILE_SHARE_READ,
+            None,
+            creation_disposition,
+            win32con.FILE_ATTRIBUTE_NORMAL | _FILE_FLAG_OPEN_REPARSE_POINT,
+            None,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+
+    detached_handle = None
+    try:
+        attributes = win32file.GetFileInformationByHandle(handle)[0]
+        if attributes & win32con.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise OSError(f"Path is a reparse point: {path}")
+        if attributes & win32con.FILE_ATTRIBUTE_DIRECTORY:
+            raise OSError(f"Path is not a regular file: {path}")
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        _require_current_user_owner(security_descriptor, path)
+        detached_handle = handle.Detach()
+        open_osfhandle = getattr(msvcrt, "open_osfhandle")
+        flags = os.O_RDONLY if not append else os.O_APPEND | os.O_WRONLY
+        return open_osfhandle(detached_handle, flags | getattr(os, "O_BINARY", 0))
+    except Exception as error:
+        if detached_handle is None:
+            handle.Close()
+        else:
+            win32api.CloseHandle(detached_handle)
+        if isinstance(error, pywintypes.error):
+            raise _as_os_error(error, path) from error
+        raise
 
 
 def open_owner_only_file(

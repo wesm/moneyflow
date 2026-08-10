@@ -639,6 +639,98 @@ class TestImportCsv:
         assert result["imported"] == 1
         assert result["removed"] == 0
 
+    def test_reissued_file_corrects_non_identity_fields(self, tmp_path, test_mapping, test_backend):
+        """A reissued file whose identity fields are unchanged still carries
+        corrections to category, notes, and extras — those must be applied,
+        not discarded as a duplicate."""
+        csv_dir = tmp_path / "csvs_fields"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+                "Memo": "notes",
+                "Type": "type",
+            },
+            extra_columns=("type",),
+        )
+        csv_file.write_text(
+            "Transaction Date,Description,Amount,Category,Memo,Type\n"
+            "7/12/2026,Coffee,-4.50,Shopping,old memo,Pending\n"
+        )
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+
+        csv_file.write_text(
+            "Transaction Date,Description,Amount,Category,Memo,Type\n"
+            "7/12/2026,Coffee,-4.50,Groceries,corrected memo,Sale\n"
+        )
+        result = import_csv(str(csv_dir), mapping, test_backend)
+        assert result["imported"] == 0
+        assert result["duplicates"] == 1
+
+        conn = test_backend._get_connection()
+        row = conn.execute(
+            "SELECT category, category_id, notes, extras FROM transactions"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "Groceries"
+        assert row[1] == "cat_groceries"
+        assert row[2] == "corrected memo"
+        assert json.loads(row[3])["type"] == "Sale"
+
+    def test_reissued_file_preserves_local_category_edit(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A category the user changed in the TUI must survive a reissued
+        file that carries a different bank-provided category."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_local_edit"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+                "Memo": "notes",
+            },
+        )
+        csv_file.write_text(
+            "Transaction Date,Description,Amount,Category,Memo\n"
+            "7/12/2026,Coffee,-4.50,Shopping,memo\n"
+        )
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+
+        conn = test_backend._get_connection()
+        txn_id = conn.execute("SELECT id FROM transactions").fetchone()[0]
+        conn.close()
+        asyncio.run(
+            test_backend.update_transaction(
+                txn_id, category_id="cat_coffee_shops", category_name="Coffee Shops"
+            )
+        )
+
+        csv_file.write_text(
+            "Transaction Date,Description,Amount,Category,Memo\n"
+            "7/12/2026,Coffee,-4.50,Groceries,corrected memo\n"
+        )
+        import_csv(str(csv_dir), mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT category, category_id, notes FROM transactions").fetchone()
+        conn.close()
+        # The local category edit wins; the untouched notes field is corrected.
+        assert row[0] == "Coffee Shops"
+        assert row[1] == "cat_coffee_shops"
+        assert row[2] == "corrected memo"
+
     def test_rapid_successive_revisions_resolve_to_latest_content(
         self, tmp_path, test_mapping, test_backend
     ):
