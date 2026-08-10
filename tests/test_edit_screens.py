@@ -414,6 +414,75 @@ class TestManageCategoriesScreen:
         assert queued == []
         assert notifications == [notification]
 
+    def test_csv_uncategorized_is_protected(self, monkeypatch):
+        """The CSV backend persists its fallback as "cat_uncategorized"; it
+        must be protected from rename, merge, and deletion just like the
+        config-backed "uncategorized" id."""
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(categories, queue_reassign_callback=lambda *args: None)
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._can_delete("cat_uncategorized") is False
+
+        screen._pending_cat_id = "cat_uncategorized"
+        screen._handle_rename("Something Else")
+        assert categories["cat_uncategorized"]["name"] == "Uncategorized"
+        assert "The Uncategorized category cannot be renamed" in notifications
+
+        screen._pending_cat_id = "cat_uncategorized"
+        screen._handle_merge("cat_groceries")
+        assert "cat_uncategorized" in categories
+        assert "The Uncategorized category cannot be merged" in notifications
+
+    def test_delete_reassign_reuses_existing_csv_uncategorized(self):
+        """Reassign-to-uncategorized must reuse the CSV backend's existing
+        "cat_uncategorized" instead of creating a second Uncategorized."""
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert queued == [("cat_groceries", "cat_uncategorized")]
+        assert "cat_groceries" not in categories
+        assert "uncategorized" not in categories  # no duplicate created
+        assert "cat_uncategorized" in categories
+
     def test_validated_category_id_rejects_csv_import_style_duplicate(self, monkeypatch):
         """CSV-imported categories carry "cat_"-prefixed ids; a name that
         normalizes to the same slug must still be detected as a duplicate."""

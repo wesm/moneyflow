@@ -319,3 +319,36 @@ class TestSecureAtomicWrite:
 
         assert test_file.exists()
         assert test_file.read_bytes() == b"content"
+
+
+def test_require_current_user_fd_ownership_accepts_own_file(tmp_path: Path) -> None:
+    """The handle-based ownership check passes for files the user created."""
+    target = tmp_path / "owned.bin"
+    target.write_bytes(b"data")
+    fd = os.open(target, os.O_RDONLY)
+    try:
+        file_utils.require_current_user_fd_ownership(fd, target)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX uid check")
+def test_require_current_user_fd_ownership_rejects_foreign_uid(tmp_path: Path, monkeypatch) -> None:
+    """A file owned by another uid must be rejected via the open handle."""
+    target = tmp_path / "foreign.bin"
+    target.write_bytes(b"data")
+    fd = os.open(target, os.O_RDONLY)
+    real_fstat = os.fstat
+
+    def foreign_fstat(descriptor: int):
+        result = real_fstat(descriptor)
+        foreign = Mock(wraps=result)
+        foreign.st_uid = result.st_uid + 1
+        return foreign
+
+    monkeypatch.setattr(file_utils.os, "fstat", foreign_fstat)
+    try:
+        with pytest.raises(PermissionError):
+            file_utils.require_current_user_fd_ownership(fd, target)
+    finally:
+        os.close(fd)

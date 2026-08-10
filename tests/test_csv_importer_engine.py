@@ -521,6 +521,50 @@ class TestImportCsv:
         conn.close()
         assert merchants == ["CARD A ONLY"]
 
+    def test_deleted_transaction_not_resurrected_by_reimport(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A transaction the user deleted must stay deleted when its source
+        CSV is re-processed — deletion writes a tombstone that the import
+        treats as an existing ID."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_tombstone"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Keep Me,-4.50\n"
+            "7/13/2026,Delete Me,-9.00\n"
+        )
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 2
+
+        conn = test_backend._get_connection()
+        doomed_id = conn.execute(
+            "SELECT id FROM transactions WHERE merchant = 'Delete Me'"
+        ).fetchone()[0]
+        conn.close()
+        assert asyncio.run(test_backend.delete_transaction(doomed_id)) is True
+
+        # Re-process the same file (force bypasses the file-hash skip) and a
+        # grown version of it — the deleted row must not come back either way.
+        result = import_csv(str(csv_dir), test_mapping, test_backend, force=True)
+        assert result["imported"] == 0
+
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Keep Me,-4.50\n"
+            "7/13/2026,Delete Me,-9.00\n"
+            "7/14/2026,New Row,-1.00\n"
+        )
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+
+        conn = test_backend._get_connection()
+        merchants = {r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()}
+        conn.close()
+        assert merchants == {"Keep Me", "New Row"}
+
     def test_non_finite_amounts_skipped(self, tmp_path, test_mapping, test_backend):
         """NaN and infinity must be skipped: SQLite stores NaN as NULL (which
         would violate NOT NULL and roll back the whole file) and infinity

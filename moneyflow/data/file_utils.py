@@ -27,6 +27,9 @@ if IS_WINDOWS:
     from .windows_permissions import (
         require_current_user_ownership as require_windows_current_user_ownership,
     )
+    from .windows_permissions import (
+        require_current_user_ownership_of_fd as require_windows_fd_ownership,
+    )
 
     set_windows_owner_only_permissions = set_owner_only_file_permissions
 else:
@@ -34,6 +37,7 @@ else:
     has_owner_only_directory_permissions = None
     open_owner_only_file = None
     require_windows_current_user_ownership = None
+    require_windows_fd_ownership = None
     set_owner_only_directory_permissions = None
     set_windows_owner_only_permissions = None
 
@@ -74,6 +78,27 @@ def require_current_user_ownership(path: Path | str) -> None:
         raise PermissionError(
             errno.EACCES,
             "Sensitive path is not owned by the current user",
+            str(path),
+        )
+
+
+def require_current_user_fd_ownership(fd: int, path: Path | str) -> None:
+    """Fail unless the file open at fd belongs to the current user.
+
+    Handle-based counterpart of require_current_user_ownership: the check is
+    anchored to the opened file object, so a concurrent path swap cannot
+    substitute another user's file after the open.
+    """
+    if IS_WINDOWS:
+        assert require_windows_fd_ownership is not None
+        require_windows_fd_ownership(fd, path)
+        return
+
+    get_effective_uid = getattr(os, "geteuid", None)
+    if get_effective_uid is not None and os.fstat(fd).st_uid != get_effective_uid():
+        raise PermissionError(
+            errno.EACCES,
+            "Sensitive file is not owned by the current user",
             str(path),
         )
 

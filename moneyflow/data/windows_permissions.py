@@ -110,6 +110,25 @@ def require_current_user_ownership(path: Path | str) -> None:
     _require_current_user_owner(security_descriptor, path)
 
 
+def require_current_user_ownership_of_fd(fd: int, path: Path | str) -> None:
+    """Fail unless the file open at fd is owned by the current user.
+
+    Reads the security descriptor from the opened handle rather than the
+    path, so a path swapped to another user's file after the open cannot
+    influence the result.
+    """
+    get_osfhandle = getattr(msvcrt, "get_osfhandle")
+    try:
+        security_descriptor = win32security.GetSecurityInfo(
+            get_osfhandle(fd),
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    _require_current_user_owner(security_descriptor, path)
+
+
 def set_owner_only_file_permissions(fd: int, path: Path | str) -> None:
     """Replace an open file's DACL with one granting access only to its owner."""
     get_osfhandle = getattr(msvcrt, "get_osfhandle")

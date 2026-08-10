@@ -24,7 +24,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
-from ...data.categories import category_slug
+from ...data.categories import category_equivalence_key, category_slug
 from ..formatters import ViewPresenter
 
 
@@ -1000,9 +1000,21 @@ class ManageCategoriesScreen(ModalScreen):
             return self._filtered_order[self._selected_index]
         return None
 
+    def _is_protected_uncategorized(self, cat_id: str) -> bool:
+        """Whether a category is the protected Uncategorized fallback.
+
+        Config-backed backends use the id "uncategorized" while the CSV
+        backend persists "cat_uncategorized", so protect by canonicalized
+        name as well as by id.
+        """
+        if cat_id in ("uncategorized", "cat_uncategorized"):
+            return True
+        name = self.categories.get(cat_id, {}).get("name", "")
+        return category_equivalence_key(name) == "uncategorized"
+
     def _can_delete(self, cat_id: str) -> bool:
         """Whether a category can be deleted — at least one category per group must remain."""
-        if cat_id == "uncategorized":
+        if self._is_protected_uncategorized(cat_id):
             return False
         cat_data = self.categories.get(cat_id)
         if not cat_data:
@@ -1189,10 +1201,14 @@ class ManageCategoriesScreen(ModalScreen):
         # Compare by normalized name as well as id: CSV-imported categories
         # carry ids in a different format (e.g. "cat_food_dining"), and
         # equivalent names must still be detected as duplicates.
+        new_key = category_equivalence_key(name)
         for existing_id, existing in self.categories.items():
             if existing_id == current_id:
                 continue
-            if existing_id == category_id or category_slug(existing.get("name", "")) == category_id:
+            if (
+                existing_id == category_id
+                or category_equivalence_key(existing.get("name", "")) == new_key
+            ):
                 self.notify(
                     "A category with an equivalent name already exists",
                     severity="warning",
@@ -1233,7 +1249,7 @@ class ManageCategoriesScreen(ModalScreen):
             return
         if new_name == self.categories[cat_id].get("name", ""):
             return
-        if cat_id == "uncategorized":
+        if self._is_protected_uncategorized(cat_id):
             self.notify(
                 "The Uncategorized category cannot be renamed",
                 severity="warning",
@@ -1318,7 +1334,7 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_cat_id = None
         if not source_id or not target_id:
             return
-        if source_id == "uncategorized":
+        if self._is_protected_uncategorized(source_id):
             self.notify(
                 "The Uncategorized category cannot be merged",
                 severity="warning",
@@ -1407,13 +1423,27 @@ class ManageCategoriesScreen(ModalScreen):
         if action == "reassign":
             created_fallback = False
             if target_id == "uncategorized" and target_id not in self.categories:
-                self.categories[target_id] = {
-                    "name": "Uncategorized",
-                    "group": "Uncategorized",
-                    "group_id": "uncategorized",
-                    "group_type": "",
-                }
-                created_fallback = True
+                # Reuse an existing Uncategorized category (the CSV backend
+                # persists it as "cat_uncategorized") rather than creating a
+                # second one alongside it.
+                existing_uncategorized = next(
+                    (
+                        existing_id
+                        for existing_id in self.categories
+                        if self._is_protected_uncategorized(existing_id)
+                    ),
+                    None,
+                )
+                if existing_uncategorized is not None:
+                    target_id = existing_uncategorized
+                else:
+                    self.categories[target_id] = {
+                        "name": "Uncategorized",
+                        "group": "Uncategorized",
+                        "group_id": "uncategorized",
+                        "group_type": "",
+                    }
+                    created_fallback = True
             if not self._queue_reassignment(cat_id, target_id):
                 if created_fallback:
                     self.categories.pop(target_id, None)

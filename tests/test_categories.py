@@ -12,6 +12,7 @@ from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.categories import (
     DEFAULT_CATEGORY_GROUPS,
     build_category_to_group_mapping,
+    category_equivalence_key,
     category_slug,
     get_effective_category_groups,
     get_profile_category_groups,
@@ -534,8 +535,9 @@ class TestGetAmazonCategorySource:
 
 
 class TestCategoryIdNormalization:
-    """category_slug/stable_category_id are the single source of category-id
-    normalization across imports, configuration, and TUI creation."""
+    """category_slug (persistent config ids), category_equivalence_key
+    (duplicate detection), and stable_category_id (CSV import ids) are the
+    single sources of category-id normalization."""
 
     def test_category_slug_normalizes_equivalent_names(self):
         assert category_slug("Food & Dining") == "food_dining"
@@ -543,15 +545,23 @@ class TestCategoryIdNormalization:
         assert category_slug("  Groceries  ") == "groceries"
         assert category_slug("!!!") == ""
 
-    def test_category_slug_preserves_non_ascii_letters(self):
-        """Distinct non-Latin category names must not collapse into one id
-        (stripping non-ASCII would map them all to "cat_uncategorized")."""
-        assert category_slug("Продукты") == "продукты"
-        assert category_slug("Продукты") != category_slug("Аптека")
+    def test_category_slug_keeps_legacy_ascii_stripping(self):
+        """category_slug ids persist in existing databases (SimpleFIN rows
+        keep previously assigned ids while categories are regenerated from
+        names), so the legacy ASCII-only output must never change."""
+        assert category_slug("Café") == "caf"
+        assert category_slug("Продукты") == ""
+
+    def test_equivalence_key_preserves_non_ascii_letters(self):
+        """Distinct non-Latin category names must not collapse into one key
+        (stripping non-ASCII would map them all to the same id)."""
+        assert category_equivalence_key("Продукты") == "продукты"
+        assert category_equivalence_key("Продукты") != category_equivalence_key("Аптека")
+        assert category_equivalence_key("Food & Dining") == "food_dining"
         assert stable_category_id("食料品") == "cat_食料品"
         assert stable_category_id("Кафе и рестораны") == "cat_кафе_и_рестораны"
 
-    def test_stable_category_id_prefixes_slug(self):
+    def test_stable_category_id_prefixes_key(self):
         assert stable_category_id("Food & Dining") == "cat_food_dining"
         assert stable_category_id("Groceries") == "cat_groceries"
 

@@ -12,6 +12,7 @@ from moneyflow.data.categories import load_categories_from_profile, stable_categ
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_restrictive_file,
+    require_current_user_fd_ownership,
     require_current_user_ownership,
 )
 
@@ -197,13 +198,19 @@ def _connect_verified(db_path_str: str) -> sqlite3.Connection:
     """Connect to SQLite and verify the connection references the validated file.
 
     sqlite3 cannot open a database from a file descriptor, so the path-based
-    connect is inherently racy. To narrow the window, hold a descriptor opened
-    with O_NOFOLLOW on the validated file across the connect, then require
-    that the path still resolves to that same device/inode afterwards. A
-    persistent redirection of the path (symlink, junction, replaced ancestor)
-    is detected here; combined with the ancestor ownership checks in
-    _validate_path_components, an attacker would have to win a sub-millisecond
-    double race on every single connection to go unnoticed.
+    connect is inherently racy. Anchor every check to a descriptor held open
+    across the connect:
+
+    - Ownership is verified on the opened handle, not the path, so a database
+      planted by another local account before the open is rejected regardless
+      of when the path was swapped.
+    - On Windows, os.open shares read/write but not delete, so while the
+      descriptor is held neither the file nor any ancestor directory can be
+      renamed or deleted — the path sqlite3.connect resolves cannot change.
+    - On POSIX (where an open handle does not pin the path), the mode is
+      checked on the handle and the path must still resolve to the same
+      device/inode after the connect, so a persistent redirection is detected
+      on every connection.
     """
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     fd = os.open(db_path_str, flags)
@@ -211,6 +218,9 @@ def _connect_verified(db_path_str: str) -> sqlite3.Connection:
         expected = os.fstat(fd)
         if not stat_module.S_ISREG(expected.st_mode):
             raise OSError(f"Database path is not a regular file: {db_path_str}")
+        require_current_user_fd_ownership(fd, db_path_str)
+        if _requires_posix_mode_checks() and stat_module.S_IMODE(expected.st_mode) != 0o600:
+            raise OSError(f"Database permissions are not 0o600: {db_path_str}")
         conn = sqlite3.connect(db_path_str)
         try:
             actual = os.stat(db_path_str)
@@ -281,6 +291,12 @@ class CsvFinanceBackend(FinanceBackend):
                 extras TEXT NOT NULL DEFAULT '{}',
                 hideFromReports INTEGER NOT NULL DEFAULT 0,
                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deleted_transactions (
+                id TEXT PRIMARY KEY,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         conn.execute("""
@@ -455,6 +471,13 @@ class CsvFinanceBackend(FinanceBackend):
         conn = self._get_connection()
         conn.execute("DELETE FROM transactions WHERE id = ?", (transaction_id,))
         deleted = conn.total_changes > 0
+        if deleted:
+            # Tombstone the ID in the same transaction so a later re-import of
+            # the source CSV does not silently resurrect the transaction.
+            conn.execute(
+                "INSERT OR REPLACE INTO deleted_transactions (id) VALUES (?)",
+                (transaction_id,),
+            )
         conn.commit()
         conn.close()
         return deleted

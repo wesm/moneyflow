@@ -44,6 +44,7 @@ from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.categories import (
     build_category_to_group_mapping,
     categories_dict_to_config_groups,
+    category_equivalence_key,
     category_slug,
     save_categories_to_profile,
 )
@@ -1627,8 +1628,9 @@ class MoneyflowApp(App):
                 # categories carry ids in a different format (e.g.
                 # "cat_food_dining"), and equivalent names must still be
                 # detected as duplicates.
+                new_key = category_equivalence_key(cat_name)
                 if cat_id in self.data_manager.categories or any(
-                    category_slug(existing.get("name", "")) == cat_id
+                    category_equivalence_key(existing.get("name", "")) == new_key
                     for existing in self.data_manager.categories.values()
                 ):
                     self.notify(

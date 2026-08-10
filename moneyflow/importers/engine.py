@@ -329,11 +329,15 @@ def import_csv(
                 imported_snapshots.setdefault(key, fhash)
 
     # Load existing IDs once so duplicate detection is accurate even when
-    # force=True re-processes files that were previously imported.
+    # force=True re-processes files that were previously imported. Tombstoned
+    # IDs count as existing: a transaction the user deleted must not be
+    # silently resurrected when its source CSV is re-processed.
     conn = backend._get_connection()
     rows = conn.execute("SELECT id FROM transactions").fetchall()
+    tombstones = conn.execute("SELECT id FROM deleted_transactions").fetchall()
     conn.close()
     existing_ids: set[str] = {row[0] for row in rows}
+    existing_ids.update(row[0] for row in tombstones)
 
     total_imported = 0
     total_duplicates = 0
