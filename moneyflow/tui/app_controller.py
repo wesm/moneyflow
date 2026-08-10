@@ -31,7 +31,7 @@ from moneyflow.tui.formatters import PreparedView
 from ..data.amazon_linker import AmazonLinker
 from ..data.categories import save_categories_to_profile
 from ..data.commit_orchestrator import apply_edits_to_dataframe
-from ..data.data_manager import DataManager
+from ..data.data_manager import DataManager, flush_category_aliases
 from ..data.state import (
     AppState,
     NavigationState,
@@ -1707,15 +1707,16 @@ class AppController:
             # Persist deferred category config if any (from category manager)
             if self.data_manager.pending_category_groups:
                 # Transaction-backed structural operations are now committed and cannot be undone.
-                # Persist their category aliases so later imports honor the
-                # rename/merge/delete, then retain only the config snapshot
-                # if persistence needs to be retried.
-                record_alias = getattr(self.data_manager.mm, "record_category_alias", None)
-                if record_alias is not None:
-                    for change in self.data_manager.pending_category_changes:
-                        for source_id, target_id, target_name in change.category_aliases:
-                            record_alias(source_id, target_id, target_name)
+                # Stage their category aliases with any retained from earlier
+                # failed saves, then persist; whatever the backend does not
+                # confirm stays staged for retry rather than being dropped.
+                staged_aliases = list(self.data_manager.pending_category_aliases)
+                for change in self.data_manager.pending_category_changes:
+                    staged_aliases.extend(change.category_aliases)
                 self.data_manager.pending_category_changes.clear()
+                self.data_manager.pending_category_aliases = flush_category_aliases(
+                    self.data_manager.mm, staged_aliases
+                )
                 categories_saved = True
                 if self.data_manager.profile_dir:
                     categories_saved = save_categories_to_profile(
@@ -1723,12 +1724,6 @@ class AppController:
                         profile_dir=self.data_manager.profile_dir,
                     )
                 if categories_saved:
-                    # Config persisted — flush aliases retained from earlier
-                    # failed saves along with it.
-                    if record_alias is not None:
-                        for alias in self.data_manager.pending_category_aliases:
-                            record_alias(*alias)
-                    self.data_manager.pending_category_aliases = []
                     self.data_manager.pending_category_groups = None
                     logger.info("Saved deferred category config after successful commit")
                 else:
@@ -1739,6 +1734,12 @@ class AppController:
                         severity="error",
                         timeout=6,
                     )
+            elif self.data_manager.pending_category_aliases:
+                # No config snapshot pending, but alias records retained from
+                # an earlier failed persistence — retry them now.
+                self.data_manager.pending_category_aliases = flush_category_aliases(
+                    self.data_manager.mm, self.data_manager.pending_category_aliases
+                )
 
             # Refresh to show updated data (smooth update)
             # Note: View already restored in app.py before commit started

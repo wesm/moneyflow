@@ -565,6 +565,80 @@ class TestImportCsv:
         conn.close()
         assert merchants == {"Keep Me", "New Row"}
 
+    def test_corrected_transaction_replaces_obsolete_row(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A re-imported file whose content corrected a transaction's amount
+        must remove the obsolete row instead of double-counting it."""
+        csv_dir = tmp_path / "csvs_corrected"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/13/2026,Books,-20.00\n"
+        )
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 2
+
+        # The bank re-issues the file with the coffee amount corrected.
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n7/13/2026,Books,-20.00\n"
+        )
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 1
+        conn = test_backend._get_connection()
+        rows = conn.execute(
+            "SELECT merchant, amount FROM transactions ORDER BY merchant"
+        ).fetchall()
+        conn.close()
+        assert rows == [("Books", -20.0), ("Coffee", -5.5)]
+
+    def test_correction_keeps_rows_still_claimed_by_other_files(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A row dropped from one file's corrected content must survive when
+        another imported file still contains it (overlapping exports)."""
+        csv_dir = tmp_path / "csvs_claimed"
+        csv_dir.mkdir()
+        (csv_dir / "test_a.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Shared TXN,-50.00\n"
+        )
+        (csv_dir / "test_b.csv").write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Shared TXN,-50.00\n"
+            "7/9/2026,Only B,-19.35\n"
+        )
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 2
+
+        # File A is re-issued without the shared transaction.
+        (csv_dir / "test_a.csv").write_text(
+            "Transaction Date,Description,Amount\n7/11/2026,New In A,-1.00\n"
+        )
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 0  # Shared TXN still claimed by test_b.csv
+        conn = test_backend._get_connection()
+        merchants = {r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()}
+        conn.close()
+        assert merchants == {"Shared TXN", "Only B", "New In A"}
+
+    def test_appended_rows_are_not_treated_as_corrections(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """The common monthly-export pattern — the bank appends new rows to
+        the same file — must not remove anything."""
+        csv_dir = tmp_path / "csvs_appended"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,First,-4.50\n")
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 1
+
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,First,-4.50\n7/13/2026,Second,-5.00\n"
+        )
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 0
+
     def test_category_alias_prevents_resurrection_on_reimport(
         self, tmp_path, test_mapping, test_backend
     ):

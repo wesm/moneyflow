@@ -68,6 +68,8 @@ The import will:
 - Parse dates, amounts, and merchant names using the institution's column mapping
 - Store extra columns (category, type, memo, etc.) as metadata
 - Detect and skip duplicate transactions
+- Reconcile corrected files (rows removed from a re-issued file are removed here too,
+  unless another imported file still contains them)
 - Record import history for each file
 
 ### 3. Launch the UI
@@ -115,6 +117,20 @@ moneyflow automatically adds a sequence suffix to keep them distinct.
 Deduplication is scoped per account label: imports with different `--account` values never
 deduplicate against each other, which is why each card of the same institution must be
 imported with its own label (see the warning above).
+
+Two properties of content-keyed deduplication are worth knowing:
+
+- **Identical transactions in separate files.** Two truly identical purchases (same date,
+  amount, and merchant) that arrive in *different* export files are indistinguishable from
+  one transaction appearing in two overlapping exports, and are treated as duplicates
+  (identical purchases within one file are kept via the sequence suffix). If your
+  institution's CSV includes a unique reference or transaction ID column, add it to the
+  mapping's `dedup_fields` to remove the ambiguity entirely.
+- **Corrected files.** If your bank re-issues a file with a corrected transaction (changed
+  date, amount, or merchant), re-importing it replaces the obsolete row: rows the previous
+  version of the file produced that the new version no longer contains are removed, unless
+  another imported file still contains them. The import summary reports these as
+  "Superseded".
 
 ### Storage
 

@@ -51,6 +51,21 @@ against this model, and state which trust assumption a finding violates.
   over the user's chosen paths can compromise the environment more
   directly than through this application.
 
+### Recorded design decisions (do not re-file as findings)
+
+- CSV import deduplication is content-keyed (date/amount/merchant by
+  default, plus the --account label). Identical transactions split across
+  separate export files are indistinguishable from one transaction present
+  in two overlapping exports and are deduplicated; identical rows within
+  one file are kept via a sequence suffix. This trade-off is deliberate
+  (overlapping exports are the common case), is documented in
+  docs/guide/csv-import.md, and mappings can add an institution-provided
+  reference column to dedup_fields where the CSV has one.
+- Re-imported files whose content changed are reconciled against their
+  previous per-file snapshot (import_file_transactions): rows the new
+  content no longer produces are removed unless another imported file's
+  snapshot still claims them.
+
 ### Other review expectations
 
 - Never include real personal or financial data (account names,

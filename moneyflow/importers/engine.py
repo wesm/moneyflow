@@ -172,8 +172,14 @@ def _process_file(
     connection: sqlite3.Connection,
     existing_ids: set[str],
     category_aliases: dict[str, tuple[str, str]],
-) -> dict[str, int]:
-    """Process a single CSV file, returning {imported, duplicates, skipped}."""
+) -> tuple[dict[str, int], set[str]]:
+    """Process a single CSV file.
+
+    Returns ({imported, duplicates, skipped}, produced_ids) where
+    produced_ids is every transaction ID the file's content yields —
+    including rows counted as duplicates — so the caller can reconcile a
+    corrected file against the rows its previous version produced.
+    """
     df = pl.read_csv(
         io.BytesIO(csv_contents),
         infer_schema_length=0,
@@ -206,6 +212,7 @@ def _process_file(
     skipped = raw_row_count - post_filter_count
     dedup_counts: dict[str, int] = {}
     insert_batch: list[tuple] = []
+    produced_ids: set[str] = set()
 
     for row in df.iter_rows(named=True):
         date_val = _safe_str(row.get("date"))
@@ -241,6 +248,7 @@ def _process_file(
 
         id_suffix = f"_{seq}" if seq > 1 else ""
         txn_id = _hash_id(mapping.id_prefix, dedup_parts) + id_suffix
+        produced_ids.add(txn_id)
 
         if txn_id in existing_ids:
             duplicates += 1
@@ -303,7 +311,69 @@ def _process_file(
             insert_batch,
         )
 
-    return {"imported": imported, "duplicates": duplicates, "skipped": skipped}
+    return {"imported": imported, "duplicates": duplicates, "skipped": skipped}, produced_ids
+
+
+def _reconcile_replaced_transactions(
+    connection: sqlite3.Connection,
+    resolved_path: str,
+    mapping: InstitutionMapping,
+    produced_ids: set[str],
+    existing_ids: set[str],
+) -> int:
+    """Remove rows a corrected file no longer contains.
+
+    A re-imported file whose content changed may have corrected a
+    transaction's date, amount, or merchant — the corrected row gets a new
+    ID, and without reconciliation the obsolete row would remain and be
+    silently double-counted. Rows the previous snapshot of this file
+    produced that the new content does not are deleted, unless another
+    imported file's snapshot still claims them (overlapping exports).
+    """
+    snapshot_key = (resolved_path, mapping.account_label, mapping.name)
+    previous_ids = {
+        row[0]
+        for row in connection.execute(
+            "SELECT txn_id FROM import_file_transactions "
+            "WHERE filename = ? AND account = ? AND mapping_name = ?",
+            snapshot_key,
+        ).fetchall()
+    }
+    removed = 0
+    for txn_id in sorted(previous_ids - produced_ids):
+        claimed_elsewhere = connection.execute(
+            "SELECT 1 FROM import_file_transactions "
+            "WHERE txn_id = ? AND NOT (filename = ? AND account = ? AND mapping_name = ?) "
+            "LIMIT 1",
+            (txn_id, *snapshot_key),
+        ).fetchone()
+        if claimed_elsewhere:
+            continue
+        cursor = connection.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
+        if cursor.rowcount:
+            removed += 1
+            existing_ids.discard(txn_id)
+    return removed
+
+
+def _replace_file_snapshot(
+    connection: sqlite3.Connection,
+    resolved_path: str,
+    mapping: InstitutionMapping,
+    produced_ids: set[str],
+) -> None:
+    """Record which transaction IDs this file's current content produces."""
+    snapshot_key = (resolved_path, mapping.account_label, mapping.name)
+    connection.execute(
+        "DELETE FROM import_file_transactions "
+        "WHERE filename = ? AND account = ? AND mapping_name = ?",
+        snapshot_key,
+    )
+    connection.executemany(
+        "INSERT INTO import_file_transactions (filename, account, mapping_name, txn_id) "
+        "VALUES (?, ?, ?, ?)",
+        [(*snapshot_key, txn_id) for txn_id in sorted(produced_ids)],
+    )
 
 
 def import_csv(
@@ -359,6 +429,7 @@ def import_csv(
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
+    total_removed = 0
     for csv_file in csv_files:
         resolved = str(csv_file.resolve())
         csv_contents = csv_file.read_bytes()
@@ -373,7 +444,7 @@ def import_csv(
 
         import_conn = backend._get_connection()
         try:
-            stats = _process_file(
+            stats, produced_ids = _process_file(
                 csv_contents,
                 csv_file.name,
                 mapping,
@@ -381,6 +452,13 @@ def import_csv(
                 existing_ids,
                 category_aliases,
             )
+            # Reconcile against this file's previous snapshot and record the
+            # new one, in the same transaction as the row inserts so a
+            # corrected file is replaced atomically.
+            removed = _reconcile_replaced_transactions(
+                import_conn, resolved, mapping, produced_ids, existing_ids
+            )
+            _replace_file_snapshot(import_conn, resolved, mapping, produced_ids)
             import_conn.execute(
                 "INSERT INTO import_history "
                 "(filename, file_size, file_hash, record_count, duplicate_count, "
@@ -407,5 +485,11 @@ def import_csv(
         total_imported += stats["imported"]
         total_duplicates += stats["duplicates"]
         total_skipped += stats["skipped"]
+        total_removed += removed
 
-    return {"imported": total_imported, "duplicates": total_duplicates, "skipped": total_skipped}
+    return {
+        "imported": total_imported,
+        "duplicates": total_duplicates,
+        "skipped": total_skipped,
+        "removed": total_removed,
+    }

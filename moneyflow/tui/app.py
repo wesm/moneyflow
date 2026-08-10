@@ -48,7 +48,7 @@ from ..data.categories import (
     category_slug,
     save_categories_to_profile,
 )
-from ..data.data_manager import DataManager, DeferredCategoryChange
+from ..data.data_manager import DataManager, DeferredCategoryChange, flush_category_aliases
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
@@ -1164,20 +1164,21 @@ class MoneyflowApp(App):
             )
 
     def _persist_category_aliases(self, aliases: list[tuple[str, str, str]]) -> None:
-        """Write structural category aliases to a backend that keeps them.
+        """Stage structural category aliases and attempt to persist them.
 
-        Called only once the owning configuration (and any dependent
-        transaction edits) has been persisted successfully; backends without
-        record_category_alias (config-backed ones) simply ignore them.
+        The aliases are staged into pending_category_aliases first and
+        removed only as the backend confirms them — a persistence failure
+        retains the remainder for retry at the next save or commit, so a
+        structural edit is never silently dropped.
         """
-        record_alias = getattr(self.backend, "record_category_alias", None)
-        if record_alias is None:
+        if self.data_manager is None or not aliases:
             return
-        for source_id, target_id, target_name in aliases:
-            record_alias(source_id, target_id, target_name)
+        staged = list(getattr(self.data_manager, "pending_category_aliases", [])) + list(aliases)
+        self.data_manager.pending_category_aliases = staged
+        self._flush_pending_category_aliases()
 
     def _flush_pending_category_aliases(self) -> None:
-        """Persist aliases retained from earlier failed config saves.
+        """Persist staged category aliases; failures stay staged for retry.
 
         Must run at every point where retained category configuration is
         successfully persisted — clearing the deferred state without flushing
@@ -1186,8 +1187,16 @@ class MoneyflowApp(App):
         """
         if self.data_manager is None:
             return
-        self._persist_category_aliases(getattr(self.data_manager, "pending_category_aliases", []))
-        self.data_manager.pending_category_aliases = []
+        staged = getattr(self.data_manager, "pending_category_aliases", [])
+        remaining = flush_category_aliases(self.backend, staged)
+        self.data_manager.pending_category_aliases = remaining
+        if remaining:
+            self.notify(
+                "Some category changes could not be recorded; they will be retried "
+                "on the next commit.",
+                severity="warning",
+                timeout=5,
+            )
 
     def _clear_deferred_category_groups(self) -> None:
         """Clear category configuration waiting on transaction edits."""
@@ -1881,7 +1890,6 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
-                    self._flush_pending_category_aliases()
                     self._persist_category_aliases(manage_screen.recorded_aliases)
                     self._clear_deferred_category_groups()
                     self.notify("Categories updated.", timeout=2)
@@ -2215,6 +2223,10 @@ class MoneyflowApp(App):
 
         count = self.data_manager.get_stats()["pending_changes"]
         if count == 0:
+            # Retry alias records retained from an earlier failed persistence
+            # even when no config snapshot is pending.
+            if getattr(self.data_manager, "pending_category_aliases", []):
+                self._flush_pending_category_aliases()
             pending_groups = self.data_manager.pending_category_groups
             if pending_groups is not None and self.data_manager.profile_dir:
                 if save_categories_to_profile(

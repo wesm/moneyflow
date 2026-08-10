@@ -370,6 +370,15 @@ class CsvFinanceBackend(FinanceBackend):
             )
         """)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS import_file_transactions (
+                filename TEXT NOT NULL,
+                account TEXT NOT NULL DEFAULT '',
+                mapping_name TEXT NOT NULL DEFAULT '',
+                txn_id TEXT NOT NULL,
+                PRIMARY KEY (filename, account, mapping_name, txn_id)
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS import_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT NOT NULL,

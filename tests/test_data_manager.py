@@ -6,7 +6,7 @@ from datetime import datetime
 
 import polars as pl
 
-from moneyflow.data.data_manager import DataManager
+from moneyflow.data.data_manager import DataManager, flush_category_aliases
 from moneyflow.data.state import TimeGranularity, TransactionEdit
 
 
@@ -1763,3 +1763,28 @@ class TestSkipBatchFor:
         # Should use batch
         assert len(mock_mm.update_calls) == 0
         assert ("Amazon.com/abc", "Amazon") in bulk_renames
+
+
+class TestFlushCategoryAliases:
+    def test_removes_only_confirmed_aliases(self):
+        """A persistence failure retains the failed alias and everything
+        after it, so structural edits are never silently dropped."""
+        recorded = []
+
+        def flaky(source, target, name):
+            if source == "cat_fail":
+                raise RuntimeError("backend unavailable")
+            recorded.append((source, target, name))
+
+        backend = type("Backend", (), {"record_category_alias": staticmethod(flaky)})()
+        aliases = [
+            ("cat_ok", "cat_x", "X"),
+            ("cat_fail", "cat_y", "Y"),
+            ("cat_later", "cat_z", "Z"),
+        ]
+        remaining = flush_category_aliases(backend, aliases)
+        assert recorded == [("cat_ok", "cat_x", "X")]
+        assert remaining == [("cat_fail", "cat_y", "Y"), ("cat_later", "cat_z", "Z")]
+
+    def test_backend_without_alias_support_has_nothing_to_retain(self):
+        assert flush_category_aliases(object(), [("a", "b", "B")]) == []

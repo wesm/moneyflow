@@ -567,6 +567,47 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_aliases == []
         assert controller.data_manager.pending_category_groups is None
 
+    async def test_alias_persistence_failure_retains_aliases_for_retry(self, controller):
+        """Aliases the backend fails to confirm must stay staged instead of
+        being dropped — a later retry persists them."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        attempts = []
+
+        def failing_record(*args):
+            attempts.append(args)
+            raise RuntimeError("database is locked")
+
+        controller.data_manager.mm.record_category_alias = failing_record
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert attempts  # persistence was attempted
+        assert controller.data_manager.pending_category_aliases == [
+            ("cat_groceries", "cat_entertainment", "Entertainment")
+        ]
+        assert controller.data_manager.pending_category_changes == []
+
+        # A later commit with a working backend flushes the retained alias.
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        edit2 = TransactionEdit("txn_2", "merchant", "Old", "New", datetime.now())
+        self._simulate_commit(controller, [edit2], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_groceries", "cat_entertainment", "Entertainment")]
+        assert controller.data_manager.pending_category_aliases == []
+
     async def test_category_save_failure_retains_deferred_state(
         self, controller, mock_view, monkeypatch
     ):

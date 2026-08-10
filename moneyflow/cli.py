@@ -928,6 +928,8 @@ def import_institution(name, path, force, account, config_dir):
             click.echo(f"  Duplicates: {stats['duplicates']:,} (already in database)")
         if stats["skipped"] > 0:
             click.echo(f"  Skipped: {stats['skipped']:,}")
+        if stats.get("removed", 0) > 0:
+            click.echo(f"  Superseded: {stats['removed']:,} (replaced by corrected file content)")
 
         db_stats = backend.get_database_stats()
         click.echo("\nDatabase summary:")

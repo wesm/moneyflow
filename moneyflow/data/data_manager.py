@@ -56,6 +56,29 @@ TRANSACTION_SCHEMA: Dict[str, Any] = {
 }
 
 
+def flush_category_aliases(
+    backend: Any, aliases: List[Tuple[str, str, str]]
+) -> List[Tuple[str, str, str]]:
+    """Persist category alias records to the backend; return the remainder.
+
+    Aliases are removed from the result only after the backend confirms
+    them — a persistence failure keeps the failed record and everything
+    after it, so the caller can retain them for retry instead of silently
+    dropping structural category edits. Backends without alias support
+    (config-backed ones) have nothing to retain.
+    """
+    record_alias = getattr(backend, "record_category_alias", None)
+    if record_alias is None:
+        return []
+    for index, alias in enumerate(aliases):
+        try:
+            record_alias(*alias)
+        except Exception as error:
+            logger.error(f"Failed to persist category alias {alias}: {error}")
+            return list(aliases[index:])
+    return []
+
+
 def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:
     """Add canonical transaction columns to an empty DataFrame."""
     if not df.is_empty():
