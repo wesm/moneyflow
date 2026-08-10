@@ -1444,6 +1444,7 @@ class TestGroupManagerPersistence:
         class DataManagerStub:
             pending_category_groups = groups
             pending_category_changes = [object()]
+            pending_category_aliases = []
             profile_dir = object()
 
             @staticmethod
@@ -1465,6 +1466,41 @@ class TestGroupManagerPersistence:
         assert app.data_manager.pending_category_groups is None
         assert app.data_manager.pending_category_changes == []
         assert notifications == [("Category configuration saved.", None)]
+
+    def test_write_retry_flushes_retained_category_aliases(self, monkeypatch):
+        """A no-edit retry that persists pending_category_groups must also
+        persist the aliases retained from the failed save — otherwise the
+        cleared retry trigger silently drops them and later imports
+        resurrect the renamed/merged/deleted categories."""
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            pending_category_groups = {"Group": ["Fun Purchases"]}
+            pending_category_changes = []
+            pending_category_aliases = [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+            profile_dir = object()
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        recorded = []
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *args, **kwargs: True)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+
+        app.action_review_and_commit()
+
+        assert recorded == [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+        assert app.data_manager.pending_category_aliases == []
+        assert app.data_manager.pending_category_groups is None
 
     @pytest.mark.parametrize("pending_field", ["category", "merchant", "hide_from_reports"])
     async def test_group_changes_save_with_pending_transaction_edits(

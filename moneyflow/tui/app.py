@@ -1176,6 +1176,19 @@ class MoneyflowApp(App):
         for source_id, target_id, target_name in aliases:
             record_alias(source_id, target_id, target_name)
 
+    def _flush_pending_category_aliases(self) -> None:
+        """Persist aliases retained from earlier failed config saves.
+
+        Must run at every point where retained category configuration is
+        successfully persisted — clearing the deferred state without flushing
+        would drop the aliases and let later imports resurrect renamed,
+        merged, or deleted categories.
+        """
+        if self.data_manager is None:
+            return
+        self._persist_category_aliases(getattr(self.data_manager, "pending_category_aliases", []))
+        self.data_manager.pending_category_aliases = []
+
     def _clear_deferred_category_groups(self) -> None:
         """Clear category configuration waiting on transaction edits."""
         if self.data_manager is None:
@@ -1860,11 +1873,8 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
-                    self._persist_category_aliases(
-                        self.data_manager.pending_category_aliases
-                        + list(manage_screen.recorded_aliases)
-                    )
-                    self.data_manager.pending_category_aliases = []
+                    self._flush_pending_category_aliases()
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self._clear_deferred_category_groups()
                     self.notify("Categories updated.", timeout=2)
                 else:
@@ -1940,6 +1950,7 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
+                    self._flush_pending_category_aliases()
                     self._clear_deferred_category_groups()
                     self.notify("Groups updated.", timeout=2)
                 else:
@@ -2201,6 +2212,7 @@ class MoneyflowApp(App):
                 if save_categories_to_profile(
                     pending_groups, profile_dir=self.data_manager.profile_dir
                 ):
+                    self._flush_pending_category_aliases()
                     self._clear_deferred_category_groups()
                     self.notify("Category configuration saved.", timeout=2)
                 else:
