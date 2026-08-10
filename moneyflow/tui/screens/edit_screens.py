@@ -1421,6 +1421,12 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_cat_id = None
         if not confirmed or not cat_id:
             return
+        # Even with zero current transactions, a later CSV import of this
+        # bank category must not recreate it — alias it to the backend's
+        # Uncategorized category.
+        self.recorded_aliases.append(
+            (cat_id, self._category_id_from_name("Uncategorized"), "Uncategorized")
+        )
         self.categories.pop(cat_id, None)
         self._dirty = True
         self._selected_index = min(self._selected_index, len(self._filtered_order) - 1)

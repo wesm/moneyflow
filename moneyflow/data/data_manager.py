@@ -248,6 +248,10 @@ class DataManager:
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
         self.pending_category_groups: Optional[Dict[str, List[str]]] = None
+        # Aliases whose config save failed, retained (like the groups above)
+        # until persistence succeeds — dropping them would let a later import
+        # resurrect the renamed/merged/deleted categories.
+        self.pending_category_aliases: List[Tuple[str, str, str]] = []
         self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
 

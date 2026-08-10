@@ -549,6 +549,36 @@ class TestManageCategoriesScreen:
         screen._handle_merge("cat_espresso")
         assert screen.recorded_aliases[-1] == ("cat_tea", "cat_espresso", "Espresso")
 
+    def test_zero_transaction_delete_buffers_alias(self):
+        """Deleting a category with no transactions must still alias it to
+        Uncategorized, or a later import of that bank category recreates it."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_dormant": {
+                "name": "Dormant",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "cat_active": {
+                "name": "Active",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._pending_cat_id = "cat_dormant"
+        screen._handle_delete_confirm(True)
+
+        assert "cat_dormant" not in categories
+        assert screen.recorded_aliases == [("cat_dormant", "cat_uncategorized", "Uncategorized")]
+
     def test_delete_reassign_buffers_alias(self):
         from moneyflow.data.categories import stable_category_id
 

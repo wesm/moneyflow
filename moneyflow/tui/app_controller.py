@@ -1723,6 +1723,12 @@ class AppController:
                         profile_dir=self.data_manager.profile_dir,
                     )
                 if categories_saved:
+                    # Config persisted — flush aliases retained from earlier
+                    # failed saves along with it.
+                    if record_alias is not None:
+                        for alias in self.data_manager.pending_category_aliases:
+                            record_alias(*alias)
+                    self.data_manager.pending_category_aliases = []
                     self.data_manager.pending_category_groups = None
                     logger.info("Saved deferred category config after successful commit")
                 else:

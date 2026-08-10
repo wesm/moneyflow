@@ -417,15 +417,50 @@ class CsvFinanceBackend(FinanceBackend):
             _secure_open_db(self.db_path)
         return _connect_verified(self.db_path)
 
-    def _row_to_transaction_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+    def _consolidated_categories(self, conn: sqlite3.Connection) -> dict[str, tuple[str, str]]:
+        """Map every stored category id to one canonical (name, group_name).
+
+        Equivalent stored spellings (e.g. "Shopping" and "SHOPPING") share an
+        id; the configured category name and group win over the stored
+        spelling, otherwise the ORDER BY makes the first spelling the
+        deterministic choice. Transactions and category payloads must both
+        resolve names through this mapping or aggregation splits by spelling.
+        """
+        rows = conn.execute(
+            "SELECT DISTINCT category_id, category FROM transactions ORDER BY category_id, category"
+        ).fetchall()
+        configured = load_categories_from_profile(self.profile_dir) or {}
+        configured_by_key = {
+            category_equivalence_key(name): (name, group_name)
+            for group_name, names in configured.items()
+            for name in names
+        }
+        consolidated: dict[str, tuple[str, str]] = {}
+        for cat_id, stored_name in rows:
+            if cat_id in consolidated:
+                continue
+            consolidated[cat_id] = configured_by_key.get(
+                category_equivalence_key(stored_name), (stored_name, "")
+            )
+        return consolidated
+
+    def _row_to_transaction_dict(
+        self,
+        row: sqlite3.Row,
+        canonical_categories: dict[str, tuple[str, str]] | None = None,
+    ) -> dict[str, Any]:
         extras = json.loads(row["extras"] or "{}")
         safe_extras = {k: v for k, v in extras.items() if k not in STANDARD_FIELDS}
+        category_id = row["category_id"]
+        category_name = row["category"]
+        if canonical_categories and category_id in canonical_categories:
+            category_name = canonical_categories[category_id][0]
         return {
             "id": row["id"],
             "date": row["date"],
             "amount": row["amount"],
             "merchant": {"id": row["id"], "name": row["merchant"]},
-            "category": {"id": row["category_id"], "name": row["category"]},
+            "category": {"id": category_id, "name": category_name},
             "account": {"id": "", "displayName": row["account"]},
             "notes": row["notes"],
             "hideFromReports": bool(row["hideFromReports"]),
@@ -475,7 +510,8 @@ class CsvFinanceBackend(FinanceBackend):
         params.extend([limit, offset])
         rows = conn.execute(query, params).fetchall()
 
-        results = [self._row_to_transaction_dict(row) for row in rows]
+        canonical_categories = self._consolidated_categories(conn)
+        results = [self._row_to_transaction_dict(row, canonical_categories) for row in rows]
         conn.close()
         return {"results": results, "totalCount": total}
 
@@ -528,6 +564,7 @@ class CsvFinanceBackend(FinanceBackend):
             conn.commit()
 
         row = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
+        canonical_categories = self._consolidated_categories(conn)
         conn.close()
         if row is None:
             # Row was deleted between the existence check and the UPDATE —
@@ -536,7 +573,11 @@ class CsvFinanceBackend(FinanceBackend):
             raise ValueError(
                 f"Cannot update transaction: no transaction with id {transaction_id!r} exists"
             )
-        return {"updateTransaction": {"transaction": self._row_to_transaction_dict(row)}}
+        return {
+            "updateTransaction": {
+                "transaction": self._row_to_transaction_dict(row, canonical_categories)
+            }
+        }
 
     async def delete_transaction(self, transaction_id: str) -> bool:
         conn = self._get_connection()
@@ -563,43 +604,23 @@ class CsvFinanceBackend(FinanceBackend):
 
     async def get_transaction_categories(self) -> dict[str, Any]:
         conn = self._get_connection()
-        rows = conn.execute(
-            "SELECT DISTINCT category_id, category FROM transactions ORDER BY category_id, category"
-        ).fetchall()
+        consolidated = self._consolidated_categories(conn)
         conn.close()
 
         # Merge transaction-derived categories with the profile's configured
         # category groups (fetched_categories in profile config.yaml) so that
         # configured-but-unused categories still appear in category pickers.
         configured = load_categories_from_profile(self.profile_dir) or {}
-        configured_by_key = {
-            category_equivalence_key(name): (name, group_name)
-            for group_name, names in configured.items()
-            for name in names
-        }
 
         def _group_payload(group_name: str) -> dict[str, str]:
             if group_name:
                 return {"id": group_name, "name": group_name, "type": "expense"}
             return {"id": "", "type": "expense"}
 
-        # Consolidate to exactly one payload per id: equivalent stored names
-        # (e.g. "Shopping" and "SHOPPING") share an id, and emitting both
-        # would leave DataManager resolving the duplicate by query order.
-        # A configured name wins over the stored spelling; otherwise the
-        # ORDER BY above makes the first spelling the deterministic choice.
-        payload_by_id: dict[str, dict[str, Any]] = {}
-        for cat_id, stored_name in rows:
-            if cat_id in payload_by_id:
-                continue
-            name, group_name = configured_by_key.get(
-                category_equivalence_key(stored_name), (stored_name, "")
-            )
-            payload_by_id[cat_id] = {
-                "id": cat_id,
-                "name": name,
-                "group": _group_payload(group_name),
-            }
+        payload_by_id: dict[str, dict[str, Any]] = {
+            cat_id: {"id": cat_id, "name": name, "group": _group_payload(group_name)}
+            for cat_id, (name, group_name) in consolidated.items()
+        }
 
         categories = list(payload_by_id.values())
         seen_keys = {category_equivalence_key(payload["name"]) for payload in categories}

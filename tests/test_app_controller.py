@@ -548,6 +548,25 @@ class TestCommitHandling:
         assert recorded == [("cat_groceries", "cat_entertainment", "Entertainment")]
         assert controller.data_manager.pending_category_changes == []
 
+    async def test_successful_commit_flushes_retained_aliases(self, controller):
+        """Aliases retained from an earlier failed config save are persisted
+        when the retried save succeeds, and cleared afterwards."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.pending_category_groups = {"Group": ["Fun Purchases"]}
+        controller.data_manager.pending_category_aliases = [
+            ("cat_shopping", "cat_fun_purchases", "Fun Purchases")
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+        assert controller.data_manager.pending_category_aliases == []
+        assert controller.data_manager.pending_category_groups is None
+
     async def test_category_save_failure_retains_deferred_state(
         self, controller, mock_view, monkeypatch
     ):

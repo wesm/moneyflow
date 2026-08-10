@@ -107,6 +107,34 @@ class TestCsvFinanceBackend:
         assert payload["name"] == "Shopping"
         assert payload["group"]["name"] == "Fun"
 
+    def test_transactions_resolve_canonical_category_names(self, chase_backend, tmp_profile_dir):
+        """Transactions must return the same canonical category name that
+        get_transaction_categories consolidates to — otherwise equivalent
+        spellings aggregate as separate categories with different groups."""
+        conn = chase_backend._get_connection()
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c1", "2026-07-12", -5.0, "STORE", "SHOPPING", "cat_shopping"),
+        )
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c2", "2026-07-13", -6.0, "STORE", "Shopping", "cat_shopping"),
+        )
+        conn.commit()
+        conn.close()
+        (tmp_profile_dir / "config.yaml").write_text(
+            yaml.safe_dump({"fetched_categories": {"Fun": ["Shopping"]}})
+        )
+
+        result = asyncio.run(chase_backend.get_transactions(limit=10))
+        names = {txn["category"]["name"] for txn in result["results"]}
+        assert names == {"Shopping"}
+
+        updated = asyncio.run(chase_backend.update_transaction("c1", merchant_name="NEW"))
+        assert updated["updateTransaction"]["transaction"]["category"]["name"] == "Shopping"
+
     def test_secure_open_db_does_not_mutate_symlinked_profile_dir(self, tmp_path):
         """A symlinked profile directory must be rejected BEFORE any
         permission tightening — otherwise the chmod/DACL change would land

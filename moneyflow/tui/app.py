@@ -1860,11 +1860,21 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
-                    self._persist_category_aliases(manage_screen.recorded_aliases)
+                    self._persist_category_aliases(
+                        self.data_manager.pending_category_aliases
+                        + list(manage_screen.recorded_aliases)
+                    )
+                    self.data_manager.pending_category_aliases = []
                     self._clear_deferred_category_groups()
                     self.notify("Categories updated.", timeout=2)
                 else:
+                    # Retain the aliases with the unsaved config: a later
+                    # successful retry must persist both, or old categories
+                    # would reappear on the next import.
                     self.data_manager.pending_category_groups = groups
+                    self.data_manager.pending_category_aliases.extend(
+                        manage_screen.recorded_aliases
+                    )
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",
