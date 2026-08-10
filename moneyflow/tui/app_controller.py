@@ -1707,7 +1707,14 @@ class AppController:
             # Persist deferred category config if any (from category manager)
             if self.data_manager.pending_category_groups:
                 # Transaction-backed structural operations are now committed and cannot be undone.
-                # Retain only the config snapshot if persistence needs to be retried.
+                # Persist their category aliases so later imports honor the
+                # rename/merge/delete, then retain only the config snapshot
+                # if persistence needs to be retried.
+                record_alias = getattr(self.data_manager.mm, "record_category_alias", None)
+                if record_alias is not None:
+                    for change in self.data_manager.pending_category_changes:
+                        for source_id, target_id, target_name in change.category_aliases:
+                            record_alias(source_id, target_id, target_name)
                 self.data_manager.pending_category_changes.clear()
                 categories_saved = True
                 if self.data_manager.profile_dir:

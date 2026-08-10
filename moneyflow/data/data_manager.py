@@ -78,6 +78,9 @@ class DeferredCategoryChange:
     dependent_timestamps: Set[datetime]
     after_edits: List[Any] = field(default_factory=list)
     operation_timestamp: datetime = field(default_factory=datetime.now)
+    # (source_id, target_id, target_name) alias records for the backend,
+    # persisted only after the dependent edits commit and discarded on undo.
+    category_aliases: List[Tuple[str, str, str]] = field(default_factory=list)
 
 
 class MerchantCache:

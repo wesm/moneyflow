@@ -523,6 +523,31 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_groups is None
         assert controller.data_manager.pending_category_changes == []
 
+    async def test_successful_commit_persists_deferred_category_aliases(self, controller):
+        """Aliases buffered on a deferred change are written to the backend
+        only when the dependent edits commit — undo before commit would have
+        discarded them along with the change."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_groceries", "cat_entertainment", "Entertainment")]
+        assert controller.data_manager.pending_category_changes == []
+
     async def test_category_save_failure_retains_deferred_state(
         self, controller, mock_view, monkeypatch
     ):

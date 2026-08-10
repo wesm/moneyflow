@@ -1163,6 +1163,19 @@ class MoneyflowApp(App):
                 timeout=2,
             )
 
+    def _persist_category_aliases(self, aliases: list[tuple[str, str, str]]) -> None:
+        """Write structural category aliases to a backend that keeps them.
+
+        Called only once the owning configuration (and any dependent
+        transaction edits) has been persisted successfully; backends without
+        record_category_alias (config-backed ones) simply ignore them.
+        """
+        record_alias = getattr(self.backend, "record_category_alias", None)
+        if record_alias is None:
+            return
+        for source_id, target_id, target_name in aliases:
+            record_alias(source_id, target_id, target_name)
+
     def _clear_deferred_category_groups(self) -> None:
         """Clear category configuration waiting on transaction edits."""
         if self.data_manager is None:
@@ -1778,16 +1791,13 @@ class MoneyflowApp(App):
             if edit.field == "category"
         }
 
-        dirty = await self.push_screen(
-            ManageCategoriesScreen(
-                categories=self.data_manager.categories,
-                transaction_counts=txn_counts,
-                queue_reassign_callback=queue_reassign,
-                category_id_factory=getattr(self.backend, "make_category_id", None),
-                record_alias_callback=getattr(self.backend, "record_category_alias", None),
-            ),
-            wait_for_dismiss=True,
+        manage_screen = ManageCategoriesScreen(
+            categories=self.data_manager.categories,
+            transaction_counts=txn_counts,
+            queue_reassign_callback=queue_reassign,
+            category_id_factory=getattr(self.backend, "make_category_id", None),
         )
+        dirty = await self.push_screen(manage_screen, wait_for_dismiss=True)
 
         if refresh_generation != self._simplefin_refresh_generation:
             self.notify(
@@ -1814,7 +1824,9 @@ class MoneyflowApp(App):
                 )
             }
             if dependent_timestamps:
-                # Defer config save until pending edits commit successfully
+                # Defer config save until pending edits commit successfully.
+                # Aliases travel with the deferred change: persisted only
+                # after the dependent edits commit, discarded on undo.
                 self.data_manager.pending_category_groups = groups
                 self.data_manager.pending_category_changes.append(
                     DeferredCategoryChange(
@@ -1826,6 +1838,7 @@ class MoneyflowApp(App):
                         before_edits=pending_edits_before,
                         dependent_timestamps=dependent_timestamps,
                         after_edits=deepcopy(self.data_manager.pending_edits),
+                        category_aliases=list(manage_screen.recorded_aliases),
                     )
                 )
                 self.notify(
@@ -1837,6 +1850,7 @@ class MoneyflowApp(App):
                     previous_groups, groups, propagate_group_moves=False
                 )
                 if saved:
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self.notify("Categories updated with pending recategorizations.", timeout=4)
             else:
                 # No pending edits, safe to persist config immediately
@@ -1846,6 +1860,7 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self._clear_deferred_category_groups()
                     self.notify("Categories updated.", timeout=2)
                 else:

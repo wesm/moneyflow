@@ -134,20 +134,37 @@ _DIRECTORY_REPLACE_MASK = (
 def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
     """Fail if an untrusted principal could replace this directory.
 
-    Examines the effective (non-inherit-only) allow ACEs: any principal
+    Two checks are required. The owner must be trusted: an owner implicitly
+    retains READ_CONTROL and WRITE_DAC regardless of the DACL, so an
+    untrusted owner could re-grant itself delete rights at any time. And the
+    effective (non-inherit-only) allow ACEs must not give any principal
     other than the current user, LocalSystem, Administrators, or
-    TrustedInstaller holding delete/rename/re-ACL rights on the directory —
-    or delete-child rights over its contents — could swap it for a junction
-    that redirects the database path.
+    TrustedInstaller delete/rename/re-ACL rights on the directory — or
+    delete-child rights over its contents — since any of those would let it
+    be swapped for a junction that redirects the database path.
     """
     try:
         security_descriptor = win32security.GetNamedSecurityInfo(
             str(path),
             win32security.SE_FILE_OBJECT,
-            win32security.DACL_SECURITY_INFORMATION,
+            win32security.DACL_SECURITY_INFORMATION | win32security.OWNER_SECURITY_INFORMATION,
         )
     except pywintypes.error as error:
         raise _as_os_error(error, path) from error
+
+    current_sid_string = _sid_string(_current_user_sid())
+    trusted_owner_sids = _TRUSTED_ANCESTOR_SIDS | {
+        current_sid_string,
+        _sid_string(_current_default_owner_sid()),
+    }
+    owner_sid_string = _sid_string(security_descriptor.GetSecurityDescriptorOwner())
+    if owner_sid_string not in trusted_owner_sids:
+        raise PermissionError(
+            errno.EACCES,
+            f"Directory is owned by an untrusted account ({owner_sid_string})",
+            str(path),
+        )
+
     dacl = security_descriptor.GetSecurityDescriptorDacl()
     if dacl is None:
         raise PermissionError(
@@ -155,7 +172,6 @@ def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
             "Directory has no DACL (everyone has full control)",
             str(path),
         )
-    current_sid_string = _sid_string(_current_user_sid())
     for index in range(dacl.GetAceCount()):
         ace = dacl.GetAce(index)
         ace_type, ace_flags = ace[0]
