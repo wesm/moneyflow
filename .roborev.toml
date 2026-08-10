@@ -4,10 +4,14 @@
 review_guidelines = '''
 ## Security trust/threat model
 
+Canonical version: the "Security Threat Model" section of AGENTS.md in this
+repository. This is a condensed mirror; if they disagree, AGENTS.md wins.
+
 moneyflow is a single-user personal-finance TUI that stores data in local
-SQLite databases and YAML config under a per-user directory (default
-~/.moneyflow, overridable with --config-dir). Judge security findings
-against this model, and state which trust assumption a finding violates.
+SQLite databases, YAML config, and a log containing financial metadata under
+a per-user directory (default ~/.moneyflow, overridable with --config-dir).
+Judge security findings against this model, and state which trust assumption
+a finding violates.
 
 ### Trusted (do not file findings that require these to be hostile)
 
@@ -21,16 +25,21 @@ against this model, and state which trust assumption a finding violates.
 ### In scope (must defend)
 
 - Other non-privileged local users on a multi-user machine must not be
-  able to read or modify financial data. Databases, config, and
-  credentials are created with owner-only permissions (0o600/0o700 on
+  able to read or modify financial data. Databases, config, credentials,
+  and logs are created with owner-only permissions (0o600/0o700 on
   POSIX, protected owner-only DACLs on Windows) and re-validated or
-  re-tightened when opened.
+  re-tightened when opened. On macOS, extended ACLs are checked as well:
+  they grant access independently of mode bits and are inheritable.
 - Symlink, junction, and other reparse-point redirection of paths under
   the config directory must be rejected before permission mutations and
   before opening databases. Writes to sensitive files must be atomic and
   must not follow symlinks.
 - Path components must not be replaceable by untrusted principals
-  (POSIX: ownership and mode checks; Windows: owner and DACL checks).
+  (POSIX: ownership and mode checks; Windows: owner and DACL checks
+  including child-creation rights).
+- Configuration is authoritative (category structure, alias remapping),
+  so it is read through a validated no-follow descriptor and rejected if
+  another account could write it.
 - Financial-data correctness (no silent loss, duplication, or
   miscategorization of transactions) is in scope at any severity.
 
@@ -64,7 +73,8 @@ against this model, and state which trust assumption a finding violates.
 - Re-imported files whose content changed are reconciled against their
   previous per-file snapshot (import_file_transactions): rows the new
   content no longer produces are removed unless another imported file's
-  snapshot still claims them.
+  snapshot still claims them. Reconciliation is skipped entirely when any
+  row failed to parse — an unparsable row is not a removed one.
 
 ### Other review expectations
 

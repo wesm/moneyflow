@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ from moneyflow.backends.csv_backend import (
     _validate_path_components,
     _validate_path_security,
 )
+from moneyflow.data import macos_acl
 from tests.permission_assertions import assert_owner_only_permissions
 
 
@@ -610,3 +613,42 @@ class TestCsvFinanceBackend:
         assert result["categories"] == [
             {"id": "cat_Groceries", "name": "Groceries", "group": {"id": "", "type": "expense"}}
         ]
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extended ACLs")
+class TestMacosExtendedAcls:
+    """POSIX mode bits are not the whole access-control story on macOS: an
+    extended ACL can grant another local account access to a 0600 file."""
+
+    def _add_acl(self, path: Path) -> None:
+        subprocess.run(
+            ["chmod", "+a", "everyone allow read,write", str(path)],
+            check=True,
+        )
+
+    def test_inherited_acl_is_stripped_from_new_database(self, tmp_path, tmp_config_dir):
+        profile = tmp_path / "acl_profile"
+        profile.mkdir(mode=0o700)
+        # An inheritable ACE on the parent propagates to files created in it.
+        subprocess.run(
+            ["chmod", "+a", "everyone allow read,write,file_inherit", str(profile)],
+            check=True,
+        )
+        backend = CsvFinanceBackend(
+            profile_dir=profile, config_dir=tmp_config_dir, institution_name="chase_credit"
+        )
+        # The profile directory's own ACL is rejected outright.
+        with pytest.raises(OSError, match="extended ACL"):
+            backend._get_connection()
+
+        subprocess.run(["chmod", "-N", str(profile)], check=True)
+        conn = backend._get_connection()
+        conn.close()
+        assert not macos_acl.has_extended_acl(Path(backend.db_path))
+
+    def test_acl_added_after_init_is_rejected_on_next_connection(self, chase_backend):
+        chase_backend._get_connection().close()
+        self._add_acl(Path(chase_backend.db_path))
+
+        with pytest.raises(OSError, match="extended ACL"):
+            chase_backend._get_connection()

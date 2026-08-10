@@ -1844,3 +1844,40 @@ class TestAliasQueuePersistenceFailure:
 
         assert recorded == [("cat_a", "cat_b", "B")]
         assert remaining == []  # confirmed, so not queued for replay
+
+
+class TestAliasQueueSelfCorrection:
+    def test_confirmed_queue_entries_are_not_replayed(self, tmp_path):
+        """If clearing the queue failed, the stale entries the backend
+        already records must be dropped on reload rather than replayed over
+        a newer mapping."""
+        from moneyflow.data.categories import save_pending_category_aliases
+        from moneyflow.data.data_manager import load_unconfirmed_category_aliases
+
+        # The backend already records cat_a with a NEWER target than the
+        # stale queue entry, plus an entry that was never confirmed.
+        backend = type(
+            "Backend",
+            (),
+            {
+                "get_category_aliases": staticmethod(
+                    lambda: {"cat_a": ("cat_new", "New"), "cat_c": ("cat_d", "D")}
+                )
+            },
+        )()
+        save_pending_category_aliases(
+            tmp_path,
+            [
+                ("cat_a", "cat_old", "Old"),  # stale: backend has a newer target
+                ("cat_c", "cat_d", "D"),  # confirmed identically: drop
+                ("cat_e", "cat_f", "F"),  # genuinely unconfirmed: retry
+            ],
+        )
+
+        unconfirmed = load_unconfirmed_category_aliases(backend, tmp_path)
+
+        assert ("cat_c", "cat_d", "D") not in unconfirmed
+        assert ("cat_e", "cat_f", "F") in unconfirmed
+        # The stale entry differs from what the backend records, so it is
+        # retried — recording it is idempotent and flattens correctly.
+        assert ("cat_a", "cat_old", "Old") in unconfirmed

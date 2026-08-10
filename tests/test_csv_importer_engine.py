@@ -731,6 +731,40 @@ class TestImportCsv:
         assert row[1] == "cat_coffee_shops"
         assert row[2] == "corrected memo"
 
+    def test_malformed_rows_do_not_remove_existing_transactions(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A revised export whose rows fail to parse must not be read as
+        those transactions having been removed — the source rows still
+        exist, they are merely unparsable."""
+        csv_dir = tmp_path / "csvs_malformed"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/13/2026,Books,-20.00\n"
+        )
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 2
+
+        # Reissued with an unparsable date on one row and the other dropped.
+        csv_file.write_text("Transaction Date,Description,Amount\nNOT_A_DATE,Coffee,-4.50\n")
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["skipped"] == 1
+        assert result["removed"] == 0
+
+        conn = test_backend._get_connection()
+        merchants = {r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()}
+        conn.close()
+        assert merchants == {"Coffee", "Books"}
+
+        # A later clean export reconciles against the retained snapshot.
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n")
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["removed"] == 1
+        conn = test_backend._get_connection()
+        merchants = {r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()}
+        conn.close()
+        assert merchants == {"Coffee"}
+
     def test_rapid_successive_revisions_resolve_to_latest_content(
         self, tmp_path, test_mapping, test_backend
     ):

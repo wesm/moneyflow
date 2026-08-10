@@ -20,6 +20,11 @@ from moneyflow.data.file_utils import (
     require_current_user_ownership,
     require_directory_not_replaceable,
 )
+from moneyflow.data.macos_acl import (
+    clear_extended_acl_fd,
+    has_extended_acl,
+    has_extended_acl_fd,
+)
 
 STANDARD_FIELDS = frozenset(
     {
@@ -160,6 +165,16 @@ def _validate_path_components(path: Path, *, allow_missing: bool = False) -> Non
                 )
             if stat_module.S_IMODE(mode) & 0o022 and not mode & stat_module.S_ISVTX:
                 raise OSError(f"Database path component is group/other writable: {current}")
+            # macOS extended ACLs grant access independently of mode bits and
+            # are inheritable, so a permissive ACE on an ancestor can expose
+            # the database even at 0o600. Only the profile directory itself is
+            # ours to fix (ensure_restrictive_directory does not touch ACLs),
+            # so any extended ACL below the user's control is rejected.
+            if current == absolute_path and has_extended_acl(current):
+                raise OSError(
+                    f"Database directory has an extended ACL that may grant other "
+                    f"accounts access: {current}"
+                )
         else:
             require_directory_not_replaceable(current)
 
@@ -193,6 +208,12 @@ def _secure_open_db(db_path_str: str) -> None:
                 fchmod(fd, 0o600)
             else:
                 os.chmod(db_path, 0o600)
+            # An ACL inherited from the parent directory survives fchmod and
+            # can grant other local accounts access despite mode 0o600. The
+            # file is ours, so strip the entries and fail closed if any
+            # remain.
+            if not clear_extended_acl_fd(fd):
+                raise OSError(f"Database has an extended ACL that could not be removed: {db_path}")
         finally:
             os.close(fd)
     else:
@@ -245,6 +266,12 @@ def _connect_verified(db_path_str: str) -> sqlite3.Connection:
         require_current_user_fd_ownership(fd, db_path_str)
         if _requires_posix_mode_checks() and stat_module.S_IMODE(expected.st_mode) != 0o600:
             raise OSError(f"Database permissions are not 0o600: {db_path_str}")
+        if has_extended_acl_fd(fd):
+            # Re-checked per connection: an ACL added after initialization
+            # would otherwise expose the database for the rest of the session.
+            raise OSError(
+                f"Database has an extended ACL granting other accounts access: {db_path_str}"
+            )
         _validate_path_security(db_path_str)
         conn = sqlite3.connect(db_path_str)
         try:

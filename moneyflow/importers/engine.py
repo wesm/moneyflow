@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import logging
 import math
 import sqlite3
 from dataclasses import dataclass
@@ -11,11 +12,13 @@ from pathlib import Path
 import polars as pl
 
 from moneyflow.backends.csv_backend import STANDARD_FIELDS, CsvFinanceBackend, _stable_category_id
-from moneyflow.data.categories import (
-    load_pending_category_aliases,
-    save_pending_category_aliases,
+from moneyflow.data.categories import save_pending_category_aliases
+from moneyflow.data.data_manager import (
+    flush_category_aliases,
+    load_unconfirmed_category_aliases,
 )
-from moneyflow.data.data_manager import flush_category_aliases
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_str(val: object) -> str:
@@ -467,7 +470,7 @@ def import_csv(
     # config. Flush them first: importing while they are unapplied would
     # resurrect categories the user renamed, merged, or deleted. If any
     # cannot be made effective, abort rather than import with a stale map.
-    queued_aliases = load_pending_category_aliases(backend.profile_dir)
+    queued_aliases = load_unconfirmed_category_aliases(backend, backend.profile_dir)
     if queued_aliases:
         unconfirmed = flush_category_aliases(backend, queued_aliases)
         save_pending_category_aliases(backend.profile_dir, unconfirmed)
@@ -509,10 +512,26 @@ def import_csv(
             # Reconcile against this file's previous snapshot and record the
             # new one, in the same transaction as the row inserts so a
             # corrected file is replaced atomically.
-            removed = _reconcile_replaced_transactions(
-                import_conn, resolved, mapping, produced_ids, existing_ids
-            )
-            _replace_file_snapshot(import_conn, resolved, mapping, produced_ids)
+            #
+            # Rows the parser rejected (malformed dates/amounts) produce no
+            # ID, so they are indistinguishable from removed rows. Skip both
+            # reconciliation and the snapshot update in that case: deleting
+            # transactions whose source rows still exist — merely reformatted
+            # or corrupted — would lose data, and keeping the prior snapshot
+            # lets a later clean export reconcile correctly.
+            removed = 0
+            if stats["skipped"]:
+                logger.warning(
+                    "%s: %d row(s) could not be parsed; skipping reconciliation so "
+                    "previously imported transactions are not removed",
+                    csv_file.name,
+                    stats["skipped"],
+                )
+            else:
+                removed = _reconcile_replaced_transactions(
+                    import_conn, resolved, mapping, produced_ids, existing_ids
+                )
+                _replace_file_snapshot(import_conn, resolved, mapping, produced_ids)
             import_conn.execute(
                 "INSERT INTO import_history "
                 "(filename, file_size, file_hash, record_count, duplicate_count, "

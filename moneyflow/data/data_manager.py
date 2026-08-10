@@ -102,13 +102,42 @@ def flush_category_aliases_durably(
     remaining = flush_category_aliases(backend, staged)
     if staged and isinstance(profile_dir, (str, Path)):
         if not save_pending_category_aliases(profile_dir, remaining):
+            # The on-disk queue still names aliases the backend has already
+            # confirmed. Replaying those after a restart could overwrite a
+            # newer mapping, so load_confirmed_pending_aliases drops any queue
+            # entry the backend already records identically — the queue
+            # becomes self-correcting rather than depending on this write.
             logger.error(
                 "Could not persist the pending category alias queue at %s; "
-                "%d alias record(s) are retained in memory only",
+                "%d alias record(s) are retained in memory only and the stale "
+                "on-disk queue will be reconciled against the backend on reload",
                 profile_dir,
                 len(remaining),
             )
     return remaining
+
+
+def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[str, str, str]]:
+    """Load the queued aliases the backend has not already recorded.
+
+    Queue entries the backend already stores identically were confirmed
+    before a failed queue write; replaying them could clobber a newer
+    mapping, so they are dropped here instead of being retried.
+    """
+    if not profile_dir:
+        return []
+    queued = load_pending_category_aliases(profile_dir)
+    if not queued:
+        return []
+    get_aliases = getattr(backend, "get_category_aliases", None)
+    if get_aliases is None:
+        return queued
+    try:
+        recorded = get_aliases()
+    except Exception as error:
+        logger.error(f"Could not read recorded category aliases: {error}")
+        return queued
+    return [alias for alias in queued if recorded.get(alias[0]) != (alias[1], alias[2])]
 
 
 def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:
@@ -308,7 +337,7 @@ class DataManager:
         # resurrect the renamed/merged/deleted categories. Reloaded from the
         # profile config so they survive an application restart.
         self.pending_category_aliases: List[Tuple[str, str, str]] = (
-            load_pending_category_aliases(profile_dir) if profile_dir else []
+            load_unconfirmed_category_aliases(mm, profile_dir) if profile_dir else []
         )
         self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
