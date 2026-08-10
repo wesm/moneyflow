@@ -31,7 +31,7 @@ from moneyflow.tui.formatters import PreparedView
 from ..data.amazon_linker import AmazonLinker
 from ..data.categories import save_categories_to_profile
 from ..data.commit_orchestrator import apply_edits_to_dataframe
-from ..data.data_manager import DataManager, flush_category_aliases
+from ..data.data_manager import DataManager, flush_category_aliases_durably
 from ..data.state import (
     AppState,
     NavigationState,
@@ -1714,9 +1714,16 @@ class AppController:
                 for change in self.data_manager.pending_category_changes:
                     staged_aliases.extend(change.category_aliases)
                 self.data_manager.pending_category_changes.clear()
-                self.data_manager.pending_category_aliases = flush_category_aliases(
-                    self.data_manager.mm, staged_aliases
+                self.data_manager.pending_category_aliases = flush_category_aliases_durably(
+                    self.data_manager.mm, self.data_manager.profile_dir, staged_aliases
                 )
+                if self.data_manager.pending_category_aliases:
+                    self.view.show_notification(
+                        "Some category changes could not be recorded; they were retained "
+                        "and will be retried on the next commit.",
+                        severity="warning",
+                        timeout=6,
+                    )
                 categories_saved = True
                 if self.data_manager.profile_dir:
                     categories_saved = save_categories_to_profile(
@@ -1737,8 +1744,10 @@ class AppController:
             elif self.data_manager.pending_category_aliases:
                 # No config snapshot pending, but alias records retained from
                 # an earlier failed persistence — retry them now.
-                self.data_manager.pending_category_aliases = flush_category_aliases(
-                    self.data_manager.mm, self.data_manager.pending_category_aliases
+                self.data_manager.pending_category_aliases = flush_category_aliases_durably(
+                    self.data_manager.mm,
+                    self.data_manager.profile_dir,
+                    self.data_manager.pending_category_aliases,
                 )
 
             # Refresh to show updated data (smooth update)

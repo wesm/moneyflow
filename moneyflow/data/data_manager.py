@@ -32,8 +32,10 @@ from .categories import (
     get_effective_category_groups,
     get_profile_category_groups,
     load_categories_from_profile,
+    load_pending_category_aliases,
     save_categories_to_config,
     save_categories_to_profile,
+    save_pending_category_aliases,
 )
 from .state import TimeGranularity
 
@@ -77,6 +79,23 @@ def flush_category_aliases(
             logger.error(f"Failed to persist category alias {alias}: {error}")
             return list(aliases[index:])
     return []
+
+
+def flush_category_aliases_durably(
+    backend: Any, profile_dir: Any, staged: List[Tuple[str, str, str]]
+) -> List[Tuple[str, str, str]]:
+    """Flush staged aliases and durably store the unconfirmed remainder.
+
+    The remainder is written to the profile config so it survives an
+    application exit before a successful retry — otherwise a backend
+    failure after the owning changes committed would lose the aliases and
+    let later imports resurrect restructured categories. The isinstance
+    guard skips stub/legacy data managers without a real profile path.
+    """
+    remaining = flush_category_aliases(backend, staged)
+    if staged and isinstance(profile_dir, (str, Path)):
+        save_pending_category_aliases(profile_dir, remaining)
+    return remaining
 
 
 def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:
@@ -271,10 +290,13 @@ class DataManager:
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
         self.pending_category_groups: Optional[Dict[str, List[str]]] = None
-        # Aliases whose config save failed, retained (like the groups above)
-        # until persistence succeeds — dropping them would let a later import
-        # resurrect the renamed/merged/deleted categories.
-        self.pending_category_aliases: List[Tuple[str, str, str]] = []
+        # Aliases whose backend persistence failed, retained (like the groups
+        # above) until it succeeds — dropping them would let a later import
+        # resurrect the renamed/merged/deleted categories. Reloaded from the
+        # profile config so they survive an application restart.
+        self.pending_category_aliases: List[Tuple[str, str, str]] = (
+            load_pending_category_aliases(profile_dir) if profile_dir else []
+        )
         self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
 

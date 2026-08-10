@@ -387,3 +387,18 @@ def test_require_directory_not_replaceable_rejects_everyone_delete(tmp_path: Pat
 
     with pytest.raises(PermissionError):
         file_utils.require_directory_not_replaceable(loose)
+
+
+def test_log_file_and_directory_are_owner_only(tmp_path: Path) -> None:
+    """The log records financial metadata (merchants, categories); the log
+    directory and file must be owner-only from creation."""
+    from moneyflow.logging_config import _get_log_file, _RestrictiveFileHandler
+
+    log_file = _get_log_file(str(tmp_path / "cfg"))
+    assert_owner_only_permissions(log_file.parent, 0o700)
+
+    handler = _RestrictiveFileHandler(log_file, encoding="utf-8")
+    try:
+        assert_owner_only_permissions(log_file, 0o600)
+    finally:
+        handler.close()

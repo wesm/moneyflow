@@ -567,9 +567,9 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_aliases == []
         assert controller.data_manager.pending_category_groups is None
 
-    async def test_alias_persistence_failure_retains_aliases_for_retry(self, controller):
+    async def test_alias_persistence_failure_retains_aliases_for_retry(self, controller, mock_view):
         """Aliases the backend fails to confirm must stay staged instead of
-        being dropped — a later retry persists them."""
+        being dropped — the user is warned and a later retry persists them."""
         edit = TransactionEdit(
             "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
         )
@@ -598,6 +598,11 @@ class TestCommitHandling:
             ("cat_groceries", "cat_entertainment", "Entertainment")
         ]
         assert controller.data_manager.pending_category_changes == []
+        assert any(
+            "could not be recorded" in notification["message"]
+            and notification["severity"] == "warning"
+            for notification in mock_view.notifications
+        )
 
         # A later commit with a working backend flushes the retained alias.
         recorded = []

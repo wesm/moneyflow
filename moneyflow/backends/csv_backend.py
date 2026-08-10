@@ -662,7 +662,11 @@ class CsvFinanceBackend(FinanceBackend):
     def get_import_history(self) -> list[dict[str, Any]]:
         conn = self._get_connection()
         conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM import_history ORDER BY import_date DESC").fetchall()
+        # Order by the monotonic primary key, not import_date: the timestamp
+        # has one-second resolution, so rapid successive imports of revised
+        # files would otherwise be returned in an ambiguous order and the
+        # newest-first snapshot lookup could retain a stale hash.
+        rows = conn.execute("SELECT * FROM import_history ORDER BY id DESC").fetchall()
         conn.close()
         return [dict(row) for row in rows]
 

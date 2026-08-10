@@ -639,6 +639,38 @@ class TestImportCsv:
         assert result["imported"] == 1
         assert result["removed"] == 0
 
+    def test_rapid_successive_revisions_resolve_to_latest_content(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """Several revisions of a file imported within the same second must
+        track insertion order, not the one-second-resolution import_date —
+        including reverting to earlier content, which must be re-processed
+        and reconciled rather than skipped against a stale hash."""
+        csv_dir = tmp_path / "csvs_rapid"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        content_v1 = "Transaction Date,Description,Amount\n7/12/2026,Version One,-1.00\n"
+        content_v2 = "Transaction Date,Description,Amount\n7/12/2026,Version Two,-2.00\n"
+
+        csv_file.write_text(content_v1)
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 1
+
+        csv_file.write_text(content_v2)
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 1
+
+        # Revert to the original content within the same second.
+        csv_file.write_text(content_v1)
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 1
+
+        conn = test_backend._get_connection()
+        rows = conn.execute("SELECT merchant, amount FROM transactions").fetchall()
+        conn.close()
+        assert rows == [("Version One", -1.0)]
+
     def test_category_alias_prevents_resurrection_on_reimport(
         self, tmp_path, test_mapping, test_backend
     ):

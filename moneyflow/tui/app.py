@@ -48,7 +48,11 @@ from ..data.categories import (
     category_slug,
     save_categories_to_profile,
 )
-from ..data.data_manager import DataManager, DeferredCategoryChange, flush_category_aliases
+from ..data.data_manager import (
+    DataManager,
+    DeferredCategoryChange,
+    flush_category_aliases_durably,
+)
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
@@ -1188,7 +1192,9 @@ class MoneyflowApp(App):
         if self.data_manager is None:
             return
         staged = getattr(self.data_manager, "pending_category_aliases", [])
-        remaining = flush_category_aliases(self.backend, staged)
+        remaining = flush_category_aliases_durably(
+            self.backend, getattr(self.data_manager, "profile_dir", None), staged
+        )
         self.data_manager.pending_category_aliases = remaining
         if remaining:
             self.notify(
@@ -1898,9 +1904,9 @@ class MoneyflowApp(App):
                     # successful retry must persist both, or old categories
                     # would reappear on the next import.
                     self.data_manager.pending_category_groups = groups
-                    self.data_manager.pending_category_aliases.extend(
-                        manage_screen.recorded_aliases
-                    )
+                    # The aliases are independent of the config save — try to
+                    # persist them now; failures stay staged durably.
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",

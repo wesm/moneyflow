@@ -18,8 +18,10 @@ from moneyflow.data.categories import (
     get_profile_category_groups,
     load_categories_from_profile,
     load_custom_categories,
+    load_pending_category_aliases,
     merge_category_groups,
     save_categories_to_profile,
+    save_pending_category_aliases,
     stable_category_id,
 )
 
@@ -587,3 +589,31 @@ class TestSecureConfigWrites:
         config_path = profile / "config.yaml"
         assert not config_path.is_symlink()
         assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestPendingCategoryAliasStorage:
+    def test_roundtrip_and_clear(self, tmp_path):
+        aliases = [("cat_a", "cat_b", "B"), ("cat_c", "cat_d", "D")]
+        assert save_pending_category_aliases(tmp_path, aliases) is True
+        assert load_pending_category_aliases(tmp_path) == aliases
+
+        assert save_pending_category_aliases(tmp_path, []) is True
+        assert load_pending_category_aliases(tmp_path) == []
+
+    def test_survives_alongside_category_config(self, tmp_path):
+        """Saving categories must not drop retained alias records and vice
+        versa — both live in the same profile config file."""
+        assert save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B")]) is True
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is True
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B")]
+        assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}
+
+    def test_malformed_entries_are_ignored(self, tmp_path):
+        (tmp_path / "config.yaml").write_text(
+            "pending_category_aliases:\n"
+            "- [cat_a, cat_b, B]\n"
+            "- [only, two]\n"
+            "- not-a-list\n"
+            "- [1, 2, 3]\n"
+        )
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B")]

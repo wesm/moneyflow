@@ -6,7 +6,12 @@ from datetime import datetime
 
 import polars as pl
 
-from moneyflow.data.data_manager import DataManager, flush_category_aliases
+from moneyflow.data.categories import load_pending_category_aliases
+from moneyflow.data.data_manager import (
+    DataManager,
+    flush_category_aliases,
+    flush_category_aliases_durably,
+)
 from moneyflow.data.state import TimeGranularity, TransactionEdit
 
 
@@ -1788,3 +1793,32 @@ class TestFlushCategoryAliases:
 
     def test_backend_without_alias_support_has_nothing_to_retain(self):
         assert flush_category_aliases(object(), [("a", "b", "B")]) == []
+
+
+class TestDurableAliasRetention:
+    def test_unconfirmed_aliases_survive_restart(self, tmp_path):
+        """An alias the backend fails to confirm is durably retained in the
+        profile config, reloaded by a fresh DataManager, and cleared from
+        storage once a retry succeeds."""
+
+        def failing(*args):
+            raise RuntimeError("backend unavailable")
+
+        failing_backend = type("Backend", (), {"record_category_alias": staticmethod(failing)})()
+        alias = ("cat_shopping", "cat_fun", "Fun")
+        remaining = flush_category_aliases_durably(failing_backend, tmp_path, [alias])
+        assert remaining == [alias]
+        assert load_pending_category_aliases(tmp_path) == [alias]
+
+        manager = DataManager(mm=failing_backend, config_dir=str(tmp_path), profile_dir=tmp_path)
+        assert manager.pending_category_aliases == [alias]
+
+        recorded = []
+        working_backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        assert flush_category_aliases_durably(working_backend, tmp_path, remaining) == []
+        assert recorded == [alias]
+        assert load_pending_category_aliases(tmp_path) == []

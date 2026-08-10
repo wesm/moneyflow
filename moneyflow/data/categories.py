@@ -15,7 +15,7 @@ The category system supports:
 import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
 
@@ -387,6 +387,46 @@ def save_categories_to_profile(
         )
         return True
     return False
+
+
+PENDING_ALIASES_KEY = "pending_category_aliases"
+
+
+def save_pending_category_aliases(
+    profile_dir: Union[str, Path], aliases: List[Tuple[str, str, str]]
+) -> bool:
+    """Durably record category-alias records awaiting backend persistence.
+
+    Stored in the profile config so alias records the backend failed to
+    confirm survive an application exit and are retried on the next run.
+    An empty list removes the key.
+    """
+    config_path = Path(profile_dir) / "config.yaml"
+    config = _load_yaml(config_path)
+    if aliases:
+        config[PENDING_ALIASES_KEY] = [list(alias) for alias in aliases]
+    else:
+        if PENDING_ALIASES_KEY not in config:
+            return True
+        config.pop(PENDING_ALIASES_KEY, None)
+    return _save_yaml(config_path, config)
+
+
+def load_pending_category_aliases(profile_dir: Union[str, Path]) -> List[Tuple[str, str, str]]:
+    """Load durably retained category-alias records, ignoring malformed entries."""
+    config = _load_yaml(Path(profile_dir) / "config.yaml")
+    raw = config.get(PENDING_ALIASES_KEY, [])
+    aliases: List[Tuple[str, str, str]] = []
+    if not isinstance(raw, list):
+        return aliases
+    for item in raw:
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) == 3
+            and all(isinstance(part, str) for part in item)
+        ):
+            aliases.append((item[0], item[1], item[2]))
+    return aliases
 
 
 def load_categories_from_profile(profile_dir: Union[str, Path]) -> Optional[Dict[str, List[str]]]:
