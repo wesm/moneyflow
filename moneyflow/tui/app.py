@@ -1727,6 +1727,14 @@ class MoneyflowApp(App):
                                     timeout=6,
                                 )
                             return
+                        if not has_pending_structure:
+                            # This direct save supersedes any config snapshot
+                            # retained from an earlier failed save. Flush its
+                            # aliases and clear it — otherwise the next commit
+                            # would re-apply the stale snapshot and drop the
+                            # category just created.
+                            self._flush_pending_category_aliases()
+                            self._clear_deferred_category_groups()
                         self.data_manager.category_groups_config = groups
                         self.data_manager.category_to_group = build_category_to_group_mapping(
                             groups

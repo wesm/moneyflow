@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
+from .file_utils import secure_atomic_write
+
 logger = logging.getLogger(__name__)
 
 
@@ -192,9 +194,12 @@ def _load_yaml(path: Path) -> dict:
 
 def _save_yaml(path: Path, data: dict) -> bool:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with open(path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        payload = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        # Atomic replace via a securely created temp file. The destination
+        # path is never opened for writing, so a planted symlink cannot
+        # redirect the write to another file — the rename replaces the
+        # symlink itself with a regular file.
+        secure_atomic_write(path, payload.encode())
         return True
     except Exception as e:
         logger.error(f"Failed to save YAML to {path}: {e}")

@@ -473,7 +473,10 @@ class CsvFinanceBackend(FinanceBackend):
         return f"csv_{self.institution_name}"
 
     async def login(self, **kwargs: Any) -> None:
-        pass
+        # Initialize storage and validate path security up front, so the
+        # checks run before any other component (e.g. DataManager saving
+        # category config into the profile directory) writes there.
+        self._ensure_db_initialized()
 
     async def get_transactions(
         self,

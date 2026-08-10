@@ -568,3 +568,22 @@ class TestCategoryIdNormalization:
     def test_stable_category_id_falls_back_for_empty_names(self):
         assert stable_category_id("") == "cat_uncategorized"
         assert stable_category_id("!!!") == "cat_uncategorized"
+
+
+class TestSecureConfigWrites:
+    def test_save_replaces_symlinked_profile_config_without_following(self, tmp_path):
+        """A planted config.yaml symlink must not redirect the write: the
+        atomic rename replaces the symlink itself, leaving its target file
+        untouched."""
+        victim = tmp_path / "victim.txt"
+        victim.write_text("precious data")
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(victim)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+
+        assert victim.read_text() == "precious data"
+        config_path = profile / "config.yaml"
+        assert not config_path.is_symlink()
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}

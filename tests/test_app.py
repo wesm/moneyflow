@@ -783,6 +783,80 @@ class TestLocalCategoryCreation:
         assert app.data_manager.pending_category_changes[0].before_groups == expected_base
         assert app.data_manager.pending_category_groups == {"Group": ["Target", "New Category"]}
 
+    async def test_creation_direct_save_clears_stale_deferred_state(self, monkeypatch):
+        """A successful direct save (no pending structural changes) must
+        flush retained aliases and clear a config snapshot retained from an
+        earlier failed save — otherwise the next commit re-applies the stale
+        snapshot and drops the category just created."""
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-2"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+            @staticmethod
+            def edit_category_current_selection(*args, **kwargs):
+                return 1
+
+        class DataManagerStub:
+            categories = {"target-category": {"name": "Target", "group": "Group"}}
+            pending_edits = []
+            pending_category_groups = {"Group": ["Stale"]}
+            pending_category_aliases = [("cat_old", "cat_new", "New")]
+            pending_category_changes = []
+            category_groups_config = {"Group": ["Target"]}
+            category_to_group = {"Target": "Group"}
+            profile_dir = object()
+
+        recorded = []
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "supports_category_sync": False,
+                "record_category_alias": staticmethod(lambda *args: recorded.append(args)),
+            },
+        )()
+        app.data_manager = DataManagerStub()
+        choices = iter(["__new__:New Category", "Group"])
+        saved_groups = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def choose(screen, **kwargs):
+            return next(choices)
+
+        monkeypatch.setattr(app, "push_screen", choose)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
+        )
+
+        await app._edit_category()
+
+        assert saved_groups == [{"Group": ["Target", "New Category"]}]
+        assert recorded == [("cat_old", "cat_new", "New")]
+        assert app.data_manager.pending_category_aliases == []
+        assert app.data_manager.pending_category_groups is None
+
     async def test_rejects_normalized_id_collision(self, monkeypatch):
         from moneyflow.tui.app import MoneyflowApp
 

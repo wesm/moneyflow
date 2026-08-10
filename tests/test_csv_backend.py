@@ -44,6 +44,27 @@ class TestCsvFinanceBackend:
     def test_get_backend_type(self, chase_backend):
         assert chase_backend.get_backend_type() == "csv_chase_credit"
 
+    def test_login_initializes_and_validates_storage(self, chase_backend):
+        """login() must create and validate storage before anything else
+        (e.g. DataManager saving category config) writes into the profile."""
+        assert not Path(chase_backend.db_path).exists()
+        asyncio.run(chase_backend.login())
+        assert Path(chase_backend.db_path).exists()
+
+    def test_login_rejects_symlinked_profile_dir(self, tmp_path, tmp_config_dir):
+        real_dir = tmp_path / "real_dir"
+        real_dir.mkdir()
+        linked_profile = tmp_path / "linked_profile"
+        linked_profile.symlink_to(real_dir, target_is_directory=True)
+        backend = CsvFinanceBackend(
+            profile_dir=linked_profile,
+            config_dir=tmp_config_dir,
+            institution_name="chase_credit",
+        )
+
+        with pytest.raises(OSError, match="symlink"):
+            asyncio.run(backend.login())
+
     def test_capability_flags(self, chase_backend):
         """read_only=True gates the local category/group managers and the
         local-only edit warning in the TUI; can_write_transactions=True lets
