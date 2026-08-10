@@ -171,6 +171,7 @@ def _process_file(
     mapping: InstitutionMapping,
     connection: sqlite3.Connection,
     existing_ids: set[str],
+    category_aliases: dict[str, tuple[str, str]],
 ) -> dict[str, int]:
     """Process a single CSV file, returning {imported, duplicates, skipped}."""
     df = pl.read_csv(
@@ -262,6 +263,13 @@ def _process_file(
             else:
                 category_id_val = mapping.default_category_id
 
+        # Apply structural category edits (rename/merge/delete recorded as
+        # aliases) so a re-import of the bank-provided name does not
+        # resurrect a category the user restructured.
+        alias = category_aliases.get(category_id_val)
+        if alias is not None:
+            category_id_val, category_val = alias
+
         extras = {
             col: _safe_str(row.get(col))
             for col in mapping.extra_columns
@@ -346,6 +354,8 @@ def import_csv(
     existing_ids: set[str] = {row[0] for row in rows}
     existing_ids.update(row[0] for row in tombstones)
 
+    category_aliases = backend.get_category_aliases()
+
     total_imported = 0
     total_duplicates = 0
     total_skipped = 0
@@ -369,6 +379,7 @@ def import_csv(
                 mapping,
                 import_conn,
                 existing_ids,
+                category_aliases,
             )
             import_conn.execute(
                 "INSERT INTO import_history "

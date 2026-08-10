@@ -513,6 +513,76 @@ class TestManageCategoriesScreen:
         assert set(categories) == {"cat_espresso"}
         assert categories["cat_espresso"]["name"] == "Espresso"
 
+    def test_rename_and_merge_record_alias(self):
+        """Structural edits must be reported to the backend so later imports
+        do not resurrect the old category."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "cat_tea": {
+                "name": "Tea",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        aliases = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+            record_alias_callback=lambda *args: aliases.append(args),
+        )
+        screen._category_order = list(categories)
+        screen._filtered_order = list(categories)
+        screen._update_display = lambda: None
+
+        screen._pending_cat_id = "cat_coffee"
+        screen._handle_rename("Espresso")
+        assert aliases == [("cat_coffee", "cat_espresso", "Espresso")]
+
+        screen._pending_cat_id = "cat_tea"
+        screen._handle_merge("cat_espresso")
+        assert aliases[-1] == ("cat_tea", "cat_espresso", "Espresso")
+
+    def test_delete_reassign_records_alias(self):
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        aliases = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+            record_alias_callback=lambda *args: aliases.append(args),
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert aliases == [("cat_groceries", "cat_uncategorized", "Uncategorized")]
+
     def test_category_id_factory_rejects_garbage_names(self, monkeypatch):
         """With the CSV factory, a garbage name maps to "cat_uncategorized";
         it must be rejected as invalid, not accepted under the fallback id."""

@@ -1784,6 +1784,7 @@ class MoneyflowApp(App):
                 transaction_counts=txn_counts,
                 queue_reassign_callback=queue_reassign,
                 category_id_factory=getattr(self.backend, "make_category_id", None),
+                record_alias_callback=getattr(self.backend, "record_category_alias", None),
             ),
             wait_for_dismiss=True,
         )

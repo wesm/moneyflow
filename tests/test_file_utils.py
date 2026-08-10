@@ -18,7 +18,9 @@ from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
 from tests.permission_assertions import assert_owner_only_permissions
 
 if os.name == "nt":
+    import ntsecuritycon
     import pywintypes
+    import win32security
 
     from moneyflow.data import windows_permissions
 
@@ -352,3 +354,36 @@ def test_require_current_user_fd_ownership_rejects_foreign_uid(tmp_path: Path, m
             file_utils.require_current_user_fd_ownership(fd, target)
     finally:
         os.close(fd)
+
+
+def test_require_directory_not_replaceable_accepts_private_dir(tmp_path: Path) -> None:
+    """User-private directories pass; the check is a no-op on POSIX."""
+    file_utils.require_directory_not_replaceable(tmp_path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+def test_require_directory_not_replaceable_rejects_everyone_delete(tmp_path: Path) -> None:
+    """A directory whose DACL grants DELETE to Everyone could be swapped for
+    a junction by any local account and must be rejected."""
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    descriptor = win32security.GetNamedSecurityInfo(
+        str(loose),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+    )
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    everyone = win32security.ConvertStringSidToSid("S-1-1-0")
+    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.DELETE, everyone)
+    win32security.SetNamedSecurityInfo(
+        str(loose),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        dacl,
+        None,
+    )
+
+    with pytest.raises(PermissionError):
+        file_utils.require_directory_not_replaceable(loose)

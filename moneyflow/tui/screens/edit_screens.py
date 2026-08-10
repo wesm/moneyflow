@@ -961,6 +961,7 @@ class ManageCategoriesScreen(ModalScreen):
         transaction_counts: Optional[Dict[str, int]] = None,
         queue_reassign_callback=None,
         category_id_factory=None,
+        record_alias_callback=None,
     ) -> None:
         super().__init__()
         self.categories = categories
@@ -970,6 +971,10 @@ class ManageCategoriesScreen(ModalScreen):
         # "cat_"-prefixed ids matching their imports); default to the legacy
         # config slug used by config-backed backends.
         self._category_id_factory = category_id_factory or category_slug
+        # Backends that re-derive categories from imported data (CSV) supply
+        # this to persist structural edits, so a later import does not
+        # resurrect a renamed, merged, or deleted category.
+        self._record_alias = record_alias_callback
         self._selected_index = 0
         self._category_order: List[str] = []  # flat list of cat IDs in display order
         self._group_order: List[str] = []  # group names in display order
@@ -1270,6 +1275,9 @@ class ManageCategoriesScreen(ModalScreen):
         if not self._queue_reassignment(cat_id, new_id):
             return
 
+        if new_id != cat_id and self._record_alias:
+            self._record_alias(cat_id, new_id, new_name)
+
         if new_id != cat_id:
             if new_id not in self.categories:
                 self.categories[new_id] = self.categories.pop(cat_id)
@@ -1366,6 +1374,9 @@ class ManageCategoriesScreen(ModalScreen):
             if created_target_id is not None:
                 self.categories.pop(created_target_id, None)
             return
+        if self._record_alias:
+            target_name = self.categories.get(target_id, {}).get("name", "")
+            self._record_alias(source_id, target_id, target_name)
         # Remove source
         self.categories.pop(source_id, None)
         self._dirty = True
@@ -1454,6 +1465,9 @@ class ManageCategoriesScreen(ModalScreen):
                 if created_fallback:
                     self.categories.pop(target_id, None)
                 return
+            if self._record_alias:
+                target_name = self.categories.get(target_id, {}).get("name", "")
+                self._record_alias(cat_id, target_id, target_name)
 
         self.categories.pop(cat_id, None)
         self._dirty = True

@@ -8,12 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from moneyflow.backends.base import FinanceBackend
-from moneyflow.data.categories import load_categories_from_profile, stable_category_id
+from moneyflow.data.categories import (
+    category_equivalence_key,
+    load_categories_from_profile,
+    stable_category_id,
+)
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_restrictive_file,
     require_current_user_fd_ownership,
     require_current_user_ownership,
+    require_directory_not_replaceable,
 )
 
 STANDARD_FIELDS = frozenset(
@@ -118,20 +123,30 @@ def _reject_reparse_point(st: os.stat_result, path: Path | str) -> None:
         raise OSError(f"Database path contains a reparse point: {path}")
 
 
-def _validate_path_components(path: Path) -> None:
+def _validate_path_components(path: Path, *, allow_missing: bool = False) -> None:
     """Reject symlinked, replaceable, or unsafe directory components.
 
     Every ancestor must be a real directory (no symlinks or reparse points)
     that other users cannot replace: on POSIX each component must be owned by
     the current user or root and must not be group/other writable (unless
-    sticky), so no other account can swap a component for a redirection.
+    sticky); on Windows no untrusted principal may hold delete, rename, or
+    re-ACL rights over a component. Either would let another account swap a
+    component for a redirection.
+
+    With allow_missing=True the walk stops at the first component that does
+    not exist yet (used to validate before securely creating directories).
     """
     absolute_path = Path(os.path.abspath(path))
     current = Path(absolute_path.anchor)
 
     for component in absolute_path.parts[1:]:
         current /= component
-        st_component = os.lstat(current)
+        try:
+            st_component = os.lstat(current)
+        except FileNotFoundError:
+            if allow_missing:
+                return
+            raise
         mode = st_component.st_mode
         if stat_module.S_ISLNK(mode):
             raise OSError(f"Database path contains a symlinked component: {current}")
@@ -145,11 +160,18 @@ def _validate_path_components(path: Path) -> None:
                 )
             if stat_module.S_IMODE(mode) & 0o022 and not mode & stat_module.S_ISVTX:
                 raise OSError(f"Database path component is group/other writable: {current}")
+        else:
+            require_directory_not_replaceable(current)
 
 
 def _secure_open_db(db_path_str: str) -> None:
     """Create or verify the database file with symlink protection."""
     db_path = Path(db_path_str)
+    # Validate the existing components BEFORE any permission mutation: a
+    # symlinked or junction profile directory must be rejected here, or
+    # ensure_restrictive_directory would follow it and tighten the
+    # permissions/DACL of whatever directory it points at.
+    _validate_path_components(db_path.parent, allow_missing=True)
     # Create the parent with owner-only permissions using the platform-aware
     # helper (handles Windows DACLs in addition to POSIX mode bits).
     ensure_restrictive_directory(db_path.parent, parents=True)
@@ -207,6 +229,8 @@ def _connect_verified(db_path_str: str) -> sqlite3.Connection:
     - On Windows, os.open shares read/write but not delete, so while the
       descriptor is held neither the file nor any ancestor directory can be
       renamed or deleted — the path sqlite3.connect resolves cannot change.
+      The component walk therefore runs while the descriptor is held, so a
+      junction swap cannot be raced past it.
     - On POSIX (where an open handle does not pin the path), the mode is
       checked on the handle and the path must still resolve to the same
       device/inode after the connect, so a persistent redirection is detected
@@ -221,6 +245,7 @@ def _connect_verified(db_path_str: str) -> sqlite3.Connection:
         require_current_user_fd_ownership(fd, db_path_str)
         if _requires_posix_mode_checks() and stat_module.S_IMODE(expected.st_mode) != 0o600:
             raise OSError(f"Database permissions are not 0o600: {db_path_str}")
+        _validate_path_security(db_path_str)
         conn = sqlite3.connect(db_path_str)
         try:
             actual = os.stat(db_path_str)
@@ -276,6 +301,38 @@ class CsvFinanceBackend(FinanceBackend):
         would split across two ids."""
         return _stable_category_id(name)
 
+    def record_category_alias(self, source_id: str, target_id: str, target_name: str) -> None:
+        """Persist a structural category mapping (rename, merge, delete).
+
+        Imports derive categories from the bank-provided name, so without an
+        alias a later import would resurrect a category the user renamed,
+        merged away, or deleted. Chains are flattened at write time (existing
+        aliases pointing at source_id are repointed to the new target) and
+        self-aliases from rename-backs are removed.
+        """
+        conn = self._get_connection()
+        conn.execute(
+            "UPDATE category_aliases SET target_id = ?, target_name = ? WHERE target_id = ?",
+            (target_id, target_name, source_id),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO category_aliases (source_id, target_id, target_name) "
+            "VALUES (?, ?, ?)",
+            (source_id, target_id, target_name),
+        )
+        conn.execute("DELETE FROM category_aliases WHERE source_id = target_id")
+        conn.commit()
+        conn.close()
+
+    def get_category_aliases(self) -> dict[str, tuple[str, str]]:
+        """Return {source_id: (target_id, target_name)} for import remapping."""
+        conn = self._get_connection()
+        rows = conn.execute(
+            "SELECT source_id, target_id, target_name FROM category_aliases"
+        ).fetchall()
+        conn.close()
+        return {row[0]: (row[1], row[2]) for row in rows}
+
     def _ensure_db_initialized(self) -> None:
         if self._db_initialized:
             return
@@ -303,6 +360,13 @@ class CsvFinanceBackend(FinanceBackend):
             CREATE TABLE IF NOT EXISTS deleted_transactions (
                 id TEXT PRIMARY KEY,
                 deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS category_aliases (
+                source_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                target_name TEXT NOT NULL
             )
         """)
         conn.execute("""
@@ -345,11 +409,12 @@ class CsvFinanceBackend(FinanceBackend):
     def _get_connection(self) -> sqlite3.Connection:
         self._ensure_db_initialized()
         if not _requires_posix_mode_checks():
-            # POSIX platforms validate mode bits below on every connection.
-            # Windows has no meaningful mode bits, so re-apply the owner-only
-            # DACL to the database and its parent directory instead.
+            # POSIX platforms validate mode bits on every connection inside
+            # _connect_verified. Windows has no meaningful mode bits, so
+            # re-apply the owner-only DACL to the database and its parent
+            # directory instead. _connect_verified runs the path validation
+            # while holding the database descriptor.
             _secure_open_db(self.db_path)
-        _validate_path_security(self.db_path)
         return _connect_verified(self.db_path)
 
     def _row_to_transaction_dict(self, row: sqlite3.Row) -> dict[str, Any]:
@@ -498,41 +563,57 @@ class CsvFinanceBackend(FinanceBackend):
 
     async def get_transaction_categories(self) -> dict[str, Any]:
         conn = self._get_connection()
-        rows = conn.execute("SELECT DISTINCT category_id, category FROM transactions").fetchall()
+        rows = conn.execute(
+            "SELECT DISTINCT category_id, category FROM transactions ORDER BY category_id, category"
+        ).fetchall()
         conn.close()
 
         # Merge transaction-derived categories with the profile's configured
         # category groups (fetched_categories in profile config.yaml) so that
         # configured-but-unused categories still appear in category pickers.
         configured = load_categories_from_profile(self.profile_dir) or {}
-        name_to_group = {
-            name: group_name for group_name, names in configured.items() for name in names
+        configured_by_key = {
+            category_equivalence_key(name): (name, group_name)
+            for group_name, names in configured.items()
+            for name in names
         }
 
-        def _group_payload(name: str) -> dict[str, str]:
-            group_name = name_to_group.get(name, "")
+        def _group_payload(group_name: str) -> dict[str, str]:
             if group_name:
                 return {"id": group_name, "name": group_name, "type": "expense"}
             return {"id": "", "type": "expense"}
 
-        categories = [
-            {"id": row[0], "name": row[1], "group": _group_payload(row[1])} for row in rows
-        ]
-        seen_ids = {row[0] for row in rows}
-        seen_names = {row[1] for row in rows}
+        # Consolidate to exactly one payload per id: equivalent stored names
+        # (e.g. "Shopping" and "SHOPPING") share an id, and emitting both
+        # would leave DataManager resolving the duplicate by query order.
+        # A configured name wins over the stored spelling; otherwise the
+        # ORDER BY above makes the first spelling the deterministic choice.
+        payload_by_id: dict[str, dict[str, Any]] = {}
+        for cat_id, stored_name in rows:
+            if cat_id in payload_by_id:
+                continue
+            name, group_name = configured_by_key.get(
+                category_equivalence_key(stored_name), (stored_name, "")
+            )
+            payload_by_id[cat_id] = {
+                "id": cat_id,
+                "name": name,
+                "group": _group_payload(group_name),
+            }
+
+        categories = list(payload_by_id.values())
+        seen_keys = {category_equivalence_key(payload["name"]) for payload in categories}
         for group_name, names in configured.items():
             for name in names:
                 cat_id = _stable_category_id(name)
-                if name in seen_names or cat_id in seen_ids:
+                if cat_id in payload_by_id or category_equivalence_key(name) in seen_keys:
                     continue
-                seen_ids.add(cat_id)
-                categories.append(
-                    {
-                        "id": cat_id,
-                        "name": name,
-                        "group": {"id": group_name, "name": group_name, "type": "expense"},
-                    }
-                )
+                payload_by_id[cat_id] = {
+                    "id": cat_id,
+                    "name": name,
+                    "group": _group_payload(group_name),
+                }
+                categories.append(payload_by_id[cat_id])
         return {"categories": categories}
 
     async def get_transaction_category_groups(self) -> dict[str, Any]:

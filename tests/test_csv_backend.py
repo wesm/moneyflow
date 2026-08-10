@@ -59,6 +59,70 @@ class TestCsvFinanceBackend:
         assert chase_backend.make_category_id("Food & Dining") == "cat_food_dining"
         assert chase_backend.make_category_id("Groceries") == "cat_groceries"
 
+    def test_category_alias_roundtrip(self, chase_backend):
+        chase_backend.record_category_alias("cat_shopping", "cat_fun", "Fun")
+        assert chase_backend.get_category_aliases() == {"cat_shopping": ("cat_fun", "Fun")}
+
+    def test_category_alias_chains_flattened(self, chase_backend):
+        """A second rename must repoint earlier aliases so import resolution
+        is a single lookup, never a chain walk."""
+        chase_backend.record_category_alias("cat_a", "cat_b", "B")
+        chase_backend.record_category_alias("cat_b", "cat_c", "C")
+        assert chase_backend.get_category_aliases() == {
+            "cat_a": ("cat_c", "C"),
+            "cat_b": ("cat_c", "C"),
+        }
+
+    def test_category_alias_rename_back_removes_self_alias(self, chase_backend):
+        chase_backend.record_category_alias("cat_a", "cat_b", "B")
+        chase_backend.record_category_alias("cat_b", "cat_a", "A")
+        assert chase_backend.get_category_aliases() == {"cat_b": ("cat_a", "A")}
+
+    def test_equivalent_stored_names_consolidate_to_one_payload(
+        self, chase_backend, tmp_profile_dir
+    ):
+        """Stored spellings sharing an id (e.g. "Shopping" and "SHOPPING")
+        must produce one payload, preferring the configured name and group."""
+        conn = chase_backend._get_connection()
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c1", "2026-07-12", -5.0, "STORE", "SHOPPING", "cat_shopping"),
+        )
+        conn.execute(
+            "INSERT INTO transactions (id, date, amount, merchant, category, category_id) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("c2", "2026-07-13", -6.0, "STORE", "Shopping", "cat_shopping"),
+        )
+        conn.commit()
+        conn.close()
+        (tmp_profile_dir / "config.yaml").write_text(
+            yaml.safe_dump({"fetched_categories": {"Fun": ["Shopping"]}})
+        )
+
+        result = asyncio.run(chase_backend.get_transaction_categories())
+        assert len(result["categories"]) == 1
+        payload = result["categories"][0]
+        assert payload["id"] == "cat_shopping"
+        assert payload["name"] == "Shopping"
+        assert payload["group"]["name"] == "Fun"
+
+    def test_secure_open_db_does_not_mutate_symlinked_profile_dir(self, tmp_path):
+        """A symlinked profile directory must be rejected BEFORE any
+        permission tightening — otherwise the chmod/DACL change would land
+        on whatever directory the symlink points at."""
+        real_dir = tmp_path / "real_dir"
+        real_dir.mkdir()
+        os.chmod(real_dir, 0o755)
+        mode_before = os.stat(real_dir).st_mode
+        profile = tmp_path / "profile_link"
+        profile.symlink_to(real_dir, target_is_directory=True)
+
+        with pytest.raises(OSError, match="symlink"):
+            _secure_open_db(str(profile / "transactions.db"))
+
+        assert os.stat(real_dir).st_mode == mode_before
+
     def test_db_path_derived_from_institution_name(self, chase_backend, tmp_profile_dir):
         expected = str(tmp_profile_dir / "chase_credit_transactions.db")
         assert chase_backend.db_path == expected

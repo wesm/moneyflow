@@ -565,6 +565,34 @@ class TestImportCsv:
         conn.close()
         assert merchants == {"Keep Me", "New Row"}
 
+    def test_category_alias_prevents_resurrection_on_reimport(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """After a structural rename (recorded as an alias), a later import of
+        the bank-provided category name must map to the renamed category
+        instead of recreating the old one."""
+        csv_dir = tmp_path / "csvs_alias"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount,Category\n7/12/2026,Store,-4.50,Shopping\n"
+        )
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+        )
+        test_backend.record_category_alias("cat_shopping", "cat_fun_purchases", "Fun Purchases")
+
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT category, category_id FROM transactions").fetchone()
+        conn.close()
+        assert row == ("Fun Purchases", "cat_fun_purchases")
+
     def test_garbage_category_name_folds_into_default(self, tmp_path, test_mapping, test_backend):
         """A category name that normalizes to nothing (e.g. "!!!") must
         become the default category, not squat on the fallback id with its

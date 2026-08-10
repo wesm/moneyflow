@@ -30,6 +30,9 @@ if IS_WINDOWS:
     from .windows_permissions import (
         require_current_user_ownership_of_fd as require_windows_fd_ownership,
     )
+    from .windows_permissions import (
+        require_directory_not_replaceable_by_untrusted as require_windows_dir_not_replaceable,
+    )
 
     set_windows_owner_only_permissions = set_owner_only_file_permissions
 else:
@@ -37,6 +40,7 @@ else:
     has_owner_only_directory_permissions = None
     open_owner_only_file = None
     require_windows_current_user_ownership = None
+    require_windows_dir_not_replaceable = None
     require_windows_fd_ownership = None
     set_owner_only_directory_permissions = None
     set_windows_owner_only_permissions = None
@@ -80,6 +84,17 @@ def require_current_user_ownership(path: Path | str) -> None:
             "Sensitive path is not owned by the current user",
             str(path),
         )
+
+
+def require_directory_not_replaceable(path: Path | str) -> None:
+    """Fail if an untrusted Windows principal could replace this directory.
+
+    No-op on POSIX, where the ancestor uid/mode checks provide the
+    equivalent guarantee.
+    """
+    if IS_WINDOWS:
+        assert require_windows_dir_not_replaceable is not None
+        require_windows_dir_not_replaceable(path)
 
 
 def require_current_user_fd_ownership(fd: int, path: Path | str) -> None:

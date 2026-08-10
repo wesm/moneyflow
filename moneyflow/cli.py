@@ -6,7 +6,6 @@ Provides Click-based CLI for launching moneyflow with different backends
 """
 
 import dataclasses
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -913,9 +912,10 @@ def import_institution(name, path, force, account, config_dir):
         mapping = dataclasses.replace(mapping, account_label=account)
     config = config_dir or str(PathLib.home() / ".moneyflow")
     profile = PathLib(config) / "profiles" / f"csv_{name}"
-    profile.mkdir(parents=True, exist_ok=True)
-    os.chmod(profile, 0o700)
 
+    # The backend creates the profile directory itself with owner-only
+    # permissions and full path validation — a plain mkdir/chmod here would
+    # follow a symlinked profile directory before any validation runs.
     backend = CsvFinanceBackend(profile_dir=profile, config_dir=config, institution_name=name)
 
     click.echo(f"Importing {mapping.display_name} transactions from {path}...")

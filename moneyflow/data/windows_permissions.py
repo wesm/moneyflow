@@ -110,6 +110,71 @@ def require_current_user_ownership(path: Path | str) -> None:
     _require_current_user_owner(security_descriptor, path)
 
 
+_TRUSTED_ANCESTOR_SIDS = frozenset(
+    {
+        "S-1-5-18",  # LocalSystem
+        "S-1-5-32-544",  # BUILTIN\Administrators
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",  # TrustedInstaller
+    }
+)
+
+# Rights that let a principal delete, rename, or re-ACL a directory (or
+# delete its children) — any of which would allow swapping a validated path
+# component for a junction.
+_DIRECTORY_REPLACE_MASK = (
+    ntsecuritycon.DELETE
+    | ntsecuritycon.WRITE_DAC
+    | ntsecuritycon.WRITE_OWNER
+    | ntsecuritycon.FILE_DELETE_CHILD
+    | ntsecuritycon.GENERIC_ALL
+    | ntsecuritycon.GENERIC_WRITE
+)
+
+
+def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
+    """Fail if an untrusted principal could replace this directory.
+
+    Examines the effective (non-inherit-only) allow ACEs: any principal
+    other than the current user, LocalSystem, Administrators, or
+    TrustedInstaller holding delete/rename/re-ACL rights on the directory —
+    or delete-child rights over its contents — could swap it for a junction
+    that redirects the database path.
+    """
+    try:
+        security_descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    dacl = security_descriptor.GetSecurityDescriptorDacl()
+    if dacl is None:
+        raise PermissionError(
+            errno.EACCES,
+            "Directory has no DACL (everyone has full control)",
+            str(path),
+        )
+    current_sid_string = _sid_string(_current_user_sid())
+    for index in range(dacl.GetAceCount()):
+        ace = dacl.GetAce(index)
+        ace_type, ace_flags = ace[0]
+        if ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE:
+            continue
+        if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
+            continue
+        access_mask, sid = ace[1], ace[2]
+        sid_string = _sid_string(sid)
+        if sid_string == current_sid_string or sid_string in _TRUSTED_ANCESTOR_SIDS:
+            continue
+        if access_mask & _DIRECTORY_REPLACE_MASK:
+            raise PermissionError(
+                errno.EACCES,
+                f"Directory can be replaced by another account ({sid_string})",
+                str(path),
+            )
+
+
 def require_current_user_ownership_of_fd(fd: int, path: Path | str) -> None:
     """Fail unless the file open at fd is owned by the current user.
 
