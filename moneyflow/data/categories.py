@@ -181,22 +181,57 @@ def _get_config_path(
     return base / filename
 
 
-def _load_yaml(path: Path) -> dict:
+class ConfigReadError(Exception):
+    """An existing, trusted config file could not be read or parsed.
+
+    Distinct from a missing or empty file: callers that rewrite the config
+    must abort rather than treat an unreadable file as empty and overwrite
+    the user's settings (and any retained alias records) with defaults.
+
+    Files rejected as *untrusted* (symlink/reparse point, foreign owner,
+    group/other writable) do not raise this — their contents were never the
+    user's data, and the atomic rewrite replaces the planted file, which is
+    the desired remediation.
+    """
+
+
+def _load_yaml_strict(path: Path) -> dict:
+    """Load a config file, raising ConfigReadError if a trusted one fails.
+
+    The config is authoritative (category structure, alias remapping), so it
+    must not be read through a planted symlink or reparse point, and must be
+    owned by the current user and not writable by others — otherwise another
+    local account could dictate how imports are categorized.
+    open_verified_no_follow enforces that on the opened descriptor before any
+    content is parsed.
+    """
     if not path.exists():
         return {}
     try:
-        # The config is authoritative (category structure, alias remapping),
-        # so it must not be read through a planted symlink or reparse point,
-        # and must be owned by the current user and unreadable by others —
-        # otherwise another local account could dictate how imports are
-        # categorized. open_verified_no_follow enforces all of that on the
-        # opened descriptor before any content is parsed.
         fd = open_verified_no_follow(path)
+    except OSError as e:
+        # Untrusted file: never the user's data, so there is nothing to
+        # preserve and a rewrite remediates the planted file.
+        logger.error(f"Refusing to trust config at {path}: {e}")
+        return {}
+    try:
         with os.fdopen(fd, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else {}
     except Exception as e:
         logger.error(f"Failed to load YAML from {path}: {e}")
+        raise ConfigReadError(str(path)) from e
+    return data if isinstance(data, dict) else {}
+
+
+def _load_yaml(path: Path) -> dict:
+    """Load a config file, returning {} when it is missing or unreadable.
+
+    For read-only callers that can safely fall back to defaults. Callers that
+    rewrite the file must use _load_yaml_strict.
+    """
+    try:
+        return _load_yaml_strict(path)
+    except ConfigReadError:
         return {}
 
 
@@ -349,7 +384,11 @@ def save_categories_to_config(
         True if save succeeded, False otherwise.
     """
     config_path = _get_config_path(config_dir)
-    config = _load_yaml(config_path)
+    try:
+        config = _load_yaml_strict(config_path)
+    except ConfigReadError:
+        logger.error(f"Refusing to overwrite unreadable config: {config_path}")
+        return False
 
     config["version"] = 1
     config["fetched_categories"] = category_groups
@@ -383,7 +422,11 @@ def save_categories_to_profile(
     Save category structure to profile-local config.yaml.
     """
     config_path = Path(profile_dir) / "config.yaml"
-    config = _load_yaml(config_path)
+    try:
+        config = _load_yaml_strict(config_path)
+    except ConfigReadError:
+        logger.error(f"Refusing to overwrite unreadable config: {config_path}")
+        return False
 
     config["version"] = 1
     config["fetched_categories"] = category_groups
@@ -410,7 +453,11 @@ def save_pending_category_aliases(
     An empty list removes the key.
     """
     config_path = Path(profile_dir) / "config.yaml"
-    config = _load_yaml(config_path)
+    try:
+        config = _load_yaml_strict(config_path)
+    except ConfigReadError:
+        logger.error(f"Refusing to overwrite unreadable config: {config_path}")
+        return False
     if aliases:
         config[PENDING_ALIASES_KEY] = [list(alias) for alias in aliases]
     else:

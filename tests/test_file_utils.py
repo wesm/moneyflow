@@ -438,3 +438,31 @@ def test_open_verified_no_follow_accepts_private_file(tmp_path: Path) -> None:
         assert os.read(fd, 4) == b"data"
     finally:
         os.close(fd)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+def test_open_verified_no_follow_rejects_dacl_write_access(tmp_path: Path) -> None:
+    """A file whose DACL grants another account write access must not be
+    trusted, even when the current user owns it."""
+    target = tmp_path / "shared.yaml"
+    target.write_text("data")
+    descriptor = win32security.GetNamedSecurityInfo(
+        str(target),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+    )
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    everyone = win32security.ConvertStringSidToSid("S-1-1-0")
+    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.FILE_WRITE_DATA, everyone)
+    win32security.SetNamedSecurityInfo(
+        str(target),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        dacl,
+        None,
+    )
+
+    with pytest.raises(PermissionError):
+        file_utils.open_verified_no_follow(target)

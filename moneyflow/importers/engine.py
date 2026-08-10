@@ -11,6 +11,11 @@ from pathlib import Path
 import polars as pl
 
 from moneyflow.backends.csv_backend import STANDARD_FIELDS, CsvFinanceBackend, _stable_category_id
+from moneyflow.data.categories import (
+    load_pending_category_aliases,
+    save_pending_category_aliases,
+)
+from moneyflow.data.data_manager import flush_category_aliases
 
 
 def _safe_str(val: object) -> str:
@@ -457,6 +462,21 @@ def import_csv(
     conn.close()
     existing_ids: set[str] = {row[0] for row in rows}
     existing_ids.update(row[0] for row in tombstones)
+
+    # Alias records the backend failed to confirm are queued in the profile
+    # config. Flush them first: importing while they are unapplied would
+    # resurrect categories the user renamed, merged, or deleted. If any
+    # cannot be made effective, abort rather than import with a stale map.
+    queued_aliases = load_pending_category_aliases(backend.profile_dir)
+    if queued_aliases:
+        unconfirmed = flush_category_aliases(backend, queued_aliases)
+        save_pending_category_aliases(backend.profile_dir, unconfirmed)
+        if unconfirmed:
+            raise ValueError(
+                f"Cannot import: {len(unconfirmed)} pending category change(s) could not be "
+                "recorded, so imported transactions would use stale categories. "
+                "Resolve the backend error and retry."
+            )
 
     category_aliases = backend.get_category_aliases()
 

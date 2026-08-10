@@ -661,3 +661,29 @@ class TestConfigLoadValidation:
         profile.mkdir()
         assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
         assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestConfigWriteIntegrity:
+    def test_corrupt_config_is_not_overwritten(self, tmp_path):
+        """A trusted but unparsable config must abort the rewrite — treating
+        it as empty would erase the user's settings and retained aliases."""
+        config = tmp_path / "config.yaml"
+        config.write_text("fetched_categories: [unclosed\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is False
+        assert save_pending_category_aliases(tmp_path, [("a", "b", "B")]) is False
+        assert config.read_text() == "fetched_categories: [unclosed\n"
+
+    def test_untrusted_config_is_replaced(self, tmp_path):
+        """A planted symlink was never the user's data — the rewrite
+        replaces it rather than aborting, remediating the plant."""
+        victim = tmp_path / "victim.txt"
+        victim.write_text("precious")
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(victim)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+        assert victim.read_text() == "precious"
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}

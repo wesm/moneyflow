@@ -89,12 +89,25 @@ def flush_category_aliases_durably(
     The remainder is written to the profile config so it survives an
     application exit before a successful retry — otherwise a backend
     failure after the owning changes committed would lose the aliases and
-    let later imports resurrect restructured categories. The isinstance
-    guard skips stub/legacy data managers without a real profile path.
+    let later imports resurrect restructured categories.
+
+    If the queue file cannot be written, the aliases the backend already
+    confirmed are dropped from the returned queue anyway: they are durable
+    in the backend, and replaying them after a restart could overwrite a
+    newer mapping. Only genuinely unconfirmed records are kept, and the
+    stale on-disk queue is corrected by the next successful write.
+    The isinstance guard skips stub/legacy data managers without a real
+    profile path.
     """
     remaining = flush_category_aliases(backend, staged)
     if staged and isinstance(profile_dir, (str, Path)):
-        save_pending_category_aliases(profile_dir, remaining)
+        if not save_pending_category_aliases(profile_dir, remaining):
+            logger.error(
+                "Could not persist the pending category alias queue at %s; "
+                "%d alias record(s) are retained in memory only",
+                profile_dir,
+                len(remaining),
+            )
     return remaining
 
 

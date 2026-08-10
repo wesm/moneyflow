@@ -763,6 +763,71 @@ class TestImportCsv:
         conn.close()
         assert rows == [("Version One", -1.0)]
 
+    def test_import_applies_queued_pending_aliases(self, tmp_path, test_mapping, test_backend):
+        """Aliases queued in the profile config (an earlier backend failure)
+        must be applied before importing, or the import would resurrect the
+        restructured category."""
+        from moneyflow.data.categories import (
+            load_pending_category_aliases,
+            save_pending_category_aliases,
+        )
+
+        csv_dir = tmp_path / "csvs_queued"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount,Category\n7/12/2026,Store,-4.50,Shopping\n"
+        )
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+        )
+        save_pending_category_aliases(
+            test_backend.profile_dir, [("cat_shopping", "cat_fun", "Fun")]
+        )
+
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT category, category_id FROM transactions").fetchone()
+        conn.close()
+        assert row == ("Fun", "cat_fun")
+        # The queue is drained once the backend confirms the records.
+        assert load_pending_category_aliases(test_backend.profile_dir) == []
+
+    def test_import_aborts_when_pending_aliases_cannot_be_applied(
+        self, tmp_path, test_mapping, test_backend, monkeypatch
+    ):
+        """If queued aliases still cannot be recorded, importing would use a
+        stale category map — abort instead."""
+        from moneyflow.data.categories import save_pending_category_aliases
+
+        csv_dir = tmp_path / "csvs_abort"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Store,-4.50\n"
+        )
+        save_pending_category_aliases(
+            test_backend.profile_dir, [("cat_shopping", "cat_fun", "Fun")]
+        )
+
+        def failing(*args):
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr(test_backend, "record_category_alias", failing)
+
+        with pytest.raises(ValueError, match="pending category change"):
+            import_csv(str(csv_dir), test_mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 0
+
     def test_category_alias_prevents_resurrection_on_reimport(
         self, tmp_path, test_mapping, test_backend
     ):

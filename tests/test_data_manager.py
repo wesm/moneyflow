@@ -1822,3 +1822,25 @@ class TestDurableAliasRetention:
         assert flush_category_aliases_durably(working_backend, tmp_path, remaining) == []
         assert recorded == [alias]
         assert load_pending_category_aliases(tmp_path) == []
+
+
+class TestAliasQueuePersistenceFailure:
+    def test_confirmed_aliases_are_not_replayed_when_queue_write_fails(self, tmp_path, monkeypatch):
+        """A queue-write failure must not cause confirmed aliases to be
+        replayed later — they are already durable in the backend, and a
+        replay could overwrite a newer mapping."""
+        recorded = []
+        backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        monkeypatch.setattr(
+            "moneyflow.data.data_manager.save_pending_category_aliases",
+            lambda *args, **kwargs: False,
+        )
+
+        remaining = flush_category_aliases_durably(backend, tmp_path, [("cat_a", "cat_b", "B")])
+
+        assert recorded == [("cat_a", "cat_b", "B")]
+        assert remaining == []  # confirmed, so not queued for replay

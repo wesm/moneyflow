@@ -354,6 +354,67 @@ def has_owner_only_directory_permissions(path: Path | str) -> bool:
 # Not exposed by win32con in all pywin32 releases; value from winbase.h.
 _FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
 
+# Rights that let a principal alter a file's contents or its security, any
+# of which would let another account dictate trusted configuration.
+_FILE_MODIFY_MASK = (
+    ntsecuritycon.FILE_WRITE_DATA
+    | ntsecuritycon.FILE_APPEND_DATA
+    | ntsecuritycon.FILE_WRITE_ATTRIBUTES
+    | ntsecuritycon.FILE_WRITE_EA
+    | ntsecuritycon.DELETE
+    | ntsecuritycon.WRITE_DAC
+    | ntsecuritycon.WRITE_OWNER
+    | ntsecuritycon.GENERIC_ALL
+    | ntsecuritycon.GENERIC_WRITE
+)
+
+
+def _require_no_untrusted_write_access(handle: Any, path: Path | str) -> None:
+    """Reject a file whose DACL lets an untrusted principal modify it.
+
+    Deny ACEs precede allow ACEs in a canonical DACL and are evaluated
+    first, so a principal denied the modify rights is not treated as a
+    threat even if a later allow ACE grants them.
+    """
+    try:
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    dacl = security_descriptor.GetSecurityDescriptorDacl()
+    if dacl is None:
+        raise PermissionError(
+            errno.EACCES, "File has no DACL (everyone has full control)", str(path)
+        )
+
+    current_sid_string = _sid_string(_current_user_sid())
+    trusted = _TRUSTED_ANCESTOR_SIDS | {current_sid_string}
+    denied: dict[str, int] = {}
+    for index in range(dacl.GetAceCount()):
+        ace = dacl.GetAce(index)
+        ace_type, ace_flags = ace[0]
+        if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
+            continue
+        access_mask, sid = ace[1], ace[2]
+        sid_string = _sid_string(sid)
+        if sid_string in trusted:
+            continue
+        if ace_type == win32security.ACCESS_DENIED_ACE_TYPE:
+            denied[sid_string] = denied.get(sid_string, 0) | access_mask
+            continue
+        if ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE:
+            continue
+        effective = access_mask & ~denied.get(sid_string, 0)
+        if effective & _FILE_MODIFY_MASK:
+            raise PermissionError(
+                errno.EACCES,
+                f"File is writable by another account ({sid_string})",
+                str(path),
+            )
+
 
 def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
     """Open a file without following symlinks, junctions, or mount points.
@@ -393,6 +454,7 @@ def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
             win32security.OWNER_SECURITY_INFORMATION,
         )
         _require_current_user_owner(security_descriptor, path)
+        _require_no_untrusted_write_access(handle, path)
         detached_handle = handle.Detach()
         open_osfhandle = getattr(msvcrt, "open_osfhandle")
         flags = os.O_RDONLY if not append else os.O_APPEND | os.O_WRONLY
