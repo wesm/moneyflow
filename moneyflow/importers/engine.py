@@ -398,6 +398,26 @@ def _reconcile_replaced_transactions(
     return removed
 
 
+def _extend_file_snapshot(
+    connection: sqlite3.Connection,
+    resolved_path: str,
+    mapping: InstitutionMapping,
+    produced_ids: set[str],
+) -> None:
+    """Add IDs to a file's snapshot without dropping the previous ones.
+
+    Used when the file had unparsable rows: the previous snapshot must be
+    preserved (its rows may still exist in the file, merely unreadable this
+    time) while newly imported rows still become claimable for reconciliation.
+    """
+    snapshot_key = (resolved_path, mapping.account_label, mapping.name)
+    connection.executemany(
+        "INSERT OR IGNORE INTO import_file_transactions "
+        "(filename, account, mapping_name, txn_id) VALUES (?, ?, ?, ?)",
+        [(*snapshot_key, txn_id) for txn_id in sorted(produced_ids)],
+    )
+
+
 def _replace_file_snapshot(
     connection: sqlite3.Connection,
     resolved_path: str,
@@ -521,12 +541,18 @@ def import_csv(
             # lets a later clean export reconcile correctly.
             removed = 0
             if stats["skipped"]:
+                # Deletions are unsafe: an unparsable row produces no ID and
+                # is indistinguishable from a removed one. The snapshot is
+                # still extended with the IDs this run did produce, so rows
+                # imported now are claimed by the file and a later corrected
+                # import can reconcile them instead of double-counting.
                 logger.warning(
-                    "%s: %d row(s) could not be parsed; skipping reconciliation so "
-                    "previously imported transactions are not removed",
+                    "%s: %d row(s) could not be parsed; recording the imported rows but "
+                    "skipping removals so existing transactions are not lost",
                     csv_file.name,
                     stats["skipped"],
                 )
+                _extend_file_snapshot(import_conn, resolved, mapping, produced_ids)
             else:
                 removed = _reconcile_replaced_transactions(
                     import_conn, resolved, mapping, produced_ids, existing_ids

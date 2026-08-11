@@ -413,7 +413,7 @@ def test_open_verified_no_follow_rejects_symlink(tmp_path: Path) -> None:
     link = tmp_path / "link.txt"
     link.symlink_to(target)
 
-    with pytest.raises(OSError):
+    with pytest.raises(file_utils.UntrustedFileError):
         file_utils.open_verified_no_follow(link)
 
 
@@ -424,7 +424,7 @@ def test_open_verified_no_follow_rejects_group_writable(tmp_path: Path) -> None:
     target.write_text("data")
     target.chmod(0o666)
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(file_utils.UntrustedFileError):
         file_utils.open_verified_no_follow(target)
 
 
@@ -464,5 +464,5 @@ def test_open_verified_no_follow_rejects_dacl_write_access(tmp_path: Path) -> No
         None,
     )
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(file_utils.UntrustedFileError):
         file_utils.open_verified_no_follow(target)

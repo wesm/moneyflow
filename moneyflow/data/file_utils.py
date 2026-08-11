@@ -14,6 +14,8 @@ import tempfile
 from pathlib import Path
 from typing import Union
 
+from .macos_acl import clear_extended_acl_fd, has_extended_acl, has_extended_acl_fd
+
 IS_WINDOWS = sys.platform == "win32"
 
 if IS_WINDOWS:
@@ -90,6 +92,78 @@ def require_current_user_ownership(path: Path | str) -> None:
         )
 
 
+class UntrustedFileError(OSError):
+    """A path failed trust validation (redirection, ownership, or permissions).
+
+    Distinct from ordinary I/O failures: the contents were never the user's
+    data, so callers may replace the object rather than preserving it.
+    """
+
+
+def _is_group_or_other_writable(mode: int) -> bool:
+    return bool(stat.S_IMODE(mode) & 0o022)
+
+
+def validate_trusted_root(path: Path | str) -> None:
+    """Validate a config root and every ancestor once, at startup.
+
+    moneyflow trusts everything beneath a validated config root for the rest
+    of the session: re-walking every ancestor on every file open cannot close
+    the race (the tree is mutable between any two syscalls) and only creates
+    the illusion of doing so. What actually protects the data is establishing
+    that no untrusted account can reach the root — no symlinked, reparse-
+    pointed, foreign-owned, world-writable, or ACL-exposed component — and
+    then opening the files beneath it without following redirection.
+
+    Raises UntrustedFileError if any component is unsafe.
+    """
+    absolute_path = Path(os.path.abspath(path))
+    current = Path(absolute_path.anchor)
+    components = [current] + [(current := current / part) for part in absolute_path.parts[1:]]
+    for component in components:
+        try:
+            component_stat = os.lstat(component)
+        except FileNotFoundError:
+            # Not yet created; ensure_restrictive_directory creates it
+            # privately under an already-validated parent.
+            return
+        except OSError as error:
+            raise UntrustedFileError(
+                errno.EACCES, f"Cannot validate config path component: {error}", str(component)
+            ) from error
+        mode = component_stat.st_mode
+        if stat.S_ISLNK(mode) or getattr(component_stat, "st_file_attributes", 0) & getattr(
+            stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0
+        ):
+            raise UntrustedFileError(
+                errno.EACCES, "Config path component is a symlink or reparse point", str(component)
+            )
+        if not stat.S_ISDIR(mode):
+            raise UntrustedFileError(
+                errno.ENOTDIR, "Config path component is not a directory", str(component)
+            )
+        if IS_WINDOWS:
+            require_directory_not_replaceable(component)
+            continue
+        get_effective_uid = getattr(os, "geteuid", None)
+        if get_effective_uid is not None and component_stat.st_uid not in (0, get_effective_uid()):
+            raise UntrustedFileError(
+                errno.EACCES,
+                "Config path component is not owned by the current user or root",
+                str(component),
+            )
+        if _is_group_or_other_writable(mode) and not mode & stat.S_ISVTX:
+            raise UntrustedFileError(
+                errno.EACCES, "Config path component is group/other writable", str(component)
+            )
+        if has_extended_acl(component):
+            raise UntrustedFileError(
+                errno.EACCES,
+                "Config path component has an extended ACL that may grant other accounts access",
+                str(component),
+            )
+
+
 def open_verified_no_follow(path: Path | str, *, append: bool = False, create: bool = False) -> int:
     """Open a file without following symlinks/reparse points, then validate it.
 
@@ -113,18 +187,46 @@ def open_verified_no_follow(path: Path | str, *, append: bool = False, create: b
     flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     if create:
         flags |= os.O_CREAT
-    fd = os.open(path, flags, 0o600)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            # O_NOFOLLOW refused a symlink: a redirection attempt, not an
+            # ordinary I/O failure.
+            raise UntrustedFileError(
+                errno.EACCES, "Sensitive path is a symlink", str(path)
+            ) from error
+        raise
     try:
         file_stat = os.fstat(fd)
         if not stat.S_ISREG(file_stat.st_mode):
-            raise OSError(errno.EINVAL, "Path is not a regular file", str(path))
+            raise UntrustedFileError(errno.EINVAL, "Path is not a regular file", str(path))
         get_effective_uid = getattr(os, "geteuid", None)
         if get_effective_uid is not None and file_stat.st_uid != get_effective_uid():
-            raise PermissionError(
+            raise UntrustedFileError(
                 errno.EACCES, "Sensitive file is not owned by the current user", str(path)
             )
-        if stat.S_IMODE(file_stat.st_mode) & 0o022:
-            raise PermissionError(errno.EACCES, "Sensitive file is group/other writable", str(path))
+        if _is_group_or_other_writable(file_stat.st_mode):
+            raise UntrustedFileError(
+                errno.EACCES, "Sensitive file is group/other writable", str(path)
+            )
+        # macOS extended ACLs grant access independently of mode bits. A file
+        # we create or append to is ours to normalize; one we only read must
+        # be rejected, since its contents may have been written by whoever
+        # the ACL grants access to.
+        if append or create:
+            if not clear_extended_acl_fd(fd):
+                raise UntrustedFileError(
+                    errno.EACCES,
+                    "Sensitive file has an extended ACL that could not be removed",
+                    str(path),
+                )
+        elif has_extended_acl_fd(fd):
+            raise UntrustedFileError(
+                errno.EACCES,
+                "Sensitive file has an extended ACL granting other accounts access",
+                str(path),
+            )
     except BaseException:
         os.close(fd)
         raise
@@ -255,6 +357,14 @@ def create_restrictive_temp_file(directory: Path, prefix: str) -> tuple[int, str
 
     fd, temp_path = tempfile.mkstemp(dir=directory, prefix=prefix)
     set_restrictive_file_permissions(fd, temp_path)
+    # An ACL inherited from the directory survives chmod and would leave the
+    # replaced file exposed on macOS.
+    if not clear_extended_acl_fd(fd):
+        os.close(fd)
+        os.unlink(temp_path)
+        raise UntrustedFileError(
+            errno.EACCES, "Temporary file has an extended ACL that could not be removed", temp_path
+        )
     return fd, temp_path
 
 

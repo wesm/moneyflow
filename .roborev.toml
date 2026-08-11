@@ -43,6 +43,21 @@ a finding violates.
 - Financial-data correctness (no silent loss, duplication, or
   miscategorization of transactions) is in scope at any severity.
 
+### How path trust is established (architectural decision)
+
+The config root and all its ancestors are validated ONCE per session at
+startup (validate_trusted_root): no symlink/reparse component, each owned
+by the user or root, none group/other writable, no macOS extended ACL.
+Everything beneath a validated root is trusted for the session. Files are
+still opened without following redirection, and the database re-verifies
+its descriptor per connection.
+
+Re-walking ancestors on every open is deliberately NOT the design: it
+cannot close the race (the tree is mutable between any two syscalls), so
+it buys no security. Do not file "call site X does not re-validate its
+ancestors" findings. A valid finding is a new entry point that reaches the
+filesystem before the root has been validated at all.
+
 ### Accepted residual risk (do not file findings for these)
 
 - Python's sqlite3 cannot open a database from a file descriptor or do
@@ -54,11 +69,11 @@ a finding violates.
   accepted residual risk; do not request further guarantees that the
   sqlite3 API cannot express.
 - A user who explicitly points --config-dir at a location whose
-  ancestors are writable by or owned by untrusted accounts. The existing
-  ancestor validation refuses the detectable cases and that is the
-  intended extent of the defense: an attacker with that level of control
-  over the user's chosen paths can compromise the environment more
-  directly than through this application.
+  ancestors are writable by or owned by untrusted accounts. Startup
+  validation refuses the detectable cases and aborts; that is the intended
+  extent of the defense.
+- Anything requiring the attacker to already have write access to the
+  user's home directory, or to run code as the user.
 
 ### Recorded design decisions (do not re-file as findings)
 

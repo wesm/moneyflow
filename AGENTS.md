@@ -520,6 +520,26 @@ financial metadata to the same place.
 - **Financial-data correctness** — no silent loss, duplication, or
   miscategorization of transactions — at any severity.
 
+### How path trust is established (the architectural decision)
+
+The config root and every one of its ancestors are validated **once per
+session**, at startup, by `file_utils.validate_trusted_root`: no symlinked or
+reparse-pointed component, every component owned by the user or root, none
+group/other writable, and no macOS extended ACL. Everything beneath a
+validated root is then trusted for the session.
+
+Individual files under that root are still opened without following
+redirection (`open_verified_no_follow`: `O_NOFOLLOW` / reparse-point
+rejection, plus owner, mode, and ACL checks on the descriptor), and the
+database additionally re-verifies its descriptor on every connection.
+
+Re-walking every ancestor on every open is explicitly **not** the design. It
+cannot close the race — the tree is mutable between any two syscalls — so it
+buys no security while multiplying syscalls and code paths. Findings of the
+form "call site X does not re-validate ancestors" are out of scope; the
+correct question is whether a new entry point reaches the filesystem
+*without* the root having been validated.
+
 ### Accepted residual risk (do not file findings for these)
 
 - Python's `sqlite3` cannot open a database from a descriptor or do
@@ -530,9 +550,11 @@ financial metadata to the same place.
   that defeat all of those simultaneously are accepted; do not request
   guarantees the `sqlite3` API cannot express.
 - A user who explicitly points `--config-dir` at a location whose ancestors
-  are owned or writable by untrusted accounts. Ancestor validation refuses
-  the detectable cases; an attacker with that much control over the user's
-  paths can compromise the environment more directly.
+  are owned or writable by untrusted accounts. Startup validation refuses the
+  detectable cases and aborts; an attacker with that much control over the
+  user's paths can compromise the environment more directly.
+- Anything requiring an attacker to already have write access to the user's
+  home directory or to run code as the user.
 
 ### Recorded design decisions (do not re-litigate)
 

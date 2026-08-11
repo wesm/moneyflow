@@ -1807,11 +1807,11 @@ class TestDurableAliasRetention:
         failing_backend = type("Backend", (), {"record_category_alias": staticmethod(failing)})()
         alias = ("cat_shopping", "cat_fun", "Fun")
         remaining = flush_category_aliases_durably(failing_backend, tmp_path, [alias])
-        assert remaining == [alias]
-        assert load_pending_category_aliases(tmp_path) == [alias]
+        assert [record[:3] for record in remaining] == [alias]
+        assert [record[:3] for record in load_pending_category_aliases(tmp_path)] == [alias]
 
         manager = DataManager(mm=failing_backend, config_dir=str(tmp_path), profile_dir=tmp_path)
-        assert manager.pending_category_aliases == [alias]
+        assert [record[:3] for record in manager.pending_category_aliases] == [alias]
 
         recorded = []
         working_backend = type(
@@ -1820,7 +1820,7 @@ class TestDurableAliasRetention:
             {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
         )()
         assert flush_category_aliases_durably(working_backend, tmp_path, remaining) == []
-        assert recorded == [alias]
+        assert [record[:3] for record in recorded] == [alias]
         assert load_pending_category_aliases(tmp_path) == []
 
 
@@ -1856,28 +1856,22 @@ class TestAliasQueueSelfCorrection:
 
         # The backend already records cat_a with a NEWER target than the
         # stale queue entry, plus an entry that was never confirmed.
+        # The backend recorded cat_a at revision 7 (a NEWER operation than
+        # the queued revision-3 entry) and cat_c at the queued revision.
         backend = type(
             "Backend",
             (),
-            {
-                "get_category_aliases": staticmethod(
-                    lambda: {"cat_a": ("cat_new", "New"), "cat_c": ("cat_d", "D")}
-                )
-            },
+            {"get_category_alias_revisions": staticmethod(lambda: {"cat_a": 7, "cat_c": 4})},
         )()
         save_pending_category_aliases(
             tmp_path,
             [
-                ("cat_a", "cat_old", "Old"),  # stale: backend has a newer target
-                ("cat_c", "cat_d", "D"),  # confirmed identically: drop
-                ("cat_e", "cat_f", "F"),  # genuinely unconfirmed: retry
+                ("cat_a", "cat_old", "Old", 3),  # older than the backend: stale
+                ("cat_c", "cat_d", "D", 4),  # same revision: already confirmed
+                ("cat_e", "cat_f", "F", 5),  # backend has no record: retry
             ],
         )
 
         unconfirmed = load_unconfirmed_category_aliases(backend, tmp_path)
 
-        assert ("cat_c", "cat_d", "D") not in unconfirmed
-        assert ("cat_e", "cat_f", "F") in unconfirmed
-        # The stale entry differs from what the backend records, so it is
-        # retried — recording it is idempotent and flattens correctly.
-        assert ("cat_a", "cat_old", "Old") in unconfirmed
+        assert unconfirmed == [("cat_e", "cat_f", "F")]

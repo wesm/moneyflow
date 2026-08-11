@@ -593,7 +593,7 @@ class TestSecureConfigWrites:
 
 class TestPendingCategoryAliasStorage:
     def test_roundtrip_and_clear(self, tmp_path):
-        aliases = [("cat_a", "cat_b", "B"), ("cat_c", "cat_d", "D")]
+        aliases = [("cat_a", "cat_b", "B", 1), ("cat_c", "cat_d", "D", 2)]
         assert save_pending_category_aliases(tmp_path, aliases) is True
         assert load_pending_category_aliases(tmp_path) == aliases
 
@@ -603,20 +603,25 @@ class TestPendingCategoryAliasStorage:
     def test_survives_alongside_category_config(self, tmp_path):
         """Saving categories must not drop retained alias records and vice
         versa — both live in the same profile config file."""
-        assert save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B")]) is True
+        assert save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B", 1)]) is True
         assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is True
-        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B")]
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 1)]
         assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}
 
     def test_malformed_entries_are_ignored(self, tmp_path):
         (tmp_path / "config.yaml").write_text(
             "pending_category_aliases:\n"
-            "- [cat_a, cat_b, B]\n"
+            "- [cat_a, cat_b, B, 4]\n"
+            "- [cat_legacy, cat_x, X]\n"
             "- [only, two]\n"
             "- not-a-list\n"
             "- [1, 2, 3]\n"
         )
-        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B")]
+        # A pre-revision record defaults to revision 0 (always stale).
+        assert load_pending_category_aliases(tmp_path) == [
+            ("cat_a", "cat_b", "B", 4),
+            ("cat_legacy", "cat_x", "X", 0),
+        ]
 
 
 class TestConfigLoadValidation:

@@ -15,6 +15,7 @@ from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_verified_no_follow,
     set_restrictive_file_permissions,
+    validate_trusted_root,
 )
 
 DEFAULT_LOGGER_NAME = "moneyflow"
@@ -47,8 +48,11 @@ class _RestrictiveFileHandler(logging.FileHandler):
 
 def _get_log_file(config_dir: Optional[str] = None) -> Path:
     log_dir = Path(config_dir).expanduser() if config_dir else Path.home() / DEFAULT_LOG_DIR_NAME
-    # Owner-only, created (or tightened) before the first log line is
-    # written — logging starts before the backends secure their storage.
+    # Logging is the first thing to touch the config directory, so it is
+    # where the trusted root is established: every ancestor is validated
+    # before anything is created or tightened beneath it. Everything else in
+    # the session relies on this having run.
+    validate_trusted_root(log_dir)
     ensure_restrictive_directory(log_dir, parents=True)
     return log_dir / LOG_FILENAME
 

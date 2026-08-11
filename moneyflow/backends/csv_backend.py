@@ -19,6 +19,7 @@ from moneyflow.data.file_utils import (
     require_current_user_fd_ownership,
     require_current_user_ownership,
     require_directory_not_replaceable,
+    validate_trusted_root,
 )
 from moneyflow.data.macos_acl import (
     clear_extended_acl_fd,
@@ -186,6 +187,7 @@ def _secure_open_db(db_path_str: str) -> None:
     # symlinked or junction profile directory must be rejected here, or
     # ensure_restrictive_directory would follow it and tighten the
     # permissions/DACL of whatever directory it points at.
+    validate_trusted_root(db_path.parent)
     _validate_path_components(db_path.parent, allow_missing=True)
     # Create the parent with owner-only permissions using the platform-aware
     # helper (handles Windows DACLs in addition to POSIX mode bits).
@@ -328,7 +330,9 @@ class CsvFinanceBackend(FinanceBackend):
         would split across two ids."""
         return _stable_category_id(name)
 
-    def record_category_alias(self, source_id: str, target_id: str, target_name: str) -> None:
+    def record_category_alias(
+        self, source_id: str, target_id: str, target_name: str, revision: int = 0
+    ) -> None:
         """Persist a structural category mapping (rename, merge, delete).
 
         Imports derive categories from the bank-provided name, so without an
@@ -336,20 +340,39 @@ class CsvFinanceBackend(FinanceBackend):
         merged away, or deleted. Chains are flattened at write time (existing
         aliases pointing at source_id are repointed to the new target) and
         self-aliases from rename-backs are removed.
+
+        Each record stores the monotonic revision of the operation that
+        produced it, so a queued record replayed after a restart can be
+        recognized as older than what the backend already holds.
         """
         conn = self._get_connection()
+        effective_revision = revision or self._next_alias_revision(conn)
         conn.execute(
-            "UPDATE category_aliases SET target_id = ?, target_name = ? WHERE target_id = ?",
-            (target_id, target_name, source_id),
+            "UPDATE category_aliases SET target_id = ?, target_name = ?, revision = ? "
+            "WHERE target_id = ?",
+            (target_id, target_name, effective_revision, source_id),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO category_aliases (source_id, target_id, target_name) "
-            "VALUES (?, ?, ?)",
-            (source_id, target_id, target_name),
+            "INSERT OR REPLACE INTO category_aliases "
+            "(source_id, target_id, target_name, revision) VALUES (?, ?, ?, ?)",
+            (source_id, target_id, target_name, effective_revision),
         )
         conn.execute("DELETE FROM category_aliases WHERE source_id = target_id")
         conn.commit()
         conn.close()
+
+    @staticmethod
+    def _next_alias_revision(conn: sqlite3.Connection) -> int:
+        current = conn.execute("SELECT COALESCE(MAX(revision), 0) FROM category_aliases").fetchone()
+        return int(current[0]) + 1
+
+    def next_category_alias_revision(self) -> int:
+        """Reserve the revision number a new structural edit should carry."""
+        conn = self._get_connection()
+        try:
+            return self._next_alias_revision(conn)
+        finally:
+            conn.close()
 
     def get_category_aliases(self) -> dict[str, tuple[str, str]]:
         """Return {source_id: (target_id, target_name)} for import remapping."""
@@ -359,6 +382,13 @@ class CsvFinanceBackend(FinanceBackend):
         ).fetchall()
         conn.close()
         return {row[0]: (row[1], row[2]) for row in rows}
+
+    def get_category_alias_revisions(self) -> dict[str, int]:
+        """Return {source_id: revision} for queued-record staleness checks."""
+        conn = self._get_connection()
+        rows = conn.execute("SELECT source_id, revision FROM category_aliases").fetchall()
+        conn.close()
+        return {row[0]: int(row[1]) for row in rows}
 
     def _ensure_db_initialized(self) -> None:
         if self._db_initialized:
@@ -394,7 +424,8 @@ class CsvFinanceBackend(FinanceBackend):
             CREATE TABLE IF NOT EXISTS category_aliases (
                 source_id TEXT PRIMARY KEY,
                 target_id TEXT NOT NULL,
-                target_name TEXT NOT NULL
+                target_name TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.execute("""
@@ -420,6 +451,12 @@ class CsvFinanceBackend(FinanceBackend):
                 import_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        alias_cols = {row[1] for row in conn.execute("PRAGMA table_info(category_aliases)")}
+        if "revision" not in alias_cols:
+            conn.execute(
+                "ALTER TABLE category_aliases ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+            )
 
         # Migrate existing transactions tables that lack local_edits
         txn_cols = {row[1] for row in conn.execute("PRAGMA table_info(transactions)")}

@@ -58,9 +58,33 @@ TRANSACTION_SCHEMA: Dict[str, Any] = {
 }
 
 
-def flush_category_aliases(
-    backend: Any, aliases: List[Tuple[str, str, str]]
-) -> List[Tuple[str, str, str]]:
+def assign_alias_revisions(backend: Any, aliases: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+    """Stamp alias records with monotonic revisions from the backend.
+
+    Records already carrying a revision keep it (they were staged earlier and
+    may already be recorded); new ones get consecutive numbers above the
+    backend's highest, so a later operation always outranks an earlier one.
+    """
+    next_revision = getattr(backend, "next_category_alias_revision", None)
+    if next_revision is None:
+        return [tuple(alias) for alias in aliases]
+    try:
+        revision = next_revision()
+    except Exception as error:
+        logger.error(f"Could not reserve a category alias revision: {error}")
+        return [tuple(alias) for alias in aliases]
+    stamped: List[Tuple[Any, ...]] = []
+    for alias in aliases:
+        record = list(alias)
+        if len(record) > 3 and record[3]:
+            stamped.append(tuple(record))
+            continue
+        stamped.append((record[0], record[1], record[2], revision))
+        revision += 1
+    return stamped
+
+
+def flush_category_aliases(backend: Any, aliases: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
     """Persist category alias records to the backend; return the remainder.
 
     Aliases are removed from the result only after the backend confirms
@@ -73,8 +97,9 @@ def flush_category_aliases(
     if record_alias is None:
         return []
     for index, alias in enumerate(aliases):
+        record = list(alias)
         try:
-            record_alias(*alias)
+            record_alias(*record[:4])
         except Exception as error:
             logger.error(f"Failed to persist category alias {alias}: {error}")
             return list(aliases[index:])
@@ -99,6 +124,7 @@ def flush_category_aliases_durably(
     The isinstance guard skips stub/legacy data managers without a real
     profile path.
     """
+    staged = assign_alias_revisions(backend, staged)
     remaining = flush_category_aliases(backend, staged)
     if staged and isinstance(profile_dir, (str, Path)):
         if not save_pending_category_aliases(profile_dir, remaining):
@@ -118,26 +144,37 @@ def flush_category_aliases_durably(
 
 
 def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[str, str, str]]:
-    """Load the queued aliases the backend has not already recorded.
+    """Load the queued aliases that are newer than what the backend records.
 
-    Queue entries the backend already stores identically were confirmed
-    before a failed queue write; replaying them could clobber a newer
-    mapping, so they are dropped here instead of being retried.
+    Each queued record carries the monotonic revision of the operation that
+    produced it. A record is replayed only when the backend holds nothing for
+    that source, or holds an older revision — so an entry left behind by a
+    failed queue cleanup can never overwrite a newer mapping made afterwards.
+    Records written before revisions existed carry 0 and are therefore
+    treated as stale whenever the backend already has that source.
     """
     if not profile_dir:
         return []
     queued = load_pending_category_aliases(profile_dir)
     if not queued:
         return []
-    get_aliases = getattr(backend, "get_category_aliases", None)
-    if get_aliases is None:
-        return queued
+    records = [list(alias) for alias in queued]
+    get_revisions = getattr(backend, "get_category_alias_revisions", None)
+    if get_revisions is None:
+        return [(record[0], record[1], record[2]) for record in records]
     try:
-        recorded = get_aliases()
+        recorded = get_revisions()
     except Exception as error:
-        logger.error(f"Could not read recorded category aliases: {error}")
-        return queued
-    return [alias for alias in queued if recorded.get(alias[0]) != (alias[1], alias[2])]
+        logger.error(f"Could not read recorded category alias revisions: {error}")
+        return [(record[0], record[1], record[2]) for record in records]
+
+    unconfirmed: List[Tuple[str, str, str]] = []
+    for record in records:
+        queued_revision = record[3] if len(record) > 3 else 0
+        recorded_revision = recorded.get(record[0])
+        if recorded_revision is None or queued_revision > recorded_revision:
+            unconfirmed.append((record[0], record[1], record[2]))
+    return unconfirmed
 
 
 def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:

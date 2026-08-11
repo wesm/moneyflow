@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
 
-from .file_utils import open_verified_no_follow, secure_atomic_write
+from .file_utils import UntrustedFileError, open_verified_no_follow, secure_atomic_write
 
 logger = logging.getLogger(__name__)
 
@@ -209,11 +209,17 @@ def _load_yaml_strict(path: Path) -> dict:
         return {}
     try:
         fd = open_verified_no_follow(path)
-    except OSError as e:
+    except UntrustedFileError as e:
         # Untrusted file: never the user's data, so there is nothing to
         # preserve and a rewrite remediates the planted file.
         logger.error(f"Refusing to trust config at {path}: {e}")
         return {}
+    except OSError as e:
+        # Ordinary I/O failure on a file that may well be the user's data
+        # (transient EIO, descriptor exhaustion, locked file). Never treat
+        # this as empty: the caller must abort rather than overwrite it.
+        logger.error(f"Could not open config at {path}: {e}")
+        raise ConfigReadError(str(path)) from e
     try:
         with os.fdopen(fd, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -444,7 +450,7 @@ PENDING_ALIASES_KEY = "pending_category_aliases"
 
 
 def save_pending_category_aliases(
-    profile_dir: Union[str, Path], aliases: List[Tuple[str, str, str]]
+    profile_dir: Union[str, Path], aliases: List[Tuple[Any, ...]]
 ) -> bool:
     """Durably record category-alias records awaiting backend persistence.
 
@@ -467,20 +473,26 @@ def save_pending_category_aliases(
     return _save_yaml(config_path, config)
 
 
-def load_pending_category_aliases(profile_dir: Union[str, Path]) -> List[Tuple[str, str, str]]:
-    """Load durably retained category-alias records, ignoring malformed entries."""
+def load_pending_category_aliases(profile_dir: Union[str, Path]) -> List[Tuple[Any, ...]]:
+    """Load durably retained alias records as (source, target, name, revision).
+
+    Records written before revisions existed default to revision 0, which is
+    older than any recorded backend revision, so they are treated as stale
+    rather than replayed over newer mappings.
+    """
     config = _load_yaml(Path(profile_dir) / "config.yaml")
     raw = config.get(PENDING_ALIASES_KEY, [])
-    aliases: List[Tuple[str, str, str]] = []
+    aliases: List[Tuple[Any, ...]] = []
     if not isinstance(raw, list):
         return aliases
     for item in raw:
         if (
             isinstance(item, (list, tuple))
-            and len(item) == 3
-            and all(isinstance(part, str) for part in item)
+            and len(item) in (3, 4)
+            and all(isinstance(part, str) for part in item[:3])
         ):
-            aliases.append((item[0], item[1], item[2]))
+            revision = item[3] if len(item) == 4 and isinstance(item[3], int) else 0
+            aliases.append((item[0], item[1], item[2], revision))
     return aliases
 
 
