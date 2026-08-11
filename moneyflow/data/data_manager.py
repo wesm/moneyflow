@@ -408,6 +408,20 @@ class DataManager:
         self.pending_category_aliases: List[Tuple[str, str, str]] = (
             load_unconfirmed_category_aliases(mm, profile_dir) if profile_dir else []
         )
+        # Recover a restructure staged by a commit whose profile-config write
+        # failed, so it can be retried instead of being lost on restart.
+        load_staged_state = getattr(mm, "load_pending_category_state", None)
+        if load_staged_state is not None:
+            try:
+                staged_groups, staged_aliases = load_staged_state()
+            except Exception as error:
+                logger.error(f"Could not recover staged category state: {error}")
+            else:
+                if staged_groups is not None:
+                    self.pending_category_groups = staged_groups
+                for alias in staged_aliases:
+                    if alias not in self.pending_category_aliases:
+                        self.pending_category_aliases.append(alias)
         self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
 
@@ -1526,11 +1540,16 @@ class DataManager:
         if not self.category_groups_config:
             return
 
+        # The backend owns its persistent id format: CSV backends use
+        # "cat_"-prefixed ids matching their imports, config-backed backends
+        # the legacy bare slug. Regenerating with the wrong format (this runs
+        # on undo and rollback) would split one category across two ids.
+        make_category_id = getattr(self.mm, "make_category_id", category_slug)
         categories: Dict[str, Dict[str, str]] = {}
         for group_name, cat_names in self.category_groups_config.items():
             group_id = category_slug(group_name)
             for cat_name in cat_names:
-                cat_id = category_slug(cat_name)
+                cat_id = make_category_id(cat_name)
                 categories[cat_id] = {
                     "name": cat_name,
                     "group": group_name,

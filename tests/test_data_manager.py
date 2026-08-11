@@ -1915,3 +1915,50 @@ class TestAliasQueueSelfCorrection:
 
         assert stamped[0] == ("cat_queued", "cat_x", "X", 9)  # existing kept
         assert stamped[1][3] > 9  # new one outranks it
+
+
+class TestBackendAwareCategoryIds:
+    def test_populate_uses_backend_id_format(self, tmp_path):
+        """Undo and rollback repopulate categories from config; using the
+        legacy slug for a CSV backend would split one category across two
+        ids ("groceries" and "cat_groceries")."""
+        from moneyflow.data.categories import stable_category_id
+
+        backend = type("Backend", (), {"make_category_id": staticmethod(stable_category_id)})()
+        manager = DataManager(mm=backend, config_dir=str(tmp_path))
+        manager.categories = {}
+        manager.category_groups_config = {"Expenses": ["Groceries", "Food & Dining"]}
+
+        manager._populate_categories_from_config()
+
+        assert set(manager.categories) == {"cat_groceries", "cat_food_dining"}
+        assert manager.categories["cat_groceries"]["group"] == "Expenses"
+
+    def test_populate_falls_back_to_legacy_slug(self, tmp_path):
+        """Backends without an id factory keep the legacy bare slug, whose
+        format their stored transactions already use."""
+        manager = DataManager(mm=object(), config_dir=str(tmp_path))
+        manager.categories = {}
+        manager.category_groups_config = {"Expenses": ["Groceries"]}
+
+        manager._populate_categories_from_config()
+
+        assert set(manager.categories) == {"groceries"}
+
+
+class TestStagedCategoryStateRecovery:
+    def test_staged_state_is_recovered_on_restart(self, tmp_path):
+        """A restructure staged by a commit whose config write failed must be
+        recovered, not lost, so it can be retried."""
+        staged_groups = {"Group": ["Renamed"]}
+        staged_aliases = [("cat_old", "cat_renamed", "Renamed", 3)]
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                return staged_groups, staged_aliases
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_groups == staged_groups
+        assert manager.pending_category_aliases == staged_aliases

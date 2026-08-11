@@ -392,6 +392,40 @@ class CsvFinanceBackend(FinanceBackend):
         conn.commit()
         conn.close()
 
+    def save_pending_category_state(
+        self, groups: dict[str, list[str]] | None, aliases: list[tuple]
+    ) -> None:
+        """Durably stage category configuration awaiting a profile-config save.
+
+        The profile config is a separate file, so when writing it fails the
+        restructure would otherwise exist only in memory and be lost on exit
+        while its transaction edits stayed committed. This database has just
+        accepted those edits, so it is a working place to park the snapshot
+        until the config write succeeds.
+        """
+        conn = self._get_connection()
+        if groups is None and not aliases:
+            conn.execute("DELETE FROM pending_category_state")
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO pending_category_state (id, groups, aliases) "
+                "VALUES (1, ?, ?)",
+                (json.dumps(groups), json.dumps([list(alias) for alias in aliases])),
+            )
+        conn.commit()
+        conn.close()
+
+    def load_pending_category_state(self) -> tuple[dict[str, list[str]] | None, list[tuple]]:
+        """Return the staged (groups, aliases) awaiting a profile-config save."""
+        conn = self._get_connection()
+        row = conn.execute("SELECT groups, aliases FROM pending_category_state").fetchone()
+        conn.close()
+        if row is None:
+            return None, []
+        groups = json.loads(row[0])
+        aliases = [tuple(alias) for alias in json.loads(row[1])]
+        return groups, aliases
+
     def get_category_aliases(self) -> dict[str, tuple[str, str]]:
         """Return {source_id: (target_id, target_name)} for import remapping.
 
@@ -449,6 +483,13 @@ class CsvFinanceBackend(FinanceBackend):
                 target_id TEXT NOT NULL,
                 target_name TEXT NOT NULL,
                 revision INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pending_category_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                groups TEXT NOT NULL,
+                aliases TEXT NOT NULL
             )
         """)
         conn.execute("""

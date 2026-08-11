@@ -674,3 +674,18 @@ class TestCategoryAliasReset:
         chase_backend.reset_category_alias("cat_shopping")
 
         assert chase_backend.get_category_alias_revisions()["cat_shopping"] > stale_revision
+
+
+class TestPendingCategoryStateStaging:
+    def test_roundtrip_and_clear(self, chase_backend):
+        groups = {"Group": ["Renamed"]}
+        aliases = [("cat_old", "cat_renamed", "Renamed", 3)]
+
+        chase_backend.save_pending_category_state(groups, aliases)
+        assert chase_backend.load_pending_category_state() == (groups, aliases)
+
+        chase_backend.save_pending_category_state(None, [])
+        assert chase_backend.load_pending_category_state() == (None, [])
+
+    def test_empty_when_nothing_staged(self, chase_backend):
+        assert chase_backend.load_pending_category_state() == (None, [])

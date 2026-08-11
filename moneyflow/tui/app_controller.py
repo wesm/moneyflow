@@ -1713,6 +1713,17 @@ class AppController:
                 staged_aliases = list(self.data_manager.pending_category_aliases)
                 for change in self.data_manager.pending_category_changes:
                     staged_aliases.extend(change.category_aliases)
+
+                # Stage the snapshot durably BEFORE dropping the in-memory
+                # changes: the transaction edits are already committed, so if
+                # the profile-config write fails the restructure must still
+                # survive an exit rather than being silently lost.
+                stage_state = getattr(self.data_manager.mm, "save_pending_category_state", None)
+                if stage_state is not None:
+                    try:
+                        stage_state(self.data_manager.pending_category_groups, staged_aliases)
+                    except Exception as error:
+                        logger.error(f"Could not stage pending category state: {error}")
                 self.data_manager.pending_category_changes.clear()
 
                 # Persist the configuration BEFORE recording aliases: an
@@ -1735,6 +1746,12 @@ class AppController:
                             severity="warning",
                             timeout=6,
                         )
+                    elif stage_state is not None:
+                        # Config and aliases are both durable now.
+                        try:
+                            stage_state(None, [])
+                        except Exception as error:
+                            logger.error(f"Could not clear staged category state: {error}")
                 else:
                     self.data_manager.pending_category_aliases = staged_aliases
                 if categories_saved:
