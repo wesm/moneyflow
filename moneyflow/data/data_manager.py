@@ -26,6 +26,7 @@ import polars as pl
 from ..backends.base import FinanceBackend
 from ..logging_config import get_logger
 from .categories import (
+    ConfigReadError,
     build_category_to_group_mapping,
     category_slug,
     convert_api_categories_to_groups,
@@ -177,7 +178,11 @@ def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tu
     """
     if not profile_dir:
         return []
-    queued = load_pending_category_aliases(profile_dir)
+    try:
+        queued = load_pending_category_aliases(profile_dir)
+    except ConfigReadError as error:
+        logger.error(f"Could not read the pending category alias queue: {error}")
+        raise AliasStateUnavailable(str(error)) from error
     if not queued:
         return []
     records = [tuple(alias) for alias in queued]

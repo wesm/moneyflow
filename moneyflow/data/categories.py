@@ -485,23 +485,36 @@ def save_pending_category_aliases(
 def load_pending_category_aliases(profile_dir: Union[str, Path]) -> List[Tuple[Any, ...]]:
     """Load durably retained alias records as (source, target, name, revision).
 
+    Loaded strictly: an unreadable config raises ConfigReadError rather than
+    reporting an empty queue, and a malformed entry does the same. Silently
+    dropping a queued record would let an import proceed without a structural
+    alias and resurrect a renamed, merged, or deleted category.
+
     Records written before revisions existed default to revision 0, which is
     older than any recorded backend revision, so they are treated as stale
     rather than replayed over newer mappings.
     """
-    config = _load_yaml(Path(profile_dir) / "config.yaml")
+    config_path = Path(profile_dir) / "config.yaml"
+    config = _load_yaml_strict(config_path)
     raw = config.get(PENDING_ALIASES_KEY, [])
-    aliases: List[Tuple[Any, ...]] = []
+    if not raw:
+        return []
     if not isinstance(raw, list):
-        return aliases
+        logger.error(f"Pending category aliases in {config_path} are not a list")
+        raise ConfigReadError(str(config_path))
+
+    aliases: List[Tuple[Any, ...]] = []
     for item in raw:
         if (
-            isinstance(item, (list, tuple))
-            and len(item) in (3, 4)
-            and all(isinstance(part, str) for part in item[:3])
+            not isinstance(item, (list, tuple))
+            or len(item) not in (3, 4)
+            or not all(isinstance(part, str) for part in item[:3])
+            or (len(item) == 4 and not isinstance(item[3], int))
         ):
-            revision = item[3] if len(item) == 4 and isinstance(item[3], int) else 0
-            aliases.append((item[0], item[1], item[2], revision))
+            logger.error(f"Malformed pending category alias in {config_path}: {item!r}")
+            raise ConfigReadError(str(config_path))
+        revision = item[3] if len(item) == 4 else 0
+        aliases.append((item[0], item[1], item[2], revision))
     return aliases
 
 

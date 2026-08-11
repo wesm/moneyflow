@@ -682,6 +682,83 @@ class TestImportCsv:
         assert row[2] == "corrected memo"
         assert json.loads(row[3])["type"] == "Sale"
 
+    def test_reference_keyed_mapping_applies_core_corrections(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """With a stable institution reference in dedup_fields the ID does not
+        change when the bank corrects a date, amount, or merchant — so those
+        corrections must be applied to the existing row rather than dropped."""
+        csv_dir = tmp_path / "csvs_reference"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Reference": "reference",
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+            },
+            dedup_fields=("reference",),
+            extra_columns=("reference",),
+        )
+        csv_file.write_text(
+            "Reference,Transaction Date,Description,Amount\nREF-1,7/12/2026,Coffe,-4.50\n"
+        )
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+
+        csv_file.write_text(
+            "Reference,Transaction Date,Description,Amount\nREF-1,7/13/2026,Coffee Shop,-5.50\n"
+        )
+        result = import_csv(str(csv_dir), mapping, test_backend)
+        assert result["imported"] == 0
+        assert result["duplicates"] == 1
+
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT date, amount, merchant FROM transactions").fetchone()
+        conn.close()
+        assert row == ("2026-07-13", -5.5, "Coffee Shop")
+
+    def test_reference_keyed_correction_preserves_local_merchant_edit(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A merchant the user renamed must survive a reissued file, while
+        the untouched date and amount are still corrected."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_reference_edit"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Reference": "reference",
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+            },
+            dedup_fields=("reference",),
+        )
+        csv_file.write_text(
+            "Reference,Transaction Date,Description,Amount\nREF-1,7/12/2026,SQ *COFFEE,-4.50\n"
+        )
+        import_csv(str(csv_dir), mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        txn_id = conn.execute("SELECT id FROM transactions").fetchone()[0]
+        conn.close()
+        asyncio.run(test_backend.update_transaction(txn_id, merchant_name="My Coffee Shop"))
+
+        csv_file.write_text(
+            "Reference,Transaction Date,Description,Amount\nREF-1,7/13/2026,SQ *COFFEE INC,-5.50\n"
+        )
+        import_csv(str(csv_dir), mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT date, amount, merchant FROM transactions").fetchone()
+        conn.close()
+        assert row == ("2026-07-13", -5.5, "My Coffee Shop")
+
     def test_reissued_file_preserves_local_category_edit(
         self, tmp_path, test_mapping, test_backend
     ):

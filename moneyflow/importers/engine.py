@@ -295,13 +295,19 @@ def _process_file(
         extras_json = json.dumps(extras)
 
         if txn_id in existing_ids:
-            # The identity fields (the dedup key) are unchanged, but a
-            # reissued file may carry corrected category, notes, account, or
-            # extra columns. Refresh those, skipping any field the user has
-            # edited locally, so corrections are not permanently discarded.
+            # The dedup key is unchanged, but every other field may have been
+            # corrected by a reissued file. Refresh them all, skipping any
+            # field the user edited locally, so corrections are not
+            # permanently discarded. Date, amount, and merchant are only
+            # reachable here when they are NOT part of the dedup key (a
+            # mapping keyed on an institution reference) — when they are, a
+            # change produces a different ID and this branch is not taken.
             duplicates += 1
             update_batch.append(
                 (
+                    date_val,
+                    amount_val,
+                    merchant_val,
                     category_val,
                     category_id_val,
                     account_val,
@@ -343,6 +349,10 @@ def _process_file(
         # column keeps its current value when named there.
         connection.executemany(
             """UPDATE transactions SET
+                   date = ?,
+                   amount = ?,
+                   merchant = CASE WHEN instr(local_edits, '"merchant"') > 0
+                       THEN merchant ELSE ? END,
                    category = CASE WHEN instr(local_edits, '"category"') > 0
                        THEN category ELSE ? END,
                    category_id = CASE WHEN instr(local_edits, '"category"') > 0

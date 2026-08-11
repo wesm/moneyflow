@@ -1716,11 +1716,6 @@ class MoneyflowApp(App):
                             "group_id": category_slug(chosen_group),
                             "group_type": "",
                         }
-                        # This id is live again: cancel any alias left from a
-                        # previous rename/merge/delete of the same category.
-                        reset_alias = getattr(self.backend, "reset_category_alias", None)
-                        if reset_alias is not None:
-                            reset_alias(cat_id)
                         new_category_id = cat_id
                         groups = categories_dict_to_config_groups(self.data_manager.categories)
                         has_pending_structure = bool(
@@ -1755,6 +1750,11 @@ class MoneyflowApp(App):
                             # category just created.
                             self._flush_pending_category_aliases()
                             self._clear_deferred_category_groups()
+                        # The id is live again: cancel any alias left by a
+                        # previous rename/merge/delete of the same category.
+                        # Staged only now that the configuration is saved, so
+                        # a failed save cannot leave the reset applied.
+                        self._persist_category_aliases([(cat_id, cat_id, "")])
                         self.data_manager.category_groups_config = groups
                         self.data_manager.category_to_group = build_category_to_group_mapping(
                             groups

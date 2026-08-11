@@ -13,6 +13,7 @@ from moneyflow.backends.amazon import get_amazon_category_source, get_amazon_inh
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.categories import (
     DEFAULT_CATEGORY_GROUPS,
+    ConfigReadError,
     build_category_to_group_mapping,
     category_equivalence_key,
     category_slug,
@@ -610,20 +611,33 @@ class TestPendingCategoryAliasStorage:
         assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 1)]
         assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}
 
-    def test_malformed_entries_are_ignored(self, tmp_path):
+    def test_malformed_entries_are_rejected(self, tmp_path):
+        """A malformed queue entry must not be silently dropped: the missing
+        alias would let an import resurrect a restructured category."""
         (tmp_path / "config.yaml").write_text(
-            "pending_category_aliases:\n"
-            "- [cat_a, cat_b, B, 4]\n"
-            "- [cat_legacy, cat_x, X]\n"
-            "- [only, two]\n"
-            "- not-a-list\n"
-            "- [1, 2, 3]\n"
+            "pending_category_aliases:\n- [cat_a, cat_b, B, 4]\n- [only, two]\n"
         )
-        # A pre-revision record defaults to revision 0 (always stale).
+
+        with pytest.raises(ConfigReadError):
+            load_pending_category_aliases(tmp_path)
+
+    def test_pre_revision_entries_default_to_zero(self, tmp_path):
+        (tmp_path / "config.yaml").write_text(
+            "pending_category_aliases:\n- [cat_a, cat_b, B, 4]\n- [cat_legacy, cat_x, X]\n"
+        )
+
         assert load_pending_category_aliases(tmp_path) == [
             ("cat_a", "cat_b", "B", 4),
             ("cat_legacy", "cat_x", "X", 0),
         ]
+
+    def test_unreadable_config_raises_rather_than_reporting_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("pending_category_aliases: [unclosed\n")
+        config.chmod(0o600)
+
+        with pytest.raises(ConfigReadError):
+            load_pending_category_aliases(tmp_path)
 
 
 class TestConfigLoadValidation:

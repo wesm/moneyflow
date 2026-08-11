@@ -853,7 +853,12 @@ class TestLocalCategoryCreation:
         await app._edit_category()
 
         assert saved_groups == [{"Group": ["Target", "New Category"]}]
-        assert recorded == [("cat_old", "cat_new", "New")]
+        # The retained alias is flushed, followed by a self-referencing reset
+        # cancelling any alias left on the recreated id.
+        assert recorded == [
+            ("cat_old", "cat_new", "New"),
+            ("new_category", "new_category", ""),
+        ]
         assert app.data_manager.pending_category_aliases == []
         assert app.data_manager.pending_category_groups is None
 

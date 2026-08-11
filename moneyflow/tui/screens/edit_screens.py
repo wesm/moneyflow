@@ -1513,6 +1513,11 @@ class ManageCategoriesScreen(ModalScreen):
             "group_id": re.sub(r"[^a-z0-9]+", "_", group.lower()).strip("_"),
             "group_type": "",
         }
+        # This id is live again: a self-referencing record cancels any alias
+        # left by a previous rename, merge, or delete of the same category.
+        # Buffered like the others so it is persisted only after the
+        # configuration saves.
+        self.recorded_aliases.append((cat_id, cat_id, ""))
         self._dirty = True
         self._build_category_order()
         self._selected_index = (
