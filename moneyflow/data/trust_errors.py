@@ -9,11 +9,16 @@ import errno
 from pathlib import Path
 
 
-class UntrustedFileError(OSError):
+class UntrustedFileError(PermissionError):
     """A path failed trust validation (redirection, ownership, or permissions).
 
     Distinct from ordinary I/O failures: the contents were never the user's
     data, so callers may replace the object rather than preserving it.
+
+    Subclasses PermissionError (itself an OSError) because every trust
+    failure is a permission problem — callers that already handle
+    PermissionError keep working, while callers that need the distinction
+    catch UntrustedFileError before the general OSError branch.
     """
 
 

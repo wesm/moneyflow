@@ -4,6 +4,8 @@ Tests for category configuration system.
 Tests the category loading, merging, and customization logic.
 """
 
+import os
+
 import pytest
 import yaml
 
@@ -638,9 +640,14 @@ class TestConfigLoadValidation:
         assert load_categories_from_profile(profile) is None
         assert load_pending_category_aliases(profile) == []
 
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits; Windows uses DACLs")
     def test_group_writable_config_is_rejected(self, tmp_path):
         """A config another local account can write must not be trusted — it
-        could dictate category structure and alias remapping."""
+        could dictate category structure and alias remapping.
+
+        Windows ignores POSIX mode bits; its equivalent coverage is
+        test_open_verified_no_follow_rejects_dacl_write_access.
+        """
         profile = tmp_path / "profile"
         profile.mkdir()
         config = profile / "config.yaml"
