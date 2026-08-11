@@ -13,6 +13,8 @@ import win32con  # pyright: ignore[reportMissingImports, reportMissingModuleSour
 import win32file  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 import win32security  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 
+from .trust_errors import untrusted
+
 
 def _current_user_sid() -> Any:
     process_token = win32security.OpenProcessToken(
@@ -89,11 +91,7 @@ def _require_current_user_owner(security_descriptor: Any, path: Path | str) -> b
     is_user_owner = owner_sid_string == _sid_string(_current_user_sid())
     is_token_owner = owner_sid_string == _sid_string(_current_default_owner_sid())
     if not is_user_owner and not is_token_owner:
-        raise PermissionError(
-            errno.EACCES,
-            "Sensitive path is not owned by the current user",
-            str(path),
-        )
+        raise untrusted("Sensitive path is not owned by the current user", path)
     return is_user_owner
 
 
@@ -386,9 +384,7 @@ def _require_no_untrusted_write_access(handle: Any, path: Path | str) -> None:
         raise _as_os_error(error, path) from error
     dacl = security_descriptor.GetSecurityDescriptorDacl()
     if dacl is None:
-        raise PermissionError(
-            errno.EACCES, "File has no DACL (everyone has full control)", str(path)
-        )
+        raise untrusted("File has no DACL (everyone has full control)", path)
 
     current_sid_string = _sid_string(_current_user_sid())
     trusted = _TRUSTED_ANCESTOR_SIDS | {current_sid_string}
@@ -409,11 +405,7 @@ def _require_no_untrusted_write_access(handle: Any, path: Path | str) -> None:
             continue
         effective = access_mask & ~denied.get(sid_string, 0)
         if effective & _FILE_MODIFY_MASK:
-            raise PermissionError(
-                errno.EACCES,
-                f"File is writable by another account ({sid_string})",
-                str(path),
-            )
+            raise untrusted(f"File is writable by another account ({sid_string})", path)
 
 
 def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
@@ -449,9 +441,9 @@ def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
     try:
         attributes = win32file.GetFileInformationByHandle(handle)[0]
         if attributes & win32con.FILE_ATTRIBUTE_REPARSE_POINT:
-            raise OSError(f"Path is a reparse point: {path}")
+            raise untrusted("Sensitive path is a reparse point", path)
         if attributes & win32con.FILE_ATTRIBUTE_DIRECTORY:
-            raise OSError(f"Path is not a regular file: {path}")
+            raise untrusted("Sensitive path is not a regular file", path)
         security_descriptor = win32security.GetSecurityInfo(
             handle,
             win32security.SE_FILE_OBJECT,

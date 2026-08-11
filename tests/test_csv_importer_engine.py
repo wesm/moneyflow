@@ -731,10 +731,13 @@ class TestImportCsv:
         assert row[1] == "cat_coffee_shops"
         assert row[2] == "corrected memo"
 
-    def test_identity_correction_preserves_local_edits(self, tmp_path, test_mapping, test_backend):
-        """Correcting an identity field (amount) changes the transaction ID.
-        The user's edits must move to the replacement row, not be discarded
-        with the obsolete one."""
+    def test_identity_correction_keeps_locally_edited_row(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """Correcting an identity field changes the transaction ID. Nothing
+        proves the new row replaces the old one (in a rolling export the
+        oldest row simply drops off), so a locally edited row is kept rather
+        than deleted or having its edits moved onto an unrelated row."""
         import asyncio
 
         csv_dir = tmp_path / "csvs_identity"
@@ -748,37 +751,29 @@ class TestImportCsv:
         conn.close()
         asyncio.run(
             test_backend.update_transaction(
-                old_id,
-                merchant_name="My Coffee Shop",
-                category_id="cat_coffee_shops",
-                category_name="Coffee Shops",
-                hide_from_reports=True,
+                old_id, merchant_name="My Coffee Shop", hide_from_reports=True
             )
         )
 
-        # The bank corrects the amount, which changes the generated ID.
         csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n")
         result = import_csv(str(csv_dir), test_mapping, test_backend)
         assert result["imported"] == 1
-        assert result["removed"] == 1
+        assert result["removed"] == 0  # the edited row is preserved, not deleted
 
         conn = test_backend._get_connection()
-        rows = conn.execute(
-            "SELECT id, amount, merchant, category, hideFromReports FROM transactions"
-        ).fetchall()
+        rows = {
+            (r[0], r[1])
+            for r in conn.execute("SELECT merchant, amount FROM transactions").fetchall()
+        }
         conn.close()
-        assert len(rows) == 1
-        assert rows[0][0] != old_id
-        assert rows[0][1] == -5.5  # corrected identity field applied
-        assert rows[0][2] == "My Coffee Shop"  # local edits carried over
-        assert rows[0][3] == "Coffee Shops"
-        assert rows[0][4] == 1
+        assert ("My Coffee Shop", -4.5) in rows  # edits intact on the original row
+        assert ("Coffee", -5.5) in rows  # corrected row imported alongside
 
-    def test_identity_correction_carries_deletion_tombstone(
+    def test_identity_correction_does_not_transfer_tombstone(
         self, tmp_path, test_mapping, test_backend
     ):
-        """A transaction the user deleted must stay deleted even when the
-        reissued file corrects the fields its ID is derived from."""
+        """A tombstone must not follow a guessed pairing onto a different
+        transaction — that would delete a row the user never deleted."""
         import asyncio
 
         csv_dir = tmp_path / "csvs_tombstone_identity"
@@ -792,13 +787,16 @@ class TestImportCsv:
         conn.close()
         assert asyncio.run(test_backend.delete_transaction(old_id)) is True
 
-        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n")
+        # A later export drops the deleted row and carries a different one.
+        csv_file.write_text("Transaction Date,Description,Amount\n7/13/2026,Books,-20.00\n")
         import_csv(str(csv_dir), test_mapping, test_backend)
 
         conn = test_backend._get_connection()
-        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        rows = [r[0] for r in conn.execute("SELECT merchant FROM transactions").fetchall()]
+        tombstones = conn.execute("SELECT COUNT(*) FROM deleted_transactions").fetchone()[0]
         conn.close()
-        assert count == 0
+        assert rows == ["Books"]  # the unrelated new row survives
+        assert tombstones == 1  # only the row the user actually deleted
 
     def test_ambiguous_correction_keeps_locally_edited_rows(
         self, tmp_path, test_mapping, test_backend

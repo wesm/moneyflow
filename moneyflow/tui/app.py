@@ -2234,12 +2234,11 @@ class MoneyflowApp(App):
 
         count = self.data_manager.get_stats()["pending_changes"]
         if count == 0:
-            # Retry alias records retained from an earlier failed persistence
-            # even when no config snapshot is pending.
-            if getattr(self.data_manager, "pending_category_aliases", []):
-                self._flush_pending_category_aliases()
             pending_groups = self.data_manager.pending_category_groups
             if pending_groups is not None and self.data_manager.profile_dir:
+                # Configuration first: an alias made effective while its
+                # configuration is still unsaved leaves the rename/merge/
+                # delete half-applied across a restart.
                 if save_categories_to_profile(
                     pending_groups, profile_dir=self.data_manager.profile_dir
                 ):
@@ -2252,6 +2251,12 @@ class MoneyflowApp(App):
                         severity="error",
                         timeout=6,
                     )
+                return
+            # No configuration snapshot is pending, so retained aliases have
+            # no unsaved config to outlive — retry them on their own.
+            if getattr(self.data_manager, "pending_category_aliases", []):
+                self._flush_pending_category_aliases()
+                self.notify("Category changes recorded.", timeout=2)
                 return
             self._notify(notification_helper.NO_PENDING_CHANGES)
             return

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Union
 
 from .macos_acl import clear_extended_acl_fd, has_extended_acl, has_extended_acl_fd
+from .trust_errors import UntrustedFileError
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -90,14 +91,6 @@ def require_current_user_ownership(path: Path | str) -> None:
             "Sensitive path is not owned by the current user",
             str(path),
         )
-
-
-class UntrustedFileError(OSError):
-    """A path failed trust validation (redirection, ownership, or permissions).
-
-    Distinct from ordinary I/O failures: the contents were never the user's
-    data, so callers may replace the object rather than preserving it.
-    """
 
 
 def _is_group_or_other_writable(mode: int) -> bool:

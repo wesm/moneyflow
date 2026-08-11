@@ -8,6 +8,8 @@ Tests cover:
 """
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -466,3 +468,21 @@ def test_open_verified_no_follow_rejects_dacl_write_access(tmp_path: Path) -> No
 
     with pytest.raises(file_utils.UntrustedFileError):
         file_utils.open_verified_no_follow(target)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extended ACLs")
+def test_deny_only_acl_does_not_block_startup(tmp_path: Path) -> None:
+    """ "everyone deny delete" is inherited by ordinary macOS home
+    directories; rejecting it would refuse to start on stock systems."""
+    subprocess.run(["chmod", "+a", "everyone deny delete", str(tmp_path)], check=True)
+
+    file_utils.validate_trusted_root(tmp_path / "moneyflow")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extended ACLs")
+def test_allow_acl_for_other_account_blocks_startup(tmp_path: Path) -> None:
+    """An allow entry naming another principal does expose the directory."""
+    subprocess.run(["chmod", "+a", "everyone allow read", str(tmp_path)], check=True)
+
+    with pytest.raises(file_utils.UntrustedFileError):
+        file_utils.validate_trusted_root(tmp_path / "moneyflow")
