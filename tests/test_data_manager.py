@@ -1962,3 +1962,41 @@ class TestStagedCategoryStateRecovery:
 
         assert manager.pending_category_groups == staged_groups
         assert manager.pending_category_aliases == staged_aliases
+
+
+class TestStagedStateAfterSuccessfulRetry:
+    def test_recorded_staged_aliases_are_not_requeued(self, tmp_path):
+        """failure -> retry -> restart: once the retry recorded the aliases,
+        a staged copy that outlived it must not be replayed, or it would
+        restamp a stale mapping with a fresh revision."""
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                # Staged during the failed save, left behind afterwards.
+                return {"Group": ["Renamed"]}, [("cat_old", "cat_renamed", "Renamed", 3)]
+
+            @staticmethod
+            def get_category_alias_revisions():
+                # The retry recorded it at the same revision.
+                return {"cat_old": 3}
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_aliases == []
+
+    def test_unrecorded_staged_aliases_are_requeued(self, tmp_path):
+        """A staged alias the backend never recorded is still retried."""
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                return {"Group": ["Renamed"]}, [("cat_old", "cat_renamed", "Renamed", 3)]
+
+            @staticmethod
+            def get_category_alias_revisions():
+                return {}
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_aliases == [("cat_old", "cat_renamed", "Renamed", 3)]

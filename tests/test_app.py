@@ -1835,3 +1835,63 @@ class TestGroupManagerPersistence:
         assert app.data_manager.category_groups_config == persisted_groups
         assert "source-category" in app.data_manager.categories
         assert app.data_manager.pending_edits == [ordinary_category_edit]
+
+
+class TestStagedCategoryStateCleanup:
+    """A successful retry must discard the backend-staged snapshot, or the
+    next startup restores an already-completed restructure."""
+
+    def _app_with_pending(self, monkeypatch, staged_calls, pending_aliases):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            pending_category_groups = {"Group": ["Renamed"]}
+            pending_category_changes = []
+            pending_category_aliases = list(pending_aliases)
+            profile_dir = object()
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "record_category_alias": staticmethod(lambda *args: None),
+                "save_pending_category_state": staticmethod(
+                    lambda groups, aliases: staged_calls.append((groups, list(aliases)))
+                ),
+            },
+        )()
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *a, **k: True)
+        monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+        return app
+
+    def test_successful_retry_clears_staged_state(self, monkeypatch):
+        staged_calls = []
+        app = self._app_with_pending(monkeypatch, staged_calls, [])
+
+        app.action_review_and_commit()
+
+        assert staged_calls == [(None, [])]
+        assert app.data_manager.pending_category_groups is None
+
+    def test_staged_state_survives_while_aliases_remain_pending(self, monkeypatch):
+        """If aliases still await the backend, the staged copy is their only
+        durable record and must not be discarded."""
+        staged_calls = []
+        app = self._app_with_pending(monkeypatch, staged_calls, [])
+
+        def failing(*args):
+            raise RuntimeError("database is locked")
+
+        app.backend.record_category_alias = failing
+        app.data_manager.pending_category_aliases = [("cat_a", "cat_b", "B", 1)]
+
+        app.action_review_and_commit()
+
+        assert staged_calls == []

@@ -1205,11 +1205,26 @@ class MoneyflowApp(App):
             )
 
     def _clear_deferred_category_groups(self) -> None:
-        """Clear category configuration waiting on transaction edits."""
+        """Clear category configuration waiting on transaction edits.
+
+        Also discards the copy staged in the backend once nothing is left
+        pending: leaving it behind would restore an already-completed
+        snapshot at the next startup and overwrite newer configuration.
+        """
         if self.data_manager is None:
             return
         self.data_manager.pending_category_groups = None
         self.data_manager.pending_category_changes.clear()
+        if self.data_manager.pending_category_aliases:
+            # Aliases still awaiting the backend: the staged copy is the only
+            # durable record of them, so it must survive.
+            return
+        clear_staged = getattr(self.backend, "save_pending_category_state", None)
+        if clear_staged is not None:
+            try:
+                clear_staged(None, [])
+            except Exception as error:
+                get_logger(__name__).error(f"Could not clear staged category state: {error}")
 
     def _undo_deferred_category_change(self) -> list[tuple[str, str, datetime]]:
         """Undo the newest structural category operation without touching newer edits."""

@@ -161,6 +161,31 @@ class AliasStateUnavailable(Exception):
     """
 
 
+def _drop_recorded_aliases(backend: Any, records: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+    """Return the records the backend has not already recorded at least as new.
+
+    Shared by the profile-config queue and the backend-staged copy: both can
+    outlive a successful write, and replaying an already-recorded mapping
+    could overwrite a newer one.
+    """
+    get_revisions = getattr(backend, "get_category_alias_revisions", None)
+    if get_revisions is None:
+        return list(records)
+    try:
+        recorded = get_revisions()
+    except Exception as error:
+        logger.error(f"Could not read recorded category alias revisions: {error}")
+        return list(records)
+    unconfirmed: List[Tuple[Any, ...]] = []
+    for record in records:
+        values = list(record)
+        queued_revision = values[3] if len(values) > 3 else 0
+        recorded_revision = recorded.get(values[0])
+        if recorded_revision is None or queued_revision > recorded_revision:
+            unconfirmed.append(tuple(record))
+    return unconfirmed
+
+
 def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[Any, ...]]:
     """Load the queued aliases that are newer than what the backend records.
 
@@ -419,7 +444,10 @@ class DataManager:
             else:
                 if staged_groups is not None:
                     self.pending_category_groups = staged_groups
-                for alias in staged_aliases:
+                # Reconcile against the backend before requeuing: a retry may
+                # have recorded these already, and replaying them would
+                # restamp stale mappings with fresh revisions.
+                for alias in _drop_recorded_aliases(mm, staged_aliases):
                     if alias not in self.pending_category_aliases:
                         self.pending_category_aliases.append(alias)
         self.pending_category_changes: List[DeferredCategoryChange] = []
