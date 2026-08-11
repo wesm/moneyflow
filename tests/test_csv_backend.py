@@ -652,3 +652,25 @@ class TestMacosExtendedAcls:
 
         with pytest.raises(OSError, match="extended ACL"):
             chase_backend._get_connection()
+
+
+class TestCategoryAliasReset:
+    def test_recreating_a_category_cancels_its_alias(self, chase_backend):
+        """Recreating a deleted or merged category reuses its stable id; the
+        old alias must stop remapping imported rows to the previous target."""
+        chase_backend.record_category_alias("cat_shopping", "cat_uncategorized", "Uncategorized")
+        assert "cat_shopping" in chase_backend.get_category_aliases()
+
+        chase_backend.reset_category_alias("cat_shopping")
+
+        assert "cat_shopping" not in chase_backend.get_category_aliases()
+
+    def test_reset_outranks_a_queued_stale_alias(self, chase_backend):
+        """The reset is recorded at a fresh revision, so a queued copy of the
+        old alias is recognized as stale rather than replayed over it."""
+        chase_backend.record_category_alias("cat_shopping", "cat_uncategorized", "Uncategorized")
+        stale_revision = chase_backend.get_category_alias_revisions()["cat_shopping"]
+
+        chase_backend.reset_category_alias("cat_shopping")
+
+        assert chase_backend.get_category_alias_revisions()["cat_shopping"] > stale_revision

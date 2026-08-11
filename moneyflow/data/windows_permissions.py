@@ -125,16 +125,21 @@ _DIRECTORY_REPLACE_MASK = (
     | ntsecuritycon.WRITE_DAC
     | ntsecuritycon.WRITE_OWNER
     | ntsecuritycon.FILE_DELETE_CHILD
-    | ntsecuritycon.FILE_ADD_FILE
-    | ntsecuritycon.FILE_ADD_SUBDIRECTORY
-    | ntsecuritycon.FILE_WRITE_ATTRIBUTES
-    | ntsecuritycon.FILE_WRITE_EA
     | ntsecuritycon.GENERIC_ALL
-    | ntsecuritycon.GENERIC_WRITE
+)
+
+# Creating children only matters where a component does not exist yet and
+# could therefore be planted. Stock system-drive ancestors (C:\ grants
+# Authenticated Users "create folders / append data") legitimately allow it,
+# and rejecting that would refuse to start on a default Windows install.
+_DIRECTORY_PLANT_MASK = (
+    ntsecuritycon.FILE_ADD_FILE | ntsecuritycon.FILE_ADD_SUBDIRECTORY | ntsecuritycon.GENERIC_WRITE
 )
 
 
-def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
+def require_directory_not_replaceable_by_untrusted(
+    path: Path | str, *, forbid_child_creation: bool = False
+) -> None:
     """Fail if an untrusted principal could replace this directory.
 
     Two checks are required. The owner must be trusted: an owner implicitly
@@ -145,7 +150,15 @@ def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
     TrustedInstaller delete/rename/re-ACL rights on the directory — or
     delete-child rights over its contents — since any of those would let it
     be swapped for a junction that redirects the database path.
+
+    With forbid_child_creation, rights to create children are rejected too.
+    That is only meaningful for the deepest existing component, whose missing
+    child could be planted; applying it to every ancestor would reject stock
+    OS-managed roots that grant Authenticated Users create-folder rights.
     """
+    unsafe_mask = _DIRECTORY_REPLACE_MASK
+    if forbid_child_creation:
+        unsafe_mask |= _DIRECTORY_PLANT_MASK
     try:
         security_descriptor = win32security.GetNamedSecurityInfo(
             str(path),
@@ -186,7 +199,7 @@ def require_directory_not_replaceable_by_untrusted(path: Path | str) -> None:
         sid_string = _sid_string(sid)
         if sid_string == current_sid_string or sid_string in _TRUSTED_ANCESTOR_SIDS:
             continue
-        if access_mask & _DIRECTORY_REPLACE_MASK:
+        if access_mask & unsafe_mask:
             raise PermissionError(
                 errno.EACCES,
                 f"Directory can be replaced by another account ({sid_string})",

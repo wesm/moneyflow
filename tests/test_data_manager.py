@@ -5,6 +5,7 @@ Tests for DataManager operations including aggregation, filtering, and API integ
 from datetime import datetime
 
 import polars as pl
+import pytest
 
 from moneyflow.data.categories import load_pending_category_aliases
 from moneyflow.data.data_manager import (
@@ -1878,14 +1879,18 @@ class TestAliasQueueSelfCorrection:
         # stale record with a fresh, higher number.
         assert unconfirmed == [("cat_e", "cat_f", "F", 5)]
 
-    def test_unreadable_revisions_replay_nothing(self, tmp_path):
-        """Without the backend's revisions staleness is undecidable, so
-        nothing is replayed and the queue is left for the next attempt."""
+    def test_unreadable_revisions_raise_rather_than_look_empty(self, tmp_path):
+        """Without the backend's revisions staleness is undecidable. The
+        caller must be able to tell that apart from an empty queue, or an
+        import would proceed with a stale category map."""
         from moneyflow.data.categories import (
             load_pending_category_aliases,
             save_pending_category_aliases,
         )
-        from moneyflow.data.data_manager import load_unconfirmed_category_aliases
+        from moneyflow.data.data_manager import (
+            AliasStateUnavailable,
+            load_unconfirmed_category_aliases,
+        )
 
         def failing():
             raise RuntimeError("database is locked")
@@ -1893,6 +1898,20 @@ class TestAliasQueueSelfCorrection:
         backend = type("Backend", (), {"get_category_alias_revisions": staticmethod(failing)})()
         save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B", 2)])
 
-        assert load_unconfirmed_category_aliases(backend, tmp_path) == []
+        with pytest.raises(AliasStateUnavailable):
+            load_unconfirmed_category_aliases(backend, tmp_path)
         # The queue survives for a later run to retry.
         assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 2)]
+
+    def test_new_revisions_outrank_staged_ones(self, tmp_path):
+        """A new alias must never get a lower revision than a queued one it
+        supersedes, or the queued entry would win after a restart."""
+        from moneyflow.data.data_manager import assign_alias_revisions
+
+        backend = type("Backend", (), {"next_category_alias_revision": staticmethod(lambda: 2)})()
+        stamped = assign_alias_revisions(
+            backend, [("cat_queued", "cat_x", "X", 9), ("cat_new", "cat_y", "Y")]
+        )
+
+        assert stamped[0] == ("cat_queued", "cat_x", "X", 9)  # existing kept
+        assert stamped[1][3] > 9  # new one outranks it

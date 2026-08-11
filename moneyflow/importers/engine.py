@@ -14,6 +14,7 @@ import polars as pl
 from moneyflow.backends.csv_backend import STANDARD_FIELDS, CsvFinanceBackend, _stable_category_id
 from moneyflow.data.categories import save_pending_category_aliases
 from moneyflow.data.data_manager import (
+    AliasStateUnavailable,
     flush_category_aliases,
     load_unconfirmed_category_aliases,
 )
@@ -517,7 +518,14 @@ def import_csv(
     # config. Flush them first: importing while they are unapplied would
     # resurrect categories the user renamed, merged, or deleted. If any
     # cannot be made effective, abort rather than import with a stale map.
-    queued_aliases = load_unconfirmed_category_aliases(backend, backend.profile_dir)
+    try:
+        queued_aliases = load_unconfirmed_category_aliases(backend, backend.profile_dir)
+    except AliasStateUnavailable as error:
+        raise ValueError(
+            "Cannot import: pending category changes could not be verified "
+            f"({error}), so imported transactions could use stale categories. "
+            "Resolve the error and retry."
+        ) from error
     if queued_aliases:
         unconfirmed = flush_category_aliases(backend, queued_aliases)
         save_pending_category_aliases(backend.profile_dir, unconfirmed)

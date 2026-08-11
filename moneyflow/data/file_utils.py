@@ -113,7 +113,12 @@ def validate_trusted_root(path: Path | str) -> None:
     absolute_path = Path(os.path.abspath(path))
     current = Path(absolute_path.anchor)
     components = [current] + [(current := current / part) for part in absolute_path.parts[1:]]
-    for component in components:
+    for index, component in enumerate(components):
+        # Child-creation rights matter only where the child does not exist
+        # yet and could be planted: either the component we are about to
+        # create something under, or the deepest one that exists.
+        next_component = components[index + 1] if index + 1 < len(components) else None
+        child_could_be_planted = next_component is None or not next_component.exists()
         try:
             component_stat = os.lstat(component)
         except FileNotFoundError:
@@ -136,7 +141,9 @@ def validate_trusted_root(path: Path | str) -> None:
                 errno.ENOTDIR, "Config path component is not a directory", str(component)
             )
         if IS_WINDOWS:
-            require_directory_not_replaceable(component)
+            require_directory_not_replaceable(
+                component, forbid_child_creation=child_could_be_planted
+            )
             continue
         get_effective_uid = getattr(os, "geteuid", None)
         if get_effective_uid is not None and component_stat.st_uid not in (0, get_effective_uid()):
@@ -226,7 +233,9 @@ def open_verified_no_follow(path: Path | str, *, append: bool = False, create: b
     return fd
 
 
-def require_directory_not_replaceable(path: Path | str) -> None:
+def require_directory_not_replaceable(
+    path: Path | str, *, forbid_child_creation: bool = False
+) -> None:
     """Fail if an untrusted Windows principal could replace this directory.
 
     No-op on POSIX, where the ancestor uid/mode checks provide the
@@ -234,7 +243,7 @@ def require_directory_not_replaceable(path: Path | str) -> None:
     """
     if IS_WINDOWS:
         assert require_windows_dir_not_replaceable is not None
-        require_windows_dir_not_replaceable(path)
+        require_windows_dir_not_replaceable(path, forbid_child_creation=forbid_child_creation)
 
 
 def require_current_user_fd_ownership(fd: int, path: Path | str) -> None:

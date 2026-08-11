@@ -357,7 +357,6 @@ class CsvFinanceBackend(FinanceBackend):
             "(source_id, target_id, target_name, revision) VALUES (?, ?, ?, ?)",
             (source_id, target_id, target_name, effective_revision),
         )
-        conn.execute("DELETE FROM category_aliases WHERE source_id = target_id")
         conn.commit()
         conn.close()
 
@@ -374,11 +373,35 @@ class CsvFinanceBackend(FinanceBackend):
         finally:
             conn.close()
 
+    def reset_category_alias(self, category_id: str) -> None:
+        """Record that a category id is live again, cancelling any alias.
+
+        Recreating a category the user previously renamed, merged, or deleted
+        reuses its stable id. The old alias must stop applying, but simply
+        deleting the row would let a queued copy of it be replayed later, so a
+        self-referencing record is stored at a fresh revision instead — newer
+        than any queued alias, and skipped by import remapping.
+        """
+        conn = self._get_connection()
+        revision = self._next_alias_revision(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO category_aliases "
+            "(source_id, target_id, target_name, revision) VALUES (?, ?, ?, ?)",
+            (category_id, category_id, "", revision),
+        )
+        conn.commit()
+        conn.close()
+
     def get_category_aliases(self) -> dict[str, tuple[str, str]]:
-        """Return {source_id: (target_id, target_name)} for import remapping."""
+        """Return {source_id: (target_id, target_name)} for import remapping.
+
+        Self-referencing records mark a reinstated category and carry no
+        remapping, so they are excluded.
+        """
         conn = self._get_connection()
         rows = conn.execute(
-            "SELECT source_id, target_id, target_name FROM category_aliases"
+            "SELECT source_id, target_id, target_name FROM category_aliases "
+            "WHERE source_id != target_id"
         ).fetchall()
         conn.close()
         return {row[0]: (row[1], row[2]) for row in rows}

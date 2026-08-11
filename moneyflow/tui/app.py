@@ -1716,6 +1716,11 @@ class MoneyflowApp(App):
                             "group_id": category_slug(chosen_group),
                             "group_type": "",
                         }
+                        # This id is live again: cancel any alias left from a
+                        # previous rename/merge/delete of the same category.
+                        reset_alias = getattr(self.backend, "reset_category_alias", None)
+                        if reset_alias is not None:
+                            reset_alias(cat_id)
                         new_category_id = cat_id
                         groups = categories_dict_to_config_groups(self.data_manager.categories)
                         has_pending_structure = bool(

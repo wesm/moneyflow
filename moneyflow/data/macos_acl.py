@@ -11,6 +11,7 @@ The ACL API is exposed through libc via ctypes; there is no stdlib binding.
 
 import ctypes
 import ctypes.util
+import errno
 import os
 import sys
 from pathlib import Path
@@ -21,7 +22,10 @@ IS_MACOS = sys.platform == "darwin"
 # sys/acl.h: the only ACL type macOS supports for the filesystem.
 _ACL_TYPE_EXTENDED = 0x00000100
 _ACL_FIRST_ENTRY = 0
-_ACL_NEXT_ENTRY = 1
+# sys/acl.h: ACL_NEXT_ENTRY is -1 on Darwin (not 1 as on FreeBSD). Passing 1
+# re-fetches the same entry instead of advancing, so enumeration never moves
+# past it.
+_ACL_NEXT_ENTRY = -1
 # acl_tag_t values. Deny entries only ever remove access, so they are safe
 # no matter who they name; allow entries are what can expose a file.
 _ACL_EXTENDED_ALLOW = 1
@@ -90,7 +94,16 @@ def _acl_grants_other_access(libc: ctypes.CDLL, acl: Any) -> bool:
     own_uuid = _current_user_uuid(libc)
     entry = ctypes.c_void_p()
     entry_id = _ACL_FIRST_ENTRY
-    while libc.acl_get_entry(acl, entry_id, ctypes.byref(entry)) == 0:
+    while True:
+        ctypes.set_errno(0)
+        status = libc.acl_get_entry(acl, entry_id, ctypes.byref(entry))
+        if status != 0:
+            # macOS signals both exhaustion and failure with -1; only
+            # exhaustion sets EINVAL. Anything else means the ACL could not
+            # be enumerated, so fail closed rather than assume it is safe.
+            if ctypes.get_errno() == errno.EINVAL:
+                break
+            return True
         entry_id = _ACL_NEXT_ENTRY
         tag = ctypes.c_int()
         if libc.acl_get_tag_type(entry, ctypes.byref(tag)) != 0:

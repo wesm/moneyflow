@@ -73,6 +73,14 @@ def assign_alias_revisions(backend: Any, aliases: List[Tuple[Any, ...]]) -> List
     except Exception as error:
         logger.error(f"Could not reserve a category alias revision: {error}")
         return [tuple(alias) for alias in aliases]
+    # Outrank the staged records as well: a queued entry may already carry a
+    # revision above the backend's maximum (it was never confirmed), and a
+    # new alias must not be assigned a lower number than one it supersedes.
+    staged_revisions = [
+        list(alias)[3] for alias in aliases if len(list(alias)) > 3 and list(alias)[3]
+    ]
+    if staged_revisions:
+        revision = max(revision, max(staged_revisions) + 1)
     stamped: List[Tuple[Any, ...]] = []
     for alias in aliases:
         record = list(alias)
@@ -143,6 +151,15 @@ def flush_category_aliases_durably(
     return remaining
 
 
+class AliasStateUnavailable(Exception):
+    """The pending-alias state could not be determined.
+
+    Callers that would act on "no pending aliases" must distinguish this from
+    an empty queue: importing while aliases cannot be verified could apply a
+    stale category map and resurrect restructured categories.
+    """
+
+
 def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[Any, ...]]:
     """Load the queued aliases that are newer than what the backend records.
 
@@ -175,7 +192,7 @@ def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tu
             f"Could not read recorded category alias revisions ({error}); "
             "leaving the pending queue untouched for the next attempt"
         )
-        return []
+        raise AliasStateUnavailable(str(error)) from error
 
     unconfirmed: List[Tuple[Any, ...]] = []
     for record in records:
