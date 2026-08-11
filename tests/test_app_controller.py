@@ -567,6 +567,40 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_aliases == []
         assert controller.data_manager.pending_category_groups is None
 
+    async def test_config_save_failure_does_not_record_aliases(self, controller, monkeypatch):
+        """An alias must never outlive its configuration: if the config save
+        fails, the aliases stay staged rather than becoming durable while the
+        rename/merge/delete they belong to exists only in memory."""
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == []  # nothing recorded while the config is unsaved
+        assert controller.data_manager.pending_category_aliases == [
+            ("cat_groceries", "cat_entertainment", "Entertainment")
+        ]
+        assert controller.data_manager.pending_category_groups == {"Group": ["Entertainment"]}
+
     async def test_alias_persistence_failure_retains_aliases_for_retry(self, controller, mock_view):
         """Aliases the backend fails to confirm must stay staged instead of
         being dropped — the user is warned and a later retry persists them."""

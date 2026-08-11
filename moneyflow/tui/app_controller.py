@@ -1714,22 +1714,29 @@ class AppController:
                 for change in self.data_manager.pending_category_changes:
                     staged_aliases.extend(change.category_aliases)
                 self.data_manager.pending_category_changes.clear()
-                self.data_manager.pending_category_aliases = flush_category_aliases_durably(
-                    self.data_manager.mm, self.data_manager.profile_dir, staged_aliases
-                )
-                if self.data_manager.pending_category_aliases:
-                    self.view.show_notification(
-                        "Some category changes could not be recorded; they were retained "
-                        "and will be retried on the next commit.",
-                        severity="warning",
-                        timeout=6,
-                    )
+
+                # Persist the configuration BEFORE recording aliases: an
+                # alias that outlives its configuration would leave the
+                # rename/merge/delete half-applied if the app exits here.
                 categories_saved = True
                 if self.data_manager.profile_dir:
                     categories_saved = save_categories_to_profile(
                         self.data_manager.pending_category_groups,
                         profile_dir=self.data_manager.profile_dir,
                     )
+                if categories_saved:
+                    self.data_manager.pending_category_aliases = flush_category_aliases_durably(
+                        self.data_manager.mm, self.data_manager.profile_dir, staged_aliases
+                    )
+                    if self.data_manager.pending_category_aliases:
+                        self.view.show_notification(
+                            "Some category changes could not be recorded; they were retained "
+                            "and will be retried on the next commit.",
+                            severity="warning",
+                            timeout=6,
+                        )
+                else:
+                    self.data_manager.pending_category_aliases = staged_aliases
                 if categories_saved:
                     self.data_manager.pending_category_groups = None
                     logger.info("Saved deferred category config after successful commit")

@@ -1903,10 +1903,15 @@ class MoneyflowApp(App):
                     # Retain the aliases with the unsaved config: a later
                     # successful retry must persist both, or old categories
                     # would reappear on the next import.
+                    # Aliases must not outlive their configuration: recording
+                    # them now while the config that renames/removes the
+                    # categories is still only in memory would leave the
+                    # change half-applied across a restart. Stage them and
+                    # let the retry persist both together.
                     self.data_manager.pending_category_groups = groups
-                    # The aliases are independent of the config save — try to
-                    # persist them now; failures stay staged durably.
-                    self._persist_category_aliases(manage_screen.recorded_aliases)
+                    self.data_manager.pending_category_aliases = list(
+                        self.data_manager.pending_category_aliases
+                    ) + list(manage_screen.recorded_aliases)
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",

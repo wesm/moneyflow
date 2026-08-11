@@ -371,6 +371,14 @@ def _reconcile_replaced_transactions(
     silently double-counted. Rows the previous snapshot of this file
     produced that the new content does not are deleted, unless another
     imported file's snapshot still claims them (overlapping exports).
+
+    When the correction is unambiguous — exactly one row disappeared and
+    exactly one appeared — the old row's user-owned state (local edits,
+    category, merchant, hidden flag) is carried across to the replacement,
+    and a deletion tombstone on the old ID is re-applied to the new one so a
+    corrected identity cannot resurrect a transaction the user deleted.
+    Ambiguous cases keep user-modified rows instead of deleting them, since
+    guessing the pairing could silently discard the user's work.
     """
     snapshot_key = (resolved_path, mapping.account_label, mapping.name)
     previous_ids = {
@@ -381,8 +389,14 @@ def _reconcile_replaced_transactions(
             snapshot_key,
         ).fetchall()
     }
+    obsolete_ids = sorted(previous_ids - produced_ids)
+    appeared_ids = sorted(produced_ids - previous_ids)
+    unique_replacement = (
+        appeared_ids[0] if len(obsolete_ids) == 1 and len(appeared_ids) == 1 else None
+    )
+
     removed = 0
-    for txn_id in sorted(previous_ids - produced_ids):
+    for txn_id in obsolete_ids:
         claimed_elsewhere = connection.execute(
             "SELECT 1 FROM import_file_transactions "
             "WHERE txn_id = ? AND NOT (filename = ? AND account = ? AND mapping_name = ?) "
@@ -391,6 +405,57 @@ def _reconcile_replaced_transactions(
         ).fetchone()
         if claimed_elsewhere:
             continue
+
+        tombstoned = connection.execute(
+            "SELECT 1 FROM deleted_transactions WHERE id = ?", (txn_id,)
+        ).fetchone()
+        if tombstoned:
+            if unique_replacement is not None:
+                # The user deleted this transaction; the file only corrected
+                # its identity fields. Carry the tombstone across and drop
+                # the row this import just inserted.
+                connection.execute(
+                    "INSERT OR REPLACE INTO deleted_transactions (id) VALUES (?)",
+                    (unique_replacement,),
+                )
+                connection.execute("DELETE FROM transactions WHERE id = ?", (unique_replacement,))
+                existing_ids.add(unique_replacement)
+            continue
+
+        row = connection.execute(
+            "SELECT category, category_id, merchant, hideFromReports, local_edits "
+            "FROM transactions WHERE id = ?",
+            (txn_id,),
+        ).fetchone()
+        if row is None:
+            continue
+        has_user_state = bool(json.loads(row[4] or "[]")) or bool(row[3])
+        if has_user_state:
+            if unique_replacement is None:
+                # Cannot tell which new row replaces this one; keeping it is
+                # the recoverable choice (a visible duplicate) whereas
+                # deleting would silently discard the user's edits.
+                logger.warning(
+                    "%s: keeping locally edited transaction %s — the corrected file "
+                    "does not identify its replacement unambiguously",
+                    Path(resolved_path).name,
+                    txn_id,
+                )
+                continue
+            edits = set(json.loads(row[4] or "[]"))
+            updates = ["hideFromReports = ?", "local_edits = ?"]
+            params: list = [row[3], row[4] or "[]"]
+            if "category" in edits:
+                updates.insert(0, "category = ?")
+                updates.insert(1, "category_id = ?")
+                params.insert(0, row[0])
+                params.insert(1, row[1])
+            if "merchant" in edits:
+                updates.append("merchant = ?")
+                params.append(row[2])
+            params.append(unique_replacement)
+            connection.execute(f"UPDATE transactions SET {', '.join(updates)} WHERE id = ?", params)
+
         cursor = connection.execute("DELETE FROM transactions WHERE id = ?", (txn_id,))
         if cursor.rowcount:
             removed += 1

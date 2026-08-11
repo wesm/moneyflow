@@ -426,7 +426,11 @@ def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
     """
     desired_access = win32con.GENERIC_READ
     if append:
-        desired_access = win32con.GENERIC_WRITE
+        # WRITE_DAC/WRITE_OWNER are required because callers tighten the
+        # file's DACL through this descriptor (set_owner_only_file_permissions
+        # calls SetSecurityInfo); without them the tightening fails with
+        # access denied and logging cannot start.
+        desired_access = win32con.GENERIC_WRITE | win32con.WRITE_DAC | win32con.WRITE_OWNER
     creation_disposition = win32con.OPEN_ALWAYS if create else win32con.OPEN_EXISTING
     try:
         handle = win32file.CreateFile(

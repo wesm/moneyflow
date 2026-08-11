@@ -731,6 +731,117 @@ class TestImportCsv:
         assert row[1] == "cat_coffee_shops"
         assert row[2] == "corrected memo"
 
+    def test_identity_correction_preserves_local_edits(self, tmp_path, test_mapping, test_backend):
+        """Correcting an identity field (amount) changes the transaction ID.
+        The user's edits must move to the replacement row, not be discarded
+        with the obsolete one."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_identity"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n")
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 1
+
+        conn = test_backend._get_connection()
+        old_id = conn.execute("SELECT id FROM transactions").fetchone()[0]
+        conn.close()
+        asyncio.run(
+            test_backend.update_transaction(
+                old_id,
+                merchant_name="My Coffee Shop",
+                category_id="cat_coffee_shops",
+                category_name="Coffee Shops",
+                hide_from_reports=True,
+            )
+        )
+
+        # The bank corrects the amount, which changes the generated ID.
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n")
+        result = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["removed"] == 1
+
+        conn = test_backend._get_connection()
+        rows = conn.execute(
+            "SELECT id, amount, merchant, category, hideFromReports FROM transactions"
+        ).fetchall()
+        conn.close()
+        assert len(rows) == 1
+        assert rows[0][0] != old_id
+        assert rows[0][1] == -5.5  # corrected identity field applied
+        assert rows[0][2] == "My Coffee Shop"  # local edits carried over
+        assert rows[0][3] == "Coffee Shops"
+        assert rows[0][4] == 1
+
+    def test_identity_correction_carries_deletion_tombstone(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """A transaction the user deleted must stay deleted even when the
+        reissued file corrects the fields its ID is derived from."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_tombstone_identity"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n")
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 1
+
+        conn = test_backend._get_connection()
+        old_id = conn.execute("SELECT id FROM transactions").fetchone()[0]
+        conn.close()
+        assert asyncio.run(test_backend.delete_transaction(old_id)) is True
+
+        csv_file.write_text("Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n")
+        import_csv(str(csv_dir), test_mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 0
+
+    def test_ambiguous_correction_keeps_locally_edited_rows(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """When several rows changed at once the replacement pairing is
+        unknowable; a locally edited row is kept rather than deleted, since a
+        visible duplicate is recoverable and lost edits are not."""
+        import asyncio
+
+        csv_dir = tmp_path / "csvs_ambiguous"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-4.50\n7/13/2026,Books,-20.00\n"
+        )
+        assert import_csv(str(csv_dir), test_mapping, test_backend)["imported"] == 2
+
+        conn = test_backend._get_connection()
+        edited_id = conn.execute(
+            "SELECT id FROM transactions WHERE merchant = 'Coffee'"
+        ).fetchone()[0]
+        conn.close()
+        asyncio.run(test_backend.update_transaction(edited_id, merchant_name="My Coffee"))
+
+        # Both amounts change: two removed, two added — no unique pairing.
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Coffee,-5.50\n7/13/2026,Books,-21.00\n"
+        )
+        import_csv(str(csv_dir), test_mapping, test_backend)
+
+        conn = test_backend._get_connection()
+        rows = {
+            (r[0], r[1])
+            for r in conn.execute("SELECT merchant, amount FROM transactions").fetchall()
+        }
+        conn.close()
+        # The edited row survives at its old amount; the untouched obsolete
+        # row is removed and both corrected rows are present.
+        assert ("My Coffee", -4.5) in rows
+        assert ("Books", -20.0) not in rows
+        assert ("Coffee", -5.5) in rows
+        assert ("Books", -21.0) in rows
+
     def test_malformed_rows_do_not_remove_existing_transactions(
         self, tmp_path, test_mapping, test_backend
     ):
