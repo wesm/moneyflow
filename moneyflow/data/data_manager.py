@@ -143,37 +143,47 @@ def flush_category_aliases_durably(
     return remaining
 
 
-def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[str, str, str]]:
+def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[Any, ...]]:
     """Load the queued aliases that are newer than what the backend records.
 
     Each queued record carries the monotonic revision of the operation that
-    produced it. A record is replayed only when the backend holds nothing for
-    that source, or holds an older revision — so an entry left behind by a
-    failed queue cleanup can never overwrite a newer mapping made afterwards.
-    Records written before revisions existed carry 0 and are therefore
-    treated as stale whenever the backend already has that source.
+    produced it, and that revision is preserved on the way out so a later
+    flush cannot restamp a stale record with a fresh, higher number. A record
+    is replayed only when the backend holds nothing for that source, or holds
+    an older revision — so an entry left behind by a failed queue cleanup can
+    never overwrite a newer mapping made afterwards.
+
+    If the backend's revisions cannot be read, nothing is replayed: without
+    them staleness is undecidable, and replaying blind could overwrite a
+    newer mapping. The queue file is left intact, so the next run (or the
+    next successful lookup) retries it.
     """
     if not profile_dir:
         return []
     queued = load_pending_category_aliases(profile_dir)
     if not queued:
         return []
-    records = [list(alias) for alias in queued]
+    records = [tuple(alias) for alias in queued]
     get_revisions = getattr(backend, "get_category_alias_revisions", None)
     if get_revisions is None:
-        return [(record[0], record[1], record[2]) for record in records]
+        # A backend without alias support has nothing that could be stale.
+        return records
     try:
         recorded = get_revisions()
     except Exception as error:
-        logger.error(f"Could not read recorded category alias revisions: {error}")
-        return [(record[0], record[1], record[2]) for record in records]
+        logger.error(
+            f"Could not read recorded category alias revisions ({error}); "
+            "leaving the pending queue untouched for the next attempt"
+        )
+        return []
 
-    unconfirmed: List[Tuple[str, str, str]] = []
+    unconfirmed: List[Tuple[Any, ...]] = []
     for record in records:
-        queued_revision = record[3] if len(record) > 3 else 0
-        recorded_revision = recorded.get(record[0])
+        values = list(record)
+        queued_revision = values[3] if len(values) > 3 else 0
+        recorded_revision = recorded.get(values[0])
         if recorded_revision is None or queued_revision > recorded_revision:
-            unconfirmed.append((record[0], record[1], record[2]))
+            unconfirmed.append(record)
     return unconfirmed
 
 

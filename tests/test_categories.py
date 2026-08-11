@@ -692,3 +692,31 @@ class TestConfigWriteIntegrity:
         assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
         assert victim.read_text() == "precious"
         assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestNonMappingConfigRejected:
+    def test_list_root_is_not_treated_as_empty(self, tmp_path):
+        """A YAML list at the root is corrupt or foreign, not empty — saving
+        over it would discard whatever the file actually holds."""
+        config = tmp_path / "config.yaml"
+        config.write_text("- one\n- two\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is False
+        assert config.read_text() == "- one\n- two\n"
+
+    def test_scalar_root_is_not_treated_as_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("just a string\n")
+        config.chmod(0o600)
+
+        assert save_pending_category_aliases(tmp_path, [("a", "b", "B", 1)]) is False
+        assert config.read_text() == "just a string\n"
+
+    def test_empty_file_is_still_treated_as_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("# only a comment\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is True
+        assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}

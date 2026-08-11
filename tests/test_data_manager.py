@@ -1874,4 +1874,25 @@ class TestAliasQueueSelfCorrection:
 
         unconfirmed = load_unconfirmed_category_aliases(backend, tmp_path)
 
-        assert unconfirmed == [("cat_e", "cat_f", "F")]
+        # Revisions survive the round trip so a later flush cannot restamp a
+        # stale record with a fresh, higher number.
+        assert unconfirmed == [("cat_e", "cat_f", "F", 5)]
+
+    def test_unreadable_revisions_replay_nothing(self, tmp_path):
+        """Without the backend's revisions staleness is undecidable, so
+        nothing is replayed and the queue is left for the next attempt."""
+        from moneyflow.data.categories import (
+            load_pending_category_aliases,
+            save_pending_category_aliases,
+        )
+        from moneyflow.data.data_manager import load_unconfirmed_category_aliases
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        backend = type("Backend", (), {"get_category_alias_revisions": staticmethod(failing)})()
+        save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B", 2)])
+
+        assert load_unconfirmed_category_aliases(backend, tmp_path) == []
+        # The queue survives for a later run to retry.
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 2)]

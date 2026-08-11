@@ -226,7 +226,16 @@ def _load_yaml_strict(path: Path) -> dict:
     except Exception as e:
         logger.error(f"Failed to load YAML from {path}: {e}")
         raise ConfigReadError(str(path)) from e
-    return data if isinstance(data, dict) else {}
+    if data is None:
+        # Genuinely empty file (or one holding only comments).
+        return {}
+    if not isinstance(data, dict):
+        # A list or scalar at the root is a corrupt or foreign document, not
+        # an empty config. Treating it as empty would let the next save
+        # overwrite whatever the file actually holds.
+        logger.error(f"Config at {path} is not a mapping ({type(data).__name__})")
+        raise ConfigReadError(str(path))
+    return data
 
 
 def _load_yaml(path: Path) -> dict:
