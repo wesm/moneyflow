@@ -22,7 +22,7 @@ func TestSessionDrillAndBackRestoresPosition(t *testing.T) {
 	assert.Equal(t, domain.ResultModeDetail, session.Mode)
 	require.Len(t, session.Drilldowns, 1)
 	assert.Equal(t, "Example Grocer", session.Drilldowns[0].Label)
-	assert.Equal(t, domain.SortFieldDate, session.Sort.Field)
+	assert.Equal(t, domain.SortFieldAmount, session.Sort.Field)
 
 	position, ok := session.Back()
 	assert.True(t, ok)

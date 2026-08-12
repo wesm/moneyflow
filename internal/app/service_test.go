@@ -50,6 +50,32 @@ func TestNewServiceRejectsInvalidAndDuplicateTransactions(t *testing.T) {
 	}
 }
 
+func TestServiceDecoratesSelectionsWithoutMutatingAnalytics(t *testing.T) {
+	t.Parallel()
+
+	transaction := appTransaction(t, "txn-1", "2024-01-01", "-1.00", "Example", "Category", "Group")
+	transaction.Hidden = true
+	service, err := NewService([]domain.Transaction{transaction})
+	require.NoError(t, err)
+
+	session := NewSession()
+	session.ShowAllDetail()
+	session.ToggleTransactionSelection("txn-1")
+	result, err := service.Query(session)
+	require.NoError(t, err)
+	require.Len(t, result.DetailRows, 1)
+	assert.Equal(t, domain.RowFlags{Selected: true, Hidden: true}, result.DetailRows[0].Flags)
+
+	session = NewSession()
+	base, err := service.Query(session)
+	require.NoError(t, err)
+	require.Len(t, base.AggregateRows, 1)
+	session.ToggleAggregateSelection(base.AggregateRows[0].Key)
+	result, err = service.Query(session)
+	require.NoError(t, err)
+	assert.True(t, result.AggregateRows[0].Flags.Selected)
+}
+
 func appTransaction(
 	t testing.TB,
 	id string,

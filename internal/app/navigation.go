@@ -62,6 +62,9 @@ func (session *Session) CycleSubGrouping() {
 	if current < 0 || current == len(available)-1 {
 		session.SubGrouping = nil
 		session.Sort = sortForDetailTransition(session.Dimension, session.Sort)
+		if len(session.history) > 0 && session.history[len(session.history)-1].kind == historySubGrouping {
+			session.history = session.history[:len(session.history)-1]
+		}
 	} else {
 		dimension := available[current+1]
 		session.SubGrouping = &dimension
@@ -146,9 +149,6 @@ func (session *Session) popHistory() (ViewPosition, bool) {
 func sortForDetailTransition(dimension domain.Dimension, current domain.SortSpec) domain.SortSpec {
 	if dimension == domain.DimensionTime {
 		return amountDescending()
-	}
-	if current.Field == domain.SortFieldAmount {
-		return dateDescending()
 	}
 	switch current.Field {
 	case domain.SortFieldCount:

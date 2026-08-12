@@ -59,6 +59,25 @@ func TestSessionTopLevelTransitions(t *testing.T) {
 	assert.Empty(t, session.Drilldowns)
 }
 
+func TestSessionTopLevelGroupingCarriesNameSort(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	session.Sort = domain.SortSpec{
+		Field: domain.SortFieldMerchant, Direction: domain.SortDirectionAsc,
+	}
+	for _, want := range []domain.SortField{
+		domain.SortFieldCategory,
+		domain.SortFieldGroup,
+		domain.SortFieldAccount,
+		domain.SortFieldTimePeriod,
+		domain.SortFieldAmount,
+	} {
+		session.CycleGrouping()
+		assert.Equal(t, want, session.Sort.Field)
+	}
+}
+
 func TestSessionTimeAndFilterOperations(t *testing.T) {
 	t.Parallel()
 
@@ -111,4 +130,103 @@ func TestServiceQueriesAfterSessionTransitions(t *testing.T) {
 	result, err := service.Query(session)
 	require.NoError(t, err)
 	assert.NotNil(t, result.DetailRows)
+}
+
+func TestSessionSortCyclesAndReverse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		session   Session
+		wantCycle []domain.SortField
+	}{
+		{
+			name: "detail",
+			session: func() Session {
+				session := NewSession()
+				session.ShowAllDetail()
+				return session
+			}(),
+			wantCycle: []domain.SortField{
+				domain.SortFieldMerchant, domain.SortFieldCategory, domain.SortFieldAccount,
+				domain.SortFieldAmount, domain.SortFieldDate,
+			},
+		},
+		{
+			name: "time",
+			session: func() Session {
+				session := NewSession()
+				session.Dimension = domain.DimensionTime
+				session.Sort = domain.SortSpec{
+					Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+				}
+				return session
+			}(),
+			wantCycle: []domain.SortField{
+				domain.SortFieldCount, domain.SortFieldAmount, domain.SortFieldTimePeriod,
+			},
+		},
+		{
+			name: "merchant",
+			session: func() Session {
+				session := NewSession()
+				session.Sort = domain.SortSpec{
+					Field: domain.SortFieldMerchant, Direction: domain.SortDirectionAsc,
+				}
+				return session
+			}(),
+			wantCycle: []domain.SortField{
+				domain.SortFieldCount, domain.SortFieldAmount, domain.SortFieldMerchant,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for _, field := range test.wantCycle {
+				test.session.CycleSort()
+				assert.Equal(t, field, test.session.Sort.Field)
+			}
+			before := test.session.Sort.Direction
+			test.session.ReverseSort()
+			assert.NotEqual(t, before, test.session.Sort.Direction)
+			test.session.ReverseSort()
+			assert.Equal(t, before, test.session.Sort.Direction)
+		})
+	}
+}
+
+func TestSessionSelectionSetsAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	session.ToggleAggregateSelection("merchant-a")
+	session.ToggleTransactionSelection("txn-1")
+	assert.Contains(t, session.SelectedAggregateKeys, "merchant-a")
+	assert.Contains(t, session.SelectedTransactionIDs, "txn-1")
+
+	session.ToggleAggregateSelection("merchant-a")
+	session.ToggleTransactionSelection("txn-1")
+	assert.Empty(t, session.SelectedAggregateKeys)
+	assert.Empty(t, session.SelectedTransactionIDs)
+}
+
+func TestSessionSelectAllVisibleOnly(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	aggregate := domain.QueryResult{AggregateRows: []domain.AggregateRow{{Key: "a"}, {Key: "b"}}}
+	session.ToggleSelectAll(aggregate)
+	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, session.SelectedAggregateKeys)
+	session.SelectedAggregateKeys["not-visible"] = struct{}{}
+	session.ToggleSelectAll(aggregate)
+	assert.Equal(t, map[string]struct{}{"not-visible": {}}, session.SelectedAggregateKeys)
+
+	detail := domain.QueryResult{DetailRows: []domain.DetailRow{
+		{Transaction: domain.Transaction{ID: "txn-1"}},
+		{Transaction: domain.Transaction{ID: "txn-2"}},
+	}}
+	session.ToggleSelectAll(detail)
+	assert.Len(t, session.SelectedTransactionIDs, 2)
+	session.ToggleSelectAll(detail)
+	assert.Empty(t, session.SelectedTransactionIDs)
 }

@@ -37,5 +37,18 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
 	}
+	selectedTransactions := make(map[string]bool, len(session.SelectedTransactionIDs))
+	for id := range session.SelectedTransactionIDs {
+		selectedTransactions[id] = true
+	}
+	result.DetailRows = analytics.DecorateDetailRows(result.DetailRows, selectedTransactions)
+	for index := range result.DetailRows {
+		// Pending edits do not exist in this read-only slice. Provider pending state remains
+		// available on Transaction.Pending without borrowing the Python edit marker.
+		result.DetailRows[index].Flags.Pending = false
+	}
+	for index := range result.AggregateRows {
+		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[result.AggregateRows[index].Key]
+	}
 	return result.Clone(), nil
 }

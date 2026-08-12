@@ -16,15 +16,15 @@ var dimensionOrder = []domain.Dimension{
 
 // Filters contains user-controlled predicates that are independent of navigation.
 type Filters struct {
-	DateRange     *domain.DateRange
-	ShowHidden    bool
-	ShowTransfers bool
+	DateRange     *domain.DateRange `json:"date_range,omitempty"`
+	ShowHidden    bool              `json:"show_hidden"`
+	ShowTransfers bool              `json:"show_transfers"`
 }
 
 // ViewPosition identifies the row and viewport restored when navigating back.
 type ViewPosition struct {
-	Cursor int
-	Scroll int
+	Cursor int `json:"cursor"`
+	Scroll int `json:"scroll"`
 }
 
 type historyKind uint8
@@ -127,7 +127,7 @@ func (session *Session) CycleGrouping() {
 	session.Dimension = dimensionOrder[(current+1)%len(dimensionOrder)]
 	session.SubGrouping = nil
 	session.clearSelections()
-	session.Sort = sortForAggregateTransition(session.Dimension, session.Sort)
+	session.Sort = sortForTopLevelTransition(session.Dimension, session.Sort)
 }
 
 // ShowAllDetail switches from a top-level aggregate to all visible transactions.
@@ -193,6 +193,67 @@ func (session *Session) SetFilters(filters Filters) error {
 	return nil
 }
 
+// CycleSort advances through the fields valid for the visible result shape.
+func (session *Session) CycleSort() {
+	fields := session.sortCycle()
+	current := -1
+	for index, field := range fields {
+		if field == session.Sort.Field {
+			current = index
+			break
+		}
+	}
+	session.Sort.Field = fields[(current+1)%len(fields)]
+}
+
+// ReverseSort changes only the active direction.
+func (session *Session) ReverseSort() {
+	if session.Sort.Direction == domain.SortDirectionDesc {
+		session.Sort.Direction = domain.SortDirectionAsc
+		return
+	}
+	session.Sort.Direction = domain.SortDirectionDesc
+}
+
+// ToggleTransactionSelection toggles one normalized transaction identity.
+func (session *Session) ToggleTransactionSelection(id string) {
+	if session.SelectedTransactionIDs == nil {
+		session.SelectedTransactionIDs = make(map[string]struct{})
+	}
+	toggleSetValue(session.SelectedTransactionIDs, id)
+}
+
+// ToggleAggregateSelection toggles one stable aggregate identity.
+func (session *Session) ToggleAggregateSelection(key string) {
+	if session.SelectedAggregateKeys == nil {
+		session.SelectedAggregateKeys = make(map[string]struct{})
+	}
+	toggleSetValue(session.SelectedAggregateKeys, key)
+}
+
+// ToggleSelectAll selects or clears only identities visible in the supplied result.
+func (session *Session) ToggleSelectAll(result domain.QueryResult) {
+	if result.DetailRows != nil {
+		if session.SelectedTransactionIDs == nil {
+			session.SelectedTransactionIDs = make(map[string]struct{})
+		}
+		ids := make([]string, len(result.DetailRows))
+		for index, row := range result.DetailRows {
+			ids[index] = row.Transaction.ID
+		}
+		toggleAll(session.SelectedTransactionIDs, ids)
+		return
+	}
+	if session.SelectedAggregateKeys == nil {
+		session.SelectedAggregateKeys = make(map[string]struct{})
+	}
+	keys := make([]string, len(result.AggregateRows))
+	for index, row := range result.AggregateRows {
+		keys[index] = row.Key
+	}
+	toggleAll(session.SelectedAggregateKeys, keys)
+}
+
 func (session *Session) snapshot() sessionSnapshot {
 	return sessionSnapshot{
 		mode:                   session.Mode,
@@ -245,6 +306,73 @@ func (session *Session) marker() navigationMarker {
 func (session *Session) clearSelections() {
 	session.SelectedTransactionIDs = make(map[string]struct{})
 	session.SelectedAggregateKeys = make(map[string]struct{})
+}
+
+func (session Session) sortCycle() []domain.SortField {
+	if session.SubGrouping == nil && session.Mode == domain.ResultModeDetail {
+		return []domain.SortField{
+			domain.SortFieldDate,
+			domain.SortFieldMerchant,
+			domain.SortFieldCategory,
+			domain.SortFieldAccount,
+			domain.SortFieldAmount,
+		}
+	}
+	dimension := session.Dimension
+	if session.SubGrouping != nil {
+		dimension = *session.SubGrouping
+	}
+	if dimension == domain.DimensionTime {
+		return []domain.SortField{
+			domain.SortFieldTimePeriod,
+			domain.SortFieldCount,
+			domain.SortFieldAmount,
+		}
+	}
+	return []domain.SortField{sortFieldForDimension(dimension), domain.SortFieldCount, domain.SortFieldAmount}
+}
+
+func sortFieldForDimension(dimension domain.Dimension) domain.SortField {
+	switch dimension {
+	case domain.DimensionMerchant:
+		return domain.SortFieldMerchant
+	case domain.DimensionCategory:
+		return domain.SortFieldCategory
+	case domain.DimensionGroup:
+		return domain.SortFieldGroup
+	case domain.DimensionAccount:
+		return domain.SortFieldAccount
+	default:
+		return domain.SortFieldTimePeriod
+	}
+}
+
+func toggleSetValue(values map[string]struct{}, value string) {
+	if value == "" {
+		return
+	}
+	if _, selected := values[value]; selected {
+		delete(values, value)
+		return
+	}
+	values[value] = struct{}{}
+}
+
+func toggleAll(selected map[string]struct{}, visible []string) {
+	allSelected := len(visible) > 0
+	for _, identity := range visible {
+		if _, exists := selected[identity]; !exists {
+			allSelected = false
+			break
+		}
+	}
+	for _, identity := range visible {
+		if allSelected {
+			delete(selected, identity)
+		} else {
+			selected[identity] = struct{}{}
+		}
+	}
 }
 
 func cloneDateRange(dateRange *domain.DateRange) *domain.DateRange {
@@ -307,4 +435,18 @@ func sortForAggregateTransition(dimension domain.Dimension, current domain.SortS
 		return current
 	}
 	return amountDescending()
+}
+
+func sortForTopLevelTransition(dimension domain.Dimension, current domain.SortSpec) domain.SortSpec {
+	if dimension == domain.DimensionTime {
+		return domain.SortSpec{Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc}
+	}
+	if current.Field == domain.SortFieldTimePeriod {
+		return amountDescending()
+	}
+	if current.Field == domain.SortFieldCount || current.Field == domain.SortFieldAmount {
+		return current
+	}
+	current.Field = sortFieldForDimension(dimension)
+	return current
 }

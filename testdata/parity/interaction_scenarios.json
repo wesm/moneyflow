@@ -1,0 +1,1524 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "name": "top-level-views-sorts-and-account-detail",
+      "initial": {
+        "mode": "aggregate",
+        "dimension": "merchant",
+        "time_granularity": "year",
+        "sort": {
+          "field": "amount",
+          "direction": "desc"
+        },
+        "show_hidden": true,
+        "show_transfers": false,
+        "drilldowns": [],
+        "selected_transaction_ids": [],
+        "selected_aggregate_keys": [],
+        "result_ids": null,
+        "breadcrumb": ""
+      },
+      "steps": [
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "merchant",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-utility",
+              "merchant-uncategorized",
+              "merchant-transit",
+              "merchant-refund",
+              "merchant-pharmacy",
+              "merchant-payroll",
+              "merchant-interest",
+              "merchant-rent",
+              "merchant-grocer",
+              "merchant-cafe",
+              "merchant-books"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-grocer",
+              "merchant-cafe",
+              "merchant-payroll",
+              "merchant-transit",
+              "merchant-utility",
+              "merchant-books",
+              "merchant-pharmacy",
+              "merchant-uncategorized",
+              "merchant-rent",
+              "merchant-interest",
+              "merchant-refund"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "reverse_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-rent",
+              "merchant-interest",
+              "merchant-refund",
+              "merchant-books",
+              "merchant-pharmacy",
+              "merchant-uncategorized",
+              "merchant-transit",
+              "merchant-utility",
+              "merchant-cafe",
+              "merchant-payroll",
+              "merchant-grocer"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_grouping",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "category",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "category-interest",
+              "category-refund",
+              "category-rent",
+              "category-books",
+              "category-healthcare",
+              "category-uncategorized",
+              "category-transit",
+              "category-utilities",
+              "category-dining",
+              "category-salary",
+              "category-groceries"
+            ],
+            "breadcrumb": "Categories (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_grouping",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "group",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "Discretionary",
+              "Uncategorized",
+              "Transportation",
+              "Income",
+              "Living"
+            ],
+            "breadcrumb": "Groups (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_grouping",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "account-savings",
+              "account-checking",
+              "account-card"
+            ],
+            "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_grouping",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "year",
+            "sort": {
+              "field": "time_period",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2023",
+              "2024",
+              "2025"
+            ],
+            "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_grouping",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-rent",
+              "merchant-grocer",
+              "merchant-utility",
+              "merchant-cafe",
+              "merchant-transit",
+              "merchant-books",
+              "merchant-pharmacy",
+              "merchant-uncategorized",
+              "merchant-interest",
+              "merchant-refund",
+              "merchant-payroll"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "switch_accounts",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "account-card",
+              "account-savings",
+              "account-checking"
+            ],
+            "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "show_detail",
+          "expected": {
+            "mode": "detail",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "date",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-032",
+              "txn-031",
+              "txn-030",
+              "txn-029",
+              "txn-028",
+              "txn-027",
+              "txn-024",
+              "txn-023",
+              "txn-022",
+              "txn-021",
+              "txn-020",
+              "txn-019",
+              "txn-018",
+              "txn-017",
+              "txn-016",
+              "txn-015",
+              "txn-014",
+              "txn-012",
+              "txn-011",
+              "txn-009",
+              "txn-010",
+              "txn-008",
+              "txn-007",
+              "txn-006",
+              "txn-004",
+              "txn-003",
+              "txn-001",
+              "txn-002"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "toggle_selection",
+          "target": {
+            "kind": "transaction",
+            "key": "txn-032"
+          },
+          "expected": {
+            "mode": "detail",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "date",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [
+              "txn-032"
+            ],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-032",
+              "txn-031",
+              "txn-030",
+              "txn-029",
+              "txn-028",
+              "txn-027",
+              "txn-024",
+              "txn-023",
+              "txn-022",
+              "txn-021",
+              "txn-020",
+              "txn-019",
+              "txn-018",
+              "txn-017",
+              "txn-016",
+              "txn-015",
+              "txn-014",
+              "txn-012",
+              "txn-011",
+              "txn-009",
+              "txn-010",
+              "txn-008",
+              "txn-007",
+              "txn-006",
+              "txn-004",
+              "txn-003",
+              "txn-001",
+              "txn-002"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "select_all",
+          "expected": {
+            "mode": "detail",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "date",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [
+              "txn-001",
+              "txn-002",
+              "txn-003",
+              "txn-004",
+              "txn-006",
+              "txn-007",
+              "txn-008",
+              "txn-009",
+              "txn-010",
+              "txn-011",
+              "txn-012",
+              "txn-014",
+              "txn-015",
+              "txn-016",
+              "txn-017",
+              "txn-018",
+              "txn-019",
+              "txn-020",
+              "txn-021",
+              "txn-022",
+              "txn-023",
+              "txn-024",
+              "txn-027",
+              "txn-028",
+              "txn-029",
+              "txn-030",
+              "txn-031",
+              "txn-032"
+            ],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-032",
+              "txn-031",
+              "txn-030",
+              "txn-029",
+              "txn-028",
+              "txn-027",
+              "txn-024",
+              "txn-023",
+              "txn-022",
+              "txn-021",
+              "txn-020",
+              "txn-019",
+              "txn-018",
+              "txn-017",
+              "txn-016",
+              "txn-015",
+              "txn-014",
+              "txn-012",
+              "txn-011",
+              "txn-009",
+              "txn-010",
+              "txn-008",
+              "txn-007",
+              "txn-006",
+              "txn-004",
+              "txn-003",
+              "txn-001",
+              "txn-002"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "select_all",
+          "expected": {
+            "mode": "detail",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "date",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-032",
+              "txn-031",
+              "txn-030",
+              "txn-029",
+              "txn-028",
+              "txn-027",
+              "txn-024",
+              "txn-023",
+              "txn-022",
+              "txn-021",
+              "txn-020",
+              "txn-019",
+              "txn-018",
+              "txn-017",
+              "txn-016",
+              "txn-015",
+              "txn-014",
+              "txn-012",
+              "txn-011",
+              "txn-009",
+              "txn-010",
+              "txn-008",
+              "txn-007",
+              "txn-006",
+              "txn-004",
+              "txn-003",
+              "txn-001",
+              "txn-002"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "account",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "account-card",
+              "account-savings",
+              "account-checking"
+            ],
+            "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
+          },
+          "returned_position": {
+            "cursor": 0,
+            "scroll": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "time-drill-navigation",
+      "initial": {
+        "mode": "aggregate",
+        "dimension": "time",
+        "time_granularity": "year",
+        "sort": {
+          "field": "time_period",
+          "direction": "asc"
+        },
+        "show_hidden": true,
+        "show_transfers": false,
+        "drilldowns": [],
+        "selected_transaction_ids": [],
+        "selected_aggregate_keys": [],
+        "result_ids": null,
+        "breadcrumb": ""
+      },
+      "steps": [
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "year",
+            "sort": {
+              "field": "count",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2023",
+              "2024",
+              "2025"
+            ],
+            "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2024",
+              "2023",
+              "2025"
+            ],
+            "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "year",
+            "sort": {
+              "field": "time_period",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2023",
+              "2024",
+              "2025"
+            ],
+            "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "toggle_time_granularity",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "month",
+            "sort": {
+              "field": "time_period",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2023-01",
+              "2023-02",
+              "2023-03",
+              "2023-04",
+              "2023-05",
+              "2023-06",
+              "2023-07",
+              "2023-08",
+              "2023-09",
+              "2023-10",
+              "2023-11",
+              "2023-12",
+              "2024-01",
+              "2024-02",
+              "2024-03",
+              "2024-04",
+              "2024-05",
+              "2024-06",
+              "2024-07",
+              "2024-08",
+              "2024-09",
+              "2024-10",
+              "2024-11",
+              "2024-12",
+              "2025-01",
+              "2025-02",
+              "2025-03",
+              "2025-04",
+              "2025-05",
+              "2025-06",
+              "2025-07",
+              "2025-08",
+              "2025-09",
+              "2025-10",
+              "2025-11",
+              "2025-12"
+            ],
+            "breadcrumb": "Months (2023-01-05 to 2025-12-31)"
+          }
+        },
+        {
+          "operation": "drill",
+          "target": {
+            "kind": "aggregate",
+            "dimension": "time",
+            "key": "2024-02"
+          },
+          "position": {
+            "cursor": 5,
+            "scroll": 2
+          },
+          "expected": {
+            "mode": "detail",
+            "dimension": "time",
+            "time_granularity": "month",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "time",
+                "key": "2024-02",
+                "label": "Feb 2024",
+                "period": {
+                  "granularity": "month",
+                  "year": 2024,
+                  "month": 2
+                }
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-011",
+              "txn-012"
+            ],
+            "breadcrumb": "T: Feb 2024"
+          }
+        },
+        {
+          "operation": "navigate_period",
+          "delta": 1,
+          "expected": {
+            "mode": "detail",
+            "dimension": "time",
+            "time_granularity": "month",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "time",
+                "key": "2024-03",
+                "label": "Feb 2024",
+                "period": {
+                  "granularity": "month",
+                  "year": 2024,
+                  "month": 3
+                }
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-014"
+            ],
+            "breadcrumb": "T: Mar 2024"
+          }
+        },
+        {
+          "operation": "clear_time_period",
+          "expected": {
+            "mode": "detail",
+            "dimension": "time",
+            "time_granularity": "month",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-020",
+              "txn-024",
+              "txn-014",
+              "txn-006",
+              "txn-021",
+              "txn-009",
+              "txn-001",
+              "txn-016",
+              "txn-029",
+              "txn-028",
+              "txn-011",
+              "txn-004",
+              "txn-017",
+              "txn-030",
+              "txn-007",
+              "txn-023",
+              "txn-018",
+              "txn-027",
+              "txn-002",
+              "txn-010",
+              "txn-032",
+              "txn-015",
+              "txn-008",
+              "txn-031",
+              "txn-003",
+              "txn-012",
+              "txn-019",
+              "txn-022"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "time",
+            "time_granularity": "month",
+            "sort": {
+              "field": "time_period",
+              "direction": "asc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "2023-01",
+              "2023-02",
+              "2023-03",
+              "2023-04",
+              "2023-05",
+              "2023-06",
+              "2023-07",
+              "2023-08",
+              "2023-09",
+              "2023-10",
+              "2023-11",
+              "2023-12",
+              "2024-01",
+              "2024-02",
+              "2024-03",
+              "2024-04",
+              "2024-05",
+              "2024-06",
+              "2024-07",
+              "2024-08",
+              "2024-09",
+              "2024-10",
+              "2024-11",
+              "2024-12",
+              "2025-01",
+              "2025-02",
+              "2025-03",
+              "2025-04",
+              "2025-05",
+              "2025-06",
+              "2025-07",
+              "2025-08",
+              "2025-09",
+              "2025-10",
+              "2025-11",
+              "2025-12"
+            ],
+            "breadcrumb": "Months (2023-01-05 to 2025-12-31)"
+          },
+          "returned_position": {
+            "cursor": 5,
+            "scroll": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "subgroup-multilevel-and-cursor-back",
+      "initial": {
+        "mode": "aggregate",
+        "dimension": "merchant",
+        "time_granularity": "year",
+        "sort": {
+          "field": "amount",
+          "direction": "desc"
+        },
+        "show_hidden": true,
+        "show_transfers": false,
+        "drilldowns": [],
+        "selected_transaction_ids": [],
+        "selected_aggregate_keys": [],
+        "result_ids": null,
+        "breadcrumb": ""
+      },
+      "steps": [
+        {
+          "operation": "drill",
+          "target": {
+            "kind": "aggregate",
+            "dimension": "merchant",
+            "key": "merchant-grocer"
+          },
+          "position": {
+            "cursor": 3,
+            "scroll": 1
+          },
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "merchant",
+                "key": "merchant-grocer",
+                "label": "Example Grocer"
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-021",
+              "txn-009",
+              "txn-001",
+              "txn-016",
+              "txn-029"
+            ],
+            "breadcrumb": "M: Example Grocer"
+          }
+        },
+        {
+          "operation": "cycle_subgroup",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "sub_grouping": "category",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "merchant",
+                "key": "merchant-grocer",
+                "label": "Example Grocer"
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "category-groceries"
+            ],
+            "breadcrumb": "M: Example Grocer \u003e (by Category)"
+          }
+        },
+        {
+          "operation": "drill",
+          "target": {
+            "kind": "aggregate",
+            "dimension": "category",
+            "key": "category-groceries"
+          },
+          "position": {
+            "cursor": 1,
+            "scroll": 0
+          },
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "merchant",
+                "key": "merchant-grocer",
+                "label": "Example Grocer"
+              },
+              {
+                "dimension": "category",
+                "key": "category-groceries",
+                "label": "Groceries"
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-021",
+              "txn-009",
+              "txn-001",
+              "txn-016",
+              "txn-029"
+            ],
+            "breadcrumb": "M: Example Grocer \u003e C: Groceries"
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "sub_grouping": "category",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "merchant",
+                "key": "merchant-grocer",
+                "label": "Example Grocer"
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "category-groceries"
+            ],
+            "breadcrumb": "M: Example Grocer \u003e (by Category)"
+          },
+          "returned_position": {
+            "cursor": 1,
+            "scroll": 0
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [
+              {
+                "dimension": "merchant",
+                "key": "merchant-grocer",
+                "label": "Example Grocer"
+              }
+            ],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-021",
+              "txn-009",
+              "txn-001",
+              "txn-016",
+              "txn-029"
+            ],
+            "breadcrumb": "M: Example Grocer"
+          },
+          "returned_position": {
+            "cursor": 0,
+            "scroll": 0
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-rent",
+              "merchant-grocer",
+              "merchant-utility",
+              "merchant-cafe",
+              "merchant-transit",
+              "merchant-books",
+              "merchant-pharmacy",
+              "merchant-uncategorized",
+              "merchant-interest",
+              "merchant-refund",
+              "merchant-payroll"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          },
+          "returned_position": {
+            "cursor": 3,
+            "scroll": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "search-filter-and-aggregate-selection",
+      "initial": {
+        "mode": "aggregate",
+        "dimension": "merchant",
+        "time_granularity": "year",
+        "sort": {
+          "field": "amount",
+          "direction": "desc"
+        },
+        "show_hidden": true,
+        "show_transfers": false,
+        "drilldowns": [],
+        "selected_transaction_ids": [],
+        "selected_aggregate_keys": [],
+        "result_ids": null,
+        "breadcrumb": ""
+      },
+      "steps": [
+        {
+          "operation": "set_search",
+          "search": "grocer",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "search": "grocer",
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-grocer"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
+          }
+        },
+        {
+          "operation": "toggle_selection",
+          "target": {
+            "kind": "aggregate",
+            "dimension": "merchant",
+            "key": "merchant-grocer"
+          },
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "search": "grocer",
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [
+              "merchant-grocer"
+            ],
+            "result_ids": [
+              "merchant-grocer"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
+          }
+        },
+        {
+          "operation": "select_all",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "search": "grocer",
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-grocer"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
+          }
+        },
+        {
+          "operation": "back",
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-rent",
+              "merchant-grocer",
+              "merchant-utility",
+              "merchant-cafe",
+              "merchant-transit",
+              "merchant-books",
+              "merchant-pharmacy",
+              "merchant-uncategorized",
+              "merchant-interest",
+              "merchant-refund",
+              "merchant-payroll"
+            ],
+            "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
+          },
+          "returned_position": {
+            "cursor": 0,
+            "scroll": 0
+          }
+        },
+        {
+          "operation": "set_filters",
+          "filters": {
+            "date_range": {
+              "start": "2024-01-01",
+              "end": "2024-12-31"
+            },
+            "show_hidden": false,
+            "show_transfers": true
+          },
+          "expected": {
+            "mode": "aggregate",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": false,
+            "show_transfers": true,
+            "date_range": {
+              "start": "2024-01-01",
+              "end": "2024-12-31"
+            },
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "merchant-grocer",
+              "merchant-cafe",
+              "merchant-pharmacy",
+              "merchant-transit",
+              "merchant-uncategorized",
+              "merchant-transfer",
+              "merchant-payroll"
+            ],
+            "breadcrumb": "Merchants (2024-01-10 to 2024-12-31)"
+          }
+        }
+      ]
+    },
+    {
+      "name": "detail-sort-cycle",
+      "initial": {
+        "mode": "detail",
+        "dimension": "merchant",
+        "time_granularity": "year",
+        "sort": {
+          "field": "date",
+          "direction": "desc"
+        },
+        "show_hidden": true,
+        "show_transfers": false,
+        "drilldowns": [],
+        "selected_transaction_ids": [],
+        "selected_aggregate_keys": [],
+        "result_ids": null,
+        "breadcrumb": ""
+      },
+      "steps": [
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "merchant",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-006",
+              "txn-014",
+              "txn-024",
+              "txn-015",
+              "txn-032",
+              "txn-004",
+              "txn-017",
+              "txn-030",
+              "txn-031",
+              "txn-011",
+              "txn-027",
+              "txn-003",
+              "txn-012",
+              "txn-019",
+              "txn-022",
+              "txn-008",
+              "txn-020",
+              "txn-001",
+              "txn-009",
+              "txn-016",
+              "txn-021",
+              "txn-029",
+              "txn-002",
+              "txn-010",
+              "txn-018",
+              "txn-028",
+              "txn-007",
+              "txn-023"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "category",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-006",
+              "txn-014",
+              "txn-024",
+              "txn-015",
+              "txn-032",
+              "txn-004",
+              "txn-017",
+              "txn-030",
+              "txn-003",
+              "txn-012",
+              "txn-019",
+              "txn-022",
+              "txn-020",
+              "txn-031",
+              "txn-008",
+              "txn-011",
+              "txn-027",
+              "txn-001",
+              "txn-009",
+              "txn-016",
+              "txn-021",
+              "txn-029",
+              "txn-002",
+              "txn-010",
+              "txn-018",
+              "txn-028",
+              "txn-007",
+              "txn-023"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "account",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-008",
+              "txn-003",
+              "txn-006",
+              "txn-012",
+              "txn-014",
+              "txn-019",
+              "txn-020",
+              "txn-022",
+              "txn-024",
+              "txn-031",
+              "txn-001",
+              "txn-002",
+              "txn-004",
+              "txn-007",
+              "txn-009",
+              "txn-010",
+              "txn-011",
+              "txn-015",
+              "txn-016",
+              "txn-017",
+              "txn-018",
+              "txn-021",
+              "txn-023",
+              "txn-027",
+              "txn-028",
+              "txn-029",
+              "txn-030",
+              "txn-032"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "amount",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-020",
+              "txn-024",
+              "txn-014",
+              "txn-006",
+              "txn-021",
+              "txn-009",
+              "txn-001",
+              "txn-016",
+              "txn-029",
+              "txn-028",
+              "txn-011",
+              "txn-004",
+              "txn-017",
+              "txn-030",
+              "txn-007",
+              "txn-023",
+              "txn-018",
+              "txn-027",
+              "txn-002",
+              "txn-010",
+              "txn-032",
+              "txn-015",
+              "txn-008",
+              "txn-031",
+              "txn-003",
+              "txn-012",
+              "txn-019",
+              "txn-022"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        },
+        {
+          "operation": "cycle_sort",
+          "expected": {
+            "mode": "detail",
+            "dimension": "merchant",
+            "time_granularity": "year",
+            "sort": {
+              "field": "date",
+              "direction": "desc"
+            },
+            "show_hidden": true,
+            "show_transfers": false,
+            "drilldowns": [],
+            "selected_transaction_ids": [],
+            "selected_aggregate_keys": [],
+            "result_ids": [
+              "txn-032",
+              "txn-031",
+              "txn-030",
+              "txn-029",
+              "txn-028",
+              "txn-027",
+              "txn-024",
+              "txn-023",
+              "txn-022",
+              "txn-021",
+              "txn-020",
+              "txn-019",
+              "txn-018",
+              "txn-017",
+              "txn-016",
+              "txn-015",
+              "txn-014",
+              "txn-012",
+              "txn-011",
+              "txn-009",
+              "txn-010",
+              "txn-008",
+              "txn-007",
+              "txn-006",
+              "txn-004",
+              "txn-003",
+              "txn-001",
+              "txn-002"
+            ],
+            "breadcrumb": "Transactions"
+          }
+        }
+      ]
+    }
+  ]
+}
