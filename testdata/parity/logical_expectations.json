@@ -1,0 +1,4686 @@
+{
+  "cases": [
+    {
+      "name": "merchant_amount_desc",
+      "query": {
+        "group_by": "merchant",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-rent",
+            "label": "Example Housing",
+            "scale": 2,
+            "share_tenths": 640,
+            "top_category": "Rent",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-grocer",
+            "label": "Example Grocer",
+            "scale": 2,
+            "share_tenths": 147,
+            "top_category": "Groceries",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-utility",
+            "label": "Example Utility",
+            "scale": 2,
+            "share_tenths": 91,
+            "top_category": "Utilities",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-cafe",
+            "label": "Example Cafe",
+            "scale": 2,
+            "share_tenths": 41,
+            "top_category": "Dining",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-transit",
+            "label": "Example Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "top_category": "Transit",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-books",
+            "label": "Example Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "top_category": "Books",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-pharmacy",
+            "label": "Example Pharmacy",
+            "scale": 2,
+            "share_tenths": 16,
+            "top_category": "Healthcare",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-uncategorized",
+            "label": "Example Unknown",
+            "scale": 2,
+            "share_tenths": 4,
+            "top_category": "Uncategorized",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-interest",
+            "label": "Example Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "top_category": "Interest",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-refund",
+            "label": "Example Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "top_category": "Refund",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-payroll",
+            "label": "Example Payroll",
+            "scale": 2,
+            "share_tenths": 999,
+            "top_category": "Salary",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "merchant_count_asc",
+      "query": {
+        "group_by": "merchant",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "count"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-rent",
+            "label": "Example Housing",
+            "scale": 2,
+            "share_tenths": 640,
+            "top_category": "Rent",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-interest",
+            "label": "Example Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "top_category": "Interest",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-refund",
+            "label": "Example Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "top_category": "Refund",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-books",
+            "label": "Example Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "top_category": "Books",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-pharmacy",
+            "label": "Example Pharmacy",
+            "scale": 2,
+            "share_tenths": 16,
+            "top_category": "Healthcare",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-uncategorized",
+            "label": "Example Unknown",
+            "scale": 2,
+            "share_tenths": 4,
+            "top_category": "Uncategorized",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-transit",
+            "label": "Example Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "top_category": "Transit",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-utility",
+            "label": "Example Utility",
+            "scale": 2,
+            "share_tenths": 91,
+            "top_category": "Utilities",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-cafe",
+            "label": "Example Cafe",
+            "scale": 2,
+            "share_tenths": 41,
+            "top_category": "Dining",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-payroll",
+            "label": "Example Payroll",
+            "scale": 2,
+            "share_tenths": 999,
+            "top_category": "Salary",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-grocer",
+            "label": "Example Grocer",
+            "scale": 2,
+            "share_tenths": 147,
+            "top_category": "Groceries",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "merchant_name_desc",
+      "query": {
+        "group_by": "merchant",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "merchant"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-utility",
+            "label": "Example Utility",
+            "scale": 2,
+            "share_tenths": 91,
+            "top_category": "Utilities",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-uncategorized",
+            "label": "Example Unknown",
+            "scale": 2,
+            "share_tenths": 4,
+            "top_category": "Uncategorized",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-transit",
+            "label": "Example Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "top_category": "Transit",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-refund",
+            "label": "Example Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "top_category": "Refund",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-pharmacy",
+            "label": "Example Pharmacy",
+            "scale": 2,
+            "share_tenths": 16,
+            "top_category": "Healthcare",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-payroll",
+            "label": "Example Payroll",
+            "scale": 2,
+            "share_tenths": 999,
+            "top_category": "Salary",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-interest",
+            "label": "Example Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "top_category": "Interest",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-rent",
+            "label": "Example Housing",
+            "scale": 2,
+            "share_tenths": 640,
+            "top_category": "Rent",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-grocer",
+            "label": "Example Grocer",
+            "scale": 2,
+            "share_tenths": 147,
+            "top_category": "Groceries",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-cafe",
+            "label": "Example Cafe",
+            "scale": 2,
+            "share_tenths": 41,
+            "top_category": "Dining",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "merchant",
+            "key": "merchant-books",
+            "label": "Example Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "top_category": "Books",
+            "top_category_percent": 100,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "category_amount_desc",
+      "query": {
+        "group_by": "category",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-rent",
+            "label": "Rent",
+            "scale": 2,
+            "share_tenths": 640,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-groceries",
+            "label": "Groceries",
+            "scale": 2,
+            "share_tenths": 147,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-utilities",
+            "label": "Utilities",
+            "scale": 2,
+            "share_tenths": 91,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-dining",
+            "label": "Dining",
+            "scale": 2,
+            "share_tenths": 41,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-transit",
+            "label": "Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-books",
+            "label": "Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-healthcare",
+            "label": "Healthcare",
+            "scale": 2,
+            "share_tenths": 16,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-interest",
+            "label": "Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-refund",
+            "label": "Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-salary",
+            "label": "Salary",
+            "scale": 2,
+            "share_tenths": 999,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "category_name_asc",
+      "query": {
+        "group_by": "category",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "category"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-books",
+            "label": "Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-dining",
+            "label": "Dining",
+            "scale": 2,
+            "share_tenths": 41,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-groceries",
+            "label": "Groceries",
+            "scale": 2,
+            "share_tenths": 147,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-healthcare",
+            "label": "Healthcare",
+            "scale": 2,
+            "share_tenths": 16,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-interest",
+            "label": "Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-refund",
+            "label": "Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-rent",
+            "label": "Rent",
+            "scale": 2,
+            "share_tenths": 640,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-salary",
+            "label": "Salary",
+            "scale": 2,
+            "share_tenths": 999,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-transit",
+            "label": "Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-utilities",
+            "label": "Utilities",
+            "scale": 2,
+            "share_tenths": 91,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "group_count_desc_hidden_on",
+      "query": {
+        "group_by": "group",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "count"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 15,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Living",
+            "label": "Living",
+            "scale": 2,
+            "share_tenths": 935,
+            "total": {
+              "currency": "USD",
+              "minor": -175340,
+              "scale": 2
+            }
+          },
+          {
+            "count": 6,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Income",
+            "label": "Income",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Transportation",
+            "label": "Transportation",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Discretionary",
+            "label": "Discretionary",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "group_name_desc_hidden_off",
+      "query": {
+        "group_by": "group",
+        "mode": "aggregate",
+        "show_hidden": false,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "group"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Transportation",
+            "label": "Transportation",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 13,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Living",
+            "label": "Living",
+            "scale": 2,
+            "share_tenths": 935,
+            "total": {
+              "currency": "USD",
+              "minor": -175340,
+              "scale": 2
+            }
+          },
+          {
+            "count": 6,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Income",
+            "label": "Income",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Discretionary",
+            "label": "Discretionary",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 26,
+        "statistics": [
+          {
+            "count": 26,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "group_amount_asc",
+      "query": {
+        "group_by": "group",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 6,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Income",
+            "label": "Income",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Discretionary",
+            "label": "Discretionary",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Transportation",
+            "label": "Transportation",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 15,
+            "currency": "USD",
+            "dimension": "group",
+            "key": "Living",
+            "label": "Living",
+            "scale": 2,
+            "share_tenths": 935,
+            "total": {
+              "currency": "USD",
+              "minor": -175340,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "account_amount_asc",
+      "query": {
+        "group_by": "account",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 9,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-checking",
+            "label": "Primary Checking",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 924000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-savings",
+            "label": "Savings",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 18,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-card",
+            "label": "Everyday Card",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": -50617,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "account_name_asc",
+      "query": {
+        "group_by": "account",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "account"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 18,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-card",
+            "label": "Everyday Card",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": -50617,
+              "scale": 2
+            }
+          },
+          {
+            "count": 9,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-checking",
+            "label": "Primary Checking",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 924000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-savings",
+            "label": "Savings",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "account_count_desc",
+      "query": {
+        "group_by": "account",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "count"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 18,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-card",
+            "label": "Everyday Card",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": -50617,
+              "scale": 2
+            }
+          },
+          {
+            "count": 9,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-checking",
+            "label": "Primary Checking",
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 924000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "account",
+            "key": "account-savings",
+            "label": "Savings",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_year_gaps",
+      "query": {
+        "group_by": "time",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "time_period"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 7,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2023",
+            "label": "2023",
+            "period": {
+              "granularity": "year",
+              "year": 2023
+            },
+            "scale": 2,
+            "share_tenths": 265,
+            "total": {
+              "currency": "USD",
+              "minor": 231155,
+              "scale": 2
+            }
+          },
+          {
+            "count": 10,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024",
+            "label": "2024",
+            "period": {
+              "granularity": "year",
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 585,
+            "total": {
+              "currency": "USD",
+              "minor": 510905,
+              "scale": 2
+            }
+          },
+          {
+            "count": 11,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2025",
+            "label": "2025",
+            "period": {
+              "granularity": "year",
+              "year": 2025
+            },
+            "scale": 2,
+            "share_tenths": 151,
+            "total": {
+              "currency": "USD",
+              "minor": 131648,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_year_count_desc",
+      "query": {
+        "group_by": "time",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "count"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 11,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2025",
+            "label": "2025",
+            "period": {
+              "granularity": "year",
+              "year": 2025
+            },
+            "scale": 2,
+            "share_tenths": 151,
+            "total": {
+              "currency": "USD",
+              "minor": 131648,
+              "scale": 2
+            }
+          },
+          {
+            "count": 10,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024",
+            "label": "2024",
+            "period": {
+              "granularity": "year",
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 585,
+            "total": {
+              "currency": "USD",
+              "minor": 510905,
+              "scale": 2
+            }
+          },
+          {
+            "count": 7,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2023",
+            "label": "2023",
+            "period": {
+              "granularity": "year",
+              "year": 2023
+            },
+            "scale": 2,
+            "share_tenths": 265,
+            "total": {
+              "currency": "USD",
+              "minor": 231155,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_year_amount_desc",
+      "query": {
+        "group_by": "time",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 11,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2025",
+            "label": "2025",
+            "period": {
+              "granularity": "year",
+              "year": 2025
+            },
+            "scale": 2,
+            "share_tenths": 151,
+            "total": {
+              "currency": "USD",
+              "minor": 131648,
+              "scale": 2
+            }
+          },
+          {
+            "count": 7,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2023",
+            "label": "2023",
+            "period": {
+              "granularity": "year",
+              "year": 2023
+            },
+            "scale": 2,
+            "share_tenths": 265,
+            "total": {
+              "currency": "USD",
+              "minor": 231155,
+              "scale": 2
+            }
+          },
+          {
+            "count": 10,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024",
+            "label": "2024",
+            "period": {
+              "granularity": "year",
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 585,
+            "total": {
+              "currency": "USD",
+              "minor": 510905,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_month_gaps",
+      "query": {
+        "date_range": {
+          "end": "2024-06-01",
+          "start": "2024-01-10"
+        },
+        "group_by": "time",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "time_period"
+        },
+        "time_granularity": "month"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-01",
+            "label": "Jan 2024",
+            "period": {
+              "granularity": "month",
+              "month": 1,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 509,
+            "total": {
+              "currency": "USD",
+              "minor": -7250,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-02",
+            "label": "Feb 2024",
+            "period": {
+              "granularity": "month",
+              "month": 2,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": 257000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-03",
+            "label": "Mar 2024",
+            "period": {
+              "granularity": "month",
+              "month": 3,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-04",
+            "label": "Apr 2024",
+            "period": {
+              "granularity": "month",
+              "month": 4,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-05",
+            "label": "May 2024",
+            "period": {
+              "granularity": "month",
+              "month": 5,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 316,
+            "total": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-06",
+            "label": "Jun 2024",
+            "period": {
+              "granularity": "month",
+              "month": 6,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 175,
+            "total": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2024-06-01",
+          "start": "2024-01-10"
+        },
+        "detail_rows": [],
+        "filtered_count": 8,
+        "statistics": [
+          {
+            "count": 8,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 242750,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -17250,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_day_leap_gap",
+      "query": {
+        "date_range": {
+          "end": "2024-03-01",
+          "start": "2024-02-28"
+        },
+        "group_by": "time",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": true,
+        "sort": {
+          "direction": "asc",
+          "field": "time_period"
+        },
+        "time_granularity": "day"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-02-28",
+            "label": "2024-02-28",
+            "period": {
+              "day": 28,
+              "granularity": "day",
+              "month": 2,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 1000,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-02-29",
+            "label": "2024-02-29",
+            "period": {
+              "day": 29,
+              "granularity": "day",
+              "month": 2,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 839,
+            "total": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "time",
+            "key": "2024-03-01",
+            "label": "2024-03-01",
+            "period": {
+              "day": 1,
+              "granularity": "day",
+              "month": 3,
+              "year": 2024
+            },
+            "scale": 2,
+            "share_tenths": 161,
+            "total": {
+              "currency": "USD",
+              "minor": 50000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2024-03-01",
+          "start": "2024-02-28"
+        },
+        "detail_rows": [],
+        "filtered_count": 3,
+        "statistics": [
+          {
+            "count": 3,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 310000,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 307000,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_date_desc_hidden_retained",
+      "query": {
+        "mode": "detail",
+        "show_hidden": false,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "date"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            },
+            "category": {
+              "group": "Uncategorized",
+              "id": "category-uncategorized",
+              "name": "Uncategorized"
+            },
+            "date": "2025-12-31",
+            "hidden": false,
+            "id": "txn-032",
+            "merchant": {
+              "id": "merchant-uncategorized",
+              "name": "Example Unknown"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-refund",
+              "name": "Refund"
+            },
+            "date": "2025-10-31",
+            "hidden": false,
+            "id": "txn-031",
+            "merchant": {
+              "id": "merchant-refund",
+              "name": "Example Refund"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2025-09-01",
+            "hidden": false,
+            "id": "txn-030",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4242,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-07-04",
+            "hidden": false,
+            "id": "txn-029",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": true
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -3333,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2025-06-15",
+            "hidden": false,
+            "id": "txn-028",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1599,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-healthcare",
+              "name": "Healthcare"
+            },
+            "date": "2025-05-05",
+            "hidden": true,
+            "id": "txn-027",
+            "merchant": {
+              "id": "merchant-pharmacy",
+              "name": "Example Pharmacy"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -9000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2025-03-31",
+            "hidden": false,
+            "id": "txn-024",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Discretionary",
+              "id": "category-books",
+              "name": "Books"
+            },
+            "date": "2025-02-15",
+            "hidden": false,
+            "id": "txn-023",
+            "merchant": {
+              "id": "merchant-books",
+              "name": "Example Books"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 280000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2025-02-01",
+            "hidden": false,
+            "id": "txn-022",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-01-15",
+            "hidden": false,
+            "id": "txn-021",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-rent",
+              "name": "Rent"
+            },
+            "date": "2025-01-01",
+            "hidden": false,
+            "id": "txn-020",
+            "merchant": {
+              "id": "merchant-rent",
+              "name": "Example Housing"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 270000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-12-31",
+            "hidden": false,
+            "id": "txn-019",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1845,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2024-08-12",
+            "hidden": false,
+            "id": "txn-018",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2024-06-01",
+            "hidden": false,
+            "id": "txn-017",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-05-31",
+            "hidden": false,
+            "id": "txn-016",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "category": {
+              "group": "Uncategorized",
+              "id": "category-uncategorized",
+              "name": "Uncategorized"
+            },
+            "date": "2024-04-20",
+            "hidden": false,
+            "id": "txn-015",
+            "merchant": {
+              "id": "merchant-uncategorized",
+              "name": "Example Unknown"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8275,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2024-03-15",
+            "hidden": true,
+            "id": "txn-014",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-02-29",
+            "hidden": false,
+            "id": "txn-012",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-healthcare",
+              "name": "Healthcare"
+            },
+            "date": "2024-02-28",
+            "hidden": false,
+            "id": "txn-011",
+            "merchant": {
+              "id": "merchant-pharmacy",
+              "name": "Example Pharmacy"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -6000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-009",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1250,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-010",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-savings",
+              "name": "Savings"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-interest",
+              "name": "Interest"
+            },
+            "date": "2023-12-31",
+            "hidden": false,
+            "id": "txn-008",
+            "merchant": {
+              "id": "merchant-interest",
+              "name": "Example Interest"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Discretionary",
+              "id": "category-books",
+              "name": "Books"
+            },
+            "date": "2023-06-10",
+            "hidden": false,
+            "id": "txn-007",
+            "merchant": {
+              "id": "merchant-books",
+              "name": "Example Books"
+            },
+            "pending": true
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2023-04-20",
+            "hidden": false,
+            "id": "txn-006",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2023-03-15",
+            "hidden": false,
+            "id": "txn-004",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 250000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2023-02-01",
+            "hidden": false,
+            "id": "txn-003",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -5420,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-001",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1250,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-002",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          }
+        ],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_amount_desc",
+      "query": {
+        "mode": "detail",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "amount"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-rent",
+              "name": "Rent"
+            },
+            "date": "2025-01-01",
+            "hidden": false,
+            "id": "txn-020",
+            "merchant": {
+              "id": "merchant-rent",
+              "name": "Example Housing"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -9000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2025-03-31",
+            "hidden": false,
+            "id": "txn-024",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8275,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2024-03-15",
+            "hidden": true,
+            "id": "txn-014",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2023-04-20",
+            "hidden": false,
+            "id": "txn-006",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-01-15",
+            "hidden": false,
+            "id": "txn-021",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -6000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-009",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -5420,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-001",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-05-31",
+            "hidden": false,
+            "id": "txn-016",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4242,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-07-04",
+            "hidden": false,
+            "id": "txn-029",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": true
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -3333,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2025-06-15",
+            "hidden": false,
+            "id": "txn-028",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-healthcare",
+              "name": "Healthcare"
+            },
+            "date": "2024-02-28",
+            "hidden": false,
+            "id": "txn-011",
+            "merchant": {
+              "id": "merchant-pharmacy",
+              "name": "Example Pharmacy"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2023-03-15",
+            "hidden": false,
+            "id": "txn-004",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2024-06-01",
+            "hidden": false,
+            "id": "txn-017",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Transportation",
+              "id": "category-transit",
+              "name": "Transit"
+            },
+            "date": "2025-09-01",
+            "hidden": false,
+            "id": "txn-030",
+            "merchant": {
+              "id": "merchant-transit",
+              "name": "Example Transit"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Discretionary",
+              "id": "category-books",
+              "name": "Books"
+            },
+            "date": "2023-06-10",
+            "hidden": false,
+            "id": "txn-007",
+            "merchant": {
+              "id": "merchant-books",
+              "name": "Example Books"
+            },
+            "pending": true
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -2000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Discretionary",
+              "id": "category-books",
+              "name": "Books"
+            },
+            "date": "2025-02-15",
+            "hidden": false,
+            "id": "txn-023",
+            "merchant": {
+              "id": "merchant-books",
+              "name": "Example Books"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1845,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2024-08-12",
+            "hidden": false,
+            "id": "txn-018",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1599,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-healthcare",
+              "name": "Healthcare"
+            },
+            "date": "2025-05-05",
+            "hidden": true,
+            "id": "txn-027",
+            "merchant": {
+              "id": "merchant-pharmacy",
+              "name": "Example Pharmacy"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1250,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-002",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -1250,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-dining",
+              "name": "Dining"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-010",
+            "merchant": {
+              "id": "merchant-cafe",
+              "name": "Example Cafe"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            },
+            "category": {
+              "group": "Uncategorized",
+              "id": "category-uncategorized",
+              "name": "Uncategorized"
+            },
+            "date": "2025-12-31",
+            "hidden": false,
+            "id": "txn-032",
+            "merchant": {
+              "id": "merchant-uncategorized",
+              "name": "Example Unknown"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "category": {
+              "group": "Uncategorized",
+              "id": "category-uncategorized",
+              "name": "Uncategorized"
+            },
+            "date": "2024-04-20",
+            "hidden": false,
+            "id": "txn-015",
+            "merchant": {
+              "id": "merchant-uncategorized",
+              "name": "Example Unknown"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-savings",
+              "name": "Savings"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-interest",
+              "name": "Interest"
+            },
+            "date": "2023-12-31",
+            "hidden": false,
+            "id": "txn-008",
+            "merchant": {
+              "id": "merchant-interest",
+              "name": "Example Interest"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-refund",
+              "name": "Refund"
+            },
+            "date": "2025-10-31",
+            "hidden": false,
+            "id": "txn-031",
+            "merchant": {
+              "id": "merchant-refund",
+              "name": "Example Refund"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 250000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2023-02-01",
+            "hidden": false,
+            "id": "txn-003",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-02-29",
+            "hidden": false,
+            "id": "txn-012",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 270000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-12-31",
+            "hidden": false,
+            "id": "txn-019",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 280000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2025-02-01",
+            "hidden": false,
+            "id": "txn-022",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          }
+        ],
+        "filtered_count": 28,
+        "statistics": [
+          {
+            "count": 28,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1061325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -187617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_merchant_asc_literal_search",
+      "query": {
+        "mode": "detail",
+        "search": "grocer",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "merchant"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2025-07-04",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -5420,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-001",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -6000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-009",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-05-31",
+            "hidden": false,
+            "id": "txn-016",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-01-15",
+            "hidden": false,
+            "id": "txn-021",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4242,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-07-04",
+            "hidden": false,
+            "id": "txn-029",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": true
+          }
+        ],
+        "filtered_count": 5,
+        "statistics": [
+          {
+            "count": 5,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_category_desc_regex_search",
+      "query": {
+        "mode": "detail",
+        "search": "grocer|utilities",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "category"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2025-07-04",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2023-04-20",
+            "hidden": false,
+            "id": "txn-006",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8275,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2024-03-15",
+            "hidden": true,
+            "id": "txn-014",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -9000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2025-03-31",
+            "hidden": false,
+            "id": "txn-024",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -5420,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-001",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -6000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-009",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-05-31",
+            "hidden": false,
+            "id": "txn-016",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-01-15",
+            "hidden": false,
+            "id": "txn-021",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4242,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-07-04",
+            "hidden": false,
+            "id": "txn-029",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": true
+          }
+        ],
+        "filtered_count": 8,
+        "statistics": [
+          {
+            "count": 8,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": -44662,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -44662,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "detail_account_desc_inclusive_bounds",
+      "query": {
+        "date_range": {
+          "end": "2024-03-15",
+          "start": "2024-02-29"
+        },
+        "mode": "detail",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "desc",
+          "field": "account"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2024-03-15",
+          "start": "2024-02-29"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-02-29",
+            "hidden": false,
+            "id": "txn-012",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -8275,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-utilities",
+              "name": "Utilities"
+            },
+            "date": "2024-03-15",
+            "hidden": true,
+            "id": "txn-014",
+            "merchant": {
+              "id": "merchant-utility",
+              "name": "Example Utility"
+            },
+            "pending": false
+          }
+        ],
+        "filtered_count": 2,
+        "statistics": [
+          {
+            "count": 2,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "transfers_on",
+      "query": {
+        "group_by": "category",
+        "mode": "aggregate",
+        "show_hidden": true,
+        "show_transfers": true,
+        "sort": {
+          "direction": "desc",
+          "field": "count"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [
+          {
+            "count": 5,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-groceries",
+            "label": "Groceries",
+            "scale": 2,
+            "share_tenths": 147,
+            "total": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-dining",
+            "label": "Dining",
+            "scale": 2,
+            "share_tenths": 41,
+            "total": {
+              "currency": "USD",
+              "minor": -7678,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-salary",
+            "label": "Salary",
+            "scale": 2,
+            "share_tenths": 999,
+            "total": {
+              "currency": "USD",
+              "minor": 1060000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 4,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-transfer",
+            "label": "Transfer",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-transit",
+            "label": "Transit",
+            "scale": 2,
+            "share_tenths": 40,
+            "total": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            }
+          },
+          {
+            "count": 3,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-utilities",
+            "label": "Utilities",
+            "scale": 2,
+            "share_tenths": 91,
+            "total": {
+              "currency": "USD",
+              "minor": -17000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-books",
+            "label": "Books",
+            "scale": 2,
+            "share_tenths": 21,
+            "total": {
+              "currency": "USD",
+              "minor": -4000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-healthcare",
+            "label": "Healthcare",
+            "scale": 2,
+            "share_tenths": 16,
+            "total": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 2,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-uncategorized",
+            "label": "Uncategorized",
+            "scale": 2,
+            "share_tenths": 4,
+            "total": {
+              "currency": "USD",
+              "minor": -777,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-interest",
+            "label": "Interest",
+            "scale": 2,
+            "share_tenths": 0,
+            "total": {
+              "currency": "USD",
+              "minor": 325,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-refund",
+            "label": "Refund",
+            "scale": 2,
+            "share_tenths": 1,
+            "total": {
+              "currency": "USD",
+              "minor": 1000,
+              "scale": 2
+            }
+          },
+          {
+            "count": 1,
+            "currency": "USD",
+            "dimension": "category",
+            "key": "category-rent",
+            "label": "Rent",
+            "scale": 2,
+            "share_tenths": 640,
+            "total": {
+              "currency": "USD",
+              "minor": -120000,
+              "scale": 2
+            }
+          }
+        ],
+        "date_range": {
+          "end": "2025-12-31",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [],
+        "filtered_count": 32,
+        "statistics": [
+          {
+            "count": 32,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 1141325,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 873708,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -267617,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "multi_level_drilldown",
+      "query": {
+        "drilldowns": [
+          {
+            "dimension": "merchant",
+            "key": "merchant-grocer",
+            "label": "Example Grocer"
+          },
+          {
+            "dimension": "account",
+            "key": "account-card",
+            "label": "Everyday Card"
+          }
+        ],
+        "mode": "detail",
+        "show_hidden": true,
+        "show_transfers": false,
+        "sort": {
+          "direction": "asc",
+          "field": "date"
+        },
+        "time_granularity": "year"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2025-07-04",
+          "start": "2023-01-05"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -5420,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2023-01-05",
+            "hidden": false,
+            "id": "txn-001",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -6000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-01-10",
+            "hidden": false,
+            "id": "txn-009",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2024-05-31",
+            "hidden": false,
+            "id": "txn-016",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -7500,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-01-15",
+            "hidden": false,
+            "id": "txn-021",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -4242,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-groceries",
+              "name": "Groceries"
+            },
+            "date": "2025-07-04",
+            "hidden": false,
+            "id": "txn-029",
+            "merchant": {
+              "id": "merchant-grocer",
+              "name": "Example Grocer"
+            },
+            "pending": true
+          }
+        ],
+        "filtered_count": 5,
+        "statistics": [
+          {
+            "count": 5,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 0,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -27662,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "time_drilldown",
+      "query": {
+        "drilldowns": [
+          {
+            "dimension": "time",
+            "period": {
+              "granularity": "month",
+              "month": 2,
+              "year": 2024
+            }
+          }
+        ],
+        "mode": "detail",
+        "show_hidden": true,
+        "show_transfers": true,
+        "sort": {
+          "direction": "asc",
+          "field": "date"
+        },
+        "time_granularity": "month"
+      },
+      "result": {
+        "aggregate_rows": [],
+        "date_range": {
+          "end": "2024-02-29",
+          "start": "2024-02-28"
+        },
+        "detail_rows": [
+          {
+            "account": {
+              "id": "account-card",
+              "name": "Everyday Card"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Living",
+              "id": "category-healthcare",
+              "name": "Healthcare"
+            },
+            "date": "2024-02-28",
+            "hidden": false,
+            "id": "txn-011",
+            "merchant": {
+              "id": "merchant-pharmacy",
+              "name": "Example Pharmacy"
+            },
+            "pending": false
+          },
+          {
+            "account": {
+              "id": "account-checking",
+              "name": "Primary Checking"
+            },
+            "amount": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "category": {
+              "group": "Income",
+              "id": "category-salary",
+              "name": "Salary"
+            },
+            "date": "2024-02-29",
+            "hidden": false,
+            "id": "txn-012",
+            "merchant": {
+              "id": "merchant-payroll",
+              "name": "Example Payroll"
+            },
+            "pending": false
+          }
+        ],
+        "filtered_count": 2,
+        "statistics": [
+          {
+            "count": 2,
+            "currency": "USD",
+            "in": {
+              "currency": "USD",
+              "minor": 260000,
+              "scale": 2
+            },
+            "net": {
+              "currency": "USD",
+              "minor": 257000,
+              "scale": 2
+            },
+            "out": {
+              "currency": "USD",
+              "minor": -3000,
+              "scale": 2
+            },
+            "scale": 2
+          }
+        ]
+      }
+    }
+  ],
+  "schema_version": 1
+}

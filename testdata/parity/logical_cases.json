@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"name":"merchant_amount_desc","mode":"aggregate","group_by":"merchant","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"merchant_count_asc","mode":"aggregate","group_by":"merchant","time_granularity":"year","sort":{"field":"count","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"merchant_name_desc","mode":"aggregate","group_by":"merchant","time_granularity":"year","sort":{"field":"merchant","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"category_amount_desc","mode":"aggregate","group_by":"category","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"category_name_asc","mode":"aggregate","group_by":"category","time_granularity":"year","sort":{"field":"category","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"group_count_desc_hidden_on","mode":"aggregate","group_by":"group","time_granularity":"year","sort":{"field":"count","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"group_name_desc_hidden_off","mode":"aggregate","group_by":"group","time_granularity":"year","sort":{"field":"group","direction":"desc"},"show_hidden":false,"show_transfers":false},
+    {"name":"group_amount_asc","mode":"aggregate","group_by":"group","time_granularity":"year","sort":{"field":"amount","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"account_amount_asc","mode":"aggregate","group_by":"account","time_granularity":"year","sort":{"field":"amount","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"account_name_asc","mode":"aggregate","group_by":"account","time_granularity":"year","sort":{"field":"account","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"account_count_desc","mode":"aggregate","group_by":"account","time_granularity":"year","sort":{"field":"count","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"time_year_gaps","mode":"aggregate","group_by":"time","time_granularity":"year","sort":{"field":"time_period","direction":"asc"},"show_hidden":true,"show_transfers":false},
+    {"name":"time_year_count_desc","mode":"aggregate","group_by":"time","time_granularity":"year","sort":{"field":"count","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"time_year_amount_desc","mode":"aggregate","group_by":"time","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"time_month_gaps","mode":"aggregate","group_by":"time","time_granularity":"month","sort":{"field":"time_period","direction":"asc"},"show_hidden":true,"show_transfers":false,"date_range":{"start":"2024-01-10","end":"2024-06-01"}},
+    {"name":"time_day_leap_gap","mode":"aggregate","group_by":"time","time_granularity":"day","sort":{"field":"time_period","direction":"asc"},"show_hidden":true,"show_transfers":true,"date_range":{"start":"2024-02-28","end":"2024-03-01"}},
+    {"name":"detail_date_desc_hidden_retained","mode":"detail","time_granularity":"year","sort":{"field":"date","direction":"desc"},"show_hidden":false,"show_transfers":false},
+    {"name":"detail_amount_desc","mode":"detail","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false},
+    {"name":"detail_merchant_asc_literal_search","mode":"detail","time_granularity":"year","sort":{"field":"merchant","direction":"asc"},"show_hidden":true,"show_transfers":false,"search":"grocer"},
+    {"name":"detail_category_desc_regex_search","mode":"detail","time_granularity":"year","sort":{"field":"category","direction":"desc"},"show_hidden":true,"show_transfers":false,"search":"grocer|utilities"},
+    {"name":"detail_account_desc_inclusive_bounds","mode":"detail","time_granularity":"year","sort":{"field":"account","direction":"desc"},"show_hidden":true,"show_transfers":false,"date_range":{"start":"2024-02-29","end":"2024-03-15"}},
+    {"name":"transfers_on","mode":"aggregate","group_by":"category","time_granularity":"year","sort":{"field":"count","direction":"desc"},"show_hidden":true,"show_transfers":true},
+    {"name":"multi_level_drilldown","mode":"detail","time_granularity":"year","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":false,"drilldowns":[{"dimension":"merchant","key":"merchant-grocer","label":"Example Grocer"},{"dimension":"account","key":"account-card","label":"Everyday Card"}]},
+    {"name":"time_drilldown","mode":"detail","time_granularity":"month","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":true,"drilldowns":[{"dimension":"time","period":{"granularity":"month","year":2024,"month":2}}]}
+  ]
+}
