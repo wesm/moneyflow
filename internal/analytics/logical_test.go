@@ -22,9 +22,12 @@ type logicalCase struct {
 	Name   string           `json:"name"`
 	Query  domain.QuerySpec `json:"query"`
 	Result struct {
-		FilteredIDs []string               `json:"filtered_ids"`
-		DetailRows  []logicalDetailRow     `json:"detail_rows"`
-		Statistics  []domain.CurrencyStats `json:"statistics"`
+		AggregateRows []domain.AggregateRow  `json:"aggregate_rows"`
+		DateRange     *domain.DateRange      `json:"date_range"`
+		DetailRows    []logicalDetailRow     `json:"detail_rows"`
+		FilteredCount int                    `json:"filtered_count"`
+		FilteredIDs   []string               `json:"filtered_ids"`
+		Statistics    []domain.CurrencyStats `json:"statistics"`
 	} `json:"result"`
 }
 
@@ -54,7 +57,14 @@ func TestLogicalFilterStatisticsAndDetailParity(t *testing.T) {
 			require.NoError(t, statisticsErr)
 			assert.Equal(t, expectation.Result.Statistics, statistics)
 
+			result, queryErr := Query(transactions, expectation.Query)
+			require.NoError(t, queryErr)
+			assert.Equal(t, expectation.Result.FilteredCount, result.FilteredCount)
+			assert.Equal(t, expectation.Result.DateRange, result.DateRange)
+			assert.Equal(t, expectation.Result.Statistics, result.Statistics)
+
 			if expectation.Query.Mode != domain.ResultModeDetail {
+				assert.Equal(t, expectation.Result.AggregateRows, result.AggregateRows)
 				return
 			}
 			rows := DetailRows(filtered, expectation.Query.Sort)
