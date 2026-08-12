@@ -1960,12 +1960,11 @@ class MoneyflowApp(App):
             group_name: list(category_names)
             for group_name, category_names in self.data_manager.category_groups_config.items()
         }
-        dirty = await self.push_screen(
-            ManageGroupsScreen(
-                categories=self.data_manager.categories,
-            ),
-            wait_for_dismiss=True,
+        groups_screen = ManageGroupsScreen(
+            categories=self.data_manager.categories,
+            category_id_factory=getattr(self.backend, "make_category_id", None),
         )
+        dirty = await self.push_screen(groups_screen, wait_for_dismiss=True)
 
         if refresh_generation != self._simplefin_refresh_generation:
             self.notify(
@@ -1997,6 +1996,7 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
+                    self._persist_category_aliases(groups_screen.recorded_aliases)
                     self._flush_pending_category_aliases()
                     self._clear_deferred_category_groups()
                     self.notify("Groups updated.", timeout=2)

@@ -1276,6 +1276,9 @@ class ManageCategoriesScreen(ModalScreen):
             return
 
         if new_id != cat_id:
+            # The destination id may have been deleted or merged earlier in
+            # this session; cancel that alias before pointing the old id at it.
+            self.recorded_aliases.append((new_id, new_id, ""))
             self.recorded_aliases.append((cat_id, new_id, new_name))
 
         if new_id != cat_id:
@@ -1667,9 +1670,17 @@ class ManageGroupsScreen(ModalScreen):
     def __init__(
         self,
         categories: Dict[str, Dict[str, str]],
+        category_id_factory=None,
     ) -> None:
         super().__init__()
         self.categories = categories
+        # The backend owns the persistent id format, as in the category
+        # manager: a bare slug here would create a second id for a category
+        # the CSV backend stores with a "cat_" prefix.
+        self._category_id_factory = category_id_factory or category_slug
+        # (source, target, name) records of structural edits, persisted by
+        # the caller once the configuration saves.
+        self.recorded_aliases: List[Tuple[str, str, str]] = []
         self._selected_index = 0
         self._group_order: List[str] = []
         self._filter_query: str = ""
@@ -1835,8 +1846,12 @@ class ManageGroupsScreen(ModalScreen):
         if any(c.get("group") == name for c in self.categories.values()):
             self.app.notify(f"Group '{name}' already exists", timeout=3)
             return
-        cat_id = group_id
-        if cat_id in self.categories:
+        cat_id = self._category_id_factory(name)
+        new_key = category_equivalence_key(name)
+        if cat_id in self.categories or any(
+            category_equivalence_key(existing.get("name", "")) == new_key
+            for existing in self.categories.values()
+        ):
             self.app.notify("A category with an equivalent name already exists", timeout=3)
             return
         self.categories[cat_id] = {
@@ -1845,6 +1860,9 @@ class ManageGroupsScreen(ModalScreen):
             "group_id": group_id,
             "group_type": "",
         }
+        # The id is live again: cancel any alias left by an earlier
+        # rename/merge/delete of it.
+        self.recorded_aliases.append((cat_id, cat_id, ""))
         self._dirty = True
         self._build_group_order()
         self._selected_index = (

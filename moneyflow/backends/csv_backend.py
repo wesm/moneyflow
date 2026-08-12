@@ -16,8 +16,8 @@ from moneyflow.data.categories import (
 from moneyflow.data.file_utils import (
     ensure_restrictive_directory,
     open_restrictive_file,
+    open_verified_no_follow,
     require_current_user_fd_ownership,
-    require_current_user_ownership,
     require_directory_not_replaceable,
     validate_trusted_root,
 )
@@ -226,7 +226,13 @@ def _secure_open_db(db_path_str: str) -> None:
         # file already exists, tightening any database left with a
         # permissive DACL by an earlier version or external tool.
         if db_path.exists() or db_path.is_symlink():
-            require_current_user_ownership(db_path)
+            # Validate BEFORE tightening. open_restrictive_file replaces the
+            # DACL, which would erase the evidence that another account had
+            # write access — and the contents it may already have altered
+            # would then be trusted. open_verified_no_follow rejects a
+            # reparse point, a foreign owner, or a DACL granting an untrusted
+            # principal modification rights, without mutating anything.
+            os.close(open_verified_no_follow(db_path))
         fd = open_restrictive_file(db_path, read_write=True)
         try:
             st = os.fstat(fd)

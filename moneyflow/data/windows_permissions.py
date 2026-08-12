@@ -108,6 +108,30 @@ def require_current_user_ownership(path: Path | str) -> None:
     _require_current_user_owner(security_descriptor, path)
 
 
+# ACE types that DENY access. Everything else in a DACL grants it, including
+# the object and callback variants, whose SID sits at the end of the tuple
+# rather than at a fixed index.
+_DENY_ACE_TYPES = frozenset(
+    {
+        win32security.ACCESS_DENIED_ACE_TYPE,
+        getattr(win32security, "ACCESS_DENIED_OBJECT_ACE_TYPE", 6),
+        getattr(win32security, "ACCESS_DENIED_CALLBACK_ACE_TYPE", 10),
+        getattr(win32security, "ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE", 12),
+    }
+)
+
+
+def _ace_parts(ace: Any) -> tuple[int, int, int, Any]:
+    """Return (ace_type, ace_flags, access_mask, sid) for any DACL ACE.
+
+    Conventional ACEs are (header, mask, sid); object and callback ACEs carry
+    extra members between the mask and the SID, so the SID is read from the
+    end rather than a fixed position.
+    """
+    ace_type, ace_flags = ace[0]
+    return ace_type, ace_flags, ace[1], ace[-1]
+
+
 _TRUSTED_ANCESTOR_SIDS = frozenset(
     {
         "S-1-5-18",  # LocalSystem
@@ -189,13 +213,11 @@ def require_directory_not_replaceable_by_untrusted(
             str(path),
         )
     for index in range(dacl.GetAceCount()):
-        ace = dacl.GetAce(index)
-        ace_type, ace_flags = ace[0]
-        if ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE:
+        ace_type, ace_flags, access_mask, sid = _ace_parts(dacl.GetAce(index))
+        if ace_type in _DENY_ACE_TYPES:
             continue
         if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
             continue
-        access_mask, sid = ace[1], ace[2]
         sid_string = _sid_string(sid)
         if sid_string == current_sid_string or sid_string in _TRUSTED_ANCESTOR_SIDS:
             continue
@@ -403,18 +425,14 @@ def _require_no_untrusted_write_access(handle: Any, path: Path | str) -> None:
     trusted = _TRUSTED_ANCESTOR_SIDS | {current_sid_string}
     denied: dict[str, int] = {}
     for index in range(dacl.GetAceCount()):
-        ace = dacl.GetAce(index)
-        ace_type, ace_flags = ace[0]
+        ace_type, ace_flags, access_mask, sid = _ace_parts(dacl.GetAce(index))
         if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
             continue
-        access_mask, sid = ace[1], ace[2]
         sid_string = _sid_string(sid)
         if sid_string in trusted:
             continue
-        if ace_type == win32security.ACCESS_DENIED_ACE_TYPE:
+        if ace_type in _DENY_ACE_TYPES:
             denied[sid_string] = denied.get(sid_string, 0) | access_mask
-            continue
-        if ace_type != win32security.ACCESS_ALLOWED_ACE_TYPE:
             continue
         effective = access_mask & ~denied.get(sid_string, 0)
         if effective & _FILE_MODIFY_MASK:

@@ -182,6 +182,7 @@ def _process_file(
     connection: sqlite3.Connection,
     existing_ids: set[str],
     category_aliases: dict[str, tuple[str, str]],
+    claimed_ids: set[str],
 ) -> tuple[dict[str, int], set[str]]:
     """Process a single CSV file.
 
@@ -303,7 +304,15 @@ def _process_file(
             # reachable here when they are NOT part of the dedup key (a
             # mapping keyed on an institution reference) — when they are, a
             # change produces a different ID and this branch is not taken.
+            #
+            # Only this file's own rows are refreshed. A row that arrived
+            # from a different export is left alone: overlapping exports
+            # carry the same transaction at different vintages, and updating
+            # it here would let whichever filename sorts last win, reverting
+            # newer values to older ones.
             duplicates += 1
+            if txn_id not in claimed_ids:
+                continue
             update_batch.append(
                 (
                     date_val,
@@ -595,6 +604,14 @@ def import_csv(
 
         import_conn = backend._get_connection()
         try:
+            claimed_ids = {
+                row[0]
+                for row in import_conn.execute(
+                    "SELECT txn_id FROM import_file_transactions "
+                    "WHERE filename = ? AND account = ? AND mapping_name = ?",
+                    (resolved, mapping.account_label, mapping.name),
+                ).fetchall()
+            }
             stats, produced_ids = _process_file(
                 csv_contents,
                 csv_file.name,
@@ -602,6 +619,7 @@ def import_csv(
                 import_conn,
                 existing_ids,
                 category_aliases,
+                claimed_ids,
             )
             # Reconcile against this file's previous snapshot and record the
             # new one, in the same transaction as the row inserts so a

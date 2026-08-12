@@ -543,7 +543,12 @@ class TestManageCategoriesScreen:
 
         screen._pending_cat_id = "cat_coffee"
         screen._handle_rename("Espresso")
-        assert screen.recorded_aliases == [("cat_coffee", "cat_espresso", "Espresso")]
+        # The destination id is reset first, in case it was deleted or merged
+        # earlier in this session, then the rename is recorded.
+        assert screen.recorded_aliases == [
+            ("cat_espresso", "cat_espresso", ""),
+            ("cat_coffee", "cat_espresso", "Espresso"),
+        ]
 
         screen._pending_cat_id = "cat_tea"
         screen._handle_merge("cat_espresso")
@@ -908,3 +913,57 @@ class TestMergeIntoRecreatedCategory:
             ("cat_drinks", "cat_drinks", ""),  # reset first
             ("cat_coffee", "cat_drinks", "Drinks"),  # then the merge
         ]
+
+
+class TestManageGroupsScreenCategoryIds:
+    def test_created_category_uses_backend_id_format(self):
+        """A bare slug here would create a second id for a category the CSV
+        backend stores with a "cat_" prefix."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_existing": {
+                "name": "Existing",
+                "group": "Existing",
+                "group_id": "existing",
+                "group_type": "",
+            }
+        }
+        screen = ManageGroupsScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+
+        screen._handle_create_group("Travel")
+
+        assert "cat_travel" in categories
+        assert "travel" not in categories
+        # The reused id is reset in case it was deleted or merged before.
+        assert screen.recorded_aliases == [("cat_travel", "cat_travel", "")]
+
+    def test_equivalent_name_is_rejected_across_id_formats(self):
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Food Dining",
+                "group_id": "food_dining",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageGroupsScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+
+        class AppStub:
+            @staticmethod
+            def notify(message, **kwargs):
+                notifications.append(message)
+
+        type(screen).app = property(lambda self: AppStub())
+        try:
+            screen._handle_create_group("Food & Dining")
+        finally:
+            del type(screen).app
+
+        assert set(categories) == {"cat_food_dining"}
+        assert notifications == ["A category with an equivalent name already exists"]

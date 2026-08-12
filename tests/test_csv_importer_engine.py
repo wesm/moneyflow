@@ -1388,3 +1388,41 @@ class TestPartialImportRetry:
 
         assert result["imported"] == 0
         assert result["duplicates"] == 0  # skipped entirely, not re-processed
+
+
+class TestOverlappingExportProvenance:
+    def test_older_overlapping_export_does_not_revert_metadata(
+        self, tmp_path, test_mapping, test_backend
+    ):
+        """Overlapping exports carry the same transaction at different
+        vintages. Only the file that owns a row may refresh it, or whichever
+        filename sorts last would win and revert newer values."""
+        csv_dir = tmp_path / "csvs_overlap_meta"
+        csv_dir.mkdir()
+        mapping = _copy_mapping(
+            test_mapping,
+            file_pattern="test_*.csv",
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Memo": "notes",
+            },
+        )
+        # test_a is imported first and owns the row, with the newer memo.
+        (csv_dir / "test_a.csv").write_text(
+            "Transaction Date,Description,Amount,Memo\n7/12/2026,Shared,-4.50,corrected memo\n"
+        )
+        # test_b carries the same transaction with an older memo and sorts last.
+        (csv_dir / "test_b.csv").write_text(
+            "Transaction Date,Description,Amount,Memo\n7/12/2026,Shared,-4.50,stale memo\n"
+        )
+
+        result = import_csv(str(csv_dir), mapping, test_backend)
+        assert result["imported"] == 1
+        assert result["duplicates"] == 1
+
+        conn = test_backend._get_connection()
+        notes = conn.execute("SELECT notes FROM transactions").fetchone()[0]
+        conn.close()
+        assert notes == "corrected memo"
