@@ -31,7 +31,11 @@ from moneyflow.tui.formatters import PreparedView
 from ..data.amazon_linker import AmazonLinker
 from ..data.categories import save_categories_to_profile
 from ..data.commit_orchestrator import apply_edits_to_dataframe
-from ..data.data_manager import DataManager, flush_category_aliases_durably
+from ..data.data_manager import (
+    DataManager,
+    assign_alias_revisions,
+    flush_category_aliases_durably,
+)
 from ..data.state import (
     AppState,
     NavigationState,
@@ -1713,6 +1717,10 @@ class AppController:
                 staged_aliases = list(self.data_manager.pending_category_aliases)
                 for change in self.data_manager.pending_category_changes:
                     staged_aliases.extend(change.category_aliases)
+                # Stamp revisions before staging: an unstamped record recovers
+                # as revision 0, which loses to any existing record for the
+                # same source (including a reset marker) and would be dropped.
+                staged_aliases = assign_alias_revisions(self.data_manager.mm, staged_aliases)
 
                 # Stage the snapshot durably BEFORE dropping the in-memory
                 # changes: the transaction edits are already committed, so if

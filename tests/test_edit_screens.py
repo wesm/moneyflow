@@ -876,3 +876,35 @@ class TestManageGroupsScreen:
         rendered = "\n".join(rendered_rows)
         assert "[bold]Group[/]" in rendered
         assert "[M] [R] [D]" in rendered
+
+
+class TestMergeIntoRecreatedCategory:
+    def test_merge_into_new_target_resets_its_stale_alias(self):
+        """Merging into a newly created category reuses its stable id; any
+        alias left by an earlier delete or merge of that id must be cancelled
+        before the merge alias points the source at it."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+        )
+        screen._update_display = lambda: None
+        screen._build_category_order()
+        screen._pending_cat_id = "cat_coffee"
+
+        screen._handle_merge("__new__:Drinks")
+
+        assert screen.recorded_aliases == [
+            ("cat_drinks", "cat_drinks", ""),  # reset first
+            ("cat_coffee", "cat_drinks", "Drinks"),  # then the merge
+        ]

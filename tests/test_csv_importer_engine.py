@@ -1302,3 +1302,52 @@ class TestChaseCreditIntegration:
         )
         result2 = import_csv(str(csv_dir), mapping, backend)
         assert result2["imported"] == 1
+
+
+class TestStagedCategoryStateOnImport:
+    """Structural changes staged in the database by a failed config write
+    must be applied before importing, not just those queued in config.yaml."""
+
+    def test_import_applies_backend_staged_aliases(self, tmp_path, test_mapping, test_backend):
+        csv_dir = tmp_path / "csvs_staged"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount,Category\n7/12/2026,Store,-4.50,Shopping\n"
+        )
+        mapping = _copy_mapping(
+            test_mapping,
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+        )
+        # A commit staged this restructure when its config write failed.
+        test_backend.save_pending_category_state(
+            {"Group": ["Fun"]}, [("cat_shopping", "cat_fun", "Fun", 1)]
+        )
+
+        assert import_csv(str(csv_dir), mapping, test_backend)["imported"] == 1
+
+        conn = test_backend._get_connection()
+        row = conn.execute("SELECT category, category_id FROM transactions").fetchone()
+        conn.close()
+        assert row == ("Fun", "cat_fun")
+
+    def test_import_aborts_when_staged_state_unreadable(
+        self, tmp_path, test_mapping, test_backend, monkeypatch
+    ):
+        csv_dir = tmp_path / "csvs_staged_bad"
+        csv_dir.mkdir()
+        (csv_dir / "test_data.csv").write_text(
+            "Transaction Date,Description,Amount\n7/12/2026,Store,-4.50\n"
+        )
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        monkeypatch.setattr(test_backend, "load_pending_category_state", failing)
+
+        with pytest.raises(ValueError, match="staged category changes"):
+            import_csv(str(csv_dir), test_mapping, test_backend)

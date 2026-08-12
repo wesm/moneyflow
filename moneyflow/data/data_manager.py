@@ -161,7 +161,7 @@ class AliasStateUnavailable(Exception):
     """
 
 
-def _drop_recorded_aliases(backend: Any, records: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+def drop_recorded_aliases(backend: Any, records: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
     """Return the records the backend has not already recorded at least as new.
 
     Shared by the profile-config queue and the backend-staged copy: both can
@@ -443,11 +443,17 @@ class DataManager:
                 logger.error(f"Could not recover staged category state: {error}")
             else:
                 if staged_groups is not None:
+                    # Also make them effective now: the profile file still
+                    # holds the pre-restructure configuration, so leaving it
+                    # active would show transactions under their old groups
+                    # until the save is retried.
                     self.pending_category_groups = staged_groups
+                    self.category_groups_config = staged_groups
+                    self.category_to_group = build_category_to_group_mapping(staged_groups)
                 # Reconcile against the backend before requeuing: a retry may
                 # have recorded these already, and replaying them would
                 # restamp stale mappings with fresh revisions.
-                for alias in _drop_recorded_aliases(mm, staged_aliases):
+                for alias in drop_recorded_aliases(mm, staged_aliases):
                     if alias not in self.pending_category_aliases:
                         self.pending_category_aliases.append(alias)
         self.pending_category_changes: List[DeferredCategoryChange] = []

@@ -15,6 +15,7 @@ from moneyflow.backends.csv_backend import STANDARD_FIELDS, CsvFinanceBackend, _
 from moneyflow.data.categories import save_pending_category_aliases
 from moneyflow.data.data_manager import (
     AliasStateUnavailable,
+    drop_recorded_aliases,
     flush_category_aliases,
     load_unconfirmed_category_aliases,
 )
@@ -524,18 +525,34 @@ def import_csv(
     existing_ids: set[str] = {row[0] for row in rows}
     existing_ids.update(row[0] for row in tombstones)
 
-    # Alias records the backend failed to confirm are queued in the profile
-    # config. Flush them first: importing while they are unapplied would
-    # resurrect categories the user renamed, merged, or deleted. If any
-    # cannot be made effective, abort rather than import with a stale map.
+    # Structural category changes the backend has not recorded yet live in
+    # two places: the profile-config queue, and the snapshot staged in this
+    # database when a profile-config write failed. Both must be applied
+    # before importing, or the import would use a stale category map and
+    # resurrect a renamed, merged, or deleted category. If any cannot be
+    # made effective, abort rather than import against that stale map.
     try:
-        queued_aliases = load_unconfirmed_category_aliases(backend, backend.profile_dir)
+        queued_aliases = list(load_unconfirmed_category_aliases(backend, backend.profile_dir))
     except AliasStateUnavailable as error:
         raise ValueError(
             "Cannot import: pending category changes could not be verified "
             f"({error}), so imported transactions could use stale categories. "
             "Resolve the error and retry."
         ) from error
+
+    load_staged_state = getattr(backend, "load_pending_category_state", None)
+    if load_staged_state is not None:
+        try:
+            _, staged_aliases = load_staged_state()
+        except Exception as error:
+            raise ValueError(
+                "Cannot import: staged category changes could not be read "
+                f"({error}), so imported transactions could use stale categories."
+            ) from error
+        for alias in drop_recorded_aliases(backend, staged_aliases):
+            if alias not in queued_aliases:
+                queued_aliases.append(alias)
+
     if queued_aliases:
         unconfirmed = flush_category_aliases(backend, queued_aliases)
         save_pending_category_aliases(backend.profile_dir, unconfirmed)

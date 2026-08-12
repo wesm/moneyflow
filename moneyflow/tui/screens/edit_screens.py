@@ -1367,6 +1367,10 @@ class ManageCategoriesScreen(ModalScreen):
                 or re.sub(r"[^a-z0-9]+", "_", source_group.lower()).strip("_"),
                 "group_type": source_category.get("group_type", ""),
             }
+            # The reused id is live again: cancel any alias left by an
+            # earlier rename/merge/delete of it, before the merge alias below
+            # points the source at it.
+            self.recorded_aliases.append((new_id, new_id, ""))
             target_id = new_id
             created_target_id = new_id
         # Queue edits (reassign transactions from source to target)

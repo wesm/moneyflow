@@ -601,6 +601,40 @@ class TestCommitHandling:
         ]
         assert controller.data_manager.pending_category_groups == {"Group": ["Entertainment"]}
 
+    async def test_staged_aliases_carry_revisions(self, controller, monkeypatch):
+        """Aliases must be stamped before staging: an unstamped record
+        recovers as revision 0 and loses to any existing record for the same
+        source, permanently losing the pending structural change."""
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        staged = []
+        controller.data_manager.mm.record_category_alias = lambda *args: None
+        controller.data_manager.mm.next_category_alias_revision = lambda: 5
+        controller.data_manager.mm.save_pending_category_state = lambda groups, aliases: (
+            staged.append(list(aliases))
+        )
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert staged == [[("cat_groceries", "cat_entertainment", "Entertainment", 5)]]
+
     async def test_config_save_failure_stages_state_durably(self, controller, monkeypatch):
         """The transaction edits are already committed, so a failed config
         write must leave the restructure staged somewhere durable rather than
