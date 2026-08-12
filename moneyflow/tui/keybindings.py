@@ -32,10 +32,8 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding(
         "g", "cycle_grouping", "Cycle grouping (Merchant→Category→Group→Account→Time)", "Views"
     ),
-    KeyBinding("u", "view_ungrouped", "View all transactions (detail view)", "Views"),
+    KeyBinding("d", "view_ungrouped", "View all transactions (detail view)", "Views"),
     KeyBinding("D", "find_duplicates", "Find duplicate transactions", "Views"),
-    KeyBinding("M", "view_merchants", "View merchant aggregation (direct)", "Views"),
-    KeyBinding("c", "view_categories", "View category aggregation (direct)", "Views"),
     KeyBinding("A", "view_accounts", "View account aggregation (direct)", "Views"),
     KeyBinding("enter", "drill_down", "Drill down into selected item", "Views"),
     KeyBinding("esc", "go_back", "Go back (restores cursor and sort preferences)", "Views"),
@@ -48,13 +46,13 @@ KEYBINDINGS: List[KeyBinding] = [
     KeyBinding("s", "toggle_sort_field", "Toggle sort field (count/amount/date)", "Sorting"),
     KeyBinding("v", "reverse_sort", "Reverse sort direction", "Sorting"),
     # Transaction Actions
-    KeyBinding("i", "show_info", "Show transaction info/details", "Actions"),
+    KeyBinding("i", "show_transaction_details", "Show transaction info/details", "Actions"),
     KeyBinding("m", "edit_merchant", "Edit merchant name (or bulk rename)", "Actions"),
-    KeyBinding("r", "edit_category", "Change category (or bulk change)", "Actions"),
+    KeyBinding("c", "edit_category", "Change category (or bulk change)", "Actions"),
     KeyBinding("C", "manage_categories", "Manage categories (rename, merge, delete)", "Actions"),
     KeyBinding("G", "manage_groups", "Manage category groups (create, rename, delete)", "Actions"),
-    KeyBinding("h", "toggle_hide", "Toggle hide from reports", "Actions"),
-    KeyBinding("d", "delete", "Delete transaction (with confirmation)", "Actions"),
+    KeyBinding("h", "toggle_hide_from_reports", "Toggle hide from reports", "Actions"),
+    KeyBinding("x", "delete_transaction", "Delete transaction (with confirmation)", "Actions"),
     KeyBinding("space", "toggle_select", "Toggle selection (for bulk operations)", "Actions"),
     KeyBinding("ctrl+a", "select_all", "Select all / Deselect all (toggle)", "Actions"),
     # Filters & Search
@@ -63,7 +61,9 @@ KEYBINDINGS: List[KeyBinding] = [
     # Commit & System
     KeyBinding("w", "review_and_commit", "Review and commit pending changes", "System"),
     KeyBinding("E", "export_data", "Export transactions", "System"),
-    KeyBinding("q", "quit", "Quit application", "System"),
+    KeyBinding("u", "undo_pending_edits", "Undo most recent pending edit", "System"),
+    KeyBinding("q", "quit_app", "Quit application", "System"),
+    KeyBinding("ctrl+c", "quit_app", "Force quit application", "System"),
     KeyBinding("?", "help", "Show this help screen", "System"),
 ]
 
