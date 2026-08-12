@@ -2000,3 +2000,31 @@ class TestStagedStateAfterSuccessfulRetry:
         manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
 
         assert manager.pending_category_aliases == [("cat_old", "cat_renamed", "Renamed", 3)]
+
+
+class TestFailClosedAliasState:
+    def test_unreadable_revisions_raise_from_shared_filter(self):
+        """drop_recorded_aliases must fail closed: replaying a record whose
+        staleness cannot be checked could overwrite a newer mapping."""
+        from moneyflow.data.data_manager import AliasStateUnavailable, drop_recorded_aliases
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        backend = type("Backend", (), {"get_category_alias_revisions": staticmethod(failing)})()
+
+        with pytest.raises(AliasStateUnavailable):
+            drop_recorded_aliases(backend, [("cat_a", "cat_b", "B", 1)])
+
+    def test_unreadable_staged_state_aborts_initialization(self, tmp_path):
+        """The staged state shares the transaction database, so an unreadable
+        one means the profile cannot be used with confidence."""
+        from moneyflow.data.data_manager import AliasStateUnavailable
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                raise RuntimeError("database is locked")
+
+        with pytest.raises(AliasStateUnavailable):
+            DataManager(mm=Backend(), config_dir=str(tmp_path), profile_dir=tmp_path)

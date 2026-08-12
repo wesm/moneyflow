@@ -1351,3 +1351,40 @@ class TestStagedCategoryStateOnImport:
 
         with pytest.raises(ValueError, match="staged category changes"):
             import_csv(str(csv_dir), test_mapping, test_backend)
+
+
+class TestPartialImportRetry:
+    def test_file_with_skipped_rows_is_reprocessed(self, tmp_path, test_mapping, test_backend):
+        """A file whose rows were rejected must not be hash-skipped: the
+        missing transactions would never be retried after the mapping or
+        parser gains support for them."""
+        csv_dir = tmp_path / "csvs_partial"
+        csv_dir.mkdir()
+        csv_file = csv_dir / "test_data.csv"
+        csv_file.write_text(
+            "Transaction Date,Description,Amount\n"
+            "7/12/2026,Good Row,-4.50\n"
+            "NOT_A_DATE,Bad Row,-9.00\n"
+        )
+        first = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert first["imported"] == 1
+        assert first["skipped"] == 1
+
+        # Unchanged file: reprocessed rather than skipped, and the row that
+        # did import is recognized as a duplicate rather than doubled.
+        second = import_csv(str(csv_dir), test_mapping, test_backend)
+        assert second["duplicates"] == 1
+        assert second["imported"] == 0
+
+        conn = test_backend._get_connection()
+        count = conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        conn.close()
+        assert count == 1
+
+    def test_clean_file_is_still_hash_skipped(self, test_csv_dir, test_mapping, test_backend):
+        assert import_csv(test_csv_dir, test_mapping, test_backend)["imported"] == 2
+
+        result = import_csv(test_csv_dir, test_mapping, test_backend)
+
+        assert result["imported"] == 0
+        assert result["duplicates"] == 0  # skipped entirely, not re-processed

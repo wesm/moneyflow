@@ -507,12 +507,24 @@ def import_csv(
     imported_snapshots: dict[tuple[str, str, str], str] = {}
     if not force:
         history = backend.get_import_history()
+        seen_keys: set[tuple[str, str, str]] = set()
         for h in history:
             fname = h.get("filename", "")
             fhash = h.get("file_hash", "")
-            if fname and fhash:
-                key = (fname, h.get("account", ""), h.get("mapping_name", ""))
-                imported_snapshots.setdefault(key, fhash)
+            if not fname or not fhash:
+                continue
+            key = (fname, h.get("account", ""), h.get("mapping_name", ""))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            if h.get("skipped_count", 0):
+                # The newest run of this file left rows unimported (malformed
+                # dates, unsupported columns). Reprocess it rather than
+                # hash-skipping, so those rows are retried once the mapping
+                # or parser handles them; duplicate detection keeps the rows
+                # that did import from being counted twice.
+                continue
+            imported_snapshots[key] = fhash
 
     # Load existing IDs once so duplicate detection is accurate even when
     # force=True re-processes files that were previously imported. Tombstoned

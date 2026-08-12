@@ -347,13 +347,22 @@ class CsvFinanceBackend(FinanceBackend):
         """
         conn = self._get_connection()
         effective_revision = revision or self._next_alias_revision(conn)
+        # Never move a record backwards: a lower revision is an older
+        # operation being replayed late, and applying it would overwrite a
+        # newer mapping. The guard lives in the WHERE clause so the check and
+        # the write are one atomic statement.
         conn.execute(
             "UPDATE category_aliases SET target_id = ?, target_name = ?, revision = ? "
-            "WHERE target_id = ?",
-            (target_id, target_name, effective_revision, source_id),
+            "WHERE target_id = ? AND revision <= ?",
+            (target_id, target_name, effective_revision, source_id, effective_revision),
         )
         conn.execute(
-            "INSERT OR REPLACE INTO category_aliases "
+            "UPDATE category_aliases SET target_id = ?, target_name = ?, revision = ? "
+            "WHERE source_id = ? AND revision <= ?",
+            (target_id, target_name, effective_revision, source_id, effective_revision),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO category_aliases "
             "(source_id, target_id, target_name, revision) VALUES (?, ?, ?, ?)",
             (source_id, target_id, target_name, effective_revision),
         )

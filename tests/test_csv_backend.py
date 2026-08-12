@@ -689,3 +689,21 @@ class TestPendingCategoryStateStaging:
 
     def test_empty_when_nothing_staged(self, chase_backend):
         assert chase_backend.load_pending_category_state() == (None, [])
+
+
+class TestAliasRevisionOrdering:
+    def test_older_revision_does_not_overwrite_newer(self, chase_backend):
+        """A stale record replayed late must not overwrite a newer mapping."""
+        chase_backend.record_category_alias("cat_a", "cat_new", "New", revision=7)
+
+        chase_backend.record_category_alias("cat_a", "cat_old", "Old", revision=3)
+
+        assert chase_backend.get_category_aliases()["cat_a"] == ("cat_new", "New")
+        assert chase_backend.get_category_alias_revisions()["cat_a"] == 7
+
+    def test_newer_revision_applies(self, chase_backend):
+        chase_backend.record_category_alias("cat_a", "cat_old", "Old", revision=3)
+
+        chase_backend.record_category_alias("cat_a", "cat_new", "New", revision=7)
+
+        assert chase_backend.get_category_aliases()["cat_a"] == ("cat_new", "New")

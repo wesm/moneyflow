@@ -174,8 +174,10 @@ def drop_recorded_aliases(backend: Any, records: List[Tuple[Any, ...]]) -> List[
     try:
         recorded = get_revisions()
     except Exception as error:
+        # Fail closed: replaying a record whose staleness cannot be checked
+        # could overwrite a newer mapping.
         logger.error(f"Could not read recorded category alias revisions: {error}")
-        return list(records)
+        raise AliasStateUnavailable(str(error)) from error
     unconfirmed: List[Tuple[Any, ...]] = []
     for record in records:
         values = list(record)
@@ -438,10 +440,21 @@ class DataManager:
         load_staged_state = getattr(mm, "load_pending_category_state", None)
         if load_staged_state is not None:
             try:
-                staged_groups, staged_aliases = load_staged_state()
+                staged_state = load_staged_state()
             except Exception as error:
+                # The staged state lives in the same database as the
+                # transactions, so an unreadable one means the profile is
+                # unusable — continuing would show and recategorize
+                # transactions under a configuration known to be stale.
                 logger.error(f"Could not recover staged category state: {error}")
-            else:
+                raise AliasStateUnavailable(
+                    f"Staged category state could not be read: {error}"
+                ) from error
+            # Backends that do not really implement the API (test doubles,
+            # duck-typed stubs) return something other than a pair; that is
+            # an absent capability, not a failed read.
+            if isinstance(staged_state, tuple) and len(staged_state) == 2:
+                staged_groups, staged_aliases = staged_state
                 if staged_groups is not None:
                     # Also make them effective now: the profile file still
                     # holds the pre-restructure configuration, so leaving it
@@ -453,7 +466,7 @@ class DataManager:
                 # Reconcile against the backend before requeuing: a retry may
                 # have recorded these already, and replaying them would
                 # restamp stale mappings with fresh revisions.
-                for alias in drop_recorded_aliases(mm, staged_aliases):
+                for alias in drop_recorded_aliases(mm, list(staged_aliases)):
                     if alias not in self.pending_category_aliases:
                         self.pending_category_aliases.append(alias)
         self.pending_category_changes: List[DeferredCategoryChange] = []
