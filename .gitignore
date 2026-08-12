@@ -62,3 +62,8 @@ result-*
 .codegraph/
 .opencode/
 .superpowers/
+
+# Go build and lint outputs
+/bin/
+/coverage.out
+/.cache/golangci-lint/
