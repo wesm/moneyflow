@@ -61,3 +61,4 @@ result-*
 # Agent Tools
 .codegraph/
 .opencode/
+.superpowers/
