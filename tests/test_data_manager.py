@@ -2028,3 +2028,31 @@ class TestFailClosedAliasState:
 
         with pytest.raises(AliasStateUnavailable):
             DataManager(mm=Backend(), config_dir=str(tmp_path), profile_dir=tmp_path)
+
+
+class TestUnstampableAliases:
+    def test_records_are_not_serialized_as_revision_zero(self, tmp_path):
+        """If a revision cannot be allocated, the records must stay in memory
+        rather than being queued unstamped: a stored revision 0 loses to any
+        positive backend revision and the correction would be dropped."""
+        from moneyflow.data.categories import load_pending_category_aliases
+        from moneyflow.data.data_manager import flush_category_aliases_durably
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        recorded = []
+        backend = type(
+            "Backend",
+            (),
+            {
+                "next_category_alias_revision": staticmethod(failing),
+                "record_category_alias": staticmethod(lambda *a: recorded.append(a)),
+            },
+        )()
+
+        remaining = flush_category_aliases_durably(backend, tmp_path, [("cat_a", "cat_b", "B")])
+
+        assert remaining == [("cat_a", "cat_b", "B")]  # retained for retry
+        assert recorded == []  # nothing recorded without a revision
+        assert load_pending_category_aliases(tmp_path) == []  # nothing queued as 0

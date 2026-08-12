@@ -72,8 +72,11 @@ def assign_alias_revisions(backend: Any, aliases: List[Tuple[Any, ...]]) -> List
     try:
         revision = next_revision()
     except Exception as error:
+        # Fail closed rather than serializing these as revision 0: a stored
+        # zero loses to any positive backend revision, so the correction
+        # would later be discarded as stale.
         logger.error(f"Could not reserve a category alias revision: {error}")
-        return [tuple(alias) for alias in aliases]
+        raise AliasStateUnavailable(str(error)) from error
     # Outrank the staged records as well: a queued entry may already carry a
     # revision above the backend's maximum (it was never confirmed), and a
     # new alias must not be assigned a lower number than one it supersedes.
@@ -116,8 +119,8 @@ def flush_category_aliases(backend: Any, aliases: List[Tuple[Any, ...]]) -> List
 
 
 def flush_category_aliases_durably(
-    backend: Any, profile_dir: Any, staged: List[Tuple[str, str, str]]
-) -> List[Tuple[str, str, str]]:
+    backend: Any, profile_dir: Any, staged: List[Tuple[Any, ...]]
+) -> List[Tuple[Any, ...]]:
     """Flush staged aliases and durably store the unconfirmed remainder.
 
     The remainder is written to the profile config so it survives an
@@ -133,7 +136,16 @@ def flush_category_aliases_durably(
     The isinstance guard skips stub/legacy data managers without a real
     profile path.
     """
-    staged = assign_alias_revisions(backend, staged)
+    try:
+        staged = assign_alias_revisions(backend, staged)
+    except AliasStateUnavailable as error:
+        # Keep the records in memory, unstamped, for a later attempt. Writing
+        # them to the durable queue now would store them as revision 0.
+        logger.error(
+            f"Could not stamp category alias revisions ({error}); "
+            f"{len(staged)} record(s) retained in memory for retry"
+        )
+        return [tuple(alias) for alias in staged]
     remaining = flush_category_aliases(backend, staged)
     if staged and isinstance(profile_dir, (str, Path)):
         if not save_pending_category_aliases(profile_dir, remaining):

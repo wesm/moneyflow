@@ -1215,16 +1215,18 @@ class MoneyflowApp(App):
             return
         self.data_manager.pending_category_groups = None
         self.data_manager.pending_category_changes.clear()
-        if self.data_manager.pending_category_aliases:
-            # Aliases still awaiting the backend: the staged copy is the only
-            # durable record of them, so it must survive.
+        stage_state = getattr(self.backend, "save_pending_category_state", None)
+        if stage_state is None:
             return
-        clear_staged = getattr(self.backend, "save_pending_category_state", None)
-        if clear_staged is not None:
-            try:
-                clear_staged(None, [])
-            except Exception as error:
-                get_logger(__name__).error(f"Could not clear staged category state: {error}")
+        # Aliases still awaiting the backend keep the staged copy alive, but
+        # its group snapshot is now stale — the configuration it described
+        # has just been saved, and restoring it later would overwrite newer
+        # changes. Re-stage the aliases alone.
+        remaining_aliases = list(self.data_manager.pending_category_aliases)
+        try:
+            stage_state(None, remaining_aliases)
+        except Exception as error:
+            get_logger(__name__).error(f"Could not update staged category state: {error}")
 
     def _undo_deferred_category_change(self) -> list[tuple[str, str, datetime]]:
         """Undo the newest structural category operation without touching newer edits."""

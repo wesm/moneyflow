@@ -1880,9 +1880,10 @@ class TestStagedCategoryStateCleanup:
         assert staged_calls == [(None, [])]
         assert app.data_manager.pending_category_groups is None
 
-    def test_staged_state_survives_while_aliases_remain_pending(self, monkeypatch):
-        """If aliases still await the backend, the staged copy is their only
-        durable record and must not be discarded."""
+    def test_staged_aliases_survive_but_stale_groups_are_dropped(self, monkeypatch):
+        """Aliases still awaiting the backend keep the staged copy alive, but
+        its group snapshot is stale once the configuration has been saved —
+        restoring it later would overwrite newer changes."""
         staged_calls = []
         app = self._app_with_pending(monkeypatch, staged_calls, [])
 
@@ -1894,7 +1895,7 @@ class TestStagedCategoryStateCleanup:
 
         app.action_review_and_commit()
 
-        assert staged_calls == []
+        assert staged_calls == [(None, [("cat_a", "cat_b", "B", 1)])]
 
 
 class TestGroupManagerAliasPersistence:
