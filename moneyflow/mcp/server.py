@@ -148,6 +148,7 @@ def create_mcp_server(
     from ..data.account_manager import AccountManager
     from ..data.credentials import CredentialManager
     from ..data.data_manager import DataManager, ensure_transaction_schema
+    from ..data.file_utils import validate_trusted_root
     from ..data.migration import migrate_legacy_credentials, migrate_legacy_simplefin_db
 
     mcp = FastMCP("moneyflow")
@@ -172,6 +173,11 @@ def create_mcp_server(
 
         config_path = Path(_state["config_dir"]) if _state["config_dir"] else None
         resolved_config_path = config_path or Path.home() / ".moneyflow"
+        # Establish the trusted root before anything touches the config
+        # directory. Migrations, AccountManager, and credential access all
+        # read and write beneath it, so a replaceable ancestor would let
+        # another local account redirect them.
+        validate_trusted_root(resolved_config_path)
         migration_password = os.environ.get(ENV_PASSWORD)
         legacy_encrypted = resolved_config_path / "credentials.enc"
         legacy_simplefin_db = resolved_config_path / "simplefin.db"

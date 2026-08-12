@@ -1895,3 +1895,71 @@ class TestStagedCategoryStateCleanup:
         app.action_review_and_commit()
 
         assert staged_calls == []
+
+
+class TestGroupManagerAliasPersistence:
+    """A group-created category reinstates an id; its reset alias must not be
+    lost when changes are pending or the configuration save fails."""
+
+    def _run_group_manager(self, monkeypatch, *, save_ok, pending_changes):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            categories = {
+                "cat_travel": {
+                    "name": "Travel",
+                    "group": "Travel",
+                    "group_id": "travel",
+                    "group_type": "",
+                }
+            }
+            category_groups_config = {"Travel": ["Travel"]}
+            category_to_group = {"Travel": "Travel"}
+            pending_category_groups = None
+            pending_category_aliases = []
+            pending_category_changes = list(pending_changes)
+            profile_dir = object()
+
+        recorded = []
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.state = type("State", (), {"current_data": object()})()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "read_only": True,
+                "record_category_alias": staticmethod(lambda *a: recorded.append(a)),
+                "make_category_id": staticmethod(lambda name: f"cat_{name.lower()}"),
+            },
+        )()
+
+        async def push(screen, **kwargs):
+            screen.recorded_aliases.append(("cat_travel", "cat_travel", ""))
+            return True
+
+        monkeypatch.setattr(app, "push_screen", push)
+        monkeypatch.setattr(app, "refresh_view", lambda *a, **k: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *a: None)
+        monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+        monkeypatch.setattr(app, "_rebase_pending_category_changes", lambda *a, **k: True)
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *a, **k: save_ok)
+        return app, recorded
+
+    async def test_aliases_persist_with_pending_changes(self, monkeypatch):
+        app, recorded = self._run_group_manager(
+            monkeypatch, save_ok=True, pending_changes=[object()]
+        )
+
+        await app._manage_groups()
+
+        assert recorded == [("cat_travel", "cat_travel", "")]
+
+    async def test_aliases_retained_when_save_fails(self, monkeypatch):
+        app, recorded = self._run_group_manager(monkeypatch, save_ok=False, pending_changes=[])
+
+        await app._manage_groups()
+
+        assert recorded == []  # not made durable while the config is unsaved
+        assert app.data_manager.pending_category_aliases == [("cat_travel", "cat_travel", "")]

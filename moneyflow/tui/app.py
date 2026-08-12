@@ -1985,6 +1985,7 @@ class MoneyflowApp(App):
                     groups_before, groups, propagate_group_moves=True
                 )
                 if saved:
+                    self._persist_category_aliases(groups_screen.recorded_aliases)
                     self.notify(
                         "Groups updated with pending recategorizations. Press w to commit.",
                         timeout=4,
@@ -2001,7 +2002,13 @@ class MoneyflowApp(App):
                     self._clear_deferred_category_groups()
                     self.notify("Groups updated.", timeout=2)
                 else:
+                    # Retain the aliases with the unsaved configuration: an
+                    # id reinstated by group creation keeps its stale alias
+                    # otherwise, and later imports map to the old target.
                     self.data_manager.pending_category_groups = groups
+                    self.data_manager.pending_category_aliases = list(
+                        self.data_manager.pending_category_aliases
+                    ) + list(groups_screen.recorded_aliases)
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",
