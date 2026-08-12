@@ -146,6 +146,17 @@ Addition requires matching currency and scale. Analytics partitions results by
 currency instead of silently adding unlike currencies. The initial parity corpus
 uses USD at scale two, matching the current two-decimal TUI contract.
 
+Exact integer arithmetic is canonical when it differs from the Python pipeline's
+binary floating-point result. Shared fixtures encode amounts as decimal strings
+that are exactly representable at their declared scale. The Python
+characterization adapter still exercises the existing `pl.Float64` pipeline, then
+normalizes each displayed total to the declared scale with decimal `ROUND_HALF_UP`
+and converts it to integer minor units before comparison. Comparisons use exact
+minor-unit equality with no epsilon tolerance. A remaining mismatch fails the
+test and requires either correcting the Python adapter or changing a fixture that
+depends on a binary floating-point artifact; it must not weaken the Go result or
+silently update the expectation.
+
 ### Date
 
 The domain date represents only year, month, and day, serializes as ISO
@@ -237,7 +248,7 @@ key contract understandable. They must not stage or persist changes in this slic
 The port uses committed synthetic financial data only. No fixture, frame, example,
 or expected value may contain personal financial information.
 
-`testdata/parity/` contains four kinds of artifacts:
+`testdata/parity/` contains five kinds of artifacts:
 
 1. **Input fixtures:** normalized JSON transactions, categories, groups, and
    accounts loaded by both Python and Go.
@@ -245,8 +256,11 @@ or expected value may contain personal financial information.
    results, and deterministic ordering for representative query specifications.
 3. **Interaction scenarios:** named initial state, key sequence, expected session
    transitions, cursor position, breadcrumb, and result identity.
-4. **Canonical frames:** normalized terminal cells containing glyphs, colors, and
-   text attributes for exact comparison across renderers.
+4. **Semantic frames:** renderer-neutral named regions containing exact text,
+   glyph positions, column boundaries, visible row order, breadcrumbs, flags,
+   selection state, and hints.
+5. **Go visual frames:** complete Go-rendered cell grids containing glyphs,
+   resolved colors, and text attributes.
 
 Python characterization tests adapt the shared fixture into the existing Polars
 pipeline. Go tests load the same source. Expected results are committed artifacts,
@@ -255,7 +269,7 @@ command may update them, but review must show the artifact diff.
 
 ## TUI Parity Contract
 
-Parity has two layers.
+Parity uses three complementary checks.
 
 ### Behavioral parity
 
@@ -263,29 +277,44 @@ At every supported terminal size, the Go TUI preserves the in-scope keyboard
 bindings, state transitions, calculations, navigation hierarchy, selection rules,
 and information hierarchy of the Python TUI. Layout may adapt to available space.
 
-### Canonical-frame parity
+### Semantic-frame parity
 
-At canonical sizes, tests compare normalized cell grids rather than ANSI byte
-streams or SVG files. The normalized format records each visible glyph and its
-resolved foreground, background, and text attributes, while omitting renderer
-implementation details.
+At canonical sizes, Python is the reference for renderer-neutral content and
+layout invariants. The comparison covers exact visible text, semantic glyphs,
+visible row ordering, column starts and alignment, breadcrumbs, flags, selection
+state, statistics, and hints. The artifact represents named screen regions rather
+than raw ANSI, SVG, or a complete Textual cell grid. It excludes framework-owned
+chrome such as scrollbars and borders and excludes resolved color and text-style
+attributes. This preserves the product contract without requiring Bubble Tea to
+reimplement Textual's CSS layout and style-resolution engine.
 
-- Primary size: 150 columns by 50 rows, default theme.
-- Compact size: 150 columns by 30 rows, default theme.
+### Go visual-frame parity
+
+Go-generated cell grids are canonical for the Go renderer's complete appearance,
+including glyphs, resolved foreground and background colors, and text attributes.
+The initial Go visual frames require one-time review before acceptance. Later
+changes compare exactly against those committed artifacts and may not regenerate
+them silently. Theme tests therefore protect moneyflow's Go visual language
+without pretending that Textual and Lip Gloss resolve styles identically.
+
+The canonical dimensions are:
+
+- Primary: 150 columns by 50 rows for every in-scope read-only screen and
+  interaction state.
+- Intermediate: 150 columns by 40 rows for representative aggregate and detail
+  states. The existing Python captures at this size are account and backend setup
+  screens, which are outside this slice and will enter parity with provider setup.
+- Compact: 150 columns by 30 rows for drill-down, search, filter, and other compact
+  layouts.
 - Theme coverage: the primary merchant frame in default, berg, nord, gruvbox,
   dracula, monokai, and solarized-dark.
 
-The primary size covers every in-scope screen and interaction state represented by
-the current documentation workflow. The compact size covers drill-down, search,
-filter, and other layouts currently captured at 150 by 30. The normalized Python
-frames are the initial reference. If framework differences make a cell-level
-difference desirable, the Go frame must be reviewed and explicitly accepted as a
-new canonical artifact rather than silently updated.
-
-Noncanonical dimensions use behavioral and layout-invariant tests. These checks
-include 80 by 24 and 120 by 40 terminals and verify that rendering does not panic,
-overflow its declared frame, hide required navigation context, or leave the cursor
-outside the visible result set.
+The minimum supported terminal is 80 columns by 24 rows. Supported noncanonical
+dimensions, including 80 by 24 and 120 by 40, use behavioral and layout-invariant
+tests. These checks verify that rendering does not panic, overflow its declared
+frame, hide required navigation context, or leave the cursor outside the visible
+result set. Below 80 by 24, the TUI may show a resize message; it must still exit
+cleanly and must not panic, but full behavioral parity is not promised.
 
 ## Themes and Formatting
 
@@ -356,7 +385,8 @@ This slice is complete when fresh evidence shows all of the following:
 - Python and Go pass the same logical parity corpus
 - application-session key scenarios pass without a terminal
 - Bubble Tea interaction scenarios pass
-- canonical normalized frames match their approved artifacts
+- Python-derived semantic frames match their approved artifacts
+- Go visual cell grids match their separately approved artifacts
 - adaptive-layout checks pass at noncanonical sizes
 - the 100,000-transaction performance contract is met
 - tests and build checks pass on Linux, macOS, and Windows
@@ -365,17 +395,26 @@ This slice is complete when fresh evidence shows all of the following:
 
 Completion of this slice does not authorize merging `go-port` into `main` or
 removing Python. It establishes the foundation for the next design, expected to
-cover SQLite persistence and local editing.
+cover the read-only Huma API and embedded Svelte web application.
 
 ## Later Replacement Slices
 
 The remaining replacement is intentionally decomposed:
 
-1. SQLite profiles, local edits, undo/redo, review, commit, export, and migration.
-2. Provider adapters ported and verified one at a time: SimpleFIN, Monarch Money,
+1. Huma API and a first-class read-only embedded Svelte web application over the
+   fixture-backed application service.
+2. SQLite profiles, local edits, undo/redo, review, commit, export, and migration,
+   extended through both the TUI and web application.
+3. Provider adapters ported and verified one at a time: SimpleFIN, Monarch Money,
    YNAB, and Amazon.
-3. Huma API and a first-class embedded Svelte web application.
 4. Packaging, state migration, complete parity audit, Python removal, and cutover.
+
+The read-only web slice comes before persistence and providers because the web
+experience is a primary reason for the port and is the earliest independent test
+of the shared application-service boundary. Starting it with the same fixtures as
+the TUI avoids coupling web architecture to storage or provider decisions. Later
+slices add persistence, editing, and real data to both interfaces through that
+validated service.
 
 Each slice gets its own approved design and implementation plan. The boundaries in
 this document remain stable unless a later design explicitly revises them.
