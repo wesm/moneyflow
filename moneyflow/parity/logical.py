@@ -95,6 +95,7 @@ def _run_case(
             ),
             "detail_rows": detail_rows,
             "filtered_count": filtered.height,
+            "filtered_ids": filtered.get_column("id").to_list(),
             "statistics": statistics,
         },
     }
