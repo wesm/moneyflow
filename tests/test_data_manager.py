@@ -250,6 +250,8 @@ class TestAggregation:
         assert len(agg) > 0
         assert "merchant" in agg.columns
         assert "count" in agg.columns
+        assert "amount_in" in agg.columns
+        assert "amount_out" in agg.columns
         assert "total" in agg.columns
         assert "top_category" in agg.columns
         assert "top_category_pct" in agg.columns
@@ -432,6 +434,9 @@ class TestAggregation:
         assert len(agg) == 1
         row = agg.row(0, named=True)
         assert row["merchant"] == "Store"
+        assert row["amount_in"] == 30.0
+        assert row["amount_out"] == -150.0
+        assert row["total"] == -120.0
         # Percentage based on absolute values (total activity)
         # Groceries: $130, Shopping: $50, total: $180
         # Groceries = $130 / $180 = 72%
@@ -478,8 +483,32 @@ class TestAggregation:
         assert len(agg) > 0
         assert "category" in agg.columns
         assert "count" in agg.columns
+        assert "amount_in" in agg.columns
+        assert "amount_out" in agg.columns
         assert "total" in agg.columns
         assert "group" in agg.columns
+
+    async def test_aggregate_by_category_splits_visible_cash_flow(self, mock_mm, tmp_path):
+        """Income, expenses, and net exclude hidden amounts while count includes them."""
+        dm = DataManager(mock_mm, config_dir=str(tmp_path))
+        df = pl.DataFrame(
+            {
+                "id": ["1", "2", "3", "4"],
+                "category": ["Example"] * 4,
+                "category_id": ["cat_example"] * 4,
+                "group": ["Example Group"] * 4,
+                "amount": [100.0, 25.0, -40.0, -500.0],
+                "hideFromReports": [False, False, False, True],
+            }
+        )
+
+        result = dm.aggregate_by_category(df)
+
+        row = result.row(0, named=True)
+        assert row["count"] == 4
+        assert row["amount_in"] == 125.0
+        assert row["amount_out"] == -40.0
+        assert row["total"] == 85.0
 
     async def test_aggregate_by_group(self, loaded_data_manager):
         """Test group aggregation."""
@@ -490,6 +519,20 @@ class TestAggregation:
         assert len(agg) > 0
         assert "group" in agg.columns
         assert "count" in agg.columns
+        assert "amount_in" in agg.columns
+        assert "amount_out" in agg.columns
+        assert "total" in agg.columns
+
+    async def test_aggregate_by_account_exposes_cash_flow_columns(self, loaded_data_manager):
+        """Account aggregation exposes the shared cash-flow schema."""
+        dm, df, _, _ = loaded_data_manager
+
+        agg = dm.aggregate_by_account(df)
+
+        assert "account" in agg.columns
+        assert "count" in agg.columns
+        assert "amount_in" in agg.columns
+        assert "amount_out" in agg.columns
         assert "total" in agg.columns
 
     async def test_aggregate_empty_dataframe(self, data_manager):
@@ -1488,6 +1531,8 @@ class TestTimeAggregation:
         # Check 2024 has 2 transactions
         year_2024 = result.filter(pl.col("year") == 2024)
         assert year_2024["count"][0] == 2
+        assert year_2024["amount_in"][0] == 0.0
+        assert year_2024["amount_out"][0] == -350.0
         assert year_2024["total"][0] == -350.0
 
     async def test_aggregate_by_time_month_basic(self, data_manager):
@@ -1537,6 +1582,8 @@ class TestTimeAggregation:
         # 2024 should have zero count and total
         year_2024 = result.filter(pl.col("year") == 2024)
         assert year_2024["count"][0] == 0
+        assert year_2024["amount_in"][0] == 0.0
+        assert year_2024["amount_out"][0] == 0.0
         assert year_2024["total"][0] == 0.0
 
     async def test_aggregate_by_time_fills_month_gaps(self, data_manager):
@@ -1559,6 +1606,8 @@ class TestTimeAggregation:
         feb_2024 = result.filter((pl.col("year") == 2024) & (pl.col("month") == 2))
         assert len(feb_2024) == 1
         assert feb_2024["count"][0] == 0
+        assert feb_2024["amount_in"][0] == 0.0
+        assert feb_2024["amount_out"][0] == 0.0
         assert feb_2024["total"][0] == 0.0
 
     async def test_aggregate_by_time_empty_dataframe(self, data_manager):
@@ -1567,22 +1616,29 @@ class TestTimeAggregation:
         result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
         assert result.is_empty()
 
-    async def test_aggregate_by_time_excludes_hidden_from_total(self, data_manager):
-        """Test that hidden transactions are excluded from totals but included in count."""
+    async def test_aggregate_by_time_splits_visible_cash_flow(self, data_manager):
+        """Time cash flow excludes hidden amounts but count includes hidden transactions."""
         df = pl.DataFrame(
             {
-                "id": ["1", "2", "3"],
-                "date": [datetime(2024, 1, 1), datetime(2024, 1, 2), datetime(2024, 1, 3)],
-                "amount": [-100.0, -200.0, -50.0],
-                "hideFromReports": [False, True, False],
+                "id": ["1", "2", "3", "4"],
+                "date": [
+                    datetime(2024, 1, 1),
+                    datetime(2024, 1, 2),
+                    datetime(2024, 1, 3),
+                    datetime(2024, 1, 4),
+                ],
+                "amount": [-100.0, -200.0, -50.0, 250.0],
+                "hideFromReports": [False, True, False, False],
             }
         )
 
         result = data_manager.aggregate_by_time(df, TimeGranularity.YEAR)
 
         year_2024 = result.filter(pl.col("year") == 2024)
-        assert year_2024["count"][0] == 3  # All 3 counted
-        assert year_2024["total"][0] == -150.0  # Only non-hidden: -100 + -50
+        assert year_2024["count"][0] == 4
+        assert year_2024["amount_in"][0] == 250.0
+        assert year_2024["amount_out"][0] == -150.0
+        assert year_2024["total"][0] == 100.0
 
 
 class TestCheckBatchScope:

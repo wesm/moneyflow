@@ -69,7 +69,7 @@ alt="Time view by days">
 
 **Columns displayed:**
 
-- **Name, Count, Total** (all aggregate views)
+- **Name, Count, In, Out, Net, and %** (all aggregate views)
 - **Top Category** (Merchant view only) - Shows the most common category for each merchant with percentage
   (e.g., "Groceries 90%"). This helps identify categorization patterns and spot miscategorized transactions.
 
@@ -235,7 +235,7 @@ Control how rows are sorted in the current view.
 
 **Available sort fields by view type:**
 
-- **Aggregate Views**: Field name (e.g., Merchant, Category), Count (number of transactions), Amount (total spent)
+- **Aggregate Views**: Field name (e.g., Merchant, Category), Count (number of transactions), Amount (Net)
 - **Detail Views**: Date, Merchant name, Category, Account, Amount
 
 ## Time as an Aggregate Dimension

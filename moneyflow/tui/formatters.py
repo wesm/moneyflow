@@ -325,10 +325,11 @@ class ViewPresenter:
             count_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.COUNT)
             amount_arrow = ViewPresenter.get_sort_arrow(sort_by, sort_direction, SortMode.AMOUNT)
 
-        # Build column specs
-        # Total column label - right-aligned to match the values, includes currency
-        total_label = f"Total ({currency_symbol}) {amount_arrow}".strip()
-        total_label_text = Text(total_label, justify="right")
+        # Amount column labels are right-aligned to match their values. Net remains
+        # the amount sort key, preserving the existing sort behavior.
+        amount_in_label = Text(f"In ({currency_symbol})", justify="right")
+        amount_out_label = Text(f"Out ({currency_symbol})", justify="right")
+        net_label = Text(f"Net ({currency_symbol}) {amount_arrow}".strip(), justify="right")
 
         columns: list[ColumnSpec] = [
             {
@@ -337,7 +338,9 @@ class ViewPresenter:
                 "width": name_width,
             },
             {"label": f"Count {count_arrow}".strip(), "key": "count", "width": 10},
-            {"label": total_label_text, "key": "total", "width": None},  # Auto-size to content
+            {"label": amount_in_label, "key": "amount_in", "width": None},
+            {"label": amount_out_label, "key": "amount_out", "width": None},
+            {"label": net_label, "key": "total", "width": None},
             {"label": "%", "key": "pct", "width": 6},  # Percentage of total
         ]
 
@@ -382,7 +385,8 @@ class ViewPresenter:
         Format aggregation DataFrame rows for display.
 
         Args:
-            df: Aggregated DataFrame with columns: [name_field, count, total, ...]
+            df: Aggregated DataFrame with columns:
+                [name_field, count, amount_in, amount_out, total, ...]
                 First column can be merchant/category/group/account
                 Merchant view includes: top_category, top_category_pct
             detail_df: Optional full detail DataFrame to check for pending edits
@@ -392,19 +396,22 @@ class ViewPresenter:
 
         Returns:
             List of tuples:
-            - Merchant view: (name, count_str, total_str, top_category_display, flags_str)
-            - Other views: (name, count_str, total_str, flags_str)
+            - Merchant view: (name, count_str, in_str, out_str, net_str, pct_str,
+              top_category_display, flags_str)
+            - Other views: (name, count_str, in_str, out_str, net_str, pct_str, flags_str)
 
         Examples:
             >>> import polars as pl
             >>> df = pl.DataFrame({
             ...     "merchant": ["Amazon", "Starbucks"],
             ...     "count": [50, 30],
+            ...     "amount_in": [0.0, 0.0],
+            ...     "amount_out": [-1234.56, -89.70],
             ...     "total": [-1234.56, -89.70]
             ... })
             >>> rows = ViewPresenter.format_aggregation_rows(df)
             >>> rows[0]
-            ('Amazon', '50', '$-1,234.56', '')
+            ('Amazon', '50', '+0.00', '-1,234.56', '-1,234.56', '93.2%', '')
         """
         # Pre-compute which groups have pending edits (single Polars operation)
         groups_with_pending_edits = set()
@@ -436,6 +443,8 @@ class ViewPresenter:
                 name = ViewPresenter._format_row_time_period(row_dict)
 
             count = row_dict["count"]
+            amount_in = row_dict["amount_in"]
+            amount_out = row_dict["amount_out"]
             total = row_dict["total"]
 
             # Build flags: ✓ for selected, * for pending edits
@@ -451,6 +460,8 @@ class ViewPresenter:
             row_data: list[Union[str, Text]] = [
                 name,
                 str(count),
+                ViewPresenter.format_amount(amount_in, for_table=True),
+                ViewPresenter.format_amount(amount_out, for_table=True),
                 ViewPresenter.format_amount(total, for_table=True),
                 pct_display,
             ]
