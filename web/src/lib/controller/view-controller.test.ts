@@ -37,18 +37,21 @@ describe('browser view controller', () => {
     const replacements = vi.spyOn(history, 'replaceState')
     const client = clientWith({
       transition: async (body) =>
-        projection(body.action === 'group.cycle' ? 'v=1&group=category' : body.query, 0, 3),
+        projection(body.action === 'view.cycle-grouping' ? 'v=1&group=category' : body.query, 0, 3),
     })
     const controller = controllerFor(client)
     await controller.hydrate()
     pushes.mockClear()
     replacements.mockClear()
 
-    await controller.apply({ action: 'group.cycle' })
+    await controller.apply({ action: 'view.cycle-grouping' })
     expect(pushes).toHaveBeenCalledTimes(1)
     expect(window.location.search).toBe('?v=1&group=category')
 
-    await controller.apply({ action: 'select.one', target: { kind: 'detail', identity: 'row-0' } })
+    await controller.apply({
+      action: 'selection.toggle',
+      target: { kind: 'detail', identity: 'row-0' },
+    })
     expect(pushes).toHaveBeenCalledTimes(1)
     expect(replacements).toHaveBeenCalled()
   })
@@ -61,13 +64,13 @@ describe('browser view controller', () => {
       }),
     )
     await controller.hydrate()
-    await controller.apply({ action: 'group.cycle' })
-    await controller.apply({ action: 'nav.back' })
+    await controller.apply({ action: 'view.cycle-grouping' })
+    await controller.apply({ action: 'view.back' })
     expect(go).toHaveBeenCalledWith(-1)
 
     go.mockClear()
     history.replaceState({ owner: 'foreign' }, '', '/moneyflow/?v=1&group=category')
-    await controller.apply({ action: 'nav.back' })
+    await controller.apply({ action: 'view.back' })
     expect(go).not.toHaveBeenCalled()
     expect(window.location.search).toBe('?v=1')
   })
@@ -152,11 +155,58 @@ describe('browser view controller', () => {
     await controller.hydrate()
     const prior = controller.projection
 
-    await controller.apply({ action: 'select.all' })
+    await controller.apply({ action: 'selection.toggle-all' })
     expect(controller.projection).toBe(prior)
     expect(controller.announcement).not.toContain('private')
     await controller.retry()
     expect(client.transition).toHaveBeenCalledTimes(2)
+  })
+
+  it('replaces search previews, commits one entry, and restores the opening snapshot', async () => {
+    const pushes = vi.spyOn(history, 'pushState')
+    const replacements = vi.spyOn(history, 'replaceState')
+    const client = clientWith({
+      transition: vi.fn(async (body) =>
+        projection(`v=1&q=${encodeURIComponent(body.search ?? '')}`, 0, 1),
+      ),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+    pushes.mockClear()
+    replacements.mockClear()
+
+    expect(await controller.previewSearch('coffee')).toBe(true)
+    expect(await controller.previewSearch('coffee shop')).toBe(true)
+    expect(pushes).not.toHaveBeenCalled()
+    expect(replacements).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(client.transition).mock.calls[1]?.[0].query).toBe('v=1')
+
+    controller.commitSearch(snapshot)
+    expect(pushes).toHaveBeenCalledTimes(1)
+    expect(window.location.search).toBe('?v=1&q=coffee%20shop')
+
+    const cancelSnapshot = controller.beginSearch()
+    await controller.previewSearch('temporary')
+    controller.restoreSearch(cancelSnapshot)
+    expect(controller.projection?.canonical_query).toBe('v=1&q=coffee%20shop')
+  })
+
+  it('aborts an in-flight search preview when cancel restores its snapshot', async () => {
+    let release!: (value: ViewProjection) => void
+    const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))
+    const controller = controllerFor(clientWith({ transition: vi.fn(async () => delayed) }), false)
+    await controller.hydrate()
+    const snapshot = controller.beginSearch()
+
+    const preview = controller.previewSearch('temporary')
+    expect(controller.loading).toBe(true)
+    controller.restoreSearch(snapshot)
+    expect(controller.loading).toBe(false)
+    release(projection('v=1&q=temporary', 0, 1))
+    await preview
+
+    expect(controller.projection?.canonical_query).toBe('v=1')
   })
 
   it('exposes a safe invalid-view state for malformed direct URLs', async () => {

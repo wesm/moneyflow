@@ -22,7 +22,13 @@ const capabilities = [
   ['overlay.filters', 'f'],
   ['overlay.search', '/'],
   ['overlay.help', '?'],
-].map(([id, key_display]) => ({ id: id!, key_display: key_display!, description: id! }))
+].map(([id, key_display]) => ({
+  id: id!,
+  key_display: key_display!,
+  description: id!,
+  category: '',
+  available: true,
+}))
 
 describe('Moneyflow browser shortcuts', () => {
   it('matches the TUI read-only keys without lifecycle or End bindings', () => {
@@ -63,7 +69,9 @@ describe('Moneyflow browser shortcuts', () => {
 
   it('rejects conflicting server action metadata', () => {
     expect(() =>
-      validateCapabilities([{ id: 'cursor.up', key_display: 'j', description: 'wrong' }]),
+      validateCapabilities([
+        { id: 'cursor.up', key_display: 'j', description: 'wrong', category: '', available: true },
+      ]),
     ).toThrow('conflicts')
   })
 

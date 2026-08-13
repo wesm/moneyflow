@@ -89,3 +89,20 @@ func TestWireProjectionIncludesServerDerivedViewMetadata(t *testing.T) {
 	assert.Equal(t, string(projection.State.Current.Sort.Field), wire.View.SortField)
 	assert.Equal(t, string(projection.State.Current.Sort.Direction), wire.View.SortDirection)
 }
+
+func TestWireCapabilitiesIncludeCategoriesAndUnavailableWebActions(t *testing.T) {
+	t.Parallel()
+
+	projection := app.WebProjection{Actions: []app.ActionID{app.ActionOpenSearch}}
+	wire := projectionToWire(projection, "v=1", nil)
+	byID := make(map[app.ActionID]Capability, len(wire.Capabilities))
+	for _, capability := range wire.Capabilities {
+		byID[capability.ID] = capability
+	}
+	assert.True(t, byID[app.ActionOpenSearch].Available)
+	assert.Equal(t, "Filters", byID[app.ActionOpenSearch].Category)
+	assert.False(t, byID[app.ActionEditMerchant].Available)
+	assert.Equal(t, "Actions", byID[app.ActionEditMerchant].Category)
+	_, lifecycleVisible := byID[app.ActionQuit]
+	assert.False(t, lifecycleVisible)
+}

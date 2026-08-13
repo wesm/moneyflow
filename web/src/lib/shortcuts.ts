@@ -47,7 +47,9 @@ export function createMoneyflowShortcuts(
   handlers: { local(action: LocalAction): void; apply(action: string): void },
 ): { manager: ShortcutManager; destroy(): void } {
   validateCapabilities(capabilities)
-  const available = new Set(capabilities.map((capability) => capability.id))
+  const available = new Set(
+    capabilities.filter((capability) => capability.available).map((capability) => capability.id),
+  )
   const manager = createShortcutManager()
   const cleanup: Array<() => void> = []
   for (const binding of bindings) {

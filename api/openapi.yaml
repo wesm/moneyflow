@@ -77,6 +77,10 @@ components:
     Capability:
       additionalProperties: false
       properties:
+        available:
+          type: boolean
+        category:
+          type: string
         description:
           type: string
         id:
@@ -86,6 +90,8 @@ components:
       required:
         - id
         - description
+        - category
+        - available
       type: object
     Chart:
       additionalProperties: false

@@ -90,6 +90,8 @@ export interface components {
       label: string
     }
     Capability: {
+      available: boolean
+      category: string
       description: string
       id: string
       key_display?: string

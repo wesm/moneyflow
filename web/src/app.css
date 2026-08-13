@@ -155,8 +155,61 @@ input {
   text-align: right;
   font-family: var(--font-mono);
 }
+.overlay-form {
+  display: flex;
+  min-width: min(28rem, calc(100vw - 6rem));
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.overlay-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.overlay-status {
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.overlay-status--error {
+  color: var(--accent-red);
+}
+.help-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+  overflow: auto;
+}
+.help-groups h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.help-list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  list-style: none;
+}
+.help-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+.help-list li > :first-child {
+  flex: 1;
+}
+.help-list__unavailable {
+  opacity: var(--opacity-disabled);
+}
 @media (max-width: 900px) {
   .app-shell__main {
+    grid-template-columns: 1fr;
+  }
+  .help-groups {
     grid-template-columns: 1fr;
   }
 }

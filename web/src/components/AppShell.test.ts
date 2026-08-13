@@ -23,7 +23,15 @@ describe('AppShell', () => {
 function stubController(): ViewController {
   return {
     projection: testProjection({
-      capabilities: [{ id: 'cursor.down', key_display: '↓/j', description: 'Move cursor down' }],
+      capabilities: [
+        {
+          id: 'cursor.down',
+          key_display: '↓/j',
+          description: 'Move cursor down',
+          category: '',
+          available: true,
+        },
+      ],
     }),
     loading: false,
     announcement: '',
@@ -34,6 +42,10 @@ function stubController(): ViewController {
     moveCursor: vi.fn(),
     moveHome: vi.fn(),
     apply: vi.fn(),
+    beginSearch: vi.fn(),
+    previewSearch: vi.fn(),
+    commitSearch: vi.fn(),
+    restoreSearch: vi.fn(),
     restore: vi.fn(),
     retry: vi.fn(),
     reset: vi.fn(),

@@ -162,6 +162,8 @@ type Capability struct {
 	ID          app.ActionID `json:"id"`
 	KeyDisplay  string       `json:"key_display,omitempty"`
 	Description string       `json:"description"`
+	Category    string       `json:"category"`
+	Available   bool         `json:"available"`
 }
 
 // Warning is a safe announced non-fatal condition.
@@ -237,14 +239,20 @@ func projectionToWire(
 			Dimension: string(breadcrumb.Dimension), Label: breadcrumb.Label,
 		})
 	}
+	availableActions := make(map[app.ActionID]struct{}, len(projection.Actions))
 	for _, actionID := range projection.Actions {
-		definition, ok := app.ActionByID(actionID)
-		if ok {
-			wire.Capabilities = append(wire.Capabilities, Capability{
-				ID: actionID, KeyDisplay: definition.KeyDisplay,
-				Description: definition.Description,
-			})
+		availableActions[actionID] = struct{}{}
+	}
+	for _, definition := range app.ReadOnlyActions() {
+		if !definition.Web {
+			continue
 		}
+		_, available := availableActions[definition.ID]
+		wire.Capabilities = append(wire.Capabilities, Capability{
+			ID: definition.ID, KeyDisplay: definition.KeyDisplay,
+			Description: definition.Description, Category: definition.Category,
+			Available: available,
+		})
 	}
 	for _, row := range projection.DetailRows {
 		wire.DetailRows = append(wire.DetailRows, detailRowToWire(row))

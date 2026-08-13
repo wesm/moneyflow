@@ -25,6 +25,14 @@ export interface ControllerProblem {
   code: string
 }
 
+export interface SearchSnapshot {
+  projection: ViewProjection
+  history: MoneyflowHistoryState
+  cursorIdentity: string | undefined
+  cursorIndex: number
+  scrollTop: number
+}
+
 export interface ViewController {
   readonly projection: ViewProjection | undefined
   readonly loading: boolean
@@ -36,6 +44,10 @@ export interface ViewController {
   moveCursor(delta: -1 | 1): Promise<void>
   moveHome(): Promise<void>
   apply(action: TransitionAction): Promise<void>
+  beginSearch(): SearchSnapshot
+  previewSearch(search: string): Promise<boolean>
+  commitSearch(snapshot: SearchSnapshot): void
+  restoreSearch(snapshot: SearchSnapshot): void
   restore(event: PopStateEvent): Promise<void>
   retry(): Promise<void>
   reset(): Promise<void>
@@ -71,6 +83,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let generation = 0
   let activeRequest: AbortController | undefined
   let lastRetry: (() => Promise<void>) | undefined
+  let searchSnapshot: SearchSnapshot | undefined
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
   async function hydrate(): Promise<void> {
@@ -103,7 +116,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       await requestProjection(
         () => options.client.transition(body, activeRequest?.signal),
         (next) => {
-          if (action.action === 'nav.back') {
+          if (action.action === 'view.back') {
             const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
             if (delta !== undefined) {
               browserHistory.go(delta)
@@ -112,7 +125,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
             accept(next, 'replace')
             return
           }
-          accept(next, action.action.startsWith('select.') ? 'replace' : 'push')
+          accept(next, action.action.startsWith('selection.') ? 'replace' : 'push')
         },
         run,
       )
@@ -142,6 +155,80 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function reset(): Promise<void> {
     browserHistory.replaceState(null, '', basePath)
     await hydrate()
+  }
+
+  function beginSearch(): SearchSnapshot {
+    if (!projection) throw new Error('Cannot open search before a view is loaded.')
+    searchSnapshot = {
+      projection,
+      history: ownedState(projection),
+      cursorIdentity,
+      cursorIndex,
+      scrollTop,
+    }
+    return searchSnapshot
+  }
+
+  async function previewSearch(search: string): Promise<boolean> {
+    if (!projection) return false
+    const query = searchSnapshot?.projection.canonical_query ?? projection.canonical_query
+    const selection = searchSnapshot?.projection.selection ?? projection.selection
+    let accepted = false
+    await requestProjection(
+      () =>
+        options.client.transition(
+          {
+            query,
+            selection,
+            action: 'search.apply',
+            search,
+            window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+          },
+          activeRequest?.signal,
+        ),
+      (next) => {
+        accept(next, 'replace')
+        accepted = true
+      },
+      () => previewSearch(search).then(() => undefined),
+    )
+    return accepted
+  }
+
+  function commitSearch(snapshot: SearchSnapshot): void {
+    if (!projection) return
+    const accepted = projection
+    browserHistory.replaceState(
+      snapshot.history,
+      '',
+      applicationURL(basePath, snapshot.projection.canonical_query),
+    )
+    ledger.record(snapshot.history)
+    sequence = snapshot.history.sequence
+    accept(accepted, 'push')
+    searchSnapshot = undefined
+  }
+
+  function restoreSearch(snapshot: SearchSnapshot): void {
+    generation += 1
+    activeRequest?.abort()
+    loading = false
+    lastRetry = undefined
+    projection = snapshot.projection
+    cursorIdentity = snapshot.cursorIdentity
+    cursorIndex = snapshot.cursorIndex
+    scrollTop = snapshot.scrollTop
+    problem = undefined
+    announcement = snapshot.projection.status ?? ''
+    sequence = snapshot.history.sequence
+    cache.store(snapshot.projection)
+    browserHistory.replaceState(
+      snapshot.history,
+      '',
+      applicationURL(basePath, snapshot.projection.canonical_query),
+    )
+    ledger.record(snapshot.history)
+    searchSnapshot = undefined
   }
 
   async function moveCursor(delta: -1 | 1): Promise<void> {
@@ -328,6 +415,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursor,
     moveHome,
     apply,
+    beginSearch,
+    previewSearch,
+    commitSearch,
+    restoreSearch,
     restore,
     retry,
     reset,
