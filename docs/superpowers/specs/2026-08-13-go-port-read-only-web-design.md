@@ -205,6 +205,8 @@ the information required to reconstruct the visible result:
 - inclusive date range
 - hidden and transfer visibility
 - committed search text
+- the navigation-scope marker where committed search opened, so `Esc` clears it
+  only at the same scope as the TUI
 - sort field and direction
 - ordered analytical return frames for drill-down and subgroup scopes
 
@@ -237,11 +239,11 @@ URL. Browser history state may retain cursor and scroll for exact restoration
 within the current tab, but a bookmark does not depend on them.
 
 Each return frame contains only the prior result mode, grouping or subgroup,
-time granularity, drill path, filters, committed search, and sort needed by the
-existing application `Back` transition. It does not contain cursor, scroll,
-selection, display labels, or provider data. A directly opened bookmark can
-therefore reproduce the same analytical parent transitions as the TUI without a
-server session or hidden browser history.
+time granularity, drill path, filters, committed search and its opening-scope
+marker, and sort needed by the existing application `Back` transition. It does
+not contain cursor, scroll, selection, display labels, or provider data. A
+directly opened bookmark can therefore reproduce the same analytical parent
+transitions as the TUI without a server session or hidden browser history.
 
 Search text is visible in the URL because committed search is bookmarkable. The
 server therefore sets `Referrer-Policy: no-referrer`, never logs a raw request

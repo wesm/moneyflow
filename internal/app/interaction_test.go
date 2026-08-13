@@ -45,6 +45,10 @@ func TestCommittedInteractionScenarios(t *testing.T) {
 				}
 				assert.Equal(t, step.Expected, &got, "step %d %s", stepIndex, step.Operation)
 				assert.Equal(t, step.Returned, returned, "step %d %s returned position", stepIndex, step.Operation)
+				durable := session.ViewState()
+				restored, restoreErr := app.NewSessionFromViewState(durable)
+				require.NoError(t, restoreErr, "step %d %s durable state", stepIndex, step.Operation)
+				assert.Equal(t, durable, restored.ViewState(), "step %d %s durable round trip", stepIndex, step.Operation)
 			}
 		})
 	}

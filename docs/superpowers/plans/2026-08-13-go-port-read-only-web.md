@@ -238,6 +238,7 @@ asset and Playwright commands to this gate.
       Drilldowns      []domain.Drilldown // stable key or typed period; labels omitted
       DateRange       *domain.DateRange
       Search          string
+      SearchAnchor    *NavigationScope
       ShowHidden      bool
       ShowTransfers   bool
       Sort            domain.SortSpec
@@ -252,6 +253,13 @@ asset and Playwright commands to this gate.
       Version uint8
       Current AnalyticalState
       Returns []ReturnFrame
+  }
+
+  type NavigationScope struct {
+      Mode          domain.ResultMode
+      Dimension     domain.Dimension
+      SubGrouping   *domain.Dimension
+      DrilldownSize int
   }
   ```
 
@@ -299,7 +307,9 @@ asset and Playwright commands to this gate.
 
 - [ ] **Step 1: Lock the query grammar in failing table tests.** Use scalar fields `v`, `mode`,
       `group`, `subgroup`, `time`, `from`, `to`, `hidden`, `transfers`, `q`, and `sort`; repeated
-      `drill` and `return` fields retain slice order. A drill value is `dimension:value`, split only
+      `drill` and `return` fields retain slice order. The optional scalar `search-at` is
+      `mode:dimension:subgroup-or-_:drilldown-count` and must appear exactly when `q` is nonempty. A
+      drill value is `dimension:value`, split only
       at the first colon; time uses `time:granularity:YYYY[-MM[-DD]]`. A `return` value is
       `kind:canonical-frame-query`, split only at the first colon; the frame query contains neither
       `v` nor nested `return` fields.
