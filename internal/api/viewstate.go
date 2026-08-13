@@ -16,9 +16,9 @@ const (
 	// MaxEncodedViewQuery bounds both received and canonical bookmark queries.
 	MaxEncodedViewQuery = 64 << 10
 	// MaxSearchBytes bounds committed UTF-8 regular-expression search text.
-	MaxSearchBytes = 2 << 10
+	MaxSearchBytes = app.MaxCommittedSearchBytes
 	// MaxEntityKeyBytes bounds one decoded stable drill-down key.
-	MaxEntityKeyBytes = 512
+	MaxEntityKeyBytes = app.MaxDurableEntityKeyBytes
 	// MaxDrilldowns is the number of unique supported analytical dimensions.
 	MaxDrilldowns = 5
 )
