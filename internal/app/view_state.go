@@ -7,6 +7,9 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+// ErrTooManyReturnFrames reports durable history beyond the stateless contract.
+var ErrTooManyReturnFrames = errors.New("too many return frames")
+
 const (
 	// ViewStateSchemaVersion is the durable browser-state schema understood by this build.
 	ViewStateSchemaVersion uint8 = 1
@@ -90,7 +93,7 @@ func (state ViewState) Validate() error {
 		return errors.New("validate view state: unsupported schema version")
 	}
 	if len(state.Returns) > MaxReturnFrames {
-		return errors.New("validate view state: too many return frames")
+		return fmt.Errorf("validate view state: %w", ErrTooManyReturnFrames)
 	}
 	if err := state.Current.validate(); err != nil {
 		return fmt.Errorf("validate view state: current: %w", err)
@@ -115,6 +118,11 @@ func (state AnalyticalState) validate() error {
 	}
 	if (state.Search == "") != (state.SearchAnchor == nil) {
 		return errors.New("search and search anchor must be present together")
+	}
+	for _, drilldown := range state.Drilldowns {
+		if drilldown.Label != "" {
+			return errors.New("durable drill-down contains a display label")
+		}
 	}
 	if state.SearchAnchor != nil {
 		if err := state.SearchAnchor.validate(); err != nil {
@@ -151,7 +159,9 @@ func (session Session) ViewState() ViewState {
 	state := ViewState{
 		Version: ViewStateSchemaVersion,
 		Current: analyticalStateFromSession(session),
-		Returns: make([]ReturnFrame, len(session.history)),
+	}
+	if len(session.history) > 0 {
+		state.Returns = make([]ReturnFrame, len(session.history))
 	}
 	for index, entry := range session.history {
 		state.Returns[index] = ReturnFrame{
