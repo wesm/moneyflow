@@ -181,10 +181,13 @@ Every owned route lives below that prefix:
 <base-path>openapi.yaml             OpenAPI document
 ```
 
-Vite builds with the configured runtime-neutral asset layout. The Go handler
-injects or serves the effective base-path configuration without rebuilding the
-frontend for each deployment. Client-side navigation, API requests, redirects,
-asset references, and OpenAPI server entries all use the same prefix.
+Vite emits relative `./assets/` references. Its index contains a non-executable
+`<meta name="moneyflow-base-path">` placeholder. The Go handler replaces only
+that placeholder with the HTML-escaped effective prefix; the external hashed
+application script reads the meta value. The handler does not inject an inline
+script, style, or event attribute, so `script-src 'self'` and `base-uri 'none'`
+remain valid without a nonce or hash. Client-side navigation, API requests,
+redirects, asset references, and OpenAPI server entries all use that value.
 
 When the base path is not `/`, the server does not claim unrelated paths. This
 allows a reverse proxy to host moneyflow beside other applications. Unknown asset
@@ -215,6 +218,18 @@ duplicate drill dimensions, malformed periods, incompatible sorts, and unsafe
 or oversized inputs. Successful decoding always returns one canonical encoding.
 Canonical encoding has stable parameter order, omits default values, and is
 idempotent.
+
+The percent-encoded query is at most 64 KiB. A committed search is at most 2 KiB
+of UTF-8 text, a decoded entity key is at most 512 bytes, the drill path contains
+at most the five unique supported dimensions, and the return stack contains at
+most six frames. The decoder checks both the raw input and canonical output.
+
+A direct URL that violates a bound opens the invalid-view screen with Back and
+Reset actions. If live search or an analytical transition would cross a bound,
+the API returns `view_state_too_large`; the browser retains the last good URL and
+projection and announces that the search or refinement is too large to bookmark.
+It never truncates, drops a return frame, or commits a URL that cannot reproduce
+the view.
 
 Cursor, scroll offset, loaded row windows, selection, chart visibility, open
 dialogs, theme preference, and live uncommitted search text do not appear in the
@@ -252,13 +267,15 @@ anchor, leaves a subgroup, or returns through a drill frame in the same priority
 order. It does not undo an ordinary top-level grouping, filter, time-granularity,
 or sort change merely because that change created a browser entry.
 
-Each owned browser entry records the canonical back target returned by Go and the
-index of a matching earlier moneyflow entry when one exists. `Esc` jumps directly
-to that entry, skipping intervening sort or filter entries inside the current
-drill scope. For a direct bookmark with no matching owned entry, it replaces the
-current entry with the Go-derived parent. It never invokes an unmarked external
-history entry. Browser Back and Forward remain ordinary chronological navigation
-and can traverse every committed URL change.
+Go always returns the canonical analytical parent for `Esc`. Replacing the
+current entry with that parent is the guaranteed behavior. As a best-effort
+optimization, the controller may jump to a matching earlier moneyflow entry and
+restore its cursor, scroll, and selection. It does so only while an in-memory
+ledger proves that the target and every crossed entry belong to the current app
+instance. After reload, a missing or inconsistent marker, or any other doubt, it
+uses the guaranteed replacement path. It never follows an index that could reach
+an unmarked external entry. Browser Back and Forward remain ordinary
+chronological navigation and can traverse every committed URL change.
 
 Opening search snapshots the current URL, cursor, and scroll. Debounced live
 search uses history replacement for previews. Enter commits one new entry. Esc
@@ -308,11 +325,10 @@ write endpoints.
 
 ## HTTP API
 
-Huma describes the API and produces deterministic OpenAPI JSON and YAML. The
+Huma describes the API and produces deterministic OpenAPI JSON and YAML. This
+slice serves the documents but does not add a browser API-documentation
+application or load documentation assets from a content-delivery network. The
 initial operations are:
-
-This slice serves the documents but does not add a browser API-documentation
-application or load documentation assets from a content-delivery network.
 
 ### `GET api/v1/health`
 
@@ -403,12 +419,39 @@ Sorting or refetching preserves the focused identity if that row remains in the
 result. Otherwise the cursor clamps to the nearest valid row. Browser Back and
 Forward restore the saved identity or index and scroll position when available.
 
-Selection state is transient and browser-held but opaque to TypeScript. Go
-creates and validates a versioned, bounded selection value that represents exact
-stable identities or complete-result selection without returning every identity
-to the browser. The browser sends that value with projection and transition
-requests; the stateless API returns the next value and decorates only the current
-row window. No selection is retained by the server or placed in the URL.
+Selection state is transient and browser-held but opaque to TypeScript. The wire
+field is a branded string produced and consumed only by Go. Its versioned logical
+document contains:
+
+- a base that is either a sorted explicit stable-identity list or an `all` marker
+  with the canonical query-producing fields of the defining analytical state;
+  return frames are omitted because they do not change result membership
+- the identity kind: normalized transaction ID or composite aggregate identity
+- sorted inclusion identities added to that base
+- sorted exclusion identities removed from that base
+
+For an `all` base, Go re-runs the defining state and resolves its complete stable
+identity set before it applies deltas. A later search, filter, time change, or
+window request therefore tests membership against the same concrete result that
+was selected originally, matching the current session's ID-set behavior. The
+browser sends the opaque value with projection and transition requests; the
+stateless API returns a canonical next value and decorates only the current row
+window. No selection is retained by the server or placed in the URL.
+
+After Space or `Ctrl+A`, Go resolves the old selection and the complete current
+result, applies the existing `toggleSetValue` or `toggleAll` semantics, and picks
+the smallest exact canonical representation: current-result `all` plus deltas,
+the existing base plus deltas, or an explicit list. It never substitutes a
+different approximate set.
+
+The decoded selection document is limited to 8,192 combined explicit, inclusion,
+and exclusion identities, 512 bytes per identity, and 1 MiB total. Its encoded
+wire string is limited to 1.4 MiB, and a view request body is limited to 2 MiB.
+If an otherwise valid toggle cannot fit an exact representation, the API returns
+`selection_too_large`; the browser retains the prior selection, URL, and
+projection and announces that no additional rows were selected. An invalid or
+oversized value received during initial hydration opens the view with selection
+reset and an announced warning; it does not invalidate the analytical URL.
 
 `Ctrl+A` selects or clears every row in the complete current result, matching the
 TUI rather than limiting the operation to the loaded 200-row window. Space
@@ -588,6 +631,8 @@ not echo a complete search query, URL, transaction, or provider payload.
 The browser uses these rules:
 
 - A live-search validation error leaves the last good projection visible.
+- URL or selection bounds fail with their stable safe codes and the no-change or
+  reset behavior specified above; the browser never truncates either state.
 - A transient network or server failure retains the last good projection,
   announces the failure, and offers retry.
 - A stale bookmarked entity key shows an invalid-view screen with Back and Reset.
@@ -628,7 +673,11 @@ Implementation follows test-driven development in both Go and TypeScript.
 - Existing session and interaction scenarios remain green through any state
   refactor.
 - URL codec table and property tests cover canonical round trips, Unicode search,
-  repeated drill paths, typed periods, defaults, malformed fields, and base paths.
+  repeated drill paths, typed periods, defaults, malformed fields, exact size
+  boundaries, no-change failures, and base paths.
+- Selection-codec tests cover explicit and all bases, query changes after
+  select-all, inclusion and exclusion deltas, smallest exact normalization,
+  identity kinds, every size boundary, and rejected-toggle preservation.
 - Huma handlers are exercised through `httptest` with strict body decoding,
   window boundaries, exact money strings, partition separation, stable targets,
   problem details, OpenAPI output, and headers.
@@ -642,7 +691,8 @@ Implementation follows test-driven development in both Go and TypeScript.
 ### Frontend tests
 
 - Pure tests cover URL/history coordination, generated client adapters, money
-  display passthrough, projection caches, and cursor restoration.
+  display passthrough, opaque selection transport, projection caches, and cursor
+  restoration.
 - Component tests cover shortcut scopes, virtual focus, table sorting, overlays,
   live-search apply/cancel, filters, selection clearing, chart linkage, empty
   states, and responsive column priority.
@@ -733,6 +783,7 @@ This slice is complete only when fresh evidence shows all of the following:
 - every implemented read-only TUI refinement workflow works from the browser
 - the Go action registry drives TUI help and web capabilities without drift
 - URL state is strict, canonical, bookmarkable, refresh-safe, and base-path-safe
+- URL and selection bounds reject without truncation or unintended state changes
 - browser Back/Forward and `Esc` satisfy the approved restoration contract
 - the API is stateless, strictly decoded, windowed, and server-authoritative
 - exact money strings and `(currency, scale)` partitions survive every wire path
