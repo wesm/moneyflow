@@ -1,0 +1,168 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    37,
+    60,
+    84,
+    100
+  ],
+  "flags": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "H",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "H",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "height": 50,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "detail",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "All Transactions"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 90
+    },
+    {
+      "height": 1,
+      "lines": [
+        "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 91,
+        "y": 1
+      },
+      "width": 58
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Date \u2193        Merchant              Category               Account                     Amount ($)"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 28,
+      "lines": [
+        " 2025-12-31    Example Unknown       Uncategorized          Everyday Card                    -7.77",
+        " 2025-10-31    Example Refund        Refund                 Primary Checking                +10.00",
+        " 2025-09-01    Example Transit       Transit                Everyday Card                   -25.00",
+        " 2025-07-04    Example Grocer        Groceries              Everyday Card                   -42.42",
+        " 2025-06-15    Example Cafe          Dining                 Everyday Card                   -33.33",
+        " 2025-05-05    Example Pharmacy      Healthcare             Everyday Card                   -15.99  H",
+        " 2025-03-31    Example Utility       Utilities              Primary Checking                -90.00",
+        " 2025-02-15    Example Books         Books                  Everyday Card                   -20.00",
+        " 2025-02-01    Example Payroll       Salary                 Primary Checking             +2,800.00",
+        " 2025-01-15    Example Grocer        Groceries              Everyday Card                   -75.00",
+        " 2025-01-01    Example Housing       Rent                   Primary Checking             -1,200.00",
+        " 2024-12-31    Example Payroll       Salary                 Primary Checking             +2,700.00",
+        " 2024-08-12    Example Cafe          Dining                 Everyday Card                   -18.45",
+        " 2024-06-01    Example Transit       Transit                Everyday Card                   -25.00",
+        " 2024-05-31    Example Grocer        Groceries              Everyday Card                   -45.00",
+        " 2024-04-20    Example Unknown       Uncategorized          Everyday Card                    +0.00",
+        " 2024-03-15    Example Utility       Utilities              Primary Checking                -82.75  H",
+        " 2024-02-29    Example Payroll       Salary                 Primary Checking             +2,600.00",
+        " 2024-02-28    Example Pharmacy      Healthcare             Everyday Card                   -30.00",
+        " 2024-01-10    Example Grocer        Groceries              Everyday Card                   -60.00",
+        " 2024-01-10    Example Cafe          Dining                 Everyday Card                   -12.50",
+        " 2023-12-31    Example Interest      Interest               Savings                          +3.25",
+        " 2023-06-10    Example Books         Books                  Everyday Card                   -20.00",
+        " 2023-04-20    Example Utility       Utilities              Primary Checking                -80.00",
+        " 2023-03-15    Example Transit       Transit                Everyday Card                   -25.00",
+        " 2023-02-01    Example Payroll       Salary                 Primary Checking             +2,500.00",
+        " 2023-01-05    Example Grocer        Groceries              Everyday Card                   -54.20",
+        " 2023-01-05    Example Cafe          Dining                 Everyday Card                   -12.50"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
+  "visible_row_ids": [
+    "txn-032",
+    "txn-031",
+    "txn-030",
+    "txn-029",
+    "txn-028",
+    "txn-027",
+    "txn-024",
+    "txn-023",
+    "txn-022",
+    "txn-021",
+    "txn-020",
+    "txn-019",
+    "txn-018",
+    "txn-017",
+    "txn-016",
+    "txn-015",
+    "txn-014",
+    "txn-012",
+    "txn-011",
+    "txn-009",
+    "txn-010",
+    "txn-008",
+    "txn-007",
+    "txn-006",
+    "txn-004",
+    "txn-003",
+    "txn-001",
+    "txn-002"
+  ],
+  "width": 150
+}

@@ -1,4 +1,4 @@
-.PHONY: build clean fmt lint test test-race tui-demo vet
+.PHONY: build clean fmt lint parity parity-go parity-python parity-update-python test test-race tui-demo vet
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -21,6 +21,17 @@ vet:
 
 lint:
 	GOLANGCI_LINT_CACHE="$(CURDIR)/.cache/golangci-lint" golangci-lint run --config .golangci.yml
+
+parity-python:
+	uv run python -m moneyflow.parity.semantic --check
+
+parity-go:
+	go test ./internal/tui -run TestPythonSemanticFrameParity -count=1
+
+parity: parity-python parity-go
+
+parity-update-python:
+	uv run python -m moneyflow.parity.semantic --update
 
 fmt:
 	gofmt -w cmd internal

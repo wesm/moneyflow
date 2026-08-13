@@ -179,5 +179,5 @@ func (model Model) visibleRows() int {
 	if model.height < minimumHeight {
 		return 0
 	}
-	return model.height - 5
+	return model.height - 7
 }

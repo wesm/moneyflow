@@ -20,9 +20,16 @@ type NamedRegion struct {
 
 // RenderedScreen is the shared terminal and parity rendering result.
 type RenderedScreen struct {
-	Frame   Frame
-	Regions []NamedRegion
-	Columns []int
+	Frame         Frame
+	Regions       []NamedRegion
+	Columns       []int
+	VisibleRowIDs []string
+	Breadcrumb    string
+	Stats         string
+	Flags         []string
+	SelectionIDs  []string
+	Hints         string
+	Overlay       []string
 }
 
 // RenderTable draws one header and a clipped, scrollable body into a frame.

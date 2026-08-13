@@ -1,0 +1,86 @@
+{
+  "breadcrumb": "M: Example Grocer > (by Category)",
+  "columns": [
+    1,
+    43,
+    55,
+    68,
+    76
+  ],
+  "flags": [
+    ""
+  ],
+  "height": 50,
+  "hints": "Esc/g=Back | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "subgroup",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "M: Example Grocer > (by Category)"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 100
+    },
+    {
+      "height": 1,
+      "lines": [
+        "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 101,
+        "y": 1
+      },
+      "width": 48
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Category                                  Count       Total ($) \u2193  %"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Groceries                                 5               -276.62  100.0%"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Esc/g=Back | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62",
+  "visible_row_ids": [
+    "category-groceries"
+  ],
+  "width": 150
+}

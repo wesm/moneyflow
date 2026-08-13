@@ -1,0 +1,117 @@
+{
+  "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)",
+  "columns": [
+    1,
+    23,
+    35,
+    48,
+    56,
+    93
+  ],
+  "flags": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "height": 50,
+  "hints": "Enter=Drill | Space=Select | m=\u270f\ufe0f Merchant (bulk) | c=\u270f\ufe0f Category (bulk) | s=Sort(Amount) | g=Group",
+  "name": "merchant",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "Merchants (2023-01-05 to 2025-12-31)"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 90
+    },
+    {
+      "height": 1,
+      "lines": [
+        "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 91,
+        "y": 1
+      },
+      "width": 58
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Merchant              Count       Total ($) \u2193  %       Top Category"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 11,
+      "lines": [
+        " Example Housing       1             -1,200.00  64.0%   Rent 100%",
+        " Example Grocer        5               -276.62  14.7%   Groceries 100%",
+        " Example Utility       3               -170.00  9.1%    Utilities 100%",
+        " Example Cafe          4                -76.78  4.1%    Dining 100%",
+        " Example Transit       3                -75.00  4.0%    Transit 100%",
+        " Example Books         2                -40.00  2.1%    Books 100%",
+        " Example Pharmacy      2                -30.00  1.6%    Healthcare 100%",
+        " Example Unknown       2                 -7.77  0.4%    Uncategorized 100%",
+        " Example Interest      1                 +3.25  0.0%    Interest 100%",
+        " Example Refund        1                +10.00  0.1%    Refund 100%",
+        " Example Payroll       4            +10,600.00  99.9%   Salary 100%"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Enter=Drill | Space=Select | m=\u270f\ufe0f Merchant (bulk) | c=\u270f\ufe0f Category (bulk) | s=Sort(Amount) | g=Group"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
+  "visible_row_ids": [
+    "merchant-rent",
+    "merchant-grocer",
+    "merchant-utility",
+    "merchant-cafe",
+    "merchant-transit",
+    "merchant-books",
+    "merchant-pharmacy",
+    "merchant-uncategorized",
+    "merchant-interest",
+    "merchant-refund",
+    "merchant-payroll"
+  ],
+  "width": 150
+}

@@ -1,0 +1,92 @@
+{
+  "breadcrumb": "Years (2023-01-05 to 2025-12-31)",
+  "columns": [
+    1,
+    18,
+    30,
+    41,
+    49
+  ],
+  "flags": [
+    "",
+    "",
+    ""
+  ],
+  "height": 50,
+  "hints": "Enter=Drill | t=By Month | s=Sort(Time_period) | g=Group",
+  "name": "time_year",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "Years (2023-01-05 to 2025-12-31)"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 90
+    },
+    {
+      "height": 1,
+      "lines": [
+        "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 91,
+        "y": 1
+      },
+      "width": 58
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Period \u2191         Count       Total ($)  %"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 3,
+      "lines": [
+        " 2023             7           +2,311.55  26.5%",
+        " 2024             10          +5,109.05  58.5%",
+        " 2025             11          +1,316.48  15.1%"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Enter=Drill | t=By Month | s=Sort(Time_period) | g=Group"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
+  "visible_row_ids": [
+    "2023",
+    "2024",
+    "2025"
+  ],
+  "width": 150
+}

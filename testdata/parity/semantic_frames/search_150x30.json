@@ -1,0 +1,44 @@
+{
+  "breadcrumb": "Merchants (2023-01-05 to 2025-07-04) > Search: 'grocer'",
+  "columns": [
+    1,
+    23,
+    35,
+    48,
+    56,
+    93
+  ],
+  "flags": [
+    ""
+  ],
+  "height": 30,
+  "hints": "Enter=Drill | Space=Select | m=\u270f\ufe0f Merchant (bulk) | c=\u270f\ufe0f Category (bulk) | s=Sort(Amount) | g=Group",
+  "name": "search_150x30",
+  "overlay": [
+    "\ud83d\udd0d Search Transactions",
+    "Type to search merchant or category names",
+    "Press Enter with empty search to clear filter",
+    "grocer"
+  ],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "                   \ud83d\udd0d Search Transactions"
+      ],
+      "name": "overlay",
+      "origin": {
+        "x": 45,
+        "y": 9
+      },
+      "width": 60
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62",
+  "visible_row_ids": [
+    "merchant-grocer"
+  ],
+  "width": 150
+}

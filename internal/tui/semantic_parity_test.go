@@ -1,0 +1,94 @@
+package tui_test
+
+import (
+	"fmt"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/fixture"
+	"github.com/wesm/moneyflow/internal/parity"
+	"github.com/wesm/moneyflow/internal/tui"
+)
+
+func TestPythonSemanticFrameParity(t *testing.T) {
+	root := filepath.Join("..", "..")
+	document, err := parity.LoadFrameScenarios(filepath.Join(root, "testdata", "parity", "frame_scenarios.json"))
+	require.NoError(t, err)
+	transactions, err := fixture.Load(filepath.Join(root, document.Fixture))
+	require.NoError(t, err)
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+
+	for _, scenario := range document.Scenarios {
+		t.Run(scenario.Name, func(t *testing.T) {
+			session, sessionErr := parity.SessionFromFrameInitial(scenario.Initial)
+			require.NoError(t, sessionErr)
+			model, modelErr := tui.NewModel(service, session, tui.Options{
+				Theme: tui.ThemeName(scenario.Theme), ColorMode: tui.ColorModeNone,
+			})
+			require.NoError(t, modelErr)
+			model = updateModel(t, model, tea.WindowSizeMsg{Width: scenario.Width, Height: scenario.Height})
+			for _, keyName := range scenario.Keys {
+				model = updateModel(t, model, semanticKey(keyName))
+			}
+			got := parity.ProjectSemantic(scenario.Name, model.RenderScreen())
+			want, loadErr := parity.LoadSemanticFrame(filepath.Join(
+				root, "testdata", "parity", "semantic_frames", scenario.Name+".json",
+			))
+			require.NoError(t, loadErr)
+			if !reflect.DeepEqual(want, got) {
+				t.Fatal(compactSemanticDiff(want, got))
+			}
+		})
+	}
+}
+
+func updateModel(t testing.TB, model tui.Model, message tea.Msg) tui.Model {
+	t.Helper()
+	updated, _ := model.Update(message)
+	result, ok := updated.(tui.Model)
+	require.True(t, ok)
+	return result
+}
+
+func semanticKey(name string) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: []rune(name)[0], Text: name}
+}
+
+func compactSemanticDiff(want parity.SemanticFrame, got parity.SemanticFrame) string {
+	if fmt.Sprint(want.Columns) != fmt.Sprint(got.Columns) {
+		return fmt.Sprintf("columns: want %v got %v", want.Columns, got.Columns)
+	}
+	if fmt.Sprint(want.VisibleRowIDs) != fmt.Sprint(got.VisibleRowIDs) {
+		return fmt.Sprintf("row identities: want %v got %v", want.VisibleRowIDs, got.VisibleRowIDs)
+	}
+	for index := 0; index < len(want.Regions) && index < len(got.Regions); index++ {
+		if fmt.Sprint(want.Regions[index]) != fmt.Sprint(got.Regions[index]) {
+			return fmt.Sprintf("region %s differs:\nwant: %#v\n got: %#v", want.Regions[index].Name, want.Regions[index], got.Regions[index])
+		}
+	}
+	if want.Breadcrumb != got.Breadcrumb {
+		return fmt.Sprintf("breadcrumb: want %q got %q", want.Breadcrumb, got.Breadcrumb)
+	}
+	if want.Stats != got.Stats {
+		return fmt.Sprintf("statistics: want %q got %q", want.Stats, got.Stats)
+	}
+	if fmt.Sprint(want.Flags) != fmt.Sprint(got.Flags) {
+		return fmt.Sprintf("flags: want %v got %v", want.Flags, got.Flags)
+	}
+	if fmt.Sprint(want.SelectionIDs) != fmt.Sprint(got.SelectionIDs) {
+		return fmt.Sprintf("selected: want %v got %v", want.SelectionIDs, got.SelectionIDs)
+	}
+	if want.Hints != got.Hints {
+		return fmt.Sprintf("hints: want %q got %q", want.Hints, got.Hints)
+	}
+	if fmt.Sprint(want.Overlay) != fmt.Sprint(got.Overlay) {
+		return fmt.Sprintf("overlay: want %v got %v", want.Overlay, got.Overlay)
+	}
+	return "semantic frame differs"
+}

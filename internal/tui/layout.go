@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"sort"
 	"strconv"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 
@@ -16,26 +18,31 @@ func (model Model) RenderScreen() RenderedScreen {
 	}
 
 	contentWidth := model.width - 2
-	breadcrumbWidth := contentWidth * 3 / 5
-	statsWidth := contentWidth - breadcrumbWidth
-	breadcrumbRect := Rect{X: 1, Y: 0, Width: breadcrumbWidth, Height: 1}
-	statsRect := Rect{X: 1 + breadcrumbWidth, Y: 0, Width: statsWidth, Height: 1}
-	fillRect(&frame, Rect{Y: 0, Width: model.width, Height: 1}, model.palette.Panel)
+	statsText := FormatStatistics(model.result.Statistics)
+	statsWidth := min(contentWidth, lipgloss.Width(statsText))
+	breadcrumbWidth := contentWidth - statsWidth
+	breadcrumbText := model.displayBreadcrumb()
+	breadcrumbRect := Rect{X: 1, Y: 1, Width: breadcrumbWidth, Height: 1}
+	statsRect := Rect{X: 1 + breadcrumbWidth, Y: 1, Width: statsWidth, Height: 1}
+	fillRect(&frame, Rect{Y: 1, Width: model.width, Height: 1}, model.palette.Panel)
 	frame.PutText(
 		breadcrumbRect.X,
 		breadcrumbRect.Y,
-		Truncate(model.session.Breadcrumb(model.result.DateRange), breadcrumbRect.Width),
+		Truncate(breadcrumbText, breadcrumbRect.Width),
 		model.palette.Heading,
 	)
-	putRight(&frame, statsRect, FormatStatistics(model.result.Statistics), model.palette.Muted)
+	putRight(&frame, statsRect, statsText, model.palette.Muted)
 
-	tableRect := Rect{X: 1, Y: 2, Width: contentWidth, Height: model.height - 4}
+	outerTable := Rect{X: 1, Y: 2, Width: contentWidth, Height: model.height - 4}
+	drawOverlayBox(&frame, outerTable, model.palette, "")
+	tableRect := Rect{X: 2, Y: 3, Width: model.width - 4, Height: model.height - 6}
 	columns := model.columns(tableRect.Width)
+	rows := model.tableRows()
 	tableRegions := RenderTable(
 		&frame,
 		tableRect,
 		columns,
-		model.tableRows(),
+		rows,
 		model.cursor,
 		model.scroll,
 		model.palette,
@@ -47,12 +54,22 @@ func (model Model) RenderScreen() RenderedScreen {
 		statusText = model.err.Error()
 	}
 	statusLine := Rect{X: 1, Y: model.height - 2, Width: contentWidth, Height: 1}
-	frame.PutText(statusLine.X, statusLine.Y, Truncate(statusText, statusLine.Width), model.palette.Warning)
-	hints := Rect{X: 1, Y: model.height - 1, Width: contentWidth, Height: 1}
+	hintsText := model.actionHints()
+	hints := Rect{X: 1, Y: model.height - 2, Width: contentWidth, Height: 1}
 	frame.PutText(
 		hints.X,
 		hints.Y,
-		Truncate("g Group  d Detail  enter Drill  esc Back  s Sort  v Reverse  ? Help  q Quit", hints.Width),
+		Truncate(hintsText, hints.Width),
+		model.palette.Muted,
+	)
+	if statusText != "" {
+		frame.PutText(statusLine.X, statusLine.Y, Truncate(statusText, statusLine.Width), model.palette.Warning)
+	}
+	footer := Rect{X: 1, Y: model.height - 1, Width: contentWidth, Height: 1}
+	frame.PutText(
+		footer.X,
+		footer.Y,
+		Truncate("g Group By  d Detail  s Sort  v ↕ Reverse  f Filters  ? Help  / Search  q Quit", footer.Width),
 		model.palette.Muted,
 	)
 
@@ -65,9 +82,72 @@ func (model Model) RenderScreen() RenderedScreen {
 		regions = append(regions, NamedRegion{Name: "status", Rect: statusLine})
 	}
 	regions = append(regions, NamedRegion{Name: "hints", Rect: hints})
-	screen := RenderedScreen{Frame: frame, Regions: regions, Columns: ColumnStarts(columns)}
+	visibleRows := model.visibleTableRows(rows)
+	visibleIDs := make([]string, len(visibleRows))
+	flags := make([]string, len(visibleRows))
+	for index, row := range visibleRows {
+		visibleIDs[index] = row.Identity
+		flags[index] = row.Values["flags"]
+	}
+	selectionIDs := make([]string, 0, len(model.session.SelectedTransactionIDs)+len(model.session.SelectedAggregateKeys))
+	for id := range model.session.SelectedTransactionIDs {
+		selectionIDs = append(selectionIDs, id)
+	}
+	for id := range model.session.SelectedAggregateKeys {
+		selectionIDs = append(selectionIDs, id)
+	}
+	sort.Strings(selectionIDs)
+	screen := RenderedScreen{
+		Frame: frame, Regions: regions, Columns: ColumnStarts(columns), VisibleRowIDs: visibleIDs,
+		Breadcrumb: breadcrumbText, Stats: statsText, Flags: flags, SelectionIDs: selectionIDs, Hints: hintsText,
+	}
 	model.renderOverlay(&screen)
 	return screen
+}
+
+func (model Model) visibleTableRows(rows []TableRow) []TableRow {
+	if model.scroll >= len(rows) {
+		return []TableRow{}
+	}
+	end := min(len(rows), model.scroll+model.visibleRows())
+	return rows[model.scroll:end]
+}
+
+func (model Model) displayBreadcrumb() string {
+	if model.session.Mode == domain.ResultModeDetail && len(model.session.Drilldowns) == 0 && model.session.SubGrouping == nil {
+		return "All Transactions"
+	}
+	breadcrumb := model.session.Breadcrumb(model.result.DateRange)
+	if model.session.Search != "" {
+		breadcrumb += " > Search: '" + model.session.Search + "'"
+	}
+	return breadcrumb
+}
+
+func (model Model) actionHints() string {
+	sortName := string(model.session.Sort.Field)
+	if sortName != "" {
+		sortName = strings.ToUpper(sortName[:1]) + sortName[1:]
+	}
+	if model.session.Dimension == domain.DimensionTime && model.session.Mode == domain.ResultModeAggregate &&
+		model.session.SubGrouping == nil {
+		toggle := "By Year"
+		switch model.session.TimeGranularity {
+		case domain.TimeGranularityYear:
+			toggle = "By Month"
+		case domain.TimeGranularityMonth:
+			toggle = "By Day"
+		}
+		return "Enter=Drill | t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
+	}
+	if model.session.Mode == domain.ResultModeDetail {
+		back := "Group"
+		if len(model.session.Drilldowns) > 0 || model.session.SubGrouping != nil {
+			back = "Back"
+		}
+		return "Esc/g=" + back + " | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+	}
+	return "Enter=Drill | Space=Select | m=✏️ Merchant (bulk) | c=✏️ Category (bulk) | s=Sort(" + sortName + ") | g=Group"
 }
 
 func (model Model) renderOverlay(screen *RenderedScreen) {
@@ -100,6 +180,14 @@ func (model Model) renderSearchOverlay(screen *RenderedScreen) {
 		NamedRegion{Name: "search_input", Rect: input},
 		NamedRegion{Name: "search_actions", Rect: actions},
 	)
+	title := semanticOverlayTitle(screen, 60, 12, "🔍 Search Transactions", model.palette.Heading)
+	screen.Regions = append(screen.Regions, NamedRegion{Name: "search_semantic", Rect: title})
+	screen.Overlay = []string{
+		"🔍 Search Transactions",
+		"Type to search merchant or category names",
+		"Press Enter with empty search to clear filter",
+		model.search.input.Value(),
+	}
 }
 
 func (model Model) renderFilterOverlay(screen *RenderedScreen) {
@@ -128,6 +216,16 @@ func (model Model) renderFilterOverlay(screen *RenderedScreen) {
 		NamedRegion{Name: "filter_focus", Rect: Rect{X: x, Y: rect.Y + 2, Width: width, Height: 8}},
 		NamedRegion{Name: "filter_actions", Rect: actions},
 	)
+	title := semanticOverlayTitle(screen, 40, 18, "🔍 Filter Options", model.palette.Heading)
+	screen.Regions = append(screen.Regions, NamedRegion{Name: "filter_semantic", Rect: title})
+	screen.Overlay = []string{
+		"🔍 Filter Options",
+		"h=Toggle hidden | t=Toggle transfers | Enter=Apply | Esc=Cancel",
+		"show_hidden=" + strconv.FormatBool(model.filters.showHidden),
+		"show_transfers=" + strconv.FormatBool(model.filters.showTransfers),
+		"Apply (Enter)",
+		"Cancel (Esc)",
+	}
 }
 
 func (model Model) renderHelpOverlay(screen *RenderedScreen) {
@@ -151,6 +249,21 @@ func (model Model) renderHelpOverlay(screen *RenderedScreen) {
 		NamedRegion{Name: "help_content", Rect: content},
 		NamedRegion{Name: "help_actions", Rect: actions},
 	)
+	title := semanticOverlayTitle(screen, 74, 37, "moneyflow - Help", model.palette.Heading)
+	screen.Regions = append(screen.Regions, NamedRegion{Name: "help_semantic", Rect: title})
+	screen.Overlay = append(append([]string{}, helpLines(model.bindings)...), "Esc=Close", "Close")
+}
+
+func semanticOverlayTitle(screen *RenderedScreen, width int, height int, value string, style Style) Rect {
+	rect := centeredRect(screen.Frame.Width(), screen.Frame.Height(), width, height)
+	title := Rect{X: rect.X, Y: rect.Y, Width: rect.Width, Height: min(1, rect.Height)}
+	if title.Height > 0 {
+		fillRect(&screen.Frame, title, style)
+		value = Truncate(value, title.Width)
+		x := title.X + max(0, (title.Width-lipgloss.Width(value))/2)
+		screen.Frame.PutText(x, title.Y, value, style)
+	}
+	return title
 }
 
 func centeredRect(width int, height int, rectWidth int, rectHeight int) Rect {
@@ -228,7 +341,32 @@ func (model Model) renderResize(frame Frame) RenderedScreen {
 
 func (model Model) columns(width int) []Column {
 	if model.result.DetailRows != nil {
-		return DetailColumns(width, model.session.Sort)
+		columns := DetailColumns(width, model.session.Sort)
+		// Textual shrinks the first active merchant/category/account drill column.
+		for _, drilldown := range model.session.Drilldowns {
+			var key string
+			switch drilldown.Dimension {
+			case domain.DimensionMerchant:
+				key = "merchant"
+			case domain.DimensionCategory:
+				key = "category"
+			case domain.DimensionAccount:
+				key = "account"
+			default:
+				continue
+			}
+			for index := range columns {
+				if columns[index].Key == key {
+					widths := make([]int, len(columns))
+					for widthIndex := range columns {
+						widths[widthIndex] = columns[widthIndex].Width
+					}
+					widths[index] = min(30, len([]rune(drilldown.Label))+2)
+					return placeColumns(width, columns, widths)
+				}
+			}
+		}
+		return columns
 	}
 	dimension := model.session.Dimension
 	if model.session.SubGrouping != nil {

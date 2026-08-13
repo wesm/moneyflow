@@ -27,25 +27,31 @@ func AggregateColumns(width int, dimension domain.Dimension, sortSpec domain.Sor
 	nameKey, nameLabel := dimensionColumn(dimension)
 	columns := []Column{
 		{Key: nameKey, Label: withArrow(nameLabel, sortFieldForDimension(dimension), sortSpec)},
-		{Key: "count", Label: withArrow("Count", domain.SortFieldCount, sortSpec), Align: AlignRight},
+		{Key: "count", Label: withArrow("Count", domain.SortFieldCount, sortSpec)},
 		{Key: "total", Label: withArrow("Total ($)", domain.SortFieldAmount, sortSpec), Align: AlignRight},
-		{Key: "pct", Label: "%", Align: AlignRight},
+		{Key: "pct", Label: "%"},
+	}
+	nameWidth := 40
+	switch dimension {
+	case domain.DimensionMerchant:
+		nameWidth = 20
+	case domain.DimensionAccount:
+		nameWidth = 22
+	case domain.DimensionTime:
+		nameWidth = 15
+	}
+	totalWidth := 11
+	if dimension == domain.DimensionTime && sortSpec.Field != domain.SortFieldAmount {
+		totalWidth = 9
 	}
 	var widths []int
 	if dimension == domain.DimensionMerchant {
 		columns = append(columns, Column{Key: "top_category", Label: "Top Category"})
 		columns = append(columns, Column{Key: "flags"})
-		if width >= 120 {
-			widths = []int{width - 73, 10, 14, 7, 35, 2}
-		} else {
-			widths = []int{width - 55, 8, 13, 6, 21, 2}
-		}
+		widths = fitPythonWidths(width, []int{nameWidth, 10, totalWidth, 6, 35, 2}, []int{0, 4})
 	} else {
 		columns = append(columns, Column{Key: "flags"})
-		widths = []int{width - 39, 10, 14, 6, 5}
-		if width < 80 {
-			widths = []int{width - 31, 8, 13, 5, 1}
-		}
+		widths = fitPythonWidths(width, []int{nameWidth, 10, totalWidth, 6, 2}, []int{0})
 	}
 	return placeColumns(width, columns, widths)
 }
@@ -60,17 +66,7 @@ func DetailColumns(width int, sortSpec domain.SortSpec) []Column {
 		{Key: "amount", Label: withArrow("Amount ($)", domain.SortFieldAmount, sortSpec), Align: AlignRight},
 		{Key: "flags"},
 	}
-	widths := []int{12, 20, 21, 22, 14, 3}
-	if width < 98 {
-		flexible := width - 34
-		if flexible < 0 {
-			flexible = 0
-		}
-		merchant := flexible / 3
-		category := flexible / 3
-		account := flexible - merchant - category
-		widths = []int{12, merchant, category, account, 14, 3}
-	}
+	widths := fitPythonWidths(width, []int{12, 20, 21, 22, 14, 3}, []int{1, 2, 3})
 	return placeColumns(width, columns, widths)
 }
 
@@ -87,7 +83,7 @@ func placeColumns(totalWidth int, columns []Column, widths []int) []Column {
 	if totalWidth < 0 {
 		totalWidth = 0
 	}
-	start := 0
+	start := 1
 	for index := range columns {
 		if start > totalWidth {
 			start = totalWidth
@@ -103,10 +99,32 @@ func placeColumns(totalWidth int, columns []Column, widths []int) []Column {
 		columns[index].Width = columnWidth
 		start += columnWidth
 		if index != len(columns)-1 && start < totalWidth {
-			start++
+			start += min(2, totalWidth-start)
 		}
 	}
 	return columns
+}
+
+func fitPythonWidths(totalWidth int, widths []int, flexible []int) []int {
+	result := append([]int(nil), widths...)
+	required := 1 + 2*(len(result)-1)
+	for _, width := range result {
+		required += width
+	}
+	for required > totalWidth {
+		changed := false
+		for _, index := range flexible {
+			if result[index] > 1 && required > totalWidth {
+				result[index]--
+				required--
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return result
 }
 
 func dimensionColumn(dimension domain.Dimension) (string, string) {

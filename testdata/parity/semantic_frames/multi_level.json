@@ -1,0 +1,99 @@
+{
+  "breadcrumb": "M: Example Grocer > C: Groceries",
+  "columns": [
+    1,
+    15,
+    33,
+    56,
+    80,
+    96
+  ],
+  "flags": [
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "height": 50,
+  "hints": "Esc/g=Back | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "multi_level",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "M: Example Grocer > C: Groceries"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 100
+    },
+    {
+      "height": 1,
+      "lines": [
+        "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 101,
+        "y": 1
+      },
+      "width": 48
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Date \u2193        Merchant          Category               Account                     Amount ($)"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 5,
+      "lines": [
+        " 2025-07-04    Example Grocer    Groceries              Everyday Card                   -42.42",
+        " 2025-01-15    Example Grocer    Groceries              Everyday Card                   -75.00",
+        " 2024-05-31    Example Grocer    Groceries              Everyday Card                   -45.00",
+        " 2024-01-10    Example Grocer    Groceries              Everyday Card                   -60.00",
+        " 2023-01-05    Example Grocer    Groceries              Everyday Card                   -54.20"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Esc/g=Back | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62",
+  "visible_row_ids": [
+    "txn-029",
+    "txn-021",
+    "txn-016",
+    "txn-009",
+    "txn-001"
+  ],
+  "width": 150
+}

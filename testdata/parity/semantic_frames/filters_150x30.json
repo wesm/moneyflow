@@ -1,0 +1,66 @@
+{
+  "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)",
+  "columns": [
+    1,
+    23,
+    35,
+    48,
+    56,
+    93
+  ],
+  "flags": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "height": 30,
+  "hints": "Enter=Drill | Space=Select | m=\u270f\ufe0f Merchant (bulk) | c=\u270f\ufe0f Category (bulk) | s=Sort(Amount) | g=Group",
+  "name": "filters_150x30",
+  "overlay": [
+    "\ud83d\udd0d Filter Options",
+    "h=Toggle hidden | t=Toggle transfers | Enter=Apply | Esc=Cancel",
+    "show_hidden=true",
+    "show_transfers=false",
+    "Apply (Enter)",
+    "Cancel (Esc)"
+  ],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "           \ud83d\udd0d Filter Options"
+      ],
+      "name": "overlay",
+      "origin": {
+        "x": 55,
+        "y": 6
+      },
+      "width": 40
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
+  "visible_row_ids": [
+    "merchant-rent",
+    "merchant-grocer",
+    "merchant-utility",
+    "merchant-cafe",
+    "merchant-transit",
+    "merchant-books",
+    "merchant-pharmacy",
+    "merchant-uncategorized",
+    "merchant-interest",
+    "merchant-refund",
+    "merchant-payroll"
+  ],
+  "width": 150
+}
