@@ -52,7 +52,7 @@ fmt:
 	gofmt -w cmd internal
 
 tui-demo: build
-	$(BINARY) demo --fixture testdata/parity/transactions.json
+	$(BINARY) demo
 
 clean:
 	rm -rf bin coverage.out .cache/golangci-lint

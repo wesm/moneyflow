@@ -171,6 +171,9 @@ func (query QuerySpec) Validate() error {
 	if err := validateDrilldowns(query.Drilldowns); err != nil {
 		return err
 	}
+	if query.GroupBy != "" && !query.GroupBy.Valid() {
+		return errors.New("validate query: invalid dimension")
+	}
 	if query.Mode == ResultModeAggregate {
 		if !query.GroupBy.Valid() {
 			return errors.New("validate query: invalid aggregate dimension")
@@ -270,7 +273,7 @@ func validateDrilldowns(drilldowns []Drilldown) error {
 		}
 		seen[drilldown.Dimension] = struct{}{}
 		if drilldown.Dimension == DimensionTime {
-			if drilldown.Period == nil {
+			if drilldown.Period == nil || drilldown.Key != "" || drilldown.Label != "" {
 				return errors.New("validate query: time drill-down requires a period")
 			}
 			if err := drilldown.Period.Validate(); err != nil {
@@ -330,7 +333,12 @@ func validDetailSort(field SortField) bool {
 	}
 }
 
-func marshalEnum(value string) ([]byte, error) { return json.Marshal(value) }
+func marshalEnum(value string, valid func(string) bool) ([]byte, error) {
+	if !valid(value) {
+		return nil, fmt.Errorf("encode enum: unknown value %q", value)
+	}
+	return json.Marshal(value)
+}
 
 func unmarshalEnum(data []byte, destination *string, valid func(string) bool) error {
 	var value string
@@ -345,7 +353,9 @@ func unmarshalEnum(data []byte, destination *string, valid func(string) bool) er
 }
 
 // MarshalJSON encodes Dimension as a string.
-func (dimension Dimension) MarshalJSON() ([]byte, error) { return marshalEnum(string(dimension)) }
+func (dimension Dimension) MarshalJSON() ([]byte, error) {
+	return marshalEnum(string(dimension), func(value string) bool { return Dimension(value).Valid() })
+}
 
 // UnmarshalJSON decodes and validates a Dimension.
 func (dimension *Dimension) UnmarshalJSON(data []byte) error {
@@ -353,7 +363,9 @@ func (dimension *Dimension) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON encodes ResultMode as a string.
-func (mode ResultMode) MarshalJSON() ([]byte, error) { return marshalEnum(string(mode)) }
+func (mode ResultMode) MarshalJSON() ([]byte, error) {
+	return marshalEnum(string(mode), func(value string) bool { return ResultMode(value).Valid() })
+}
 
 // UnmarshalJSON decodes and validates a ResultMode.
 func (mode *ResultMode) UnmarshalJSON(data []byte) error {
@@ -362,7 +374,7 @@ func (mode *ResultMode) UnmarshalJSON(data []byte) error {
 
 // MarshalJSON encodes TimeGranularity as a string.
 func (granularity TimeGranularity) MarshalJSON() ([]byte, error) {
-	return marshalEnum(string(granularity))
+	return marshalEnum(string(granularity), func(value string) bool { return TimeGranularity(value).Valid() })
 }
 
 // UnmarshalJSON decodes and validates a TimeGranularity.
@@ -371,7 +383,9 @@ func (granularity *TimeGranularity) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON encodes SortField as a string.
-func (field SortField) MarshalJSON() ([]byte, error) { return marshalEnum(string(field)) }
+func (field SortField) MarshalJSON() ([]byte, error) {
+	return marshalEnum(string(field), func(value string) bool { return SortField(value).Valid() })
+}
 
 // UnmarshalJSON decodes and validates a SortField.
 func (field *SortField) UnmarshalJSON(data []byte) error {
@@ -379,7 +393,9 @@ func (field *SortField) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON encodes SortDirection as a string.
-func (direction SortDirection) MarshalJSON() ([]byte, error) { return marshalEnum(string(direction)) }
+func (direction SortDirection) MarshalJSON() ([]byte, error) {
+	return marshalEnum(string(direction), func(value string) bool { return SortDirection(value).Valid() })
+}
 
 // UnmarshalJSON decodes and validates a SortDirection.
 func (direction *SortDirection) UnmarshalJSON(data []byte) error {

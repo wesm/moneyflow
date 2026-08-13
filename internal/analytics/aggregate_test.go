@@ -99,6 +99,24 @@ func TestAggregateSeparatesEntitiesWithTheSameDisplayLabel(t *testing.T) {
 	assert.ElementsMatch(t, []string{first.Merchant.ID, second.Merchant.ID}, []string{rows[0].Key, rows[1].Key})
 }
 
+func TestAggregateChoosesDeterministicLabelForStableEntityID(t *testing.T) {
+	t.Parallel()
+
+	alpha := testTransaction(t, "alpha", "2024-01-01", "-1.00", "Alpha Store", "Dining", "Living")
+	zulu := alpha.Clone()
+	zulu.ID = "zulu"
+	zulu.Merchant.Name = "Zulu Store"
+
+	forward, err := Aggregate([]domain.Transaction{zulu, alpha}, domain.DimensionMerchant, domain.TimeGranularityYear)
+	require.NoError(t, err)
+	reverse, err := Aggregate([]domain.Transaction{alpha, zulu}, domain.DimensionMerchant, domain.TimeGranularityYear)
+	require.NoError(t, err)
+	require.Len(t, forward, 1)
+	require.Len(t, reverse, 1)
+	assert.Equal(t, "Alpha Store", forward[0].Label)
+	assert.Equal(t, forward, reverse)
+}
+
 func TestAggregatePropagatesOverflow(t *testing.T) {
 	t.Parallel()
 

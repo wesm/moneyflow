@@ -61,3 +61,16 @@ func TestSortAggregateRowsUsesDeterministicPartitionAndLabelTies(t *testing.T) {
 	sorted := SortAggregateRows(rows, domain.SortSpec{Field: domain.SortFieldCount, Direction: domain.SortDirectionDesc})
 	assert.Equal(t, []string{"eur", "scale", "usd"}, []string{sorted[0].Key, sorted[1].Key, sorted[2].Key})
 }
+
+func TestSortAggregateAmountComparesDisplayedValuesAcrossScales(t *testing.T) {
+	t.Parallel()
+
+	rows := []domain.AggregateRow{
+		{Key: "usd", Label: "USD", Total: domain.Money{Minor: -1000, Currency: "USD", Scale: 2}},
+		{Key: "jpy", Label: "JPY", Total: domain.Money{Minor: -300, Currency: "JPY", Scale: 0}},
+	}
+	sorted := SortAggregateRows(rows, domain.SortSpec{
+		Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc,
+	})
+	assert.Equal(t, []string{"jpy", "usd"}, []string{sorted[0].Key, sorted[1].Key})
+}

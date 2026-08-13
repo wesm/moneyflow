@@ -84,9 +84,9 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "2023",
-    "2024",
-    "2025"
+    "time:4:2023:2:USD",
+    "time:4:2024:2:USD",
+    "time:4:2025:2:USD"
   ],
   "width": 150
 }

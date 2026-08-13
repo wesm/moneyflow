@@ -103,20 +103,23 @@ func applyStep(
 		require.True(t, ok)
 		return &position
 	case "navigate_period":
-		require.True(t, session.NavigatePeriod(step.Delta))
+		require.NotNil(t, step.Delta)
+		require.True(t, session.NavigatePeriod(*step.Delta))
 	case "clear_time_period":
 		require.True(t, session.ClearTimePeriod())
 	case "cycle_subgroup":
 		session.CycleSubGrouping()
 	case "set_search":
-		session.SetSearch(step.Search)
+		require.NotNil(t, step.Search)
+		session.SetSearch(*step.Search)
 	case "set_filters":
 		require.NoError(t, session.SetFilters(*step.Filters))
 	case "toggle_selection":
 		if step.Target.Kind == "transaction" {
 			session.ToggleTransactionSelection(step.Target.Key)
 		} else {
-			session.ToggleAggregateSelection(step.Target.Key)
+			row := resolveAggregateRow(t, result, *step.Target)
+			session.ToggleAggregateSelection(app.AggregateIdentity(row))
 		}
 	case "select_all":
 		session.ToggleSelectAll(result)
@@ -128,10 +131,18 @@ func applyStep(
 
 func resolveAggregateRow(t testing.TB, result domain.QueryResult, target parity.RowIdentity) domain.AggregateRow {
 	t.Helper()
+	matches := make([]domain.AggregateRow, 0, 1)
 	for _, row := range result.AggregateRows {
-		if row.Key == target.Key && row.Dimension == target.Dimension {
-			return row
+		if row.Key == target.Key && row.Dimension == target.Dimension &&
+			(target.Currency == "" || row.Total.Currency == target.Currency && row.Total.Scale == target.Scale) {
+			matches = append(matches, row)
 		}
+	}
+	if len(matches) == 1 {
+		return matches[0]
+	}
+	if len(matches) > 1 {
+		t.Fatalf("aggregate target is ambiguous without a money partition: %s %s", target.Dimension, target.Key)
 	}
 	t.Fatalf("aggregate target not visible: %s %s", target.Dimension, target.Key)
 	return domain.AggregateRow{}
@@ -166,7 +177,7 @@ func resultIDs(result domain.QueryResult) []string {
 	}
 	ids := make([]string, len(result.AggregateRows))
 	for index, row := range result.AggregateRows {
-		ids[index] = row.Key
+		ids[index] = app.AggregateIdentity(row)
 	}
 	return ids
 }

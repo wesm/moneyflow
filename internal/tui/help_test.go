@@ -3,6 +3,7 @@ package tui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,6 +28,23 @@ func TestHelpBindingsAreUniqueAndRouted(t *testing.T) {
 	assert.Equal(t, actionSearch, seen["/"])
 	assert.Equal(t, actionFilters, seen["f"])
 	assert.Equal(t, actionHelp, seen["?"])
+}
+
+func TestHelpScrollClampsAndEnterCloses(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model.width, model.height = 80, 24
+	model = press(t, model, keyRune('?'))
+	for range 100 {
+		model = press(t, model, keyRune('j'))
+	}
+	assert.Equal(t, model.helpMaxScroll(), model.help.scroll)
+
+	model = pressMessage(t, model, tea.WindowSizeMsg{Width: 150, Height: 50})
+	assert.LessOrEqual(t, model.help.scroll, model.helpMaxScroll())
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, overlayNone, model.overlay)
 }
 
 func TestHelpMatchesCorrectedPythonContent(t *testing.T) {

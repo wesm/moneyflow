@@ -59,6 +59,41 @@ func TestSessionTopLevelTransitions(t *testing.T) {
 	assert.Empty(t, session.Drilldowns)
 }
 
+func TestCycleGroupingFromAllDetailRestoresAndConsumesParent(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	session.Dimension = domain.DimensionCategory
+	session.ShowAllDetail()
+	session.CycleGrouping()
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode)
+	assert.Equal(t, domain.DimensionCategory, session.Dimension)
+	_, ok := session.Back()
+	assert.False(t, ok)
+}
+
+func TestSearchAnchorSurvivesNavigationSnapshot(t *testing.T) {
+	t.Parallel()
+
+	session := NewSession()
+	session.SetSearch("original")
+	require.NoError(t, session.Drill(domain.AggregateRow{
+		Dimension: domain.DimensionMerchant,
+		Key:       "merchant-1",
+		Label:     "Example Merchant",
+	}, ViewPosition{}))
+	session.SetSearch("nested")
+	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Empty(t, session.Search)
+	_, ok = session.Back()
+	require.True(t, ok)
+	assert.Equal(t, "original", session.Search)
+	_, ok = session.Back()
+	require.True(t, ok)
+	assert.Empty(t, session.Search)
+}
+
 func TestSessionTopLevelGroupingCarriesNameSort(t *testing.T) {
 	t.Parallel()
 
@@ -216,7 +251,10 @@ func TestSessionSelectAllVisibleOnly(t *testing.T) {
 	session := NewSession()
 	aggregate := domain.QueryResult{AggregateRows: []domain.AggregateRow{{Key: "a"}, {Key: "b"}}}
 	session.ToggleSelectAll(aggregate)
-	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, session.SelectedAggregateKeys)
+	assert.Equal(t, map[string]struct{}{
+		AggregateIdentity(aggregate.AggregateRows[0]): {},
+		AggregateIdentity(aggregate.AggregateRows[1]): {},
+	}, session.SelectedAggregateKeys)
 	session.SelectedAggregateKeys["not-visible"] = struct{}{}
 	session.ToggleSelectAll(aggregate)
 	assert.Equal(t, map[string]struct{}{"not-visible": {}}, session.SelectedAggregateKeys)

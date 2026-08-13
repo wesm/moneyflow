@@ -143,7 +143,8 @@ provider, or storage boundary and rejects values that cannot be represented
 exactly at the declared scale.
 
 Addition requires matching currency and scale. Analytics partitions results by
-currency instead of silently adding unlike currencies. The initial parity corpus
+the complete `(currency, scale)` pair instead of silently adding unlike money
+representations. The initial parity corpus
 uses USD at scale two, matching the current two-decimal TUI contract.
 
 Exact integer arithmetic is canonical when it differs from the Python pipeline's
@@ -201,9 +202,19 @@ This keeps ownership and invalidation simple. Lowercase searchable text may be
 precomputed at load time, but indexes and incremental aggregate caches require
 benchmark evidence before they are added.
 
-Every sort has a final deterministic key, such as transaction ID or dimension
-name. This is required for reproducible tests and stable cursor behavior when two
-rows have equal primary values.
+Every sort has a final deterministic key, such as transaction ID or the composite
+aggregate identity `(dimension, key, currency, scale)`. This is required for
+reproducible tests and stable cursor behavior when two rows have equal primary
+values. When transactions with the same stable entity ID disagree on a display
+label, aggregation chooses the lexicographically smallest label so input order
+cannot change the visible result.
+
+Hidden-row behavior is mode-specific. Detail mode retains hidden rows regardless
+of the aggregate visibility toggle. Aggregate mode removes them when the toggle
+is off; when it is on, they contribute to row and statistics counts but never to
+totals, In/Out/Net, shares, or merchant top-category activity. Time aggregation
+fills every calendar period from the observed minimum through maximum separately
+for every observed `(currency, scale)` partition.
 
 ## Application Service and Session
 
@@ -263,9 +274,12 @@ or expected value may contain personal financial information.
    resolved colors, and text attributes.
 
 Python characterization tests adapt the shared fixture into the existing Polars
-pipeline. Go tests load the same source. Expected results are committed artifacts,
-not generated and accepted during an ordinary test run. A deliberate regeneration
-command may update them, but review must show the artifact diff.
+pipeline. Go tests load the same source. Both the Python extractor and Go semantic
+projection execute every committed frame scenario and compare against the same
+semantic artifacts; the Go renderer is not allowed to substitute its own semantic
+baseline. Expected results are committed artifacts, not generated and accepted
+during an ordinary test run. A deliberate regeneration command may update them,
+but review must show the artifact diff.
 
 ## TUI Parity Contract
 
@@ -385,7 +399,7 @@ This slice is complete when fresh evidence shows all of the following:
 - Python and Go pass the same logical parity corpus
 - application-session key scenarios pass without a terminal
 - Bubble Tea interaction scenarios pass
-- Python-derived semantic frames match their approved artifacts
+- Python-derived semantic frames and Go semantic projections match the same approved artifacts
 - Go visual cell grids match their separately approved artifacts
 - adaptive-layout checks pass at noncanonical sizes
 - the 100,000-transaction performance contract is met

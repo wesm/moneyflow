@@ -54,3 +54,15 @@ func TestDecorateDetailRowsCopiesFlagsAndMetadata(t *testing.T) {
 	decorated[0].Transaction.Metadata["source"] = "changed"
 	assert.Equal(t, "test", rows[0].Transaction.Metadata["source"])
 }
+
+func TestDetailAmountSortComparesDisplayedValuesAcrossScales(t *testing.T) {
+	t.Parallel()
+
+	usd := testTransaction(t, "usd", "2024-01-01", "-10.00", "USD", "Dining", "Living")
+	jpy := testTransaction(t, "jpy", "2024-01-01", "-3.00", "JPY", "Dining", "Living")
+	jpy.Amount = domain.Money{Minor: -300, Currency: "JPY", Scale: 0}
+	rows := DetailRows([]domain.Transaction{usd, jpy}, domain.SortSpec{
+		Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc,
+	})
+	assert.Equal(t, []string{"jpy", "usd"}, detailIDs(rows))
+}

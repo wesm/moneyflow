@@ -20,18 +20,18 @@ the median sample's values.
 
 | Query | Median | Bytes/op | Allocs/op |
 | --- | ---: | ---: | ---: |
-| Full detail | 74.21 ms | 50,742,000 | 2,008 |
-| Search | 75.99 ms | 25,027,640 | 43 |
-| Merchant | 52.28 ms | 26,637,793 | 4,253 |
-| Category | 18.07 ms | 24,878,689 | 223 |
-| Group | 17.00 ms | 24,824,155 | 69 |
-| Account | 20.23 ms | 24,824,164 | 69 |
-| Time by month | 38.90 ms | 26,567,145 | 201,763 |
-| Two-level drill-down | 5.26 ms | 24,837,284 | 32 |
+| Full detail | 9.90 ms | 50,741,991 | 2,008 |
+| Search | 18.45 ms | 25,024,869 | 43 |
+| Merchant | 12.79 ms | 26,816,533 | 11,796 |
+| Category | 7.99 ms | 24,922,036 | 2,023 |
+| Group | 8.04 ms | 24,832,714 | 389 |
+| Account | 11.59 ms | 24,834,068 | 447 |
+| Time by month | 17.19 ms | 26,664,254 | 205,846 |
+| Two-level drill-down | 2.18 ms | 24,837,280 | 32 |
 
-Category, group, account, time, and drill-down queries meet the 50 ms reference target. Full detail,
-regular-expression search, and merchant aggregation miss that aspirational target, but all
-representative queries remain below the 500 ms interactive smoke-test budget. Detail sorting
-materializes 100,000 independent rows, search evaluates the configured regular expression against
-the complete corpus, and merchant aggregation also computes top-category activity. These costs are
-recorded for later profiling; this slice keeps the simple public query contracts intact.
+Every representative query meets the 50 ms reference target and remains comfortably below the
+500 ms interactive smoke-test budget. Detail sorting still materializes 100,000 independent rows,
+search evaluates the configured regular expression against the complete corpus, and merchant
+aggregation also computes top-category activity. Allocation counts for aggregate queries include
+exact cross-scale amount comparisons; they remain acceptable for this simple first slice and are
+recorded for later profiling rather than hidden behind a cache.

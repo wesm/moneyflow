@@ -43,25 +43,28 @@ func RenderTable(
 	palette Palette,
 	emptyText string,
 ) []NamedRegion {
-	rect = clipRect(rect, frame.width, frame.height)
-	header := Rect{X: rect.X, Y: rect.Y, Width: rect.Width, Height: 0}
-	body := Rect{X: rect.X, Y: rect.Y, Width: rect.Width, Height: 0}
-	if rect.Height == 0 || rect.Width == 0 {
-		return tableRegions(header, body)
+	logical := rect
+	if logical.Width < 0 {
+		logical.Width = 0
 	}
-	header.Height = 1
+	if logical.Height < 0 {
+		logical.Height = 0
+	}
+	header := Rect{X: logical.X, Y: logical.Y, Width: logical.Width, Height: min(1, logical.Height)}
+	body := Rect{X: logical.X, Y: logical.Y + header.Height, Width: logical.Width, Height: max(0, logical.Height-header.Height)}
+	if logical.Height == 0 || logical.Width == 0 {
+		return tableRegions(clipRect(header, frame.width, frame.height), clipRect(body, frame.width, frame.height))
+	}
 	for _, column := range columns {
-		writeColumn(frame, rect, rect.Y, column, column.Label, palette.Heading)
+		writeColumn(frame, logical, logical.Y, column, column.Label, palette.Heading)
 	}
-	body.Y++
-	body.Height = rect.Height - 1
 	if body.Height == 0 {
-		return tableRegions(header, body)
+		return tableRegions(clipRect(header, frame.width, frame.height), clipRect(body, frame.width, frame.height))
 	}
 	fillRect(frame, body, palette.Background)
 	if len(rows) == 0 {
 		frame.PutText(body.X, body.Y, Truncate(emptyText, body.Width), palette.Muted)
-		return tableRegions(header, body)
+		return tableRegions(clipRect(header, frame.width, frame.height), clipRect(body, frame.width, frame.height))
 	}
 	if cursor < 0 {
 		cursor = 0
@@ -96,7 +99,7 @@ func RenderTable(
 			writeColumn(frame, body, body.Y+visible, column, rows[rowIndex].Values[column.Key], style)
 		}
 	}
-	return tableRegions(header, body)
+	return tableRegions(clipRect(header, frame.width, frame.height), clipRect(body, frame.width, frame.height))
 }
 
 func tableRegions(header Rect, body Rect) []NamedRegion {

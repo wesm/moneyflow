@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -36,9 +37,131 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"load logical cases: cases[{index}] is invalid")
         if value["name"] in names:
             raise ValueError(f"load logical cases: cases[{index}].name is duplicate")
+        try:
+            _validate_case(value)
+        except ValueError as error:
+            raise ValueError(f"load logical cases: cases[{index}]: {error}") from error
         names.add(value["name"])
         cases.append(value)
     return cases
+
+
+def _validate_case(case: dict[str, Any]) -> None:
+    required = {
+        "name",
+        "mode",
+        "time_granularity",
+        "sort",
+        "show_hidden",
+        "show_transfers",
+    }
+    optional = {"group_by", "search", "date_range", "drilldowns"}
+    if not required <= case.keys() or not case.keys() <= required | optional:
+        raise ValueError("invalid fields")
+    if not isinstance(case["name"], str) or not case["name"]:
+        raise ValueError("name is required")
+    mode = case["mode"]
+    if mode not in {"detail", "aggregate"}:
+        raise ValueError("invalid mode")
+    granularities = {"year", "month", "day"}
+    if case["time_granularity"] not in granularities:
+        raise ValueError("invalid time granularity")
+    if type(case["show_hidden"]) is not bool or type(case["show_transfers"]) is not bool:
+        raise ValueError("filter flags must be booleans")
+
+    dimensions = {"merchant", "category", "group", "account", "time"}
+    group_by = case.get("group_by")
+    if mode == "aggregate" and group_by not in dimensions:
+        raise ValueError("aggregate mode requires group_by")
+    if mode == "detail" and group_by is not None:
+        raise ValueError("detail mode does not accept group_by")
+
+    sort = case["sort"]
+    if not isinstance(sort, dict) or sort.keys() != {"field", "direction"}:
+        raise ValueError("invalid sort")
+    if sort["direction"] not in {"asc", "desc"}:
+        raise ValueError("invalid sort direction")
+    if mode == "detail":
+        allowed_sorts = {"date", "amount", "merchant", "category", "account"}
+    else:
+        allowed_sorts = {"amount", "count", "time_period" if group_by == "time" else group_by}
+    if sort["field"] not in allowed_sorts:
+        raise ValueError("sort is incompatible with result shape")
+
+    search = case.get("search", "")
+    if not isinstance(search, str):
+        raise ValueError("search must be a string")
+    try:
+        re.compile(search)
+    except re.error as error:
+        raise ValueError("search is not a valid regular expression") from error
+
+    if "date_range" in case:
+        date_range = case["date_range"]
+        if not isinstance(date_range, dict) or date_range.keys() != {"start", "end"}:
+            raise ValueError("invalid date_range")
+        start = _canonical_date(date_range["start"])
+        end = _canonical_date(date_range["end"])
+        if start > end:
+            raise ValueError("date_range starts after it ends")
+
+    drilldowns = case.get("drilldowns", [])
+    if not isinstance(drilldowns, list):
+        raise ValueError("drilldowns must be a list")
+    seen: set[str] = set()
+    for drilldown in drilldowns:
+        if not isinstance(drilldown, dict) or drilldown.get("dimension") not in dimensions:
+            raise ValueError("invalid drilldown")
+        dimension = drilldown["dimension"]
+        if dimension in seen:
+            raise ValueError("duplicate drilldown dimension")
+        seen.add(dimension)
+        if dimension == "time":
+            if drilldown.keys() != {"dimension", "period"}:
+                raise ValueError("time drilldown requires only a period")
+            _validate_period(drilldown["period"])
+        elif drilldown.keys() != {"dimension", "key", "label"} or not all(
+            isinstance(drilldown[field], str) and drilldown[field] for field in ("key", "label")
+        ):
+            raise ValueError("invalid non-time drilldown")
+
+
+def _canonical_date(value: Any) -> date:
+    if not isinstance(value, str):
+        raise ValueError("date must be YYYY-MM-DD")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError("date must be YYYY-MM-DD") from error
+    if parsed.isoformat() != value:
+        raise ValueError("date must be canonical YYYY-MM-DD")
+    return parsed
+
+
+def _validate_period(value: Any) -> None:
+    if not isinstance(value, dict) or "granularity" not in value or "year" not in value:
+        raise ValueError("invalid time period")
+    granularity = value["granularity"]
+    expected = {
+        "year": {"granularity", "year"},
+        "month": {"granularity", "year", "month"},
+        "day": {"granularity", "year", "month", "day"},
+    }
+    if granularity not in expected or value.keys() != expected[granularity]:
+        raise ValueError("invalid time period")
+    if type(value["year"]) is not int or not 1 <= value["year"] <= 9999:
+        raise ValueError("invalid time period")
+    if granularity in {"month", "day"} and (
+        type(value["month"]) is not int or not 1 <= value["month"] <= 12
+    ):
+        raise ValueError("invalid time period")
+    if granularity == "day":
+        if type(value["day"]) is not int:
+            raise ValueError("invalid time period")
+        try:
+            date(value["year"], value["month"], value["day"])
+        except ValueError as error:
+            raise ValueError("invalid time period") from error
 
 
 def generate_expectations(

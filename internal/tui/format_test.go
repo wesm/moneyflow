@@ -62,4 +62,6 @@ func TestTruncateUsesDisplayWidth(t *testing.T) {
 	assert.Equal(t, "Example…", Truncate("Example Grocer", 8))
 	assert.Equal(t, "界…", Truncate("界界界", 3))
 	assert.Equal(t, "", Truncate("anything", 0))
+	assert.Equal(t, "🏳️‍🌈…", Truncate("🏳️‍🌈 flag", 3))
+	assert.Equal(t, "🇺🇸…", Truncate("🇺🇸 flag", 3))
 }

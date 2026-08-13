@@ -1,6 +1,7 @@
 package parity
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -56,4 +57,34 @@ func TestDecodeInteractionDocumentRequiresDeterministicTargets(t *testing.T) {
 	}`
 	_, err := DecodeInteractionDocument(strings.NewReader(input))
 	assert.ErrorContains(t, err, "target")
+}
+
+func TestDecodeInteractionDocumentValidatesOperationArguments(t *testing.T) {
+	t.Parallel()
+
+	base := `{
+		"schema_version":1,
+		"scenarios":[{
+			"name":"arguments",
+			"initial":{"mode":"aggregate","dimension":"merchant","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false,"drilldowns":[],"selected_transaction_ids":[],"selected_aggregate_keys":[],"result_ids":[],"breadcrumb":"Merchants"},
+			"steps":[{%s,"expected":{"mode":"aggregate","dimension":"merchant","time_granularity":"year","sort":{"field":"amount","direction":"desc"},"show_hidden":true,"show_transfers":false,"drilldowns":[],"selected_transaction_ids":[],"selected_aggregate_keys":[],"result_ids":[],"breadcrumb":"Merchants"}}]
+		}]
+	}`
+	for name, step := range map[string]string{
+		"filters required":    `"operation":"set_filters"`,
+		"search required":     `"operation":"set_search"`,
+		"delta required":      `"operation":"navigate_period"`,
+		"drill aggregate":     `"operation":"drill","target":{"kind":"transaction","dimension":"merchant","key":"merchant-1"},"position":{"cursor":0,"scroll":0}`,
+		"unexpected target":   `"operation":"cycle_grouping","target":{"kind":"aggregate","dimension":"merchant","key":"merchant-1"}`,
+		"unexpected filters":  `"operation":"cycle_grouping","filters":{"show_hidden":true,"show_transfers":false}`,
+		"unexpected search":   `"operation":"cycle_grouping","search":"x"`,
+		"unexpected delta":    `"operation":"cycle_grouping","delta":1`,
+		"unexpected position": `"operation":"cycle_grouping","position":{"cursor":0,"scroll":0}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := DecodeInteractionDocument(strings.NewReader(fmt.Sprintf(base, step)))
+			assert.Error(t, err)
+		})
+	}
 }

@@ -31,9 +31,11 @@ const (
 )
 
 type searchState struct {
-	input    textinput.Model
-	original string
-	err      string
+	input           textinput.Model
+	originalSession app.Session
+	originalCursor  int
+	originalScroll  int
+	err             string
 }
 
 // Model owns terminal-only state around a renderer-neutral application session.
@@ -134,7 +136,7 @@ func (model *Model) rowIdentity(index int) string {
 	if model.result.DetailRows != nil {
 		return model.result.DetailRows[index].Transaction.ID
 	}
-	return model.result.AggregateRows[index].Key
+	return app.AggregateIdentity(model.result.AggregateRows[index])
 }
 
 func (model *Model) clampCursor() {

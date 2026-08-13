@@ -58,8 +58,8 @@ class HelpScreen(ModalScreen):
             yield Static("moneyflow - Help", id="help-title")
             with VerticalScroll(id="help-content"):
                 yield Static(get_help_text())
-            yield Static("Esc=Close", id="help-footer")
-            yield Button("Close", variant="primary", id="close-button")
+            yield Static("j/k=Scroll | Esc/Enter=Close", id="help-footer")
+            yield Button("Close (Enter)", variant="primary", id="close-button")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press."""
@@ -67,5 +67,12 @@ class HelpScreen(ModalScreen):
 
     def on_key(self, event: Key) -> None:
         """Handle keyboard input."""
-        if event.key == "escape" or event.key == "q" or event.key == "question_mark":
+        if event.key in {"escape", "enter", "question_mark"}:
             self.dismiss()
+            event.stop()
+        elif event.key in {"j", "down"}:
+            self.query_one("#help-content", VerticalScroll).scroll_relative(y=1, animate=False)
+            event.stop()
+        elif event.key in {"k", "up"}:
+            self.query_one("#help-content", VerticalScroll).scroll_relative(y=-1, animate=False)
+            event.stop()

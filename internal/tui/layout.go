@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -220,7 +221,7 @@ func (model Model) renderFilterOverlay(screen *RenderedScreen) {
 		screen.Frame.PutText(x, rect.Y+14, Truncate(model.filters.err, width), model.palette.Warning)
 	}
 	actions := Rect{X: rect.X, Y: rect.Y + rect.Height - 1, Width: rect.Width, Height: 1}
-	putCentered(&screen.Frame, actions, "Tab=Move | Space=Toggle | Esc=Cancel", model.palette.Muted)
+	putCentered(&screen.Frame, actions, "Tab=Move | Space=Toggle | Enter=Choose | Esc=Cancel", model.palette.Muted)
 	screen.Regions = append(screen.Regions,
 		NamedRegion{Name: "filter_overlay", Rect: rect},
 		NamedRegion{Name: "filter_focus", Rect: Rect{X: x, Y: rect.Y + 2, Width: width, Height: 11}},
@@ -245,8 +246,7 @@ func (model Model) renderHelpOverlay(screen *RenderedScreen) {
 	drawOverlayBox(&screen.Frame, content, model.palette, "")
 	textRect := Rect{X: content.X + 2, Y: content.Y + 2, Width: content.Width - 4, Height: max(0, content.Height-3)}
 	lines := helpLines(model.bindings)
-	maximum := max(0, len(lines)-textRect.Height)
-	scroll := min(model.help.scroll, maximum)
+	scroll := min(model.help.scroll, model.helpMaxScroll())
 	for index := 0; index < textRect.Height && scroll+index < len(lines); index++ {
 		style := model.palette.Text
 		if lines[scroll+index] == "moneyflow - Keyboard Shortcuts" {
@@ -255,7 +255,7 @@ func (model Model) renderHelpOverlay(screen *RenderedScreen) {
 		screen.Frame.PutText(textRect.X, textRect.Y+index, Truncate(lines[scroll+index], textRect.Width), style)
 	}
 	footer := Rect{X: rect.X, Y: rect.Y + rect.Height - 4, Width: rect.Width, Height: 1}
-	putCentered(&screen.Frame, footer, "Esc=Close", model.palette.Muted)
+	putCentered(&screen.Frame, footer, "j/k=Scroll | Esc/Enter=Close", model.palette.Muted)
 	actions := Rect{X: rect.X, Y: rect.Y + rect.Height - 3, Width: rect.Width, Height: 3}
 	drawOverlayBox(&screen.Frame, actions, model.palette, "")
 	putCentered(&screen.Frame, Rect{X: actions.X, Y: actions.Y + 1, Width: actions.Width, Height: 1},
@@ -266,7 +266,10 @@ func (model Model) renderHelpOverlay(screen *RenderedScreen) {
 		NamedRegion{Name: "help_actions", Rect: actions},
 	)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "help_semantic", Rect: title})
-	screen.Overlay = append(append([]string{}, helpLines(model.bindings)...), "Esc=Close", "Close")
+	screen.Overlay = append(
+		append([]string{}, helpLines(model.bindings)...),
+		"j/k=Scroll | Esc/Enter=Close", "Close (Enter)",
+	)
 }
 
 func overlayTitle(frame *Frame, rect Rect, value string, style Style) Rect {
@@ -362,19 +365,22 @@ func (model Model) renderResize(frame Frame) RenderedScreen {
 func (model Model) columns(width int) []Column {
 	if model.result.DetailRows != nil {
 		columns := DetailColumns(width, model.session.Sort)
-		// Textual shrinks the first active merchant/category/account drill column.
-		for _, drilldown := range model.session.Drilldowns {
-			var key string
-			switch drilldown.Dimension {
-			case domain.DimensionMerchant:
-				key = "merchant"
-			case domain.DimensionCategory:
-				key = "category"
-			case domain.DimensionAccount:
-				key = "account"
-			default:
+		// Textual uses a fixed merchant/category/account precedence when multiple
+		// active drill columns are eligible for shrinking.
+		for _, dimension := range []domain.Dimension{
+			domain.DimensionMerchant, domain.DimensionCategory, domain.DimensionAccount,
+		} {
+			var drilldown *domain.Drilldown
+			for index := range model.session.Drilldowns {
+				if model.session.Drilldowns[index].Dimension == dimension {
+					drilldown = &model.session.Drilldowns[index]
+					break
+				}
+			}
+			if drilldown == nil {
 				continue
 			}
+			key := string(dimension)
 			for index := range columns {
 				if columns[index].Key == key {
 					widths := make([]int, len(columns))
@@ -421,7 +427,7 @@ func (model Model) tableRows() []TableRow {
 			topCategory = row.TopCategory + " " + strconv.Itoa(row.TopCategoryPercent) + "%"
 		}
 		rows[index] = TableRow{
-			Identity: row.Key,
+			Identity: app.AggregateIdentity(row),
 			Values: map[string]string{
 				string(row.Dimension): row.Label,
 				"time_period":         row.Label,

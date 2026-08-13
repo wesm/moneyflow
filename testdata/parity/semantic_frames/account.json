@@ -84,9 +84,9 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "account-card",
-    "account-savings",
-    "account-checking"
+    "account:12:account-card:2:USD",
+    "account:15:account-savings:2:USD",
+    "account:16:account-checking:2:USD"
   ],
   "width": 150
 }

@@ -215,7 +215,7 @@ uv run pyright moneyflow/
 uv run pytest --cov --cov-report=term-missing
 
 # Check markdown formatting (if docs changed)
-markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
+npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json README.md 'docs/**/*.md'
 .github/scripts/check-arrow-lists.sh
 ```
 
@@ -383,7 +383,7 @@ uv run ruff format --check moneyflow/ tests/
 uv run ruff check moneyflow/ tests/
 
 # 5. Markdown formatting (if docs changed)
-markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
+npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json README.md 'docs/**/*.md'
 .github/scripts/check-arrow-lists.sh
 ```
 
@@ -559,7 +559,7 @@ git commit -m "Descriptive commit message"
 - [ ] Code formatting passes (`uv run ruff format --check moneyflow/ tests/`)
 - [ ] Linting passes (`uv run ruff check moneyflow/ tests/`)
 - [ ] Markdown formatting passes (if docs changed):
-  - `markdownlint --config .markdownlint.json README.md 'docs/**/*.md'`
+  - `npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json README.md 'docs/**/*.md'`
   - `.github/scripts/check-arrow-lists.sh`
 - [ ] Coverage hasn't decreased
 - [ ] No debug print statements left in code

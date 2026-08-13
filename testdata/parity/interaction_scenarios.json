@@ -36,17 +36,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-utility",
-              "merchant-uncategorized",
-              "merchant-transit",
-              "merchant-refund",
-              "merchant-pharmacy",
-              "merchant-payroll",
-              "merchant-interest",
-              "merchant-rent",
-              "merchant-grocer",
-              "merchant-cafe",
-              "merchant-books"
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:15:merchant-refund:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:16:merchant-payroll:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:14:merchant-books:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           }
@@ -67,17 +67,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-grocer",
-              "merchant-cafe",
-              "merchant-payroll",
-              "merchant-transit",
-              "merchant-utility",
-              "merchant-books",
-              "merchant-pharmacy",
-              "merchant-uncategorized",
-              "merchant-rent",
-              "merchant-interest",
-              "merchant-refund"
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:16:merchant-payroll:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:14:merchant-books:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:15:merchant-refund:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           }
@@ -98,17 +98,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-rent",
-              "merchant-interest",
-              "merchant-refund",
-              "merchant-books",
-              "merchant-pharmacy",
-              "merchant-uncategorized",
-              "merchant-transit",
-              "merchant-utility",
-              "merchant-cafe",
-              "merchant-payroll",
-              "merchant-grocer"
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:15:merchant-refund:2:USD",
+              "merchant:14:merchant-books:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:16:merchant-payroll:2:USD",
+              "merchant:15:merchant-grocer:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           }
@@ -129,17 +129,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "category-interest",
-              "category-refund",
-              "category-rent",
-              "category-books",
-              "category-healthcare",
-              "category-uncategorized",
-              "category-transit",
-              "category-utilities",
-              "category-dining",
-              "category-salary",
-              "category-groceries"
+              "category:17:category-interest:2:USD",
+              "category:15:category-refund:2:USD",
+              "category:13:category-rent:2:USD",
+              "category:14:category-books:2:USD",
+              "category:19:category-healthcare:2:USD",
+              "category:22:category-uncategorized:2:USD",
+              "category:16:category-transit:2:USD",
+              "category:18:category-utilities:2:USD",
+              "category:15:category-dining:2:USD",
+              "category:15:category-salary:2:USD",
+              "category:18:category-groceries:2:USD"
             ],
             "breadcrumb": "Categories (2023-01-05 to 2025-12-31)"
           }
@@ -160,11 +160,11 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "Discretionary",
-              "Uncategorized",
-              "Transportation",
-              "Income",
-              "Living"
+              "group:13:Discretionary:2:USD",
+              "group:13:Uncategorized:2:USD",
+              "group:14:Transportation:2:USD",
+              "group:6:Income:2:USD",
+              "group:6:Living:2:USD"
             ],
             "breadcrumb": "Groups (2023-01-05 to 2025-12-31)"
           }
@@ -185,9 +185,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "account-savings",
-              "account-checking",
-              "account-card"
+              "account:15:account-savings:2:USD",
+              "account:16:account-checking:2:USD",
+              "account:12:account-card:2:USD"
             ],
             "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
           }
@@ -208,9 +208,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2023",
-              "2024",
-              "2025"
+              "time:4:2023:2:USD",
+              "time:4:2024:2:USD",
+              "time:4:2025:2:USD"
             ],
             "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
           }
@@ -231,17 +231,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-rent",
-              "merchant-grocer",
-              "merchant-utility",
-              "merchant-cafe",
-              "merchant-transit",
-              "merchant-books",
-              "merchant-pharmacy",
-              "merchant-uncategorized",
-              "merchant-interest",
-              "merchant-refund",
-              "merchant-payroll"
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:14:merchant-books:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:15:merchant-refund:2:USD",
+              "merchant:16:merchant-payroll:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           }
@@ -262,9 +262,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "account-card",
-              "account-savings",
-              "account-checking"
+              "account:12:account-card:2:USD",
+              "account:15:account-savings:2:USD",
+              "account:16:account-checking:2:USD"
             ],
             "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
           }
@@ -512,9 +512,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "account-card",
-              "account-savings",
-              "account-checking"
+              "account:12:account-card:2:USD",
+              "account:15:account-savings:2:USD",
+              "account:16:account-checking:2:USD"
             ],
             "breadcrumb": "Accounts (2023-01-05 to 2025-12-31)"
           },
@@ -560,9 +560,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2023",
-              "2024",
-              "2025"
+              "time:4:2023:2:USD",
+              "time:4:2024:2:USD",
+              "time:4:2025:2:USD"
             ],
             "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
           }
@@ -583,9 +583,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2024",
-              "2023",
-              "2025"
+              "time:4:2024:2:USD",
+              "time:4:2023:2:USD",
+              "time:4:2025:2:USD"
             ],
             "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
           }
@@ -606,9 +606,9 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2023",
-              "2024",
-              "2025"
+              "time:4:2023:2:USD",
+              "time:4:2024:2:USD",
+              "time:4:2025:2:USD"
             ],
             "breadcrumb": "Years (2023-01-05 to 2025-12-31)"
           }
@@ -629,42 +629,42 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2023-01",
-              "2023-02",
-              "2023-03",
-              "2023-04",
-              "2023-05",
-              "2023-06",
-              "2023-07",
-              "2023-08",
-              "2023-09",
-              "2023-10",
-              "2023-11",
-              "2023-12",
-              "2024-01",
-              "2024-02",
-              "2024-03",
-              "2024-04",
-              "2024-05",
-              "2024-06",
-              "2024-07",
-              "2024-08",
-              "2024-09",
-              "2024-10",
-              "2024-11",
-              "2024-12",
-              "2025-01",
-              "2025-02",
-              "2025-03",
-              "2025-04",
-              "2025-05",
-              "2025-06",
-              "2025-07",
-              "2025-08",
-              "2025-09",
-              "2025-10",
-              "2025-11",
-              "2025-12"
+              "time:7:2023-01:2:USD",
+              "time:7:2023-02:2:USD",
+              "time:7:2023-03:2:USD",
+              "time:7:2023-04:2:USD",
+              "time:7:2023-05:2:USD",
+              "time:7:2023-06:2:USD",
+              "time:7:2023-07:2:USD",
+              "time:7:2023-08:2:USD",
+              "time:7:2023-09:2:USD",
+              "time:7:2023-10:2:USD",
+              "time:7:2023-11:2:USD",
+              "time:7:2023-12:2:USD",
+              "time:7:2024-01:2:USD",
+              "time:7:2024-02:2:USD",
+              "time:7:2024-03:2:USD",
+              "time:7:2024-04:2:USD",
+              "time:7:2024-05:2:USD",
+              "time:7:2024-06:2:USD",
+              "time:7:2024-07:2:USD",
+              "time:7:2024-08:2:USD",
+              "time:7:2024-09:2:USD",
+              "time:7:2024-10:2:USD",
+              "time:7:2024-11:2:USD",
+              "time:7:2024-12:2:USD",
+              "time:7:2025-01:2:USD",
+              "time:7:2025-02:2:USD",
+              "time:7:2025-03:2:USD",
+              "time:7:2025-04:2:USD",
+              "time:7:2025-05:2:USD",
+              "time:7:2025-06:2:USD",
+              "time:7:2025-07:2:USD",
+              "time:7:2025-08:2:USD",
+              "time:7:2025-09:2:USD",
+              "time:7:2025-10:2:USD",
+              "time:7:2025-11:2:USD",
+              "time:7:2025-12:2:USD"
             ],
             "breadcrumb": "Months (2023-01-05 to 2025-12-31)"
           }
@@ -693,8 +693,6 @@
             "drilldowns": [
               {
                 "dimension": "time",
-                "key": "2024-02",
-                "label": "Feb 2024",
                 "period": {
                   "granularity": "month",
                   "year": 2024,
@@ -727,8 +725,6 @@
             "drilldowns": [
               {
                 "dimension": "time",
-                "key": "2024-03",
-                "label": "Feb 2024",
                 "period": {
                   "granularity": "month",
                   "year": 2024,
@@ -808,42 +804,42 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "2023-01",
-              "2023-02",
-              "2023-03",
-              "2023-04",
-              "2023-05",
-              "2023-06",
-              "2023-07",
-              "2023-08",
-              "2023-09",
-              "2023-10",
-              "2023-11",
-              "2023-12",
-              "2024-01",
-              "2024-02",
-              "2024-03",
-              "2024-04",
-              "2024-05",
-              "2024-06",
-              "2024-07",
-              "2024-08",
-              "2024-09",
-              "2024-10",
-              "2024-11",
-              "2024-12",
-              "2025-01",
-              "2025-02",
-              "2025-03",
-              "2025-04",
-              "2025-05",
-              "2025-06",
-              "2025-07",
-              "2025-08",
-              "2025-09",
-              "2025-10",
-              "2025-11",
-              "2025-12"
+              "time:7:2023-01:2:USD",
+              "time:7:2023-02:2:USD",
+              "time:7:2023-03:2:USD",
+              "time:7:2023-04:2:USD",
+              "time:7:2023-05:2:USD",
+              "time:7:2023-06:2:USD",
+              "time:7:2023-07:2:USD",
+              "time:7:2023-08:2:USD",
+              "time:7:2023-09:2:USD",
+              "time:7:2023-10:2:USD",
+              "time:7:2023-11:2:USD",
+              "time:7:2023-12:2:USD",
+              "time:7:2024-01:2:USD",
+              "time:7:2024-02:2:USD",
+              "time:7:2024-03:2:USD",
+              "time:7:2024-04:2:USD",
+              "time:7:2024-05:2:USD",
+              "time:7:2024-06:2:USD",
+              "time:7:2024-07:2:USD",
+              "time:7:2024-08:2:USD",
+              "time:7:2024-09:2:USD",
+              "time:7:2024-10:2:USD",
+              "time:7:2024-11:2:USD",
+              "time:7:2024-12:2:USD",
+              "time:7:2025-01:2:USD",
+              "time:7:2025-02:2:USD",
+              "time:7:2025-03:2:USD",
+              "time:7:2025-04:2:USD",
+              "time:7:2025-05:2:USD",
+              "time:7:2025-06:2:USD",
+              "time:7:2025-07:2:USD",
+              "time:7:2025-08:2:USD",
+              "time:7:2025-09:2:USD",
+              "time:7:2025-10:2:USD",
+              "time:7:2025-11:2:USD",
+              "time:7:2025-12:2:USD"
             ],
             "breadcrumb": "Months (2023-01-05 to 2025-12-31)"
           },
@@ -936,7 +932,7 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "category-groceries"
+              "category:18:category-groceries:2:USD"
             ],
             "breadcrumb": "M: Example Grocer \u003e (by Category)"
           }
@@ -1009,7 +1005,7 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "category-groceries"
+              "category:18:category-groceries:2:USD"
             ],
             "breadcrumb": "M: Example Grocer \u003e (by Category)"
           },
@@ -1069,17 +1065,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-rent",
-              "merchant-grocer",
-              "merchant-utility",
-              "merchant-cafe",
-              "merchant-transit",
-              "merchant-books",
-              "merchant-pharmacy",
-              "merchant-uncategorized",
-              "merchant-interest",
-              "merchant-refund",
-              "merchant-payroll"
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:14:merchant-books:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:15:merchant-refund:2:USD",
+              "merchant:16:merchant-payroll:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           },
@@ -1127,7 +1123,7 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-grocer"
+              "merchant:15:merchant-grocer:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
           }
@@ -1153,10 +1149,10 @@
             "drilldowns": [],
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [
-              "merchant-grocer"
+              "merchant:15:merchant-grocer:2:USD"
             ],
             "result_ids": [
-              "merchant-grocer"
+              "merchant:15:merchant-grocer:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
           }
@@ -1178,7 +1174,7 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-grocer"
+              "merchant:15:merchant-grocer:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-07-04)"
           }
@@ -1199,17 +1195,17 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-rent",
-              "merchant-grocer",
-              "merchant-utility",
-              "merchant-cafe",
-              "merchant-transit",
-              "merchant-books",
-              "merchant-pharmacy",
-              "merchant-uncategorized",
-              "merchant-interest",
-              "merchant-refund",
-              "merchant-payroll"
+              "merchant:13:merchant-rent:2:USD",
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:16:merchant-utility:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:14:merchant-books:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:17:merchant-interest:2:USD",
+              "merchant:15:merchant-refund:2:USD",
+              "merchant:16:merchant-payroll:2:USD"
             ],
             "breadcrumb": "Merchants (2023-01-05 to 2025-12-31)"
           },
@@ -1246,13 +1242,13 @@
             "selected_transaction_ids": [],
             "selected_aggregate_keys": [],
             "result_ids": [
-              "merchant-grocer",
-              "merchant-cafe",
-              "merchant-pharmacy",
-              "merchant-transit",
-              "merchant-uncategorized",
-              "merchant-transfer",
-              "merchant-payroll"
+              "merchant:15:merchant-grocer:2:USD",
+              "merchant:13:merchant-cafe:2:USD",
+              "merchant:17:merchant-pharmacy:2:USD",
+              "merchant:16:merchant-transit:2:USD",
+              "merchant:22:merchant-uncategorized:2:USD",
+              "merchant:17:merchant-transfer:2:USD",
+              "merchant:16:merchant-payroll:2:USD"
             ],
             "breadcrumb": "Merchants (2024-01-10 to 2024-12-31)"
           }

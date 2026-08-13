@@ -29,3 +29,10 @@ func padRight(value string, width int) string {
 	}
 	return value
 }
+
+func (model Model) helpMaxScroll() int {
+	rect := responsiveOverlayRect(model.width, model.height, 74, 37)
+	contentHeight := max(3, rect.Height-7)
+	textHeight := max(0, contentHeight-3)
+	return max(0, len(helpLines(model.bindings))-textHeight)
+}

@@ -39,6 +39,10 @@ def test_loads_shared_fixture_and_adapts_existing_schema(tmp_path: Path) -> None
         lambda value: value["transactions"][0].update(amount="-54.201"),
         lambda value: value["transactions"][0].update(date="2024-02-30"),
         lambda value: value["transactions"][0]["merchant"].update(name=""),
+        lambda value: value["currencies"][0].update(code="U1D"),
+        lambda value: value["transactions"][0].update(date="2024-02-29T00:00:00"),
+        lambda value: value["transactions"][0].update(amount="1e2"),
+        lambda value: value["transactions"][0].update(amount="92233720368547758.08"),
     ],
     ids=[
         "schema-version",
@@ -48,6 +52,10 @@ def test_loads_shared_fixture_and_adapts_existing_schema(tmp_path: Path) -> None
         "amount-precision",
         "date",
         "empty-label",
+        "currency-digit",
+        "noncanonical-date",
+        "scientific-amount",
+        "amount-overflow",
     ],
 )
 def test_rejects_invalid_fixture(tmp_path: Path, mutate: Any) -> None:

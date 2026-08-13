@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestLayoutSupportedSizesExposeStableRegions(t *testing.T) {
@@ -26,6 +27,27 @@ func TestLayoutSupportedSizesExposeStableRegions(t *testing.T) {
 		body, _ := findRegion(screen.Regions, "table_body")
 		assert.GreaterOrEqual(t, body.Rect.Height, 1)
 	}
+}
+
+func TestDetailDrillColumnWidthsUseFixedDimensionPrecedence(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model.result.AggregateRows = nil
+	model.result.DetailRows = []domain.DetailRow{}
+	model.session.Drilldowns = []domain.Drilldown{
+		{Dimension: domain.DimensionCategory, Key: "category", Label: "A very long category label"},
+		{Dimension: domain.DimensionMerchant, Key: "merchant", Label: "Shop"},
+	}
+
+	columns := model.columns(120)
+	for _, column := range columns {
+		if column.Key == "merchant" {
+			assert.Equal(t, len([]rune("Shop"))+2, column.Width)
+			return
+		}
+	}
+	t.Fatal("merchant column missing")
 }
 
 func TestLayoutBelowMinimumShowsResizeOnly(t *testing.T) {

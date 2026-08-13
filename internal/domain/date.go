@@ -77,6 +77,9 @@ func (d Date) String() string {
 
 // MarshalJSON encodes Date as an ISO string.
 func (d Date) MarshalJSON() ([]byte, error) {
+	if _, err := NewDate(d.year, d.month, d.day); err != nil {
+		return nil, fmt.Errorf("encode date: %w", err)
+	}
 	return json.Marshal(d.String())
 }
 

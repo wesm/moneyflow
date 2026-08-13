@@ -52,6 +52,25 @@ func TestTableRendersEmptyStateAndClipsColumns(t *testing.T) {
 	assert.Equal(t, "No rows ", frame.PlainLine(1))
 }
 
+func TestTableClipsWithoutTranslatingLogicalOrigin(t *testing.T) {
+	t.Parallel()
+
+	palette, err := PaletteFor(ThemeDefault, ColorModeNone)
+	require.NoError(t, err)
+	frame := NewFrame(8, 2, Cell{Glyph: " "})
+	RenderTable(
+		&frame,
+		Rect{X: 0, Y: -1, Width: 8, Height: 3},
+		[]Column{{Key: "name", Label: "Header", Width: 8}},
+		[]TableRow{{Identity: "row", Values: map[string]string{"name": "Body"}}},
+		0,
+		0,
+		palette,
+		"Empty",
+	)
+	assert.Equal(t, "Body", frame.PlainLine(0)[:4])
+}
+
 func TestTableRandomInputsStayInsideRegion(t *testing.T) {
 	t.Parallel()
 

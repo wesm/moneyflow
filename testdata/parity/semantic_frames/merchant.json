@@ -101,17 +101,17 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "merchant-rent",
-    "merchant-grocer",
-    "merchant-utility",
-    "merchant-cafe",
-    "merchant-transit",
-    "merchant-books",
-    "merchant-pharmacy",
-    "merchant-uncategorized",
-    "merchant-interest",
-    "merchant-refund",
-    "merchant-payroll"
+    "merchant:13:merchant-rent:2:USD",
+    "merchant:15:merchant-grocer:2:USD",
+    "merchant:16:merchant-utility:2:USD",
+    "merchant:13:merchant-cafe:2:USD",
+    "merchant:16:merchant-transit:2:USD",
+    "merchant:14:merchant-books:2:USD",
+    "merchant:17:merchant-pharmacy:2:USD",
+    "merchant:22:merchant-uncategorized:2:USD",
+    "merchant:17:merchant-interest:2:USD",
+    "merchant:15:merchant-refund:2:USD",
+    "merchant:16:merchant-payroll:2:USD"
   ],
   "width": 150
 }

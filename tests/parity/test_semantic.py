@@ -36,6 +36,7 @@ def test_frame_scenarios_cover_required_states() -> None:
         "time_year",
         "time_month",
         "time_day",
+        "time_day_scrolled_150x30",
         "detail",
         "subgroup",
         "multi_level",
@@ -55,7 +56,7 @@ async def test_python_semantic_extractor_uses_isolated_fixture(tmp_path: Path) -
     merchant = frames["merchant"]
     assert merchant["width"] == 150
     assert merchant["height"] == 50
-    assert merchant["visible_row_ids"][0] == "merchant-rent"
+    assert merchant["visible_row_ids"][0] == "merchant:13:merchant-rent:2:USD"
     assert {region["name"] for region in merchant["regions"]} == {
         "breadcrumb",
         "stats",
@@ -73,3 +74,8 @@ async def test_python_semantic_extractor_uses_isolated_fixture(tmp_path: Path) -
     assert all(
         not line.endswith(("▁", "▂", "▃", "▄", "▅", "▆", "▇", "█")) for line in time_body["lines"]
     )
+    assert (
+        frames["time_day_scrolled_150x30"]["visible_row_ids"][0]
+        != frames["time_day"]["visible_row_ids"][0]
+    )
+    assert frames["selected_rows"]["selection_ids"] == ["merchant:15:merchant-grocer:2:USD"]

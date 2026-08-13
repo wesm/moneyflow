@@ -61,12 +61,7 @@ func compareDetail(left, right domain.Transaction, field domain.SortField) int {
 	case domain.SortFieldAccount:
 		return strings.Compare(left.Account.Name, right.Account.Name)
 	case domain.SortFieldAmount:
-		if left.Amount.Minor < right.Amount.Minor {
-			return -1
-		}
-		if left.Amount.Minor > right.Amount.Minor {
-			return 1
-		}
+		return compareScaledMinor(left.Amount.Minor, left.Amount.Scale, right.Amount.Minor, right.Amount.Scale)
 	}
 	return 0
 }

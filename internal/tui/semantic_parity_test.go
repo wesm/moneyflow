@@ -57,6 +57,16 @@ func updateModel(t testing.TB, model tui.Model, message tea.Msg) tui.Model {
 }
 
 func semanticKey(name string) tea.KeyPressMsg {
+	switch name {
+	case "space":
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "enter":
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "down":
+		return tea.KeyPressMsg{Code: tea.KeyDown}
+	case "up":
+		return tea.KeyPressMsg{Code: tea.KeyUp}
+	}
 	return tea.KeyPressMsg{Code: []rune(name)[0], Text: name}
 }
 

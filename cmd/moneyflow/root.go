@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -8,13 +9,16 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
+	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
 type tuiRunner func(*app.Service, app.Session, tui.Options, IOStreams) error
 
+// IOStreams contains command input, output, and the injectable terminal runner.
 type IOStreams struct {
 	In     io.Reader
 	Out    io.Writer
@@ -23,8 +27,6 @@ type IOStreams struct {
 }
 
 func newRootCommand(streams IOStreams) *cobra.Command {
-	const defaultFixture = "testdata/parity/transactions.json"
-
 	var theme string
 	var fixturePath string
 	runPreview := func(_ *cobra.Command, _ []string) error {
@@ -32,7 +34,12 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("start preview: %w", err)
 		}
-		transactions, err := fixture.Load(fixturePath)
+		var transactions []domain.Transaction
+		if fixturePath == "" {
+			transactions, err = fixture.Decode(bytes.NewReader(paritydata.Transactions))
+		} else {
+			transactions, err = fixture.Load(fixturePath)
+		}
 		if err != nil {
 			return fmt.Errorf("start preview: %w", err)
 		}
@@ -70,7 +77,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	command.SetOut(streams.Out)
 	command.SetErr(streams.Err)
 	command.PersistentFlags().StringVar(&theme, "theme", string(tui.ThemeDefault), "color theme")
-	command.PersistentFlags().StringVar(&fixturePath, "fixture", defaultFixture, "fixture document")
+	command.PersistentFlags().StringVar(&fixturePath, "fixture", "", "fixture document")
 	if err := command.PersistentFlags().MarkHidden("fixture"); err != nil {
 		panic(err)
 	}

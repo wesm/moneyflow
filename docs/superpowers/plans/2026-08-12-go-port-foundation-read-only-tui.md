@@ -37,7 +37,9 @@ Testify v1.11.1; the existing Python 3.11/uv/Polars/Textual stack as the charact
 - Preserve current read-only filtering details: search is a case-insensitive regular-expression
   match over merchant and category, following Polars `str.contains`; transfers are rows whose group
   is `Transfers`; hidden rows remain visible in detail even when the aggregate hidden toggle is off;
-  hidden rows never contribute to totals or In/Out/Net.
+  hidden rows never contribute to totals or In/Out/Net. When aggregate hidden rows are visible they
+  do contribute to row/statistics counts, but not shares or top-category activity. Time gaps are
+  filled independently for every observed `(currency, scale)` partition.
 - Exact minor-unit arithmetic is canonical. The Python adapter converts a Polars total with
   `Decimal(str(value)).quantize(quantum, rounding=ROUND_HALF_UP)` and then compares exact integers.
   Do not add epsilon comparisons.
@@ -83,7 +85,7 @@ uv run pytest -v
 uv run pyright moneyflow/
 uv run ruff format --check moneyflow/ tests/
 uv run ruff check moneyflow/ tests/
-npx --yes markdownlint-cli --config .markdownlint.json README.md 'docs/**/*.md'
+npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json README.md 'docs/**/*.md'
 .github/scripts/check-arrow-lists.sh
 ```
 
@@ -611,7 +613,8 @@ attribution required by that skill.
 - Modify: `tests/test_keybindings.py`
 
 - [ ] First add a Python regression test that derives runtime key/action pairs from
-      `MoneyflowApp.BINDINGS` and asserts the help dataset uses the same keys/actions. Fix
+      `MoneyflowApp.BINDINGS` and asserts the help dataset contains those keys/actions, plus Enter's
+      explicit DataTable row-selection event. Fix
       `moneyflow/tui/keybindings.py` to describe the real runtime bindings (`d` detail, `u` undo; no
       `M`; `c` edit category). Keep edit/system entries because they remain part of current help,
       but later Go presentation marks their actions unavailable. Run
@@ -742,8 +745,9 @@ attribution required by that skill.
       the selected aggregate row by stable identity before calling session methods. Assert
       state/result identity and cursor restoration, not only rendered text.
 
-- [ ] Implement update routing with the actual runtime key contract. `q`/Ctrl-C always exit,
-      including narrow and overlay states. Read-only out-of-scope runtime keys (`D`, `m`, `c`, `C`,
+- [ ] Implement update routing with the actual runtime key contract. Ctrl-C always exits. `q` exits
+      from the main and narrow views, but is ordinary text in search/filter inputs and does not
+      close help. Read-only out-of-scope runtime keys (`D`, `m`, `c`, `C`,
       `G`, `h`, `x`, `i`, `u`, `w`, `E`) set a concise transient
       `Unavailable in read-only Go preview` status and do not mutate session data.
 
@@ -758,10 +762,11 @@ attribution required by that skill.
       row, and hints remain visible. Below 80x24 render only a centered resize message plus quit
       hint.
 
-- [ ] Modify Cobra so no-argument `moneyflow` and `moneyflow demo` both load
-      `testdata/parity/transactions.json`, construct service/session, resolve theme/color at the
+- [ ] Modify Cobra so no-argument `moneyflow` and `moneyflow demo` both load the committed demo
+      fixture embedded in the executable, construct service/session, resolve theme/color at the
       boundary, and call `tea.NewProgram(model).Run()`. Add `--theme` and a hidden/internal
-      `--fixture` test seam; production default remains the committed demo fixture in this slice.
+      `--fixture` test seam for explicit external fixtures; ordinary startup must not depend on the
+      repository or current working directory.
       Startup validation occurs before alternate-screen entry and returns one wrapped error to
       stderr.
 
@@ -849,7 +854,7 @@ attribution required by that skill.
   - 150x50: merchant, category, group, account, year/month/day time, detail, subgroup, multi-level
     drill, selected rows, help
   - 150x40: representative merchant and detail
-  - 150x30: drill-down, search, and filters
+  - 150x30: drill-down, search, filters, and a scrolled time view
 
   Theme differences are excluded from semantic artifacts; default is enough here.
 
@@ -861,8 +866,10 @@ attribution required by that skill.
       `MoneyflowApp.run_test(size=...)`, apply keys with the Textual pilot, then obtain plain glyph
       rows from `app.screen._compositor.render_strips()`. Crop named widgets to their
       `content_region`; record absolute origin, dimensions, text lines, table column starts, visible
-      row identities, breadcrumb, stats, flags, selection, and hints. Exclude borders, scrollbars,
-      and all Rich/Textual style data.
+      row identities, breadcrumb, stats, flags, selection, and hints. Visible row extraction starts
+      at the live table scroll offset, and selection comes from live application state after the key
+      sequence rather than the scenario's initial JSON. Exclude borders, scrollbars, and all
+      Rich/Textual style data.
 
 - [ ] Implement versioned, canonical semantic JSON and commands:
 

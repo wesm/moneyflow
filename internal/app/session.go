@@ -60,6 +60,7 @@ type sessionSnapshot struct {
 	sort                   domain.SortSpec
 	selectedTransactionIDs map[string]struct{}
 	selectedAggregateKeys  map[string]struct{}
+	searchAnchor           *navigationMarker
 }
 
 // Session is renderer-neutral UI state. All mutable nested values are privately copied.
@@ -121,13 +122,40 @@ func (session *Session) CycleGrouping() {
 		return
 	}
 	if session.Mode == domain.ResultModeDetail {
+		if len(session.history) > 0 && session.history[len(session.history)-1].kind == historyNavigation {
+			_, _ = session.popHistory()
+			return
+		}
 		session.Mode = domain.ResultModeAggregate
+		session.Dimension = domain.DimensionMerchant
+		session.SubGrouping = nil
+		session.clearSelections()
+		session.Sort = amountDescending()
+		return
 	}
 	current := dimensionIndex(session.Dimension)
 	session.Dimension = dimensionOrder[(current+1)%len(dimensionOrder)]
 	session.SubGrouping = nil
 	session.clearSelections()
 	session.Sort = sortForTopLevelTransition(session.Dimension, session.Sort)
+}
+
+// Clone returns a session whose mutable state and private navigation history are independent.
+func (session Session) Clone() Session {
+	cloned := session
+	cloned.SubGrouping = cloneDimension(session.SubGrouping)
+	cloned.Drilldowns = cloneDrilldowns(session.Drilldowns)
+	cloned.DateRange = cloneDateRange(session.DateRange)
+	cloned.SelectedTransactionIDs = cloneSet(session.SelectedTransactionIDs)
+	cloned.SelectedAggregateKeys = cloneSet(session.SelectedAggregateKeys)
+	cloned.searchAnchor = cloneNavigationMarker(session.searchAnchor)
+	cloned.history = make([]historyEntry, len(session.history))
+	for index, entry := range session.history {
+		cloned.history[index] = historyEntry{
+			snapshot: cloneSessionSnapshot(entry.snapshot), position: entry.position, kind: entry.kind,
+		}
+	}
+	return cloned
 }
 
 // ShowAllDetail switches from a top-level aggregate to all visible transactions.
@@ -249,7 +277,7 @@ func (session *Session) ToggleSelectAll(result domain.QueryResult) {
 	}
 	keys := make([]string, len(result.AggregateRows))
 	for index, row := range result.AggregateRows {
-		keys[index] = row.Key
+		keys[index] = AggregateIdentity(row)
 	}
 	toggleAll(session.SelectedAggregateKeys, keys)
 }
@@ -268,6 +296,7 @@ func (session *Session) snapshot() sessionSnapshot {
 		sort:                   session.Sort,
 		selectedTransactionIDs: cloneSet(session.SelectedTransactionIDs),
 		selectedAggregateKeys:  cloneSet(session.SelectedAggregateKeys),
+		searchAnchor:           cloneNavigationMarker(session.searchAnchor),
 	}
 }
 
@@ -284,6 +313,7 @@ func (session *Session) restore(snapshot sessionSnapshot) {
 	session.Sort = snapshot.sort
 	session.SelectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
 	session.SelectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
+	session.searchAnchor = cloneNavigationMarker(snapshot.searchAnchor)
 }
 
 func (session *Session) pushHistory(kind historyKind, position ViewPosition) {
@@ -408,6 +438,25 @@ func cloneSet(values map[string]struct{}) map[string]struct{} {
 		cloned[value] = struct{}{}
 	}
 	return cloned
+}
+
+func cloneNavigationMarker(marker *navigationMarker) *navigationMarker {
+	if marker == nil {
+		return nil
+	}
+	cloned := *marker
+	cloned.subGrouping = cloneDimension(marker.subGrouping)
+	return &cloned
+}
+
+func cloneSessionSnapshot(snapshot sessionSnapshot) sessionSnapshot {
+	snapshot.subGrouping = cloneDimension(snapshot.subGrouping)
+	snapshot.drilldowns = cloneDrilldowns(snapshot.drilldowns)
+	snapshot.dateRange = cloneDateRange(snapshot.dateRange)
+	snapshot.selectedTransactionIDs = cloneSet(snapshot.selectedTransactionIDs)
+	snapshot.selectedAggregateKeys = cloneSet(snapshot.selectedAggregateKeys)
+	snapshot.searchAnchor = cloneNavigationMarker(snapshot.searchAnchor)
+	return snapshot
 }
 
 func dimensionIndex(dimension domain.Dimension) int {

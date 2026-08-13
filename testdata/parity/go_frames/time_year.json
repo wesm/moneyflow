@@ -1335,220 +1335,154 @@
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "2",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "0",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "2",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "3",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": " ",
         "display_width": 1,
         "repeat": 13,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "7",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": " ",
         "display_width": 1,
         "repeat": 11,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "+",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "2",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": ",",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "3",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "1",
         "display_width": 1,
         "repeat": 2,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": ".",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "5",
         "display_width": 1,
         "repeat": 2,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": " ",
         "display_width": 1,
         "repeat": 2,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "2",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "6",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": ".",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "5",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "%",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": " ",
         "display_width": 1,
         "repeat": 100,
         "foreground": "#e6edf3",
-        "background": "#5aa9e6",
-        "attributes": [
-          "reverse"
-        ]
+        "background": "#5aa9e6"
       },
       {
         "glyph": "│",

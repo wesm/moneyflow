@@ -135,7 +135,7 @@ func PaletteFor(name ThemeName, mode ColorMode) (Palette, error) {
 		Heading:    Style{Foreground: resolve(colors.accent), Background: panel, Bold: true},
 		Text:       Style{Foreground: text, Background: background},
 		Muted:      Style{Foreground: muted, Background: background, Dim: true},
-		Selection:  Style{Foreground: text, Background: resolve(colors.accent), Reverse: true},
+		Selection:  Style{Foreground: text, Background: resolve(colors.accent), Reverse: mode == ColorModeNone},
 		Positive:   Style{Foreground: resolve(colors.positive), Background: background},
 		Warning:    Style{Foreground: resolve(colors.warning), Background: background, Bold: true},
 		Hidden:     Style{Foreground: muted, Background: background, Dim: true},

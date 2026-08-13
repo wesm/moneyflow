@@ -38,7 +38,7 @@
   "selection_ids": [],
   "stats": "5 txns | In: +0.00 | Out: -276.62 | Net: -276.62",
   "visible_row_ids": [
-    "merchant-grocer"
+    "merchant:15:merchant-grocer:2:USD"
   ],
   "width": 150
 }

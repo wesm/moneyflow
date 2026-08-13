@@ -100,17 +100,17 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "category-rent",
-    "category-groceries",
-    "category-utilities",
-    "category-dining",
-    "category-transit",
-    "category-books",
-    "category-healthcare",
-    "category-uncategorized",
-    "category-interest",
-    "category-refund",
-    "category-salary"
+    "category:13:category-rent:2:USD",
+    "category:18:category-groceries:2:USD",
+    "category:18:category-utilities:2:USD",
+    "category:15:category-dining:2:USD",
+    "category:16:category-transit:2:USD",
+    "category:14:category-books:2:USD",
+    "category:19:category-healthcare:2:USD",
+    "category:22:category-uncategorized:2:USD",
+    "category:17:category-interest:2:USD",
+    "category:15:category-refund:2:USD",
+    "category:15:category-salary:2:USD"
   ],
   "width": 150
 }

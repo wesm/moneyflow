@@ -93,7 +93,7 @@ async def generate_frames(scenarios_path: Path, working_root: Path) -> dict[str,
                 await pilot.press(key_name)
                 await pilot.pause()
                 await pilot.pause()
-            frames[scenario["name"]] = _extract_frame(app, scenario)
+            frames[scenario["name"]] = _extract_frame(app, scenario, backend)
     return frames
 
 
@@ -173,6 +173,7 @@ def _apply_initial(app: MoneyflowApp, initial: dict[str, Any], backend: FixtureB
 
 
 def _aggregate_label(key: str, dimension: str, backend: FixtureBackend) -> str:
+    key = _aggregate_key_from_identity(key, dimension)
     for transaction in backend.document.transactions:
         if dimension == "merchant" and transaction["merchant"]["id"] == key:
             return transaction["merchant"]["name"]
@@ -185,7 +186,26 @@ def _aggregate_label(key: str, dimension: str, backend: FixtureBackend) -> str:
     return key
 
 
-def _extract_frame(app: MoneyflowApp, scenario: dict[str, Any]) -> dict[str, Any]:
+def _aggregate_key_from_identity(identity: str, dimension: str) -> str:
+    prefix = f"{dimension}:"
+    if not identity.startswith(prefix):
+        return identity
+    length_text, separator, remainder = identity[len(prefix) :].partition(":")
+    if not separator or not length_text.isdigit():
+        return identity
+    key_length = int(length_text)
+    encoded = remainder.encode()
+    if len(encoded) <= key_length or encoded[key_length : key_length + 1] != b":":
+        return identity
+    try:
+        return encoded[:key_length].decode()
+    except UnicodeDecodeError:
+        return identity
+
+
+def _extract_frame(
+    app: MoneyflowApp, scenario: dict[str, Any], backend: FixtureBackend
+) -> dict[str, Any]:
     compositor = getattr(app.screen, "_compositor", None)
     if compositor is None or not hasattr(compositor, "render_strips"):
         raise RuntimeError(
@@ -201,7 +221,8 @@ def _extract_frame(app: MoneyflowApp, scenario: dict[str, Any]) -> dict[str, Any
 
     table = app.query_one("#data-table", DataTable)
     table_region = table.content_region
-    visible_count = min(table.row_count, max(0, table_region.height - 1))
+    first_visible = max(0, int(table.scroll_y))
+    visible_count = min(max(0, table.row_count - first_visible), max(0, table_region.height - 1))
     table_body = _strip_region(
         strips,
         "table_body",
@@ -212,7 +233,10 @@ def _extract_frame(app: MoneyflowApp, scenario: dict[str, Any]) -> dict[str, Any
         _widget_region(app, strips, "breadcrumb", "#breadcrumb"),
         _widget_region(app, strips, "stats", "#stats"),
         _strip_region(
-            strips, "table_header", Region(table_region.x, table_region.y, table_region.width, 1)
+            strips,
+            "table_header",
+            Region(table_region.x, table_region.y, table_region.width, 1),
+            strip_scrollbar=True,
         ),
         table_body,
         _widget_region(app, strips, "hints", "#action-hints"),
@@ -223,7 +247,7 @@ def _extract_frame(app: MoneyflowApp, scenario: dict[str, Any]) -> dict[str, Any
         # Textual's backdrop opacity and framework-owned underlay composition.
         regions = [overlay]
 
-    row_values = [table.get_row_at(index) for index in range(visible_count)]
+    row_values = [table.get_row_at(first_visible + index) for index in range(visible_count)]
     return {
         "schema_version": 1,
         "name": scenario["name"],
@@ -231,14 +255,11 @@ def _extract_frame(app: MoneyflowApp, scenario: dict[str, Any]) -> dict[str, Any
         "height": scenario["height"],
         "regions": regions,
         "columns": _column_starts(table),
-        "visible_row_ids": _visible_row_ids(app, visible_count),
+        "visible_row_ids": _visible_row_ids(app, first_visible, visible_count, backend),
         "breadcrumb": str(app.query_one("#breadcrumb").render()),
         "stats": str(app.query_one("#stats").render()),
         "flags": [_plain(row[-1]) for row in row_values],
-        "selection_ids": sorted(
-            scenario["initial"]["selected_transaction_ids"]
-            + scenario["initial"]["selected_aggregate_keys"]
-        ),
+        "selection_ids": _selection_ids(app, backend),
         "hints": str(app.query_one("#action-hints").render()),
         "overlay": _overlay_semantics(app),
     }
@@ -283,7 +304,11 @@ def _overlay_semantics(app: MoneyflowApp) -> list[str]:
             "Cancel (Esc)",
         ]
     if list(app.screen.query("#help-dialog")):
-        return [*get_help_text().splitlines(), "Esc=Close", "Close"]
+        return [
+            *get_help_text().splitlines(),
+            "j/k=Scroll | Esc/Enter=Close",
+            "Close (Enter)",
+        ]
     return []
 
 
@@ -292,11 +317,15 @@ def _strip_framework_scrollbar(line: str) -> str:
     return line.rstrip(" ▁▂▃▄▅▆▇█")
 
 
-def _strip_region(strips: list[Any], name: str, region: Region) -> dict[str, Any]:
+def _strip_region(
+    strips: list[Any], name: str, region: Region, *, strip_scrollbar: bool = False
+) -> dict[str, Any]:
     lines = [
         strips[y].crop(region.x, region.x + region.width).text.rstrip()
         for y in range(region.y, region.y + region.height)
     ]
+    if strip_scrollbar:
+        lines = [_strip_framework_scrollbar(line) for line in lines]
     if region.width > 0 and region.height > 0 and not lines:
         raise RuntimeError(
             f"Python semantic adapter requires update for Textual {textual.__version__}: "
@@ -320,30 +349,77 @@ def _column_starts(table: DataTable[Any]) -> list[int]:
     return starts
 
 
-def _visible_row_ids(app: MoneyflowApp, count: int) -> list[str]:
+def _visible_row_ids(
+    app: MoneyflowApp, start: int, count: int, backend: FixtureBackend
+) -> list[str]:
     data = app.state.current_data
     if data is None or data.is_empty():
         return []
-    rows = data.head(count).to_dicts()
+    rows = data.slice(start, count).to_dicts()
     if app.state.view_mode == ViewMode.DETAIL and app.state.sub_grouping_mode is None:
         return [str(row["id"]) for row in rows]
     dimension = app.state.sub_grouping_mode or app.state.view_mode
-    field = "time_period_display" if dimension == ViewMode.TIME else dimension.value
-    identities: list[str] = []
-    for row in rows:
-        id_field = f"{field}_id"
-        if id_field in row:
-            identities.append(str(row[id_field]))
-        elif dimension == ViewMode.TIME:
-            value = f"{row['year']:04d}"
-            if row.get("month") is not None:
-                value += f"-{row['month']:02d}"
-            if row.get("day") is not None:
-                value += f"-{row['day']:02d}"
-            identities.append(value)
-        else:
-            identities.append(str(row[field]))
-    return identities
+    return [_aggregate_identity(row, dimension, backend) for row in rows]
+
+
+def _selection_ids(app: MoneyflowApp, backend: FixtureBackend) -> list[str]:
+    state = app.state
+    if state.view_mode == ViewMode.DETAIL and state.sub_grouping_mode is None:
+        return sorted(state.selected_ids)
+    data = state.current_data
+    if data is None or data.is_empty():
+        return []
+    dimension = state.sub_grouping_mode or state.view_mode
+    identities = [
+        _aggregate_identity(row, dimension, backend)
+        for row in data.to_dicts()
+        if _aggregate_display_label(row, dimension) in state.selected_group_keys
+    ]
+    return sorted(identities)
+
+
+def _aggregate_identity(row: dict[str, Any], dimension: ViewMode, backend: FixtureBackend) -> str:
+    key = _aggregate_key(row, dimension)
+    partitions = _partitions_for_key(key, dimension, backend)
+    if len(partitions) != 1:
+        raise RuntimeError(
+            "Python semantic adapter cannot identify an aggregate row across multiple money partitions"
+        )
+    currency, scale = next(iter(partitions))
+    return f"{dimension.value}:{len(key.encode())}:{key}:{scale}:{currency}"
+
+
+def _aggregate_key(row: dict[str, Any], dimension: ViewMode) -> str:
+    if dimension == ViewMode.TIME:
+        return str(row["time_period_display"])
+    id_field = f"{dimension.value}_id"
+    if id_field in row:
+        return str(row[id_field])
+    return str(row[dimension.value])
+
+
+def _aggregate_display_label(row: dict[str, Any], dimension: ViewMode) -> str:
+    if dimension == ViewMode.TIME:
+        return str(row["time_period_display"])
+    return str(row[dimension.value])
+
+
+def _partitions_for_key(
+    key: str, dimension: ViewMode, backend: FixtureBackend
+) -> set[tuple[str, int]]:
+    partitions: set[tuple[str, int]] = set()
+    for transaction in backend.document.transactions:
+        matches = (
+            (dimension == ViewMode.MERCHANT and transaction["merchant"]["id"] == key)
+            or (dimension == ViewMode.CATEGORY and transaction["category"]["id"] == key)
+            or (dimension == ViewMode.ACCOUNT and transaction["account"]["id"] == key)
+            or (dimension == ViewMode.GROUP and transaction["category"]["group"] == key)
+            or dimension == ViewMode.TIME
+        )
+        if matches:
+            currency = transaction["currency"]
+            partitions.add((currency, backend.document.currencies[currency]))
+    return partitions
 
 
 def _plain(value: Any) -> str:

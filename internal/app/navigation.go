@@ -25,10 +25,13 @@ func (session *Session) Drill(row domain.AggregateRow, position ViewPosition) er
 		}
 	}
 	session.pushHistory(historyNavigation, position)
-	drilldown := domain.Drilldown{Dimension: row.Dimension, Key: row.Key, Label: row.Label}
-	if row.Period != nil {
+	drilldown := domain.Drilldown{Dimension: row.Dimension}
+	if row.Dimension == domain.DimensionTime {
 		period := *row.Period
 		drilldown.Period = &period
+	} else {
+		drilldown.Key = row.Key
+		drilldown.Label = row.Label
 	}
 	session.Drilldowns = append(session.Drilldowns, drilldown)
 	session.Mode = domain.ResultModeDetail
@@ -106,7 +109,6 @@ func (session *Session) NavigatePeriod(delta int) bool {
 			return false
 		}
 		drilldown.Period = &period
-		drilldown.Key = periodKey(period)
 		return true
 	}
 	return false
@@ -190,27 +192,6 @@ func shiftPeriod(period domain.Period, delta int) (domain.Period, bool) {
 	default:
 		return domain.Period{}, false
 	}
-}
-
-func periodKey(period domain.Period) string {
-	switch period.Granularity {
-	case domain.TimeGranularityYear:
-		return domainDateKey(period.Year, 0, 0)
-	case domain.TimeGranularityMonth:
-		return domainDateKey(period.Year, period.Month, 0)
-	default:
-		return domainDateKey(period.Year, period.Month, period.Day)
-	}
-}
-
-func domainDateKey(year int, month int, day int) string {
-	if month == 0 {
-		return time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC).Format("2006")
-	}
-	if day == 0 {
-		return time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC).Format("2006-01")
-	}
-	return time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 }
 
 func markersEqual(left navigationMarker, right navigationMarker) bool {

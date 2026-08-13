@@ -51,6 +51,8 @@ type RowIdentity struct {
 	Kind      string           `json:"kind"`
 	Dimension domain.Dimension `json:"dimension,omitempty"`
 	Key       string           `json:"key"`
+	Currency  domain.Currency  `json:"currency,omitempty"`
+	Scale     uint8            `json:"scale,omitempty"`
 }
 
 // InteractionStep applies one named state transition and records its complete result.
@@ -58,8 +60,8 @@ type InteractionStep struct {
 	Operation string            `json:"operation"`
 	Target    *RowIdentity      `json:"target,omitempty"`
 	Position  *app.ViewPosition `json:"position,omitempty"`
-	Delta     int               `json:"delta,omitempty"`
-	Search    string            `json:"search,omitempty"`
+	Delta     *int              `json:"delta,omitempty"`
+	Search    *string           `json:"search,omitempty"`
 	Filters   *app.Filters      `json:"filters,omitempty"`
 	Expected  *InteractionState `json:"expected"`
 	Returned  *app.ViewPosition `json:"returned_position,omitempty"`
@@ -122,8 +124,51 @@ func validateScenario(scenario InteractionScenario) error {
 		if operationNeedsTarget(step.Operation) && (step.Target == nil || step.Target.Key == "") {
 			return fmt.Errorf("steps[%d]: operation %q requires a stable target", index, step.Operation)
 		}
+		if !operationNeedsTarget(step.Operation) && step.Target != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept a target", index, step.Operation)
+		}
 		if step.Target != nil && step.Target.Kind != "aggregate" && step.Target.Kind != "transaction" {
 			return fmt.Errorf("steps[%d]: invalid target kind %q", index, step.Target.Kind)
+		}
+		if step.Operation == "drill" && step.Target.Kind != "aggregate" {
+			return fmt.Errorf("steps[%d]: drill requires an aggregate target", index)
+		}
+		if step.Target != nil && step.Target.Kind == "aggregate" && !step.Target.Dimension.Valid() {
+			return fmt.Errorf("steps[%d]: aggregate target requires a dimension", index)
+		}
+		if step.Target != nil && step.Target.Kind == "transaction" &&
+			(step.Target.Dimension != "" || step.Target.Currency != "" || step.Target.Scale != 0) {
+			return fmt.Errorf("steps[%d]: transaction target contains aggregate fields", index)
+		}
+		if step.Operation == "set_filters" && step.Filters == nil {
+			return fmt.Errorf("steps[%d]: set_filters requires filters", index)
+		}
+		if step.Operation != "set_filters" && step.Filters != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept filters", index, step.Operation)
+		}
+		if step.Operation == "set_search" && step.Search == nil {
+			return fmt.Errorf("steps[%d]: set_search requires search", index)
+		}
+		if step.Operation != "set_search" && step.Search != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept search", index, step.Operation)
+		}
+		if step.Operation == "navigate_period" && (step.Delta == nil || *step.Delta == 0) {
+			return fmt.Errorf("steps[%d]: navigate_period requires nonzero delta", index)
+		}
+		if step.Operation != "navigate_period" && step.Delta != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept delta", index, step.Operation)
+		}
+		if step.Operation == "drill" && step.Position == nil {
+			return fmt.Errorf("steps[%d]: drill requires position", index)
+		}
+		if step.Operation != "drill" && step.Position != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept position", index, step.Operation)
+		}
+		if step.Operation == "back" && step.Returned == nil {
+			return fmt.Errorf("steps[%d]: back requires returned_position", index)
+		}
+		if step.Operation != "back" && step.Returned != nil {
+			return fmt.Errorf("steps[%d]: operation %q does not accept returned_position", index, step.Operation)
 		}
 	}
 	return nil

@@ -14,13 +14,19 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.width = max(message.Width, 0)
 		model.height = max(message.Height, 0)
 		model.ensureCursorVisible()
+		if model.overlay == overlayHelp {
+			model.help.scroll = min(model.help.scroll, model.helpMaxScroll())
+		}
 		return model, nil
 	case tea.KeyPressMsg:
-		if matchAction(message, model.bindings) == actionQuit {
+		if message.Keystroke() == "ctrl+c" {
 			return model, tea.Quit
 		}
 		if model.overlay != overlayNone {
 			return model, model.routeOverlay(message)
+		}
+		if matchAction(message, model.bindings) == actionQuit {
+			return model, tea.Quit
 		}
 		return model, model.routeKey(message)
 	}
@@ -35,12 +41,12 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeFilters(message)
 	case overlayHelp:
 		switch message.Keystroke() {
-		case "?", "esc":
+		case "?", "esc", "enter":
 			model.overlay = overlayNone
 		case "up", "k":
 			model.help.scroll = max(0, model.help.scroll-1)
 		case "down", "j":
-			model.help.scroll++
+			model.help.scroll = min(model.helpMaxScroll(), model.help.scroll+1)
 		}
 	}
 	return nil
@@ -143,7 +149,7 @@ func (model *Model) toggleSelection() {
 	if model.result.DetailRows != nil {
 		model.session.ToggleTransactionSelection(model.result.DetailRows[model.cursor].Transaction.ID)
 	} else {
-		model.session.ToggleAggregateSelection(model.result.AggregateRows[model.cursor].Key)
+		model.session.ToggleAggregateSelection(app.AggregateIdentity(model.result.AggregateRows[model.cursor]))
 	}
 	model.refresh()
 }

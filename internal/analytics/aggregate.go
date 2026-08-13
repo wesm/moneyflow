@@ -57,6 +57,10 @@ func Aggregate(
 				categoryActivities: make(map[string]uint64),
 			}
 			accumulators[mapKey] = value
+		} else if label < value.row.Label {
+			// Provider labels may drift while stable IDs remain the same. Choosing the
+			// smallest label makes aggregation independent of transaction order.
+			value.row.Label = label
 		}
 		value.row.Count++
 		if transaction.Hidden {

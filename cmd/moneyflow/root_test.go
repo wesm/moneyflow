@@ -72,6 +72,21 @@ func TestRootDemoAndDefaultStartFixtureTUI(t *testing.T) {
 	}
 }
 
+func TestRootDefaultFixtureWorksOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	var calls int
+	command := newRootCommand(IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		RunTUI: func(*app.Service, app.Session, tui.Options, IOStreams) error {
+			calls++
+			return nil
+		},
+	})
+	require.NoError(t, command.Execute())
+	assert.Equal(t, 1, calls)
+}
+
 func TestRootDemoValidatesBeforeRunner(t *testing.T) {
 	t.Parallel()
 

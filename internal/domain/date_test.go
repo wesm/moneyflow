@@ -28,6 +28,13 @@ func TestDateConstructionAndJSON(t *testing.T) {
 	assert.Equal(t, date, decoded)
 }
 
+func TestDateJSONRejectsZeroValue(t *testing.T) {
+	t.Parallel()
+
+	_, err := json.Marshal(Date{})
+	assert.Error(t, err)
+}
+
 func TestParseDateRejectsInvalidValues(t *testing.T) {
 	t.Parallel()
 

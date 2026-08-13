@@ -12,7 +12,10 @@ func (model *Model) openSearch() tea.Cmd {
 	input.SetWidth(max(20, min(70, model.width-12)))
 	input.SetValue(model.session.Search)
 	input.CursorEnd()
-	model.search = searchState{input: input, original: model.session.Search}
+	model.search = searchState{
+		input: input, originalSession: model.session.Clone(),
+		originalCursor: model.cursor, originalScroll: model.scroll,
+	}
 	model.overlay = overlaySearch
 	model.status = ""
 	return model.search.input.Focus()
@@ -27,8 +30,10 @@ func (model *Model) routeSearch(message tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	case "esc":
-		model.session.SetSearch(model.search.original)
+		model.session = model.search.originalSession.Clone()
 		model.refresh()
+		model.cursor, model.scroll = model.search.originalCursor, model.search.originalScroll
+		model.clampCursor()
 		model.search.input.Blur()
 		model.overlay = overlayNone
 		return nil

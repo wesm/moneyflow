@@ -42,6 +42,8 @@ func TestThemeResolutionIsDeterministic(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, plain.Text.Foreground)
 	assert.True(t, plain.Heading.Bold)
+	assert.True(t, plain.Selection.Reverse)
+	assert.False(t, trueColor.Selection.Reverse)
 }
 
 func TestResolveColorMode(t *testing.T) {

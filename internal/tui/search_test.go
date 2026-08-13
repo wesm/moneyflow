@@ -13,16 +13,18 @@ import (
 func TestSearchIncrementalAcceptCancelAndClear(t *testing.T) {
 	t.Parallel()
 
-	model := newTestModel(t, app.NewSession())
+	session := app.NewSession()
+	session.ShowAllDetail()
+	model := newTestModel(t, session)
 	model = press(t, model, keyRune('/'))
 	require.Equal(t, overlaySearch, model.overlay)
 	for _, character := range "GROC" {
 		model = press(t, model, keyRune(character))
 	}
 	assert.Equal(t, "GROC", model.session.Search)
-	require.NotEmpty(t, model.result.AggregateRows)
-	for _, row := range model.result.AggregateRows {
-		assert.Contains(t, row.Label, "Grocer")
+	require.NotEmpty(t, model.result.DetailRows)
+	for _, row := range model.result.DetailRows {
+		assert.Contains(t, row.Transaction.Merchant.Name, "Grocer")
 	}
 
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -58,4 +60,21 @@ func TestSearchInvalidAndEmptyResultsStaySafe(t *testing.T) {
 	assert.Zero(t, model.scroll)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
+}
+
+func TestSearchCancelRestoresSessionAnchorAndViewport(t *testing.T) {
+	t.Parallel()
+
+	session := app.NewSession()
+	session.ShowAllDetail()
+	model := newTestModel(t, session)
+	model.cursor, model.scroll = 1, 1
+	originalIdentity := model.rowIdentity(model.cursor)
+	model = press(t, model, keyRune('/'))
+	model = press(t, model, keyRune('q'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Empty(t, model.session.Search)
+	assert.Equal(t, 1, model.cursor)
+	assert.Equal(t, 1, model.scroll)
+	assert.Equal(t, originalIdentity, model.rowIdentity(model.cursor))
 }

@@ -119,13 +119,12 @@ func Truncate(value string, width int) string {
 	}
 	var result strings.Builder
 	used := 0
-	for _, character := range value {
-		characterWidth := lipgloss.Width(string(character))
-		if used+characterWidth > width-1 {
+	for _, cluster := range graphemeClusters(value) {
+		if used+cluster.width > width-1 {
 			break
 		}
-		result.WriteRune(character)
-		used += characterWidth
+		result.WriteString(cluster.value)
+		used += cluster.width
 	}
 	return result.String() + "…"
 }

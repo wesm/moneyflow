@@ -8,6 +8,18 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+// AggregateIdentity returns a stable identity for one dimension and money partition.
+func AggregateIdentity(row domain.AggregateRow) string {
+	return fmt.Sprintf(
+		"%s:%d:%s:%d:%s",
+		row.Dimension,
+		len(row.Key),
+		row.Key,
+		row.Total.Scale,
+		row.Total.Currency,
+	)
+}
+
 // Service owns the immutable normalized transaction set used by every interface.
 type Service struct {
 	transactions []domain.Transaction
@@ -48,7 +60,8 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 		result.DetailRows[index].Flags.Pending = false
 	}
 	for index := range result.AggregateRows {
-		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[result.AggregateRows[index].Key]
+		identity := AggregateIdentity(result.AggregateRows[index])
+		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[identity]
 	}
 	return result.Clone(), nil
 }

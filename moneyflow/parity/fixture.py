@@ -1,6 +1,7 @@
 """Strict loader and existing-Polars adapter for the shared parity fixture."""
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -59,7 +60,7 @@ def load_document(path: Path) -> FixtureDocument:
         currency = _mapping(value, field)
         _exact_keys(currency, CURRENCY_KEYS, field)
         code = _nonempty_string(currency["code"], f"{field}.code")
-        if len(code) != 3 or not code.isascii() or not code.isupper():
+        if re.fullmatch(r"[A-Z]{3}", code) is None:
             raise ValueError(f"load fixture: {field}.code is invalid")
         scale = currency["scale"]
         if isinstance(scale, bool) or not isinstance(scale, int) or not 0 <= scale <= 255:
@@ -141,6 +142,8 @@ def _validate_transaction(
     normalized["merchant"] = _entity(transaction["merchant"], f"{field}.merchant")
     normalized["category"] = _category(transaction["category"], f"{field}.category")
     date_text = _nonempty_string(transaction["date"], f"{field}.date")
+    if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date_text) is None:
+        raise ValueError(f"load fixture: {field}.date is invalid")
     try:
         date.fromisoformat(date_text)
     except ValueError as error:
@@ -150,6 +153,8 @@ def _validate_transaction(
     if currency not in currencies:
         raise ValueError(f"load fixture: {field}.currency is undeclared")
     amount = _nonempty_string(transaction["amount"], f"{field}.amount")
+    if re.fullmatch(r"[+-]?[0-9]+(?:\.[0-9]+)?", amount) is None:
+        raise ValueError(f"load fixture: {field}.amount is invalid")
     try:
         decimal = Decimal(amount)
     except InvalidOperation as error:
@@ -157,6 +162,9 @@ def _validate_transaction(
     exponent = decimal.as_tuple().exponent
     if not decimal.is_finite() or not isinstance(exponent, int) or exponent < -currencies[currency]:
         raise ValueError(f"load fixture: {field}.amount exceeds currency scale")
+    minor = decimal * (10 ** currencies[currency])
+    if minor < -(2**63) or minor > 2**63 - 1:
+        raise ValueError(f"load fixture: {field}.amount exceeds integer range")
     normalized["amount"] = amount
     normalized["currency"] = currency
     for name in ("hidden", "pending"):

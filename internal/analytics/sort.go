@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"math/big"
 	"sort"
 	"strings"
 
@@ -38,7 +39,7 @@ func compareAggregatePrimary(left, right domain.AggregateRow, field domain.SortF
 	case domain.SortFieldCount:
 		return compareInt(left.Count, right.Count)
 	case domain.SortFieldAmount:
-		return compareInt64(left.Total.Minor, right.Total.Minor)
+		return compareScaledMinor(left.Total.Minor, left.Total.Scale, right.Total.Minor, right.Total.Scale)
 	case domain.SortFieldTimePeriod:
 		return comparePeriodPointers(left.Period, right.Period)
 	case domain.SortFieldMerchant, domain.SortFieldCategory, domain.SortFieldGroup, domain.SortFieldAccount:
@@ -107,4 +108,18 @@ func compareInt64(left, right int64) int {
 	default:
 		return 0
 	}
+}
+
+func compareScaledMinor(left int64, leftScale uint8, right int64, rightScale uint8) int {
+	if leftScale == rightScale {
+		return compareInt64(left, right)
+	}
+	leftValue := big.NewInt(left)
+	rightValue := big.NewInt(right)
+	if leftScale < rightScale {
+		leftValue.Mul(leftValue, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(rightScale-leftScale)), nil))
+	} else {
+		rightValue.Mul(rightValue, new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(leftScale-rightScale)), nil))
+	}
+	return leftValue.Cmp(rightValue)
 }

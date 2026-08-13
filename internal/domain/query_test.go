@@ -60,6 +60,13 @@ func TestEnumJSONRejectsUnknownValue(t *testing.T) {
 	assert.Error(t, json.Unmarshal([]byte(`"unknown"`), &mode))
 	var field SortField
 	assert.Error(t, json.Unmarshal([]byte(`"unknown"`), &field))
+	for _, value := range []any{
+		Dimension("unknown"), ResultMode("unknown"), SortDirection("unknown"),
+		SortField("unknown"), TimeGranularity("unknown"),
+	} {
+		_, err := json.Marshal(value)
+		assert.Error(t, err)
+	}
 }
 
 func TestQuerySpecValidate(t *testing.T) {
@@ -98,6 +105,14 @@ func TestQuerySpecRejectsInvalidCombinations(t *testing.T) {
 		"time without period": func(query *QuerySpec) {
 			query.Drilldowns = []Drilldown{{Dimension: DimensionTime, Key: "2024", Label: "2024"}}
 		},
+		"time with string identity": func(query *QuerySpec) {
+			query.Drilldowns = []Drilldown{{
+				Dimension: DimensionTime,
+				Key:       "2024",
+				Label:     "2025",
+				Period:    &Period{Granularity: TimeGranularityYear, Year: 2024},
+			}}
+		},
 		"date aggregate sort":  func(query *QuerySpec) { query.Sort.Field = SortFieldDate },
 		"wrong dimension sort": func(query *QuerySpec) { query.Sort.Field = SortFieldCategory },
 	}
@@ -123,6 +138,11 @@ func TestDetailQuerySortValidation(t *testing.T) {
 		query := QuerySpec{Mode: ResultModeDetail, TimeGranularity: TimeGranularityYear, Sort: SortSpec{Field: field, Direction: SortDirectionDesc}}
 		assert.Error(t, query.Validate(), field)
 	}
+	query := QuerySpec{
+		Mode: ResultModeDetail, GroupBy: "invalid", TimeGranularity: TimeGranularityYear,
+		Sort: SortSpec{Field: SortFieldDate, Direction: SortDirectionDesc},
+	}
+	assert.Error(t, query.Validate())
 }
 
 func TestQuerySpecCloneCopiesNestedValues(t *testing.T) {

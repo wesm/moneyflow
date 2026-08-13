@@ -42,13 +42,14 @@ func TestUpdateDrillSortSelectionAndRestoration(t *testing.T) {
 	model := newTestModel(t, app.NewSession())
 	model = press(t, model, keyRune('j'))
 	selectedKey := model.result.AggregateRows[model.cursor].Key
+	selectedIdentity := app.AggregateIdentity(model.result.AggregateRows[model.cursor])
 	model = press(t, model, keyRune('v'))
 	assert.Equal(t, selectedKey, model.result.AggregateRows[model.cursor].Key)
 	model = press(t, model, keyRune('s'))
 	assert.Equal(t, selectedKey, model.result.AggregateRows[model.cursor].Key)
 
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
-	assert.Contains(t, model.session.SelectedAggregateKeys, selectedKey)
+	assert.Contains(t, model.session.SelectedAggregateKeys, selectedIdentity)
 	model = press(t, model, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 	assert.Len(t, model.session.SelectedAggregateKeys, len(model.result.AggregateRows))
 
@@ -82,7 +83,7 @@ func TestUpdateTimeAndUnavailableActions(t *testing.T) {
 	assert.Equal(t, "Unavailable in read-only Go preview", model.status)
 }
 
-func TestUpdateQuitAlwaysWorks(t *testing.T) {
+func TestUpdateQuitRespectsTextInputOverlays(t *testing.T) {
 	t.Parallel()
 
 	model := newTestModel(t, app.NewSession())
@@ -92,7 +93,14 @@ func TestUpdateQuitAlwaysWorks(t *testing.T) {
 	_, command = model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	assert.NotNil(t, command)
 	model = press(t, model, keyRune('/'))
-	_, command = model.Update(keyRune('q'))
+	updated, command := model.Update(keyRune('q'))
+	model = updated.(Model)
+	assert.Equal(t, "q", model.search.input.Value())
+	if command != nil {
+		_, quitting := command().(tea.QuitMsg)
+		assert.False(t, quitting)
+	}
+	_, command = model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	assert.NotNil(t, command)
 }
 

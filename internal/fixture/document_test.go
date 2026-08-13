@@ -75,13 +75,17 @@ func TestLoadRejectsInvalidDocuments(t *testing.T) {
 		"unknown currency": strings.Replace(validDocument, `"currency": "USD"`, `"currency": "EUR"`, 1),
 		"invalid currency": strings.ReplaceAll(validDocument, `"USD"`, `"usd"`),
 		"duplicate id":     duplicateDocument(t),
+		"missing scale":    strings.Replace(validDocument, `, "scale": 2`, ``, 1),
+		"null currencies":  strings.Replace(validDocument, `[{"code": "USD", "scale": 2}]`, `null`, 1),
+		"missing hidden":   strings.Replace(validDocument, `    "hidden": false,`, ``, 1),
+		"null pending":     strings.Replace(validDocument, `"pending": false`, `"pending": null`, 1),
 	}
 
 	for name, document := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			_, err := Load(writeDocument(t, document))
-			assert.Error(t, err)
+			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "Synthetic transaction")
 		})
 	}

@@ -70,10 +70,31 @@ func TestServiceDecoratesSelectionsWithoutMutatingAnalytics(t *testing.T) {
 	base, err := service.Query(session)
 	require.NoError(t, err)
 	require.Len(t, base.AggregateRows, 1)
-	session.ToggleAggregateSelection(base.AggregateRows[0].Key)
+	session.ToggleAggregateSelection(AggregateIdentity(base.AggregateRows[0]))
 	result, err = service.Query(session)
 	require.NoError(t, err)
 	assert.True(t, result.AggregateRows[0].Flags.Selected)
+}
+
+func TestServiceAggregateSelectionUsesMoneyPartitionIdentity(t *testing.T) {
+	t.Parallel()
+
+	usd := appTransaction(t, "usd", "2024-01-01", "-1.00", "Example", "Category", "Group")
+	eur := usd.Clone()
+	eur.ID = "eur"
+	eur.ProviderID = "provider-eur"
+	eur.Amount.Currency = "EUR"
+	service, err := NewService([]domain.Transaction{usd, eur})
+	require.NoError(t, err)
+	session := NewSession()
+	result, err := service.Query(session)
+	require.NoError(t, err)
+	require.Len(t, result.AggregateRows, 2)
+
+	session.ToggleAggregateSelection(AggregateIdentity(result.AggregateRows[0]))
+	selected, err := service.Query(session)
+	require.NoError(t, err)
+	assert.NotEqual(t, selected.AggregateRows[0].Flags.Selected, selected.AggregateRows[1].Flags.Selected)
 }
 
 func appTransaction(

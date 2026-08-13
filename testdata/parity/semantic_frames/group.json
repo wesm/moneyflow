@@ -88,11 +88,11 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "Living",
-    "Transportation",
-    "Discretionary",
-    "Uncategorized",
-    "Income"
+    "group:6:Living:2:USD",
+    "group:14:Transportation:2:USD",
+    "group:13:Discretionary:2:USD",
+    "group:13:Uncategorized:2:USD",
+    "group:6:Income:2:USD"
   ],
   "width": 150
 }
