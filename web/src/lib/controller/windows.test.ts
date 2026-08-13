@@ -42,6 +42,13 @@ function projection(query: string, offset: number, total: number): ViewProjectio
     api_schema_version: '1',
     projection_schema_version: '1',
     canonical_query: query,
+    view: {
+      mode: 'detail',
+      grouping: 'merchant',
+      time_granularity: 'year',
+      sort_field: 'date',
+      sort_direction: 'desc',
+    },
     selection: 'mfsel1.example' as ViewProjection['selection'],
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',

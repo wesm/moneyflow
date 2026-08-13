@@ -71,6 +71,13 @@ function projection(selection: string, minor: string): ViewProjection {
     api_schema_version: '1',
     projection_schema_version: '1',
     canonical_query: 'v=1',
+    view: {
+      mode: 'detail',
+      grouping: 'merchant',
+      time_granularity: 'year',
+      sort_field: 'date',
+      sort_direction: 'desc',
+    },
     selection: selection as ViewProjection['selection'],
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',

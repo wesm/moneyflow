@@ -360,6 +360,8 @@ components:
         total_rows:
           format: int64
           type: integer
+        view:
+          $ref: "#/components/schemas/ViewMetadata"
         warnings:
           items:
             $ref: "#/components/schemas/Warning"
@@ -373,6 +375,7 @@ components:
         - projection_schema_version
         - canonical_query
         - selection
+        - view
         - breadcrumbs
         - breadcrumb_text
         - filters
@@ -502,6 +505,28 @@ components:
       required:
         - query
         - window
+      type: object
+    ViewMetadata:
+      additionalProperties: false
+      properties:
+        grouping:
+          type: string
+        mode:
+          type: string
+        search:
+          type: string
+        sort_direction:
+          type: string
+        sort_field:
+          type: string
+        time_granularity:
+          type: string
+      required:
+        - mode
+        - grouping
+        - time_granularity
+        - sort_field
+        - sort_direction
       type: object
     Warning:
       additionalProperties: false

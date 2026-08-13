@@ -78,3 +78,14 @@ func TestWireRequestShapesUseOpaqueSelectionAndBoundedWindow(t *testing.T) {
 	assert.Contains(t, string(data), `"selection":"mfsel1.`)
 	assert.NotContains(t, string(data), `"ids"`)
 }
+
+func TestWireProjectionIncludesServerDerivedViewMetadata(t *testing.T) {
+	t.Parallel()
+
+	projection := app.WebProjection{State: app.DefaultViewState(), Selection: app.EmptySelection()}
+	wire := projectionToWire(projection, "v=1", nil)
+	assert.Equal(t, string(projection.State.Current.Mode), wire.View.Mode)
+	assert.Equal(t, string(projection.State.Current.Dimension), wire.View.Grouping)
+	assert.Equal(t, string(projection.State.Current.Sort.Field), wire.View.SortField)
+	assert.Equal(t, string(projection.State.Current.Sort.Direction), wire.View.SortDirection)
+}

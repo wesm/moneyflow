@@ -177,12 +177,23 @@ type ReturnedWindow struct {
 	Count  int `json:"count"`
 }
 
+// ViewMetadata contains server-derived analytical labels and sort state.
+type ViewMetadata struct {
+	Mode            string `json:"mode"`
+	Grouping        string `json:"grouping"`
+	TimeGranularity string `json:"time_granularity"`
+	Search          string `json:"search,omitempty"`
+	SortField       string `json:"sort_field"`
+	SortDirection   string `json:"sort_direction"`
+}
+
 // Projection is the strict browser-facing view contract.
 type Projection struct {
 	APISchemaVersion        string         `json:"api_schema_version"`
 	ProjectionSchemaVersion string         `json:"projection_schema_version"`
 	CanonicalQuery          string         `json:"canonical_query"`
 	Selection               string         `json:"selection"`
+	View                    ViewMetadata   `json:"view"`
 	Breadcrumbs             []Breadcrumb   `json:"breadcrumbs"`
 	BreadcrumbText          string         `json:"breadcrumb_text"`
 	Filters                 ActiveFilters  `json:"filters"`
@@ -205,6 +216,14 @@ func projectionToWire(
 	wire := Projection{
 		APISchemaVersion: APISchemaVersion, ProjectionSchemaVersion: ProjectionSchemaVersion,
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
+		View: ViewMetadata{
+			Mode:            string(projection.State.Current.Mode),
+			Grouping:        string(projection.State.Current.Dimension),
+			TimeGranularity: string(projection.State.Current.TimeGranularity),
+			Search:          projection.State.Current.Search,
+			SortField:       string(projection.State.Current.Sort.Field),
+			SortDirection:   string(projection.State.Current.Sort.Direction),
+		},
 		BreadcrumbText: projection.BreadcrumbText, Filters: filtersToWire(projection.Filters),
 		TotalRows: projection.TotalRows,
 		Window: ReturnedWindow{

@@ -217,6 +217,7 @@ export interface components {
       status?: string
       /** Format: int64 */
       total_rows: number
+      view: components['schemas']['ViewMetadata']
       warnings?: components['schemas']['Warning'][] | null
       window: components['schemas']['ReturnedWindow']
     }
@@ -266,6 +267,14 @@ export interface components {
       query: string
       selection?: string
       window: components['schemas']['Window']
+    }
+    ViewMetadata: {
+      grouping: string
+      mode: string
+      search?: string
+      sort_direction: string
+      sort_field: string
+      time_granularity: string
     }
     Warning: {
       code: string

@@ -76,6 +76,91 @@ input {
   color: var(--text-muted);
 }
 
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell__main {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.app-shell__table {
+  min-width: 0;
+  min-height: 0;
+}
+.refinement-bar {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.refinement-bar__trail {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+.finance-grid {
+  height: 100%;
+  overflow: auto;
+  outline: none;
+  font-size: var(--font-size-sm);
+}
+.finance-grid:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.finance-grid__header,
+.finance-grid [role='row'] {
+  min-width: 48rem;
+  display: grid;
+  grid-template-columns: 7rem 10rem minmax(10rem, 1fr) minmax(10rem, 1fr) 9rem;
+  min-height: 34px;
+  align-items: center;
+}
+.finance-grid__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: var(--font-weight-semibold);
+}
+.finance-grid [role='columnheader'],
+.finance-grid [role='gridcell'] {
+  padding: var(--space-3) var(--space-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finance-grid [role='row'] {
+  border-bottom: 1px solid var(--border-muted);
+}
+.finance-grid__row--active {
+  background: var(--bg-surface-hover);
+  box-shadow: inset 3px 0 var(--moneyflow-focus);
+}
+.finance-grid__row--hidden {
+  opacity: var(--opacity-disabled);
+}
+.finance-grid .money {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+@media (max-width: 900px) {
+  .app-shell__main {
+    grid-template-columns: 1fr;
+  }
+}
+
 .moneyflow-actions {
   display: flex;
   gap: var(--space-4);
