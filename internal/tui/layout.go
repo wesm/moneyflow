@@ -101,6 +101,9 @@ func (model Model) RenderScreen() RenderedScreen {
 		Frame: frame, Regions: regions, Columns: ColumnStarts(columns), VisibleRowIDs: visibleIDs,
 		Breadcrumb: breadcrumbText, Stats: statsText, Flags: flags, SelectionIDs: selectionIDs, Hints: hintsText,
 	}
+	if model.overlay != overlayNone {
+		screen.Frame = NewFrame(model.width, model.height, cellFromStyle(" ", model.palette.Background))
+	}
 	model.renderOverlay(&screen)
 	return screen
 }
@@ -162,25 +165,31 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 }
 
 func (model Model) renderSearchOverlay(screen *RenderedScreen) {
-	rect := centeredRect(model.width, model.height, min(90, model.width-4), 7)
-	drawOverlayBox(&screen.Frame, rect, model.palette, "Search")
-	input := Rect{X: rect.X + 2, Y: rect.Y + 2, Width: rect.Width - 4, Height: 1}
+	rect := responsiveOverlayRect(model.width, model.height, 60, 12)
+	fillRect(&screen.Frame, rect, model.palette.Panel)
+	title := overlayTitle(&screen.Frame, rect, "🔍 Search Transactions", model.palette.Heading)
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + 2, Width: rect.Width, Height: 1},
+		"Type to search merchant or category names", model.palette.Muted)
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + 3, Width: rect.Width, Height: 1},
+		"Press Enter with empty search to clear filter", model.palette.Muted)
+	inputBox := Rect{X: rect.X, Y: rect.Y + 6, Width: rect.Width, Height: 3}
+	drawOverlayBox(&screen.Frame, inputBox, model.palette, "")
+	input := Rect{X: inputBox.X + 2, Y: inputBox.Y + 1, Width: inputBox.Width - 4, Height: 1}
 	value := model.search.input.Value()
 	if value == "" {
 		value = "merchant or category regex"
 	}
-	screen.Frame.PutText(input.X, input.Y, Truncate("/ "+value, input.Width), model.palette.Text)
+	screen.Frame.PutText(input.X, input.Y, Truncate(value, input.Width), model.palette.Text)
 	if model.search.err != "" {
-		screen.Frame.PutText(input.X, input.Y+1, Truncate(model.search.err, input.Width), model.palette.Warning)
+		screen.Frame.PutText(rect.X, rect.Y+9, Truncate(model.search.err, rect.Width), model.palette.Warning)
 	}
-	actions := Rect{X: input.X, Y: rect.Y + rect.Height - 2, Width: input.Width, Height: 1}
-	screen.Frame.PutText(actions.X, actions.Y, "enter Apply  esc Cancel", model.palette.Muted)
+	actions := Rect{X: rect.X, Y: rect.Y + rect.Height - 1, Width: rect.Width, Height: 1}
+	putCentered(&screen.Frame, actions, "Enter=Apply | Esc=Cancel", model.palette.Muted)
 	screen.Regions = append(screen.Regions,
 		NamedRegion{Name: "search_overlay", Rect: rect},
 		NamedRegion{Name: "search_input", Rect: input},
 		NamedRegion{Name: "search_actions", Rect: actions},
 	)
-	title := semanticOverlayTitle(screen, 60, 12, "🔍 Search Transactions", model.palette.Heading)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "search_semantic", Rect: title})
 	screen.Overlay = []string{
 		"🔍 Search Transactions",
@@ -191,32 +200,32 @@ func (model Model) renderSearchOverlay(screen *RenderedScreen) {
 }
 
 func (model Model) renderFilterOverlay(screen *RenderedScreen) {
-	rect := centeredRect(model.width, model.height, min(70, model.width-4), 14)
-	drawOverlayBox(&screen.Frame, rect, model.palette, "Filters")
-	x, width := rect.X+2, rect.Width-4
+	rect := responsiveOverlayRect(model.width, model.height, 40, 18)
+	fillRect(&screen.Frame, rect, model.palette.Panel)
+	title := overlayTitle(&screen.Frame, rect, "🔍 Filter Options", model.palette.Heading)
+	x, width := rect.X+1, rect.Width-2
 	filterLine(&screen.Frame, x, rect.Y+2, width, model.filters.focus == filterStart,
 		"Start date", model.filters.start.Value(), model.palette)
 	filterLine(&screen.Frame, x, rect.Y+3, width, model.filters.focus == filterEnd,
 		"End date", model.filters.end.Value(), model.palette)
-	filterLine(&screen.Frame, x, rect.Y+5, width, model.filters.focus == filterHidden,
+	filterLine(&screen.Frame, x, rect.Y+6, width, model.filters.focus == filterHidden,
 		"Show hidden", checkbox(model.filters.showHidden), model.palette)
-	filterLine(&screen.Frame, x, rect.Y+6, width, model.filters.focus == filterTransfers,
+	filterLine(&screen.Frame, x, rect.Y+7, width, model.filters.focus == filterTransfers,
 		"Show transfers", checkbox(model.filters.showTransfers), model.palette)
-	filterLine(&screen.Frame, x, rect.Y+8, width, model.filters.focus == filterApply,
+	filterLine(&screen.Frame, x, rect.Y+11, width, model.filters.focus == filterApply,
 		"Apply", "", model.palette)
-	filterLine(&screen.Frame, x, rect.Y+9, width, model.filters.focus == filterCancel,
+	filterLine(&screen.Frame, x, rect.Y+12, width, model.filters.focus == filterCancel,
 		"Cancel", "", model.palette)
 	if model.filters.err != "" {
-		screen.Frame.PutText(x, rect.Y+10, Truncate(model.filters.err, width), model.palette.Warning)
+		screen.Frame.PutText(x, rect.Y+14, Truncate(model.filters.err, width), model.palette.Warning)
 	}
-	actions := Rect{X: x, Y: rect.Y + rect.Height - 2, Width: width, Height: 1}
-	screen.Frame.PutText(actions.X, actions.Y, "tab Move  space Toggle  enter Choose  esc Cancel", model.palette.Muted)
+	actions := Rect{X: rect.X, Y: rect.Y + rect.Height - 1, Width: rect.Width, Height: 1}
+	putCentered(&screen.Frame, actions, "Tab=Move | Space=Toggle | Esc=Cancel", model.palette.Muted)
 	screen.Regions = append(screen.Regions,
 		NamedRegion{Name: "filter_overlay", Rect: rect},
-		NamedRegion{Name: "filter_focus", Rect: Rect{X: x, Y: rect.Y + 2, Width: width, Height: 8}},
+		NamedRegion{Name: "filter_focus", Rect: Rect{X: x, Y: rect.Y + 2, Width: width, Height: 11}},
 		NamedRegion{Name: "filter_actions", Rect: actions},
 	)
-	title := semanticOverlayTitle(screen, 40, 18, "🔍 Filter Options", model.palette.Heading)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "filter_semantic", Rect: title})
 	screen.Overlay = []string{
 		"🔍 Filter Options",
@@ -229,41 +238,50 @@ func (model Model) renderFilterOverlay(screen *RenderedScreen) {
 }
 
 func (model Model) renderHelpOverlay(screen *RenderedScreen) {
-	rect := centeredRect(model.width, model.height, min(110, model.width-4), min(44, model.height-4))
-	drawOverlayBox(&screen.Frame, rect, model.palette, "Help")
-	content := Rect{X: rect.X + 2, Y: rect.Y + 2, Width: rect.Width - 4, Height: rect.Height - 5}
+	rect := responsiveOverlayRect(model.width, model.height, 74, 37)
+	fillRect(&screen.Frame, rect, model.palette.Panel)
+	title := overlayTitle(&screen.Frame, rect, "moneyflow - Help", model.palette.Heading)
+	content := Rect{X: rect.X, Y: rect.Y + 2, Width: rect.Width, Height: max(3, rect.Height-7)}
+	drawOverlayBox(&screen.Frame, content, model.palette, "")
+	textRect := Rect{X: content.X + 2, Y: content.Y + 2, Width: content.Width - 4, Height: max(0, content.Height-3)}
 	lines := helpLines(model.bindings)
-	maximum := max(0, len(lines)-content.Height)
+	maximum := max(0, len(lines)-textRect.Height)
 	scroll := min(model.help.scroll, maximum)
-	for index := 0; index < content.Height && scroll+index < len(lines); index++ {
+	for index := 0; index < textRect.Height && scroll+index < len(lines); index++ {
 		style := model.palette.Text
 		if lines[scroll+index] == "moneyflow - Keyboard Shortcuts" {
 			style = model.palette.Heading
 		}
-		screen.Frame.PutText(content.X, content.Y+index, Truncate(lines[scroll+index], content.Width), style)
+		screen.Frame.PutText(textRect.X, textRect.Y+index, Truncate(lines[scroll+index], textRect.Width), style)
 	}
-	actions := Rect{X: content.X, Y: rect.Y + rect.Height - 2, Width: content.Width, Height: 1}
-	screen.Frame.PutText(actions.X, actions.Y, "j/k Scroll  ?/esc Close", model.palette.Muted)
+	footer := Rect{X: rect.X, Y: rect.Y + rect.Height - 4, Width: rect.Width, Height: 1}
+	putCentered(&screen.Frame, footer, "Esc=Close", model.palette.Muted)
+	actions := Rect{X: rect.X, Y: rect.Y + rect.Height - 3, Width: rect.Width, Height: 3}
+	drawOverlayBox(&screen.Frame, actions, model.palette, "")
+	putCentered(&screen.Frame, Rect{X: actions.X, Y: actions.Y + 1, Width: actions.Width, Height: 1},
+		"Close", model.palette.Text)
 	screen.Regions = append(screen.Regions,
 		NamedRegion{Name: "help_overlay", Rect: rect},
 		NamedRegion{Name: "help_content", Rect: content},
 		NamedRegion{Name: "help_actions", Rect: actions},
 	)
-	title := semanticOverlayTitle(screen, 74, 37, "moneyflow - Help", model.palette.Heading)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "help_semantic", Rect: title})
 	screen.Overlay = append(append([]string{}, helpLines(model.bindings)...), "Esc=Close", "Close")
 }
 
-func semanticOverlayTitle(screen *RenderedScreen, width int, height int, value string, style Style) Rect {
-	rect := centeredRect(screen.Frame.Width(), screen.Frame.Height(), width, height)
+func overlayTitle(frame *Frame, rect Rect, value string, style Style) Rect {
 	title := Rect{X: rect.X, Y: rect.Y, Width: rect.Width, Height: min(1, rect.Height)}
 	if title.Height > 0 {
-		fillRect(&screen.Frame, title, style)
+		fillRect(frame, title, style)
 		value = Truncate(value, title.Width)
 		x := title.X + max(0, (title.Width-lipgloss.Width(value))/2)
-		screen.Frame.PutText(x, title.Y, value, style)
+		frame.PutText(x, title.Y, value, style)
 	}
 	return title
+}
+
+func responsiveOverlayRect(width int, height int, desiredWidth int, desiredHeight int) Rect {
+	return centeredRect(width, height, min(desiredWidth, max(0, width-4)), min(desiredHeight, max(0, height-4)))
 }
 
 func centeredRect(width int, height int, rectWidth int, rectHeight int) Rect {
@@ -290,7 +308,9 @@ func drawOverlayBox(frame *Frame, rect Rect, palette Palette, title string) {
 	frame.PutText(rect.X+rect.Width-1, rect.Y, "┐", palette.Border)
 	frame.PutText(rect.X, rect.Y+rect.Height-1, "└", palette.Border)
 	frame.PutText(rect.X+rect.Width-1, rect.Y+rect.Height-1, "┘", palette.Border)
-	frame.PutText(rect.X+2, rect.Y, " "+title+" ", palette.Heading)
+	if title != "" {
+		frame.PutText(rect.X+2, rect.Y, " "+title+" ", palette.Heading)
+	}
 }
 
 func filterLine(frame *Frame, x int, y int, width int, focused bool, label string, value string, palette Palette) {
@@ -429,5 +449,11 @@ func putRight(frame *Frame, rect Rect, value string, style Style) {
 	if x < rect.X {
 		x = rect.X
 	}
+	frame.PutText(x, rect.Y, value, style)
+}
+
+func putCentered(frame *Frame, rect Rect, value string, style Style) {
+	value = Truncate(value, rect.Width)
+	x := rect.X + max(0, (rect.Width-lipgloss.Width(value))/2)
 	frame.PutText(x, rect.Y, value, style)
 }
