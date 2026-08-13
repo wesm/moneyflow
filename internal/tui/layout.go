@@ -65,7 +65,140 @@ func (model Model) RenderScreen() RenderedScreen {
 		regions = append(regions, NamedRegion{Name: "status", Rect: statusLine})
 	}
 	regions = append(regions, NamedRegion{Name: "hints", Rect: hints})
-	return RenderedScreen{Frame: frame, Regions: regions, Columns: ColumnStarts(columns)}
+	screen := RenderedScreen{Frame: frame, Regions: regions, Columns: ColumnStarts(columns)}
+	model.renderOverlay(&screen)
+	return screen
+}
+
+func (model Model) renderOverlay(screen *RenderedScreen) {
+	switch model.overlay {
+	case overlaySearch:
+		model.renderSearchOverlay(screen)
+	case overlayFilters:
+		model.renderFilterOverlay(screen)
+	case overlayHelp:
+		model.renderHelpOverlay(screen)
+	}
+}
+
+func (model Model) renderSearchOverlay(screen *RenderedScreen) {
+	rect := centeredRect(model.width, model.height, min(90, model.width-4), 7)
+	drawOverlayBox(&screen.Frame, rect, model.palette, "Search")
+	input := Rect{X: rect.X + 2, Y: rect.Y + 2, Width: rect.Width - 4, Height: 1}
+	value := model.search.input.Value()
+	if value == "" {
+		value = "merchant or category regex"
+	}
+	screen.Frame.PutText(input.X, input.Y, Truncate("/ "+value, input.Width), model.palette.Text)
+	if model.search.err != "" {
+		screen.Frame.PutText(input.X, input.Y+1, Truncate(model.search.err, input.Width), model.palette.Warning)
+	}
+	actions := Rect{X: input.X, Y: rect.Y + rect.Height - 2, Width: input.Width, Height: 1}
+	screen.Frame.PutText(actions.X, actions.Y, "enter Apply  esc Cancel", model.palette.Muted)
+	screen.Regions = append(screen.Regions,
+		NamedRegion{Name: "search_overlay", Rect: rect},
+		NamedRegion{Name: "search_input", Rect: input},
+		NamedRegion{Name: "search_actions", Rect: actions},
+	)
+}
+
+func (model Model) renderFilterOverlay(screen *RenderedScreen) {
+	rect := centeredRect(model.width, model.height, min(70, model.width-4), 14)
+	drawOverlayBox(&screen.Frame, rect, model.palette, "Filters")
+	x, width := rect.X+2, rect.Width-4
+	filterLine(&screen.Frame, x, rect.Y+2, width, model.filters.focus == filterStart,
+		"Start date", model.filters.start.Value(), model.palette)
+	filterLine(&screen.Frame, x, rect.Y+3, width, model.filters.focus == filterEnd,
+		"End date", model.filters.end.Value(), model.palette)
+	filterLine(&screen.Frame, x, rect.Y+5, width, model.filters.focus == filterHidden,
+		"Show hidden", checkbox(model.filters.showHidden), model.palette)
+	filterLine(&screen.Frame, x, rect.Y+6, width, model.filters.focus == filterTransfers,
+		"Show transfers", checkbox(model.filters.showTransfers), model.palette)
+	filterLine(&screen.Frame, x, rect.Y+8, width, model.filters.focus == filterApply,
+		"Apply", "", model.palette)
+	filterLine(&screen.Frame, x, rect.Y+9, width, model.filters.focus == filterCancel,
+		"Cancel", "", model.palette)
+	if model.filters.err != "" {
+		screen.Frame.PutText(x, rect.Y+10, Truncate(model.filters.err, width), model.palette.Warning)
+	}
+	actions := Rect{X: x, Y: rect.Y + rect.Height - 2, Width: width, Height: 1}
+	screen.Frame.PutText(actions.X, actions.Y, "tab Move  space Toggle  enter Choose  esc Cancel", model.palette.Muted)
+	screen.Regions = append(screen.Regions,
+		NamedRegion{Name: "filter_overlay", Rect: rect},
+		NamedRegion{Name: "filter_focus", Rect: Rect{X: x, Y: rect.Y + 2, Width: width, Height: 8}},
+		NamedRegion{Name: "filter_actions", Rect: actions},
+	)
+}
+
+func (model Model) renderHelpOverlay(screen *RenderedScreen) {
+	rect := centeredRect(model.width, model.height, min(110, model.width-4), min(44, model.height-4))
+	drawOverlayBox(&screen.Frame, rect, model.palette, "Help")
+	content := Rect{X: rect.X + 2, Y: rect.Y + 2, Width: rect.Width - 4, Height: rect.Height - 5}
+	lines := helpLines(model.bindings)
+	maximum := max(0, len(lines)-content.Height)
+	scroll := min(model.help.scroll, maximum)
+	for index := 0; index < content.Height && scroll+index < len(lines); index++ {
+		style := model.palette.Text
+		if lines[scroll+index] == "moneyflow - Keyboard Shortcuts" {
+			style = model.palette.Heading
+		}
+		screen.Frame.PutText(content.X, content.Y+index, Truncate(lines[scroll+index], content.Width), style)
+	}
+	actions := Rect{X: content.X, Y: rect.Y + rect.Height - 2, Width: content.Width, Height: 1}
+	screen.Frame.PutText(actions.X, actions.Y, "j/k Scroll  ?/esc Close", model.palette.Muted)
+	screen.Regions = append(screen.Regions,
+		NamedRegion{Name: "help_overlay", Rect: rect},
+		NamedRegion{Name: "help_content", Rect: content},
+		NamedRegion{Name: "help_actions", Rect: actions},
+	)
+}
+
+func centeredRect(width int, height int, rectWidth int, rectHeight int) Rect {
+	rectWidth = max(0, min(rectWidth, width))
+	rectHeight = max(0, min(rectHeight, height))
+	return Rect{X: (width - rectWidth) / 2, Y: (height - rectHeight) / 2, Width: rectWidth, Height: rectHeight}
+}
+
+func drawOverlayBox(frame *Frame, rect Rect, palette Palette, title string) {
+	fillRect(frame, rect, palette.Panel)
+	if rect.Width < 2 || rect.Height < 2 {
+		return
+	}
+	horizontal := "─"
+	for x := rect.X + 1; x < rect.X+rect.Width-1; x++ {
+		frame.PutText(x, rect.Y, horizontal, palette.Border)
+		frame.PutText(x, rect.Y+rect.Height-1, horizontal, palette.Border)
+	}
+	for y := rect.Y + 1; y < rect.Y+rect.Height-1; y++ {
+		frame.PutText(rect.X, y, "│", palette.Border)
+		frame.PutText(rect.X+rect.Width-1, y, "│", palette.Border)
+	}
+	frame.PutText(rect.X, rect.Y, "┌", palette.Border)
+	frame.PutText(rect.X+rect.Width-1, rect.Y, "┐", palette.Border)
+	frame.PutText(rect.X, rect.Y+rect.Height-1, "└", palette.Border)
+	frame.PutText(rect.X+rect.Width-1, rect.Y+rect.Height-1, "┘", palette.Border)
+	frame.PutText(rect.X+2, rect.Y, " "+title+" ", palette.Heading)
+}
+
+func filterLine(frame *Frame, x int, y int, width int, focused bool, label string, value string, palette Palette) {
+	style := palette.Text
+	prefix := "  "
+	if focused {
+		style = palette.Selection
+		prefix = "> "
+	}
+	text := prefix + label
+	if value != "" {
+		text += ": " + value
+	}
+	frame.PutText(x, y, Truncate(text, width), style)
+}
+
+func checkbox(checked bool) string {
+	if checked {
+		return "[x]"
+	}
+	return "[ ]"
 }
 
 func (model Model) renderResize(frame Frame) RenderedScreen {

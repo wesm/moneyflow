@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wesm/moneyflow/internal/app"
@@ -17,72 +16,100 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		model.ensureCursorVisible()
 		return model, nil
 	case tea.KeyPressMsg:
-		if key.Matches(message, model.keymap.quit) {
+		if matchAction(message, model.bindings) == actionQuit {
 			return model, tea.Quit
 		}
-		model.routeKey(message)
+		if model.overlay != overlayNone {
+			return model, model.routeOverlay(message)
+		}
+		return model, model.routeKey(message)
 	}
 	return model, nil
 }
 
-func (model *Model) routeKey(message tea.KeyPressMsg) {
-	switch {
-	case key.Matches(message, model.keymap.up):
+func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
+	switch model.overlay {
+	case overlaySearch:
+		return model.routeSearch(message)
+	case overlayFilters:
+		return model.routeFilters(message)
+	case overlayHelp:
+		switch message.Keystroke() {
+		case "?", "esc":
+			model.overlay = overlayNone
+		case "up", "k":
+			model.help.scroll = max(0, model.help.scroll-1)
+		case "down", "j":
+			model.help.scroll++
+		}
+	}
+	return nil
+}
+
+func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
+	switch matchAction(message, model.bindings) {
+	case actionUp:
 		model.cursor--
 		model.clampCursor()
-	case key.Matches(message, model.keymap.down):
+	case actionDown:
 		model.cursor++
 		model.clampCursor()
-	case key.Matches(message, model.keymap.top):
+	case actionTop:
 		model.cursor, model.scroll = 0, 0
-	case key.Matches(message, model.keymap.group):
+	case actionGroup:
 		model.session.CycleGrouping()
 		model.resetAndRefresh()
-	case key.Matches(message, model.keymap.detail):
+	case actionDetail:
 		model.session.ShowAllDetail()
 		model.resetAndRefresh()
-	case key.Matches(message, model.keymap.accounts):
+	case actionAccounts:
 		model.session.SwitchAccounts()
 		model.resetAndRefresh()
-	case key.Matches(message, model.keymap.drill):
+	case actionDrill:
 		model.drill()
-	case key.Matches(message, model.keymap.back):
+	case actionBack:
 		model.back()
-	case key.Matches(message, model.keymap.time):
+	case actionTime:
 		if model.timeContext() {
 			model.session.ToggleTimeGranularity()
 			model.resetAndRefresh()
 		}
-	case key.Matches(message, model.keymap.clearTime):
+	case actionClearTime:
 		if model.session.ClearTimePeriod() {
 			model.resetAndRefresh()
 		}
-	case key.Matches(message, model.keymap.left):
+	case actionLeft:
 		if model.session.NavigatePeriod(-1) {
 			model.resetAndRefresh()
 		}
-	case key.Matches(message, model.keymap.right):
+	case actionRight:
 		if model.session.NavigatePeriod(1) {
 			model.resetAndRefresh()
 		}
-	case key.Matches(message, model.keymap.sort):
+	case actionSort:
 		identity := model.rowIdentity(model.cursor)
 		model.session.CycleSort()
 		model.refreshPreserving(identity)
-	case key.Matches(message, model.keymap.reverse):
+	case actionReverse:
 		identity := model.rowIdentity(model.cursor)
 		model.session.ReverseSort()
 		model.refreshPreserving(identity)
-	case key.Matches(message, model.keymap.selectOne):
+	case actionSelectOne:
 		model.toggleSelection()
-	case key.Matches(message, model.keymap.selectAll):
+	case actionSelectAll:
 		model.session.ToggleSelectAll(model.result)
 		model.refresh()
-	default:
-		if unavailableKey(message.Keystroke()) {
-			model.status = "Unavailable in read-only Go preview"
-		}
+	case actionFilters:
+		return model.openFilters()
+	case actionSearch:
+		return model.openSearch()
+	case actionHelp:
+		model.help = helpState{}
+		model.overlay = overlayHelp
+	case actionUnavailable:
+		model.status = "Unavailable in read-only Go preview"
 	}
+	return nil
 }
 
 func (model *Model) drill() {
@@ -132,13 +159,4 @@ func (model Model) timeContext() bool {
 		return *model.session.SubGrouping == domain.DimensionTime
 	}
 	return model.session.Dimension == domain.DimensionTime
-}
-
-func unavailableKey(keyName string) bool {
-	switch keyName {
-	case "D", "m", "c", "C", "G", "h", "x", "i", "u", "w", "E":
-		return true
-	default:
-		return false
-	}
 }

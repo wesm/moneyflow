@@ -91,6 +91,9 @@ func TestUpdateQuitAlwaysWorks(t *testing.T) {
 	assert.NotNil(t, command)
 	_, command = model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	assert.NotNil(t, command)
+	model = press(t, model, keyRune('/'))
+	_, command = model.Update(keyRune('q'))
+	assert.NotNil(t, command)
 }
 
 func press(t testing.TB, model Model, message tea.KeyPressMsg) Model {

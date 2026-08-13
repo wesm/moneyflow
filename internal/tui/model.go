@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/wesm/moneyflow/internal/app"
@@ -20,20 +21,39 @@ type Options struct {
 	ColorMode ColorMode
 }
 
+type overlayKind uint8
+
+const (
+	overlayNone overlayKind = iota
+	overlaySearch
+	overlayFilters
+	overlayHelp
+)
+
+type searchState struct {
+	input    textinput.Model
+	original string
+	err      string
+}
+
 // Model owns terminal-only state around a renderer-neutral application session.
 type Model struct {
-	service *app.Service
-	session app.Session
-	options Options
-	palette Palette
-	keymap  keyMap
-	result  domain.QueryResult
-	width   int
-	height  int
-	cursor  int
-	scroll  int
-	status  string
-	err     error
+	service  *app.Service
+	session  app.Session
+	options  Options
+	palette  Palette
+	bindings []binding
+	result   domain.QueryResult
+	width    int
+	height   int
+	cursor   int
+	scroll   int
+	status   string
+	err      error
+	overlay  overlayKind
+	search   searchState
+	filters  filterState
+	help     helpState
 }
 
 // NewModel validates presentation options and evaluates the initial session.
@@ -56,14 +76,14 @@ func NewModel(service *app.Service, session app.Session, options Options) (Model
 		return Model{}, err
 	}
 	return Model{
-		service: service,
-		session: session,
-		options: options,
-		palette: palette,
-		keymap:  defaultKeyMap(),
-		result:  result,
-		width:   minimumWidth,
-		height:  minimumHeight,
+		service:  service,
+		session:  session,
+		options:  options,
+		palette:  palette,
+		bindings: defaultBindings(),
+		result:   result,
+		width:    minimumWidth,
+		height:   minimumHeight,
 	}, nil
 }
 
