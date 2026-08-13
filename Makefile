@@ -1,4 +1,4 @@
-.PHONY: build clean fmt lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet
+.PHONY: build clean fmt lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-audit web-build web-check web-dev web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -54,5 +54,26 @@ fmt:
 tui-demo: build
 	$(BINARY) demo
 
+web-install:
+	bun install --cwd web --frozen-lockfile
+
+web-generate:
+	bun run --cwd web generate
+
+web-check:
+	bun run --cwd web check
+
+web-audit:
+	bun run --cwd web audit
+
+web-test:
+	bun run --cwd web test
+
+web-build:
+	bun run --cwd web build
+
+web-dev:
+	bun run --cwd web dev
+
 clean:
-	rm -rf bin coverage.out .cache/golangci-lint
+	rm -rf bin coverage.out .cache/golangci-lint web/dist web/coverage web/test-results web/playwright-report

@@ -40,15 +40,34 @@ type ViewBody struct {
 	Window    Window `json:"window"`
 }
 
+// TransitionTarget identifies a projected row by its server-issued stable identity.
+type TransitionTarget struct {
+	Kind     app.IdentityKind `json:"kind"`
+	Identity string           `json:"identity" maxLength:"4096"`
+}
+
+// TransitionDateRange is an inclusive pair of ISO calendar dates.
+type TransitionDateRange struct {
+	Start string `json:"start" format:"date"`
+	End   string `json:"end" format:"date"`
+}
+
+// TransitionFilters contains staged predicates accepted by filters.apply.
+type TransitionFilters struct {
+	DateRange     *TransitionDateRange `json:"date_range,omitempty"`
+	ShowHidden    bool                 `json:"show_hidden"`
+	ShowTransfers bool                 `json:"show_transfers"`
+}
+
 // TransitionBody asks the server to apply exactly one renderer-neutral action.
 type TransitionBody struct {
-	Query     string         `json:"query" maxLength:"65536"`
-	Selection string         `json:"selection,omitempty" maxLength:"1468006"`
-	Action    app.ActionID   `json:"action"`
-	Target    *app.RowTarget `json:"target,omitempty"`
-	Search    *string        `json:"search,omitempty" maxLength:"2048"`
-	Filters   *app.Filters   `json:"filters,omitempty"`
-	Window    Window         `json:"window"`
+	Query     string             `json:"query" maxLength:"65536"`
+	Selection string             `json:"selection,omitempty" maxLength:"1468006"`
+	Action    app.ActionID       `json:"action"`
+	Target    *TransitionTarget  `json:"target,omitempty"`
+	Search    *string            `json:"search,omitempty" maxLength:"2048"`
+	Filters   *TransitionFilters `json:"filters,omitempty"`
+	Window    Window             `json:"window"`
 }
 
 // Flags contains the read-only row state exposed to the browser.

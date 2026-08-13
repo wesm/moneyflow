@@ -1,0 +1,74 @@
+@import '@kenn-io/kit-ui/theme.css';
+@import '@kenn-io/kit-ui/themes.css';
+@import '@kenn-io/kit-ui/fonts.css';
+
+:root {
+  --moneyflow-positive: var(--accent-green);
+  --moneyflow-negative: var(--accent-red);
+  --moneyflow-focus: var(--accent-blue);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.moneyflow-app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.moneyflow-brand {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label, 0.02em);
+}
+
+.moneyflow-main {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.moneyflow-loading {
+  max-width: 32rem;
+}
+
+.moneyflow-loading h1,
+.moneyflow-loading p {
+  margin: 0;
+}
+
+.moneyflow-loading h1 {
+  margin-block: var(--space-2);
+  font-size: var(--font-size-xl);
+}
+
+.moneyflow-loading p:last-child,
+.moneyflow-eyebrow {
+  color: var(--text-muted);
+}
+
+.moneyflow-eyebrow {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label, 0.06em);
+  text-transform: uppercase;
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -122,4 +123,52 @@ func TestRootCommandRejectsUnknownCommand(t *testing.T) {
 	assert.Empty(t, stdout)
 	assert.Empty(t, stderr)
 	assert.Contains(t, err.Error(), "unknown command")
+}
+
+func TestOpenAPICommand(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	var formats []string
+	command := newRootCommand(IOStreams{
+		In: strings.NewReader(""), Out: &stdout, Err: &stderr,
+		OpenAPIWriter: func(format string) ([]byte, error) {
+			formats = append(formats, format)
+			return []byte("openapi: 3.1.0\n"), nil
+		},
+	})
+	command.SetArgs([]string{"openapi", "--format", "yaml"})
+	require.NoError(t, command.Execute())
+	assert.Equal(t, []string{"yaml"}, formats)
+	assert.Equal(t, "openapi: 3.1.0\n", stdout.String())
+	assert.Empty(t, stderr.String())
+}
+
+func TestOpenAPICommandRejectsUnknownFormatBeforeWriting(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	command := newRootCommand(IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		OpenAPIWriter: func(string) ([]byte, error) {
+			calls++
+			return nil, errors.New("must not run")
+		},
+	})
+	command.SetArgs([]string{"openapi", "--format", "toml"})
+	err := command.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported OpenAPI format")
+	assert.Zero(t, calls)
+}
+
+func TestOpenAPICommandUsesEmbeddedFixtureOutsideRepository(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	stdout, stderr, err := executeCommand(t, "openapi", "--format", "yaml")
+	require.NoError(t, err)
+	assert.Empty(t, stderr)
+	assert.Contains(t, stdout, "openapi: 3.1.0")
+	assert.Contains(t, stdout, "/api/v1/view:")
 }

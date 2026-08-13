@@ -13,6 +13,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 // Config supplies immutable dependencies for a stateless API handler.
@@ -181,13 +182,14 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if selection == "" {
 			selection = app.EmptySelection()
 		}
+		transition, err := transitionToApp(input.Body)
+		if err != nil {
+			return nil, problemFromError(err)
+		}
 		nextState, _, projection, err := config.Service.TransitionView(
 			state,
 			selection,
-			app.TransitionRequest{
-				Action: input.Body.Action, Target: input.Body.Target,
-				Search: input.Body.Search, Filters: input.Body.Filters,
-			},
+			transition,
 			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
 		)
 		if err != nil {
@@ -218,6 +220,38 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		response.Header().Set("Content-Type", "application/openapi+yaml")
 		_, _ = response.Write(data)
 	})
+}
+
+func transitionToApp(body TransitionBody) (app.TransitionRequest, error) {
+	transition := app.TransitionRequest{Action: body.Action, Search: body.Search}
+	if body.Target != nil {
+		transition.Target = &app.RowTarget{
+			Kind: body.Target.Kind, Identity: body.Target.Identity,
+		}
+	}
+	if body.Filters == nil {
+		return transition, nil
+	}
+	filters := &app.Filters{
+		ShowHidden: body.Filters.ShowHidden, ShowTransfers: body.Filters.ShowTransfers,
+	}
+	if body.Filters.DateRange != nil {
+		start, err := domain.ParseDate(body.Filters.DateRange.Start)
+		if err != nil {
+			return app.TransitionRequest{}, newSafeError(
+				CodeInvalidViewState, "The filter values are invalid.", err,
+			)
+		}
+		end, err := domain.ParseDate(body.Filters.DateRange.End)
+		if err != nil {
+			return app.TransitionRequest{}, newSafeError(
+				CodeInvalidViewState, "The filter values are invalid.", err,
+			)
+		}
+		filters.DateRange = &domain.DateRange{Start: start, End: end}
+	}
+	transition.Filters = filters
+	return transition, nil
 }
 
 func (server *Server) installProblemSchemas() {

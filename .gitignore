@@ -67,3 +67,13 @@ result-*
 /bin/
 /coverage.out
 /.cache/golangci-lint/
+
+# Web build and test outputs
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/test-results/
+/web/playwright-report/
+/web/.vite/
+!/web/src/lib/
+!/web/src/lib/**

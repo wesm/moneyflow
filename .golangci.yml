@@ -12,6 +12,9 @@ linters:
     - misspell
     - revive
     - gosec
+  exclusions:
+    paths:
+      - ^web/node_modules/
 formatters:
   enable:
     - gofmt

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
@@ -17,6 +18,7 @@ import (
 )
 
 type tuiRunner func(*app.Service, app.Session, tui.Options, IOStreams) error
+type openAPIWriter func(format string) ([]byte, error)
 
 // IOStreams contains command input, output, and the injectable terminal runner.
 type IOStreams struct {
@@ -24,6 +26,8 @@ type IOStreams struct {
 	Out    io.Writer
 	Err    io.Writer
 	RunTUI tuiRunner
+	// OpenAPIWriter overrides deterministic schema generation in command tests.
+	OpenAPIWriter openAPIWriter
 }
 
 func newRootCommand(streams IOStreams) *cobra.Command {
@@ -102,7 +106,57 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 			return err
 		},
 	})
+	command.AddCommand(newOpenAPICommand(streams))
 	return command
+}
+
+func newOpenAPICommand(streams IOStreams) *cobra.Command {
+	var format string
+	command := &cobra.Command{
+		Use:   "openapi",
+		Short: "Write the read-only HTTP API contract",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if format != "yaml" && format != "json" {
+				return fmt.Errorf("unsupported OpenAPI format %q: use yaml or json", format)
+			}
+			writer := streams.OpenAPIWriter
+			if writer == nil {
+				writer = writeOpenAPI
+			}
+			data, err := writer(format)
+			if err != nil {
+				return fmt.Errorf("write OpenAPI: %w", err)
+			}
+			if _, err := command.OutOrStdout().Write(data); err != nil {
+				return fmt.Errorf("write OpenAPI output: %w", err)
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&format, "format", "yaml", "output format: yaml or json")
+	return command
+}
+
+func writeOpenAPI(format string) ([]byte, error) {
+	transactions, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
+	if err != nil {
+		return nil, fmt.Errorf("decode embedded fixture: %w", err)
+	}
+	service, err := app.NewService(transactions)
+	if err != nil {
+		return nil, fmt.Errorf("build fixture service: %w", err)
+	}
+	server, err := api.New(api.Config{
+		Service: service, BasePath: "/", Version: version.Version,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build API contract: %w", err)
+	}
+	if format == "json" {
+		return server.OpenAPIJSON()
+	}
+	return server.OpenAPIYAML()
 }
 
 func previewOptions(theme string) (tui.Options, error) {

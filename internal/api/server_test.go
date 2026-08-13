@@ -61,6 +61,26 @@ func TestServerProjectsAndTransitionsCanonicalViews(t *testing.T) {
 	assert.Contains(t, projection.CanonicalQuery, "group=category")
 }
 
+func TestServerAppliesISODateFilters(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
+		Query: "v=1", Action: app.ActionApplyFilters,
+		Filters: &TransitionFilters{
+			DateRange:  &TransitionDateRange{Start: "2024-01-01", End: "2024-01-31"},
+			ShowHidden: true,
+		},
+		Window: Window{Limit: 200},
+	})
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	require.NotNil(t, projection.Filters.DateRange)
+	assert.Equal(t, "2024-01-01", projection.Filters.DateRange.From)
+	assert.Equal(t, "2024-01-31", projection.Filters.DateRange.To)
+}
+
 func TestServerResetsInvalidHydrationSelectionWithWarning(t *testing.T) {
 	t.Parallel()
 
