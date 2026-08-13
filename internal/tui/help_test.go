@@ -14,7 +14,7 @@ func TestHelpBindingsAreUniqueAndRouted(t *testing.T) {
 	t.Parallel()
 
 	bindings := defaultBindings()
-	seen := make(map[string]action)
+	seen := make(map[string]app.ActionID)
 	for _, binding := range bindings {
 		for _, keyName := range binding.keys {
 			if previous, exists := seen[keyName]; exists {
@@ -22,12 +22,12 @@ func TestHelpBindingsAreUniqueAndRouted(t *testing.T) {
 			}
 			seen[keyName] = binding.action
 		}
-		assert.NotEqual(t, actionNone, binding.action)
+		assert.NotEmpty(t, binding.action)
 		assert.True(t, binding.implemented || binding.unavailable)
 	}
-	assert.Equal(t, actionSearch, seen["/"])
-	assert.Equal(t, actionFilters, seen["f"])
-	assert.Equal(t, actionHelp, seen["?"])
+	assert.Equal(t, app.ActionOpenSearch, seen["/"])
+	assert.Equal(t, app.ActionOpenFilters, seen["f"])
+	assert.Equal(t, app.ActionOpenHelp, seen["?"])
 }
 
 func TestHelpScrollClampsAndEnterCloses(t *testing.T) {

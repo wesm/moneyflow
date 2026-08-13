@@ -25,7 +25,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.overlay != overlayNone {
 			return model, model.routeOverlay(message)
 		}
-		if matchAction(message, model.bindings) == actionQuit {
+		matched := matchAction(message, model.bindings)
+		if matched == app.ActionQuit || matched == app.ActionForceQuit {
 			return model, tea.Quit
 		}
 		return model, model.routeKey(message)
@@ -54,66 +55,68 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 
 func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	switch matchAction(message, model.bindings) {
-	case actionUp:
+	case app.ActionCursorUp:
 		model.cursor--
 		model.clampCursor()
-	case actionDown:
+	case app.ActionCursorDown:
 		model.cursor++
 		model.clampCursor()
-	case actionTop:
+	case app.ActionCursorHome:
 		model.cursor, model.scroll = 0, 0
-	case actionGroup:
+	case app.ActionCycleGrouping:
 		model.session.CycleGrouping()
 		model.resetAndRefresh()
-	case actionDetail:
+	case app.ActionShowDetail:
 		model.session.ShowAllDetail()
 		model.resetAndRefresh()
-	case actionAccounts:
+	case app.ActionSwitchAccounts:
 		model.session.SwitchAccounts()
 		model.resetAndRefresh()
-	case actionDrill:
+	case app.ActionDrill:
 		model.drill()
-	case actionBack:
+	case app.ActionBack:
 		model.back()
-	case actionTime:
+	case app.ActionToggleTime:
 		if model.timeContext() {
 			model.session.ToggleTimeGranularity()
 			model.resetAndRefresh()
 		}
-	case actionClearTime:
+	case app.ActionClearTime:
 		if model.session.ClearTimePeriod() {
 			model.resetAndRefresh()
 		}
-	case actionLeft:
+	case app.ActionPreviousPeriod:
 		if model.session.NavigatePeriod(-1) {
 			model.resetAndRefresh()
 		}
-	case actionRight:
+	case app.ActionNextPeriod:
 		if model.session.NavigatePeriod(1) {
 			model.resetAndRefresh()
 		}
-	case actionSort:
+	case app.ActionCycleSort:
 		identity := model.rowIdentity(model.cursor)
 		model.session.CycleSort()
 		model.refreshPreserving(identity)
-	case actionReverse:
+	case app.ActionReverseSort:
 		identity := model.rowIdentity(model.cursor)
 		model.session.ReverseSort()
 		model.refreshPreserving(identity)
-	case actionSelectOne:
+	case app.ActionToggleSelection:
 		model.toggleSelection()
-	case actionSelectAll:
+	case app.ActionToggleSelectAll:
 		model.session.ToggleSelectAll(model.result)
 		model.refresh()
-	case actionFilters:
+	case app.ActionOpenFilters:
 		return model.openFilters()
-	case actionSearch:
+	case app.ActionOpenSearch:
 		return model.openSearch()
-	case actionHelp:
+	case app.ActionOpenHelp:
 		model.help = helpState{}
 		model.overlay = overlayHelp
-	case actionUnavailable:
-		model.status = "Unavailable in read-only Go preview"
+	default:
+		if definition, ok := app.ActionByID(matchAction(message, model.bindings)); ok && !definition.Implemented {
+			model.status = "Unavailable in read-only Go preview"
+		}
 	}
 	return nil
 }
