@@ -955,8 +955,8 @@ class DataManager:
         """
         Generic aggregation method to eliminate duplication.
 
-        This is the shared implementation for all aggregate_by_* methods.
-        It groups by the specified field and computes count and total.
+        This is the shared implementation for field-based aggregate methods.
+        It groups by the specified field and computes count, In, Out, and Net.
 
         Args:
             df: DataFrame to aggregate
@@ -966,22 +966,22 @@ class DataManager:
             computed_columns: Optional list of ComputedColumn configurations to add
 
         Returns:
-            Aggregated DataFrame with columns: [group_field, count, total, ...]
+            Aggregated DataFrame with columns:
+            [group_field, count, amount_in, amount_out, total, ...]
             Additional columns based on include_id and include_group flags
 
         Example:
             >>> # Aggregate by merchant with merchant_id
             >>> agg = dm._aggregate_by_field(df, "merchant", include_id=True)
             >>> agg.columns
-            ['merchant', 'count', 'total', 'merchant_id']
+            ['merchant', 'count', 'amount_in', 'amount_out', 'total', 'merchant_id']
         """
         if df.is_empty():
             return pl.DataFrame()
 
         agg_exprs = [
             pl.count("id").alias("count"),
-            # Exclude hidden transactions from totals
-            pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+            *self._cash_flow_aggregation_exprs(),
         ]
 
         if include_id:
@@ -997,13 +997,25 @@ class DataManager:
 
         return df.group_by(group_field).agg(agg_exprs)
 
+    @staticmethod
+    def _cash_flow_aggregation_exprs() -> list[pl.Expr]:
+        """Build shared In, Out, and Net expressions for visible transactions."""
+        visible = ~pl.col("hideFromReports")
+        return [
+            pl.col("amount").filter(visible & (pl.col("amount") > 0)).sum().alias("amount_in"),
+            pl.col("amount").filter(visible & (pl.col("amount") < 0)).sum().alias("amount_out"),
+            pl.col("amount").filter(visible).sum().alias("total"),
+        ]
+
     def aggregate_by_merchant(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Aggregate transactions by merchant.
 
         Groups all transactions by merchant name and computes:
         - count: Number of transactions
-        - total: Sum of transaction amounts (excluding hidden)
+        - amount_in: Sum of positive transaction amounts (excluding hidden)
+        - amount_out: Sum of negative transaction amounts (excluding hidden)
+        - total: Net transaction amount (excluding hidden)
         - merchant_id: ID of the merchant (for API operations)
         - top_category: Category with highest activity (excluding hidden)
         - top_category_pct: Percentage of activity in top category (excluding hidden)
@@ -1019,7 +1031,8 @@ class DataManager:
 
         Returns:
             Aggregated DataFrame with columns:
-            [merchant, count, total, merchant_id, top_category, top_category_pct]
+            [merchant, count, amount_in, amount_out, total, merchant_id,
+            top_category, top_category_pct]
             Empty DataFrame if input is empty
         """
         if df.is_empty():
@@ -1036,8 +1049,7 @@ class DataManager:
         # Build aggregation expressions (without top_category - computed separately)
         agg_exprs = [
             pl.count("id").alias("count"),
-            # Exclude hidden transactions from totals
-            pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+            *self._cash_flow_aggregation_exprs(),
             pl.first("merchant_id").alias("merchant_id"),
         ]
 
@@ -1098,7 +1110,8 @@ class DataManager:
         Aggregate transactions by category.
 
         Returns:
-            Aggregated DataFrame with columns: [category, count, total, category_id, group]
+            Aggregated DataFrame with columns:
+            [category, count, amount_in, amount_out, total, category_id, group]
         """
         return self._aggregate_by_field(df, "category", include_id=True, include_group=True)
 
@@ -1107,7 +1120,7 @@ class DataManager:
         Aggregate transactions by category group.
 
         Returns:
-            Aggregated DataFrame with columns: [group, count, total]
+            Aggregated DataFrame with columns: [group, count, amount_in, amount_out, total]
         """
         return self._aggregate_by_field(df, "group", include_id=False, include_group=False)
 
@@ -1116,7 +1129,8 @@ class DataManager:
         Aggregate transactions by account.
 
         Returns:
-            Aggregated DataFrame with columns: [account, count, total, account_id]
+            Aggregated DataFrame with columns:
+            [account, count, amount_in, amount_out, total, account_id]
             Plus any backend-specific computed columns (e.g., order_date for Amazon)
         """
         # Get computed columns from backend (e.g., order_date for Amazon)
@@ -1221,6 +1235,8 @@ class DataManager:
             .with_columns(
                 [
                     pl.col("count").fill_null(0),
+                    pl.col("amount_in").fill_null(0.0),
+                    pl.col("amount_out").fill_null(0.0),
                     pl.col("total").fill_null(0.0),
                 ]
             )
@@ -1247,7 +1263,9 @@ class DataManager:
             - month: int (for MONTH and DAY granularity)
             - day: int (only for DAY granularity)
             - count: int (number of transactions)
-            - total: float (sum of amounts, excluding hidden)
+            - amount_in: float (sum of positive amounts, excluding hidden)
+            - amount_out: float (sum of negative amounts, excluding hidden)
+            - total: float (net amount, excluding hidden)
 
             Sorted chronologically by time_period_display.
             Includes zero-value rows for gaps between min and max period.
@@ -1256,7 +1274,7 @@ class DataManager:
             >>> # Aggregate by year
             >>> agg = dm.aggregate_by_time(df, TimeGranularity.YEAR)
             >>> agg.columns
-            ['time_period_display', 'year', 'count', 'total']
+            ['time_period_display', 'year', 'count', 'amount_in', 'amount_out', 'total']
         """
         if df.is_empty():
             return pl.DataFrame()
@@ -1302,7 +1320,7 @@ class DataManager:
         aggregated = df.group_by(group_cols).agg(
             [
                 pl.count("id").alias("count"),
-                pl.col("amount").filter(~pl.col("hideFromReports")).sum().alias("total"),
+                *self._cash_flow_aggregation_exprs(),
             ]
         )
 

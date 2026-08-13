@@ -113,16 +113,23 @@ class TestPrepareAggregationColumns:
             "merchant", SortMode.COUNT, SortDirection.DESC
         )
 
-        assert len(cols) == 6  # merchant, count, total, pct, top_category_display, flags
+        assert len(cols) == 8
         assert cols[0]["label"] == "Merchant"
         assert cols[0]["key"] == "merchant"
         assert cols[0]["width"] == 40
-        assert cols[3]["label"] == "%"
-        assert cols[3]["key"] == "pct"
-        assert cols[4]["label"] == "Top Category"
-        assert cols[4]["key"] == "top_category_display"
-        assert cols[4]["width"] == 35
-        assert cols[5]["key"] == "flags"
+        assert [column["key"] for column in cols[:6]] == [
+            "merchant",
+            "count",
+            "amount_in",
+            "amount_out",
+            "total",
+            "pct",
+        ]
+        assert cols[5]["label"] == "%"
+        assert cols[6]["label"] == "Top Category"
+        assert cols[6]["key"] == "top_category_display"
+        assert cols[6]["width"] == 35
+        assert cols[7]["key"] == "flags"
 
     def test_merchant_columns_with_custom_config(self):
         """Should use custom column widths when provided."""
@@ -145,17 +152,23 @@ class TestPrepareAggregationColumns:
         assert cols[1]["label"] == "Count ↓"
         assert cols[1]["key"] == "count"
 
-        assert normalize_label(cols[2]["label"]) == "Total ($)"
-        assert cols[2]["key"] == "total"
+        assert normalize_label(cols[2]["label"]) == "In ($)"
+        assert cols[2]["key"] == "amount_in"
 
-        assert cols[3]["label"] == "%"
-        assert cols[3]["key"] == "pct"
+        assert normalize_label(cols[3]["label"]) == "Out ($)"
+        assert cols[3]["key"] == "amount_out"
 
-        assert cols[4]["label"] == "Top Category"
-        assert cols[4]["key"] == "top_category_display"
+        assert normalize_label(cols[4]["label"]) == "Net ($)"
+        assert cols[4]["key"] == "total"
 
-        assert cols[5]["label"] == ""
-        assert cols[5]["key"] == "flags"
+        assert cols[5]["label"] == "%"
+        assert cols[5]["key"] == "pct"
+
+        assert cols[6]["label"] == "Top Category"
+        assert cols[6]["key"] == "top_category_display"
+
+        assert cols[7]["label"] == ""
+        assert cols[7]["key"] == "flags"
 
     def test_category_columns(self):
         """Should create correct columns for category view."""
@@ -165,7 +178,9 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Category"
         assert cols[1]["label"] == "Count"
-        assert normalize_label(cols[2]["label"]) == "Total ($) ↑"
+        assert normalize_label(cols[2]["label"]) == "In ($)"
+        assert normalize_label(cols[3]["label"]) == "Out ($)"
+        assert normalize_label(cols[4]["label"]) == "Net ($) ↑"
 
     def test_group_columns(self):
         """Should create correct columns for group view."""
@@ -181,7 +196,7 @@ class TestPrepareAggregationColumns:
         )
 
         assert cols[0]["label"] == "Account"
-        assert normalize_label(cols[2]["label"]) == "Total ($) ↓"
+        assert normalize_label(cols[4]["label"]) == "Net ($) ↓"
 
     def test_merchant_sorted_by_merchant_desc(self):
         """Should show arrow in merchant column when sorted by merchant descending."""
@@ -191,7 +206,7 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Merchant ↓"
         assert cols[1]["label"] == "Count"
-        assert normalize_label(cols[2]["label"]) == "Total ($)"
+        assert normalize_label(cols[4]["label"]) == "Net ($)"
 
     def test_merchant_sorted_by_merchant_asc(self):
         """Should show arrow in merchant column when sorted by merchant ascending."""
@@ -209,7 +224,7 @@ class TestPrepareAggregationColumns:
 
         assert cols[0]["label"] == "Category ↓"
         assert cols[1]["label"] == "Count"
-        assert normalize_label(cols[2]["label"]) == "Total ($)"
+        assert normalize_label(cols[4]["label"]) == "Net ($)"
 
     def test_category_sorted_by_category_asc(self):
         """Should show arrow in category column when sorted by category ascending."""
@@ -256,7 +271,13 @@ class TestFormatAggregationRows:
     def test_formats_basic_merchant_rows(self):
         """Should format merchant aggregation rows correctly."""
         df = pl.DataFrame(
-            {"merchant": ["Amazon", "Starbucks"], "count": [50, 30], "total": [-1234.56, -89.70]}
+            {
+                "merchant": ["Amazon", "Starbucks"],
+                "count": [50, 30],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-1234.56, -89.70],
+                "total": [-1234.56, -89.70],
+            }
         )
 
         rows = ViewPresenter.format_aggregation_rows(df)
@@ -264,8 +285,24 @@ class TestFormatAggregationRows:
         assert len(rows) == 2
         # Grand total = 1234.56 + 89.70 = 1324.26
         # Amazon: 1234.56 / 1324.26 = 93.2%, Starbucks: 89.70 / 1324.26 = 6.8%
-        assert normalize_row(rows[0]) == ("Amazon", "50", "-1,234.56", "93.2%", "")
-        assert normalize_row(rows[1]) == ("Starbucks", "30", "-89.70", "6.8%", "")
+        assert normalize_row(rows[0]) == (
+            "Amazon",
+            "50",
+            "+0.00",
+            "-1,234.56",
+            "-1,234.56",
+            "93.2%",
+            "",
+        )
+        assert normalize_row(rows[1]) == (
+            "Starbucks",
+            "30",
+            "+0.00",
+            "-89.70",
+            "-89.70",
+            "6.8%",
+            "",
+        )
 
     def test_formats_merchant_rows_with_top_category(self):
         """Should format merchant rows with top category column."""
@@ -273,6 +310,8 @@ class TestFormatAggregationRows:
             {
                 "merchant": ["Whole Foods", "Starbucks"],
                 "count": [10, 20],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-150.00, -80.00],
                 "total": [-150.00, -80.00],
                 "top_category": ["Groceries", "Coffee Shops"],
                 "top_category_pct": [100, 85],
@@ -287,6 +326,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[0]) == (
             "Whole Foods",
             "10",
+            "+0.00",
+            "-150.00",
             "-150.00",
             "65.2%",
             "Groceries 100%",
@@ -295,6 +336,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[1]) == (
             "Starbucks",
             "20",
+            "+0.00",
+            "-80.00",
             "-80.00",
             "34.8%",
             "Coffee Shops 85%",
@@ -304,20 +347,48 @@ class TestFormatAggregationRows:
     def test_formats_category_rows(self):
         """Should format category aggregation rows correctly."""
         df = pl.DataFrame(
-            {"category": ["Groceries", "Dining"], "count": [100, 45], "total": [-2500.00, -567.89]}
+            {
+                "category": ["Groceries", "Dining"],
+                "count": [100, 45],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-2500.00, -567.89],
+                "total": [-2500.00, -567.89],
+            }
         )
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
         # Grand total = 2500 + 567.89 = 3067.89
         # Groceries: 2500 / 3067.89 = 81.5%, Dining: 567.89 / 3067.89 = 18.5%
-        assert normalize_row(rows[0]) == ("Groceries", "100", "-2,500.00", "81.5%", "")
-        assert normalize_row(rows[1]) == ("Dining", "45", "-567.89", "18.5%", "")
+        assert normalize_row(rows[0]) == (
+            "Groceries",
+            "100",
+            "+0.00",
+            "-2,500.00",
+            "-2,500.00",
+            "81.5%",
+            "",
+        )
+        assert normalize_row(rows[1]) == (
+            "Dining",
+            "45",
+            "+0.00",
+            "-567.89",
+            "-567.89",
+            "18.5%",
+            "",
+        )
 
     def test_handles_null_names(self):
         """Should handle null merchant/category names."""
         df = pl.DataFrame(
-            {"merchant": [None, "Amazon"], "count": [5, 10], "total": [-50.00, -100.00]}
+            {
+                "merchant": [None, "Amazon"],
+                "count": [5, 10],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-50.00, -100.00],
+                "total": [-50.00, -100.00],
+            }
         )
 
         rows = ViewPresenter.format_aggregation_rows(df)
@@ -338,21 +409,53 @@ class TestFormatAggregationRows:
 
     def test_formats_large_numbers(self):
         """Should format large numbers with commas."""
-        df = pl.DataFrame({"merchant": ["BigCorp"], "count": [1000], "total": [-123456.78]})
+        df = pl.DataFrame(
+            {
+                "merchant": ["BigCorp"],
+                "count": [1000],
+                "amount_in": [0.0],
+                "amount_out": [-123456.78],
+                "total": [-123456.78],
+            }
+        )
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
         # Single row = 100.0% of total
-        assert normalize_row(rows[0]) == ("BigCorp", "1000", "-123,456.78", "100.0%", "")
+        assert normalize_row(rows[0]) == (
+            "BigCorp",
+            "1000",
+            "+0.00",
+            "-123,456.78",
+            "-123,456.78",
+            "100.0%",
+            "",
+        )
 
     def test_formats_positive_amounts(self):
         """Should format positive amounts (income) correctly."""
-        df = pl.DataFrame({"merchant": ["Employer"], "count": [2], "total": [5000.00]})
+        df = pl.DataFrame(
+            {
+                "merchant": ["Employer"],
+                "count": [2],
+                "amount_in": [5000.00],
+                "amount_out": [0.0],
+                "total": [5000.00],
+            }
+        )
 
         rows = ViewPresenter.format_aggregation_rows(df)
 
         # Single row = 100.0% of total income
-        assert normalize_row(rows[0]) == ("Employer", "2", "+5,000.00", "100.0%", "")
+        assert normalize_row(rows[0]) == (
+            "Employer",
+            "2",
+            "+5,000.00",
+            "+0.00",
+            "+5,000.00",
+            "100.0%",
+            "",
+        )
 
     def test_percentages_calculated_separately_for_income_and_expenses(self):
         """Percentages should be relative to total income or total expenses separately."""
@@ -360,6 +463,8 @@ class TestFormatAggregationRows:
             {
                 "category": ["Salary", "Bonus", "Groceries", "Dining"],
                 "count": [1, 1, 10, 5],
+                "amount_in": [5000.00, 1000.00, 0.0, 0.0],
+                "amount_out": [0.0, 0.0, -400.00, -100.00],
                 "total": [5000.00, 1000.00, -400.00, -100.00],  # Mixed income/expenses
             }
         )
@@ -368,13 +473,69 @@ class TestFormatAggregationRows:
 
         # Income: Salary=5000, Bonus=1000, total_income=6000
         # Salary: 5000/6000 = 83.3%, Bonus: 1000/6000 = 16.7%
-        assert normalize_row(rows[0]) == ("Salary", "1", "+5,000.00", "83.3%", "")
-        assert normalize_row(rows[1]) == ("Bonus", "1", "+1,000.00", "16.7%", "")
+        assert normalize_row(rows[0]) == (
+            "Salary",
+            "1",
+            "+5,000.00",
+            "+0.00",
+            "+5,000.00",
+            "83.3%",
+            "",
+        )
+        assert normalize_row(rows[1]) == (
+            "Bonus",
+            "1",
+            "+1,000.00",
+            "+0.00",
+            "+1,000.00",
+            "16.7%",
+            "",
+        )
 
         # Expenses: Groceries=-400, Dining=-100, total_expenses=500
         # Groceries: 400/500 = 80.0%, Dining: 100/500 = 20.0%
-        assert normalize_row(rows[2]) == ("Groceries", "10", "-400.00", "80.0%", "")
-        assert normalize_row(rows[3]) == ("Dining", "5", "-100.00", "20.0%", "")
+        assert normalize_row(rows[2]) == (
+            "Groceries",
+            "10",
+            "+0.00",
+            "-400.00",
+            "-400.00",
+            "80.0%",
+            "",
+        )
+        assert normalize_row(rows[3]) == (
+            "Dining",
+            "5",
+            "+0.00",
+            "-100.00",
+            "-100.00",
+            "20.0%",
+            "",
+        )
+
+    def test_mixed_cash_flow_row_keeps_net_percentage_semantics(self):
+        """In and Out are displayed separately while percentage remains based on Net."""
+        df = pl.DataFrame(
+            {
+                "category": ["Mixed", "Income"],
+                "count": [3, 1],
+                "amount_in": [150.00, 100.00],
+                "amount_out": [-50.00, 0.0],
+                "total": [100.00, 100.00],
+            }
+        )
+
+        rows = ViewPresenter.format_aggregation_rows(df)
+
+        assert normalize_row(rows[0]) == (
+            "Mixed",
+            "3",
+            "+150.00",
+            "-50.00",
+            "+100.00",
+            "50.0%",
+            "",
+        )
 
     def test_shows_pending_edit_indicator(self):
         """Should show * for groups with pending edits."""
@@ -383,6 +544,8 @@ class TestFormatAggregationRows:
             {
                 "merchant": ["Amazon", "Starbucks", "Target"],
                 "count": [50, 30, 20],
+                "amount_in": [0.0, 0.0, 0.0],
+                "amount_out": [-1234.56, -89.70, -456.78],
                 "total": [-1234.56, -89.70, -456.78],
                 "top_category": ["Shopping", "Coffee Shops", "Shopping"],
                 "top_category_pct": [80, 100, 90],
@@ -413,6 +576,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[0]) == (
             "Amazon",
             "50",
+            "+0.00",
+            "-1,234.56",
             "-1,234.56",
             "69.3%",
             "Shopping 80%",
@@ -421,6 +586,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[1]) == (
             "Starbucks",
             "30",
+            "+0.00",
+            "-89.70",
             "-89.70",
             "5.0%",
             "Coffee Shops 100%",
@@ -429,6 +596,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[2]) == (
             "Target",
             "20",
+            "+0.00",
+            "-456.78",
             "-456.78",
             "25.6%",
             "Shopping 90%",
@@ -438,7 +607,13 @@ class TestFormatAggregationRows:
     def test_no_pending_edits_shows_empty_flag(self):
         """Should show empty flags when no pending edits."""
         agg_df = pl.DataFrame(
-            {"category": ["Groceries", "Dining"], "count": [100, 45], "total": [-2500.00, -567.89]}
+            {
+                "category": ["Groceries", "Dining"],
+                "count": [100, 45],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-2500.00, -567.89],
+                "total": [-2500.00, -567.89],
+            }
         )
 
         detail_df = pl.DataFrame(
@@ -461,8 +636,24 @@ class TestFormatAggregationRows:
 
         # Grand total = 2500 + 567.89 = 3067.89
         # Groceries: 81.5%, Dining: 18.5%
-        assert normalize_row(rows[0]) == ("Groceries", "100", "-2,500.00", "81.5%", "")
-        assert normalize_row(rows[1]) == ("Dining", "45", "-567.89", "18.5%", "")
+        assert normalize_row(rows[0]) == (
+            "Groceries",
+            "100",
+            "+0.00",
+            "-2,500.00",
+            "-2,500.00",
+            "81.5%",
+            "",
+        )
+        assert normalize_row(rows[1]) == (
+            "Dining",
+            "45",
+            "+0.00",
+            "-567.89",
+            "-567.89",
+            "18.5%",
+            "",
+        )
 
     def test_pending_edits_without_detail_df(self):
         """Should handle missing detail_df gracefully."""
@@ -470,6 +661,8 @@ class TestFormatAggregationRows:
             {
                 "merchant": ["Amazon"],
                 "count": [50],
+                "amount_in": [0.0],
+                "amount_out": [-1234.56],
                 "total": [-1234.56],
                 "top_category": ["Shopping"],
                 "top_category_pct": [85],
@@ -485,6 +678,8 @@ class TestFormatAggregationRows:
         assert normalize_row(rows[0]) == (
             "Amazon",
             "50",
+            "+0.00",
+            "-1,234.56",
             "-1,234.56",
             "100.0%",
             "Shopping 85%",
@@ -501,6 +696,8 @@ class TestPrepareAggregationView:
             {
                 "merchant": ["Amazon", "Starbucks"],
                 "count": [50, 30],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-1234.56, -89.70],
                 "total": [-1234.56, -89.70],
                 "top_category": ["Shopping", "Coffee Shops"],
                 "top_category_pct": [90, 100],
@@ -512,13 +709,15 @@ class TestPrepareAggregationView:
         )
 
         assert view["empty"] is False
-        assert len(view["columns"]) == 6  # merchant, count, total, pct, top_category_display, flags
+        assert len(view["columns"]) == 8
         assert len(view["rows"]) == 2
         assert view["columns"][0]["label"] == "Merchant"
         # Grand total = 1234.56 + 89.70 = 1324.26, Amazon: 93.2%
         assert normalize_row(view["rows"][0]) == (
             "Amazon",
             "50",
+            "+0.00",
+            "-1,234.56",
             "-1,234.56",
             "93.2%",
             "Shopping 90%",
@@ -537,20 +736,28 @@ class TestPrepareAggregationView:
         )
 
         assert view["empty"] is True
-        assert len(view["columns"]) == 6  # Merchant view has 6 columns (including pct)
+        assert len(view["columns"]) == 8
         assert view["rows"] == []
 
     def test_category_view_with_sort_indicators(self):
         """Should include sort indicators in headers."""
-        df = pl.DataFrame({"category": ["Groceries"], "count": [100], "total": [-2500.00]})
+        df = pl.DataFrame(
+            {
+                "category": ["Groceries"],
+                "count": [100],
+                "amount_in": [0.0],
+                "amount_out": [-2500.00],
+                "total": [-2500.00],
+            }
+        )
 
         view = ViewPresenter.prepare_aggregation_view(
             df, "category", SortMode.AMOUNT, SortDirection.DESC
         )
 
-        # Find the Total column
+        # Find the Net column
         total_col = get_column(view["columns"], "total")
-        assert "↓" in total_col["label"]
+        assert normalize_label(total_col["label"]) == "Net ($) ↓"
 
 
 class TestPrepareTransactionColumns:
@@ -1016,7 +1223,13 @@ class TestViewPresenterIntegration:
         """Test typical workflow: aggregate view -> transaction view."""
         # Start with aggregated data
         agg_df = pl.DataFrame(
-            {"merchant": ["Amazon", "Starbucks"], "count": [50, 30], "total": [-1234.56, -89.70]}
+            {
+                "merchant": ["Amazon", "Starbucks"],
+                "count": [50, 30],
+                "amount_in": [0.0, 0.0],
+                "amount_out": [-1234.56, -89.70],
+                "total": [-1234.56, -89.70],
+            }
         )
 
         agg_view = ViewPresenter.prepare_aggregation_view(
