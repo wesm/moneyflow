@@ -67,8 +67,8 @@ func TestFilterCurrentSemantics(t *testing.T) {
 				ShowTransfers: true,
 				Mode:          domain.ResultModeDetail,
 				Drilldowns: []domain.Drilldown{
-					{Dimension: domain.DimensionMerchant, Key: "ignored", Label: "Example Utility"},
-					{Dimension: domain.DimensionAccount, Key: "ignored", Label: "Primary Checking"},
+					{Dimension: domain.DimensionMerchant, Key: transactions[3].Merchant.ID, Label: "Example Utility"},
+					{Dimension: domain.DimensionAccount, Key: transactions[3].Account.ID, Label: "Primary Checking"},
 					{Dimension: domain.DimensionTime, Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}},
 				},
 			},
@@ -85,6 +85,26 @@ func TestFilterCurrentSemantics(t *testing.T) {
 			assert.NotNil(t, got)
 		})
 	}
+}
+
+func TestFilterDrilldownUsesStableEntityKey(t *testing.T) {
+	t.Parallel()
+
+	first := testTransaction(t, "first", "2024-01-01", "-1.00", "Shared Name", "Dining", "Living")
+	second := first.Clone()
+	second.ID = "second"
+	second.Merchant.ID = "merchant-second"
+
+	filtered, err := Filter([]domain.Transaction{first, second}, domain.QuerySpec{
+		Mode: domain.ResultModeDetail,
+		Drilldowns: []domain.Drilldown{{
+			Dimension: domain.DimensionMerchant,
+			Key:       second.Merchant.ID,
+			Label:     second.Merchant.Name,
+		}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"second"}, ids(filtered))
 }
 
 func TestFilterRejectsInvalidRegex(t *testing.T) {

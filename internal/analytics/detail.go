@@ -19,7 +19,7 @@ func DetailRows(filtered []domain.Transaction, sortSpec domain.SortSpec) []domai
 			},
 		}
 	}
-	sort.SliceStable(rows, func(left, right int) bool {
+	less := func(left, right int) bool {
 		comparison := compareDetail(rows[left].Transaction, rows[right].Transaction, sortSpec.Field)
 		if comparison == 0 {
 			return rows[left].Transaction.ID < rows[right].Transaction.ID
@@ -32,7 +32,10 @@ func DetailRows(filtered []domain.Transaction, sortSpec domain.SortSpec) []domai
 			return comparison < 0
 		}
 		return comparison > 0
-	})
+	}
+	if !sort.SliceIsSorted(rows, less) {
+		sort.SliceStable(rows, less)
+	}
 	return rows
 }
 

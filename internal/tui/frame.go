@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/rivo/uniseg"
 )
 
 // Rect is an exact terminal-cell rectangle.
@@ -31,7 +30,7 @@ func NewFrame(width int, height int, fill Cell) Frame {
 	if height < 0 {
 		height = 0
 	}
-	if uniseg.StringWidth(fill.Glyph) != 1 {
+	if lipgloss.Width(fill.Glyph) != 1 {
 		fill.Glyph = " "
 	}
 	fill.Continuation = false
@@ -62,30 +61,25 @@ func (frame Frame) CellAt(x int, y int) Cell {
 // PutText writes grapheme clusters without splitting wide glyphs at frame edges.
 func (frame *Frame) PutText(x int, y int, value string, style Style) {
 	originX := x
-	graphemes := uniseg.NewGraphemes(value)
-	for graphemes.Next() {
-		cluster := graphemes.Str()
-		if cluster == "\n" {
+	for lineIndex, line := range strings.Split(value, "\n") {
+		if lineIndex > 0 {
 			y++
 			x = originX
-			continue
 		}
-		width := graphemes.Width()
-		if width < 1 {
-			continue
-		}
-		if y >= 0 && y < frame.height && x >= 0 && x+width <= frame.width {
-			for offset := 0; offset < width; offset++ {
-				frame.clearGlyphAt(x+offset, y)
+		for _, cluster := range graphemeClusters(line) {
+			if y >= 0 && y < frame.height && x >= 0 && x+cluster.width <= frame.width {
+				for offset := 0; offset < cluster.width; offset++ {
+					frame.clearGlyphAt(x+offset, y)
+				}
+				frame.cells[y][x] = cellFromStyle(cluster.value, style)
+				for offset := 1; offset < cluster.width; offset++ {
+					continuation := cellFromStyle("", style)
+					continuation.Continuation = true
+					frame.cells[y][x+offset] = continuation
+				}
 			}
-			frame.cells[y][x] = cellFromStyle(cluster, style)
-			for offset := 1; offset < width; offset++ {
-				continuation := cellFromStyle("", style)
-				continuation.Continuation = true
-				frame.cells[y][x+offset] = continuation
-			}
+			x += cluster.width
 		}
-		x += width
 	}
 }
 
@@ -174,7 +168,7 @@ func (frame *Frame) clearGlyphAt(x int, y int) {
 	for start > 0 && frame.cells[y][start].Continuation {
 		start--
 	}
-	width := uniseg.StringWidth(frame.cells[y][start].Glyph)
+	width := lipgloss.Width(frame.cells[y][start].Glyph)
 	if width < 1 {
 		width = 1
 	}
@@ -189,17 +183,53 @@ func (frame *Frame) repairWideEdges() {
 		for x := range frame.cells[y] {
 			cell := frame.cells[y][x]
 			if cell.Continuation {
-				if x == 0 || uniseg.StringWidth(frame.cells[y][x-1].Glyph) < 2 && !frame.cells[y][x-1].Continuation {
+				if x == 0 || lipgloss.Width(frame.cells[y][x-1].Glyph) < 2 && !frame.cells[y][x-1].Continuation {
 					frame.cells[y][x] = cellFromStyle(" ", styleFromCell(cell))
 				}
 				continue
 			}
-			width := uniseg.StringWidth(cell.Glyph)
+			width := lipgloss.Width(cell.Glyph)
 			if width > 1 && x+width > frame.width {
 				frame.cells[y][x] = cellFromStyle(" ", styleFromCell(cell))
 			}
 		}
 	}
+}
+
+type graphemeCluster struct {
+	value string
+	width int
+}
+
+func graphemeClusters(value string) []graphemeCluster {
+	if value == "" {
+		return nil
+	}
+	// MaxWidth truncation follows the same Unicode grapheme rules as Lip Gloss rendering. Asking
+	// for the smallest supported cell width isolates exactly the first printable cluster while
+	// keeping the dependency boundary at Lip Gloss.
+	clusters := make([]graphemeCluster, 0, len(value))
+	style := lipgloss.NewStyle()
+	for remaining := value; remaining != ""; {
+		if remaining[0] < 0x80 && (len(remaining) == 1 || remaining[1] < 0x80) {
+			cluster := remaining[:1]
+			if width := lipgloss.Width(cluster); width > 0 {
+				clusters = append(clusters, graphemeCluster{value: cluster, width: width})
+			}
+			remaining = remaining[1:]
+			continue
+		}
+		var cluster string
+		for width := 1; width <= 4 && cluster == ""; width++ {
+			cluster = style.MaxWidth(width).Render(remaining)
+		}
+		if cluster == "" || !strings.HasPrefix(remaining, cluster) {
+			break
+		}
+		clusters = append(clusters, graphemeCluster{value: cluster, width: lipgloss.Width(cluster)})
+		remaining = strings.TrimPrefix(remaining, cluster)
+	}
+	return clusters
 }
 
 func sameStyle(left Cell, right Cell) bool {

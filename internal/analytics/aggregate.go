@@ -44,7 +44,7 @@ func Aggregate(
 			currency: transaction.Amount.Currency,
 			scale:    transaction.Amount.Scale,
 		}
-		mapKey := aggregateKey{partition: partition, bucket: label}
+		mapKey := aggregateKey{partition: partition, bucket: key}
 		value, exists := accumulators[mapKey]
 		if !exists {
 			value = &accumulator{

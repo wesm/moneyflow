@@ -19,6 +19,7 @@ func TestAggregateDimensionsAndHiddenSemantics(t *testing.T) {
 	two.Account = domain.EntityRef{ID: "account-checking", Name: "Primary Checking"}
 	hidden := testTransaction(t, "txn-3", "2024-01-03", "-100.00", "Example Store", "Dining", "Living")
 	hidden.Merchant = one.Merchant
+	hidden.Category = one.Category
 	hidden.Hidden = true
 	transactions := []domain.Transaction{one, two, hidden}
 
@@ -81,6 +82,21 @@ func TestAggregateSeparatesMoneyPartitions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	assert.NotEqual(t, rows[0].Total.Currency, rows[1].Total.Currency)
+}
+
+func TestAggregateSeparatesEntitiesWithTheSameDisplayLabel(t *testing.T) {
+	t.Parallel()
+
+	first := testTransaction(t, "first", "2024-01-01", "-1.00", "Shared Name", "Dining", "Living")
+	second := first.Clone()
+	second.ID = "second"
+	second.Merchant.ID = "merchant-second"
+	second.Amount.Minor = -200
+
+	rows, err := Aggregate([]domain.Transaction{first, second}, domain.DimensionMerchant, domain.TimeGranularityYear)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	assert.ElementsMatch(t, []string{first.Merchant.ID, second.Merchant.ID}, []string{rows[0].Key, rows[1].Key})
 }
 
 func TestAggregatePropagatesOverflow(t *testing.T) {

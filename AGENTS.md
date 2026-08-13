@@ -602,3 +602,24 @@ uv run pyright moneyflow/
 - [ ] Improve duplicate detection algorithm
 - [ ] Add split transaction support
 - [ ] Implement transaction notes editing
+
+## Go Port Development
+
+The full replacement is developed on the long-lived `go-port` branch. Keep Go commands and
+packages portable across Linux, macOS, and Windows without CGO unless a later approved design
+changes that constraint.
+
+```bash
+make build       # Build bin/moneyflow (bin/moneyflow.exe on Windows), never at the repository root
+make test        # Run Go tests with randomized package test order
+make test-race   # Run the race detector; only the performance smoke is skipped
+make lint        # Run golangci-lint with the repository configuration
+make parity      # Check Python semantic frames and Go visual frames without writes
+make tui-demo    # Run the Go TUI against the committed synthetic fixture
+make verify-go   # Run format, test, vet, lint, and parity checks
+```
+
+Ordinary tests never update parity artifacts. Use `make parity-update-python` or
+`make parity-update-go` only for a deliberate update, then review the full artifact diff and the
+generated Go frame previews before committing it. All Go accounting and analytics use signed
+integer minor units after input parsing; never represent money with `float32` or `float64`.

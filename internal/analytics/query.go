@@ -11,7 +11,7 @@ func Query(transactions []domain.Transaction, spec domain.QuerySpec) (domain.Que
 	if err := spec.Validate(); err != nil {
 		return domain.QueryResult{}, err
 	}
-	filtered, err := Filter(transactions, spec)
+	filtered, err := filterTransactions(transactions, spec, false)
 	if err != nil {
 		return domain.QueryResult{}, err
 	}

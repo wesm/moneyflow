@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/rivo/uniseg"
+	"charm.land/lipgloss/v2"
 
 	"github.com/wesm/moneyflow/internal/tui"
 )
@@ -49,7 +49,7 @@ func EncodeVisual(name string, frame tui.Frame) (VisualArtifact, error) {
 			if cell.Continuation {
 				return VisualArtifact{}, fmt.Errorf("encode visual: orphan continuation at cell (%d,%d)", x, y)
 			}
-			width := uniseg.StringWidth(cell.Glyph)
+			width := lipgloss.Width(cell.Glyph)
 			if width < 1 || x+width > frame.Width() {
 				return VisualArtifact{}, fmt.Errorf("encode visual: invalid glyph at cell (%d,%d)", x, y)
 			}
@@ -97,7 +97,7 @@ func (artifact VisualArtifact) Validate() error {
 }
 
 func (run VisualRun) validate() error {
-	if run.Repeat < 1 || run.DisplayWidth < 1 || uniseg.StringWidth(run.Glyph) != run.DisplayWidth {
+	if run.Repeat < 1 || run.DisplayWidth < 1 || lipgloss.Width(run.Glyph) != run.DisplayWidth {
 		return errors.New("invalid glyph width or repeat")
 	}
 	attributeOrder := map[string]int{"bold": 0, "dim": 1, "reverse": 2}

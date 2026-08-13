@@ -10,6 +10,12 @@ import (
 
 // Filter applies the visible-view predicates in one pass and returns defensive copies.
 func Filter(transactions []domain.Transaction, spec domain.QuerySpec) ([]domain.Transaction, error) {
+	return filterTransactions(transactions, spec, true)
+}
+
+func filterTransactions(
+	transactions []domain.Transaction, spec domain.QuerySpec, cloneMetadata bool,
+) ([]domain.Transaction, error) {
 	var search *regexp.Regexp
 	if spec.Search != "" {
 		compiled, err := regexp.Compile("(?i:" + spec.Search + ")")
@@ -24,7 +30,10 @@ func Filter(transactions []domain.Transaction, spec domain.QuerySpec) ([]domain.
 		if !matches(transaction, spec, search) {
 			continue
 		}
-		filtered = append(filtered, transaction.Clone())
+		if cloneMetadata {
+			transaction = transaction.Clone()
+		}
+		filtered = append(filtered, transaction)
 	}
 	return filtered, nil
 }
@@ -56,13 +65,13 @@ func matches(transaction domain.Transaction, spec domain.QuerySpec, search *rege
 func matchesDrilldown(transaction domain.Transaction, drilldown domain.Drilldown) bool {
 	switch drilldown.Dimension {
 	case domain.DimensionMerchant:
-		return transaction.Merchant.Name == drilldown.Label
+		return transaction.Merchant.ID == drilldown.Key
 	case domain.DimensionCategory:
-		return transaction.Category.Name == drilldown.Label
+		return transaction.Category.ID == drilldown.Key
 	case domain.DimensionGroup:
-		return transaction.Category.Group == drilldown.Label
+		return transaction.Category.Group == drilldown.Key
 	case domain.DimensionAccount:
-		return transaction.Account.Name == drilldown.Label
+		return transaction.Account.ID == drilldown.Key
 	case domain.DimensionTime:
 		return drilldown.Period != nil && matchesPeriod(transaction, *drilldown.Period)
 	default:

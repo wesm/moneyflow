@@ -38,3 +38,18 @@ func TestCellFrameWideAndComposedGlyphs(t *testing.T) {
 	assert.Equal(t, "X", frame.CellAt(2, 0).Glyph)
 	assert.False(t, frame.CellAt(2, 0).Continuation)
 }
+
+func TestCellFramePreservesUnicodeGraphemeClusters(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		"가",  // Hangul choseong plus jungseong.
+		"؀ا",  // Prepend character plus Arabic letter.
+		"क्ष", // Devanagari conjunct.
+	}
+	for _, grapheme := range tests {
+		frame := NewFrame(4, 1, Cell{Glyph: " "})
+		frame.PutText(0, 0, grapheme, Style{})
+		assert.Equal(t, grapheme, frame.CellAt(0, 0).Glyph)
+	}
+}
