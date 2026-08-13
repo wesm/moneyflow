@@ -26,9 +26,7 @@ fmt:
 	gofmt -w cmd internal
 
 tui-demo: build
-	@tmp=$$(mktemp -d); \
-	trap 'rm -rf "$$tmp"' EXIT; \
-	HOME="$$tmp/home" ./bin/moneyflow
+	./bin/moneyflow demo --fixture testdata/parity/transactions.json
 
 clean:
 	rm -rf bin coverage.out .cache/golangci-lint
