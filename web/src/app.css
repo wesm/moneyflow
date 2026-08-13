@@ -47,23 +47,39 @@ input {
   padding: var(--space-6);
 }
 
-.moneyflow-loading {
+.moneyflow-loading,
+.moneyflow-loaded,
+.moneyflow-message {
   max-width: 32rem;
 }
 
 .moneyflow-loading h1,
-.moneyflow-loading p {
+.moneyflow-loading p,
+.moneyflow-loaded h1,
+.moneyflow-loaded p,
+.moneyflow-message h1,
+.moneyflow-message p {
   margin: 0;
 }
 
-.moneyflow-loading h1 {
+.moneyflow-loading h1,
+.moneyflow-loaded h1,
+.moneyflow-message h1 {
   margin-block: var(--space-2);
   font-size: var(--font-size-xl);
 }
 
 .moneyflow-loading p:last-child,
+.moneyflow-loaded p:last-child,
+.moneyflow-message p,
 .moneyflow-eyebrow {
   color: var(--text-muted);
+}
+
+.moneyflow-actions {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 
 .moneyflow-eyebrow {

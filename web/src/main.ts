@@ -3,25 +3,16 @@ import { mount } from 'svelte'
 
 import App from './App.svelte'
 import './app.css'
+import { normalizeBrowserBasePath } from './lib/controller/base-path'
 
 export function readBasePath(documentValue: Document): string {
   const value = documentValue
     .querySelector<HTMLMetaElement>('meta[name="moneyflow-base-path"]')
     ?.getAttribute('content')
-  if (
-    value === null ||
-    value === undefined ||
-    !value.startsWith('/') ||
-    !value.endsWith('/') ||
-    value.includes('\\') ||
-    value.includes('?') ||
-    value.includes('#') ||
-    value.includes('__') ||
-    value.split('/').some((segment) => segment === '.' || segment === '..')
-  ) {
+  if (value === null || value === undefined || value.includes('__')) {
     throw new Error('Moneyflow base path is invalid.')
   }
-  return value
+  return normalizeBrowserBasePath(value)
 }
 
 const target = document.getElementById('app')
