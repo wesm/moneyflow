@@ -12,11 +12,11 @@ This change applies to top-level aggregate views and aggregate sub-groupings for
 
 Each aggregate row will calculate three amounts from transactions that are not hidden from reports:
 
-- `in`: sum of positive amounts
-- `out`: sum of negative amounts
+- `amount_in`: sum of positive amounts
+- `amount_out`: sum of negative amounts
 - `total`: net amount, calculated as In plus Out
 
-The existing `total` field remains the internal Net value. Keeping that field preserves current sorting and percentage behavior without introducing a migration across aggregate consumers.
+The explicit `amount_in` and `amount_out` names avoid Python keyword conflicts and make their meaning clear to non-table consumers. The existing `total` field remains the internal Net value. Keeping that field preserves current sorting and percentage behavior without introducing a migration across aggregate consumers.
 
 Transaction Count continues to include hidden transactions, matching current behavior. Hidden transactions do not contribute to In, Out, or Net.
 
@@ -35,7 +35,7 @@ Aggregate tables will use this order:
 7. Existing view-specific columns, such as Top Category or backend-computed columns
 8. Flags
 
-The amount headings include the configured currency symbol and are right-aligned. In uses the existing positive amount format, Out uses the existing negative amount format, and Net uses the existing signed amount format. This matches the top-right summary.
+The amount headings include the configured currency symbol and are right-aligned. In uses the existing positive amount format, Out uses the existing negative amount format, and Net uses the existing signed amount format. This matches the top-right summary. The shared formatter renders zero as `+0.00` in every amount column, including Out; it does not synthesize a negative zero.
 
 Amount sorting continues to sort by Net. The amount sort arrow appears only on the Net heading. This feature does not add separate In or Out sort modes.
 
@@ -59,5 +59,7 @@ Behavior tests will verify:
 - merchant and backend-computed columns retain their positions after the new amount columns;
 - amount sorting still uses Net and marks the Net heading;
 - empty aggregate views retain the complete column structure.
+
+Manual verification will inspect the Merchant and Time views at a narrow terminal width to confirm that Textual's existing horizontal table behavior keeps every column reachable and readable.
 
 Documentation will describe aggregate tables as showing Count, In, Out, Net, and `%`.
