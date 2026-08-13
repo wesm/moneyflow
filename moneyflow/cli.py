@@ -5,6 +5,7 @@ Provides Click-based CLI for launching moneyflow with different backends
 (Monarch Money, Amazon, Demo) and managing data imports.
 """
 
+import dataclasses
 from pathlib import Path
 from typing import Optional
 
@@ -852,6 +853,127 @@ def default(ctx, set_id, clear, config_dir):
         else:
             click.echo(f"    {a.id} — {a.name}")
     click.echo("\nSet or change the default with: moneyflow simplefin default --set <profile-id>")
+
+
+@cli.group(name="import", invoke_without_command=True)
+@click.pass_context
+def import_group(ctx):
+    """Import transactions from CSV files."""
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+@import_group.command(name="list")
+def import_list():
+    """List available institution mappings."""
+    from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+    click.echo("Available institution mappings:\n")
+    for name, mapping in sorted(INSTITUTION_MAPPINGS.items()):
+        click.echo(f"  {name:20s} {mapping.display_name}")
+    click.echo()
+
+
+@import_group.command(name="institution")
+@click.argument("name")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--force", is_flag=True, help="Force re-import of already-imported files")
+@click.option(
+    "--account",
+    default=None,
+    help=(
+        "Account/card label to disambiguate imports of multiple cards under "
+        "the same institution. Required if you import two cards of the same "
+        "type (e.g. two Chase credits) into one profile, otherwise overlapping "
+        "transactions will be deduplicated. Point PATH at that card's CSV file "
+        "(or a directory containing only that card's files) so other cards' "
+        "files are not imported under the wrong label. "
+        "Example: --account personal_card."
+    ),
+)
+@click.option("--config-dir", type=click.Path(), default=None, help=CONFIG_DIR_HELP)
+def import_institution(name, path, force, account, config_dir):
+    """Import CSV files for an institution."""
+    from pathlib import Path as PathLib
+
+    from moneyflow.backends.csv_backend import CsvFinanceBackend
+    from moneyflow.importers.engine import import_csv as do_import
+    from moneyflow.importers.mappings.registry import INSTITUTION_MAPPINGS
+
+    if name not in INSTITUTION_MAPPINGS:
+        click.echo(f"Unknown institution: {name}", err=True)
+        click.echo("Available:", err=True)
+        for n in sorted(INSTITUTION_MAPPINGS.keys()):
+            click.echo(f"  {n}", err=True)
+        raise click.Abort()
+
+    mapping = INSTITUTION_MAPPINGS[name]
+    if account:
+        mapping = dataclasses.replace(mapping, account_label=account)
+    config = config_dir or str(PathLib.home() / ".moneyflow")
+    profile = PathLib(config) / "profiles" / f"csv_{name}"
+
+    # The backend creates the profile directory itself with owner-only
+    # permissions and full path validation — a plain mkdir/chmod here would
+    # follow a symlinked profile directory before any validation runs.
+    backend = CsvFinanceBackend(profile_dir=profile, config_dir=config, institution_name=name)
+
+    click.echo(f"Importing {mapping.display_name} transactions from {path}...")
+
+    try:
+        stats = do_import(path, mapping, backend, force=force)
+
+        click.echo(f"\n  Imported: {stats['imported']:,} new transactions")
+        if stats["duplicates"] > 0:
+            click.echo(f"  Duplicates: {stats['duplicates']:,} (already in database)")
+        if stats["skipped"] > 0:
+            click.echo(f"  Skipped: {stats['skipped']:,}")
+        if stats.get("removed", 0) > 0:
+            click.echo(f"  Superseded: {stats['removed']:,} (replaced by corrected file content)")
+
+        db_stats = backend.get_database_stats()
+        click.echo("\nDatabase summary:")
+        click.echo(f"  Total transactions: {db_stats['total_transactions']:,}")
+        if db_stats["earliest_date"] and db_stats["latest_date"]:
+            click.echo(
+                f"  Date range: {db_stats['earliest_date']} \u2192 {db_stats['latest_date']}"
+            )
+        click.echo(f"  Total amount: ${db_stats['total_amount']:,.2f}")
+
+        click.echo("\n  Ready! Launch moneyflow:")
+        click.echo(f"  $ moneyflow {name}")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Import failed: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.group(invoke_without_command=True, name="chase_credit")
+@click.option(
+    "--config-dir",
+    type=click.Path(),
+    default=None,
+    help=CONFIG_DIR_HELP,
+)
+@click.pass_context
+def chase_credit(ctx, config_dir):
+    """Chase Credit Card CSV import mode.
+
+    Run 'moneyflow chase_credit' to launch the UI.
+    Import data first: moneyflow import institution chase_credit <path>
+    """
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from pathlib import Path
+
+    from moneyflow.tui.app import launch_csv_mode
+
+    cfg = config_dir or str(Path.home() / ".moneyflow")
+    launch_csv_mode(institution_name="chase_credit", config_dir=cfg)
 
 
 if __name__ == "__main__":

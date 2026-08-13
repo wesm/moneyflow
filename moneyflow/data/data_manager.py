@@ -16,7 +16,6 @@ providing a clean interface for data operations without exposing API details.
 import asyncio
 import inspect
 import json
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -27,13 +26,17 @@ import polars as pl
 from ..backends.base import FinanceBackend
 from ..logging_config import get_logger
 from .categories import (
+    ConfigReadError,
     build_category_to_group_mapping,
+    category_slug,
     convert_api_categories_to_groups,
     get_effective_category_groups,
     get_profile_category_groups,
     load_categories_from_profile,
+    load_pending_category_aliases,
     save_categories_to_config,
     save_categories_to_profile,
+    save_pending_category_aliases,
 )
 from .state import TimeGranularity
 
@@ -54,6 +57,195 @@ TRANSACTION_SCHEMA: Dict[str, Any] = {
     "pending": pl.Boolean,
     "isRecurring": pl.Boolean,
 }
+
+
+def assign_alias_revisions(backend: Any, aliases: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+    """Stamp alias records with monotonic revisions from the backend.
+
+    Records already carrying a revision keep it (they were staged earlier and
+    may already be recorded); new ones get consecutive numbers above the
+    backend's highest, so a later operation always outranks an earlier one.
+    """
+    next_revision = getattr(backend, "next_category_alias_revision", None)
+    if next_revision is None:
+        return [tuple(alias) for alias in aliases]
+    try:
+        revision = next_revision()
+    except Exception as error:
+        # Fail closed rather than serializing these as revision 0: a stored
+        # zero loses to any positive backend revision, so the correction
+        # would later be discarded as stale.
+        logger.error(f"Could not reserve a category alias revision: {error}")
+        raise AliasStateUnavailable(str(error)) from error
+    # Outrank the staged records as well: a queued entry may already carry a
+    # revision above the backend's maximum (it was never confirmed), and a
+    # new alias must not be assigned a lower number than one it supersedes.
+    staged_revisions = [
+        list(alias)[3] for alias in aliases if len(list(alias)) > 3 and list(alias)[3]
+    ]
+    if staged_revisions:
+        revision = max(revision, max(staged_revisions) + 1)
+    stamped: List[Tuple[Any, ...]] = []
+    for alias in aliases:
+        record = list(alias)
+        if len(record) > 3 and record[3]:
+            stamped.append(tuple(record))
+            continue
+        stamped.append((record[0], record[1], record[2], revision))
+        revision += 1
+    return stamped
+
+
+def flush_category_aliases(backend: Any, aliases: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+    """Persist category alias records to the backend; return the remainder.
+
+    Aliases are removed from the result only after the backend confirms
+    them — a persistence failure keeps the failed record and everything
+    after it, so the caller can retain them for retry instead of silently
+    dropping structural category edits. Backends without alias support
+    (config-backed ones) have nothing to retain.
+    """
+    record_alias = getattr(backend, "record_category_alias", None)
+    if record_alias is None:
+        return []
+    for index, alias in enumerate(aliases):
+        record = list(alias)
+        try:
+            record_alias(*record[:4])
+        except Exception as error:
+            logger.error(f"Failed to persist category alias {alias}: {error}")
+            return list(aliases[index:])
+    return []
+
+
+def flush_category_aliases_durably(
+    backend: Any, profile_dir: Any, staged: List[Tuple[Any, ...]]
+) -> List[Tuple[Any, ...]]:
+    """Flush staged aliases and durably store the unconfirmed remainder.
+
+    The remainder is written to the profile config so it survives an
+    application exit before a successful retry — otherwise a backend
+    failure after the owning changes committed would lose the aliases and
+    let later imports resurrect restructured categories.
+
+    If the queue file cannot be written, the aliases the backend already
+    confirmed are dropped from the returned queue anyway: they are durable
+    in the backend, and replaying them after a restart could overwrite a
+    newer mapping. Only genuinely unconfirmed records are kept, and the
+    stale on-disk queue is corrected by the next successful write.
+    The isinstance guard skips stub/legacy data managers without a real
+    profile path.
+    """
+    try:
+        staged = assign_alias_revisions(backend, staged)
+    except AliasStateUnavailable as error:
+        # Keep the records in memory, unstamped, for a later attempt. Writing
+        # them to the durable queue now would store them as revision 0.
+        logger.error(
+            f"Could not stamp category alias revisions ({error}); "
+            f"{len(staged)} record(s) retained in memory for retry"
+        )
+        return [tuple(alias) for alias in staged]
+    remaining = flush_category_aliases(backend, staged)
+    if staged and isinstance(profile_dir, (str, Path)):
+        if not save_pending_category_aliases(profile_dir, remaining):
+            # The on-disk queue still names aliases the backend has already
+            # confirmed. Replaying those after a restart could overwrite a
+            # newer mapping, so load_confirmed_pending_aliases drops any queue
+            # entry the backend already records identically — the queue
+            # becomes self-correcting rather than depending on this write.
+            logger.error(
+                "Could not persist the pending category alias queue at %s; "
+                "%d alias record(s) are retained in memory only and the stale "
+                "on-disk queue will be reconciled against the backend on reload",
+                profile_dir,
+                len(remaining),
+            )
+    return remaining
+
+
+class AliasStateUnavailable(Exception):
+    """The pending-alias state could not be determined.
+
+    Callers that would act on "no pending aliases" must distinguish this from
+    an empty queue: importing while aliases cannot be verified could apply a
+    stale category map and resurrect restructured categories.
+    """
+
+
+def drop_recorded_aliases(backend: Any, records: List[Tuple[Any, ...]]) -> List[Tuple[Any, ...]]:
+    """Return the records the backend has not already recorded at least as new.
+
+    Shared by the profile-config queue and the backend-staged copy: both can
+    outlive a successful write, and replaying an already-recorded mapping
+    could overwrite a newer one.
+    """
+    get_revisions = getattr(backend, "get_category_alias_revisions", None)
+    if get_revisions is None:
+        return list(records)
+    try:
+        recorded = get_revisions()
+    except Exception as error:
+        # Fail closed: replaying a record whose staleness cannot be checked
+        # could overwrite a newer mapping.
+        logger.error(f"Could not read recorded category alias revisions: {error}")
+        raise AliasStateUnavailable(str(error)) from error
+    unconfirmed: List[Tuple[Any, ...]] = []
+    for record in records:
+        values = list(record)
+        queued_revision = values[3] if len(values) > 3 else 0
+        recorded_revision = recorded.get(values[0])
+        if recorded_revision is None or queued_revision > recorded_revision:
+            unconfirmed.append(tuple(record))
+    return unconfirmed
+
+
+def load_unconfirmed_category_aliases(backend: Any, profile_dir: Any) -> List[Tuple[Any, ...]]:
+    """Load the queued aliases that are newer than what the backend records.
+
+    Each queued record carries the monotonic revision of the operation that
+    produced it, and that revision is preserved on the way out so a later
+    flush cannot restamp a stale record with a fresh, higher number. A record
+    is replayed only when the backend holds nothing for that source, or holds
+    an older revision — so an entry left behind by a failed queue cleanup can
+    never overwrite a newer mapping made afterwards.
+
+    If the backend's revisions cannot be read, nothing is replayed: without
+    them staleness is undecidable, and replaying blind could overwrite a
+    newer mapping. The queue file is left intact, so the next run (or the
+    next successful lookup) retries it.
+    """
+    if not profile_dir:
+        return []
+    try:
+        queued = load_pending_category_aliases(profile_dir)
+    except ConfigReadError as error:
+        logger.error(f"Could not read the pending category alias queue: {error}")
+        raise AliasStateUnavailable(str(error)) from error
+    if not queued:
+        return []
+    records = [tuple(alias) for alias in queued]
+    get_revisions = getattr(backend, "get_category_alias_revisions", None)
+    if get_revisions is None:
+        # A backend without alias support has nothing that could be stale.
+        return records
+    try:
+        recorded = get_revisions()
+    except Exception as error:
+        logger.error(
+            f"Could not read recorded category alias revisions ({error}); "
+            "leaving the pending queue untouched for the next attempt"
+        )
+        raise AliasStateUnavailable(str(error)) from error
+
+    unconfirmed: List[Tuple[Any, ...]] = []
+    for record in records:
+        values = list(record)
+        queued_revision = values[3] if len(values) > 3 else 0
+        recorded_revision = recorded.get(values[0])
+        if recorded_revision is None or queued_revision > recorded_revision:
+            unconfirmed.append(record)
+    return unconfirmed
 
 
 def ensure_transaction_schema(df: pl.DataFrame) -> pl.DataFrame:
@@ -78,6 +270,9 @@ class DeferredCategoryChange:
     dependent_timestamps: Set[datetime]
     after_edits: List[Any] = field(default_factory=list)
     operation_timestamp: datetime = field(default_factory=datetime.now)
+    # (source_id, target_id, target_name) alias records for the backend,
+    # persisted only after the dependent edits commit and discarded on undo.
+    category_aliases: List[Tuple[str, str, str]] = field(default_factory=list)
 
 
 class MerchantCache:
@@ -245,6 +440,47 @@ class DataManager:
         self.category_groups: Dict[str, Any] = {}
         self.pending_edits: List[Any] = []
         self.pending_category_groups: Optional[Dict[str, List[str]]] = None
+        # Aliases whose backend persistence failed, retained (like the groups
+        # above) until it succeeds — dropping them would let a later import
+        # resurrect the renamed/merged/deleted categories. Reloaded from the
+        # profile config so they survive an application restart.
+        self.pending_category_aliases: List[Tuple[str, str, str]] = (
+            load_unconfirmed_category_aliases(mm, profile_dir) if profile_dir else []
+        )
+        # Recover a restructure staged by a commit whose profile-config write
+        # failed, so it can be retried instead of being lost on restart.
+        load_staged_state = getattr(mm, "load_pending_category_state", None)
+        if load_staged_state is not None:
+            try:
+                staged_state = load_staged_state()
+            except Exception as error:
+                # The staged state lives in the same database as the
+                # transactions, so an unreadable one means the profile is
+                # unusable — continuing would show and recategorize
+                # transactions under a configuration known to be stale.
+                logger.error(f"Could not recover staged category state: {error}")
+                raise AliasStateUnavailable(
+                    f"Staged category state could not be read: {error}"
+                ) from error
+            # Backends that do not really implement the API (test doubles,
+            # duck-typed stubs) return something other than a pair; that is
+            # an absent capability, not a failed read.
+            if isinstance(staged_state, tuple) and len(staged_state) == 2:
+                staged_groups, staged_aliases = staged_state
+                if staged_groups is not None:
+                    # Also make them effective now: the profile file still
+                    # holds the pre-restructure configuration, so leaving it
+                    # active would show transactions under their old groups
+                    # until the save is retried.
+                    self.pending_category_groups = staged_groups
+                    self.category_groups_config = staged_groups
+                    self.category_to_group = build_category_to_group_mapping(staged_groups)
+                # Reconcile against the backend before requeuing: a retry may
+                # have recorded these already, and replaying them would
+                # restamp stale mappings with fresh revisions.
+                for alias in drop_recorded_aliases(mm, list(staged_aliases)):
+                    if alias not in self.pending_category_aliases:
+                        self.pending_category_aliases.append(alias)
         self.pending_category_changes: List[DeferredCategoryChange] = []
         self.all_merchants: List[str] = []  # Cached + current merchants
 
@@ -359,13 +595,20 @@ class DataManager:
 
         categories_data, groups_data = await asyncio.gather(categories_task, groups_task)
 
-        # Parse categories
+        # Parse categories. For backends that don't supply a group name
+        # (the CSV backend returns only a placeholder group id and type),
+        # fall back to the profile's category config to recover the real
+        # group name. Without this, every category in the picker shows
+        # group=None and the user has no usable group list to pick from.
         categories = {}
         for cat in categories_data.get("categories", []):
             group_data = cat.get("group") or {}
+            group_name = group_data.get("name") if group_data else None
+            if not group_name:
+                group_name = self.category_to_group.get(cat["name"], "Uncategorized")
             categories[cat["id"]] = {
                 "name": cat["name"],
-                "group": group_data.get("name") if group_data else None,
+                "group": group_name,
                 "group_id": group_data.get("id") if group_data else None,
                 "group_type": group_data.get("type") if group_data else None,
             }
@@ -1356,11 +1599,16 @@ class DataManager:
         if not self.category_groups_config:
             return
 
+        # The backend owns its persistent id format: CSV backends use
+        # "cat_"-prefixed ids matching their imports, config-backed backends
+        # the legacy bare slug. Regenerating with the wrong format (this runs
+        # on undo and rollback) would split one category across two ids.
+        make_category_id = getattr(self.mm, "make_category_id", category_slug)
         categories: Dict[str, Dict[str, str]] = {}
         for group_name, cat_names in self.category_groups_config.items():
-            group_id = re.sub(r"[^a-z0-9]+", "_", group_name.lower()).strip("_")
+            group_id = category_slug(group_name)
             for cat_name in cat_names:
-                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
+                cat_id = make_category_id(cat_name)
                 categories[cat_id] = {
                     "name": cat_name,
                     "group": group_name,

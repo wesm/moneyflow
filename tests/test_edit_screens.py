@@ -414,6 +414,281 @@ class TestManageCategoriesScreen:
         assert queued == []
         assert notifications == [notification]
 
+    def test_csv_uncategorized_is_protected(self, monkeypatch):
+        """The CSV backend persists its fallback as "cat_uncategorized"; it
+        must be protected from rename, merge, and deletion just like the
+        config-backed "uncategorized" id."""
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(categories, queue_reassign_callback=lambda *args: None)
+        screen._update_display = lambda: None
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._can_delete("cat_uncategorized") is False
+
+        screen._pending_cat_id = "cat_uncategorized"
+        screen._handle_rename("Something Else")
+        assert categories["cat_uncategorized"]["name"] == "Uncategorized"
+        assert "The Uncategorized category cannot be renamed" in notifications
+
+        screen._pending_cat_id = "cat_uncategorized"
+        screen._handle_merge("cat_groceries")
+        assert "cat_uncategorized" in categories
+        assert "The Uncategorized category cannot be merged" in notifications
+
+    def test_delete_reassign_reuses_existing_csv_uncategorized(self):
+        """Reassign-to-uncategorized must reuse the CSV backend's existing
+        "cat_uncategorized" instead of creating a second Uncategorized."""
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories, queue_reassign_callback=lambda *args: queued.append(args)
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert queued == [("cat_groceries", "cat_uncategorized")]
+        assert "cat_groceries" not in categories
+        assert "uncategorized" not in categories  # no duplicate created
+        assert "cat_uncategorized" in categories
+
+    def test_category_id_factory_used_for_rename(self):
+        """With a CSV backend's id factory, renaming generates the same
+        "cat_"-prefixed id a later import of that name would produce."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: queued.append(args),
+            category_id_factory=stable_category_id,
+        )
+        screen._pending_cat_id = "cat_coffee"
+        screen._category_order = ["cat_coffee"]
+        screen._filtered_order = ["cat_coffee"]
+        screen._update_display = lambda: None
+
+        screen._handle_rename("Espresso")
+
+        assert queued == [("cat_coffee", "cat_espresso")]
+        assert set(categories) == {"cat_espresso"}
+        assert categories["cat_espresso"]["name"] == "Espresso"
+
+    def test_rename_and_merge_buffer_aliases(self):
+        """Structural edits must be buffered for the caller to persist to the
+        backend once the dependent changes succeed — never written directly."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "cat_tea": {
+                "name": "Tea",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+        )
+        screen._category_order = list(categories)
+        screen._filtered_order = list(categories)
+        screen._update_display = lambda: None
+
+        screen._pending_cat_id = "cat_coffee"
+        screen._handle_rename("Espresso")
+        # The destination id is reset first, in case it was deleted or merged
+        # earlier in this session, then the rename is recorded.
+        assert screen.recorded_aliases == [
+            ("cat_espresso", "cat_espresso", ""),
+            ("cat_coffee", "cat_espresso", "Espresso"),
+        ]
+
+        screen._pending_cat_id = "cat_tea"
+        screen._handle_merge("cat_espresso")
+        assert screen.recorded_aliases[-1] == ("cat_tea", "cat_espresso", "Espresso")
+
+    def test_zero_transaction_delete_buffers_alias(self):
+        """Deleting a category with no transactions must still alias it to
+        Uncategorized, or a later import of that bank category recreates it."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_dormant": {
+                "name": "Dormant",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+            "cat_active": {
+                "name": "Active",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._pending_cat_id = "cat_dormant"
+        screen._handle_delete_confirm(True)
+
+        assert "cat_dormant" not in categories
+        assert screen.recorded_aliases == [("cat_dormant", "cat_uncategorized", "Uncategorized")]
+
+    def test_delete_reassign_buffers_alias(self):
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_uncategorized": {
+                "name": "Uncategorized",
+                "group": "Uncategorized",
+                "group_id": "uncategorized",
+                "group_type": "",
+            },
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            },
+        }
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert screen.recorded_aliases == [("cat_groceries", "cat_uncategorized", "Uncategorized")]
+
+    def test_category_id_factory_rejects_garbage_names(self, monkeypatch):
+        """With the CSV factory, a garbage name maps to "cat_uncategorized";
+        it must be rejected as invalid, not accepted under the fallback id."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: None,
+            category_id_factory=stable_category_id,
+        )
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._validated_category_id("!!!") is None
+        assert notifications == ["Category name must contain a letter or number"]
+
+    def test_delete_reassign_creates_fallback_with_factory_id(self):
+        """When no Uncategorized category exists, the created fallback uses
+        the backend's id format so later imports map to the same category."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_groceries": {
+                "name": "Groceries",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        queued = []
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: queued.append(args),
+            category_id_factory=stable_category_id,
+        )
+        screen._update_display = lambda: None
+        screen._selected_index = 0
+        screen._build_category_order()
+
+        screen._handle_delete_reassign(("reassign", "uncategorized"), "cat_groceries")
+
+        assert queued == [("cat_groceries", "cat_uncategorized")]
+        assert set(categories) == {"cat_uncategorized"}
+        assert categories["cat_uncategorized"]["name"] == "Uncategorized"
+
+    def test_validated_category_id_rejects_csv_import_style_duplicate(self, monkeypatch):
+        """CSV-imported categories carry "cat_"-prefixed ids; a name that
+        normalizes to the same slug must still be detected as a duplicate."""
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageCategoriesScreen(categories, queue_reassign_callback=lambda *args: None)
+        monkeypatch.setattr(
+            screen, "notify", lambda message, **kwargs: notifications.append(message)
+        )
+
+        assert screen._validated_category_id("Food & Dining") is None
+        assert notifications == ["A category with an equivalent name already exists"]
+
     @pytest.mark.parametrize(
         ("target_id", "notification"),
         [
@@ -513,6 +788,45 @@ class TestManageCategoriesScreen:
         }
         assert notifications == ["A category with an equivalent name already exists"]
 
+    @pytest.mark.asyncio
+    async def test_handle_create_name_skips_none_groups(self):
+        """CSV backend returns categories with group: None. The all_groups set
+        must not include None (it would crash sorted() with TypeError)."""
+        categories = {
+            "uncategorized": {
+                "name": "Uncategorized",
+                "group": None,
+                "group_id": "",
+                "group_type": "expense",
+            },
+            "shopping": {
+                "name": "Shopping",
+                "group": None,
+                "group_id": "",
+                "group_type": "expense",
+            },
+        }
+        screen = ManageCategoriesScreen(categories)
+        pushed: list = []
+
+        class _CategoryManagerApp(App):
+            async def on_mount(self) -> None:
+                # Capture the screen the handler tries to push instead of
+                # actually pushing it (so the test doesn't need a real modal).
+                self.push_screen = lambda target, *a, **kw: pushed.append(target)
+                screen._handle_create_name("Brand New Category")
+                self.exit()
+
+        async with _CategoryManagerApp().run_test() as pilot:
+            await pilot.pause()
+
+        assert len(pushed) == 1
+        # None must be excluded; the picker should not crash on sort.
+        group_screen = pushed[0]
+        assert None not in group_screen.groups
+        assert all(isinstance(g, str) for g in group_screen.groups)
+        assert group_screen.groups == sorted(group_screen.groups)
+
 
 class TestManageGroupsScreen:
     @pytest.mark.asyncio
@@ -567,3 +881,89 @@ class TestManageGroupsScreen:
         rendered = "\n".join(rendered_rows)
         assert "[bold]Group[/]" in rendered
         assert "[M] [R] [D]" in rendered
+
+
+class TestMergeIntoRecreatedCategory:
+    def test_merge_into_new_target_resets_its_stale_alias(self):
+        """Merging into a newly created category reuses its stable id; any
+        alias left by an earlier delete or merge of that id must be cancelled
+        before the merge alias points the source at it."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_coffee": {
+                "name": "Coffee",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+        screen = ManageCategoriesScreen(
+            categories,
+            queue_reassign_callback=lambda *args: True,
+            category_id_factory=stable_category_id,
+        )
+        screen._update_display = lambda: None
+        screen._build_category_order()
+        screen._pending_cat_id = "cat_coffee"
+
+        screen._handle_merge("__new__:Drinks")
+
+        assert screen.recorded_aliases == [
+            ("cat_drinks", "cat_drinks", ""),  # reset first
+            ("cat_coffee", "cat_drinks", "Drinks"),  # then the merge
+        ]
+
+
+class TestManageGroupsScreenCategoryIds:
+    def test_created_category_uses_backend_id_format(self):
+        """A bare slug here would create a second id for a category the CSV
+        backend stores with a "cat_" prefix."""
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_existing": {
+                "name": "Existing",
+                "group": "Existing",
+                "group_id": "existing",
+                "group_type": "",
+            }
+        }
+        screen = ManageGroupsScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+
+        screen._handle_create_group("Travel")
+
+        assert "cat_travel" in categories
+        assert "travel" not in categories
+        # The reused id is reset in case it was deleted or merged before.
+        assert screen.recorded_aliases == [("cat_travel", "cat_travel", "")]
+
+    def test_equivalent_name_is_rejected_across_id_formats(self):
+        from moneyflow.data.categories import stable_category_id
+
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Food Dining",
+                "group_id": "food_dining",
+                "group_type": "",
+            }
+        }
+        notifications = []
+        screen = ManageGroupsScreen(categories, category_id_factory=stable_category_id)
+        screen._update_display = lambda: None
+
+        class AppStub:
+            @staticmethod
+            def notify(message, **kwargs):
+                notifications.append(message)
+
+        type(screen).app = property(lambda self: AppStub())
+        try:
+            screen._handle_create_group("Food & Dining")
+        finally:
+            del type(screen).app
+
+        assert set(categories) == {"cat_food_dining"}
+        assert notifications == ["A category with an equivalent name already exists"]

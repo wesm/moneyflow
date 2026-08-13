@@ -171,6 +171,8 @@ Supported backends:
 - **Demo** (`moneyflow/backends/demo.py`) — Built-in sample data for evaluation
 - **SimpleFIN** (`moneyflow/backends/simplefin.py`) — SimpleFIN API client with
   local SQLite persistence for edits
+- **CSV Backend** (`moneyflow/backends/csv_backend.py`) — Generic SQLite-backed
+  backend for CSV-imported transaction data, parameterized by institution name
 
 ### Backend Design Divergences
 

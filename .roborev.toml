@@ -1,0 +1,100 @@
+# roborev per-repository configuration.
+# https://www.roborev.io/configuration/
+
+review_guidelines = '''
+## Security trust/threat model
+
+Canonical version: the "Security Threat Model" section of AGENTS.md in this
+repository. This is a condensed mirror; if they disagree, AGENTS.md wins.
+
+moneyflow is a single-user personal-finance TUI that stores data in local
+SQLite databases, YAML config, and a log containing financial metadata under
+a per-user directory (default ~/.moneyflow, overridable with --config-dir).
+Judge security findings against this model, and state which trust assumption
+a finding violates.
+
+### Trusted (do not file findings that require these to be hostile)
+
+- The OS kernel, filesystem, Python runtime, and installed dependencies.
+- Administrators/root and Windows service accounts (LocalSystem,
+  TrustedInstaller, BUILTIN\Administrators).
+- The user's own account and processes running as the user.
+- OS-managed ancestors of the default config location (e.g. /home,
+  C:\Users) with their stock permissions.
+
+### In scope (must defend)
+
+- Other non-privileged local users on a multi-user machine must not be
+  able to read or modify financial data. Databases, config, credentials,
+  and logs are created with owner-only permissions (0o600/0o700 on
+  POSIX, protected owner-only DACLs on Windows) and re-validated or
+  re-tightened when opened. On macOS, extended ACLs are checked as well:
+  they grant access independently of mode bits and are inheritable.
+- Symlink, junction, and other reparse-point redirection of paths under
+  the config directory must be rejected before permission mutations and
+  before opening databases. Writes to sensitive files must be atomic and
+  must not follow symlinks.
+- Path components must not be replaceable by untrusted principals
+  (POSIX: ownership and mode checks; Windows: owner and DACL checks
+  including child-creation rights).
+- Configuration is authoritative (category structure, alias remapping),
+  so it is read through a validated no-follow descriptor and rejected if
+  another account could write it.
+- Financial-data correctness (no silent loss, duplication, or
+  miscategorization of transactions) is in scope at any severity.
+
+### How path trust is established (architectural decision)
+
+The config root and all its ancestors are validated ONCE per session at
+startup (validate_trusted_root): no symlink/reparse component, each owned
+by the user or root, none group/other writable, no macOS extended ACL.
+Everything beneath a validated root is trusted for the session. Files are
+still opened without following redirection, and the database re-verifies
+its descriptor per connection.
+
+Re-walking ancestors on every open is deliberately NOT the design: it
+cannot close the race (the tree is mutable between any two syscalls), so
+it buys no security. Do not file "call site X does not re-validate its
+ancestors" findings. A valid finding is a new entry point that reaches the
+filesystem before the root has been validated at all.
+
+### Accepted residual risk (do not file findings for these)
+
+- Python's sqlite3 cannot open a database from a file descriptor or do
+  dirfd-relative opens, so path-based connects cannot be made perfectly
+  race-free. The required mitigations are handle-anchored ownership
+  verification, no-delete-sharing handle pinning across connect on
+  Windows, and post-open device/inode verification. Sub-millisecond
+  multi-step TOCTOU races that defeat all of these simultaneously are
+  accepted residual risk; do not request further guarantees that the
+  sqlite3 API cannot express.
+- A user who explicitly points --config-dir at a location whose
+  ancestors are writable by or owned by untrusted accounts. Startup
+  validation refuses the detectable cases and aborts; that is the intended
+  extent of the defense.
+- Anything requiring the attacker to already have write access to the
+  user's home directory, or to run code as the user.
+
+### Recorded design decisions (do not re-file as findings)
+
+- CSV import deduplication is content-keyed (date/amount/merchant by
+  default, plus the --account label). Identical transactions split across
+  separate export files are indistinguishable from one transaction present
+  in two overlapping exports and are deduplicated; identical rows within
+  one file are kept via a sequence suffix. This trade-off is deliberate
+  (overlapping exports are the common case), is documented in
+  docs/guide/csv-import.md, and mappings can add an institution-provided
+  reference column to dedup_fields where the CSV has one.
+- Re-imported files whose content changed are reconciled against their
+  previous per-file snapshot (import_file_transactions): rows the new
+  content no longer produces are removed unless another imported file's
+  snapshot still claims them. Reconciliation is skipped entirely when any
+  row failed to parse — an unparsable row is not a removed one.
+
+### Other review expectations
+
+- Never include real personal or financial data (account names,
+  merchants, transaction details) in code, tests, or review comments.
+- This project treats warnings as errors; pyright runs on both POSIX and
+  Windows, so platform-specific os attributes must be guarded.
+'''

@@ -4,6 +4,8 @@ Tests for category configuration system.
 Tests the category loading, merging, and customization logic.
 """
 
+import os
+
 import pytest
 import yaml
 
@@ -11,13 +13,19 @@ from moneyflow.backends.amazon import get_amazon_category_source, get_amazon_inh
 from moneyflow.data.account_manager import AccountManager
 from moneyflow.data.categories import (
     DEFAULT_CATEGORY_GROUPS,
+    ConfigReadError,
     build_category_to_group_mapping,
+    category_equivalence_key,
+    category_slug,
     get_effective_category_groups,
     get_profile_category_groups,
     load_categories_from_profile,
     load_custom_categories,
+    load_pending_category_aliases,
     merge_category_groups,
     save_categories_to_profile,
+    save_pending_category_aliases,
+    stable_category_id,
 )
 
 
@@ -529,3 +537,207 @@ class TestGetAmazonCategorySource:
         result = get_amazon_category_source(config_dir=str(tmp_path))
 
         assert result == "monarch1"
+
+
+class TestCategoryIdNormalization:
+    """category_slug (persistent config ids), category_equivalence_key
+    (duplicate detection), and stable_category_id (CSV import ids) are the
+    single sources of category-id normalization."""
+
+    def test_category_slug_normalizes_equivalent_names(self):
+        assert category_slug("Food & Dining") == "food_dining"
+        assert category_slug("food   dining") == "food_dining"
+        assert category_slug("  Groceries  ") == "groceries"
+        assert category_slug("!!!") == ""
+
+    def test_category_slug_keeps_legacy_ascii_stripping(self):
+        """category_slug ids persist in existing databases (SimpleFIN rows
+        keep previously assigned ids while categories are regenerated from
+        names), so the legacy ASCII-only output must never change."""
+        assert category_slug("Café") == "caf"
+        assert category_slug("Продукты") == ""
+
+    def test_equivalence_key_preserves_non_ascii_letters(self):
+        """Distinct non-Latin category names must not collapse into one key
+        (stripping non-ASCII would map them all to the same id)."""
+        assert category_equivalence_key("Продукты") == "продукты"
+        assert category_equivalence_key("Продукты") != category_equivalence_key("Аптека")
+        assert category_equivalence_key("Food & Dining") == "food_dining"
+        assert stable_category_id("食料品") == "cat_食料品"
+        assert stable_category_id("Кафе и рестораны") == "cat_кафе_и_рестораны"
+
+    def test_stable_category_id_prefixes_key(self):
+        assert stable_category_id("Food & Dining") == "cat_food_dining"
+        assert stable_category_id("Groceries") == "cat_groceries"
+
+    def test_stable_category_id_falls_back_for_empty_names(self):
+        assert stable_category_id("") == "cat_uncategorized"
+        assert stable_category_id("!!!") == "cat_uncategorized"
+
+
+class TestSecureConfigWrites:
+    def test_save_replaces_symlinked_profile_config_without_following(self, tmp_path):
+        """A planted config.yaml symlink must not redirect the write: the
+        atomic rename replaces the symlink itself, leaving its target file
+        untouched."""
+        victim = tmp_path / "victim.txt"
+        victim.write_text("precious data")
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(victim)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+
+        assert victim.read_text() == "precious data"
+        config_path = profile / "config.yaml"
+        assert not config_path.is_symlink()
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestPendingCategoryAliasStorage:
+    def test_roundtrip_and_clear(self, tmp_path):
+        aliases = [("cat_a", "cat_b", "B", 1), ("cat_c", "cat_d", "D", 2)]
+        assert save_pending_category_aliases(tmp_path, aliases) is True
+        assert load_pending_category_aliases(tmp_path) == aliases
+
+        assert save_pending_category_aliases(tmp_path, []) is True
+        assert load_pending_category_aliases(tmp_path) == []
+
+    def test_survives_alongside_category_config(self, tmp_path):
+        """Saving categories must not drop retained alias records and vice
+        versa — both live in the same profile config file."""
+        assert save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B", 1)]) is True
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is True
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 1)]
+        assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}
+
+    def test_malformed_entries_are_rejected(self, tmp_path):
+        """A malformed queue entry must not be silently dropped: the missing
+        alias would let an import resurrect a restructured category."""
+        (tmp_path / "config.yaml").write_text(
+            "pending_category_aliases:\n- [cat_a, cat_b, B, 4]\n- [only, two]\n"
+        )
+
+        with pytest.raises(ConfigReadError):
+            load_pending_category_aliases(tmp_path)
+
+    def test_pre_revision_entries_default_to_zero(self, tmp_path):
+        (tmp_path / "config.yaml").write_text(
+            "pending_category_aliases:\n- [cat_a, cat_b, B, 4]\n- [cat_legacy, cat_x, X]\n"
+        )
+
+        assert load_pending_category_aliases(tmp_path) == [
+            ("cat_a", "cat_b", "B", 4),
+            ("cat_legacy", "cat_x", "X", 0),
+        ]
+
+    def test_unreadable_config_raises_rather_than_reporting_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("pending_category_aliases: [unclosed\n")
+        config.chmod(0o600)
+
+        with pytest.raises(ConfigReadError):
+            load_pending_category_aliases(tmp_path)
+
+
+class TestConfigLoadValidation:
+    def test_symlinked_config_is_not_followed(self, tmp_path):
+        """An authoritative config planted as a symlink must not be read —
+        it could dictate category structure and alias remapping."""
+        outside = tmp_path / "outside.yaml"
+        outside.write_text("fetched_categories:\n  Evil: [Injected]\n")
+        outside.chmod(0o600)
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(outside)
+
+        assert load_categories_from_profile(profile) is None
+        assert load_pending_category_aliases(profile) == []
+
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX mode bits; Windows uses DACLs")
+    def test_group_writable_config_is_rejected(self, tmp_path):
+        """A config another local account can write must not be trusted — it
+        could dictate category structure and alias remapping.
+
+        Windows ignores POSIX mode bits; its equivalent coverage is
+        test_open_verified_no_follow_rejects_dacl_write_access.
+        """
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        config = profile / "config.yaml"
+        config.write_text("fetched_categories:\n  Group: [Category]\n")
+        config.chmod(0o666)
+
+        assert load_categories_from_profile(profile) is None
+
+    def test_group_readable_config_is_still_read(self, tmp_path):
+        """A config written by an older version under a permissive umask is
+        still the user's own data — refusing it would discard their
+        categories."""
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        config = profile / "config.yaml"
+        config.write_text("fetched_categories:\n  Group: [Category]\n")
+        config.chmod(0o644)
+
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+    def test_owner_only_config_is_read(self, tmp_path):
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestConfigWriteIntegrity:
+    def test_corrupt_config_is_not_overwritten(self, tmp_path):
+        """A trusted but unparsable config must abort the rewrite — treating
+        it as empty would erase the user's settings and retained aliases."""
+        config = tmp_path / "config.yaml"
+        config.write_text("fetched_categories: [unclosed\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is False
+        assert save_pending_category_aliases(tmp_path, [("a", "b", "B")]) is False
+        assert config.read_text() == "fetched_categories: [unclosed\n"
+
+    def test_untrusted_config_is_replaced(self, tmp_path):
+        """A planted symlink was never the user's data — the rewrite
+        replaces it rather than aborting, remediating the plant."""
+        victim = tmp_path / "victim.txt"
+        victim.write_text("precious")
+        profile = tmp_path / "profile"
+        profile.mkdir()
+        (profile / "config.yaml").symlink_to(victim)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=profile) is True
+        assert victim.read_text() == "precious"
+        assert load_categories_from_profile(profile) == {"Group": ["Category"]}
+
+
+class TestNonMappingConfigRejected:
+    def test_list_root_is_not_treated_as_empty(self, tmp_path):
+        """A YAML list at the root is corrupt or foreign, not empty — saving
+        over it would discard whatever the file actually holds."""
+        config = tmp_path / "config.yaml"
+        config.write_text("- one\n- two\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is False
+        assert config.read_text() == "- one\n- two\n"
+
+    def test_scalar_root_is_not_treated_as_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("just a string\n")
+        config.chmod(0o600)
+
+        assert save_pending_category_aliases(tmp_path, [("a", "b", "B", 1)]) is False
+        assert config.read_text() == "just a string\n"
+
+    def test_empty_file_is_still_treated_as_empty(self, tmp_path):
+        config = tmp_path / "config.yaml"
+        config.write_text("# only a comment\n")
+        config.chmod(0o600)
+
+        assert save_categories_to_profile({"Group": ["Category"]}, profile_dir=tmp_path) is True
+        assert load_categories_from_profile(tmp_path) == {"Group": ["Category"]}

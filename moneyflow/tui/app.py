@@ -22,7 +22,6 @@ the UI layer thin and focused on rendering and user interaction.
 import argparse
 import asyncio
 import json
-import re
 import sys
 import traceback
 from copy import deepcopy
@@ -45,9 +44,15 @@ from ..data.cache_orchestrator import CacheOrchestrator
 from ..data.categories import (
     build_category_to_group_mapping,
     categories_dict_to_config_groups,
+    category_equivalence_key,
+    category_slug,
     save_categories_to_profile,
 )
-from ..data.data_manager import DataManager, DeferredCategoryChange
+from ..data.data_manager import (
+    DataManager,
+    DeferredCategoryChange,
+    flush_category_aliases_durably,
+)
 from ..data.duplicate_detector import DuplicateDetector
 from ..data.exporter import (
     ExportFormat,
@@ -1162,12 +1167,66 @@ class MoneyflowApp(App):
                 timeout=2,
             )
 
+    def _persist_category_aliases(self, aliases: list[tuple[str, str, str]]) -> None:
+        """Stage structural category aliases and attempt to persist them.
+
+        The aliases are staged into pending_category_aliases first and
+        removed only as the backend confirms them — a persistence failure
+        retains the remainder for retry at the next save or commit, so a
+        structural edit is never silently dropped.
+        """
+        if self.data_manager is None or not aliases:
+            return
+        staged = list(getattr(self.data_manager, "pending_category_aliases", [])) + list(aliases)
+        self.data_manager.pending_category_aliases = staged
+        self._flush_pending_category_aliases()
+
+    def _flush_pending_category_aliases(self) -> None:
+        """Persist staged category aliases; failures stay staged for retry.
+
+        Must run at every point where retained category configuration is
+        successfully persisted — clearing the deferred state without flushing
+        would drop the aliases and let later imports resurrect renamed,
+        merged, or deleted categories.
+        """
+        if self.data_manager is None:
+            return
+        staged = getattr(self.data_manager, "pending_category_aliases", [])
+        remaining = flush_category_aliases_durably(
+            self.backend, getattr(self.data_manager, "profile_dir", None), staged
+        )
+        self.data_manager.pending_category_aliases = remaining
+        if remaining:
+            self.notify(
+                "Some category changes could not be recorded; they will be retried "
+                "on the next commit.",
+                severity="warning",
+                timeout=5,
+            )
+
     def _clear_deferred_category_groups(self) -> None:
-        """Clear category configuration waiting on transaction edits."""
+        """Clear category configuration waiting on transaction edits.
+
+        Also discards the copy staged in the backend once nothing is left
+        pending: leaving it behind would restore an already-completed
+        snapshot at the next startup and overwrite newer configuration.
+        """
         if self.data_manager is None:
             return
         self.data_manager.pending_category_groups = None
         self.data_manager.pending_category_changes.clear()
+        stage_state = getattr(self.backend, "save_pending_category_state", None)
+        if stage_state is None:
+            return
+        # Aliases still awaiting the backend keep the staged copy alive, but
+        # its group snapshot is now stale — the configuration it described
+        # has just been saved, and restoring it later would overwrite newer
+        # changes. Re-stage the aliases alone.
+        remaining_aliases = list(self.data_manager.pending_category_aliases)
+        try:
+            stage_state(None, remaining_aliases)
+        except Exception as error:
+            get_logger(__name__).error(f"Could not update staged category state: {error}")
 
     def _undo_deferred_category_change(self) -> list[tuple[str, str, datetime]]:
         """Undo the newest structural category operation without touching newer edits."""
@@ -1616,14 +1675,27 @@ class MoneyflowApp(App):
                     )
                     return
                 cat_name = new_category_id[8:]
-                cat_id = re.sub(r"[^a-z0-9]+", "_", cat_name.lower()).strip("_")
-                if not cat_id:
+                # The backend owns the persistent id format: CSV backends use
+                # "cat_"-prefixed ids matching their imports, config-backed
+                # backends the legacy bare slug. Mixing formats would split
+                # one category name across two ids.
+                make_category_id = getattr(self.backend, "make_category_id", category_slug)
+                cat_id = make_category_id(cat_name)
+                if not cat_id or not category_equivalence_key(cat_name):
                     self.notify(
                         "Category name must contain at least one letter or number.",
                         severity="error",
                     )
                     return
-                elif cat_id in self.data_manager.categories:
+                # Compare by normalized name as well as id: CSV-imported
+                # categories carry ids in a different format (e.g.
+                # "cat_food_dining"), and equivalent names must still be
+                # detected as duplicates.
+                new_key = category_equivalence_key(cat_name)
+                if cat_id in self.data_manager.categories or any(
+                    category_equivalence_key(existing.get("name", "")) == new_key
+                    for existing in self.data_manager.categories.values()
+                ):
                     self.notify(
                         "A category with an equivalent name already exists.",
                         severity="error",
@@ -1658,7 +1730,7 @@ class MoneyflowApp(App):
                         self.data_manager.categories[cat_id] = {
                             "name": cat_name,
                             "group": chosen_group,
-                            "group_id": re.sub(r"[^a-z0-9]+", "_", chosen_group.lower()).strip("_"),
+                            "group_id": category_slug(chosen_group),
                             "group_type": "",
                         }
                         new_category_id = cat_id
@@ -1687,6 +1759,19 @@ class MoneyflowApp(App):
                                     timeout=6,
                                 )
                             return
+                        if not has_pending_structure:
+                            # This direct save supersedes any config snapshot
+                            # retained from an earlier failed save. Flush its
+                            # aliases and clear it — otherwise the next commit
+                            # would re-apply the stale snapshot and drop the
+                            # category just created.
+                            self._flush_pending_category_aliases()
+                            self._clear_deferred_category_groups()
+                        # The id is live again: cancel any alias left by a
+                        # previous rename/merge/delete of the same category.
+                        # Staged only now that the configuration is saved, so
+                        # a failed save cannot leave the reset applied.
+                        self._persist_category_aliases([(cat_id, cat_id, "")])
                         self.data_manager.category_groups_config = groups
                         self.data_manager.category_to_group = build_category_to_group_mapping(
                             groups
@@ -1764,14 +1849,13 @@ class MoneyflowApp(App):
             if edit.field == "category"
         }
 
-        dirty = await self.push_screen(
-            ManageCategoriesScreen(
-                categories=self.data_manager.categories,
-                transaction_counts=txn_counts,
-                queue_reassign_callback=queue_reassign,
-            ),
-            wait_for_dismiss=True,
+        manage_screen = ManageCategoriesScreen(
+            categories=self.data_manager.categories,
+            transaction_counts=txn_counts,
+            queue_reassign_callback=queue_reassign,
+            category_id_factory=getattr(self.backend, "make_category_id", None),
         )
+        dirty = await self.push_screen(manage_screen, wait_for_dismiss=True)
 
         if refresh_generation != self._simplefin_refresh_generation:
             self.notify(
@@ -1798,7 +1882,9 @@ class MoneyflowApp(App):
                 )
             }
             if dependent_timestamps:
-                # Defer config save until pending edits commit successfully
+                # Defer config save until pending edits commit successfully.
+                # Aliases travel with the deferred change: persisted only
+                # after the dependent edits commit, discarded on undo.
                 self.data_manager.pending_category_groups = groups
                 self.data_manager.pending_category_changes.append(
                     DeferredCategoryChange(
@@ -1810,6 +1896,7 @@ class MoneyflowApp(App):
                         before_edits=pending_edits_before,
                         dependent_timestamps=dependent_timestamps,
                         after_edits=deepcopy(self.data_manager.pending_edits),
+                        category_aliases=list(manage_screen.recorded_aliases),
                     )
                 )
                 self.notify(
@@ -1821,6 +1908,7 @@ class MoneyflowApp(App):
                     previous_groups, groups, propagate_group_moves=False
                 )
                 if saved:
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self.notify("Categories updated with pending recategorizations.", timeout=4)
             else:
                 # No pending edits, safe to persist config immediately
@@ -1830,10 +1918,22 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
+                    self._persist_category_aliases(manage_screen.recorded_aliases)
                     self._clear_deferred_category_groups()
                     self.notify("Categories updated.", timeout=2)
                 else:
+                    # Retain the aliases with the unsaved config: a later
+                    # successful retry must persist both, or old categories
+                    # would reappear on the next import.
+                    # Aliases must not outlive their configuration: recording
+                    # them now while the config that renames/removes the
+                    # categories is still only in memory would leave the
+                    # change half-applied across a restart. Stage them and
+                    # let the retry persist both together.
                     self.data_manager.pending_category_groups = groups
+                    self.data_manager.pending_category_aliases = list(
+                        self.data_manager.pending_category_aliases
+                    ) + list(manage_screen.recorded_aliases)
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",
@@ -1862,12 +1962,11 @@ class MoneyflowApp(App):
             group_name: list(category_names)
             for group_name, category_names in self.data_manager.category_groups_config.items()
         }
-        dirty = await self.push_screen(
-            ManageGroupsScreen(
-                categories=self.data_manager.categories,
-            ),
-            wait_for_dismiss=True,
+        groups_screen = ManageGroupsScreen(
+            categories=self.data_manager.categories,
+            category_id_factory=getattr(self.backend, "make_category_id", None),
         )
+        dirty = await self.push_screen(groups_screen, wait_for_dismiss=True)
 
         if refresh_generation != self._simplefin_refresh_generation:
             self.notify(
@@ -1888,6 +1987,7 @@ class MoneyflowApp(App):
                     groups_before, groups, propagate_group_moves=True
                 )
                 if saved:
+                    self._persist_category_aliases(groups_screen.recorded_aliases)
                     self.notify(
                         "Groups updated with pending recategorizations. Press w to commit.",
                         timeout=4,
@@ -1899,10 +1999,18 @@ class MoneyflowApp(App):
                         groups, profile_dir=self.data_manager.profile_dir
                     )
                 if saved:
+                    self._persist_category_aliases(groups_screen.recorded_aliases)
+                    self._flush_pending_category_aliases()
                     self._clear_deferred_category_groups()
                     self.notify("Groups updated.", timeout=2)
                 else:
+                    # Retain the aliases with the unsaved configuration: an
+                    # id reinstated by group creation keeps its stale alias
+                    # otherwise, and later imports map to the old target.
                     self.data_manager.pending_category_groups = groups
+                    self.data_manager.pending_category_aliases = list(
+                        self.data_manager.pending_category_aliases
+                    ) + list(groups_screen.recorded_aliases)
                     self.notify(
                         "Category configuration could not be saved; changes remain pending for retry.",
                         severity="error",
@@ -2157,9 +2265,13 @@ class MoneyflowApp(App):
         if count == 0:
             pending_groups = self.data_manager.pending_category_groups
             if pending_groups is not None and self.data_manager.profile_dir:
+                # Configuration first: an alias made effective while its
+                # configuration is still unsaved leaves the rename/merge/
+                # delete half-applied across a restart.
                 if save_categories_to_profile(
                     pending_groups, profile_dir=self.data_manager.profile_dir
                 ):
+                    self._flush_pending_category_aliases()
                     self._clear_deferred_category_groups()
                     self.notify("Category configuration saved.", timeout=2)
                 else:
@@ -2168,6 +2280,12 @@ class MoneyflowApp(App):
                         severity="error",
                         timeout=6,
                     )
+                return
+            # No configuration snapshot is pending, so retained aliases have
+            # no unsaved config to outlive — retry them on their own.
+            if getattr(self.data_manager, "pending_category_aliases", []):
+                self._flush_pending_category_aliases()
+                self.notify("Category changes recorded.", timeout=2)
                 return
             self._notify(notification_helper.NO_PENDING_CHANGES)
             return
@@ -2742,6 +2860,52 @@ def launch_simplefin_mode(
     except Exception:
         print("\n" + "=" * 80, file=sys.stderr)
         print("FATAL ERROR - moneyflow SimpleFIN mode crashed!", file=sys.stderr)
+        print("=" * 80, file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("Please report this error with the traceback above.", file=sys.stderr)
+        print("=" * 80 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+
+def launch_csv_mode(
+    institution_name: str,
+    config_dir: str | None = None,
+    profile_dir: Path | None = None,
+) -> None:
+    """Launch moneyflow for a CSV-backed institution."""
+    from moneyflow.backends.csv_backend import CsvFinanceBackend
+    from moneyflow.tui.backend_config import get_csv_backend_config
+
+    logger = setup_logging(console_output=False, config_dir=config_dir)
+    logger.info(f"Starting moneyflow in CSV mode for {institution_name}")
+
+    if profile_dir is None:
+        base = Path(config_dir) if config_dir else Path.home() / ".moneyflow"
+        profile_dir = base / "profiles" / f"csv_{institution_name}"
+
+    try:
+        backend = CsvFinanceBackend(
+            profile_dir=profile_dir,
+            config_dir=config_dir,
+            institution_name=institution_name,
+        )
+        config = get_csv_backend_config(institution_name)
+
+        app = MoneyflowApp(
+            demo_mode=False,
+            backend=backend,
+            config=config,
+            config_dir=config_dir,
+            profile_dir=profile_dir,
+            backend_type=f"csv_{institution_name}",
+        )
+        app.title = f"moneyflow [CSV: {institution_name}]"
+
+        app.run()
+    except Exception:
+        print("\n" + "=" * 80, file=sys.stderr)
+        print("FATAL ERROR - moneyflow CSV mode crashed!", file=sys.stderr)
         print("=" * 80, file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         print("\n" + "=" * 80, file=sys.stderr)

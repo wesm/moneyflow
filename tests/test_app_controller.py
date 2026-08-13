@@ -523,6 +523,222 @@ class TestCommitHandling:
         assert controller.data_manager.pending_category_groups is None
         assert controller.data_manager.pending_category_changes == []
 
+    async def test_successful_commit_persists_deferred_category_aliases(self, controller):
+        """Aliases buffered on a deferred change are written to the backend
+        only when the dependent edits commit — undo before commit would have
+        discarded them along with the change."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_groceries", "cat_entertainment", "Entertainment")]
+        assert controller.data_manager.pending_category_changes == []
+
+    async def test_successful_commit_flushes_retained_aliases(self, controller):
+        """Aliases retained from an earlier failed config save are persisted
+        when the retried save succeeds, and cleared afterwards."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.pending_category_groups = {"Group": ["Fun Purchases"]}
+        controller.data_manager.pending_category_aliases = [
+            ("cat_shopping", "cat_fun_purchases", "Fun Purchases")
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+        assert controller.data_manager.pending_category_aliases == []
+        assert controller.data_manager.pending_category_groups is None
+
+    async def test_config_save_failure_does_not_record_aliases(self, controller, monkeypatch):
+        """An alias must never outlive its configuration: if the config save
+        fails, the aliases stay staged rather than becoming durable while the
+        rename/merge/delete they belong to exists only in memory."""
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert recorded == []  # nothing recorded while the config is unsaved
+        assert controller.data_manager.pending_category_aliases == [
+            ("cat_groceries", "cat_entertainment", "Entertainment")
+        ]
+        assert controller.data_manager.pending_category_groups == {"Group": ["Entertainment"]}
+
+    async def test_staged_aliases_carry_revisions(self, controller, monkeypatch):
+        """Aliases must be stamped before staging: an unstamped record
+        recovers as revision 0 and loses to any existing record for the same
+        source, permanently losing the pending structural change."""
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        staged = []
+        controller.data_manager.mm.record_category_alias = lambda *args: None
+        controller.data_manager.mm.next_category_alias_revision = lambda: 5
+        controller.data_manager.mm.save_pending_category_state = lambda groups, aliases: (
+            staged.append(list(aliases))
+        )
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert staged == [[("cat_groceries", "cat_entertainment", "Entertainment", 5)]]
+
+    async def test_config_save_failure_stages_state_durably(self, controller, monkeypatch):
+        """The transaction edits are already committed, so a failed config
+        write must leave the restructure staged somewhere durable rather than
+        only in memory, where quitting would lose it."""
+        from moneyflow.tui import app_controller as controller_module
+
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        staged = []
+        controller.data_manager.mm.record_category_alias = lambda *args: None
+        controller.data_manager.mm.save_pending_category_state = lambda groups, aliases: (
+            staged.append((groups, list(aliases)))
+        )
+        controller.data_manager.profile_dir = object()
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+        monkeypatch.setattr(
+            controller_module, "save_categories_to_profile", lambda *args, **kwargs: False
+        )
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        # Staged before the changes were cleared, and not cleared afterwards
+        # because the config write failed.
+        assert staged == [
+            (
+                {"Group": ["Entertainment"]},
+                [("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+
+    async def test_successful_save_clears_staged_state(self, controller):
+        """Once configuration and aliases are both durable the staged copy is
+        removed, so it is not replayed on the next start."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        staged = []
+        controller.data_manager.mm.record_category_alias = lambda *args: None
+        controller.data_manager.mm.save_pending_category_state = lambda groups, aliases: (
+            staged.append((groups, list(aliases)))
+        )
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = []
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert staged[-1] == (None, [])
+
+    async def test_alias_persistence_failure_retains_aliases_for_retry(self, controller, mock_view):
+        """Aliases the backend fails to confirm must stay staged instead of
+        being dropped — the user is warned and a later retry persists them."""
+        edit = TransactionEdit(
+            "txn_1", "category", "cat_groceries", "cat_entertainment", datetime.now()
+        )
+        attempts = []
+
+        def failing_record(*args):
+            attempts.append(args)
+            raise RuntimeError("database is locked")
+
+        controller.data_manager.mm.record_category_alias = failing_record
+        controller.data_manager.pending_category_groups = {"Group": ["Entertainment"]}
+        controller.data_manager.pending_category_changes = [
+            DeferredCategoryChange(
+                before_groups={"Group": ["Groceries"]},
+                after_groups={"Group": ["Entertainment"]},
+                before_edits=[],
+                dependent_timestamps={edit.timestamp},
+                category_aliases=[("cat_groceries", "cat_entertainment", "Entertainment")],
+            )
+        ]
+
+        self._simulate_commit(controller, [edit], success_count=1, failure_count=0)
+
+        assert attempts  # persistence was attempted
+        assert controller.data_manager.pending_category_aliases == [
+            ("cat_groceries", "cat_entertainment", "Entertainment")
+        ]
+        assert controller.data_manager.pending_category_changes == []
+        assert any(
+            "could not be recorded" in notification["message"]
+            and notification["severity"] == "warning"
+            for notification in mock_view.notifications
+        )
+
+        # A later commit with a working backend flushes the retained alias.
+        recorded = []
+        controller.data_manager.mm.record_category_alias = lambda *args: recorded.append(args)
+        edit2 = TransactionEdit("txn_2", "merchant", "Old", "New", datetime.now())
+        self._simulate_commit(controller, [edit2], success_count=1, failure_count=0)
+
+        assert recorded == [("cat_groceries", "cat_entertainment", "Entertainment")]
+        assert controller.data_manager.pending_category_aliases == []
+
     async def test_category_save_failure_retains_deferred_state(
         self, controller, mock_view, monkeypatch
     ):

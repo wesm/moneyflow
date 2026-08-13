@@ -783,6 +783,85 @@ class TestLocalCategoryCreation:
         assert app.data_manager.pending_category_changes[0].before_groups == expected_base
         assert app.data_manager.pending_category_groups == {"Group": ["Target", "New Category"]}
 
+    async def test_creation_direct_save_clears_stale_deferred_state(self, monkeypatch):
+        """A successful direct save (no pending structural changes) must
+        flush retained aliases and clear a config snapshot retained from an
+        earlier failed save — otherwise the next commit re-applies the stale
+        snapshot and drops the category just created."""
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-2"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+            @staticmethod
+            def edit_category_current_selection(*args, **kwargs):
+                return 1
+
+        class DataManagerStub:
+            categories = {"target-category": {"name": "Target", "group": "Group"}}
+            pending_edits = []
+            pending_category_groups = {"Group": ["Stale"]}
+            pending_category_aliases = [("cat_old", "cat_new", "New")]
+            pending_category_changes = []
+            category_groups_config = {"Group": ["Target"]}
+            category_to_group = {"Target": "Group"}
+            profile_dir = object()
+
+        recorded = []
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "supports_category_sync": False,
+                "record_category_alias": staticmethod(lambda *args: recorded.append(args)),
+            },
+        )()
+        app.data_manager = DataManagerStub()
+        choices = iter(["__new__:New Category", "Group"])
+        saved_groups = []
+        monkeypatch.setattr(
+            app, "query_one", lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})()
+        )
+
+        async def choose(screen, **kwargs):
+            return next(choices)
+
+        monkeypatch.setattr(app, "push_screen", choose)
+        monkeypatch.setattr(app, "_save_table_position", lambda: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *args: None)
+        monkeypatch.setattr(app, "refresh_view", lambda *args, **kwargs: None)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+        monkeypatch.setattr(
+            app_module,
+            "save_categories_to_profile",
+            lambda groups, profile_dir: saved_groups.append(groups) or True,
+        )
+
+        await app._edit_category()
+
+        assert saved_groups == [{"Group": ["Target", "New Category"]}]
+        # The retained alias is flushed, followed by a self-referencing reset
+        # cancelling any alias left on the recreated id.
+        assert recorded == [
+            ("cat_old", "cat_new", "New"),
+            ("new_category", "new_category", ""),
+        ]
+        assert app.data_manager.pending_category_aliases == []
+        assert app.data_manager.pending_category_groups is None
+
     async def test_rejects_normalized_id_collision(self, monkeypatch):
         from moneyflow.tui.app import MoneyflowApp
 
@@ -833,6 +912,61 @@ class TestLocalCategoryCreation:
         await app._edit_category()
 
         assert set(categories) == {"food_dining"}
+        assert notifications == [("A category with an equivalent name already exists.", "error")]
+
+    async def test_rejects_name_collision_with_csv_import_style_id(self, monkeypatch):
+        """CSV-imported categories carry "cat_"-prefixed ids. Creating a
+        category with an equivalent name must still be rejected even though
+        the generated id differs from the stored one."""
+        from moneyflow.tui.app import MoneyflowApp
+
+        categories = {
+            "cat_food_dining": {
+                "name": "Food Dining",
+                "group": "Expenses",
+                "group_id": "expenses",
+                "group_type": "",
+            }
+        }
+
+        class ControllerStub:
+            @staticmethod
+            def determine_edit_context(field, cursor_row):
+                return type(
+                    "EditContext",
+                    (),
+                    {
+                        "transactions": pl.DataFrame({"id": ["transaction-1"]}),
+                        "transaction_count": 1,
+                        "is_multi_select": False,
+                    },
+                )()
+
+        app = MoneyflowApp()
+        app.controller = ControllerStub()
+        app.backend = type("Backend", (), {"supports_category_sync": False})()
+        app.data_manager = type("DataManager", (), {"categories": categories})()
+        notifications = []
+
+        monkeypatch.setattr(
+            app,
+            "query_one",
+            lambda *args, **kwargs: type("Table", (), {"cursor_row": 0})(),
+        )
+
+        async def choose_colliding_category(screen, **kwargs):
+            return "__new__:Food & Dining"
+
+        monkeypatch.setattr(app, "push_screen", choose_colliding_category)
+        monkeypatch.setattr(
+            app,
+            "notify",
+            lambda message, **kwargs: notifications.append((message, kwargs.get("severity"))),
+        )
+
+        await app._edit_category()
+
+        assert set(categories) == {"cat_food_dining"}
         assert notifications == [("A category with an equivalent name already exists.", "error")]
 
     async def test_aborts_creation_when_category_config_cannot_be_saved(self, monkeypatch):
@@ -1389,6 +1523,7 @@ class TestGroupManagerPersistence:
         class DataManagerStub:
             pending_category_groups = groups
             pending_category_changes = [object()]
+            pending_category_aliases = []
             profile_dir = object()
 
             @staticmethod
@@ -1410,6 +1545,41 @@ class TestGroupManagerPersistence:
         assert app.data_manager.pending_category_groups is None
         assert app.data_manager.pending_category_changes == []
         assert notifications == [("Category configuration saved.", None)]
+
+    def test_write_retry_flushes_retained_category_aliases(self, monkeypatch):
+        """A no-edit retry that persists pending_category_groups must also
+        persist the aliases retained from the failed save — otherwise the
+        cleared retry trigger silently drops them and later imports
+        resurrect the renamed/merged/deleted categories."""
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            pending_category_groups = {"Group": ["Fun Purchases"]}
+            pending_category_changes = []
+            pending_category_aliases = [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+            profile_dir = object()
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        recorded = []
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *args, **kwargs: True)
+        monkeypatch.setattr(app, "notify", lambda *args, **kwargs: None)
+
+        app.action_review_and_commit()
+
+        assert recorded == [("cat_shopping", "cat_fun_purchases", "Fun Purchases")]
+        assert app.data_manager.pending_category_aliases == []
+        assert app.data_manager.pending_category_groups is None
 
     @pytest.mark.parametrize("pending_field", ["category", "merchant", "hide_from_reports"])
     async def test_group_changes_save_with_pending_transaction_edits(
@@ -1665,3 +1835,132 @@ class TestGroupManagerPersistence:
         assert app.data_manager.category_groups_config == persisted_groups
         assert "source-category" in app.data_manager.categories
         assert app.data_manager.pending_edits == [ordinary_category_edit]
+
+
+class TestStagedCategoryStateCleanup:
+    """A successful retry must discard the backend-staged snapshot, or the
+    next startup restores an already-completed restructure."""
+
+    def _app_with_pending(self, monkeypatch, staged_calls, pending_aliases):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            pending_category_groups = {"Group": ["Renamed"]}
+            pending_category_changes = []
+            pending_category_aliases = list(pending_aliases)
+            profile_dir = object()
+
+            @staticmethod
+            def get_stats():
+                return {"pending_changes": 0}
+
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "record_category_alias": staticmethod(lambda *args: None),
+                "save_pending_category_state": staticmethod(
+                    lambda groups, aliases: staged_calls.append((groups, list(aliases)))
+                ),
+            },
+        )()
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *a, **k: True)
+        monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+        return app
+
+    def test_successful_retry_clears_staged_state(self, monkeypatch):
+        staged_calls = []
+        app = self._app_with_pending(monkeypatch, staged_calls, [])
+
+        app.action_review_and_commit()
+
+        assert staged_calls == [(None, [])]
+        assert app.data_manager.pending_category_groups is None
+
+    def test_staged_aliases_survive_but_stale_groups_are_dropped(self, monkeypatch):
+        """Aliases still awaiting the backend keep the staged copy alive, but
+        its group snapshot is stale once the configuration has been saved —
+        restoring it later would overwrite newer changes."""
+        staged_calls = []
+        app = self._app_with_pending(monkeypatch, staged_calls, [])
+
+        def failing(*args):
+            raise RuntimeError("database is locked")
+
+        app.backend.record_category_alias = failing
+        app.data_manager.pending_category_aliases = [("cat_a", "cat_b", "B", 1)]
+
+        app.action_review_and_commit()
+
+        assert staged_calls == [(None, [("cat_a", "cat_b", "B", 1)])]
+
+
+class TestGroupManagerAliasPersistence:
+    """A group-created category reinstates an id; its reset alias must not be
+    lost when changes are pending or the configuration save fails."""
+
+    def _run_group_manager(self, monkeypatch, *, save_ok, pending_changes):
+        from moneyflow.tui import app as app_module
+        from moneyflow.tui.app import MoneyflowApp
+
+        class DataManagerStub:
+            categories = {
+                "cat_travel": {
+                    "name": "Travel",
+                    "group": "Travel",
+                    "group_id": "travel",
+                    "group_type": "",
+                }
+            }
+            category_groups_config = {"Travel": ["Travel"]}
+            category_to_group = {"Travel": "Travel"}
+            pending_category_groups = None
+            pending_category_aliases = []
+            pending_category_changes = list(pending_changes)
+            profile_dir = object()
+
+        recorded = []
+        app = MoneyflowApp()
+        app.data_manager = DataManagerStub()
+        app.state = type("State", (), {"current_data": object()})()
+        app.backend = type(
+            "Backend",
+            (),
+            {
+                "read_only": True,
+                "record_category_alias": staticmethod(lambda *a: recorded.append(a)),
+                "make_category_id": staticmethod(lambda name: f"cat_{name.lower()}"),
+            },
+        )()
+
+        async def push(screen, **kwargs):
+            screen.recorded_aliases.append(("cat_travel", "cat_travel", ""))
+            return True
+
+        monkeypatch.setattr(app, "push_screen", push)
+        monkeypatch.setattr(app, "refresh_view", lambda *a, **k: None)
+        monkeypatch.setattr(app, "_restore_table_position", lambda *a: None)
+        monkeypatch.setattr(app, "notify", lambda *a, **k: None)
+        monkeypatch.setattr(app, "_rebase_pending_category_changes", lambda *a, **k: True)
+        monkeypatch.setattr(app_module, "save_categories_to_profile", lambda *a, **k: save_ok)
+        return app, recorded
+
+    async def test_aliases_persist_with_pending_changes(self, monkeypatch):
+        app, recorded = self._run_group_manager(
+            monkeypatch, save_ok=True, pending_changes=[object()]
+        )
+
+        await app._manage_groups()
+
+        assert recorded == [("cat_travel", "cat_travel", "")]
+
+    async def test_aliases_retained_when_save_fails(self, monkeypatch):
+        app, recorded = self._run_group_manager(monkeypatch, save_ok=False, pending_changes=[])
+
+        await app._manage_groups()
+
+        assert recorded == []  # not made durable while the config is unsaved
+        assert app.data_manager.pending_category_aliases == [("cat_travel", "cat_travel", "")]

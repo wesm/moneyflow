@@ -1,0 +1,6 @@
+Transaction Date,Post Date,Description,Category,Type,Amount,Memo
+01/15/2024,01/16/2024,EXAMPLE MERCHANT 1,Shopping,Sale,-25.00,Test memo one
+01/12/2024,01/13/2024,EXAMPLE MERCHANT 2,Food & Drink,Sale,-10.50,
+01/10/2024,01/11/2024,EXAMPLE MERCHANT 3,Groceries,Sale,-45.00,Test memo two
+01/05/2024,01/06/2024,EXAMPLE MERCHANT 4,Gifts & Donations,Sale,-100.00,
+12/28/2023,12/29/2023,EXAMPLE MERCHANT 5,Shopping,Sale,-5.75,

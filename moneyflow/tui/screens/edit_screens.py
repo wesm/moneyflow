@@ -13,7 +13,7 @@ All screens follow a consistent pattern:
 """
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import polars as pl
 from rich.text import Text
@@ -24,6 +24,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, OptionList, Static
 from textual.widgets.option_list import Option
 
+from ...data.categories import category_equivalence_key, category_slug
 from ..formatters import ViewPresenter
 
 
@@ -959,11 +960,21 @@ class ManageCategoriesScreen(ModalScreen):
         categories: Dict[str, Dict[str, str]],
         transaction_counts: Optional[Dict[str, int]] = None,
         queue_reassign_callback=None,
+        category_id_factory=None,
     ) -> None:
         super().__init__()
         self.categories = categories
         self.transaction_counts = transaction_counts or {}
         self._queue_reassign = queue_reassign_callback
+        # The backend owns the persistent id format (CSV backends use
+        # "cat_"-prefixed ids matching their imports); default to the legacy
+        # config slug used by config-backed backends.
+        self._category_id_factory = category_id_factory or category_slug
+        # (source_id, target_id, target_name) records of structural edits.
+        # Buffered rather than persisted here: the caller writes them to the
+        # backend only after the dependent transaction and configuration
+        # changes succeed, and discards them on undo or failure.
+        self.recorded_aliases: List[Tuple[str, str, str]] = []
         self._selected_index = 0
         self._category_order: List[str] = []  # flat list of cat IDs in display order
         self._group_order: List[str] = []  # group names in display order
@@ -999,9 +1010,21 @@ class ManageCategoriesScreen(ModalScreen):
             return self._filtered_order[self._selected_index]
         return None
 
+    def _is_protected_uncategorized(self, cat_id: str) -> bool:
+        """Whether a category is the protected Uncategorized fallback.
+
+        Config-backed backends use the id "uncategorized" while the CSV
+        backend persists "cat_uncategorized", so protect by canonicalized
+        name as well as by id.
+        """
+        if cat_id in ("uncategorized", "cat_uncategorized"):
+            return True
+        name = self.categories.get(cat_id, {}).get("name", "")
+        return category_equivalence_key(name) == "uncategorized"
+
     def _can_delete(self, cat_id: str) -> bool:
         """Whether a category can be deleted — at least one category per group must remain."""
-        if cat_id == "uncategorized":
+        if self._is_protected_uncategorized(cat_id):
             return False
         cat_data = self.categories.get(cat_id)
         if not cat_data:
@@ -1172,25 +1195,34 @@ class ManageCategoriesScreen(ModalScreen):
     # Operations
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _category_id_from_name(name: str) -> str:
-        return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+    def _category_id_from_name(self, name: str) -> str:
+        return self._category_id_factory(name)
 
     def _validated_category_id(self, name: str, current_id: Optional[str] = None) -> Optional[str]:
         """Return a normalized ID unless it is empty or collides with another category."""
         category_id = self._category_id_from_name(name)
-        if not category_id:
+        if not category_id or not category_equivalence_key(name):
             self.notify(
                 "Category name must contain a letter or number",
                 severity="warning",
             )
             return None
-        if category_id in self.categories and category_id != current_id:
-            self.notify(
-                "A category with an equivalent name already exists",
-                severity="warning",
-            )
-            return None
+        # Compare by normalized name as well as id: CSV-imported categories
+        # carry ids in a different format (e.g. "cat_food_dining"), and
+        # equivalent names must still be detected as duplicates.
+        new_key = category_equivalence_key(name)
+        for existing_id, existing in self.categories.items():
+            if existing_id == current_id:
+                continue
+            if (
+                existing_id == category_id
+                or category_equivalence_key(existing.get("name", "")) == new_key
+            ):
+                self.notify(
+                    "A category with an equivalent name already exists",
+                    severity="warning",
+                )
+                return None
         return category_id
 
     def _queue_reassignment(self, source_id: str, target_id: str) -> bool:
@@ -1226,16 +1258,15 @@ class ManageCategoriesScreen(ModalScreen):
             return
         if new_name == self.categories[cat_id].get("name", ""):
             return
-        if cat_id == "uncategorized":
+        if self._is_protected_uncategorized(cat_id):
             self.notify(
                 "The Uncategorized category cannot be renamed",
                 severity="warning",
             )
             return
 
-        # Compute new category ID from new name (same logic as
-        # _populate_categories_from_config in data_manager.py).
-        # If the ID changed, reassign transactions so they aren't
+        # Compute the new category ID from the new name using the backend's
+        # id format. If the ID changed, reassign transactions so they aren't
         # orphaned on restart when IDs are regenerated from names.
         new_id = self._validated_category_id(new_name, current_id=cat_id)
         if new_id is None:
@@ -1243,6 +1274,12 @@ class ManageCategoriesScreen(ModalScreen):
 
         if not self._queue_reassignment(cat_id, new_id):
             return
+
+        if new_id != cat_id:
+            # The destination id may have been deleted or merged earlier in
+            # this session; cancel that alias before pointing the old id at it.
+            self.recorded_aliases.append((new_id, new_id, ""))
+            self.recorded_aliases.append((cat_id, new_id, new_name))
 
         if new_id != cat_id:
             if new_id not in self.categories:
@@ -1311,7 +1348,7 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_cat_id = None
         if not source_id or not target_id:
             return
-        if source_id == "uncategorized":
+        if self._is_protected_uncategorized(source_id):
             self.notify(
                 "The Uncategorized category cannot be merged",
                 severity="warning",
@@ -1333,6 +1370,10 @@ class ManageCategoriesScreen(ModalScreen):
                 or re.sub(r"[^a-z0-9]+", "_", source_group.lower()).strip("_"),
                 "group_type": source_category.get("group_type", ""),
             }
+            # The reused id is live again: cancel any alias left by an
+            # earlier rename/merge/delete of it, before the merge alias below
+            # points the source at it.
+            self.recorded_aliases.append((new_id, new_id, ""))
             target_id = new_id
             created_target_id = new_id
         # Queue edits (reassign transactions from source to target)
@@ -1340,6 +1381,8 @@ class ManageCategoriesScreen(ModalScreen):
             if created_target_id is not None:
                 self.categories.pop(created_target_id, None)
             return
+        target_name = self.categories.get(target_id, {}).get("name", "")
+        self.recorded_aliases.append((source_id, target_id, target_name))
         # Remove source
         self.categories.pop(source_id, None)
         self._dirty = True
@@ -1385,6 +1428,12 @@ class ManageCategoriesScreen(ModalScreen):
         self._pending_cat_id = None
         if not confirmed or not cat_id:
             return
+        # Even with zero current transactions, a later CSV import of this
+        # bank category must not recreate it — alias it to the backend's
+        # Uncategorized category.
+        self.recorded_aliases.append(
+            (cat_id, self._category_id_from_name("Uncategorized"), "Uncategorized")
+        )
         self.categories.pop(cat_id, None)
         self._dirty = True
         self._selected_index = min(self._selected_index, len(self._filtered_order) - 1)
@@ -1400,17 +1449,36 @@ class ManageCategoriesScreen(ModalScreen):
         if action == "reassign":
             created_fallback = False
             if target_id == "uncategorized" and target_id not in self.categories:
-                self.categories[target_id] = {
-                    "name": "Uncategorized",
-                    "group": "Uncategorized",
-                    "group_id": "uncategorized",
-                    "group_type": "",
-                }
-                created_fallback = True
+                # Reuse an existing Uncategorized category (the CSV backend
+                # persists it as "cat_uncategorized") rather than creating a
+                # second one alongside it.
+                existing_uncategorized = next(
+                    (
+                        existing_id
+                        for existing_id in self.categories
+                        if self._is_protected_uncategorized(existing_id)
+                    ),
+                    None,
+                )
+                if existing_uncategorized is not None:
+                    target_id = existing_uncategorized
+                else:
+                    # Create the fallback with the backend's id format so a
+                    # later CSV import maps to the same category.
+                    target_id = self._category_id_from_name("Uncategorized")
+                    self.categories[target_id] = {
+                        "name": "Uncategorized",
+                        "group": "Uncategorized",
+                        "group_id": "uncategorized",
+                        "group_type": "",
+                    }
+                    created_fallback = True
             if not self._queue_reassignment(cat_id, target_id):
                 if created_fallback:
                     self.categories.pop(target_id, None)
                 return
+            target_name = self.categories.get(target_id, {}).get("name", "")
+            self.recorded_aliases.append((cat_id, target_id, target_name))
 
         self.categories.pop(cat_id, None)
         self._dirty = True
@@ -1432,7 +1500,7 @@ class ManageCategoriesScreen(ModalScreen):
         if not new_name:
             return
         self._pending_name = new_name
-        all_groups = sorted({c.get("group", "Uncategorized") for c in self.categories.values()})
+        all_groups = sorted({c["group"] for c in self.categories.values() if c.get("group")})
         self.app.push_screen(
             GroupSelectScreen(all_groups),
             self._handle_create_group,
@@ -1452,6 +1520,11 @@ class ManageCategoriesScreen(ModalScreen):
             "group_id": re.sub(r"[^a-z0-9]+", "_", group.lower()).strip("_"),
             "group_type": "",
         }
+        # This id is live again: a self-referencing record cancels any alias
+        # left by a previous rename, merge, or delete of the same category.
+        # Buffered like the others so it is persisted only after the
+        # configuration saves.
+        self.recorded_aliases.append((cat_id, cat_id, ""))
         self._dirty = True
         self._build_category_order()
         self._selected_index = (
@@ -1597,9 +1670,17 @@ class ManageGroupsScreen(ModalScreen):
     def __init__(
         self,
         categories: Dict[str, Dict[str, str]],
+        category_id_factory=None,
     ) -> None:
         super().__init__()
         self.categories = categories
+        # The backend owns the persistent id format, as in the category
+        # manager: a bare slug here would create a second id for a category
+        # the CSV backend stores with a "cat_" prefix.
+        self._category_id_factory = category_id_factory or category_slug
+        # (source, target, name) records of structural edits, persisted by
+        # the caller once the configuration saves.
+        self.recorded_aliases: List[Tuple[str, str, str]] = []
         self._selected_index = 0
         self._group_order: List[str] = []
         self._filter_query: str = ""
@@ -1765,8 +1846,12 @@ class ManageGroupsScreen(ModalScreen):
         if any(c.get("group") == name for c in self.categories.values()):
             self.app.notify(f"Group '{name}' already exists", timeout=3)
             return
-        cat_id = group_id
-        if cat_id in self.categories:
+        cat_id = self._category_id_factory(name)
+        new_key = category_equivalence_key(name)
+        if cat_id in self.categories or any(
+            category_equivalence_key(existing.get("name", "")) == new_key
+            for existing in self.categories.values()
+        ):
             self.app.notify("A category with an equivalent name already exists", timeout=3)
             return
         self.categories[cat_id] = {
@@ -1775,6 +1860,9 @@ class ManageGroupsScreen(ModalScreen):
             "group_id": group_id,
             "group_type": "",
         }
+        # The id is live again: cancel any alias left by an earlier
+        # rename/merge/delete of it.
+        self.recorded_aliases.append((cat_id, cat_id, ""))
         self._dirty = True
         self._build_group_order()
         self._selected_index = (

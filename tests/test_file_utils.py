@@ -8,6 +8,8 @@ Tests cover:
 """
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -18,7 +20,9 @@ from moneyflow.data.file_utils import secure_atomic_write, secure_write_file
 from tests.permission_assertions import assert_owner_only_permissions
 
 if os.name == "nt":
+    import ntsecuritycon
     import pywintypes
+    import win32security
 
     from moneyflow.data import windows_permissions
 
@@ -319,3 +323,166 @@ class TestSecureAtomicWrite:
 
         assert test_file.exists()
         assert test_file.read_bytes() == b"content"
+
+
+def test_require_current_user_fd_ownership_accepts_own_file(tmp_path: Path) -> None:
+    """The handle-based ownership check passes for files the user created."""
+    target = tmp_path / "owned.bin"
+    target.write_bytes(b"data")
+    fd = os.open(target, os.O_RDONLY)
+    try:
+        file_utils.require_current_user_fd_ownership(fd, target)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX uid check")
+def test_require_current_user_fd_ownership_rejects_foreign_uid(tmp_path: Path, monkeypatch) -> None:
+    """A file owned by another uid must be rejected via the open handle."""
+    target = tmp_path / "foreign.bin"
+    target.write_bytes(b"data")
+    fd = os.open(target, os.O_RDONLY)
+    real_fstat = os.fstat
+
+    def foreign_fstat(descriptor: int):
+        result = real_fstat(descriptor)
+        foreign = Mock(wraps=result)
+        foreign.st_uid = result.st_uid + 1
+        return foreign
+
+    monkeypatch.setattr(file_utils.os, "fstat", foreign_fstat)
+    try:
+        with pytest.raises(PermissionError):
+            file_utils.require_current_user_fd_ownership(fd, target)
+    finally:
+        os.close(fd)
+
+
+def test_require_directory_not_replaceable_accepts_private_dir(tmp_path: Path) -> None:
+    """User-private directories pass; the check is a no-op on POSIX."""
+    file_utils.require_directory_not_replaceable(tmp_path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+def test_require_directory_not_replaceable_rejects_everyone_delete(tmp_path: Path) -> None:
+    """A directory whose DACL grants DELETE to Everyone could be swapped for
+    a junction by any local account and must be rejected."""
+    loose = tmp_path / "loose"
+    loose.mkdir()
+    descriptor = win32security.GetNamedSecurityInfo(
+        str(loose),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+    )
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    everyone = win32security.ConvertStringSidToSid("S-1-1-0")
+    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.DELETE, everyone)
+    win32security.SetNamedSecurityInfo(
+        str(loose),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        dacl,
+        None,
+    )
+
+    with pytest.raises(PermissionError):
+        file_utils.require_directory_not_replaceable(loose)
+
+
+def test_log_file_and_directory_are_owner_only(tmp_path: Path) -> None:
+    """The log records financial metadata (merchants, categories); the log
+    directory and file must be owner-only from creation."""
+    from moneyflow.logging_config import _get_log_file, _RestrictiveFileHandler
+
+    log_file = _get_log_file(str(tmp_path / "cfg"))
+    assert_owner_only_permissions(log_file.parent, 0o700)
+
+    handler = _RestrictiveFileHandler(log_file, encoding="utf-8")
+    try:
+        assert_owner_only_permissions(log_file, 0o600)
+    finally:
+        handler.close()
+
+
+def test_open_verified_no_follow_rejects_symlink(tmp_path: Path) -> None:
+    """A planted symlink must not be followed, so a trusted read/write
+    cannot be redirected to another file."""
+    target = tmp_path / "target.txt"
+    target.write_text("data")
+    target.chmod(0o600)
+    link = tmp_path / "link.txt"
+    link.symlink_to(target)
+
+    with pytest.raises(file_utils.UntrustedFileError):
+        file_utils.open_verified_no_follow(link)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX mode assertion")
+def test_open_verified_no_follow_rejects_group_writable(tmp_path: Path) -> None:
+    """A file another local account can modify must not be trusted."""
+    target = tmp_path / "loose.txt"
+    target.write_text("data")
+    target.chmod(0o666)
+
+    with pytest.raises(file_utils.UntrustedFileError):
+        file_utils.open_verified_no_follow(target)
+
+
+def test_open_verified_no_follow_accepts_private_file(tmp_path: Path) -> None:
+    target = tmp_path / "private.txt"
+    target.write_text("data")
+    target.chmod(0o600)
+
+    fd = file_utils.open_verified_no_follow(target)
+    try:
+        assert os.read(fd, 4) == b"data"
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Win32 ACL APIs")
+def test_open_verified_no_follow_rejects_dacl_write_access(tmp_path: Path) -> None:
+    """A file whose DACL grants another account write access must not be
+    trusted, even when the current user owns it."""
+    target = tmp_path / "shared.yaml"
+    target.write_text("data")
+    descriptor = win32security.GetNamedSecurityInfo(
+        str(target),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+    )
+    dacl = descriptor.GetSecurityDescriptorDacl()
+    everyone = win32security.ConvertStringSidToSid("S-1-1-0")
+    dacl.AddAccessAllowedAce(win32security.ACL_REVISION, ntsecuritycon.FILE_WRITE_DATA, everyone)
+    win32security.SetNamedSecurityInfo(
+        str(target),
+        win32security.SE_FILE_OBJECT,
+        win32security.DACL_SECURITY_INFORMATION,
+        None,
+        None,
+        dacl,
+        None,
+    )
+
+    with pytest.raises(file_utils.UntrustedFileError):
+        file_utils.open_verified_no_follow(target)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extended ACLs")
+def test_deny_only_acl_does_not_block_startup(tmp_path: Path) -> None:
+    """ "everyone deny delete" is inherited by ordinary macOS home
+    directories; rejecting it would refuse to start on stock systems."""
+    subprocess.run(["chmod", "+a", "everyone deny delete", str(tmp_path)], check=True)
+
+    file_utils.validate_trusted_root(tmp_path / "moneyflow")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS extended ACLs")
+def test_allow_acl_for_other_account_blocks_startup(tmp_path: Path) -> None:
+    """An allow entry naming another principal does expose the directory."""
+    subprocess.run(["chmod", "+a", "everyone allow read", str(tmp_path)], check=True)
+
+    with pytest.raises(file_utils.UntrustedFileError):
+        file_utils.validate_trusted_root(tmp_path / "moneyflow")

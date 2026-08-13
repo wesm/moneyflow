@@ -6,6 +6,9 @@
 
 - **SimpleFIN support** - Import read-only account and transaction data from a
   SimpleFIN server, with moneyflow edits stored in a profile-local SQLite database
+- **CSV Import Engine** - Generic engine for importing transaction histories from
+  bank CSV exports, with pluggable institution mappings (Chase credit card as first
+  supported institution). Available via `moneyflow import institution`.
 
 ---
 

@@ -5,8 +5,14 @@ Tests for DataManager operations including aggregation, filtering, and API integ
 from datetime import datetime
 
 import polars as pl
+import pytest
 
-from moneyflow.data.data_manager import DataManager
+from moneyflow.data.categories import load_pending_category_aliases
+from moneyflow.data.data_manager import (
+    DataManager,
+    flush_category_aliases,
+    flush_category_aliases_durably,
+)
 from moneyflow.data.state import TimeGranularity, TransactionEdit
 
 
@@ -158,6 +164,78 @@ class TestDataFetching:
 
         assert len(filtered_df) < len(complete_df)
         assert len(complete_df) == 6
+
+    async def test_csv_backend_groups_recovered_from_profile_config(self, tmp_path):
+        """CSV backend returns categories with no group name. The DataManager
+        must fall back to the profile's category config so the category picker
+        has usable group names instead of None for every category."""
+
+        from moneyflow.backends.csv_backend import CsvFinanceBackend
+        from moneyflow.data.categories import save_categories_to_profile
+
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        # Seed the profile config so the DataManager has a category_to_group
+        # mapping to fall back to.
+        save_categories_to_profile(
+            {"Shopping": ["EXAMPLE STORE"]},
+            profile_dir=profile_dir,
+        )
+
+        backend = CsvFinanceBackend(
+            profile_dir=profile_dir,
+            config_dir=str(config_dir),
+            institution_name="chase_credit",
+        )
+        # Import one transaction so the backend has a category to surface.
+        from moneyflow.importers.engine import InstitutionMapping, import_csv
+
+        mapping = InstitutionMapping(
+            name="chase_credit",
+            display_name="Chase Credit Card",
+            file_pattern="Chase*.csv",
+            id_prefix="chase_",
+            date_fmt="%m/%d/%Y",
+            column_map={
+                "Transaction Date": "date",
+                "Description": "merchant",
+                "Amount": "amount",
+                "Category": "category",
+            },
+            amount_sign=1,
+            skip_rows=0,
+            dedup_fields=("date", "amount", "merchant"),
+            extra_columns=(),
+            date_columns=("date",),
+            currency="USD",
+            default_category="Uncategorized",
+            default_category_id="cat_uncategorized",
+            encoding="utf-8",
+            debit_column=None,
+            credit_column=None,
+        )
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        (csv_dir / "Chase_sample.csv").write_text(
+            "Transaction Date,Description,Category,Amount\n"
+            "01/15/2024,EXAMPLE STORE,EXAMPLE STORE,-25.00\n"
+        )
+        import_csv(str(csv_dir), mapping, backend)
+
+        dm = DataManager(
+            backend,
+            config_dir=str(config_dir),
+            profile_dir=profile_dir,
+            backend_type="csv",
+        )
+        _, categories, _ = await dm.fetch_all_data()
+        # Find the category by name (ids are hash-derived).
+        by_name = {v["name"]: v for v in categories.values()}
+        assert "EXAMPLE STORE" in by_name
+        # Group name must be recovered from the profile config, not None.
+        assert by_name["EXAMPLE STORE"]["group"] == "Shopping"
 
 
 class TestAggregation:
@@ -1691,3 +1769,290 @@ class TestSkipBatchFor:
         # Should use batch
         assert len(mock_mm.update_calls) == 0
         assert ("Amazon.com/abc", "Amazon") in bulk_renames
+
+
+class TestFlushCategoryAliases:
+    def test_removes_only_confirmed_aliases(self):
+        """A persistence failure retains the failed alias and everything
+        after it, so structural edits are never silently dropped."""
+        recorded = []
+
+        def flaky(source, target, name):
+            if source == "cat_fail":
+                raise RuntimeError("backend unavailable")
+            recorded.append((source, target, name))
+
+        backend = type("Backend", (), {"record_category_alias": staticmethod(flaky)})()
+        aliases = [
+            ("cat_ok", "cat_x", "X"),
+            ("cat_fail", "cat_y", "Y"),
+            ("cat_later", "cat_z", "Z"),
+        ]
+        remaining = flush_category_aliases(backend, aliases)
+        assert recorded == [("cat_ok", "cat_x", "X")]
+        assert remaining == [("cat_fail", "cat_y", "Y"), ("cat_later", "cat_z", "Z")]
+
+    def test_backend_without_alias_support_has_nothing_to_retain(self):
+        assert flush_category_aliases(object(), [("a", "b", "B")]) == []
+
+
+class TestDurableAliasRetention:
+    def test_unconfirmed_aliases_survive_restart(self, tmp_path):
+        """An alias the backend fails to confirm is durably retained in the
+        profile config, reloaded by a fresh DataManager, and cleared from
+        storage once a retry succeeds."""
+
+        def failing(*args):
+            raise RuntimeError("backend unavailable")
+
+        failing_backend = type("Backend", (), {"record_category_alias": staticmethod(failing)})()
+        alias = ("cat_shopping", "cat_fun", "Fun")
+        remaining = flush_category_aliases_durably(failing_backend, tmp_path, [alias])
+        assert [record[:3] for record in remaining] == [alias]
+        assert [record[:3] for record in load_pending_category_aliases(tmp_path)] == [alias]
+
+        manager = DataManager(mm=failing_backend, config_dir=str(tmp_path), profile_dir=tmp_path)
+        assert [record[:3] for record in manager.pending_category_aliases] == [alias]
+
+        recorded = []
+        working_backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        assert flush_category_aliases_durably(working_backend, tmp_path, remaining) == []
+        assert [record[:3] for record in recorded] == [alias]
+        assert load_pending_category_aliases(tmp_path) == []
+
+
+class TestAliasQueuePersistenceFailure:
+    def test_confirmed_aliases_are_not_replayed_when_queue_write_fails(self, tmp_path, monkeypatch):
+        """A queue-write failure must not cause confirmed aliases to be
+        replayed later — they are already durable in the backend, and a
+        replay could overwrite a newer mapping."""
+        recorded = []
+        backend = type(
+            "Backend",
+            (),
+            {"record_category_alias": staticmethod(lambda *args: recorded.append(args))},
+        )()
+        monkeypatch.setattr(
+            "moneyflow.data.data_manager.save_pending_category_aliases",
+            lambda *args, **kwargs: False,
+        )
+
+        remaining = flush_category_aliases_durably(backend, tmp_path, [("cat_a", "cat_b", "B")])
+
+        assert recorded == [("cat_a", "cat_b", "B")]
+        assert remaining == []  # confirmed, so not queued for replay
+
+
+class TestAliasQueueSelfCorrection:
+    def test_confirmed_queue_entries_are_not_replayed(self, tmp_path):
+        """If clearing the queue failed, the stale entries the backend
+        already records must be dropped on reload rather than replayed over
+        a newer mapping."""
+        from moneyflow.data.categories import save_pending_category_aliases
+        from moneyflow.data.data_manager import load_unconfirmed_category_aliases
+
+        # The backend already records cat_a with a NEWER target than the
+        # stale queue entry, plus an entry that was never confirmed.
+        # The backend recorded cat_a at revision 7 (a NEWER operation than
+        # the queued revision-3 entry) and cat_c at the queued revision.
+        backend = type(
+            "Backend",
+            (),
+            {"get_category_alias_revisions": staticmethod(lambda: {"cat_a": 7, "cat_c": 4})},
+        )()
+        save_pending_category_aliases(
+            tmp_path,
+            [
+                ("cat_a", "cat_old", "Old", 3),  # older than the backend: stale
+                ("cat_c", "cat_d", "D", 4),  # same revision: already confirmed
+                ("cat_e", "cat_f", "F", 5),  # backend has no record: retry
+            ],
+        )
+
+        unconfirmed = load_unconfirmed_category_aliases(backend, tmp_path)
+
+        # Revisions survive the round trip so a later flush cannot restamp a
+        # stale record with a fresh, higher number.
+        assert unconfirmed == [("cat_e", "cat_f", "F", 5)]
+
+    def test_unreadable_revisions_raise_rather_than_look_empty(self, tmp_path):
+        """Without the backend's revisions staleness is undecidable. The
+        caller must be able to tell that apart from an empty queue, or an
+        import would proceed with a stale category map."""
+        from moneyflow.data.categories import (
+            load_pending_category_aliases,
+            save_pending_category_aliases,
+        )
+        from moneyflow.data.data_manager import (
+            AliasStateUnavailable,
+            load_unconfirmed_category_aliases,
+        )
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        backend = type("Backend", (), {"get_category_alias_revisions": staticmethod(failing)})()
+        save_pending_category_aliases(tmp_path, [("cat_a", "cat_b", "B", 2)])
+
+        with pytest.raises(AliasStateUnavailable):
+            load_unconfirmed_category_aliases(backend, tmp_path)
+        # The queue survives for a later run to retry.
+        assert load_pending_category_aliases(tmp_path) == [("cat_a", "cat_b", "B", 2)]
+
+    def test_new_revisions_outrank_staged_ones(self, tmp_path):
+        """A new alias must never get a lower revision than a queued one it
+        supersedes, or the queued entry would win after a restart."""
+        from moneyflow.data.data_manager import assign_alias_revisions
+
+        backend = type("Backend", (), {"next_category_alias_revision": staticmethod(lambda: 2)})()
+        stamped = assign_alias_revisions(
+            backend, [("cat_queued", "cat_x", "X", 9), ("cat_new", "cat_y", "Y")]
+        )
+
+        assert stamped[0] == ("cat_queued", "cat_x", "X", 9)  # existing kept
+        assert stamped[1][3] > 9  # new one outranks it
+
+
+class TestBackendAwareCategoryIds:
+    def test_populate_uses_backend_id_format(self, tmp_path):
+        """Undo and rollback repopulate categories from config; using the
+        legacy slug for a CSV backend would split one category across two
+        ids ("groceries" and "cat_groceries")."""
+        from moneyflow.data.categories import stable_category_id
+
+        backend = type("Backend", (), {"make_category_id": staticmethod(stable_category_id)})()
+        manager = DataManager(mm=backend, config_dir=str(tmp_path))
+        manager.categories = {}
+        manager.category_groups_config = {"Expenses": ["Groceries", "Food & Dining"]}
+
+        manager._populate_categories_from_config()
+
+        assert set(manager.categories) == {"cat_groceries", "cat_food_dining"}
+        assert manager.categories["cat_groceries"]["group"] == "Expenses"
+
+    def test_populate_falls_back_to_legacy_slug(self, tmp_path):
+        """Backends without an id factory keep the legacy bare slug, whose
+        format their stored transactions already use."""
+        manager = DataManager(mm=object(), config_dir=str(tmp_path))
+        manager.categories = {}
+        manager.category_groups_config = {"Expenses": ["Groceries"]}
+
+        manager._populate_categories_from_config()
+
+        assert set(manager.categories) == {"groceries"}
+
+
+class TestStagedCategoryStateRecovery:
+    def test_staged_state_is_recovered_on_restart(self, tmp_path):
+        """A restructure staged by a commit whose config write failed must be
+        recovered, not lost, so it can be retried."""
+        staged_groups = {"Group": ["Renamed"]}
+        staged_aliases = [("cat_old", "cat_renamed", "Renamed", 3)]
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                return staged_groups, staged_aliases
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_groups == staged_groups
+        assert manager.pending_category_aliases == staged_aliases
+
+
+class TestStagedStateAfterSuccessfulRetry:
+    def test_recorded_staged_aliases_are_not_requeued(self, tmp_path):
+        """failure -> retry -> restart: once the retry recorded the aliases,
+        a staged copy that outlived it must not be replayed, or it would
+        restamp a stale mapping with a fresh revision."""
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                # Staged during the failed save, left behind afterwards.
+                return {"Group": ["Renamed"]}, [("cat_old", "cat_renamed", "Renamed", 3)]
+
+            @staticmethod
+            def get_category_alias_revisions():
+                # The retry recorded it at the same revision.
+                return {"cat_old": 3}
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_aliases == []
+
+    def test_unrecorded_staged_aliases_are_requeued(self, tmp_path):
+        """A staged alias the backend never recorded is still retried."""
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                return {"Group": ["Renamed"]}, [("cat_old", "cat_renamed", "Renamed", 3)]
+
+            @staticmethod
+            def get_category_alias_revisions():
+                return {}
+
+        manager = DataManager(mm=Backend(), config_dir=str(tmp_path))
+
+        assert manager.pending_category_aliases == [("cat_old", "cat_renamed", "Renamed", 3)]
+
+
+class TestFailClosedAliasState:
+    def test_unreadable_revisions_raise_from_shared_filter(self):
+        """drop_recorded_aliases must fail closed: replaying a record whose
+        staleness cannot be checked could overwrite a newer mapping."""
+        from moneyflow.data.data_manager import AliasStateUnavailable, drop_recorded_aliases
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        backend = type("Backend", (), {"get_category_alias_revisions": staticmethod(failing)})()
+
+        with pytest.raises(AliasStateUnavailable):
+            drop_recorded_aliases(backend, [("cat_a", "cat_b", "B", 1)])
+
+    def test_unreadable_staged_state_aborts_initialization(self, tmp_path):
+        """The staged state shares the transaction database, so an unreadable
+        one means the profile cannot be used with confidence."""
+        from moneyflow.data.data_manager import AliasStateUnavailable
+
+        class Backend:
+            @staticmethod
+            def load_pending_category_state():
+                raise RuntimeError("database is locked")
+
+        with pytest.raises(AliasStateUnavailable):
+            DataManager(mm=Backend(), config_dir=str(tmp_path), profile_dir=tmp_path)
+
+
+class TestUnstampableAliases:
+    def test_records_are_not_serialized_as_revision_zero(self, tmp_path):
+        """If a revision cannot be allocated, the records must stay in memory
+        rather than being queued unstamped: a stored revision 0 loses to any
+        positive backend revision and the correction would be dropped."""
+        from moneyflow.data.categories import load_pending_category_aliases
+        from moneyflow.data.data_manager import flush_category_aliases_durably
+
+        def failing():
+            raise RuntimeError("database is locked")
+
+        recorded = []
+        backend = type(
+            "Backend",
+            (),
+            {
+                "next_category_alias_revision": staticmethod(failing),
+                "record_category_alias": staticmethod(lambda *a: recorded.append(a)),
+            },
+        )()
+
+        remaining = flush_category_aliases_durably(backend, tmp_path, [("cat_a", "cat_b", "B")])
+
+        assert remaining == [("cat_a", "cat_b", "B")]  # retained for retry
+        assert recorded == []  # nothing recorded without a revision
+        assert load_pending_category_aliases(tmp_path) == []  # nothing queued as 0

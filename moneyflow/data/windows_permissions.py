@@ -13,6 +13,8 @@ import win32con  # pyright: ignore[reportMissingImports, reportMissingModuleSour
 import win32file  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 import win32security  # pyright: ignore[reportMissingImports, reportMissingModuleSource]
 
+from .trust_errors import untrusted
+
 
 def _current_user_sid() -> Any:
     process_token = win32security.OpenProcessToken(
@@ -89,11 +91,7 @@ def _require_current_user_owner(security_descriptor: Any, path: Path | str) -> b
     is_user_owner = owner_sid_string == _sid_string(_current_user_sid())
     is_token_owner = owner_sid_string == _sid_string(_current_default_owner_sid())
     if not is_user_owner and not is_token_owner:
-        raise PermissionError(
-            errno.EACCES,
-            "Sensitive path is not owned by the current user",
-            str(path),
-        )
+        raise untrusted("Sensitive path is not owned by the current user", path)
     return is_user_owner
 
 
@@ -102,6 +100,146 @@ def require_current_user_ownership(path: Path | str) -> None:
     try:
         security_descriptor = win32security.GetNamedSecurityInfo(
             str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    _require_current_user_owner(security_descriptor, path)
+
+
+# ACE types that DENY access. Everything else in a DACL grants it, including
+# the object and callback variants, whose SID sits at the end of the tuple
+# rather than at a fixed index.
+_DENY_ACE_TYPES = frozenset(
+    {
+        win32security.ACCESS_DENIED_ACE_TYPE,
+        getattr(win32security, "ACCESS_DENIED_OBJECT_ACE_TYPE", 6),
+        getattr(win32security, "ACCESS_DENIED_CALLBACK_ACE_TYPE", 10),
+        getattr(win32security, "ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE", 12),
+    }
+)
+
+
+def _ace_parts(ace: Any) -> tuple[int, int, int, Any]:
+    """Return (ace_type, ace_flags, access_mask, sid) for any DACL ACE.
+
+    Conventional ACEs are (header, mask, sid); object and callback ACEs carry
+    extra members between the mask and the SID, so the SID is read from the
+    end rather than a fixed position.
+    """
+    ace_type, ace_flags = ace[0]
+    return ace_type, ace_flags, ace[1], ace[-1]
+
+
+_TRUSTED_ANCESTOR_SIDS = frozenset(
+    {
+        "S-1-5-18",  # LocalSystem
+        "S-1-5-32-544",  # BUILTIN\Administrators
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",  # TrustedInstaller
+    }
+)
+
+# Rights that let a principal subvert a directory: delete, rename, or re-ACL
+# it (swapping a validated component for a junction), delete its children, or
+# create children in it (planting an authoritative config.yaml or database
+# that the application would then trust).
+_DIRECTORY_REPLACE_MASK = (
+    ntsecuritycon.DELETE
+    | ntsecuritycon.WRITE_DAC
+    | ntsecuritycon.WRITE_OWNER
+    | ntsecuritycon.FILE_DELETE_CHILD
+    | ntsecuritycon.GENERIC_ALL
+)
+
+# Creating children only matters where a component does not exist yet and
+# could therefore be planted. Stock system-drive ancestors (C:\ grants
+# Authenticated Users "create folders / append data") legitimately allow it,
+# and rejecting that would refuse to start on a default Windows install.
+_DIRECTORY_PLANT_MASK = (
+    ntsecuritycon.FILE_ADD_FILE | ntsecuritycon.FILE_ADD_SUBDIRECTORY | ntsecuritycon.GENERIC_WRITE
+)
+
+
+def require_directory_not_replaceable_by_untrusted(
+    path: Path | str, *, forbid_child_creation: bool = False
+) -> None:
+    """Fail if an untrusted principal could replace this directory.
+
+    Two checks are required. The owner must be trusted: an owner implicitly
+    retains READ_CONTROL and WRITE_DAC regardless of the DACL, so an
+    untrusted owner could re-grant itself delete rights at any time. And the
+    effective (non-inherit-only) allow ACEs must not give any principal
+    other than the current user, LocalSystem, Administrators, or
+    TrustedInstaller delete/rename/re-ACL rights on the directory — or
+    delete-child rights over its contents — since any of those would let it
+    be swapped for a junction that redirects the database path.
+
+    With forbid_child_creation, rights to create children are rejected too.
+    That is only meaningful for the deepest existing component, whose missing
+    child could be planted; applying it to every ancestor would reject stock
+    OS-managed roots that grant Authenticated Users create-folder rights.
+    """
+    unsafe_mask = _DIRECTORY_REPLACE_MASK
+    if forbid_child_creation:
+        unsafe_mask |= _DIRECTORY_PLANT_MASK
+    try:
+        security_descriptor = win32security.GetNamedSecurityInfo(
+            str(path),
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION | win32security.OWNER_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+
+    current_sid_string = _sid_string(_current_user_sid())
+    trusted_owner_sids = _TRUSTED_ANCESTOR_SIDS | {
+        current_sid_string,
+        _sid_string(_current_default_owner_sid()),
+    }
+    owner_sid_string = _sid_string(security_descriptor.GetSecurityDescriptorOwner())
+    if owner_sid_string not in trusted_owner_sids:
+        raise PermissionError(
+            errno.EACCES,
+            f"Directory is owned by an untrusted account ({owner_sid_string})",
+            str(path),
+        )
+
+    dacl = security_descriptor.GetSecurityDescriptorDacl()
+    if dacl is None:
+        raise PermissionError(
+            errno.EACCES,
+            "Directory has no DACL (everyone has full control)",
+            str(path),
+        )
+    for index in range(dacl.GetAceCount()):
+        ace_type, ace_flags, access_mask, sid = _ace_parts(dacl.GetAce(index))
+        if ace_type in _DENY_ACE_TYPES:
+            continue
+        if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
+            continue
+        sid_string = _sid_string(sid)
+        if sid_string == current_sid_string or sid_string in _TRUSTED_ANCESTOR_SIDS:
+            continue
+        if access_mask & unsafe_mask:
+            raise PermissionError(
+                errno.EACCES,
+                f"Directory can be replaced by another account ({sid_string})",
+                str(path),
+            )
+
+
+def require_current_user_ownership_of_fd(fd: int, path: Path | str) -> None:
+    """Fail unless the file open at fd is owned by the current user.
+
+    Reads the security descriptor from the opened handle rather than the
+    path, so a path swapped to another user's file after the open cannot
+    influence the result.
+    """
+    get_osfhandle = getattr(msvcrt, "get_osfhandle")
+    try:
+        security_descriptor = win32security.GetSecurityInfo(
+            get_osfhandle(fd),
             win32security.SE_FILE_OBJECT,
             win32security.OWNER_SECURITY_INFORMATION,
         )
@@ -244,6 +382,118 @@ def has_owner_only_directory_permissions(path: Path | str) -> bool:
         )
     except pywintypes.error as error:
         raise _as_os_error(error, path) from error
+
+
+# Not exposed by win32con in all pywin32 releases; value from winbase.h.
+_FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000
+
+# Rights that let a principal alter a file's contents or its security, any
+# of which would let another account dictate trusted configuration.
+_FILE_MODIFY_MASK = (
+    ntsecuritycon.FILE_WRITE_DATA
+    | ntsecuritycon.FILE_APPEND_DATA
+    | ntsecuritycon.FILE_WRITE_ATTRIBUTES
+    | ntsecuritycon.FILE_WRITE_EA
+    | ntsecuritycon.DELETE
+    | ntsecuritycon.WRITE_DAC
+    | ntsecuritycon.WRITE_OWNER
+    | ntsecuritycon.GENERIC_ALL
+    | ntsecuritycon.GENERIC_WRITE
+)
+
+
+def _require_no_untrusted_write_access(handle: Any, path: Path | str) -> None:
+    """Reject a file whose DACL lets an untrusted principal modify it.
+
+    Deny ACEs precede allow ACEs in a canonical DACL and are evaluated
+    first, so a principal denied the modify rights is not treated as a
+    threat even if a later allow ACE grants them.
+    """
+    try:
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+    dacl = security_descriptor.GetSecurityDescriptorDacl()
+    if dacl is None:
+        raise untrusted("File has no DACL (everyone has full control)", path)
+
+    current_sid_string = _sid_string(_current_user_sid())
+    trusted = _TRUSTED_ANCESTOR_SIDS | {current_sid_string}
+    denied: dict[str, int] = {}
+    for index in range(dacl.GetAceCount()):
+        ace_type, ace_flags, access_mask, sid = _ace_parts(dacl.GetAce(index))
+        if ace_flags & ntsecuritycon.INHERIT_ONLY_ACE:
+            continue
+        sid_string = _sid_string(sid)
+        if sid_string in trusted:
+            continue
+        if ace_type in _DENY_ACE_TYPES:
+            denied[sid_string] = denied.get(sid_string, 0) | access_mask
+            continue
+        effective = access_mask & ~denied.get(sid_string, 0)
+        if effective & _FILE_MODIFY_MASK:
+            raise untrusted(f"File is writable by another account ({sid_string})", path)
+
+
+def open_no_follow(path: Path | str, *, append: bool, create: bool) -> int:
+    """Open a file without following symlinks, junctions, or mount points.
+
+    Windows lacks O_NOFOLLOW; FILE_FLAG_OPEN_REPARSE_POINT opens the reparse
+    point itself instead of its target, which is then rejected outright. The
+    handle is converted to a descriptor only after that check, so no read or
+    write can reach a redirected file.
+    """
+    desired_access = win32con.GENERIC_READ
+    if append:
+        # WRITE_DAC/WRITE_OWNER are required because callers tighten the
+        # file's DACL through this descriptor (set_owner_only_file_permissions
+        # calls SetSecurityInfo); without them the tightening fails with
+        # access denied and logging cannot start.
+        desired_access = win32con.GENERIC_WRITE | win32con.WRITE_DAC | win32con.WRITE_OWNER
+    creation_disposition = win32con.OPEN_ALWAYS if create else win32con.OPEN_EXISTING
+    try:
+        handle = win32file.CreateFile(
+            str(path),
+            desired_access,
+            win32con.FILE_SHARE_READ,
+            None,
+            creation_disposition,
+            win32con.FILE_ATTRIBUTE_NORMAL | _FILE_FLAG_OPEN_REPARSE_POINT,
+            None,
+        )
+    except pywintypes.error as error:
+        raise _as_os_error(error, path) from error
+
+    detached_handle = None
+    try:
+        attributes = win32file.GetFileInformationByHandle(handle)[0]
+        if attributes & win32con.FILE_ATTRIBUTE_REPARSE_POINT:
+            raise untrusted("Sensitive path is a reparse point", path)
+        if attributes & win32con.FILE_ATTRIBUTE_DIRECTORY:
+            raise untrusted("Sensitive path is not a regular file", path)
+        security_descriptor = win32security.GetSecurityInfo(
+            handle,
+            win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION,
+        )
+        _require_current_user_owner(security_descriptor, path)
+        _require_no_untrusted_write_access(handle, path)
+        detached_handle = handle.Detach()
+        open_osfhandle = getattr(msvcrt, "open_osfhandle")
+        flags = os.O_RDONLY if not append else os.O_APPEND | os.O_WRONLY
+        return open_osfhandle(detached_handle, flags | getattr(os, "O_BINARY", 0))
+    except Exception as error:
+        if detached_handle is None:
+            handle.Close()
+        else:
+            win32api.CloseHandle(detached_handle)
+        if isinstance(error, pywintypes.error):
+            raise _as_os_error(error, path) from error
+        raise
 
 
 def open_owner_only_file(

@@ -478,6 +478,98 @@ diff moneyflow/backends/monarch_client.py /path/to/original/monarchmoney.py > my
 - Never commit test data with real credentials
 - See SECURITY.md for full security documentation
 
+## Security Threat Model
+
+This is the canonical threat model for moneyflow. Judge security work — and
+security review findings — against it, and say which assumption a finding
+violates. `.roborev.toml` mirrors a condensed copy for automated reviewers;
+update both together.
+
+moneyflow is a single-user personal-finance TUI. It stores data in local
+SQLite databases and YAML config under a per-user directory (default
+`~/.moneyflow`, overridable with `--config-dir`), and writes a log containing
+financial metadata to the same place.
+
+### Trusted (do not harden against these)
+
+- The OS kernel, filesystem, Python runtime, and installed dependencies
+- Administrators/root, and Windows service accounts (LocalSystem,
+  TrustedInstaller, `BUILTIN\Administrators`)
+- The user's own account and processes running as the user
+- OS-managed ancestors of the default config location (`/home`, `C:\Users`)
+  with their stock permissions
+
+### In scope (must defend)
+
+- **Confidentiality and integrity against other local users.** Databases,
+  config, credentials, and logs are created owner-only (0600 files / 0700
+  directories on POSIX; protected owner-only DACLs on Windows) and
+  re-validated when opened. On macOS, extended ACLs are checked too — they
+  grant access independently of mode bits and are inheritable, so a 0600
+  file can still be exposed.
+- **Path redirection.** Symlinks, junctions, and other reparse points under
+  the config directory are rejected before permission mutations and before
+  opening databases or reading config. Writes to sensitive files are atomic
+  and never follow symlinks.
+- **Non-replaceable path components.** POSIX: every ancestor owned by the
+  user or root and not group/other writable. Windows: no untrusted principal
+  holding delete, rename, re-ACL, or child-creation rights.
+- **Trusted-input validation.** Config is authoritative (category structure,
+  alias remapping), so it is read through a validated no-follow descriptor and
+  rejected if another account could write it.
+- **Financial-data correctness** — no silent loss, duplication, or
+  miscategorization of transactions — at any severity.
+
+### How path trust is established (the architectural decision)
+
+The config root and every one of its ancestors are validated **once per
+session**, at startup, by `file_utils.validate_trusted_root`: no symlinked or
+reparse-pointed component, every component owned by the user or root, none
+group/other writable, and no macOS extended ACL. Everything beneath a
+validated root is then trusted for the session.
+
+Individual files under that root are still opened without following
+redirection (`open_verified_no_follow`: `O_NOFOLLOW` / reparse-point
+rejection, plus owner, mode, and ACL checks on the descriptor), and the
+database additionally re-verifies its descriptor on every connection.
+
+Re-walking every ancestor on every open is explicitly **not** the design. It
+cannot close the race — the tree is mutable between any two syscalls — so it
+buys no security while multiplying syscalls and code paths. Findings of the
+form "call site X does not re-validate ancestors" are out of scope; the
+correct question is whether a new entry point reaches the filesystem
+*without* the root having been validated.
+
+### Accepted residual risk (do not file findings for these)
+
+- Python's `sqlite3` cannot open a database from a descriptor or do
+  dirfd-relative opens, so path-based connects cannot be made perfectly
+  race-free. The required mitigations are handle-anchored ownership
+  verification, no-delete-sharing handle pinning across connect on Windows,
+  and post-open device/inode verification. Multi-step sub-millisecond races
+  that defeat all of those simultaneously are accepted; do not request
+  guarantees the `sqlite3` API cannot express.
+- A user who explicitly points `--config-dir` at a location whose ancestors
+  are owned or writable by untrusted accounts. Startup validation refuses the
+  detectable cases and aborts; an attacker with that much control over the
+  user's paths can compromise the environment more directly.
+- Anything requiring an attacker to already have write access to the user's
+  home directory or to run code as the user.
+
+### Recorded design decisions (do not re-litigate)
+
+- **CSV dedup is content-keyed** (date/amount/merchant by default, plus the
+  `--account` label). Identical transactions split across separate export
+  files are indistinguishable from one transaction in two overlapping
+  exports, and are deduplicated; identical rows within one file are kept via
+  a sequence suffix. Overlapping exports are the common case. Mappings can
+  add an institution reference column to `dedup_fields` where the CSV has one.
+- **Reissued files are reconciled** against a per-file snapshot
+  (`import_file_transactions`): rows the new content no longer produces are
+  removed unless another file's snapshot still claims them. Reconciliation is
+  skipped when any row failed to parse, since an unparsable row is not a
+  removed one.
+
 ## Common Tasks
 
 ### Adding a New Feature
@@ -602,3 +694,47 @@ uv run pyright moneyflow/
 - [ ] Improve duplicate detection algorithm
 - [ ] Add split transaction support
 - [ ] Implement transaction notes editing
+
+
+<!-- headroom:rtk-instructions -->
+# RTK (Rust Token Killer) - Token-Optimized Commands
+
+When running shell commands, **always prefix with `rtk`**. This reduces context
+usage by 60-90% with zero behavior change. If rtk has no filter for a command,
+it passes through unchanged — so it is always safe to use.
+
+## Key Commands
+```bash
+# Git (59-80% savings)
+rtk git status          rtk git diff            rtk git log
+
+# Files & Search (60-75% savings)
+rtk ls <path>           rtk read <file>         rtk grep <pattern>
+rtk find <pattern>      rtk diff <file>
+
+# Test (90-99% savings) — shows failures only
+rtk pytest tests/       rtk cargo test          rtk test <cmd>
+
+# Build & Lint (80-90% savings) — shows errors only
+rtk tsc                 rtk lint                rtk cargo build
+rtk prettier --check    rtk mypy                rtk ruff check
+
+# Analysis (70-90% savings)
+rtk err <cmd>           rtk log <file>          rtk json <file>
+rtk summary <cmd>       rtk deps                rtk env
+
+# GitHub (26-87% savings)
+rtk gh pr view <n>      rtk gh run list         rtk gh issue list
+
+# Infrastructure (85% savings)
+rtk docker ps           rtk kubectl get         rtk docker logs <c>
+
+# Package managers (70-90% savings)
+rtk pip list            rtk pnpm install        rtk npm run <script>
+```
+
+## Rules
+- In command chains, prefix each segment: `rtk git add . && rtk git commit -m "msg"`
+- For debugging, use raw command without rtk prefix
+- `rtk proxy <cmd>` runs command without filtering but tracks usage
+<!-- /headroom:rtk-instructions -->

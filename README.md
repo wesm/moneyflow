@@ -17,6 +17,7 @@ direct control over their financial data.
 - ✅ **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full integration with editing and sync
 - ✅ **YNAB** - Full integration with editing and sync
 - ✅ **Amazon Purchases** - Import and analyze purchase history
+- ✅ **CSV Import** - Import transactions from bank CSV exports
 - ✅ **SimpleFIN** - Import read-only account and transaction data; edits remain local
 - ✅ **Demo Mode** - Try it without an account
 
@@ -51,6 +52,10 @@ moneyflow
 # Analyze Amazon purchase history
 moneyflow amazon import ~/Downloads/"Your Orders"
 moneyflow amazon
+
+# Import bank CSV exports
+moneyflow import institution chase_credit ~/Downloads/
+moneyflow chase_credit
 
 # Fetch only recent data from API (Monarch/YNAB only - for faster loading)
 moneyflow --year 2025  # Fetch from 2025-01-01 onwards
@@ -115,6 +120,20 @@ Import and analyze your Amazon purchase history:
 4. Launch: `moneyflow amazon`
 
 See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
+
+---
+
+## CSV Import Mode
+
+Import transaction histories from bank CSV exports:
+
+1. Download CSV export from your bank or credit card website
+2. Import: `moneyflow import institution chase_credit ~/Downloads/`
+3. Launch: `moneyflow chase_credit`
+
+List supported institutions: `moneyflow import list`
+
+See [CSV Import Guide](https://moneyflow.dev/guide/csv-import) for details.
 
 ---
 
@@ -193,6 +212,7 @@ Restart moneyflow for the theme to take effect.
 - [YNAB Setup](https://moneyflow.dev/guide/ynab)
 - [SimpleFIN Setup](https://moneyflow.dev/guide/simplefin)
 - [Amazon Mode](https://moneyflow.dev/guide/amazon-mode)
+- [CSV Import](https://moneyflow.dev/guide/csv-import)
 
 ---
 
