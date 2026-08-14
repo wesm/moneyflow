@@ -244,7 +244,7 @@ func projectionToWire(
 		availableActions[actionID] = struct{}{}
 	}
 	for _, definition := range app.ReadOnlyActions() {
-		if !definition.Web {
+		if !definition.Web || len(definition.Keys) == 0 {
 			continue
 		}
 		_, available := availableActions[definition.ID]

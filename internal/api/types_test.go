@@ -105,4 +105,8 @@ func TestWireCapabilitiesIncludeCategoriesAndUnavailableWebActions(t *testing.T)
 	assert.Equal(t, "Actions", byID[app.ActionEditMerchant].Category)
 	_, lifecycleVisible := byID[app.ActionQuit]
 	assert.False(t, lifecycleVisible)
+	_, searchApplyVisible := byID[app.ActionApplySearch]
+	assert.False(t, searchApplyVisible)
+	_, filtersApplyVisible := byID[app.ActionApplyFilters]
+	assert.False(t, filtersApplyVisible)
 }

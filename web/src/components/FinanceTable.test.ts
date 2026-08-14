@@ -89,4 +89,41 @@ describe('FinanceTable', () => {
     })
     expect(screen.getByText('No transactions')).not.toBeNull()
   })
+  it('marks the time header with the server sort direction', () => {
+    render(FinanceTable, {
+      projection: testProjection({
+        view: {
+          mode: 'aggregate',
+          grouping: 'time',
+          time_granularity: 'month',
+          sort_field: 'time_period',
+          sort_direction: 'asc',
+        },
+        detail_rows: null,
+        aggregate_rows: [
+          {
+            index: 0,
+            identity: 'time-0',
+            dimension: 'time',
+            label: 'January 2026',
+            count: 1,
+            total: {
+              minor: '-100',
+              currency: 'USD',
+              scale: 2,
+              decimal: '-1.00',
+              display: '-$1.00',
+            },
+            share_tenths: 1000,
+            flags: { selected: false, hidden: false, pending: false },
+          },
+        ],
+      }),
+      cursorIndex: 0,
+      ...callbacks(),
+    })
+    expect(screen.getByRole('columnheader', { name: 'time' }).getAttribute('aria-sort')).toBe(
+      'ascending',
+    )
+  })
 })

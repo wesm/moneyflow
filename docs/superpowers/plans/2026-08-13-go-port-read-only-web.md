@@ -236,7 +236,7 @@ asset and Playwright commands to this gate.
       Dimension       domain.Dimension
       SubGrouping     *domain.Dimension
       TimeGranularity domain.TimeGranularity
-      Drilldowns      []domain.Drilldown // stable key or typed period; labels omitted
+      Drilldowns      []domain.Drilldown // currency, scale, stable key or period; labels omitted
       DateRange       *domain.DateRange
       Search          string
       SearchAnchor    *NavigationScope
@@ -277,8 +277,8 @@ asset and Playwright commands to this gate.
 
 - [ ] **Step 3: Implement strict state validation and reconstruction.** Validate enums, compatible
       sorts, dates, unique drill dimensions, typed time periods, return kinds, and a maximum of six
-      frames. When committed search is nonempty, reconstruct its anchor from the current navigation
-      marker so direct bookmarks make `Esc` clear search first.
+      frames. When committed search is nonempty, require and reconstruct its anchor from the durable
+      navigation-scope marker so direct bookmarks retain the original `Esc` priority.
 
 - [ ] **Step 4: Prove no TUI regression.** Run:
 

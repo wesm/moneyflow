@@ -34,6 +34,9 @@
         : 'descending'
       : undefined
   }
+  function groupingSortField(): string {
+    return projection.view.grouping === 'time' ? 'time_period' : projection.view.grouping
+  }
 
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
@@ -74,7 +77,7 @@
         <div role="columnheader" aria-sort={sortState('category')}>Category</div>
       {:else}
         <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
-        <div role="columnheader" aria-sort={sortState(projection.view.grouping)}>
+        <div role="columnheader" aria-sort={sortState(groupingSortField())}>
           {projection.view.grouping}
         </div>
         <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->

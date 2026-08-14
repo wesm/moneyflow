@@ -464,9 +464,10 @@ identity, and 1 MiB total. Its encoded wire string is limited to 1.4 MiB, and a
 view request body is limited to 2 MiB.
 If an otherwise valid toggle cannot fit an exact representation, the API returns
 `selection_too_large`; the browser retains the prior selection, URL, and
-projection and announces that no additional rows were selected. An invalid or
-oversized value received during initial hydration opens the view with selection
-reset and an announced warning; it does not invalidate the analytical URL.
+projection and announces that the requested selection change could not be
+preserved exactly. An invalid or oversized value received during initial
+hydration opens the view with selection reset and an announced warning; it does
+not invalidate the analytical URL.
 
 `Ctrl+A` selects or clears every row in the complete current result, matching the
 TUI rather than limiting the operation to the loaded 200-row window. Space
