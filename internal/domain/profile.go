@@ -23,6 +23,23 @@ type DrillIdentity struct {
 	Key       string
 }
 
+// CanonicalKey validates and serializes the complete analytical identity for sorting and sets.
+func (identity DrillIdentity) CanonicalKey() (string, error) {
+	if identity.Dimension == DimensionTime || !identity.Dimension.Valid() || identity.Key == "" {
+		return "", errors.New("canonical drill identity: invalid analytical identity")
+	}
+	if !validCurrency(identity.Currency) || identity.Scale > 9 {
+		return "", errors.New("canonical drill identity: invalid money partition")
+	}
+	return fmt.Sprintf(
+		"%s\x00%s\x00%03d\x00%s",
+		identity.Dimension,
+		identity.Currency,
+		identity.Scale,
+		identity.Key,
+	), nil
+}
+
 // ProfileSnapshot is one consistent committed base plus its pending operation history.
 type ProfileSnapshot struct {
 	Revision    uint64
@@ -64,10 +81,10 @@ func (snapshot ProfileSnapshot) Validate() error {
 	}
 	previous := ""
 	for index, identity := range snapshot.KnownDrills {
-		if identity.Dimension == DimensionTime || !identity.Dimension.Valid() || identity.Key == "" || !validCurrency(identity.Currency) {
-			return fmt.Errorf("validate profile snapshot: known drill[%d] is invalid", index)
+		canonical, err := identity.CanonicalKey()
+		if err != nil {
+			return fmt.Errorf("validate profile snapshot: known drill[%d]: %w", index, err)
 		}
-		canonical := fmt.Sprintf("%s\x00%s\x00%03d\x00%s", identity.Dimension, identity.Currency, identity.Scale, identity.Key)
 		if index > 0 && canonical <= previous {
 			return errors.New("validate profile snapshot: known drills are not strictly sorted and unique")
 		}

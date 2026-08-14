@@ -70,18 +70,5 @@ func (plan FoldPlan) Validate(expectedRevision uint64) error {
 }
 
 func canonicalDrillIdentity(identity domain.DrillIdentity) (string, error) {
-	if identity.Dimension == domain.DimensionTime || !identity.Dimension.Valid() || identity.Key == "" {
-		return "", errors.New("invalid analytical identity")
-	}
-	if len(identity.Currency) != 3 {
-		return "", errors.New("invalid money partition")
-	}
-	for _, character := range identity.Currency {
-		if character < 'A' || character > 'Z' {
-			return "", errors.New("invalid money partition")
-		}
-	}
-	return fmt.Sprintf(
-		"%s\x00%s\x00%03d\x00%s", identity.Dimension, identity.Currency, identity.Scale, identity.Key,
-	), nil
+	return identity.CanonicalKey()
 }

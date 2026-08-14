@@ -54,3 +54,25 @@ func TestProfileSnapshotRejectsInvalidCursorSequenceAndDrills(t *testing.T) {
 		})
 	}
 }
+
+func TestDrillIdentityCanonicalKeyValidatesCompletePartition(t *testing.T) {
+	t.Parallel()
+
+	identity := DrillIdentity{
+		Dimension: DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant_example",
+	}
+	key, err := identity.CanonicalKey()
+	require.NoError(t, err)
+	assert.Equal(t, "merchant\x00USD\x00002\x00merchant_example", key)
+
+	tests := []DrillIdentity{
+		{Dimension: DimensionTime, Currency: "USD", Scale: 2, Key: "2026"},
+		{Dimension: DimensionMerchant, Currency: "usd", Scale: 2, Key: "merchant_example"},
+		{Dimension: DimensionMerchant, Currency: "USD", Scale: 10, Key: "merchant_example"},
+		{Dimension: DimensionMerchant, Currency: "USD", Scale: 2},
+	}
+	for _, candidate := range tests {
+		_, err = candidate.CanonicalKey()
+		assert.Error(t, err)
+	}
+}

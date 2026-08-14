@@ -277,8 +277,8 @@ func compareDrillIdentities(left, right domain.DrillIdentity) int {
 }
 
 func drillSortKey(identity domain.DrillIdentity) string {
-	return fmt.Sprintf("%s\x00%s\x00%03d\x00%s",
-		identity.Dimension, identity.Currency, identity.Scale, identity.Key)
+	key, _ := identity.CanonicalKey()
+	return key
 }
 
 func compareStrings(left, right string) int {
