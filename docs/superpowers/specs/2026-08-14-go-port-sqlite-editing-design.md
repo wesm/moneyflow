@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 
-**Status:** Awaiting assembled-spec review
+**Status:** Approved
 
 **Branch:** `go-port`
 
@@ -102,7 +102,7 @@ Parity reviewers need one consolidated list rather than scattered exceptions.
    Go retains a plain `q` confirmation but says pending operations are safely persisted and remain
    available next launch. `Ctrl+C` stays an immediate force-quit.
 5. **Double-hide cancellation remains Python-compatible.** Pressing `h` again when every resolved
-   target already has a pending hide effect cancels those effects. Go does not append a
+   target already has a pending hide-toggle effect cancels those effects. Go does not append a
    compensating unhide operation.
 6. **Stable label renames preserve drills.** Python string-keyed merchant/category drills may empty
    after a rename. Go label-only renames preserve stable local IDs, keep the drill populated, and
@@ -153,6 +153,10 @@ internal/tui/           Bubble Tea editing overlays and review presentation
 internal/fixture/       committed synthetic seed source
 web/                    kit-ui editing, review, and conflict presentation
 ```
+
+This tree lists only directories added or materially changed by this slice. Existing packages,
+including `internal/analytics`, `internal/parity`, `internal/web`, and `internal/version`, remain
+in place and are not candidates for removal.
 
 SQL rows, statements, transaction handles, and driver error types never escape
 `internal/store`. The store returns domain records and renderer-neutral error values. The API never
@@ -221,10 +225,12 @@ benefit of `NORMAL`. Correctness does not depend on checkpointing. Clean close a
 truncating checkpoint after application work has stopped, but checkpoint failure cannot undo a
 successful mutation.
 
-Startup applies embedded forward-only migrations atomically. Concurrent startup lets one process
-migrate while the other waits through the busy timeout and then rechecks the schema. A binary
-refuses startup when the schema is newer, migration fails, or integrity checks report corruption.
-There is no degraded read-only mode that might render unreliable financial results.
+Startup applies embedded forward-only migrations atomically. Concurrent startup uses a separate
+60-second bounded migration deadline: a waiting process repeatedly rechecks the schema rather than
+failing after the shorter mutation busy timeout. Expiry reports `store_busy` and refuses startup;
+a binary otherwise refuses startup when the schema is newer, migration fails, or integrity checks
+report corruption. There is no degraded read-only mode that might render unreliable financial
+results.
 
 ## Persistent Schema
 
@@ -271,6 +277,11 @@ preserved. The display text retains the user's non-control characters. Active en
 type have unique collision keys; retired entities do not reserve a label. Go application validation
 and stored unique keys enforce this policy without platform-dependent SQLite collations.
 
+`CreateSeededProfile` applies the same collision validation and refuses a fixture containing
+colliding active labels. A later provider-import design must explicitly choose whether colliding
+external identities map to one local entity or require a schema-policy migration before import;
+this slice does not silently merge them or defer the collision decision to an import failure.
+
 Merchants are first-class entities because merchant normalization is a central workflow. Accounts
 are first-class but read-only in this slice. Categories and category groups are first-class and
 editable.
@@ -284,10 +295,16 @@ explicitly accept Uncategorized.
 ### Known drill identities
 
 The complete analytical drill identity remains `(dimension, currency, scale, key)`. A compact
-registry records identities observed in committed or effective profile history. When a seed or
-accepted operation first exposes an identity, the store inserts the registry row in the same
-transaction; registry rows are never pruned. Retired entity records provide the corresponding
-identity history for taxonomy and merchant merges.
+registry records identities observed in committed profile history. Seeding writes the initial
+registry, and a successful commit fold inserts identities first exposed by its active operations
+in the same transaction as the committed rows. Registry rows are never pruned. Retired entity
+records provide the corresponding identity history for taxonomy and merchant merges.
+
+An identity exposed only by the active journal is temporarily known through the effective
+snapshot; creating it does not write the committed registry. If the operation is undone and its
+redo tail is truncated before commit, that never-committed identity becomes invalid. This is a
+deliberate boundary: only effective pending state or committed history can make a bookmark valid,
+and failed or abandoned edits leave no permanent non-journal residue.
 
 After edits or commit:
 
@@ -343,37 +360,49 @@ unassignment, and every structural value required for deterministic replay.
 
 ### Cursor and redo
 
-The journal cursor identifies the active prefix:
+The journal cursor is the count of active operations in sequence order, not an operation sequence
+number. Sequence values are immutable and may have gaps after permitted rewrites. The first
+`cursor` ordered operations form the active prefix:
 
-- operations at or before the cursor are active
-- operations after the cursor form the inactive redo tail
+- the first `cursor` operations are active
+- the remaining operations form the inactive redo tail
 - `u` moves the cursor backward by one operation
 - `U` moves it forward by one operation
 - appending while behind the head permanently truncates the inactive tail first
+
+Removing a complete operation anywhere in the active prefix decrements the cursor by one; replacing
+only part of an operation's target set leaves it unchanged. For example, removing sequence 20 from
+ordered sequences 10, 20, and 30 at cursor 3 leaves sequences 10 and 30 at cursor 2, so the next
+`u` deactivates sequence 30.
 
 Commit while behind the head folds only the active prefix and permanently discards the inactive
 tail. Review shows inactive redo operations separately and warns that commit discards them.
 
 Journal entries are typed and normally immutable, but the pending journal is not append-only. Two
-rewrites are permitted:
+runtime rewrites are permitted:
 
 1. redo-tail truncation
 2. Python-compatible hide cancellation
 
 Both require the caller's expected revision and the authoritative transactional CAS.
+Transactional payload-version rewrites during startup migration are a separate migration mechanism,
+not a runtime journal rewrite.
 
 ### Hide cancellation
 
-If every transaction in the resolved target set already has an active pending hide effect, another
-`h` cancels those effects rather than appending a compensating operation. The transaction first
-truncates any redo tail, removes the selected target effects from their originating operations,
-and removes operations left with no targets. Partial batch cancellation replaces the original
-operation at the same sequence with the same payload version and only its remaining targets.
+If every transaction in the resolved target set already has an active pending hide-toggle effect,
+another `h` cancels those effects rather than appending a compensating operation. This applies
+uniformly whether an effect currently hides a committed-visible row or unhides a committed-hidden
+row. The transaction first truncates any redo tail, removes the selected target effects from their
+originating operations, and removes operations left with no targets. Partial batch cancellation
+replaces the original operation at the same sequence with the same payload version and only its
+remaining targets.
 
-The cursor decrements past each removed active operation so the next `u` reaches the preceding
-visible operation. Cancellation increments the profile revision but creates no new undo unit.
+The cursor decrements once for each originating active operation removed completely; target-only
+replacement leaves it unchanged. Cancellation increments the profile revision but creates no new
+undo unit.
 
-If not every resolved target has a pending hide effect, `h` appends one ordinary hide-toggle
+If not every resolved target has a pending hide-toggle effect, `h` appends one ordinary hide-toggle
 operation for the exact target set, matching Python's all-or-cancel decision.
 
 ## Effective State and Replay
@@ -629,6 +658,10 @@ revision. When every identity resolves, it returns the refreshed selection witho
 mutation. When any identity cannot resolve, it clears the complete selection and announces that
 outcome. It never applies an operation to a partial selection.
 
+The API represents either disposition as a `selection_stale` error envelope containing the current
+revision and refreshed-or-cleared selection payload; the TUI receives the same renderer-neutral
+typed failure. It is never a successful mutation response.
+
 Successful selected-target mutations clear selection. Focused-row or focused-aggregate operations
 leave selection unchanged.
 
@@ -701,7 +734,9 @@ Every invariant maps to a named test obligation.
 - migrate from every committed schema version and reject newer versions
 - verify `STRICT` tables, foreign keys, integer money, and absence of `REAL` money columns
 - verify WAL, `synchronous=FULL`, busy timeout, pool bounds, checkpoint, and restrictive permissions
+- prove concurrent migration waits use the longer startup deadline and recheck the schema
 - create seeded profiles atomically and prove refuse-overwrite against a populated profile
+- reject seeded fixtures whose active labels have normalized collisions
 - reject corrupt profiles and roll back failed migrations without mutation
 
 ### Journal and model properties
@@ -710,7 +745,7 @@ Deterministic randomized operation sequences compare incremental application wit
 every append, undo, redo, cancellation, taxonomy change, and commit. They cover:
 
 - redo-tail truncation and commit behind the head
-- partial-batch hide cancellation and cursor adjustment
+- active-count cursor behavior with sequence holes and partial-batch hide cancellation
 - creation-time target snapshots with no predicate re-evaluation
 - payload-version compatibility and migration
 - label collision rules and stable identity
@@ -746,11 +781,13 @@ Ordinary tests never rewrite parity files.
 
 ### Empty versus invalid drill identity
 
-Tests commit a merge/delete that retires a drilled identity, close and reopen the profile, and open
-the bookmark through web bootstrap. The URL remains unchanged and the result is the normal empty
-projection. A syntactically valid identity with no profile history must instead produce the
-invalid-view screen. Pure label rename tests prove the stable drill remains populated with its new
-breadcrumb across both renderers, bookmark reload, and restart.
+Tests prove an identity introduced only by an active pending operation is temporarily valid, then
+becomes invalid after undo plus redo-tail truncation and restart. The committed counterpart remains
+historically known: tests commit a merge/delete that retires a drilled identity, close and reopen
+the profile, and open the bookmark through web bootstrap. The URL remains unchanged and the result
+is the normal empty projection. A syntactically valid identity with no profile history must instead
+produce the invalid-view screen. Pure label rename tests prove the stable drill remains populated
+with its new breadcrumb across both renderers, bookmark reload, and restart.
 
 ### HTTP and browser security
 
