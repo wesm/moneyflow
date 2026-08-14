@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { StatusBar, ThemeToggle, Toggle, TopBar } from '@kenn-io/kit-ui'
+  import { DetailDrawer, MEDIA, StatusBar, ThemeToggle, Toggle, TopBar } from '@kenn-io/kit-ui'
+  import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick } from 'svelte'
   import FiltersDialog from './FiltersDialog.svelte'
   import FinanceTable from './FinanceTable.svelte'
   import HelpDialog from './HelpDialog.svelte'
   import RefinementBar from './RefinementBar.svelte'
   import SearchOverlay from './SearchOverlay.svelte'
+  import VisualizationRail from './VisualizationRail.svelte'
   import { createMoneyflowShortcuts, type LocalAction } from '../lib/shortcuts'
   import type { ViewController } from '../lib/controller/view-controller.svelte'
   interface Props {
@@ -13,11 +15,13 @@
   }
   let { controller }: Props = $props()
   let charts = $state(true)
+  let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
   let overlay = $state<'search' | 'filters' | 'help' | undefined>()
   let popOverlayScope: (() => void) | undefined
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   const projection = $derived(controller.projection)
+  const compact = new MediaQuery(MEDIA.compact)
 
   function local(action: LocalAction): void {
     if (action === 'cursor.up') void controller.moveCursor(-1)
@@ -62,6 +66,10 @@
   function focusGrid(): void {
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus()
   }
+  function toggleCharts(checked: boolean): void {
+    if (compact.current) chartDrawer = checked
+    else charts = checked
+  }
   onMount(() => {
     if (!projection) return
     shortcuts = createMoneyflowShortcuts(projection.capabilities ?? [], {
@@ -83,9 +91,11 @@
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}<Toggle bind:checked={charts} label="Charts" /><ThemeToggle
-          size="sm"
-        />{/snippet}
+      {#snippet right()}<Toggle
+          checked={compact.current ? chartDrawer : charts}
+          onchange={toggleCharts}
+          label="Charts"
+        /><ThemeToggle size="sm" />{/snippet}
     </TopBar>
     <RefinementBar {projection} onaction={(action) => void apply(action)} />
     <main class="app-shell__main" aria-label="Moneyflow workspace">
@@ -99,7 +109,16 @@
           onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
         />
       </div>
-      {#if charts}<aside aria-label="Visualizations">Charts follow in the next slice.</aside>{/if}
+      {#if charts && !compact.current}
+        <aside aria-label="Visualizations">
+          <VisualizationRail
+            {projection}
+            cursorIndex={controller.cursorIndex}
+            oncursor={(index) => void controller.moveCursorTo(index)}
+            ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+          />
+        </aside>
+      {/if}
     </main>
     <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
     <StatusBar
@@ -117,5 +136,19 @@
     />
   {:else if overlay === 'help'}
     <HelpDialog capabilities={projection.capabilities ?? []} onclose={closeOverlay} />
+  {/if}
+  {#if compact.current && chartDrawer}
+    <DetailDrawer
+      title="Visualizations"
+      ariaLabel="Moneyflow visualizations"
+      onclose={() => (chartDrawer = false)}
+    >
+      <VisualizationRail
+        {projection}
+        cursorIndex={controller.cursorIndex}
+        oncursor={(index) => void controller.moveCursorTo(index)}
+        ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+      />
+    </DetailDrawer>
   {/if}
 {/if}

@@ -42,6 +42,7 @@ export interface ViewController {
   readonly problem: ControllerProblem | undefined
   hydrate(): Promise<void>
   moveCursor(delta: -1 | 1): Promise<void>
+  moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
   apply(action: TransitionAction): Promise<void>
   beginSearch(): SearchSnapshot
@@ -243,6 +244,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     await moveToIndex(0)
   }
 
+  async function moveCursorTo(index: number): Promise<void> {
+    if (!projection || projection.total_rows === 0 || !Number.isSafeInteger(index)) return
+    await moveToIndex(Math.min(Math.max(index, 0), projection.total_rows - 1))
+  }
+
   async function moveToIndex(nextIndex: number): Promise<void> {
     if (!projection) return
     const offset = alignedOffset(nextIndex)
@@ -413,6 +419,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     hydrate,
     moveCursor,
+    moveCursorTo,
     moveHome,
     apply,
     beginSearch,

@@ -18,6 +18,32 @@ describe('AppShell', () => {
     expect(controller.moveCursor).toHaveBeenCalledTimes(1)
     expect((screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement).checked).toBe(true)
   })
+
+  it('keeps the table full width and opens charts in a labelled compact drawer', async () => {
+    const original = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: (query: string) => ({
+        matches: query.includes('640px'),
+        media: query,
+        onchange: null,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        dispatchEvent: () => false,
+      }),
+    })
+    try {
+      render(AppShell, { controller: stubController() })
+      expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
+      expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
+      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
+      expect(screen.getByRole('dialog', { name: 'Moneyflow visualizations' })).not.toBeNull()
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
+  })
 })
 
 function stubController(): ViewController {
@@ -40,6 +66,7 @@ function stubController(): ViewController {
     problem: undefined,
     hydrate: vi.fn(),
     moveCursor: vi.fn(),
+    moveCursorTo: vi.fn(),
     moveHome: vi.fn(),
     apply: vi.fn(),
     beginSearch: vi.fn(),

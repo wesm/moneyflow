@@ -205,12 +205,109 @@ input {
 .help-list__unavailable {
   opacity: var(--opacity-disabled);
 }
+.visualization-rail {
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: auto;
+}
+.visualization-rail > h2,
+.chart-partition h3 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-sm);
+}
+.chart-description {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.chart-partition + .chart-partition {
+  margin-top: var(--space-7);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border-muted);
+}
+.layer-chart {
+  max-width: 100%;
+  color: var(--moneyflow-focus);
+  overflow: hidden;
+}
+.layer-chart svg {
+  max-width: 100%;
+}
+.chart-marks {
+  display: flex;
+  margin-top: var(--space-4);
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chart-mark {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chart-mark:hover {
+  background: var(--bg-surface-hover);
+}
+.chart-mark:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.chart-mark--active {
+  border-color: var(--moneyflow-focus);
+  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.detail-summary {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.detail-summary > div {
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+.detail-summary dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.detail-summary dd {
+  margin: var(--space-2) 0 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
 @media (max-width: 900px) {
   .app-shell__main {
     grid-template-columns: 1fr;
   }
   .help-groups {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .app-shell__main {
+    display: block;
+  }
+  .detail-summary {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-mark {
+    transition: none;
   }
 }
 
