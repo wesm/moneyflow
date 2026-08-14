@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/store"
@@ -44,19 +45,11 @@ func loadSnapshot(ctx context.Context, transaction *sql.Tx) (domain.ProfileSnaps
 		Scan(&snapshot.Revision, &snapshot.Cursor); err != nil {
 		return domain.ProfileSnapshot{}, loadFailure(err)
 	}
-	var journalCount int
-	if err := transaction.QueryRowContext(ctx, "SELECT count(*) FROM journal_operations").
-		Scan(&journalCount); err != nil {
-		return domain.ProfileSnapshot{}, loadFailure(err)
-	}
-	if journalCount != 0 {
-		return domain.ProfileSnapshot{}, store.NewError(
-			store.CodeSchemaIncompatible,
-			errors.New("stored journal requires a supported payload decoder"),
-		)
+	var err error
+	if snapshot.Journal, err = loadJournal(ctx, transaction); err != nil {
+		return domain.ProfileSnapshot{}, err
 	}
 
-	var err error
 	if snapshot.Committed.Accounts, err = loadAccounts(ctx, transaction); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
@@ -79,6 +72,130 @@ func loadSnapshot(ctx context.Context, transaction *sql.Tx) (domain.ProfileSnaps
 		return domain.ProfileSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+type storedOperationRow struct {
+	operation      domain.Operation
+	payloadVersion int64
+	payloadJSON    []byte
+}
+
+func loadJournal(ctx context.Context, transaction *sql.Tx) ([]domain.Operation, error) {
+	rows, err := transaction.QueryContext(ctx, `
+		SELECT journal.id, journal.sequence, journal.operation_type,
+			journal.payload_version, journal.creation_revision, journal.created_at_unix_ms,
+			payload.payload_version, payload.payload_json
+		FROM journal_operations AS journal
+		JOIN operation_payloads AS payload ON payload.operation_id = journal.id
+		ORDER BY journal.sequence`)
+	if err != nil {
+		return nil, loadFailure(err)
+	}
+	var stored []storedOperationRow
+	for rows.Next() {
+		var row storedOperationRow
+		var kind string
+		var journalVersion, creationRevision, createdAtMillis int64
+		if err = rows.Scan(
+			&row.operation.ID,
+			&row.operation.Sequence,
+			&kind,
+			&journalVersion,
+			&creationRevision,
+			&createdAtMillis,
+			&row.payloadVersion,
+			&row.payloadJSON,
+		); err != nil {
+			_ = rows.Close()
+			return nil, loadFailure(err)
+		}
+		if journalVersion != row.payloadVersion {
+			_ = rows.Close()
+			return nil, store.NewError(
+				store.CodeStoreCorrupt,
+				errors.New("journal and payload versions differ"),
+			)
+		}
+		if journalVersion != 1 {
+			_ = rows.Close()
+			return nil, store.NewError(
+				store.CodeSchemaIncompatible,
+				errors.New("journal payload version is unsupported"),
+			)
+		}
+		if creationRevision < 0 || createdAtMillis < 0 {
+			_ = rows.Close()
+			return nil, store.NewError(
+				store.CodeStoreCorrupt,
+				errors.New("journal metadata is invalid"),
+			)
+		}
+		row.operation.Type = domain.OperationType(kind)
+		row.operation.PayloadVersion = uint16(journalVersion)
+		row.operation.CreatedRevision = uint64(creationRevision)
+		row.operation.CreatedAt = time.UnixMilli(createdAtMillis).UTC()
+		stored = append(stored, row)
+	}
+	if err = rows.Close(); err != nil {
+		return nil, loadFailure(err)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, loadFailure(err)
+	}
+
+	positions := make(map[string]int, len(stored))
+	for index := range stored {
+		positions[stored[index].operation.ID] = index
+	}
+	targetRows, err := transaction.QueryContext(ctx, `
+		SELECT targets.operation_id, targets.ordinal, targets.entity_id
+		FROM operation_targets AS targets
+		JOIN journal_operations AS journal ON journal.id = targets.operation_id
+		ORDER BY journal.sequence, targets.ordinal`)
+	if err != nil {
+		return nil, loadFailure(err)
+	}
+	for targetRows.Next() {
+		var operationID string
+		var ordinal int
+		var target domain.EntityID
+		if err = targetRows.Scan(&operationID, &ordinal, &target); err != nil {
+			_ = targetRows.Close()
+			return nil, loadFailure(err)
+		}
+		index, ok := positions[operationID]
+		if !ok || ordinal != len(stored[index].operation.Targets) {
+			_ = targetRows.Close()
+			return nil, store.NewError(
+				store.CodeStoreCorrupt,
+				errors.New("journal targets are not contiguous"),
+			)
+		}
+		stored[index].operation.Targets = append(stored[index].operation.Targets, target)
+	}
+	if err = targetRows.Close(); err != nil {
+		return nil, loadFailure(err)
+	}
+	if err = targetRows.Err(); err != nil {
+		return nil, loadFailure(err)
+	}
+
+	result := make([]domain.Operation, len(stored))
+	for index := range stored {
+		decoded, decodeErr := decodeOperationPayload(
+			stored[index].operation,
+			stored[index].payloadJSON,
+		)
+		if decodeErr != nil {
+			code := store.CodeStoreCorrupt
+			if errors.Is(decodeErr, errUnsupportedPayload) {
+				code = store.CodeSchemaIncompatible
+			}
+			return nil, store.NewError(code, decodeErr)
+		}
+		result[index] = decoded
+	}
+	return result, nil
 }
 
 func loadAccounts(ctx context.Context, transaction *sql.Tx) ([]domain.Account, error) {

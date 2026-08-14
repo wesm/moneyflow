@@ -205,14 +205,6 @@ func (profile *profile) CurrentRevision(ctx context.Context) (uint64, error) {
 	return revision, nil
 }
 
-func (profile *profile) Append(context.Context, uint64, domain.Operation) (uint64, error) {
-	return 0, store.NewError(store.CodeInvalidOperation, errors.New("append is not implemented"))
-}
-
-func (profile *profile) MoveCursor(context.Context, uint64, int) (uint64, error) {
-	return 0, store.NewError(store.CodeInvalidOperation, errors.New("cursor is not implemented"))
-}
-
 func (profile *profile) CancelHide(context.Context, uint64, []domain.EntityID) (uint64, error) {
 	return 0, store.NewError(store.CodeInvalidOperation, errors.New("hide cancellation is not implemented"))
 }
