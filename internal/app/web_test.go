@@ -136,6 +136,8 @@ func TestProjectViewRejectsInvalidWindowsAndStaleDrills(t *testing.T) {
 	state := selectionDetailState()
 	state.Drilldowns = []domain.Drilldown{{
 		Dimension: domain.DimensionMerchant,
+		Currency:  "USD",
+		Scale:     2,
 		Key:       "merchant-missing",
 	}}
 	_, err := service.ProjectView(
@@ -273,7 +275,12 @@ func TestTransitionViewResolvesDrillAndSelectionTargetsByIdentity(t *testing.T) 
 	require.Len(t, next.Current.Drilldowns, 1)
 	assert.Equal(t, target.Row.Key, next.Current.Drilldowns[0].Key)
 	assert.Empty(t, next.Current.Drilldowns[0].Label)
-	assert.Equal(t, EmptySelection(), nextSelection)
+	currentSelection, err := service.ResolveSelection(next.Current, nextSelection)
+	require.NoError(t, err)
+	assert.Empty(t, currentSelection.IDs)
+	selectionDocument, err := decodeSelection(nextSelection)
+	require.NoError(t, err)
+	assert.Len(t, selectionDocument.Returns, 1)
 	assert.Equal(t, next, detail.State)
 
 	prior := state.Clone()
@@ -289,6 +296,107 @@ func TestTransitionViewResolvesDrillAndSelectionTargetsByIdentity(t *testing.T) 
 	assert.Equal(t, prior, rejected)
 	assert.Equal(t, priorSelection, rejectedSelection)
 	assertWebCode(t, err, WebStaleViewTarget)
+}
+
+func TestTransitionViewDrillPreservesMoneyPartitionAndParentSelection(t *testing.T) {
+	t.Parallel()
+
+	usd := appTransaction(t, "usd", "2024-01-01", "-1.00", "Shared", "Category", "Group")
+	eur := usd.Clone()
+	eur.ID = "eur"
+	eur.ProviderID = "provider-eur"
+	eur.Amount.Currency = "EUR"
+	threeDecimals := usd.Clone()
+	threeDecimals.ID = "usd-three"
+	threeDecimals.ProviderID = "provider-usd-three"
+	threeDecimals.Amount.Scale = 3
+	service, err := NewService([]domain.Transaction{usd, eur, threeDecimals})
+	require.NoError(t, err)
+
+	state := DefaultViewState()
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	var target WebAggregateRow
+	for _, row := range projection.AggregateRows {
+		if row.Row.Total.Currency == "USD" && row.Row.Total.Scale == 2 {
+			target = row
+			break
+		}
+	}
+	require.NotEmpty(t, target.Identity)
+
+	_, selected, _, err := service.TransitionView(
+		state,
+		EmptySelection(),
+		TransitionRequest{
+			Action: ActionToggleSelection,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: target.Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	drilled, drilledSelection, detail, err := service.TransitionView(
+		state,
+		selected,
+		TransitionRequest{
+			Action: ActionDrill,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: target.Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	require.Len(t, drilled.Current.Drilldowns, 1)
+	assert.Equal(t, domain.Currency("USD"), drilled.Current.Drilldowns[0].Currency)
+	assert.Equal(t, uint8(2), drilled.Current.Drilldowns[0].Scale)
+	require.Len(t, detail.DetailRows, 1)
+	assert.Equal(t, "usd", detail.DetailRows[0].Identity)
+
+	backed, backedSelection, parent, err := service.TransitionView(
+		drilled,
+		drilledSelection,
+		TransitionRequest{Action: ActionBack},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, state, backed)
+	assert.NotEqual(t, EmptySelection(), backedSelection)
+	selectedParent := false
+	for _, row := range parent.AggregateRows {
+		if row.Identity == target.Identity {
+			selectedParent = row.Row.Flags.Selected
+		}
+	}
+	assert.True(t, selectedParent)
+}
+
+func TestTransitionViewAllowsRefinementsThatEmptyDrilledResult(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 3)
+	state := DefaultViewState()
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	target := projection.AggregateRows[0]
+	drilled, selection, _, err := service.TransitionView(
+		state,
+		EmptySelection(),
+		TransitionRequest{
+			Action: ActionDrill,
+			Target: &RowTarget{Kind: IdentityAggregate, Identity: target.Identity},
+		},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	search := "does-not-match"
+	searched, _, empty, err := service.TransitionView(
+		drilled,
+		selection,
+		TransitionRequest{Action: ActionApplySearch, Search: &search},
+		WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, search, searched.Current.Search)
+	assert.Zero(t, empty.TotalRows)
 }
 
 func TestTransitionViewSearchFiltersSelectionAndBack(t *testing.T) {
@@ -313,7 +421,9 @@ func TestTransitionViewSearchFiltersSelectionAndBack(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, search, searched.Current.Search)
-	assert.Equal(t, selection, preserved)
+	preservedSnapshot, err := service.ResolveSelection(searched.Current, preserved)
+	require.NoError(t, err)
+	assert.Equal(t, stringSetForSelection("txn-000"), preservedSnapshot.IDs)
 	assert.Equal(t, 1, projection.TotalRows)
 
 	backed, backedSelection, _, err := service.TransitionView(

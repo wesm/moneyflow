@@ -4956,12 +4956,16 @@
           {
             "dimension": "merchant",
             "key": "merchant-grocer",
-            "label": "Example Grocer"
+            "label": "Example Grocer",
+            "currency": "USD",
+            "scale": 2
           },
           {
             "dimension": "account",
             "key": "account-card",
-            "label": "Everyday Card"
+            "label": "Everyday Card",
+            "currency": "USD",
+            "scale": 2
           }
         ],
         "mode": "detail",
@@ -5143,7 +5147,9 @@
               "granularity": "month",
               "month": 2,
               "year": 2024
-            }
+            },
+            "currency": "USD",
+            "scale": 2
           }
         ],
         "mode": "detail",

@@ -23,7 +23,7 @@
     {"name":"detail_category_desc_regex_search","mode":"detail","time_granularity":"year","sort":{"field":"category","direction":"desc"},"show_hidden":true,"show_transfers":false,"search":"grocer|utilities"},
     {"name":"detail_account_desc_inclusive_bounds","mode":"detail","time_granularity":"year","sort":{"field":"account","direction":"desc"},"show_hidden":true,"show_transfers":false,"date_range":{"start":"2024-02-29","end":"2024-03-15"}},
     {"name":"transfers_on","mode":"aggregate","group_by":"category","time_granularity":"year","sort":{"field":"count","direction":"desc"},"show_hidden":true,"show_transfers":true},
-    {"name":"multi_level_drilldown","mode":"detail","time_granularity":"year","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":false,"drilldowns":[{"dimension":"merchant","key":"merchant-grocer","label":"Example Grocer"},{"dimension":"account","key":"account-card","label":"Everyday Card"}]},
-    {"name":"time_drilldown","mode":"detail","time_granularity":"month","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":true,"drilldowns":[{"dimension":"time","period":{"granularity":"month","year":2024,"month":2}}]}
+    {"name":"multi_level_drilldown","mode":"detail","time_granularity":"year","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":false,"drilldowns":[{"dimension":"merchant","key":"merchant-grocer","label":"Example Grocer","currency":"USD","scale":2},{"dimension":"account","key":"account-card","label":"Everyday Card","currency":"USD","scale":2}]},
+    {"name":"time_drilldown","mode":"detail","time_granularity":"month","sort":{"field":"date","direction":"asc"},"show_hidden":true,"show_transfers":true,"drilldowns":[{"dimension":"time","period":{"granularity":"month","year":2024,"month":2},"currency":"USD","scale":2}]}
   ]
 }

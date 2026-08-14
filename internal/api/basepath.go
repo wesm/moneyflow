@@ -22,6 +22,12 @@ func NormalizeBasePath(input string) (string, error) {
 	if err != nil {
 		return "", errors.New("base path contains invalid escaping")
 	}
+	if strings.Contains(decoded, "%") {
+		return "", errors.New("base path contains nested escaping")
+	}
+	if strings.ContainsAny(decoded, "?#\\\x00\r\n") {
+		return "", errors.New("decoded base path contains a query, fragment, backslash, or control character")
+	}
 	if strings.Contains(decoded, "://") || strings.HasPrefix(decoded, "//") {
 		return "", errors.New("base path must not be an absolute URL")
 	}

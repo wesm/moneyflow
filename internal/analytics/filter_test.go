@@ -67,9 +67,9 @@ func TestFilterCurrentSemantics(t *testing.T) {
 				ShowTransfers: true,
 				Mode:          domain.ResultModeDetail,
 				Drilldowns: []domain.Drilldown{
-					{Dimension: domain.DimensionMerchant, Key: transactions[3].Merchant.ID, Label: "Example Utility"},
-					{Dimension: domain.DimensionAccount, Key: transactions[3].Account.ID, Label: "Primary Checking"},
-					{Dimension: domain.DimensionTime, Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}},
+					{Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: transactions[3].Merchant.ID, Label: "Example Utility"},
+					{Dimension: domain.DimensionAccount, Currency: "USD", Scale: 2, Key: transactions[3].Account.ID, Label: "Primary Checking"},
+					{Dimension: domain.DimensionTime, Currency: "USD", Scale: 2, Period: &domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 3}},
 				},
 			},
 			want: []string{"txn-4"},
@@ -99,6 +99,8 @@ func TestFilterDrilldownUsesStableEntityKey(t *testing.T) {
 		Mode: domain.ResultModeDetail,
 		Drilldowns: []domain.Drilldown{{
 			Dimension: domain.DimensionMerchant,
+			Currency:  "USD",
+			Scale:     2,
 			Key:       second.Merchant.ID,
 			Label:     second.Merchant.Name,
 		}},

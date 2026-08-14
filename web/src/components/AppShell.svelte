@@ -8,7 +8,11 @@
   import RefinementBar from './RefinementBar.svelte'
   import SearchOverlay from './SearchOverlay.svelte'
   import VisualizationRail from './VisualizationRail.svelte'
-  import { createMoneyflowShortcuts, type LocalAction } from '../lib/shortcuts'
+  import {
+    createMoneyflowShortcuts,
+    handleMoneyflowKeydown,
+    type LocalAction,
+  } from '../lib/shortcuts'
   import type { ViewController } from '../lib/controller/view-controller.svelte'
   interface Props {
     controller: ViewController
@@ -19,6 +23,7 @@
   let grid = $state<HTMLElement | undefined>()
   let overlay = $state<'search' | 'filters' | 'help' | undefined>()
   let popOverlayScope: (() => void) | undefined
+  let popChartScope: (() => void) | undefined
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
@@ -67,8 +72,13 @@
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   function toggleCharts(checked: boolean): void {
-    if (compact.current) chartDrawer = checked
+    if (compact.current) setChartDrawer(checked)
     else charts = checked
+  }
+  function setChartDrawer(open: boolean): void {
+    popChartScope?.()
+    popChartScope = open ? shortcuts?.manager.pushScope('charts') : undefined
+    chartDrawer = open
   }
   onMount(() => {
     if (!projection) return
@@ -76,12 +86,14 @@
       local,
       apply: (action) => void apply(action),
     })
-    const keydown = (event: KeyboardEvent) => shortcuts?.manager.handleKeydown(event)
+    const keydown = (event: KeyboardEvent) =>
+      shortcuts ? handleMoneyflowKeydown(shortcuts.manager, event) : false
     window.addEventListener('keydown', keydown)
     focusGrid()
     return () => {
       window.removeEventListener('keydown', keydown)
       popOverlayScope?.()
+      popChartScope?.()
       shortcuts?.destroy()
     }
   })
@@ -142,7 +154,7 @@
     <DetailDrawer
       title="Visualizations"
       ariaLabel="Moneyflow visualizations"
-      onclose={() => (chartDrawer = false)}
+      onclose={() => setChartDrawer(false)}
     >
       <VisualizationRail
         {projection}

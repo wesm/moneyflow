@@ -44,7 +44,7 @@ export interface ViewController {
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
-  apply(action: TransitionAction): Promise<void>
+  apply(action: TransitionAction): Promise<boolean>
   beginSearch(): SearchSnapshot
   previewSearch(search: string): Promise<boolean>
   commitSearch(snapshot: SearchSnapshot): void
@@ -101,8 +101,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     )
   }
 
-  async function apply(action: TransitionAction): Promise<void> {
-    if (!projection) return
+  async function apply(action: TransitionAction): Promise<boolean> {
+    if (!projection) return false
     const prior = projection
     const body: TransitionBody = {
       query: prior.canonical_query,
@@ -114,8 +114,9 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       ...(action.filters === undefined ? {} : { filters: action.filters }),
     }
     const run = async () => {
-      await requestProjection(
-        () => options.client.transition(body, activeRequest?.signal),
+      return await requestProjection(
+        async () =>
+          ensureVisibleWindow(await options.client.transition(body, activeRequest?.signal)),
         (next) => {
           if (action.action === 'view.back') {
             const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
@@ -128,21 +129,26 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           }
           accept(next, action.action.startsWith('selection.') ? 'replace' : 'push')
         },
-        run,
+        async () => {
+          await run()
+        },
       )
     }
-    await run()
+    return await run()
   }
 
   async function restore(event: PopStateEvent): Promise<void> {
+    searchSnapshot = undefined
     const owned = ledger.record(event.state)
     const query = owned?.query ?? currentQuery(browserLocation)
     const selection = owned?.selection ?? projection?.selection
     await requestProjection(
-      () =>
-        options.client.view(
-          viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
-          activeRequest?.signal,
+      async () =>
+        ensureVisibleWindow(
+          await options.client.view(
+            viewBody(query, selection, alignedOffset(owned?.cursorIndex ?? 0)),
+            activeRequest?.signal,
+          ),
         ),
       (next) => accept(next, 'replace', owned),
       () => restore(event),
@@ -176,16 +182,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     const selection = searchSnapshot?.projection.selection ?? projection.selection
     let accepted = false
     await requestProjection(
-      () =>
-        options.client.transition(
-          {
-            query,
-            selection,
-            action: 'search.apply',
-            search,
-            window: { offset: alignedOffset(cursorIndex), limit: windowSize },
-          },
-          activeRequest?.signal,
+      async () =>
+        ensureVisibleWindow(
+          await options.client.transition(
+            {
+              query,
+              selection,
+              action: 'search.apply',
+              search,
+              window: { offset: alignedOffset(cursorIndex), limit: windowSize },
+            },
+            activeRequest?.signal,
+          ),
         ),
       (next) => {
         accept(next, 'replace')
@@ -252,7 +260,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function moveToIndex(nextIndex: number): Promise<void> {
     if (!projection) return
     const offset = alignedOffset(nextIndex)
-    const cached = cache.get(projection.canonical_query, offset)
+    const cached = cache.get(projection.canonical_query, projection.selection, offset)
     if (cached) {
       setProjectionWindow(cached, nextIndex)
       replaceOwnedHistory()
@@ -275,8 +283,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     request: () => Promise<ViewProjection>,
     onSuccess: (next: ViewProjection) => void,
     retry: () => Promise<void>,
-  ): Promise<void> {
-    lastRetry = retry
+  ): Promise<boolean> {
+    lastRetry = async () => {
+      await retry()
+    }
     generation += 1
     const requestGeneration = generation
     activeRequest?.abort()
@@ -285,11 +295,13 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     try {
       const next = await request()
-      if (requestGeneration !== generation) return
+      if (requestGeneration !== generation) return false
       onSuccess(next)
+      return true
     } catch (error) {
-      if (requestGeneration !== generation || isAbort(error)) return
+      if (requestGeneration !== generation || isAbort(error)) return false
       setProblem(error)
+      return false
     } finally {
       if (requestGeneration === generation) loading = false
     }
@@ -301,7 +313,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     restored?: MoneyflowHistoryState,
   ): void {
     cache.store(next)
-    cache.retainAdjacent(next.canonical_query, next.window.offset)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
+    if (restored) sequence = restored.sequence
     projection = next
     const cursor = preserveCursor(
       next,
@@ -325,7 +338,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {
     cache.store(next)
-    cache.retainAdjacent(next.canonical_query, next.window.offset)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
     projection = next
     const cursor = preserveCursor(next, undefined, requestedIndex)
     cursorIdentity = cursor.identity
@@ -355,18 +368,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function schedulePrefetch(current: ViewProjection): void {
     if (!prefetchEnabled) return
     for (const [key, request] of prefetchRequests) {
-      if (!key.startsWith(`${current.canonical_query}\u0000`)) {
+      if (!key.startsWith(`${current.canonical_query}\u0000${current.selection}\u0000`)) {
         request.abort()
         prefetchRequests.delete(key)
       }
     }
     const offsets = [current.window.offset - windowSize, current.window.offset + windowSize]
     for (const offset of offsets) {
-      const key = `${current.canonical_query}\u0000${offset}`
+      const key = `${current.canonical_query}\u0000${current.selection}\u0000${offset}`
       if (
         offset < 0 ||
         offset >= current.total_rows ||
-        cache.get(current.canonical_query, offset) ||
+        cache.get(current.canonical_query, current.selection, offset) ||
         prefetchRequests.has(key)
       ) {
         continue
@@ -376,13 +389,25 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       void options.client
         .view(viewBody(current.canonical_query, current.selection, offset), abort.signal)
         .then((next) => {
-          if (projection?.canonical_query !== current.canonical_query) return
+          if (
+            projection?.canonical_query !== current.canonical_query ||
+            projection.selection !== current.selection
+          )
+            return
           cache.store(next)
-          cache.retainAdjacent(current.canonical_query, current.window.offset)
+          cache.retainAdjacent(current.canonical_query, current.selection, current.window.offset)
         })
         .catch(() => undefined)
         .finally(() => prefetchRequests.delete(key))
     }
+  }
+
+  async function ensureVisibleWindow(next: ViewProjection): Promise<ViewProjection> {
+    if (next.total_rows === 0 || next.window.count > 0 || next.window.offset === 0) return next
+    return await options.client.view(
+      viewBody(next.canonical_query, next.selection, alignedOffset(next.total_rows - 1)),
+      activeRequest?.signal,
+    )
   }
 
   function setProblem(error: unknown): void {

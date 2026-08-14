@@ -13,9 +13,10 @@ import (
 
 const (
 	basePathPlaceholder   = "__MONEYFLOW_BASE_PATH__"
-	contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; " +
+	baseHrefPlaceholder   = "__MONEYFLOW_BASE_HREF__"
+	contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
-		"base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 )
 
 type handler struct {
@@ -87,6 +88,7 @@ func (handler *handler) serveIndex(response http.ResponseWriter, request *http.R
 		html.EscapeString(handler.basePath),
 		1,
 	)
+	content = strings.Replace(content, baseHrefPlaceholder, html.EscapeString(handler.basePath), 1)
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
 	response.WriteHeader(http.StatusOK)

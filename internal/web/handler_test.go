@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -12,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
+const testCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
-	"base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+	"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
 func TestValidateDistribution(t *testing.T) {
 	t.Parallel()
@@ -55,6 +54,7 @@ func TestHandlerServesIndexAssetsAndHEAD(t *testing.T) {
 	assert.Equal(t, "text/html; charset=utf-8", index.Header().Get("Content-Type"))
 	assert.Equal(t, "no-store", index.Header().Get("Cache-Control"))
 	assert.Contains(t, index.Body.String(), `content="/money&amp;flow/"`)
+	assert.Contains(t, index.Body.String(), `<base href="/money&amp;flow/"`)
 	assert.NotContains(t, index.Body.String(), "__MONEYFLOW_BASE_PATH__")
 	assertSecurityHeaders(t, index)
 
@@ -78,6 +78,7 @@ func TestHandlerNavigationFallbackAndReservations(t *testing.T) {
 		response := request(t, handler, http.MethodGet, path, "text/html,application/xhtml+xml")
 		assert.Equal(t, http.StatusOK, response.Code, path)
 		assert.Contains(t, response.Body.String(), "moneyflow-base-path")
+		assert.Contains(t, response.Body.String(), `<base href="/moneyflow/"`)
 	}
 	for _, path := range []string{
 		"/moneyflow/assets/missing-Ab12_cd3.js",
@@ -122,7 +123,7 @@ func TestEmbeddedDistributionConstructs(t *testing.T) {
 
 func testDistribution() fstest.MapFS {
 	return fstest.MapFS{
-		"dist/index.html":                 {Data: []byte(`<!doctype html><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><script src="./assets/index-Ab12_cd3.js"></script>`)},
+		"dist/index.html":                 {Data: []byte(`<!doctype html><base href="__MONEYFLOW_BASE_HREF__"><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><script src="./assets/index-Ab12_cd3.js"></script>`)},
 		"dist/.moneyflow-production.json": {Data: []byte(`{"schema_version":1,"kind":"moneyflow-production","entry":"index.html"}`)},
 		"dist/.vite/manifest.json":        {Data: []byte(`{"index.html":{"file":"assets/index-Ab12_cd3.js","isEntry":true,"src":"index.html"}}`)},
 		"dist/assets/index-Ab12_cd3.js":   {Data: []byte("compiled")},
@@ -152,7 +153,8 @@ func assertSecurityHeaders(t testing.TB, response *httptest.ResponseRecorder) {
 	assert.Equal(t, "DENY", response.Header().Get("X-Frame-Options"))
 	assert.Equal(t, "no-referrer", response.Header().Get("Referrer-Policy"))
 	assert.Empty(t, response.Header().Values("Set-Cookie"))
-	assert.False(t, strings.Contains(response.Header().Get("Content-Security-Policy"), "unsafe-inline"))
+	assert.Contains(t, response.Header().Get("Content-Security-Policy"), "style-src 'self' 'unsafe-inline'")
+	assert.NotContains(t, response.Header().Get("Content-Security-Policy"), "script-src 'self' 'unsafe-inline'")
 }
 
 var _ fs.FS = fstest.MapFS{}

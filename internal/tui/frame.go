@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
 
 // Rect is an exact terminal-cell rectangle.
@@ -67,6 +69,9 @@ func (frame *Frame) PutText(x int, y int, value string, style Style) {
 			x = originX
 		}
 		for _, cluster := range graphemeClusters(line) {
+			if cluster.width <= 0 {
+				continue
+			}
 			if y >= 0 && y < frame.height && x >= 0 && x+cluster.width <= frame.width {
 				for offset := 0; offset < cluster.width; offset++ {
 					frame.clearGlyphAt(x+offset, y)
@@ -202,31 +207,18 @@ type graphemeCluster struct {
 }
 
 func graphemeClusters(value string) []graphemeCluster {
-	if value == "" {
-		return nil
-	}
-	// MaxWidth truncation follows the same Unicode grapheme rules as Lip Gloss rendering. Asking
-	// for the smallest supported cell width isolates exactly the first printable cluster while
-	// keeping the dependency boundary at Lip Gloss.
 	clusters := make([]graphemeCluster, 0, len(value))
-	style := lipgloss.NewStyle()
 	for remaining := value; remaining != ""; {
-		if remaining[0] < 0x80 && (len(remaining) == 1 || remaining[1] < 0x80) {
-			cluster := remaining[:1]
-			if width := lipgloss.Width(cluster); width > 0 {
-				clusters = append(clusters, graphemeCluster{value: cluster, width: width})
-			}
-			remaining = remaining[1:]
-			continue
-		}
-		var cluster string
-		for width := 1; width <= 4 && cluster == ""; width++ {
-			cluster = style.MaxWidth(width).Render(remaining)
-		}
-		if cluster == "" || !strings.HasPrefix(remaining, cluster) {
+		cluster, width := ansi.FirstGraphemeCluster(remaining, ansi.GraphemeWidth)
+		if cluster == "" {
 			break
 		}
-		clusters = append(clusters, graphemeCluster{value: cluster, width: lipgloss.Width(cluster)})
+		if width <= 0 {
+			width = uniseg.StringWidth(cluster)
+		}
+		if width > 0 {
+			clusters = append(clusters, graphemeCluster{value: cluster, width: width})
+		}
 		remaining = strings.TrimPrefix(remaining, cluster)
 	}
 	return clusters

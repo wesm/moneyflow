@@ -27,13 +27,13 @@
   )
   const visible = $derived(rows.slice(slice.start, slice.end))
   const activeID = $derived(rows.find((row) => row.index === cursorIndex)?.identity)
-  const amountSort = $derived<'ascending' | 'descending' | 'none'>(
-    projection.view.sort_field === 'amount'
+  function sortState(field: string): 'ascending' | 'descending' | undefined {
+    return projection.view.sort_field === field
       ? projection.view.sort_direction === 'asc'
         ? 'ascending'
         : 'descending'
-      : 'none',
-  )
+      : undefined
+  }
 
   function keydown(event: KeyboardEvent): void {
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
@@ -64,16 +64,24 @@
   >
     <div class="finance-grid__header" role="row">
       {#if detail}
-        <div role="columnheader">Date</div>
-        <div role="columnheader">Account</div>
-        <div role="columnheader">Merchant</div>
-        <div role="columnheader">Category</div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState('date')}>Date</div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState('account')}>Account</div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState('merchant')}>Merchant</div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState('category')}>Category</div>
       {:else}
-        <div role="columnheader">{projection.view.grouping}</div>
-        <div role="columnheader">Count</div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState(projection.view.grouping)}>
+          {projection.view.grouping}
+        </div>
+        <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+        <div role="columnheader" aria-sort={sortState('count')}>Count</div>
       {/if}
-      <!-- kit-ui-check-ignore: product ARIA grid cannot use the table primitive -->
-      <div role="columnheader" aria-sort={amountSort}>Amount</div>
+      <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
+      <div role="columnheader" aria-sort={sortState('amount')}>Amount</div>
     </div>
     <div style={`height:${slice.topPad}px`} aria-hidden="true"></div>
     {#each visible as row (row.identity)}
@@ -85,10 +93,12 @@
         tabindex="-1"
         aria-rowindex={row.index + 2}
         aria-selected={row.flags.selected}
-        ondblclick={() => onactivate(row.identity, detail ? 'detail' : 'aggregate')}
+        ondblclick={() => {
+          if (!detail) onactivate(row.identity, 'aggregate')
+        }}
         onclick={() => onselect(row.identity, detail ? 'detail' : 'aggregate')}
         onkeydown={(event) => {
-          if (event.key === 'Enter') onactivate(row.identity, detail ? 'detail' : 'aggregate')
+          if (event.key === 'Enter' && !detail) onactivate(row.identity, 'aggregate')
           if (event.key === ' ') onselect(row.identity, detail ? 'detail' : 'aggregate')
         }}
       >

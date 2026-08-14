@@ -19,12 +19,20 @@ describe('RefinementBar', () => {
           sort_field: 'amount',
           sort_direction: 'desc',
         },
+        filters: {
+          date_range: { from: '2026-08-01', to: '2026-08-13' },
+          show_hidden: true,
+          show_transfers: true,
+        },
       }),
       onaction,
     })
     expect(screen.getByText('M: Example Housing > (by Category)')).not.toBeNull()
     expect(screen.queryByText('Example Housing')).toBeNull()
     expect(screen.getByText('Search: coffee')).not.toBeNull()
+    expect(screen.getByText('Date: 2026-08-01–2026-08-13')).not.toBeNull()
+    expect(screen.getByText('Hidden: shown')).not.toBeNull()
+    expect(screen.getByText('Transfers: shown')).not.toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: /Clear/ }))
     expect(onaction).toHaveBeenCalledWith('view.back')
   })

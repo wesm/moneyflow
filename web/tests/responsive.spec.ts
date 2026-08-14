@@ -31,6 +31,13 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
   await expect(visualizations).toBeVisible()
   const mediumChart = await visualizations.boundingBox()
   expect(mediumChart!.x).toBeGreaterThan((await grid.boundingBox())!.x)
+
+  await page.setViewportSize({ width: 768, height: 700 })
+  const boundedChart = await visualizations.boundingBox()
+  expect(boundedChart).not.toBeNull()
+  expect(boundedChart!.x + boundedChart!.width).toBeLessThanOrEqual(768)
+  expect(boundedChart!.y + boundedChart!.height).toBeLessThanOrEqual(700)
+  await expect(grid).toBeVisible()
 })
 
 test('narrow resize preserves analytical URL and moves charts into a drawer', async ({

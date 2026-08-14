@@ -137,6 +137,9 @@ func validateDistribution(fsys fs.FS) (*distribution, error) {
 	if strings.Count(string(index), basePathPlaceholder) != 1 {
 		return nil, errors.New("validate web distribution: index must contain one base-path placeholder")
 	}
+	if strings.Count(string(index), baseHrefPlaceholder) != 1 {
+		return nil, errors.New("validate web distribution: index must contain one base-href placeholder")
+	}
 	if strings.Contains(string(index), "/src/") || strings.Contains(string(index), "/@vite/") {
 		return nil, errors.New("validate web distribution: index is a compilation stub")
 	}

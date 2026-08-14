@@ -39,6 +39,7 @@ function chartMark(
 ) {
   return {
     identity,
+    categoricalKey: identity,
     index,
     label,
     display,

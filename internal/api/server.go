@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 
@@ -325,7 +326,25 @@ func requestBodyLimit(next http.Handler) http.Handler {
 				))
 				return
 			}
-			request.Body = http.MaxBytesReader(response, request.Body, MaxViewBodyBytes)
+			body, err := io.ReadAll(io.LimitReader(request.Body, MaxViewBodyBytes+1))
+			if err != nil {
+				writeProblem(response, newProblem(
+					http.StatusBadRequest,
+					"invalid_request",
+					"The request body is invalid.",
+				))
+				return
+			}
+			if len(body) > MaxViewBodyBytes {
+				writeProblem(response, newProblem(
+					http.StatusRequestEntityTooLarge,
+					"request_too_large",
+					"The request body is too large.",
+				))
+				return
+			}
+			request.Body = io.NopCloser(bytes.NewReader(body))
+			request.ContentLength = int64(len(body))
 		}
 		next.ServeHTTP(response, request)
 	})

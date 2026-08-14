@@ -181,13 +181,17 @@ Every owned route lives below that prefix:
 <base-path>openapi.yaml             OpenAPI document
 ```
 
-Vite emits relative `./assets/` references. Its index contains a non-executable
-`<meta name="moneyflow-base-path">` placeholder. The Go handler replaces only
-that placeholder with the HTML-escaped effective prefix; the external hashed
-application script reads the meta value. The handler does not inject an inline
-script, style, or event attribute, so `script-src 'self'` and `base-uri 'none'`
-remain valid without a nonce or hash. Client-side navigation, API requests,
-redirects, asset references, and OpenAPI server entries all use that value.
+Vite emits relative `./assets/` references. Its index contains non-executable
+`<base href>` and `<meta name="moneyflow-base-path">` placeholders. The Go
+handler replaces only those placeholders with the HTML-escaped effective
+prefix. The browser resolves relative assets through the base element, while
+the external hashed application script reads the meta value for navigation and
+API requests. The handler does not inject an inline script or event attribute,
+so `script-src 'self'` remains strict without a nonce or hash. LayerChart and
+`kit-ui` set bounded runtime style attributes for geometry and component layout,
+so the CSP permits inline styles but no inline scripts. `base-uri 'self'` allows
+the server-owned base element without allowing a cross-origin base. Redirects
+and OpenAPI server entries use the same normalized value.
 
 When the base path is not `/`, the server does not claim unrelated paths. This
 allows a reverse proxy to host moneyflow beside other applications. Unknown asset
@@ -210,8 +214,11 @@ the information required to reconstruct the visible result:
 - sort field and direction
 - ordered analytical return frames for drill-down and subgroup scopes
 
-Drill-down URLs contain stable entity keys, not display labels. Go resolves the
-current label from the loaded data when it builds the breadcrumb. Repeated
+Drill-down URLs contain the dimension, currency, scale, and stable entity key or
+typed time period, not a display label. Currency and scale keep equal keys in
+different money partitions distinct. Go resolves the current label from loaded
+data when it builds the breadcrumb, independently of later search, date, or
+visibility refinements that can temporarily hide the target. Repeated
 drill-down parameters preserve path order.
 
 The codec uses explicit, readable, versioned query fields. It rejects unknown
@@ -315,7 +322,8 @@ The browser preserves these implemented TUI bindings:
 
 The browser does not bind `q` or `Ctrl+C`. Those are terminal lifecycle controls,
 and stopping a server shared over a private network from an incidental browser
-tab would be surprising. Web help marks both keys as TUI-only.
+tab would be surprising. The API capability projection omits lifecycle actions;
+web help adds a renderer-local TUI-only appendix for those two shared bindings.
 
 When a text input, date control, menu, or modal owns focus, native text editing
 and the component's shortcut scope take precedence. Closing the overlay restores
@@ -409,8 +417,10 @@ floating point after this normalization; money does not.
 
 The browser requests a default window of 200 rows. The API caps both offset and
 limit and returns the total row count. The frontend prefetches at most the
-adjacent windows and keeps a bounded cache keyed by canonical analytical state.
-It never fetches the complete result merely to implement scrolling.
+adjacent windows and keeps a bounded cache keyed by canonical analytical state
+plus the opaque selection value. Including selection prevents cached row flags
+from leaking between otherwise identical queries. It never fetches the complete
+result merely to implement scrolling.
 
 `FinanceTable` composes `kit-ui` table and virtualization primitives into one
 ARIA grid. It has sticky headers, deterministic column priority, roving focus,
@@ -425,12 +435,14 @@ Selection state is transient and browser-held but opaque to TypeScript. The wire
 field is a branded string produced and consumed only by Go. Its versioned logical
 document contains:
 
-- a base that is either a sorted explicit stable-identity list or an `all` marker
-  with the canonical query-producing fields of the defining analytical state;
-  return frames are omitted because they do not change result membership
+- a current payload whose base is either a sorted explicit stable-identity list
+  or an `all` marker with the canonical query-producing fields of the defining
+  analytical state
 - the identity kind: normalized transaction ID or composite aggregate identity
 - sorted inclusion identities added to that base
 - sorted exclusion identities removed from that base
+- ordered payloads for analytical return frames, using the same compact form and
+  corresponding one-for-one with durable return frames
 
 For an `all` base, Go re-runs the defining state and resolves its complete stable
 identity set before it applies deltas. A later search, filter, time change, or
@@ -447,8 +459,9 @@ the existing base plus deltas, or an explicit list. It never substitutes a
 different approximate set.
 
 The decoded selection document is limited to 8,192 combined explicit, inclusion,
-and exclusion identities, 512 bytes per identity, and 1 MiB total. Its encoded
-wire string is limited to 1.4 MiB, and a view request body is limited to 2 MiB.
+and exclusion identities across the current and return payloads, 512 bytes per
+identity, and 1 MiB total. Its encoded wire string is limited to 1.4 MiB, and a
+view request body is limited to 2 MiB.
 If an otherwise valid toggle cannot fit an exact representation, the API returns
 `selection_too_large`; the browser retains the prior selection, URL, and
 projection and announces that no additional rows were selected. An invalid or

@@ -14,24 +14,28 @@ export class WindowCache {
   store(projection: ViewProjection): void {
     const offset = projection.window.offset
     if (offset % this.#windowSize !== 0) throw new Error('projection window is not aligned')
-    let query = this.#entries.get(projection.canonical_query)
+    const cacheKey = key(projection.canonical_query, projection.selection)
+    let query = this.#entries.get(cacheKey)
     if (!query) {
       query = new Map()
-      this.#entries.set(projection.canonical_query, query)
+      this.#entries.set(cacheKey, query)
     }
     query.set(offset, projection)
   }
 
-  get(query: string, offset: number): ViewProjection | undefined {
-    return this.#entries.get(query)?.get(offset)
+  get(query: string, selection: string, offset: number): ViewProjection | undefined {
+    return this.#entries.get(key(query, selection))?.get(offset)
   }
 
-  offsets(query: string): number[] {
-    return [...(this.#entries.get(query)?.keys() ?? [])].sort((left, right) => left - right)
+  offsets(query: string, selection: string): number[] {
+    return [...(this.#entries.get(key(query, selection))?.keys() ?? [])].sort(
+      (left, right) => left - right,
+    )
   }
 
-  retainAdjacent(query: string, currentOffset: number): void {
-    const entries = this.#entries.get(query)
+  retainAdjacent(query: string, selection: string, currentOffset: number): void {
+    const cacheKey = key(query, selection)
+    const entries = this.#entries.get(cacheKey)
     if (!entries) return
     const retained = new Set([
       Math.max(0, currentOffset - this.#windowSize),
@@ -41,10 +45,14 @@ export class WindowCache {
     for (const offset of entries.keys()) {
       if (!retained.has(offset)) entries.delete(offset)
     }
-    for (const key of this.#entries.keys()) {
-      if (key !== query) this.#entries.delete(key)
+    for (const candidate of this.#entries.keys()) {
+      if (candidate !== cacheKey) this.#entries.delete(candidate)
     }
   }
+}
+
+function key(query: string, selection: string): string {
+  return `${query}\u0000${selection}`
 }
 
 export function preserveCursor(

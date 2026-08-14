@@ -17,7 +17,10 @@ describe('AggregateBars', () => {
     expect(mark.classList.contains('chart-mark--active')).toBe(true)
     await fireEvent.click(mark)
     expect(oncursor).toHaveBeenCalledWith(1)
-    await fireEvent.keyDown(mark, { key: 'Enter' })
+    const bubbled = vi.fn()
+    window.addEventListener('keydown', bubbled, { once: true })
+    await fireEvent.keyDown(mark, { key: 'Enter', bubbles: true })
+    expect(bubbled).not.toHaveBeenCalled()
     await fireEvent.doubleClick(mark)
     expect(ondrill).toHaveBeenCalledTimes(2)
     expect(ondrill).toHaveBeenCalledWith('coffee')
@@ -32,6 +35,7 @@ function partition(): ChartPartition {
     marks: [
       {
         identity: 'coffee',
+        categoricalKey: 'coffee',
         index: 1,
         label: 'Coffee',
         display: '-$12.34',

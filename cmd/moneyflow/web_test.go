@@ -119,6 +119,38 @@ func TestRunWebBrowserFailureIsWarning(t *testing.T) {
 	assert.Equal(t, "http://"+listener.Addr().String()+"/", opened)
 }
 
+func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
+	t.Parallel()
+
+	service, err := newEmbeddedService()
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var openedHealthy bool
+	streams := IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		Listen: func(ctx context.Context, network, _ string) (net.Listener, error) {
+			return (&net.ListenConfig{}).Listen(ctx, network, "127.0.0.1:0")
+		},
+		OpenBrowser: func(url string) error {
+			defer cancel()
+			response, openErr := http.Get(url + "api/v1/health") // #nosec G107 -- injected loopback URL.
+			if openErr != nil {
+				return openErr
+			}
+			openedHealthy = response.StatusCode == http.StatusOK
+			return response.Body.Close()
+		},
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return context.WithCancel(parent)
+		},
+	}
+	require.NoError(t, runWeb(ctx, service, WebOptions{
+		Listen: "127.0.0.1:8080", BasePath: "/", Open: true,
+	}, streams))
+	assert.True(t, openedHealthy)
+}
+
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {

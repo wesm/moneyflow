@@ -19,7 +19,7 @@ describe('FiltersDialog', () => {
   })
 
   it('applies one inclusive date and visibility transition', async () => {
-    const onapply = vi.fn(async () => undefined)
+    const onapply = vi.fn(async () => true)
     render(FiltersDialog, {
       projection: testProjection({
         filters: {
@@ -40,5 +40,16 @@ describe('FiltersDialog', () => {
         show_transfers: true,
       },
     })
+  })
+
+  it('stays open when the server rejects the staged filters', async () => {
+    const onclose = vi.fn()
+    render(FiltersDialog, {
+      projection: testProjection(),
+      onapply: vi.fn(async () => false),
+      onclose,
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    expect(onclose).not.toHaveBeenCalled()
   })
 })

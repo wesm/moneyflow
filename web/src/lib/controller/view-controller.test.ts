@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { MoneyflowProblem, type MoneyflowClient, type ViewProjection } from '../api/client'
 import { createViewController } from './view-controller.svelte'
+import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
 
 describe('browser view controller', () => {
@@ -81,6 +82,7 @@ describe('browser view controller', () => {
     await controller.hydrate()
     const state = {
       ...(history.state as MoneyflowHistoryState),
+      sequence: 7,
       cursorIdentity: 'row-2',
       cursorIndex: 2,
       selection: 'mfsel1.restored' as ViewProjection['selection'],
@@ -92,6 +94,62 @@ describe('browser view controller', () => {
     expect(controller.cursorIndex).toBe(2)
     expect(client.view).toHaveBeenLastCalledWith(
       expect.objectContaining({ selection: 'mfsel1.restored' }),
+      expect.any(AbortSignal),
+    )
+    expect((history.state as MoneyflowHistoryState).sequence).toBe(state.sequence)
+  })
+
+  it('refetches the last valid window after a narrowing transition empties the old offset', async () => {
+    history.replaceState(
+      {
+        owner: 'moneyflow-web-v1',
+        instance: 'test-instance',
+        sequence: 0,
+        query: 'v=1',
+        cursorIndex: 400,
+        scrollTop: 0,
+        selection: 'mfsel1.example' as SelectionValue,
+      } satisfies MoneyflowHistoryState,
+      '',
+      '/moneyflow/?v=1',
+    )
+    const client = clientWith({
+      view: vi.fn(async (body) =>
+        projection(body.query, body.window.offset, body.query === 'v=1' ? 450 : 1),
+      ),
+      transition: vi.fn(async (body) => projection('q=narrow&v=1', body.window.offset, 1)),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    expect(controller.cursorIndex).toBe(400)
+
+    await controller.apply({ action: 'search.apply', search: 'narrow' })
+
+    expect(controller.projection?.window.offset).toBe(0)
+    expect(controller.cursorIndex).toBe(0)
+    expect(client.view).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'q=narrow&v=1', window: { offset: 0, limit: 200 } }),
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('clears an opening search snapshot when browser history restores another view', async () => {
+    const client = clientWith({
+      view: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
+      transition: vi.fn(async (body) => projection(body.query, 0, 3)),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    controller.beginSearch()
+    const restored = {
+      ...(history.state as MoneyflowHistoryState),
+      query: 'group=category&v=1',
+      sequence: 4,
+    }
+    await controller.restore(new PopStateEvent('popstate', { state: restored }))
+    await controller.previewSearch('coffee')
+    expect(client.transition).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: 'group=category&v=1' }),
       expect.any(AbortSignal),
     )
   })

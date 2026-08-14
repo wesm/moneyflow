@@ -46,9 +46,10 @@ OpenAPI Fetch 0.17.0; Vitest 4.1.10; Testing Library 5.4.2; Playwright 1.61.1; a
   fragment, backslash, encoded slash/backslash, and paths outside the configured prefix.
 - Default to `127.0.0.1:8080`. Reject empty or wildcard hosts. A concrete non-loopback address is
   allowed only with the documented unauthenticated-data warning.
-- Production HTML uses a non-executable `moneyflow-base-path` meta placeholder and relative Vite
-  assets. Do not add inline scripts, inline styles, inline event handlers, remote assets, or a
-  browser API-documentation application.
+- Production HTML uses non-executable base-href and `moneyflow-base-path` meta placeholders with
+  relative Vite assets. Do not add inline scripts, inline event handlers, remote assets, or a
+  browser API-documentation application. CSP permits only the runtime style attributes required
+  by `kit-ui` and LayerChart; scripts remain external and same-origin.
 - Reuse `kit-ui` components, tokens, breakpoints, shortcut manager, and virtualization helpers.
   Run `kit-ui-check`; do not recreate a shared primitive that satisfies the required contract. The
   interactive remote-window ARIA grid remains the spec-approved product-specific `FinanceTable`;
@@ -269,9 +270,10 @@ asset and Playwright commands to this gate.
 
 - [ ] **Step 2: Refactor private snapshots around `AnalyticalState`.** Keep TUI-only
       `ViewPosition` and selection snapshots in `historyEntry`, but store its analytical portion in
-      the new value. `Session.ViewState()` strips labels and transient values; reconstruction
-      creates private history entries with empty selection and position because browser history
-      owns those values.
+      the new value. `Session.ViewState()` strips labels and transient values. View-state-only
+      reconstruction creates private history entries with empty selection and position; the
+      transition engine hydrates current and return-frame selection snapshots from the paired
+      opaque selection token before applying an action.
 
 - [ ] **Step 3: Implement strict state validation and reconstruction.** Validate enums, compatible
       sorts, dates, unique drill dimensions, typed time periods, return kinds, and a maximum of six
@@ -309,8 +311,8 @@ asset and Playwright commands to this gate.
       `group`, `subgroup`, `time`, `from`, `to`, `hidden`, `transfers`, `q`, and `sort`; repeated
       `drill` and `return` fields retain slice order. The optional scalar `search-at` is
       `mode:dimension:subgroup-or-_:drilldown-count` and must appear exactly when `q` is nonempty. A
-      drill value is `dimension:value`, split only
-      at the first colon; time uses `time:granularity:YYYY[-MM[-DD]]`. A `return` value is
+      drill value is `dimension:currency:scale:value`, split into at most four parts; time uses
+      `time:currency:scale:granularity:YYYY[-MM[-DD]]`. A `return` value is
       `kind:canonical-frame-query`, split only at the first colon; the frame query contains neither
       `v` nor nested `return` fields.
 
@@ -379,8 +381,9 @@ asset and Playwright commands to this gate.
 - [ ] **Step 1: Write failing codec and normalization tests.** Define the wire value as
       `mfsel1.` plus unpadded base64url of canonical JSON. Its logical document has version `1`,
       identity kind `transaction` or `aggregate`, base kind `explicit` or `all`, sorted explicit
-      IDs or a defining `AnalyticalState` with no return frames, plus sorted `include` and `exclude`
-      lists. Duplicate or overlapping delta identities are invalid.
+      IDs or a defining `AnalyticalState`, plus sorted `include` and `exclude` lists. The document
+      also contains ordered payloads of the same shape for durable analytical return frames.
+      Duplicate or overlapping delta identities are invalid.
 
   ```go
   type SelectionValue string
@@ -417,11 +420,11 @@ asset and Playwright commands to this gate.
 
   Expected: FAIL because selection values do not exist.
 
-- [ ] **Step 2: Implement canonical validation and limits.** Enforce 8,192 combined IDs, 512 bytes
-      per ID, 1 MiB decoded JSON, and 1.4 MiB encoded value. Require sorted unique arrays, one base
-      payload matching its kind, a valid defining analytical state for `all`, and no labels or
-      return frames. Map malformed input to `invalid_selection`; map a valid exact result that
-      cannot be encoded to `selection_too_large`.
+- [ ] **Step 2: Implement canonical validation and limits.** Enforce 8,192 combined IDs across the
+      current and return payloads, 512 bytes per ID, 1 MiB decoded JSON, and 1.4 MiB encoded value.
+      Require sorted unique arrays, one base payload matching its kind, a valid defining analytical
+      state for `all`, and no display labels. Map malformed input to `invalid_selection`; map a
+      valid exact result that cannot be encoded to `selection_too_large`.
 
 - [ ] **Step 3: Resolve `all` bases through the service.** Query the defining analytical state,
       rebuild the complete concrete stable-identity set, apply exclusions then inclusions, and
@@ -519,10 +522,11 @@ asset and Playwright commands to this gate.
 
   Expected: FAIL because the web engine does not exist.
 
-- [ ] **Step 2: Resolve stable drill labels at projection time.** For each key drill, query the
-      prefix state and locate the unique aggregate identity in its complete result. Fill the current
-      display label only for breadcrumb construction; never persist it into URL or selection state.
-      Return `stale_view_target` when a key no longer resolves instead of treating it as empty data.
+- [ ] **Step 2: Resolve stable drill labels at projection time.** For each key drill, query its
+      dimension and `(currency, scale)` partition independently of transient date, search, hidden,
+      and transfer refinements, and locate the stable entity key. Fill the current display label
+      only for breadcrumb construction; never persist it into URL or selection state. Return
+      `stale_view_target` when a key no longer resolves instead of treating it as empty data.
 
 - [ ] **Step 3: Implement window and chart projection.** Query the complete result once, decorate it
       from the resolved selection set, then copy only the requested window into the projection.
@@ -538,8 +542,9 @@ asset and Playwright commands to this gate.
       breadcrumb, row order, flags, and back restoration.
 
 - [ ] **Step 5: Implement server-authoritative transitions.** Reconstruct a session from durable
-      state, resolve the selection into its concrete maps, apply exactly one existing `Session`
-      method, and export the next durable state. Add non-keyed registry actions `search.apply` and
+      state, resolve the current and return-frame selection payloads into their concrete snapshot
+      maps, apply exactly one existing `Session` method, and export the next durable state and
+      compact selection document. Add non-keyed registry actions `search.apply` and
       `filters.apply` for modal submission. Resolve drill and selection targets against the complete
       canonical result, never against a browser index. Return the prior state/selection on every
       rejected transition.
@@ -751,8 +756,9 @@ asset and Playwright commands to this gate.
       mode fail.
 
 - [ ] **Step 5: Scaffold the smallest mounted Svelte app.** `index.html` contains
-      `<meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__">` and only an external
-      module script. `main.ts` reads and validates that meta value before mounting. `app.css`
+      `<base href="__MONEYFLOW_BASE_HREF__">`,
+      `<meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__">`, and only an external
+      module script. `main.ts` reads and validates the meta value before mounting. `app.css`
       imports `@kenn-io/kit-ui/theme.css`, `themes.css`, and `fonts.css`; it adds only semantic
       Moneyflow layout/accent variables. `App.svelte` uses `TopBar`, `ThemeToggle`, `StatusBar`, and
       a fixture-data loading state.
@@ -843,10 +849,10 @@ asset and Playwright commands to this gate.
       `undefined`, forcing `history.replaceState` with Go's canonical parent. Never call
       `history.go()` from a persisted or unverified index.
 
-- [ ] **Step 3: Implement the bounded window cache.** Key entries by canonical analytical query and
-      aligned 200-row window offset. Keep current, previous, and next offsets only. Merge no rows
-      across different canonical queries. Preserve cursor by stable identity when present; otherwise
-      clamp its absolute index into `[0,total-1]`.
+- [ ] **Step 3: Implement the bounded window cache.** Key entries by canonical analytical query,
+      opaque selection value, and aligned 200-row window offset. Keep current, previous, and next
+      offsets only. Merge no rows across different query/selection pairs. Preserve cursor by stable
+      identity when present; otherwise clamp its absolute index into `[0,total-1]`.
 
 - [ ] **Step 4: Write controller race and failure tests.** Cover initial hydration, direct invalid
       URL, selection reset warning, push versus replace, Back/Forward restoration, guaranteed and
@@ -922,7 +928,8 @@ asset and Playwright commands to this gate.
 - [ ] **Step 1: Write failing shortcut-map tests from server capabilities.** Require the browser
       keys `ArrowUp/k`, `ArrowDown/j`, `Home`, `g`, `d`, `A`, Enter, Escape, `t`, `a`, ArrowLeft,
       ArrowRight, `s`, `v`, Space, `Ctrl+A`, `f`, `/`, and `?`. Assert no `End`, `q`, or `Ctrl+C`
-      handler; mark the last two TUI-only in help. Reject any capability whose key/action metadata
+      handler. Exclude lifecycle actions from the API capability payload and add `q` and `Ctrl+C`
+      to a renderer-local TUI-only help appendix. Reject any capability whose key/action metadata
       conflicts with the compiled local routing table.
 
   Run: `bun run --cwd web test -- src/lib/shortcuts.test.ts`
@@ -1164,9 +1171,9 @@ asset and Playwright commands to this gate.
       rejection, exact meta replacement/HTML escaping, and these headers:
 
   ```text
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self';
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
     img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none';
-    base-uri 'none'; frame-ancestors 'none'; form-action 'self'
+    base-uri 'self'; frame-ancestors 'none'; form-action 'self'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
@@ -1174,8 +1181,9 @@ asset and Playwright commands to this gate.
   ```
 
 - [ ] **Step 5: Implement the embedded handler.** Use `//go:embed dist` and validate the embedded
-      filesystem once during construction. Replace only the exact HTML meta content placeholder
-      with an HTML-escaped normalized prefix. Serve no directory listings. Treat only GET requests
+      filesystem once during construction. Replace only the exact HTML base-href and meta content
+      placeholders with an HTML-escaped normalized prefix. Serve no directory listings. Treat only
+      GET requests
       with `Accept: text/html` and safe extensionless paths as SPA navigation; never fall back for
       `assets`, `api/v1`, `openapi.json`, or `openapi.yaml`.
 
@@ -1478,9 +1486,10 @@ asset and Playwright commands to this gate.
   make verify-web
   make test-race
   go build ./...
-  GOOS=linux GOARCH=amd64 go build ./cmd/moneyflow
-  GOOS=darwin GOARCH=arm64 go build ./cmd/moneyflow
-  GOOS=windows GOARCH=amd64 go build ./cmd/moneyflow
+  build_dir="$(mktemp -d)"
+  GOOS=linux GOARCH=amd64 go build -o "$build_dir/moneyflow-linux" ./cmd/moneyflow
+  GOOS=darwin GOARCH=arm64 go build -o "$build_dir/moneyflow-darwin" ./cmd/moneyflow
+  GOOS=windows GOARCH=amd64 go build -o "$build_dir/moneyflow-windows.exe" ./cmd/moneyflow
   uv run pytest -v
   uv run pyright moneyflow/
   uv run ruff format --check moneyflow/ tests/

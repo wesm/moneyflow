@@ -25,7 +25,11 @@ func (session *Session) Drill(row domain.AggregateRow, position ViewPosition) er
 		}
 	}
 	session.pushHistory(historyNavigation, position)
-	drilldown := domain.Drilldown{Dimension: row.Dimension}
+	drilldown := domain.Drilldown{
+		Dimension: row.Dimension,
+		Currency:  row.Total.Currency,
+		Scale:     row.Total.Scale,
+	}
 	if row.Dimension == domain.DimensionTime {
 		period := *row.Period
 		drilldown.Period = &period

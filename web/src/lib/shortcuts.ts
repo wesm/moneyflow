@@ -65,3 +65,16 @@ export function createMoneyflowShortcuts(
   }
   return { manager, destroy: () => cleanup.forEach((remove) => remove()) }
 }
+
+export function handleMoneyflowKeydown(manager: ShortcutManager, event: KeyboardEvent): boolean {
+  const target = event.target
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    (target instanceof HTMLElement && target.isContentEditable)
+  ) {
+    return false
+  }
+  return manager.handleKeydown(event)
+}

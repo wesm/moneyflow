@@ -57,6 +57,21 @@ describe('search coordinator', () => {
     expect(search.error).toBe('Search text must be at most 2048 bytes.')
     expect(host.previewSearch).not.toHaveBeenCalled()
   })
+
+  it('does not commit after cancellation invalidates an in-flight preview', async () => {
+    let release!: (value: boolean) => void
+    const host = fakeHost({
+      previewSearch: vi.fn(() => new Promise<boolean>((resolve) => (release = resolve))),
+    })
+    const search = createSearchCoordinator(host)
+    search.input('coffee')
+    const committing = search.commit()
+    await vi.waitFor(() => expect(host.previewSearch).toHaveBeenCalled())
+    search.cancel()
+    release(true)
+    expect(await committing).toBe(false)
+    expect(host.commitSearch).not.toHaveBeenCalled()
+  })
 })
 
 function fakeHost(overrides: Partial<SearchHost<object>> = {}) {

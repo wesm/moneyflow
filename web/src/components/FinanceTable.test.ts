@@ -13,15 +13,30 @@ describe('FinanceTable', () => {
   afterEach(cleanup)
   it('renders exact detail money in the permanent accessible grid', async () => {
     const events = callbacks()
-    render(FinanceTable, { projection: testProjection(), cursorIndex: 0, ...events })
+    render(FinanceTable, {
+      projection: testProjection({
+        view: {
+          mode: 'detail',
+          grouping: 'merchant',
+          time_granularity: 'year',
+          sort_field: 'date',
+          sort_direction: 'desc',
+        },
+      }),
+      cursorIndex: 0,
+      ...events,
+    })
     const grid = screen.getByRole('grid', { name: 'Financial results' })
     expect(grid.getAttribute('aria-rowcount')).toBe('2')
     expect(
       screen.getByRole('row', { name: /Example Merchant/ }).getAttribute('aria-selected'),
     ).toBe('true')
     expect(screen.getByText('-$12.34')).not.toBeNull()
-    expect(screen.getByRole('columnheader', { name: 'Amount' }).getAttribute('aria-sort')).toBe(
+    expect(screen.getByRole('columnheader', { name: 'Date' }).getAttribute('aria-sort')).toBe(
       'descending',
+    )
+    expect(screen.getByRole('columnheader', { name: 'Amount' }).hasAttribute('aria-sort')).toBe(
+      false,
     )
     await fireEvent.keyDown(grid, { key: 'j' })
     expect(events.onmove).toHaveBeenCalledWith(1)
@@ -30,9 +45,9 @@ describe('FinanceTable', () => {
     await fireEvent.keyDown(grid, { key: 'End' })
     expect(events.onmove).toHaveBeenCalledTimes(1)
     await fireEvent.doubleClick(screen.getByRole('row', { name: /Example Merchant/ }))
-    expect(events.onactivate).toHaveBeenCalledWith('row-0', 'detail')
+    expect(events.onactivate).not.toHaveBeenCalled()
   })
-  it('renders aggregate columns and empty results', () => {
+  it('renders aggregate columns and empty results', async () => {
     const events = callbacks()
     render(FinanceTable, {
       projection: testProjection({
@@ -60,6 +75,8 @@ describe('FinanceTable', () => {
       ...events,
     })
     expect(screen.getByRole('columnheader', { name: 'merchant' })).not.toBeNull()
+    await fireEvent.doubleClick(screen.getByRole('row', { name: /Example Merchant/ }))
+    expect(events.onactivate).toHaveBeenCalledWith('agg-0', 'aggregate')
     cleanup()
     render(FinanceTable, {
       projection: testProjection({

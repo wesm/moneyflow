@@ -18,7 +18,17 @@ export function normalizeBrowserBasePath(input: string): string {
   } catch {
     throw new Error('Moneyflow base path is invalid.')
   }
-  if (decoded.includes('://')) throw new Error('Moneyflow base path is invalid.')
+  if (
+    decoded.includes('%') ||
+    decoded.includes('\\') ||
+    decoded.includes('?') ||
+    decoded.includes('#') ||
+    decoded.includes('\0') ||
+    decoded.includes('\r') ||
+    decoded.includes('\n') ||
+    decoded.includes('://')
+  )
+    throw new Error('Moneyflow base path is invalid.')
   const segments = decoded.split('/').filter((segment, index, values) => {
     if (segment !== '') return true
     return index === 0 || index === values.length - 1
@@ -30,6 +40,16 @@ export function normalizeBrowserBasePath(input: string): string {
   const normalized = `/${decoded.replace(/^\/+|\/+$/g, '')}/`
   if (normalized.includes('//')) throw new Error('Moneyflow base path is invalid.')
   return normalized
+}
+
+export function readBasePath(documentValue: Document): string {
+  const value = documentValue
+    .querySelector<HTMLMetaElement>('meta[name="moneyflow-base-path"]')
+    ?.getAttribute('content')
+  if (value === null || value === undefined || value === '__MONEYFLOW_BASE_PATH__') {
+    throw new Error('Moneyflow base path is invalid.')
+  }
+  return normalizeBrowserBasePath(value)
 }
 
 export function apiURL(basePath: string, endpoint: string): string {

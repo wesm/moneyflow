@@ -36,4 +36,10 @@ describe('generated API artifact checks', () => {
     const path = await artifact('generated\n')
     await expect(assertArtifactCurrent(path, generated, 'artifact')).resolves.toBeUndefined()
   })
+
+  it('compares generated artifacts independently of checkout line endings', async () => {
+    const generated = canonicalNewline('first\nsecond')
+    const path = await artifact('first\r\nsecond\r\n')
+    await expect(assertArtifactCurrent(path, generated, 'artifact')).resolves.toBeUndefined()
+  })
 })

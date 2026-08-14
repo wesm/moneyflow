@@ -14,6 +14,7 @@
   function activate(event: KeyboardEvent, mark: ChartMark): void {
     if (event.key !== 'Enter') return
     event.preventDefault()
+    event.stopPropagation()
     ondrill(mark.identity)
   }
 </script>
@@ -25,7 +26,7 @@
     <div class="layer-chart" aria-hidden="true">
       <Chart
         data={partition.marks}
-        x="label"
+        x="chronologicalKey"
         y="ratio"
         valueAxis="y"
         width={320}

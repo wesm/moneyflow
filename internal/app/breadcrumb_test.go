@@ -58,6 +58,8 @@ func TestBreadcrumbFormatsTypedTimePeriod(t *testing.T) {
 		session.Mode = domain.ResultModeDetail
 		session.Drilldowns = []domain.Drilldown{{
 			Dimension: domain.DimensionTime,
+			Currency:  "USD",
+			Scale:     2,
 			Period:    &test.period,
 		}}
 		assert.Equal(t, test.want, session.Breadcrumb(nil))
@@ -70,6 +72,8 @@ func TestNavigatePeriodUsesTypedPeriodAsCanonicalState(t *testing.T) {
 	session := NewSession()
 	session.Drilldowns = []domain.Drilldown{{
 		Dimension: domain.DimensionTime,
+		Currency:  "USD",
+		Scale:     2,
 		Period: &domain.Period{
 			Granularity: domain.TimeGranularityMonth,
 			Year:        2024,

@@ -130,11 +130,6 @@ func (state AnalyticalState) validate() error {
 		}
 	}
 	query := analyticalQuerySpec(state)
-	for index := range query.Drilldowns {
-		if query.Drilldowns[index].Dimension != domain.DimensionTime {
-			query.Drilldowns[index].Label = "resolved"
-		}
-	}
 	if err := query.Validate(); err != nil {
 		return err
 	}

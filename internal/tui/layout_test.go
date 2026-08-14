@@ -36,8 +36,8 @@ func TestDetailDrillColumnWidthsUseFixedDimensionPrecedence(t *testing.T) {
 	model.result.AggregateRows = nil
 	model.result.DetailRows = []domain.DetailRow{}
 	model.session.Drilldowns = []domain.Drilldown{
-		{Dimension: domain.DimensionCategory, Key: "category", Label: "A very long category label"},
-		{Dimension: domain.DimensionMerchant, Key: "merchant", Label: "Shop"},
+		{Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2, Key: "category", Label: "A very long category label"},
+		{Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant", Label: "Shop"},
 	}
 
 	columns := model.columns(120)

@@ -30,6 +30,7 @@ export function createSearchCoordinator<Snapshot>(
   let accepted = initialValue
   let error = ''
   let pending = false
+  let closed = false
   let generation = 0
   let activePreview: Promise<boolean> | undefined
   const listeners = new Set<() => void>()
@@ -43,6 +44,7 @@ export function createSearchCoordinator<Snapshot>(
   }, previewDelay)
 
   function input(next: string): void {
+    if (closed) return
     value = next
     error = ''
     schedule.cancel()
@@ -57,11 +59,12 @@ export function createSearchCoordinator<Snapshot>(
   }
 
   async function preview(next: string): Promise<boolean> {
+    if (closed) return false
     const requestGeneration = ++generation
     pending = true
     notify()
     const valid = await host.previewSearch(next)
-    if (requestGeneration !== generation) return false
+    if (closed || requestGeneration !== generation) return false
     pending = false
     if (!valid) {
       error = 'That search expression is invalid.'
@@ -75,20 +78,26 @@ export function createSearchCoordinator<Snapshot>(
   }
 
   async function commit(): Promise<boolean> {
+    if (closed) return false
     schedule.cancel()
     if (activePreview) {
       await activePreview
       activePreview = undefined
     }
+    if (closed) return false
     if (value !== accepted || error !== '') {
       if (new TextEncoder().encode(value).byteLength > maxSearchBytes) return false
       if (!(await preview(value))) return false
     }
+    if (closed) return false
     host.commitSearch(snapshot)
+    closed = true
     return true
   }
 
   function cancel(): void {
+    if (closed) return
+    closed = true
     schedule.cancel()
     generation += 1
     pending = false
@@ -114,6 +123,7 @@ export function createSearchCoordinator<Snapshot>(
       return () => listeners.delete(listener)
     },
     destroy: () => {
+      closed = true
       schedule.cancel()
       generation += 1
       listeners.clear()

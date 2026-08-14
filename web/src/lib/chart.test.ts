@@ -17,6 +17,7 @@ describe('chart projection adapter', () => {
     expect(partitions.map((partition) => partition.key)).toEqual(['USD:2', 'EUR:2'])
     expect(partitions[0]?.marks.map((item) => item.identity)).toEqual(['usd-2', 'usd-1'])
     expect(partitions[0]?.marks[0]).toMatchObject({
+      categoricalKey: 'usd-2',
       label: 'Second',
       display: '-$2.00',
       ratio: -5000,
@@ -55,6 +56,7 @@ describe('chart projection adapter', () => {
         marks: [
           {
             identity: 'eur',
+            categoricalKey: 'eur',
             index: 0,
             label: 'Euro',
             display: '-€1.00',

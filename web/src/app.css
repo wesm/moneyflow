@@ -99,6 +99,10 @@ input {
   min-width: 0;
   min-height: 0;
 }
+.app-shell__main > aside {
+  min-width: 0;
+  min-height: 0;
+}
 .refinement-bar {
   min-height: 34px;
   display: flex;
@@ -213,7 +217,10 @@ input {
   text-decoration: line-through;
 }
 .visualization-rail {
+  height: 100%;
+  max-height: 100%;
   min-width: 0;
+  min-height: 0;
   padding: var(--space-4);
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-lg);
@@ -297,9 +304,6 @@ input {
   font-family: var(--font-mono);
 }
 @media (max-width: 900px) {
-  .app-shell__main {
-    grid-template-columns: 1fr;
-  }
   .help-groups {
     grid-template-columns: 1fr;
   }

@@ -234,11 +234,29 @@ func (service *Service) TransitionView(
 		return rejectedTransition(state, selection, err)
 	}
 	session.Drilldowns = resolvedCurrent.Drilldowns
-	snapshot, err := service.ResolveSelection(state.Current, selection)
+	selectionDocument, err := decodeSelection(selection)
+	if err != nil {
+		return rejectedTransition(state, selection, err)
+	}
+	if len(selectionDocument.Returns) != 0 && len(selectionDocument.Returns) != len(state.Returns) {
+		return rejectedTransition(
+			state,
+			selection,
+			invalidSelection(errors.New("return selections do not match return frames")),
+		)
+	}
+	snapshot, err := service.resolveSelectionPayload(state.Current, selectionDocument.payload())
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
 	applySnapshotToSession(&session, snapshot)
+	for index, payload := range selectionDocument.Returns {
+		returnSnapshot, resolveErr := service.resolveSelectionPayload(state.Returns[index].State, payload)
+		if resolveErr != nil {
+			return rejectedTransition(state, selection, resolveErr)
+		}
+		applySnapshotToHistory(&session.history[index].snapshot, returnSnapshot)
+	}
 	if err := service.applyAnalyticalTransition(&session, transition); err != nil {
 		return rejectedTransition(state, selection, err)
 	}
@@ -246,7 +264,7 @@ func (service *Service) TransitionView(
 	if reflect.DeepEqual(state, nextState) {
 		return rejectedTransition(state, selection, noChangeWeb(errors.New("action did not change view")))
 	}
-	nextSelection, err := service.selectionFromSession(nextState.Current, selection, session)
+	nextSelection, err := service.selectionFromSession(nextState, selection, selectionDocument, session)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
@@ -411,20 +429,51 @@ func applySnapshotToSession(session *Session, snapshot SelectionSnapshot) {
 	session.SelectedAggregateKeys = cloneSet(snapshot.IDs)
 }
 
+func applySnapshotToHistory(snapshot *sessionSnapshot, selection SelectionSnapshot) {
+	snapshot.selectedTransactionIDs = make(map[string]struct{})
+	snapshot.selectedAggregateKeys = make(map[string]struct{})
+	if selection.Kind == IdentityTransaction {
+		snapshot.selectedTransactionIDs = cloneSet(selection.IDs)
+		return
+	}
+	snapshot.selectedAggregateKeys = cloneSet(selection.IDs)
+}
+
 func (service *Service) selectionFromSession(
-	state AnalyticalState,
+	state ViewState,
 	old SelectionValue,
+	oldDocument selectionDocument,
 	session Session,
 ) (SelectionValue, error) {
-	kind := identityKindForState(state)
+	if len(session.history) != len(state.Returns) {
+		return old, invalidSelection(errors.New("session history does not match return frames"))
+	}
+	returns := make([]selectionPayload, len(session.history))
+	for index, entry := range session.history {
+		returnState := state.Returns[index].State
+		returnKind := identityKindForState(returnState)
+		returnTarget := entry.snapshot.selectedAggregateKeys
+		if returnKind == IdentityTransaction {
+			returnTarget = entry.snapshot.selectedTransactionIDs
+		}
+		payload, err := service.smallestSelectionPayload(returnState, returnKind, returnTarget)
+		if err != nil {
+			return old, err
+		}
+		returns[index] = payload
+	}
+
+	kind := identityKindForState(state.Current)
 	target := session.SelectedAggregateKeys
 	if kind == IdentityTransaction {
 		target = session.SelectedTransactionIDs
 	}
-	if len(target) == 0 {
+	if len(target) == 0 && len(returns) == 0 {
 		return EmptySelection(), nil
 	}
-	return service.smallestSelection(state, old, kind, target)
+	return service.smallestSelectionWithReturns(
+		state.Current, old, oldDocument, kind, target, returns,
+	)
 }
 
 func rejectedTransition(
@@ -499,8 +548,7 @@ func (service *Service) resolveDrillLabel(
 	target domain.Drilldown,
 ) (string, error) {
 	spec := domain.QuerySpec{
-		DateRange: cloneDateRange(state.DateRange), Search: state.Search,
-		ShowHidden: state.ShowHidden, ShowTransfers: state.ShowTransfers,
+		ShowHidden: true, ShowTransfers: true,
 		Drilldowns: cloneDrilldowns(prefix), Mode: domain.ResultModeAggregate,
 		GroupBy: target.Dimension, TimeGranularity: state.TimeGranularity,
 		Sort: domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc},
@@ -511,7 +559,8 @@ func (service *Service) resolveDrillLabel(
 	}
 	label := ""
 	for _, row := range result.AggregateRows {
-		if row.Dimension != target.Dimension || row.Key != target.Key {
+		if row.Dimension != target.Dimension || row.Key != target.Key ||
+			row.Total.Currency != target.Currency || row.Total.Scale != target.Scale {
 			continue
 		}
 		if label != "" && label != row.Label {

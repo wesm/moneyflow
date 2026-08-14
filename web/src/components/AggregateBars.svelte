@@ -14,6 +14,7 @@
   function activate(event: KeyboardEvent, mark: ChartMark): void {
     if (event.key !== 'Enter') return
     event.preventDefault()
+    event.stopPropagation()
     ondrill(mark.identity)
   }
 </script>
@@ -26,7 +27,7 @@
       <Chart
         data={partition.marks}
         x="ratio"
-        y="label"
+        y="categoricalKey"
         valueAxis="x"
         width={320}
         height={Math.max(120, partition.marks.length * 34)}

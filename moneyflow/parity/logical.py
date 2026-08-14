@@ -112,15 +112,24 @@ def _validate_case(case: dict[str, Any]) -> None:
     for drilldown in drilldowns:
         if not isinstance(drilldown, dict) or drilldown.get("dimension") not in dimensions:
             raise ValueError("invalid drilldown")
+        currency = drilldown.get("currency")
+        scale = drilldown.get("scale")
+        if (
+            not isinstance(currency, str)
+            or re.fullmatch(r"[A-Z]{3}", currency) is None
+            or type(scale) is not int
+            or not 0 <= scale <= 255
+        ):
+            raise ValueError("invalid drilldown money partition")
         dimension = drilldown["dimension"]
         if dimension in seen:
             raise ValueError("duplicate drilldown dimension")
         seen.add(dimension)
         if dimension == "time":
-            if drilldown.keys() != {"dimension", "period"}:
+            if drilldown.keys() != {"dimension", "currency", "scale", "period"}:
                 raise ValueError("time drilldown requires only a period")
             _validate_period(drilldown["period"])
-        elif drilldown.keys() != {"dimension", "key", "label"} or not all(
+        elif drilldown.keys() != {"dimension", "currency", "scale", "key", "label"} or not all(
             isinstance(drilldown[field], str) and drilldown[field] for field in ("key", "label")
         ):
             raise ValueError("invalid non-time drilldown")
@@ -198,6 +207,12 @@ def _run_case(
     filtered = state.get_filtered_df()
     if filtered is None:
         raise AssertionError("fixture dataframe unexpectedly absent")
+    for drilldown in case.get("drilldowns", []):
+        currency = drilldown["currency"]
+        if document.currencies.get(currency) != drilldown["scale"]:
+            filtered = filtered.head(0)
+            break
+        filtered = filtered.filter(pl.col("currency") == currency)
 
     statistics = _statistics(filtered, document)
     if case["mode"] == "detail":

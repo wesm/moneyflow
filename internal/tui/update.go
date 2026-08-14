@@ -19,14 +19,14 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return model, nil
 	case tea.KeyPressMsg:
-		if message.Keystroke() == "ctrl+c" {
+		matched := matchAction(message, model.bindings)
+		if matched == app.ActionForceQuit {
 			return model, tea.Quit
 		}
 		if model.overlay != overlayNone {
 			return model, model.routeOverlay(message)
 		}
-		matched := matchAction(message, model.bindings)
-		if matched == app.ActionQuit || matched == app.ActionForceQuit {
+		if matched == app.ActionQuit {
 			return model, tea.Quit
 		}
 		return model, model.routeKey(message)

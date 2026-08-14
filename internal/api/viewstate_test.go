@@ -47,28 +47,30 @@ func TestViewQueryCanonicalExamples(t *testing.T) {
 			state.Mode = domain.ResultModeDetail
 			state.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
 			state.Drilldowns = []domain.Drilldown{{
-				Dimension: domain.DimensionMerchant, Key: "merchant:grocer",
+				Dimension: domain.DimensionMerchant, Key: "merchant:grocer", Currency: "USD", Scale: 2,
 			}}
-		}), want: "drill=merchant%3Amerchant%3Agrocer&mode=detail&v=1"},
+		}), want: "drill=merchant%3AUSD%3A2%3Amerchant%3Agrocer&mode=detail&v=1"},
 		{name: "ordered drill path", state: withState(func(state *app.AnalyticalState) {
 			state.Mode = domain.ResultModeDetail
 			state.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
 			state.Drilldowns = []domain.Drilldown{
-				{Dimension: domain.DimensionMerchant, Key: "merchant-grocer"},
-				{Dimension: domain.DimensionCategory, Key: "category-grocery"},
+				{Dimension: domain.DimensionMerchant, Key: "merchant-grocer", Currency: "USD", Scale: 2},
+				{Dimension: domain.DimensionCategory, Key: "category-grocery", Currency: "USD", Scale: 2},
 			}
-		}), want: "drill=merchant%3Amerchant-grocer&drill=category%3Acategory-grocery&mode=detail&v=1"},
+		}), want: "drill=merchant%3AUSD%3A2%3Amerchant-grocer&drill=category%3AUSD%3A2%3Acategory-grocery&mode=detail&v=1"},
 		{name: "time drill", state: withState(func(state *app.AnalyticalState) {
 			state.Mode = domain.ResultModeDetail
 			state.Dimension = domain.DimensionTime
 			state.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
 			state.Drilldowns = []domain.Drilldown{{
 				Dimension: domain.DimensionTime,
+				Currency:  "USD",
+				Scale:     2,
 				Period: &domain.Period{
 					Granularity: domain.TimeGranularityMonth, Year: 2024, Month: 2,
 				},
 			}}
-		}), want: "drill=time%3Amonth%3A2024-02&group=time&mode=detail&v=1"},
+		}), want: "drill=time%3AUSD%3A2%3Amonth%3A2024-02&group=time&mode=detail&v=1"},
 	}
 
 	for _, test := range tests {
@@ -93,7 +95,7 @@ func TestViewQueryNormalizesInputAndReturnFrames(t *testing.T) {
 	state.Current.Mode = domain.ResultModeDetail
 	state.Current.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
 	state.Current.Drilldowns = []domain.Drilldown{{
-		Dimension: domain.DimensionMerchant, Key: "merchant-grocer",
+		Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant-grocer",
 	}}
 	state.Returns = []app.ReturnFrame{{Kind: app.ReturnNavigation, State: parent}}
 
@@ -119,7 +121,7 @@ func TestViewQueryRoundTripsDefaultReturnFrame(t *testing.T) {
 		Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc,
 	}
 	state.Current.Drilldowns = []domain.Drilldown{{
-		Dimension: domain.DimensionMerchant, Key: "merchant-grocer",
+		Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant-grocer",
 	}}
 	state.Returns = []app.ReturnFrame{{
 		Kind: app.ReturnNavigation, State: app.DefaultViewState().Current,
@@ -168,6 +170,19 @@ func TestViewQueryRejectsMalformedInput(t *testing.T) {
 	}
 }
 
+func TestViewQueryRequiresVersionOnNonemptyInput(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := DecodeViewQuery("group=category")
+	require.Error(t, err)
+	assertSafeCode(t, err, CodeInvalidViewState)
+
+	state, canonical, err := DecodeViewQuery("")
+	require.NoError(t, err)
+	assert.Equal(t, app.DefaultViewState(), state)
+	assert.Equal(t, "v=1", canonical)
+}
+
 func TestViewQueryBounds(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +203,8 @@ func TestViewQueryBounds(t *testing.T) {
 		current.Mode = domain.ResultModeDetail
 		current.Sort = domain.SortSpec{Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc}
 		current.Drilldowns = []domain.Drilldown{{
-			Dimension: domain.DimensionMerchant, Key: strings.Repeat("k", MaxEntityKeyBytes),
+			Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2,
+			Key: strings.Repeat("k", MaxEntityKeyBytes),
 		}}
 	})
 	_, err = EncodeViewQuery(state)

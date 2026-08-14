@@ -49,3 +49,13 @@ func TestFrameRandomOperationsDoNotPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestFrameIgnoresZeroWidthClustersAtRightEdge(t *testing.T) {
+	t.Parallel()
+
+	frame := NewFrame(1, 1, Cell{Glyph: "."})
+	assert.NotPanics(t, func() {
+		frame.PutText(frame.Width(), 0, "\u0301", Style{Bold: true})
+	})
+	assert.Equal(t, ".", frame.PlainLine(0))
+}

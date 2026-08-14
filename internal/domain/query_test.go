@@ -80,7 +80,9 @@ func TestQuerySpecValidate(t *testing.T) {
 	end, err := ParseDate("2024-12-31")
 	require.NoError(t, err)
 	query.DateRange = &DateRange{Start: start, End: end}
-	query.Drilldowns = []Drilldown{{Dimension: DimensionAccount, Key: "account-1", Label: "Everyday Card"}}
+	query.Drilldowns = []Drilldown{{
+		Dimension: DimensionAccount, Currency: "USD", Scale: 2, Key: "account-1", Label: "Everyday Card",
+	}}
 	require.NoError(t, query.Validate())
 }
 
@@ -97,17 +99,22 @@ func TestQuerySpecRejectsInvalidCombinations(t *testing.T) {
 		"invalid group":  func(query *QuerySpec) { query.GroupBy = "bad" },
 		"backward range": func(query *QuerySpec) { query.DateRange = &DateRange{Start: start, End: end} },
 		"duplicate drill": func(query *QuerySpec) {
-			query.Drilldowns = []Drilldown{{Dimension: DimensionMerchant, Key: "a", Label: "A"}, {Dimension: DimensionMerchant, Key: "b", Label: "B"}}
+			query.Drilldowns = []Drilldown{
+				{Dimension: DimensionMerchant, Currency: "USD", Scale: 2, Key: "a", Label: "A"},
+				{Dimension: DimensionMerchant, Currency: "USD", Scale: 2, Key: "b", Label: "B"},
+			}
 		},
 		"period on account": func(query *QuerySpec) {
-			query.Drilldowns = []Drilldown{{Dimension: DimensionAccount, Period: &Period{Granularity: TimeGranularityYear, Year: 2024}}}
+			query.Drilldowns = []Drilldown{{Dimension: DimensionAccount, Currency: "USD", Scale: 2, Period: &Period{Granularity: TimeGranularityYear, Year: 2024}}}
 		},
 		"time without period": func(query *QuerySpec) {
-			query.Drilldowns = []Drilldown{{Dimension: DimensionTime, Key: "2024", Label: "2024"}}
+			query.Drilldowns = []Drilldown{{Dimension: DimensionTime, Currency: "USD", Scale: 2, Key: "2024", Label: "2024"}}
 		},
 		"time with string identity": func(query *QuerySpec) {
 			query.Drilldowns = []Drilldown{{
 				Dimension: DimensionTime,
+				Currency:  "USD",
+				Scale:     2,
 				Key:       "2024",
 				Label:     "2025",
 				Period:    &Period{Granularity: TimeGranularityYear, Year: 2024},
@@ -149,7 +156,10 @@ func TestQuerySpecCloneCopiesNestedValues(t *testing.T) {
 	t.Parallel()
 
 	query := validAggregateQuery()
-	query.Drilldowns = []Drilldown{{Dimension: DimensionTime, Period: &Period{Granularity: TimeGranularityYear, Year: 2024}}}
+	query.Drilldowns = []Drilldown{{
+		Dimension: DimensionTime, Currency: "USD", Scale: 2,
+		Period: &Period{Granularity: TimeGranularityYear, Year: 2024},
+	}}
 	clone := query.Clone()
 	clone.Drilldowns[0].Period.Year = 2025
 	assert.Equal(t, 2024, query.Drilldowns[0].Period.Year)

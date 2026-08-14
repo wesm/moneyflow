@@ -1,6 +1,8 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 export interface E2EServer {
   basePath: string
@@ -77,40 +79,49 @@ async function stopProcessGroup(child: ChildProcess): Promise<void> {
 export async function startE2EServer(basePath = '/'): Promise<E2EServer> {
   const normalized = normalizedBasePath(basePath)
   const repository = resolve(process.cwd(), '..')
-  let lastError: unknown
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const port = await availablePort()
-    const origin = `http://127.0.0.1:${port}`
-    let stderr = ''
-    const child = spawn(
-      'go',
-      [
-        'run',
-        './cmd/moneyflow',
-        'web',
-        '--open=false',
-        '--listen',
-        `127.0.0.1:${port}`,
-        '--base-path',
-        normalized,
-      ],
-      { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
-    )
-    child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => (stderr += chunk))
-    try {
-      await waitForHealth(child, `${origin}${normalized}api/v1/health`, () => stderr)
-      return {
-        basePath: normalized,
-        origin,
-        url: `${origin}${normalized}`,
-        stop: () => stopProcessGroup(child),
-      }
-    } catch (error) {
-      lastError = error
-      await stopProcessGroup(child)
-      if (!stderr.toLowerCase().includes('address already in use')) break
-    }
+  const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-e2e-'))
+  const binary = join(binaryDirectory, process.platform === 'win32' ? 'moneyflow.exe' : 'moneyflow')
+  const build = spawnSync('go', ['build', '-o', binary, './cmd/moneyflow'], {
+    cwd: repository,
+    encoding: 'utf8',
+  })
+  if (build.status !== 0) {
+    await rm(binaryDirectory, { recursive: true, force: true })
+    throw new Error(`Could not build Moneyflow E2E server: ${build.stderr}`)
   }
-  throw lastError
+  let lastError: unknown
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const port = await availablePort()
+      const origin = `http://127.0.0.1:${port}`
+      let stderr = ''
+      const child = spawn(
+        binary,
+        ['web', '--open=false', '--listen', `127.0.0.1:${port}`, '--base-path', normalized],
+        { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
+      )
+      child.stderr?.setEncoding('utf8')
+      child.stderr?.on('data', (chunk: string) => (stderr += chunk))
+      try {
+        await waitForHealth(child, `${origin}${normalized}api/v1/health`, () => stderr)
+        return {
+          basePath: normalized,
+          origin,
+          url: `${origin}${normalized}`,
+          stop: async () => {
+            await stopProcessGroup(child)
+            await rm(binaryDirectory, { recursive: true, force: true })
+          },
+        }
+      } catch (error) {
+        lastError = error
+        await stopProcessGroup(child)
+        if (!stderr.toLowerCase().includes('address already in use')) break
+      }
+    }
+    throw lastError
+  } catch (error) {
+    await rm(binaryDirectory, { recursive: true, force: true })
+    throw error
+  }
 }

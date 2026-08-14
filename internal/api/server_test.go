@@ -160,6 +160,10 @@ func TestServerEnforcesBodyLimitWithoutContentLength(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, response.Code, response.Body.String())
 	assert.NotContains(t, response.Body.String(), strings.Repeat("x", 32))
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "request_too_large", problem.Code)
+	assert.Equal(t, "The request body is too large.", problem.Detail)
 }
 
 func TestRecoveryReturnsSafeProblem(t *testing.T) {

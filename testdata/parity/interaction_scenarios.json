@@ -697,7 +697,9 @@
                   "granularity": "month",
                   "year": 2024,
                   "month": 2
-                }
+                },
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -729,7 +731,9 @@
                   "granularity": "month",
                   "year": 2024,
                   "month": 3
-                }
+                },
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -894,7 +898,9 @@
               {
                 "dimension": "merchant",
                 "key": "merchant-grocer",
-                "label": "Example Grocer"
+                "label": "Example Grocer",
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -926,7 +932,9 @@
               {
                 "dimension": "merchant",
                 "key": "merchant-grocer",
-                "label": "Example Grocer"
+                "label": "Example Grocer",
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -962,12 +970,16 @@
               {
                 "dimension": "merchant",
                 "key": "merchant-grocer",
-                "label": "Example Grocer"
+                "label": "Example Grocer",
+                "currency": "USD",
+                "scale": 2
               },
               {
                 "dimension": "category",
                 "key": "category-groceries",
-                "label": "Groceries"
+                "label": "Groceries",
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -999,7 +1011,9 @@
               {
                 "dimension": "merchant",
                 "key": "merchant-grocer",
-                "label": "Example Grocer"
+                "label": "Example Grocer",
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],
@@ -1030,7 +1044,9 @@
               {
                 "dimension": "merchant",
                 "key": "merchant-grocer",
-                "label": "Example Grocer"
+                "label": "Example Grocer",
+                "currency": "USD",
+                "scale": 2
               }
             ],
             "selected_transaction_ids": [],

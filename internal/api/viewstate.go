@@ -41,6 +41,11 @@ func DecodeViewQuery(raw string) (app.ViewState, string, error) {
 	if err != nil {
 		return app.ViewState{}, "", invalidView(fmt.Errorf("parse query: %w", err))
 	}
+	if raw != "" {
+		if _, ok := scalar(values, "v"); !ok {
+			return app.ViewState{}, "", invalidView(errors.New("schema version is required"))
+		}
+	}
 	state, err := decodeTopLevel(values)
 	if err != nil {
 		return app.ViewState{}, "", invalidView(err)
@@ -92,7 +97,8 @@ func decodeTopLevel(values url.Values) (app.ViewState, error) {
 	if err := validateFields(values, true); err != nil {
 		return app.ViewState{}, err
 	}
-	if version, ok := scalar(values, "v"); ok && version != "1" {
+	if version, ok := scalar(values, "v"); ok &&
+		version != strconv.Itoa(int(app.ViewStateSchemaVersion)) {
 		return app.ViewState{}, errors.New("unsupported schema version")
 	}
 	current, err := decodeAnalytical(values)
@@ -365,29 +371,41 @@ func defaultSort(state app.AnalyticalState) domain.SortSpec {
 }
 
 func parseDrilldown(value string) (domain.Drilldown, error) {
-	dimensionText, target, ok := strings.Cut(value, ":")
-	if !ok || target == "" {
+	parts := strings.SplitN(value, ":", 4)
+	if len(parts) != 4 || parts[0] == "" || parts[1] == "" || parts[2] == "" || parts[3] == "" {
 		return domain.Drilldown{}, errors.New("drill-down is malformed")
 	}
-	dimension := domain.Dimension(dimensionText)
+	scale, err := strconv.ParseUint(parts[2], 10, 8)
+	if err != nil || strconv.FormatUint(scale, 10) != parts[2] {
+		return domain.Drilldown{}, errors.New("drill-down scale is invalid")
+	}
+	drilldown := domain.Drilldown{
+		Dimension: domain.Dimension(parts[0]),
+		Currency:  domain.Currency(parts[1]),
+		Scale:     uint8(scale),
+	}
+	dimension := drilldown.Dimension
 	if dimension == domain.DimensionTime {
-		period, err := parsePeriod(target)
+		period, err := parsePeriod(parts[3])
 		if err != nil {
 			return domain.Drilldown{}, err
 		}
-		return domain.Drilldown{Dimension: dimension, Period: &period}, nil
+		drilldown.Period = &period
+		return drilldown, nil
 	}
-	return domain.Drilldown{Dimension: dimension, Key: target}, nil
+	drilldown.Key = parts[3]
+	return drilldown, nil
 }
 
 func formatDrilldown(drilldown domain.Drilldown) (string, error) {
+	prefix := fmt.Sprintf("%s:%s:%d:", drilldown.Dimension, drilldown.Currency, drilldown.Scale)
 	if drilldown.Dimension == domain.DimensionTime {
 		if drilldown.Period == nil {
 			return "", errors.New("time drill-down has no period")
 		}
-		return "time:" + formatPeriod(*drilldown.Period), nil
+		return prefix + formatPeriod(*drilldown.Period), nil
 	}
-	return string(drilldown.Dimension) + ":" + drilldown.Key, nil
+	return prefix + drilldown.Key, nil
 }
 
 func parsePeriod(value string) (domain.Period, error) {

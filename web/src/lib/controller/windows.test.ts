@@ -9,20 +9,28 @@ describe('bounded projection windows', () => {
     cache.store(projection('v=1', 0, 1000))
     cache.store(projection('v=1', 200, 1000))
     cache.store(projection('v=1', 400, 1000))
-    cache.retainAdjacent('v=1', 200)
+    cache.retainAdjacent('v=1', 'mfsel1.example', 200)
 
-    expect(cache.offsets('v=1')).toEqual([0, 200, 400])
+    expect(cache.offsets('v=1', 'mfsel1.example')).toEqual([0, 200, 400])
     cache.store(projection('v=1', 600, 1000))
-    cache.retainAdjacent('v=1', 600)
-    expect(cache.offsets('v=1')).toEqual([400, 600])
+    cache.retainAdjacent('v=1', 'mfsel1.example', 600)
+    expect(cache.offsets('v=1', 'mfsel1.example')).toEqual([400, 600])
   })
 
   it('never merges rows across canonical queries', () => {
     const cache = new WindowCache(200)
     cache.store(projection('v=1', 0, 500))
     cache.store(projection('v=1&search=x', 0, 1))
-    expect(cache.get('v=1', 0)?.total_rows).toBe(500)
-    expect(cache.get('v=1&search=x', 0)?.total_rows).toBe(1)
+    expect(cache.get('v=1', 'mfsel1.example', 0)?.total_rows).toBe(500)
+    expect(cache.get('v=1&search=x', 'mfsel1.example', 0)?.total_rows).toBe(1)
+  })
+
+  it('never reuses decorated rows across selection values', () => {
+    const cache = new WindowCache(200)
+    cache.store(projection('v=1', 0, 1, 'mfsel1.first'))
+    cache.store(projection('v=1', 0, 1, 'mfsel1.second'))
+    expect(cache.get('v=1', 'mfsel1.first', 0)?.selection).toBe('mfsel1.first')
+    expect(cache.get('v=1', 'mfsel1.second', 0)?.selection).toBe('mfsel1.second')
   })
 
   it('preserves cursor identity, then clamps an absent absolute index', () => {
@@ -36,7 +44,12 @@ describe('bounded projection windows', () => {
   })
 })
 
-function projection(query: string, offset: number, total: number): ViewProjection {
+function projection(
+  query: string,
+  offset: number,
+  total: number,
+  selection = 'mfsel1.example',
+): ViewProjection {
   const count = Math.max(0, Math.min(200, total - offset))
   return {
     api_schema_version: '1',
@@ -49,7 +62,7 @@ function projection(query: string, offset: number, total: number): ViewProjectio
       sort_field: 'date',
       sort_direction: 'desc',
     },
-    selection: 'mfsel1.example' as ViewProjection['selection'],
+    selection: selection as ViewProjection['selection'],
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },

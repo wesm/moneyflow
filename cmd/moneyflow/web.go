@@ -169,6 +169,10 @@ func runWeb(
 		_ = listener.Close()
 		return fmt.Errorf("write web address: %w", err)
 	}
+	serveResult := make(chan error, 1)
+	go func() {
+		serveResult <- server.Serve(listener)
+	}()
 	if options.Open {
 		opener := streams.OpenBrowser
 		if opener == nil {
@@ -179,10 +183,6 @@ func runWeb(
 		}
 	}
 
-	serveResult := make(chan error, 1)
-	go func() {
-		serveResult <- server.Serve(listener)
-	}()
 	select {
 	case err := <-serveResult:
 		if err == nil || errors.Is(err, http.ErrServerClosed) {

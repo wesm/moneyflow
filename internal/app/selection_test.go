@@ -57,6 +57,37 @@ func TestSelectionCodecCanonicalAll(t *testing.T) {
 	assert.Equal(t, document, decoded)
 }
 
+func TestSelectionCodecCarriesBoundedReturnFrameSelections(t *testing.T) {
+	t.Parallel()
+
+	state := DefaultViewState().Current
+	document := selectionDocument{
+		Version: 1,
+		Kind:    IdentityTransaction,
+		Base:    selectionBaseExplicit,
+		Returns: []selectionPayload{{
+			Kind: IdentityAggregate, Base: selectionBaseAll, State: &state,
+		}},
+	}
+	value, err := encodeSelection(document)
+	require.NoError(t, err)
+	decoded, err := decodeSelection(value)
+	require.NoError(t, err)
+	assert.Equal(t, document, decoded)
+
+	document.IDs = []string{"current"}
+	document.Returns[0] = selectionPayload{
+		Kind: IdentityAggregate, Base: selectionBaseExplicit,
+		IDs: make([]string, MaxSelectionIdentities),
+	}
+	for index := range document.Returns[0].IDs {
+		document.Returns[0].IDs[index] = fmt.Sprintf("aggregate-%05d", index)
+	}
+	_, err = encodeSelection(document)
+	require.Error(t, err)
+	assertSelectionCode(t, err, SelectionTooLarge)
+}
+
 func TestSelectionCodecRejectsMalformedValues(t *testing.T) {
 	t.Parallel()
 
@@ -64,6 +95,8 @@ func TestSelectionCodecRejectsMalformedValues(t *testing.T) {
 	labelState := validState.Clone()
 	labelState.Drilldowns = []domain.Drilldown{{
 		Dimension: domain.DimensionMerchant,
+		Currency:  "USD",
+		Scale:     2,
 		Key:       "merchant-example",
 		Label:     "Example",
 	}}

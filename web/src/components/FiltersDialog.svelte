@@ -14,7 +14,7 @@
 
   interface Props {
     projection: ViewProjection
-    onapply: (action: TransitionAction) => Promise<void>
+    onapply: (action: TransitionAction) => Promise<boolean>
     onclose: () => void
   }
 
@@ -36,7 +36,7 @@
   async function apply(): Promise<void> {
     const resolved = resolveRange(range)
     const dateRange = range.mode === 'relative' && range.days === 0 ? undefined : resolved
-    await onapply({
+    const applied = await onapply({
       action: 'filters.apply',
       filters: {
         ...(dateRange === undefined
@@ -46,7 +46,7 @@
         show_transfers: showTransfers,
       },
     })
-    onclose()
+    if (applied) onclose()
   }
 
   onMount(() => container?.querySelector<HTMLButtonElement>('button')?.focus())

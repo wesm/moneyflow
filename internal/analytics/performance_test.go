@@ -62,8 +62,8 @@ func performanceCases(transactions []domain.Transaction) []performanceCase {
 	timeQuery.TimeGranularity = domain.TimeGranularityMonth
 	multiLevel := detail.Clone()
 	multiLevel.Drilldowns = []domain.Drilldown{
-		{Dimension: domain.DimensionMerchant, Key: first.Merchant.ID, Label: first.Merchant.Name},
-		{Dimension: domain.DimensionCategory, Key: first.Category.ID, Label: first.Category.Name},
+		{Dimension: domain.DimensionMerchant, Currency: first.Amount.Currency, Scale: first.Amount.Scale, Key: first.Merchant.ID, Label: first.Merchant.Name},
+		{Dimension: domain.DimensionCategory, Currency: first.Amount.Currency, Scale: first.Amount.Scale, Key: first.Category.ID, Label: first.Category.Name},
 	}
 	return []performanceCase{
 		{name: "detail", spec: detail},

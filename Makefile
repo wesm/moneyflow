@@ -45,7 +45,7 @@ parity-update-go:
 	MONEYFLOW_UPDATE_GO_FRAMES=1 go test ./internal/tui -run TestVisualGoldens -count=1
 
 verify-go:
-	test -z "$$(gofmt -l cmd internal)"
+	go run ./internal/tools/checkfmt cmd internal
 	$(MAKE) test
 	$(MAKE) vet
 	$(MAKE) lint

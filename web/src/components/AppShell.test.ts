@@ -35,11 +35,14 @@ describe('AppShell', () => {
       }),
     })
     try {
-      render(AppShell, { controller: stubController() })
+      const controller = stubController()
+      render(AppShell, { controller })
       expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
       expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
       await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
       expect(screen.getByRole('dialog', { name: 'Moneyflow visualizations' })).not.toBeNull()
+      await fireEvent.keyDown(window, { key: 'j' })
+      expect(controller.moveCursor).not.toHaveBeenCalled()
     } finally {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
     }

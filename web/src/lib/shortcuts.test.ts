@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createMoneyflowShortcuts, validateCapabilities } from './shortcuts'
+import { createMoneyflowShortcuts, handleMoneyflowKeydown, validateCapabilities } from './shortcuts'
 
 const capabilities = [
   ['cursor.up', '↑/k'],
@@ -82,6 +82,15 @@ describe('Moneyflow browser shortcuts', () => {
     expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(false)
     pop()
     expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(true)
+  })
+
+  it('does not intercept native editing controls', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const event = keyboard('a', { ctrlKey: true })
+    Object.defineProperty(event, 'target', { value: document.createElement('input') })
+    expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    expect(handlers.apply).not.toHaveBeenCalled()
   })
 })
 

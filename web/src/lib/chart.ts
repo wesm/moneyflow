@@ -6,6 +6,7 @@ export type ServerPeriod = NonNullable<AggregateRow['period']>
 
 export interface ChartMark {
   readonly identity: string
+  readonly categoricalKey: string
   readonly index: number
   readonly label: string
   readonly display: string
@@ -47,6 +48,7 @@ export function partitionChartMarks(
     partition.marks.push(
       Object.freeze({
         identity: mark.identity,
+        categoricalKey: mark.identity,
         index: mark.index,
         label: mark.label,
         display: mark.amount.display,

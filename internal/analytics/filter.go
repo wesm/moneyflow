@@ -63,6 +63,9 @@ func matches(transaction domain.Transaction, spec domain.QuerySpec, search *rege
 }
 
 func matchesDrilldown(transaction domain.Transaction, drilldown domain.Drilldown) bool {
+	if transaction.Amount.Currency != drilldown.Currency || transaction.Amount.Scale != drilldown.Scale {
+		return false
+	}
 	switch drilldown.Dimension {
 	case domain.DimensionMerchant:
 		return transaction.Merchant.ID == drilldown.Key

@@ -15,7 +15,7 @@ const prettierConfig = join(webRoot, '.prettierrc.json')
 
 export function canonicalNewline(value: Uint8Array | string): Uint8Array {
   const text = typeof value === 'string' ? value : new TextDecoder().decode(value)
-  return new TextEncoder().encode(`${text.replace(/\n*$/, '')}\n`)
+  return new TextEncoder().encode(`${text.replace(/\r\n?/g, '\n').replace(/\n*$/, '')}\n`)
 }
 
 export async function assertArtifactCurrent(
@@ -29,7 +29,7 @@ export async function assertArtifactCurrent(
   } catch {
     throw new Error(`${label} is missing; run \`bun run generate\``)
   }
-  if (!Buffer.from(current).equals(Buffer.from(generated))) {
+  if (!Buffer.from(canonicalNewline(current)).equals(Buffer.from(canonicalNewline(generated)))) {
     throw new Error(`${label} is stale; run \`bun run generate\``)
   }
 }

@@ -88,7 +88,17 @@ const (
 )
 
 type selectionDocument struct {
-	Version uint8             `json:"v"`
+	Version uint8              `json:"v"`
+	Kind    IdentityKind       `json:"kind"`
+	Base    selectionBaseKind  `json:"base"`
+	IDs     []string           `json:"ids,omitempty"`
+	State   *AnalyticalState   `json:"state,omitempty"`
+	Include []string           `json:"include,omitempty"`
+	Exclude []string           `json:"exclude,omitempty"`
+	Returns []selectionPayload `json:"returns,omitempty"`
+}
+
+type selectionPayload struct {
 	Kind    IdentityKind      `json:"kind"`
 	Base    selectionBaseKind `json:"base"`
 	IDs     []string          `json:"ids,omitempty"`
@@ -184,41 +194,53 @@ func (document selectionDocument) validate() error {
 	if document.Version != 1 {
 		return errors.New("unsupported selection version")
 	}
-	if !document.Kind.valid() {
+	if err := document.payload().validate(); err != nil {
+		return err
+	}
+	for index, payload := range document.Returns {
+		if err := payload.validate(); err != nil {
+			return fmt.Errorf("invalid return selection %d: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func (payload selectionPayload) validate() error {
+	if !payload.Kind.valid() {
 		return errors.New("invalid selection identity kind")
 	}
-	if err := validateCanonicalIdentities(document.IDs); err != nil {
+	if err := validateCanonicalIdentities(payload.IDs); err != nil {
 		return fmt.Errorf("invalid explicit identities: %w", err)
 	}
-	if err := validateCanonicalIdentities(document.Include); err != nil {
+	if err := validateCanonicalIdentities(payload.Include); err != nil {
 		return fmt.Errorf("invalid inclusion identities: %w", err)
 	}
-	if err := validateCanonicalIdentities(document.Exclude); err != nil {
+	if err := validateCanonicalIdentities(payload.Exclude); err != nil {
 		return fmt.Errorf("invalid exclusion identities: %w", err)
 	}
-	if intersectsSorted(document.Include, document.Exclude) {
+	if intersectsSorted(payload.Include, payload.Exclude) {
 		return errors.New("selection inclusion and exclusion identities overlap")
 	}
 
-	switch document.Base {
+	switch payload.Base {
 	case selectionBaseExplicit:
-		if document.State != nil {
+		if payload.State != nil {
 			return errors.New("explicit selection contains a defining state")
 		}
-		if intersectsSorted(document.IDs, document.Include) {
+		if intersectsSorted(payload.IDs, payload.Include) {
 			return errors.New("explicit selection base and inclusion identities overlap")
 		}
 	case selectionBaseAll:
-		if document.State == nil {
+		if payload.State == nil {
 			return errors.New("all selection has no defining state")
 		}
-		if len(document.IDs) != 0 {
+		if len(payload.IDs) != 0 {
 			return errors.New("all selection contains explicit base identities")
 		}
-		if err := validateSelectionState(*document.State); err != nil {
+		if err := validateSelectionState(*payload.State); err != nil {
 			return err
 		}
-		if identityKindForState(*document.State) != document.Kind {
+		if identityKindForState(*payload.State) != payload.Kind {
 			return errors.New("all selection kind does not match its defining state")
 		}
 	default:
@@ -228,17 +250,31 @@ func (document selectionDocument) validate() error {
 }
 
 func (document selectionDocument) validateBounds() error {
-	if len(document.IDs)+len(document.Include)+len(document.Exclude) > MaxSelectionIdentities {
+	payloads := append([]selectionPayload{document.payload()}, document.Returns...)
+	identityCount := 0
+	for _, payload := range payloads {
+		identityCount += len(payload.IDs) + len(payload.Include) + len(payload.Exclude)
+	}
+	if identityCount > MaxSelectionIdentities {
 		return errors.New("selection contains too many identities")
 	}
-	for _, identities := range [][]string{document.IDs, document.Include, document.Exclude} {
-		for _, identity := range identities {
-			if len(identity) > MaxSelectionIdentityBytes {
-				return errors.New("selection identity exceeds limit")
+	for _, payload := range payloads {
+		for _, identities := range [][]string{payload.IDs, payload.Include, payload.Exclude} {
+			for _, identity := range identities {
+				if len(identity) > MaxSelectionIdentityBytes {
+					return errors.New("selection identity exceeds limit")
+				}
 			}
 		}
 	}
 	return nil
+}
+
+func (document selectionDocument) payload() selectionPayload {
+	return selectionPayload{
+		Kind: document.Kind, Base: document.Base, IDs: document.IDs, State: document.State,
+		Include: document.Include, Exclude: document.Exclude,
+	}
 }
 
 func validateCanonicalIdentities(identities []string) error {
@@ -309,18 +345,28 @@ func (service *Service) ResolveSelection(
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
+	return service.resolveSelectionPayload(state, document.payload())
+}
+
+func (service *Service) resolveSelectionPayload(
+	state AnalyticalState,
+	payload selectionPayload,
+) (SelectionSnapshot, error) {
+	if err := validateSelectionState(state); err != nil {
+		return SelectionSnapshot{}, invalidSelection(err)
+	}
 	currentKind := identityKindForState(state)
-	if document.Kind != currentKind && !document.isUniversalEmpty() {
+	if payload.Kind != currentKind && !payload.isUniversalEmpty() {
 		return SelectionSnapshot{}, invalidSelection(errors.New("selection kind does not match result"))
 	}
-	ids, err := service.resolveSelectionBase(document)
+	ids, err := service.resolveSelectionPayloadBase(payload)
 	if err != nil {
 		return SelectionSnapshot{}, err
 	}
-	for _, identity := range document.Exclude {
+	for _, identity := range payload.Exclude {
 		delete(ids, identity)
 	}
-	for _, identity := range document.Include {
+	for _, identity := range payload.Include {
 		ids[identity] = struct{}{}
 	}
 	return SelectionSnapshot{Kind: currentKind, IDs: ids}, nil
@@ -382,11 +428,29 @@ func (service *Service) smallestSelection(
 	kind IdentityKind,
 	target map[string]struct{},
 ) (SelectionValue, error) {
+	oldDocument, err := decodeSelection(oldValue)
+	if err != nil {
+		return oldValue, err
+	}
+	return service.smallestSelectionWithReturns(
+		state, oldValue, oldDocument, kind, target, oldDocument.Returns,
+	)
+}
+
+func (service *Service) smallestSelectionWithReturns(
+	state AnalyticalState,
+	oldValue SelectionValue,
+	oldDocument selectionDocument,
+	kind IdentityKind,
+	target map[string]struct{},
+	returns []selectionPayload,
+) (SelectionValue, error) {
 	candidates := []selectionDocument{{
 		Version: 1,
 		Kind:    kind,
 		Base:    selectionBaseExplicit,
 		IDs:     sortedIdentitySet(target),
+		Returns: cloneSelectionPayloads(returns),
 	}}
 
 	_, currentBase, err := service.identitiesForState(state)
@@ -394,32 +458,32 @@ func (service *Service) smallestSelection(
 		return oldValue, err
 	}
 	currentState := state.Clone()
-	candidates = append(candidates, selectionDocumentForBase(
+	currentCandidate := selectionDocumentForBase(
 		kind,
 		selectionBaseAll,
 		nil,
 		&currentState,
 		currentBase,
 		target,
-	))
+	)
+	currentCandidate.Returns = cloneSelectionPayloads(returns)
+	candidates = append(candidates, currentCandidate)
 
-	oldDocument, err := decodeSelection(oldValue)
-	if err != nil {
-		return oldValue, err
-	}
 	if oldDocument.Kind == kind && !oldDocument.isUniversalEmpty() {
 		oldBase, resolveErr := service.resolveSelectionBase(oldDocument)
 		if resolveErr != nil {
 			return oldValue, resolveErr
 		}
-		candidates = append(candidates, selectionDocumentForBase(
+		oldCandidate := selectionDocumentForBase(
 			kind,
 			oldDocument.Base,
 			oldDocument.IDs,
 			oldDocument.State,
 			oldBase,
 			target,
-		))
+		)
+		oldCandidate.Returns = cloneSelectionPayloads(returns)
+		candidates = append(candidates, oldCandidate)
 	}
 
 	values := make([]encodedSelectionCandidate, 0, len(candidates))
@@ -444,6 +508,28 @@ func (service *Service) smallestSelection(
 		return oldValue, tooLargeSelection(errors.New("no exact selection representation fits"))
 	}
 	return chooseSmallestSelection(values), nil
+}
+
+func (service *Service) smallestSelectionPayload(
+	state AnalyticalState,
+	kind IdentityKind,
+	target map[string]struct{},
+) (selectionPayload, error) {
+	emptyDocument, err := decodeSelection(EmptySelection())
+	if err != nil {
+		return selectionPayload{}, err
+	}
+	value, err := service.smallestSelectionWithReturns(
+		state, EmptySelection(), emptyDocument, kind, target, nil,
+	)
+	if err != nil {
+		return selectionPayload{}, err
+	}
+	document, err := decodeSelection(value)
+	if err != nil {
+		return selectionPayload{}, err
+	}
+	return document.payload(), nil
 }
 
 func chooseSmallestSelection(candidates []encodedSelectionCandidate) SelectionValue {
@@ -492,14 +578,20 @@ func selectionDocumentForBase(
 func (service *Service) resolveSelectionBase(
 	document selectionDocument,
 ) (map[string]struct{}, error) {
-	if document.Base == selectionBaseExplicit {
-		return identitySliceSet(document.IDs), nil
+	return service.resolveSelectionPayloadBase(document.payload())
+}
+
+func (service *Service) resolveSelectionPayloadBase(
+	payload selectionPayload,
+) (map[string]struct{}, error) {
+	if payload.Base == selectionBaseExplicit {
+		return identitySliceSet(payload.IDs), nil
 	}
-	kind, identities, err := service.identitiesForState(*document.State)
+	kind, identities, err := service.identitiesForState(*payload.State)
 	if err != nil {
 		return nil, err
 	}
-	if kind != document.Kind {
+	if kind != payload.Kind {
 		return nil, invalidSelection(errors.New("selection base kind does not match result"))
 	}
 	return identities, nil
@@ -512,11 +604,6 @@ func (service *Service) identitiesForState(
 		return "", nil, invalidSelection(err)
 	}
 	session := sessionFromAnalyticalState(state)
-	for index := range session.Drilldowns {
-		if session.Drilldowns[index].Dimension != domain.DimensionTime {
-			session.Drilldowns[index].Label = "resolved"
-		}
-	}
 	result, err := service.Query(session)
 	if err != nil {
 		return "", nil, invalidSelection(fmt.Errorf("resolve selection result: %w", err))
@@ -536,8 +623,29 @@ func (service *Service) identitiesForState(
 }
 
 func (document selectionDocument) isUniversalEmpty() bool {
-	return document.Base == selectionBaseExplicit && document.State == nil &&
-		len(document.IDs) == 0 && len(document.Include) == 0 && len(document.Exclude) == 0
+	return document.payload().isUniversalEmpty() && len(document.Returns) == 0
+}
+
+func (payload selectionPayload) isUniversalEmpty() bool {
+	return payload.Base == selectionBaseExplicit && payload.State == nil &&
+		len(payload.IDs) == 0 && len(payload.Include) == 0 && len(payload.Exclude) == 0
+}
+
+func cloneSelectionPayloads(payloads []selectionPayload) []selectionPayload {
+	cloned := make([]selectionPayload, len(payloads))
+	for index, payload := range payloads {
+		cloned[index] = selectionPayload{
+			Kind: payload.Kind, Base: payload.Base,
+			IDs:     append([]string(nil), payload.IDs...),
+			Include: append([]string(nil), payload.Include...),
+			Exclude: append([]string(nil), payload.Exclude...),
+		}
+		if payload.State != nil {
+			state := payload.State.Clone()
+			cloned[index].State = &state
+		}
+	}
+	return cloned
 }
 
 func identitySliceSet(identities []string) map[string]struct{} {

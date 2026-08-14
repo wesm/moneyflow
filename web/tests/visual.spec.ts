@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test'
 
 import { expect, openMoneyflow, test } from './fixtures'
 
+test.skip(({ browserName }) => browserName !== 'chromium', 'Visual goldens are Chromium-only.')
+
 const viewports = [
   { name: 'desktop', width: 1440, height: 900 },
   { name: 'medium', width: 1024, height: 768 },

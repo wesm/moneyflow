@@ -39,6 +39,10 @@ func TestNormalizeBasePath(t *testing.T) {
 		"/a/%2f/b",
 		"/a/%2F/b",
 		"/a/%5c/b",
+		"/a/%252f/b",
+		"/a/%255c/b",
+		"/a/%253f/b",
+		"/a/%2523/b",
 		"https://example.com/a",
 		"/a%zz",
 	} {

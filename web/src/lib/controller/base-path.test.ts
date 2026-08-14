@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { apiURL, applicationURL, normalizeBrowserBasePath } from './base-path'
+import { apiURL, applicationURL, normalizeBrowserBasePath, readBasePath } from './base-path'
 
 describe('browser base paths', () => {
   it.each([
@@ -9,6 +9,7 @@ describe('browser base paths', () => {
     ['moneyflow', '/moneyflow/'],
     ['/moneyflow', '/moneyflow/'],
     ['/nested/moneyflow/', '/nested/moneyflow/'],
+    ['/__moneyflow__/', '/__moneyflow__/'],
   ])('normalizes %s', (input, expected) => {
     expect(normalizeBrowserBasePath(input)).toBe(expected)
   })
@@ -23,6 +24,9 @@ describe('browser base paths', () => {
     '/a#b',
     '/a/%2f/b',
     '/a/%5C/b',
+    '/a/%252f/b',
+    '/a/%255c/b',
+    '/a/%253f/b',
     '/a%zz',
     'https://example.com/a',
   ])('rejects malformed base path %s', (input) =>
@@ -35,5 +39,12 @@ describe('browser base paths', () => {
       '/moneyflow/?v=1&search=coffee%20shop',
     )
     expect(applicationURL('/', '')).toBe('/')
+  })
+
+  it('reads an injected base path without rejecting legitimate double underscores', () => {
+    const documentValue = {
+      querySelector: () => ({ getAttribute: () => '/__moneyflow__/' }),
+    } as unknown as Document
+    expect(readBasePath(documentValue)).toBe('/__moneyflow__/')
   })
 })

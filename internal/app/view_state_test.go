@@ -34,6 +34,7 @@ func TestViewStatePreservesNavigationAndStripsTransientValues(t *testing.T) {
 		Dimension: domain.DimensionMerchant,
 		Key:       "merchant-grocer",
 		Label:     "Example Grocer",
+		Total:     domain.Money{Currency: "USD", Scale: 2},
 	}, ViewPosition{Cursor: 7, Scroll: 4}))
 	session.CycleSubGrouping()
 	session.ToggleTransactionSelection("transaction-selected")
@@ -94,7 +95,7 @@ func TestViewStateCopiesNestedValues(t *testing.T) {
 	dimension := domain.DimensionCategory
 	state.Current.SubGrouping = &dimension
 	state.Current.Drilldowns = []domain.Drilldown{{
-		Dimension: domain.DimensionMerchant, Key: "merchant-grocer",
+		Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2, Key: "merchant-grocer",
 	}}
 	state.Returns = []ReturnFrame{{Kind: ReturnNavigation, State: state.Current}}
 

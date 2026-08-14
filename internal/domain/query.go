@@ -79,6 +79,8 @@ type Period struct {
 // Drilldown filters one normalized dimension.
 type Drilldown struct {
 	Dimension Dimension `json:"dimension"`
+	Currency  Currency  `json:"currency"`
+	Scale     uint8     `json:"scale"`
 	Key       string    `json:"key,omitempty"`
 	Label     string    `json:"label,omitempty"`
 	Period    *Period   `json:"period,omitempty"`
@@ -272,6 +274,9 @@ func validateDrilldowns(drilldowns []Drilldown) error {
 			return errors.New("validate query: duplicate drill-down dimension")
 		}
 		seen[drilldown.Dimension] = struct{}{}
+		if !validCurrency(drilldown.Currency) {
+			return errors.New("validate query: drill-down currency must be a three-letter uppercase code")
+		}
 		if drilldown.Dimension == DimensionTime {
 			if drilldown.Period == nil || drilldown.Key != "" || drilldown.Label != "" {
 				return errors.New("validate query: time drill-down requires a period")
@@ -281,7 +286,7 @@ func validateDrilldowns(drilldowns []Drilldown) error {
 			}
 			continue
 		}
-		if drilldown.Period != nil || drilldown.Key == "" || drilldown.Label == "" {
+		if drilldown.Period != nil || drilldown.Key == "" {
 			return errors.New("validate query: invalid non-time drill-down")
 		}
 	}

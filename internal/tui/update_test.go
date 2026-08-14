@@ -104,6 +104,19 @@ func TestUpdateQuitRespectsTextInputOverlays(t *testing.T) {
 	assert.NotNil(t, command)
 }
 
+func TestUpdateForceQuitUsesConfiguredBinding(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model.bindings = []binding{{keys: []string{"x"}, action: app.ActionForceQuit}}
+	_, command := model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	assert.Nil(t, command)
+	_, command = model.Update(keyRune('x'))
+	require.NotNil(t, command)
+	_, quitting := command().(tea.QuitMsg)
+	assert.True(t, quitting)
+}
+
 func press(t testing.TB, model Model, message tea.KeyPressMsg) Model {
 	t.Helper()
 	updated, _ := model.Update(message)
