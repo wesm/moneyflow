@@ -38,37 +38,42 @@ func (profile *profile) Load(ctx context.Context) (domain.ProfileSnapshot, error
 	return snapshot, nil
 }
 
-func loadSnapshot(ctx context.Context, transaction *sql.Tx) (domain.ProfileSnapshot, error) {
+type snapshotQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func loadSnapshot(ctx context.Context, queryer snapshotQueryer) (domain.ProfileSnapshot, error) {
 	var snapshot domain.ProfileSnapshot
-	if err := transaction.QueryRowContext(ctx,
+	if err := queryer.QueryRowContext(ctx,
 		"SELECT revision, journal_cursor FROM profile_state WHERE singleton = 1").
 		Scan(&snapshot.Revision, &snapshot.Cursor); err != nil {
 		return domain.ProfileSnapshot{}, loadFailure(err)
 	}
 	var err error
-	if snapshot.Journal, err = loadJournal(ctx, transaction); err != nil {
+	if snapshot.Journal, err = loadJournal(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
 
-	if snapshot.Committed.Accounts, err = loadAccounts(ctx, transaction); err != nil {
+	if snapshot.Committed.Accounts, err = loadAccounts(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.Committed.Merchants, err = loadMerchants(ctx, transaction); err != nil {
+	if snapshot.Committed.Merchants, err = loadMerchants(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.Committed.Groups, err = loadGroups(ctx, transaction); err != nil {
+	if snapshot.Committed.Groups, err = loadGroups(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.Committed.Categories, err = loadCategories(ctx, transaction); err != nil {
+	if snapshot.Committed.Categories, err = loadCategories(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.Committed.Transactions, err = loadTransactions(ctx, transaction); err != nil {
+	if snapshot.Committed.Transactions, err = loadTransactions(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.Committed.ExternalIdentities, err = loadExternalIdentities(ctx, transaction); err != nil {
+	if snapshot.Committed.ExternalIdentities, err = loadExternalIdentities(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
-	if snapshot.KnownDrills, err = loadKnownDrills(ctx, transaction); err != nil {
+	if snapshot.KnownDrills, err = loadKnownDrills(ctx, queryer); err != nil {
 		return domain.ProfileSnapshot{}, err
 	}
 	return snapshot, nil
@@ -80,8 +85,8 @@ type storedOperationRow struct {
 	payloadJSON    []byte
 }
 
-func loadJournal(ctx context.Context, transaction *sql.Tx) ([]domain.Operation, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadJournal(ctx context.Context, queryer snapshotQueryer) ([]domain.Operation, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT journal.id, journal.sequence, journal.operation_type,
 			journal.payload_version, journal.creation_revision, journal.created_at_unix_ms,
 			payload.payload_version, payload.payload_json
@@ -147,7 +152,7 @@ func loadJournal(ctx context.Context, transaction *sql.Tx) ([]domain.Operation, 
 	for index := range stored {
 		positions[stored[index].operation.ID] = index
 	}
-	targetRows, err := transaction.QueryContext(ctx, `
+	targetRows, err := queryer.QueryContext(ctx, `
 		SELECT targets.operation_id, targets.ordinal, targets.entity_id
 		FROM operation_targets AS targets
 		JOIN journal_operations AS journal ON journal.id = targets.operation_id
@@ -198,8 +203,8 @@ func loadJournal(ctx context.Context, transaction *sql.Tx) ([]domain.Operation, 
 	return result, nil
 }
 
-func loadAccounts(ctx context.Context, transaction *sql.Tx) ([]domain.Account, error) {
-	rows, err := transaction.QueryContext(ctx,
+func loadAccounts(ctx context.Context, queryer snapshotQueryer) ([]domain.Account, error) {
+	rows, err := queryer.QueryContext(ctx,
 		"SELECT id, label, collision_key, retired FROM accounts ORDER BY id")
 	if err != nil {
 		return nil, loadFailure(err)
@@ -218,8 +223,8 @@ func loadAccounts(ctx context.Context, transaction *sql.Tx) ([]domain.Account, e
 	return result, loadRowsError(rows)
 }
 
-func loadMerchants(ctx context.Context, transaction *sql.Tx) ([]domain.Merchant, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadMerchants(ctx context.Context, queryer snapshotQueryer) ([]domain.Merchant, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, label, collision_key, retired, merge_destination_id
 		FROM merchants ORDER BY id`)
 	if err != nil {
@@ -243,8 +248,8 @@ func loadMerchants(ctx context.Context, transaction *sql.Tx) ([]domain.Merchant,
 	return result, loadRowsError(rows)
 }
 
-func loadGroups(ctx context.Context, transaction *sql.Tx) ([]domain.CategoryGroup, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadGroups(ctx context.Context, queryer snapshotQueryer) ([]domain.CategoryGroup, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, label, collision_key, protected, retired, merge_destination_id
 		FROM category_groups ORDER BY id`)
 	if err != nil {
@@ -269,8 +274,8 @@ func loadGroups(ctx context.Context, transaction *sql.Tx) ([]domain.CategoryGrou
 	return result, loadRowsError(rows)
 }
 
-func loadCategories(ctx context.Context, transaction *sql.Tx) ([]domain.Category, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadCategories(ctx context.Context, queryer snapshotQueryer) ([]domain.Category, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, group_id, label, collision_key, protected, retired, merge_destination_id
 		FROM categories ORDER BY id`)
 	if err != nil {
@@ -296,8 +301,8 @@ func loadCategories(ctx context.Context, transaction *sql.Tx) ([]domain.Category
 	return result, loadRowsError(rows)
 }
 
-func loadTransactions(ctx context.Context, transaction *sql.Tx) ([]domain.TransactionRecord, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.TransactionRecord, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, provider, provider_id, account_id, merchant_id, category_id,
 			transaction_date, amount_minor, currency, scale, notes, hidden, pending, metadata_json
 		FROM transactions ORDER BY id`)
@@ -341,9 +346,9 @@ func loadTransactions(ctx context.Context, transaction *sql.Tx) ([]domain.Transa
 
 func loadExternalIdentities(
 	ctx context.Context,
-	transaction *sql.Tx,
+	queryer snapshotQueryer,
 ) ([]domain.ExternalIdentity, error) {
-	rows, err := transaction.QueryContext(ctx, `
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT entity_type, entity_id, namespace, external_id
 		FROM external_identities ORDER BY namespace, external_id`)
 	if err != nil {
@@ -363,8 +368,8 @@ func loadExternalIdentities(
 	return result, loadRowsError(rows)
 }
 
-func loadKnownDrills(ctx context.Context, transaction *sql.Tx) ([]domain.DrillIdentity, error) {
-	rows, err := transaction.QueryContext(ctx, `
+func loadKnownDrills(ctx context.Context, queryer snapshotQueryer) ([]domain.DrillIdentity, error) {
+	rows, err := queryer.QueryContext(ctx, `
 		SELECT dimension, currency, scale, identity_key
 		FROM known_drills ORDER BY dimension, currency, scale, identity_key`)
 	if err != nil {

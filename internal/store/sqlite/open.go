@@ -203,7 +203,3 @@ func (profile *profile) CurrentRevision(ctx context.Context) (uint64, error) {
 	}
 	return revision, nil
 }
-
-func (profile *profile) Fold(context.Context, uint64, store.FoldPlan) (uint64, error) {
-	return 0, store.NewError(store.CodeInvalidOperation, errors.New("fold is not implemented"))
-}
