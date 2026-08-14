@@ -16,6 +16,7 @@
     "check": "bun run generate:check && bun run typecheck && bun run check:svelte && bun run lint && bun run format:check",
     "audit": "bun audit --audit-level high",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "build": "vite build",
     "dev": "vite"
   },

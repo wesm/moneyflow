@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { KbdBadge, Modal } from '@kenn-io/kit-ui'
+  import { Button, KbdBadge, Modal } from '@kenn-io/kit-ui'
 
   import type { ViewProjection } from '../lib/api/client'
 
@@ -49,5 +49,6 @@
         <li><span>Force quit application · TUI only</span><KbdBadge keys={['Ctrl+C']} /></li>
       </ul>
     </section>
+    <Button onclick={onclose}>Close help</Button>
   </div>
 </Modal>

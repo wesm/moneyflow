@@ -9,6 +9,8 @@ describe('RefinementBar', () => {
     const onaction = vi.fn()
     render(RefinementBar, {
       projection: testProjection({
+        breadcrumbs: [{ dimension: 'merchant', label: 'Example Housing' }],
+        breadcrumb_text: 'M: Example Housing > (by Category)',
         view: {
           mode: 'detail',
           grouping: 'merchant',
@@ -20,7 +22,8 @@ describe('RefinementBar', () => {
       }),
       onaction,
     })
-    expect(screen.getByText('All transactions')).not.toBeNull()
+    expect(screen.getByText('M: Example Housing > (by Category)')).not.toBeNull()
+    expect(screen.queryByText('Example Housing')).toBeNull()
     expect(screen.getByText('Search: coffee')).not.toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: /Clear/ }))
     expect(onaction).toHaveBeenCalledWith('view.back')

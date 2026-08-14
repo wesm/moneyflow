@@ -8,11 +8,17 @@
   --moneyflow-focus: var(--accent-blue);
 }
 
+:root:not(.dark) {
+  /* The kit default muted ink is decorative-grade; Moneyflow uses it for readable status text. */
+  --text-muted: #626b7d;
+}
+
 html,
 body,
 #app {
   height: 100%;
   margin: 0;
+  overflow: hidden;
 }
 
 body {
@@ -203,7 +209,8 @@ input {
   flex: 1;
 }
 .help-list__unavailable {
-  opacity: var(--opacity-disabled);
+  color: var(--text-muted);
+  text-decoration: line-through;
 }
 .visualization-rail {
   min-width: 0;

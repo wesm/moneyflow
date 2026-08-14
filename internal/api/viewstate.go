@@ -102,7 +102,7 @@ func decodeTopLevel(values url.Values) (app.ViewState, error) {
 	state := app.ViewState{Version: app.ViewStateSchemaVersion, Current: current}
 	for index, encodedFrame := range values["return"] {
 		kindText, frameQuery, ok := strings.Cut(encodedFrame, ":")
-		if !ok || frameQuery == "" {
+		if !ok {
 			return app.ViewState{}, fmt.Errorf("return frame %d is malformed", index)
 		}
 		kind := app.ReturnKind(kindText)

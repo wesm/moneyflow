@@ -110,6 +110,31 @@ func TestViewQueryNormalizesInputAndReturnFrames(t *testing.T) {
 	assert.Equal(t, "v=1", canonical)
 }
 
+func TestViewQueryRoundTripsDefaultReturnFrame(t *testing.T) {
+	t.Parallel()
+
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc,
+	}
+	state.Current.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionMerchant, Key: "merchant-grocer",
+	}}
+	state.Returns = []app.ReturnFrame{{
+		Kind: app.ReturnNavigation, State: app.DefaultViewState().Current,
+	}}
+
+	encoded, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	assert.Contains(t, encoded, "return=navigation%3A")
+
+	decoded, canonical, err := DecodeViewQuery(encoded)
+	require.NoError(t, err)
+	assert.Equal(t, state, decoded)
+	assert.Equal(t, encoded, canonical)
+}
+
 func TestViewQueryRejectsMalformedInput(t *testing.T) {
 	t.Parallel()
 

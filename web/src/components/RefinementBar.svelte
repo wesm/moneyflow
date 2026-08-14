@@ -10,9 +10,7 @@
 
 <nav class="refinement-bar" aria-label="Active refinements">
   <div class="refinement-bar__trail">
-    {#each projection.breadcrumbs as breadcrumb, index (`${breadcrumb.dimension}:${breadcrumb.label}`)}
-      {#if index > 0}<span aria-hidden="true">/</span>{/if}<span>{breadcrumb.label}</span>
-    {/each}
+    <span>{projection.breadcrumb_text}</span>
   </div>
   <span>{projection.total_rows} results</span>
   <span>Group: {projection.view.grouping}</span>

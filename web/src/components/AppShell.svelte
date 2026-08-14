@@ -64,7 +64,7 @@
     void tick().then(focusGrid)
   }
   function focusGrid(): void {
-    grid?.querySelector<HTMLElement>('[role="grid"]')?.focus()
+    grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   function toggleCharts(checked: boolean): void {
     if (compact.current) chartDrawer = checked
@@ -99,6 +99,7 @@
     </TopBar>
     <RefinementBar {projection} onaction={(action) => void apply(action)} />
     <main class="app-shell__main" aria-label="Moneyflow workspace">
+      <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
       <div class="app-shell__table" bind:this={grid}>
         <FinanceTable
           {projection}
