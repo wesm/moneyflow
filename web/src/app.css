@@ -10,7 +10,7 @@
 
 :root:not(.dark) {
   /* The kit default muted ink is decorative-grade; Moneyflow uses it for readable status text. */
-  --text-muted: #626b7d;
+  --text-muted: var(--text-secondary);
 }
 
 html,

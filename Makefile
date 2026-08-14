@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-assets-check web-audit web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -68,12 +68,17 @@ web-generate:
 
 web-check:
 	bun run --cwd web check
+	$(MAKE) web-build
+	$(MAKE) web-budgets
 
 web-audit:
 	bun run --cwd web audit
 
 web-test:
 	bun run --cwd web test
+
+web-budgets:
+	bun run --cwd web budgets
 
 web-e2e:
 	bun run --cwd web test:e2e -- --project=chromium
@@ -91,6 +96,15 @@ web-embed: web-assets-check
 
 web-embed-check: web-assets-check
 	bun run --cwd web scripts/embed-assets.ts --check
+
+verify-web:
+	$(MAKE) web-install
+	$(MAKE) web-check
+	$(MAKE) web-test
+	$(MAKE) web-audit
+	$(MAKE) web-embed-check
+	$(MAKE) web-e2e
+	go test ./internal/api -run TestProjectionPerformance100K -count=1
 
 web-dev:
 	bun run --cwd web dev

@@ -64,6 +64,45 @@ budgets, you'll be prompted to select one. See the [YNAB setup guide](https://mo
 
 ---
 
+## Go Read-Only Web Preview
+
+The `go-port` branch includes the first read-only Go replacement slice. It serves the same
+keyboard-driven refinement workflow in an embedded browser application using only synthetic data.
+
+```bash
+make build
+
+# Loopback with automatic browser launch
+./bin/moneyflow web
+
+# Loopback without launching a browser
+./bin/moneyflow web --open=false
+
+# Bind to one explicit private/tailnet address
+./bin/moneyflow web --open=false --listen 100.64.0.10:8080
+```
+
+For a Caddy mount, preserve the request path and give Moneyflow the same base path:
+
+```bash
+./bin/moneyflow web --open=false --listen 127.0.0.1:8080 --base-path /moneyflow/
+```
+
+```caddyfile
+moneyflow.example.invalid {
+    handle /moneyflow/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+}
+```
+
+Replace the reserved example host and address with private values for your network. Non-loopback
+HTTP has no built-in authentication or transport encryption; restrict it to a trusted private
+network or put authentication and TLS at the proxy. Configure proxy access logs to omit URL query
+strings because durable view state can contain financial refinements.
+
+---
+
 ## Key Features
 
 - **Keyboard-driven** - Navigate with `g` to cycle views, `Enter` to drill down, `Escape` to go back

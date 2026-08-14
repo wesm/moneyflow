@@ -617,9 +617,17 @@ make lint        # Run golangci-lint with the repository configuration
 make parity      # Check Python semantic frames and Go visual frames without writes
 make tui-demo    # Run the Go TUI against the committed synthetic fixture
 make verify-go   # Run format, test, vet, lint, and parity checks
+make web-demo    # Build and run the read-only loopback web application
+make verify-web  # Run every read-only frontend, asset, API, and browser check
 ```
 
 Ordinary tests never update parity artifacts. Use `make parity-update-python` or
 `make parity-update-go` only for a deliberate update, then review the full artifact diff and the
-generated Go frame previews before committing it. All Go accounting and analytics use signed
-integer minor units after input parsing; never represent money with `float32` or `float64`.
+generated Go frame previews before committing it. `make web-generate` and `make web-embed` are also
+deliberate write operations: ordinary verification uses generation and embed checks and never
+updates committed artifacts. Stable frontend targets are `web-install`, `web-generate`,
+`web-check`, `web-test`, `web-audit`, `web-build`, `web-assets-check`, `web-embed`,
+`web-embed-check`, `web-e2e`, `web-demo`, and `verify-web`.
+
+All Go accounting and analytics use signed integer minor units after input parsing; never
+represent money with `float32` or `float64`.
