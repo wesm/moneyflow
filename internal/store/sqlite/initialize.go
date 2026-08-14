@@ -35,7 +35,7 @@ func ensureCurrentSchema(ctx context.Context, database *sql.DB, options Options)
 	for {
 		state, err := inspectSchema(deadlineContext, database)
 		if err != nil {
-			if isBusy(err) {
+			if isBusy(err) || errors.Is(deadlineContext.Err(), context.DeadlineExceeded) {
 				if waitErr := waitForStartup(deadlineContext); waitErr != nil {
 					return store.NewError(store.CodeStoreBusy, err)
 				}

@@ -93,6 +93,24 @@ func TestOpenStartupDeadlineMapsInitializationContentionToStoreBusy(t *testing.T
 	assertStoreCode(t, err, store.CodeStoreBusy)
 }
 
+func TestEnsureCurrentSchemaDeadlineMapsInspectionFailureToStoreBusy(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	require.NoError(t, home.PrepareDatabase(paths))
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	deadlineContext, cancel := context.WithDeadline(
+		context.Background(),
+		time.Now().Add(-time.Second),
+	)
+	defer cancel()
+
+	err = ensureCurrentSchema(deadlineContext, database, DefaultOptions)
+	assertStoreCode(t, err, store.CodeStoreBusy)
+}
+
 func TestOpenWaitsBeyondMutationTimeoutAndRechecksInstalledSchema(t *testing.T) {
 	paths := temporaryPaths(t)
 	require.NoError(t, home.PrepareDatabase(paths))

@@ -15,7 +15,6 @@ import (
 
 	_ "modernc.org/sqlite" // Register the pure-Go database/sql driver.
 
-	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/store"
 )
@@ -203,10 +202,6 @@ func (profile *profile) CurrentRevision(ctx context.Context) (uint64, error) {
 		return 0, mapDriverError(err, store.CodeStoreError)
 	}
 	return revision, nil
-}
-
-func (profile *profile) CancelHide(context.Context, uint64, []domain.EntityID) (uint64, error) {
-	return 0, store.NewError(store.CodeInvalidOperation, errors.New("hide cancellation is not implemented"))
 }
 
 func (profile *profile) Fold(context.Context, uint64, store.FoldPlan) (uint64, error) {

@@ -17,9 +17,27 @@ const (
 	EditScopeTransactions EditScope = "transactions"
 )
 
+// TaxonomyAction identifies one category or category-group structural intent.
+type TaxonomyAction string
+
+const (
+	// TaxonomyCreate creates a new stable taxonomy entity.
+	TaxonomyCreate TaxonomyAction = "create"
+	// TaxonomyRename changes a taxonomy entity label without changing its identity.
+	TaxonomyRename TaxonomyAction = "rename"
+	// TaxonomyMove moves a category to another group.
+	TaxonomyMove TaxonomyAction = "move"
+	// TaxonomyMerge retires a source identity into an explicit destination.
+	TaxonomyMerge TaxonomyAction = "merge"
+	// TaxonomyDelete retires a source identity into an explicit replacement.
+	TaxonomyDelete TaxonomyAction = "delete"
+)
+
 // EditInput carries renderer-neutral values for one editing intent.
 type EditInput struct {
 	Scope         EditScope
+	Taxonomy      TaxonomyAction
+	EntityID      domain.EntityID
 	Label         string
 	DestinationID domain.EntityID
 	GroupID       domain.EntityID
@@ -59,9 +77,21 @@ type OperationMetadata struct {
 	CreatedAt   time.Time
 }
 
-// MutationPlan is a validated draft plus renderer state disposition, ready for store.Append.
+// MutationMode selects the single journal-store mutation represented by a plan.
+type MutationMode string
+
+const (
+	// MutationAppend appends the plan operation after truncating any redo tail.
+	MutationAppend MutationMode = "append"
+	// MutationCancelHide rewrites active hide operations for the exact cancellation targets.
+	MutationCancelHide MutationMode = "cancel_hide"
+)
+
+// MutationPlan is one validated store mutation plus its renderer state disposition.
 type MutationPlan struct {
+	Mode                 MutationMode
 	Operation            domain.Operation
+	CancelHideTargets    []domain.EntityID
 	SelectionDisposition SelectionDisposition
 	State                ViewState
 }
@@ -154,6 +184,7 @@ func mutationPlan(
 	operation domain.Operation,
 ) MutationPlan {
 	return MutationPlan{
+		Mode:                 MutationAppend,
 		Operation:            operation,
 		SelectionDisposition: selectionDisposition(targets),
 		State:                request.State.Clone(),

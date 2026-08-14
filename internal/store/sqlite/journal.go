@@ -49,15 +49,8 @@ func (profile *profile) Append(
 	if current != expectedRevision {
 		return 0, revisionConflict(expectedRevision, current)
 	}
-	if cursor < count {
-		if _, err = connection.ExecContext(ctx, `
-			DELETE FROM journal_operations
-			WHERE id IN (
-				SELECT id FROM journal_operations
-				ORDER BY sequence LIMIT -1 OFFSET ?
-			)`, cursor); err != nil {
-			return 0, mapDriverError(err, store.CodeStoreError)
-		}
+	if err = truncateRedoTail(ctx, connection, cursor, count); err != nil {
+		return 0, err
 	}
 	var sequence int64
 	if err = connection.QueryRowContext(ctx,
@@ -79,6 +72,25 @@ func (profile *profile) Append(
 		return 0, err
 	}
 	return next, nil
+}
+
+func truncateRedoTail(
+	ctx context.Context,
+	connection *sql.Conn,
+	cursor, count int,
+) error {
+	if cursor >= count {
+		return nil
+	}
+	if _, err := connection.ExecContext(ctx, `
+		DELETE FROM journal_operations
+		WHERE id IN (
+			SELECT id FROM journal_operations
+			ORDER BY sequence LIMIT -1 OFFSET ?
+		)`, cursor); err != nil {
+		return mapDriverError(err, store.CodeStoreError)
+	}
+	return nil
 }
 
 func (profile *profile) MoveCursor(
