@@ -88,14 +88,15 @@ const (
 )
 
 type selectionDocument struct {
-	Version uint8              `json:"v"`
-	Kind    IdentityKind       `json:"kind"`
-	Base    selectionBaseKind  `json:"base"`
-	IDs     []string           `json:"ids,omitempty"`
-	State   *AnalyticalState   `json:"state,omitempty"`
-	Include []string           `json:"include,omitempty"`
-	Exclude []string           `json:"exclude,omitempty"`
-	Returns []selectionPayload `json:"returns,omitempty"`
+	Version  uint8              `json:"v"`
+	Kind     IdentityKind       `json:"kind"`
+	Base     selectionBaseKind  `json:"base"`
+	Revision *uint64            `json:"revision,omitempty"`
+	IDs      []string           `json:"ids,omitempty"`
+	State    *AnalyticalState   `json:"state,omitempty"`
+	Include  []string           `json:"include,omitempty"`
+	Exclude  []string           `json:"exclude,omitempty"`
+	Returns  []selectionPayload `json:"returns,omitempty"`
 }
 
 type selectionPayload struct {
@@ -446,11 +447,12 @@ func (service *Service) smallestSelectionWithReturns(
 	returns []selectionPayload,
 ) (SelectionValue, error) {
 	candidates := []selectionDocument{{
-		Version: 1,
-		Kind:    kind,
-		Base:    selectionBaseExplicit,
-		IDs:     sortedIdentitySet(target),
-		Returns: cloneSelectionPayloads(returns),
+		Version:  1,
+		Kind:     kind,
+		Base:     selectionBaseExplicit,
+		Revision: cloneUint64(oldDocument.Revision),
+		IDs:      sortedIdentitySet(target),
+		Returns:  cloneSelectionPayloads(returns),
 	}}
 
 	_, currentBase, err := service.identitiesForState(state)
@@ -466,6 +468,7 @@ func (service *Service) smallestSelectionWithReturns(
 		currentBase,
 		target,
 	)
+	currentCandidate.Revision = cloneUint64(oldDocument.Revision)
 	currentCandidate.Returns = cloneSelectionPayloads(returns)
 	candidates = append(candidates, currentCandidate)
 
@@ -482,6 +485,7 @@ func (service *Service) smallestSelectionWithReturns(
 			oldBase,
 			target,
 		)
+		oldCandidate.Revision = cloneUint64(oldDocument.Revision)
 		oldCandidate.Returns = cloneSelectionPayloads(returns)
 		candidates = append(candidates, oldCandidate)
 	}
@@ -646,6 +650,45 @@ func cloneSelectionPayloads(payloads []selectionPayload) []selectionPayload {
 		}
 	}
 	return cloned
+}
+
+// BindSelectionRevision records the profile revision that defines one nonempty exact selection.
+func BindSelectionRevision(value SelectionValue, revision uint64) (SelectionValue, error) {
+	document, err := decodeSelection(value)
+	if err != nil {
+		return value, err
+	}
+	if document.isUniversalEmpty() {
+		return EmptySelection(), nil
+	}
+	document.Revision = &revision
+	return encodeSelection(document)
+}
+
+// ResolveSelectionAtRevision rejects nonempty selections bound to another profile revision.
+func ResolveSelectionAtRevision(
+	service *Service,
+	state AnalyticalState,
+	value SelectionValue,
+	revision uint64,
+) (SelectionSnapshot, error) {
+	document, err := decodeSelection(value)
+	if err != nil {
+		return SelectionSnapshot{}, err
+	}
+	if !document.isUniversalEmpty() &&
+		(document.Revision == nil || *document.Revision != revision) {
+		return SelectionSnapshot{}, invalidSelection(errors.New("selection revision is stale"))
+	}
+	return service.resolveSelectionPayload(state, document.payload())
+}
+
+func cloneUint64(value *uint64) *uint64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func identitySliceSet(identities []string) map[string]struct{} {
