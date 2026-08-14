@@ -20,7 +20,7 @@ type ServerConfig struct {
 	Version  string
 }
 
-// Server is the composed read-only API and embedded browser application.
+// Server is the composed profile API and embedded browser application.
 type Server struct {
 	basePath string
 	handler  http.Handler

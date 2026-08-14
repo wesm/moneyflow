@@ -59,7 +59,7 @@ tui-demo: build
 	$(BINARY) demo
 
 web-demo: build
-	$(BINARY) web --open=false
+	$(BINARY) web --demo --open=false
 
 web-install:
 	bun install --cwd web --frozen-lockfile

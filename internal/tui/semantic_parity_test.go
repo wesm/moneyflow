@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -28,7 +29,7 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 		t.Run(scenario.Name, func(t *testing.T) {
 			session, sessionErr := parity.SessionFromFrameInitial(scenario.Initial)
 			require.NoError(t, sessionErr)
-			model, modelErr := tui.NewModel(service, session, tui.Options{
+			model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
 				Theme: tui.ThemeName(scenario.Theme), ColorMode: tui.ColorModeNone,
 			})
 			require.NoError(t, modelErr)

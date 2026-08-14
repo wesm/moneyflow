@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -48,10 +49,12 @@ func TestRootDemoAndDefaultStartFixtureTUI(t *testing.T) {
 		var stdout bytes.Buffer
 		var stderr bytes.Buffer
 		command := newRootCommand(IOStreams{
-			In:  strings.NewReader(""),
-			Out: &stdout,
-			Err: &stderr,
+			In:          strings.NewReader(""),
+			Out:         &stdout,
+			Err:         &stderr,
+			OpenProfile: testProfileOpener(t),
 			RunTUI: func(
+				_ context.Context,
 				service *app.Service,
 				session app.Session,
 				options tui.Options,
@@ -79,7 +82,8 @@ func TestRootDefaultFixtureWorksOutsideRepository(t *testing.T) {
 	var calls int
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
-		RunTUI: func(*app.Service, app.Session, tui.Options, IOStreams) error {
+		OpenProfile: testProfileOpener(t),
+		RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error {
 			calls++
 			return nil
 		},
@@ -93,10 +97,11 @@ func TestRootDemoValidatesBeforeRunner(t *testing.T) {
 
 	var calls int
 	command := newRootCommand(IOStreams{
-		In:  strings.NewReader(""),
-		Out: &bytes.Buffer{},
-		Err: &bytes.Buffer{},
-		RunTUI: func(*app.Service, app.Session, tui.Options, IOStreams) error {
+		In:          strings.NewReader(""),
+		Out:         &bytes.Buffer{},
+		Err:         &bytes.Buffer{},
+		OpenProfile: testProfileOpener(t),
+		RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error {
 			calls++
 			return nil
 		},
@@ -106,6 +111,15 @@ func TestRootDemoValidatesBeforeRunner(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown theme")
 	assert.Zero(t, calls)
+}
+
+func testProfileOpener(t *testing.T) ProfileOpener {
+	t.Helper()
+	return func(context.Context, ProfileOptions) (OpenedProfile, error) {
+		service, err := app.NewService(nil)
+		require.NoError(t, err)
+		return OpenedProfile{Service: service, Close: func() error { return nil }}, nil
+	}
 }
 
 func TestRootCommandVersion(t *testing.T) {

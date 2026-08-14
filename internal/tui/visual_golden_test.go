@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -47,7 +48,7 @@ func TestVisualGoldens(t *testing.T) {
 		t.Run(visual.name, func(t *testing.T) {
 			session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
 			require.NoError(t, sessionErr)
-			model, modelErr := tui.NewModel(service, session, tui.Options{
+			model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
 				Theme: visual.theme, ColorMode: visual.colorMode,
 			})
 			require.NoError(t, modelErr)

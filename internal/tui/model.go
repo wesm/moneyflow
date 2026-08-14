@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 
 	"charm.land/bubbles/v2/textinput"
@@ -40,6 +41,7 @@ type searchState struct {
 
 // Model owns terminal-only state around a renderer-neutral application session.
 type Model struct {
+	ctx      context.Context
 	service  *app.Service
 	session  app.Session
 	options  Options
@@ -59,7 +61,10 @@ type Model struct {
 }
 
 // NewModel validates presentation options and evaluates the initial session.
-func NewModel(service *app.Service, session app.Session, options Options) (Model, error) {
+func NewModel(ctx context.Context, service *app.Service, session app.Session, options Options) (Model, error) {
+	if ctx == nil {
+		return Model{}, errors.New("new model: context is nil")
+	}
 	if service == nil {
 		return Model{}, errors.New("new model: service is nil")
 	}
@@ -73,11 +78,15 @@ func NewModel(service *app.Service, session app.Session, options Options) (Model
 	if err != nil {
 		return Model{}, err
 	}
+	if _, err = service.Refresh(ctx); err != nil {
+		return Model{}, err
+	}
 	result, err := service.Query(session)
 	if err != nil {
 		return Model{}, err
 	}
 	return Model{
+		ctx:      ctx,
 		service:  service,
 		session:  session,
 		options:  options,
@@ -89,7 +98,7 @@ func NewModel(service *app.Service, session app.Session, options Options) (Model
 	}, nil
 }
 
-// Init has no asynchronous work in the fixture-backed slice.
+// Init has no asynchronous work; interactions refresh through the command context.
 func (model Model) Init() tea.Cmd { return nil }
 
 // View renders the owned cell frame into Bubble Tea's alternate screen.
@@ -100,6 +109,12 @@ func (model Model) View() tea.View {
 }
 
 func (model *Model) refresh() {
+	_, err := model.service.Refresh(model.ctx)
+	if err != nil {
+		model.err = err
+		model.clampCursor()
+		return
+	}
 	result, err := model.service.Query(model.session)
 	model.err = err
 	if err == nil {

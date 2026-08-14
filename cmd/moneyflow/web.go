@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,10 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
-	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/version"
 	webserver "github.com/wesm/moneyflow/internal/web"
-	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
 // ListenerFactory opens one network listener without fixing a port in tests.
@@ -35,7 +32,7 @@ type BrowserOpener func(string) error
 // SignalContext adds process lifecycle signals to a command context.
 type SignalContext func(context.Context) (context.Context, context.CancelFunc)
 
-// WebRunner runs the read-only browser transport.
+// WebRunner runs the browser transport.
 type WebRunner func(context.Context, *app.Service, WebOptions, IOStreams) error
 
 // WebOptions contains the explicitly bounded web-command configuration.
@@ -47,11 +44,12 @@ type WebOptions struct {
 
 var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
-func newWebCommand(streams IOStreams) *cobra.Command {
+func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
+	var demo bool
 	command := &cobra.Command{
 		Use:   "web",
-		Short: "Serve the read-only browser application",
+		Short: "Serve the browser application",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			host, err := validateWebListen(options.Listen)
@@ -62,7 +60,17 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
-			service, err := newEmbeddedService()
+			opener := streams.OpenProfile
+			if opener == nil {
+				opener = openProfile
+			}
+			fixture := ""
+			if fixturePath != nil {
+				fixture = *fixturePath
+			}
+			opened, err := opener(command.Context(), ProfileOptions{
+				Demo: demo || fixture != "", FixturePath: fixture,
+			})
 			if err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
@@ -76,7 +84,8 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if runner == nil {
 				runner = runWeb
 			}
-			if err := runner(command.Context(), service, options, streams); err != nil {
+			runErr := runner(command.Context(), opened.Service, options, streams)
+			if err = closeOpenedProfile(opened, runErr); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
 			return nil
@@ -85,6 +94,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 	command.Flags().StringVar(&options.Listen, "listen", options.Listen, "explicit host and port")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
+	command.Flags().BoolVar(&demo, "demo", false, "serve a temporary profile seeded with synthetic data")
 	return command
 }
 
@@ -217,16 +227,4 @@ func openBrowser(url string) error {
 	}
 	// The executable is selected from fixed platform names and the validated URL is one argument.
 	return exec.Command(name, arguments...).Run() //nolint:gosec
-}
-
-func newEmbeddedService() (*app.Service, error) {
-	transactions, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
-	if err != nil {
-		return nil, fmt.Errorf("decode embedded fixture: %w", err)
-	}
-	service, err := app.NewService(transactions)
-	if err != nil {
-		return nil, fmt.Errorf("build fixture service: %w", err)
-	}
-	return service, nil
 }

@@ -1,7 +1,8 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,14 +11,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
-	"github.com/wesm/moneyflow/internal/domain"
-	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
-	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
-type tuiRunner func(*app.Service, app.Session, tui.Options, IOStreams) error
+type tuiRunner func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error
 type openAPIWriter func(format string) ([]byte, error)
 
 // IOStreams contains command input, output, and the injectable terminal runner.
@@ -27,6 +25,8 @@ type IOStreams struct {
 	Err    io.Writer
 	RunTUI tuiRunner
 	RunWeb WebRunner
+	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
+	OpenProfile ProfileOpener
 	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.
 	Listen        ListenerFactory
 	OpenBrowser   BrowserOpener
@@ -38,37 +38,36 @@ type IOStreams struct {
 func newRootCommand(streams IOStreams) *cobra.Command {
 	var theme string
 	var fixturePath string
-	runPreview := func(_ *cobra.Command, _ []string) error {
+	runPreview := func(command *cobra.Command, _ []string) error {
 		options, err := previewOptions(theme)
 		if err != nil {
-			return fmt.Errorf("start preview: %w", err)
+			return fmt.Errorf("start TUI: %w", err)
 		}
-		var transactions []domain.Transaction
-		if fixturePath == "" {
-			transactions, err = fixture.Decode(bytes.NewReader(paritydata.Transactions))
-		} else {
-			transactions, err = fixture.Load(fixturePath)
+		opener := streams.OpenProfile
+		if opener == nil {
+			opener = openProfile
 		}
+		opened, err := opener(command.Context(), ProfileOptions{
+			Demo: command.Name() == "demo" || fixturePath != "", FixturePath: fixturePath,
+		})
 		if err != nil {
-			return fmt.Errorf("start preview: %w", err)
-		}
-		service, err := app.NewService(transactions)
-		if err != nil {
-			return fmt.Errorf("start preview: %w", err)
+			return fmt.Errorf("start TUI: %w", err)
 		}
 		runner := streams.RunTUI
 		if runner == nil {
 			runner = func(
+				ctx context.Context,
 				service *app.Service,
 				session app.Session,
 				options tui.Options,
 				streams IOStreams,
 			) error {
-				return tui.Run(service, session, options, streams.In, streams.Out)
+				return tui.Run(ctx, service, session, options, streams.In, streams.Out)
 			}
 		}
-		if err := runner(service, app.NewSession(), options, streams); err != nil {
-			return fmt.Errorf("start preview: %w", err)
+		runErr := runner(command.Context(), opened.Service, app.NewSession(), options, streams)
+		if err = closeOpenedProfile(opened, runErr); err != nil {
+			return fmt.Errorf("start TUI: %w", err)
 		}
 		return nil
 	}
@@ -92,7 +91,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	}
 	command.AddCommand(&cobra.Command{
 		Use:   "demo",
-		Short: "Open the read-only synthetic-data preview",
+		Short: "Open a temporary profile seeded with synthetic data",
 		Args:  cobra.NoArgs,
 		RunE:  runPreview,
 	})
@@ -112,7 +111,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		},
 	})
 	command.AddCommand(newOpenAPICommand(streams))
-	command.AddCommand(newWebCommand(streams))
+	command.AddCommand(newWebCommand(streams, &fixturePath))
 	return command
 }
 
@@ -145,20 +144,23 @@ func newOpenAPICommand(streams IOStreams) *cobra.Command {
 }
 
 func writeOpenAPI(format string) ([]byte, error) {
-	service, err := newEmbeddedService()
+	opened, err := openTemporaryContractProfile(context.Background())
 	if err != nil {
 		return nil, err
 	}
 	server, err := api.New(api.Config{
-		Service: service, BasePath: "/", Version: version.Version,
+		Service: opened.Service, BasePath: "/", Version: version.Version,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build API contract: %w", err)
+		return nil, errors.Join(fmt.Errorf("build API contract: %w", err), opened.Close())
 	}
+	var data []byte
 	if format == "json" {
-		return server.OpenAPIJSON()
+		data, err = server.OpenAPIJSON()
+	} else {
+		data, err = server.OpenAPIYAML()
 	}
-	return server.OpenAPIYAML()
+	return data, errors.Join(err, opened.Close())
 }
 
 func previewOptions(theme string) (tui.Options, error) {

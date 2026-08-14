@@ -64,7 +64,7 @@ func TestWebCommandPassesValidatedOptionsAndEmbeddedFixture(t *testing.T) {
 	t.Parallel()
 	var received WebOptions
 	var service *app.Service
-	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, OpenProfile: testProfileOpener(t)}
 	streams.RunWeb = func(_ context.Context, candidate *app.Service, options WebOptions, _ IOStreams) error {
 		service = candidate
 		received = options
@@ -81,7 +81,7 @@ func TestWebCommandWarnsBeforeNonLoopbackRunner(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer
 	var warningSeen bool
-	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &stderr}
+	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &stderr, OpenProfile: testProfileOpener(t)}
 	streams.RunWeb = func(_ context.Context, _ *app.Service, _ WebOptions, _ IOStreams) error {
 		warningSeen = strings.Contains(stderr.String(), "unauthenticated")
 		return nil
@@ -111,8 +111,7 @@ func TestRunWebBrowserFailureIsWarning(t *testing.T) {
 			return context.WithCancel(parent)
 		},
 	}
-	service, err := newEmbeddedService()
-	require.NoError(t, err)
+	service := testWebService(t)
 	require.NoError(t, runWeb(ctx, service, WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}, streams))
 	assert.Contains(t, stderr.String(), "browser unavailable")
 	assert.NotContains(t, opened, "?")
@@ -122,8 +121,7 @@ func TestRunWebBrowserFailureIsWarning(t *testing.T) {
 func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 	t.Parallel()
 
-	service, err := newEmbeddedService()
-	require.NoError(t, err)
+	service := testWebService(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var openedHealthy bool
@@ -154,8 +152,7 @@ func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {
-			service, err := newEmbeddedService()
-			require.NoError(t, err)
+			service := testWebService(t)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			address := make(chan string, 1)
@@ -201,8 +198,7 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 
 func TestRunWebPropagatesServeFailure(t *testing.T) {
 	t.Parallel()
-	service, err := newEmbeddedService()
-	require.NoError(t, err)
+	service := testWebService(t)
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 		Listen: func(context.Context, string, string) (net.Listener, error) {
@@ -212,7 +208,7 @@ func TestRunWebPropagatesServeFailure(t *testing.T) {
 			return context.WithCancel(parent)
 		},
 	}
-	err = runWeb(context.Background(), service, WebOptions{
+	err := runWeb(context.Background(), service, WebOptions{
 		Listen: "127.0.0.1:8080", BasePath: "/", Open: false,
 	}, streams)
 	require.Error(t, err)
@@ -246,3 +242,10 @@ func (address testAddress) Network() string { return "tcp" }
 func (address testAddress) String() string  { return string(address) }
 
 var _ io.Closer = failingListener{}
+
+func testWebService(t *testing.T) *app.Service {
+	t.Helper()
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	return service
+}

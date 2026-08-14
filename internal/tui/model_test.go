@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -23,7 +24,7 @@ func TestModelConstructionAndInitialView(t *testing.T) {
 	assert.Equal(t, 80, model.width)
 	assert.Equal(t, 24, model.height)
 
-	_, err := NewModel(model.service, app.NewSession(), Options{Theme: "missing", ColorMode: ColorModeNone})
+	_, err := NewModel(context.Background(), model.service, app.NewSession(), Options{Theme: "missing", ColorMode: ColorModeNone})
 	assert.Error(t, err)
 }
 
@@ -46,7 +47,7 @@ func newTestModel(t testing.TB, session app.Session) Model {
 	require.NoError(t, err)
 	service, err := app.NewService(transactions)
 	require.NoError(t, err)
-	model, err := NewModel(service, session, Options{Theme: ThemeDefault, ColorMode: ColorModeNone})
+	model, err := NewModel(context.Background(), service, session, Options{Theme: ThemeDefault, ColorMode: ColorModeNone})
 	require.NoError(t, err)
 	return model
 }
