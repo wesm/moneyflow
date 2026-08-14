@@ -67,10 +67,19 @@ func TestSchemaEnforcesMoneySingletonCollisionAndJournalConstraints(t *testing.T
 	assert.Error(t, err)
 
 	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO accounts(id, label, collision_key, retired)
+		VALUES ('a', 'Account', 'account', 0);
+		INSERT INTO merchants(id, label, collision_key, retired, protected)
+		VALUES ('m', 'Merchant', 'merchant', 0, 0);
+		INSERT INTO category_groups(id, label, collision_key, retired, protected)
+		VALUES ('g', 'Group', 'group', 0, 0);
+		INSERT INTO categories(id, group_id, label, collision_key, retired, protected)
+		VALUES ('c', 'g', 'Category', 'category', 0, 0);
 		INSERT INTO transactions(
-			id, account_id, merchant_id, category_id, transaction_date,
-			amount_minor, currency, scale, hidden
-		) VALUES ('t', 'a', 'm', 'c', '2026-08-14', 1.5, 'USD', 2, 0)`)
+			id, provider, provider_id, account_id, merchant_id, category_id, transaction_date,
+			amount_minor, currency, scale, notes, hidden, pending, metadata_json
+		) VALUES ('t', 'fixture', 'provider-t', 'a', 'm', 'c', '2026-08-14',
+			1.5, 'USD', 2, '', 0, 0, '{}')`)
 	assert.Error(t, err)
 
 	_, err = profile.database.ExecContext(ctx,

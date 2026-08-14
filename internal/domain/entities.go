@@ -28,6 +28,10 @@ const (
 	UncategorizedGroupID EntityID = "group_system_uncategorized"
 	// UncategorizedCategoryID is the protected fallback category.
 	UncategorizedCategoryID EntityID = "category_system_uncategorized"
+	// UncategorizedLabel is the immutable display label for both protected sentinels.
+	UncategorizedLabel = "Uncategorized"
+	// UncategorizedCollisionKey is the immutable collision key for both protected sentinels.
+	UncategorizedCollisionKey = "uncategorized"
 )
 
 // Account is one stable local account identity.

@@ -124,6 +124,25 @@ func TestMerchantTransactionScopeCreatesCompleteDestination(t *testing.T) {
 	assert.Equal(t, []domain.EntityID{"transaction_a"}, plan.Operation.Targets)
 }
 
+func TestMerchantEditsNormalizeLabelsAndRejectCrossKindCreationIDs(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	rename := focusedMerchantRequest("  Merchant A  ", app.EditScopeEntity)
+	_, err := app.BuildMerchantOperation(effective, rename, operationMetadata("merchant_trim_noop"))
+	assertMutationCode(t, err, app.MutationInvalidOperation)
+
+	create := focusedMerchantRequest("  New Merchant  ", app.EditScopeTransactions)
+	create.Input.DestinationID = "account_a"
+	_, err = app.BuildMerchantOperation(effective, create, operationMetadata("merchant_cross_kind"))
+	assertMutationCode(t, err, app.MutationInvalidOperation)
+
+	create.Input.DestinationID = "merchant_new"
+	plan, err := app.BuildMerchantOperation(effective, create, operationMetadata("merchant_trimmed"))
+	require.NoError(t, err)
+	assert.Equal(t, "New Merchant", plan.Operation.Reassign.CreatedMerchant.Label)
+}
+
 func focusedMerchantRequest(label string, scope app.EditScope) app.MutationRequest {
 	return app.MutationRequest{
 		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: detailViewState(),

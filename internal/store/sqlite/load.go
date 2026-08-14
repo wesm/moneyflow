@@ -91,7 +91,7 @@ func loadJournal(ctx context.Context, queryer snapshotQueryer) ([]domain.Operati
 			journal.payload_version, journal.creation_revision, journal.created_at_unix_ms,
 			payload.payload_version, payload.payload_json
 		FROM journal_operations AS journal
-		JOIN operation_payloads AS payload ON payload.operation_id = journal.id
+		LEFT JOIN operation_payloads AS payload ON payload.operation_id = journal.id
 		ORDER BY journal.sequence`)
 	if err != nil {
 		return nil, loadFailure(err)
@@ -101,6 +101,7 @@ func loadJournal(ctx context.Context, queryer snapshotQueryer) ([]domain.Operati
 		var row storedOperationRow
 		var kind string
 		var journalVersion, creationRevision, createdAtMillis int64
+		var payloadVersion sql.NullInt64
 		if err = rows.Scan(
 			&row.operation.ID,
 			&row.operation.Sequence,
@@ -108,12 +109,20 @@ func loadJournal(ctx context.Context, queryer snapshotQueryer) ([]domain.Operati
 			&journalVersion,
 			&creationRevision,
 			&createdAtMillis,
-			&row.payloadVersion,
+			&payloadVersion,
 			&row.payloadJSON,
 		); err != nil {
 			_ = rows.Close()
 			return nil, loadFailure(err)
 		}
+		if !payloadVersion.Valid || row.payloadJSON == nil {
+			_ = rows.Close()
+			return nil, store.NewError(
+				store.CodeStoreCorrupt,
+				errors.New("journal operation payload is missing"),
+			)
+		}
+		row.payloadVersion = payloadVersion.Int64
 		if journalVersion != row.payloadVersion {
 			_ = rows.Close()
 			return nil, store.NewError(

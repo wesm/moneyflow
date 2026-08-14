@@ -47,6 +47,35 @@ describe('AppShell', () => {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
     }
   })
+
+  it('closes the compact chart scope when resizing to desktop', async () => {
+    const original = window.matchMedia
+    const target = new EventTarget()
+    const media = Object.assign(target, {
+      matches: true,
+      media: '(max-width: 640px)',
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+    }) as MediaQueryList
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: () => media })
+    try {
+      const controller = stubController()
+      render(AppShell, { controller })
+      await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
+      expect(screen.getByRole('dialog', { name: 'Moneyflow visualizations' })).not.toBeNull()
+
+      Object.defineProperty(media, 'matches', { configurable: true, value: false })
+      media.dispatchEvent(new Event('change'))
+      await vi.waitFor(() => {
+        expect(screen.queryByRole('dialog', { name: 'Moneyflow visualizations' })).toBeNull()
+      })
+      await fireEvent.keyDown(window, { key: 'j' })
+      expect(controller.moveCursor).toHaveBeenCalledWith(1)
+    } finally {
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
+  })
 })
 
 function stubController(): ViewController {

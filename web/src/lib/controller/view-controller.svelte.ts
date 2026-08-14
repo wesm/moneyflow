@@ -119,7 +119,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
           ensureVisibleWindow(await options.client.transition(body, activeRequest?.signal)),
         (next) => {
           if (action.action === 'view.back') {
-            const delta = ledger.deltaTo(next.canonical_query, browserHistory.state)
+            const delta = ledger.deltaTo(next.canonical_query, next.selection, browserHistory.state)
             if (delta !== undefined) {
               browserHistory.go(delta)
               return

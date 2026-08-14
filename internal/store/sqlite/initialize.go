@@ -12,7 +12,7 @@ import (
 )
 
 // CurrentSchemaVersion is the only schema version this pre-stability binary opens.
-const CurrentSchemaVersion = 1
+const CurrentSchemaVersion = 2
 
 //go:embed schema/profile.sql
 var currentProfileSchema string
@@ -120,13 +120,13 @@ type schemaQueryer interface {
 }
 
 func inspectSchema(ctx context.Context, queryer schemaQueryer) (schemaState, error) {
-	var tableCount int
+	var objectCount int
 	if err := queryer.QueryRowContext(ctx, `
 		SELECT count(*) FROM sqlite_schema
-		WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tableCount); err != nil {
+		WHERE name NOT LIKE 'sqlite_%'`).Scan(&objectCount); err != nil {
 		return schemaEmpty, err
 	}
-	if tableCount == 0 {
+	if objectCount == 0 {
 		return schemaEmpty, nil
 	}
 	var metadataCount int
@@ -136,6 +136,15 @@ func inspectSchema(ctx context.Context, queryer schemaQueryer) (schemaState, err
 		return schemaEmpty, err
 	}
 	if metadataCount != 1 {
+		var legacyCount int
+		if err := queryer.QueryRowContext(ctx, `
+			SELECT count(*) FROM sqlite_schema
+			WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&legacyCount); err != nil {
+			return schemaEmpty, err
+		}
+		if legacyCount == 1 {
+			return schemaOlder, nil
+		}
 		return schemaEmpty, store.NewError(store.CodeStoreCorrupt, errors.New("schema metadata is missing"))
 	}
 	var version int

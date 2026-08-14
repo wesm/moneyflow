@@ -169,6 +169,100 @@ func TestFoldRejectsStaleRevisionAndChangedActivePrefixAtomically(t *testing.T) 
 	assert.Equal(t, before, after)
 }
 
+func TestFoldRejectsEffectiveStateNotProducedByStoredJournal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	revision, err := profile.Append(ctx, 1, draftFoldMerchantLabelOperation(1))
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	plan.Effective.Transactions[0].Amount.Minor++
+
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestFoldAllowsReusingLabelsReleasedByEarlierRetirements(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*testing.T, domain.ProfileSnapshot) []domain.Operation{
+		"merchant": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			transaction := snapshot.Committed.Transactions[0]
+			source := merchantRecord(t, snapshot.Committed, transaction.MerchantID)
+			destination := firstOtherActiveMerchant(t, snapshot.Committed, source.ID)
+			return []domain.Operation{
+				draftFoldMerchantMergeOperation(1, source.ID, destination.ID),
+				{
+					ID: "operation_reuse_merchant", Type: domain.OperationMerchantReassign,
+					PayloadVersion: 1, CreatedRevision: 2, CreatedAt: foldOperationTime(),
+					Targets: []domain.EntityID{transaction.ID},
+					Reassign: &domain.ReassignPayload{
+						DestinationID: "merchant_reused",
+						CreatedMerchant: &domain.Merchant{
+							ID: "merchant_reused", Label: source.Label, CollisionKey: source.CollisionKey,
+						},
+					},
+				},
+			}
+		},
+		"category": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			transaction := snapshot.Committed.Transactions[0]
+			source := categoryRecord(t, snapshot.Committed, transaction.CategoryID)
+			destination := firstOtherActiveCategory(t, snapshot.Committed, source.ID)
+			create := draftCategoryCreateOperation(2, destination.GroupID, transaction.ID)
+			create.ID = "operation_reuse_category"
+			create.Create.EntityID = "category_reused"
+			create.Create.Label = source.Label
+			create.Create.CollisionKey = source.CollisionKey
+			return []domain.Operation{
+				draftCategoryMergeOperation(1, source.ID, destination.ID), create,
+			}
+		},
+		"group": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			source, destination := firstTwoActiveGroups(t, snapshot.Committed)
+			create := draftGroupCreateOperation(2, "group_reused")
+			create.ID = "operation_reuse_group"
+			create.Create.Label = source.Label
+			create.Create.CollisionKey = source.CollisionKey
+			return []domain.Operation{
+				draftGroupMergeOperation(1, source.ID, destination.ID), create,
+			}
+		},
+	}
+	for name, operations := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile := openSeededProfile(t, DefaultOptions)
+			snapshot, err := profile.Load(ctx)
+			require.NoError(t, err)
+			revision := uint64(1)
+			for _, operation := range operations(t, snapshot) {
+				operation.CreatedRevision = revision
+				revision, err = profile.Append(ctx, revision, operation)
+				require.NoError(t, err)
+			}
+			snapshot, err = profile.Load(ctx)
+			require.NoError(t, err)
+			effective, err := app.Replay(snapshot)
+			require.NoError(t, err)
+			plan, err := app.BuildFoldPlan(effective, revision)
+			require.NoError(t, err)
+			_, err = profile.Fold(ctx, revision, plan)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestFoldConstraintFailureRollsBackCommittedRowsJournalCursorAndRevision(t *testing.T) {
 	t.Parallel()
 
@@ -225,6 +319,22 @@ func TestKnownDrillCommitBoundarySurvivesRestart(t *testing.T) {
 			Dimension: domain.DimensionGroup, Currency: "USD", Scale: 2, Key: "group_pending",
 		}
 		assert.Equal(t, app.DrillEmpty, app.ClassifyKnownDrill(effective, identity))
+
+		revision, err = handle.MoveCursor(ctx, revision, -1)
+		require.NoError(t, err)
+		undone, err := handle.Load(ctx)
+		require.NoError(t, err)
+		undoneEffective, err := app.Replay(undone)
+		require.NoError(t, err)
+		assert.Equal(t, app.DrillInvalid, app.ClassifyKnownDrill(undoneEffective, identity))
+
+		revision, err = handle.MoveCursor(ctx, revision, 1)
+		require.NoError(t, err)
+		redone, err := handle.Load(ctx)
+		require.NoError(t, err)
+		redoneEffective, err := app.Replay(redone)
+		require.NoError(t, err)
+		assert.Equal(t, app.DrillEmpty, app.ClassifyKnownDrill(redoneEffective, identity))
 
 		revision, err = handle.MoveCursor(ctx, revision, -1)
 		require.NoError(t, err)
@@ -435,6 +545,51 @@ func merchantRecord(
 	}
 	t.Fatalf("merchant %q not found", id)
 	return domain.Merchant{}
+}
+
+func firstOtherActiveMerchant(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	excluded domain.EntityID,
+) domain.Merchant {
+	t.Helper()
+	for _, merchant := range profile.Merchants {
+		if !merchant.Retired && merchant.ID != excluded {
+			return merchant
+		}
+	}
+	t.Fatal("second active merchant not found")
+	return domain.Merchant{}
+}
+
+func firstOtherActiveCategory(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	excluded domain.EntityID,
+) domain.Category {
+	t.Helper()
+	for _, category := range profile.Categories {
+		if !category.Retired && category.ID != excluded {
+			return category
+		}
+	}
+	t.Fatal("second active category not found")
+	return domain.Category{}
+}
+
+func firstTwoActiveGroups(
+	t *testing.T,
+	profile domain.CommittedProfile,
+) (domain.CategoryGroup, domain.CategoryGroup) {
+	t.Helper()
+	var groups []domain.CategoryGroup
+	for _, group := range profile.Groups {
+		if !group.Retired && !group.Protected {
+			groups = append(groups, group)
+		}
+	}
+	require.GreaterOrEqual(t, len(groups), 2)
+	return groups[0], groups[1]
 }
 
 func groupRecord(

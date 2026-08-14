@@ -226,3 +226,25 @@ func TestGroupManagerRejectsCollisionMissingReplacementRetiredIDAndSentinel(t *t
 		}
 	}
 }
+
+func TestTaxonomyLabelsAreTrimmedBeforeNoOpComparisonAndPersistence(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	_, err := app.BuildTaxonomyOperation(effective, app.MutationRequest{
+		Action: app.ActionManageCategories, ExpectedRevision: 5,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(), Input: app.EditInput{
+			Taxonomy: app.TaxonomyRename, EntityID: "category_a", Label: "  Category A  ",
+		},
+	}, operationMetadata("category_trim_noop"))
+	assertMutationCode(t, err, app.MutationInvalidOperation)
+
+	plan, err := app.BuildTaxonomyOperation(effective, app.MutationRequest{
+		Action: app.ActionManageGroups, ExpectedRevision: 5,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(), Input: app.EditInput{
+			Taxonomy: app.TaxonomyCreate, EntityID: "group_trimmed", Label: "  Trimmed Group  ",
+		},
+	}, operationMetadata("group_trimmed"))
+	require.NoError(t, err)
+	assert.Equal(t, "Trimmed Group", plan.Operation.Create.Label)
+}

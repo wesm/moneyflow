@@ -45,13 +45,13 @@ export class OwnedHistoryLedger {
     return state
   }
 
-  deltaTo(query: string, currentValue: unknown): number | undefined {
+  deltaTo(query: string, selection: SelectionValue, currentValue: unknown): number | undefined {
     const current = this.read(currentValue)
     if (!current || this.#entries.get(current.sequence)?.query !== current.query) return undefined
     for (let sequence = current.sequence - 1; sequence >= 0; sequence -= 1) {
       const entry = this.#entries.get(sequence)
       if (!entry) return undefined
-      if (entry.query === query) return sequence - current.sequence
+      if (entry.query === query && entry.selection === selection) return sequence - current.sequence
     }
     return undefined
   }

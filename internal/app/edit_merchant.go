@@ -58,11 +58,15 @@ func buildMerchantEntityEdit(
 	if !ok || source.Retired {
 		return errors.New("source merchant is retired or missing")
 	}
-	key, err := domain.CollisionKey(input.Label)
+	label, err := domain.NormalizeDisplayLabel(input.Label)
 	if err != nil {
 		return err
 	}
-	if source.Label == input.Label {
+	key, err := domain.CollisionKey(label)
+	if err != nil {
+		return err
+	}
+	if source.Label == label {
 		return errors.New("merchant label is unchanged")
 	}
 
@@ -84,7 +88,7 @@ func buildMerchantEntityEdit(
 	operation.Type = domain.OperationMerchantLabel
 	operation.Targets = []domain.EntityID{sourceID}
 	operation.Label = &domain.LabelPayload{
-		EntityID: sourceID, Label: input.Label, CollisionKey: key,
+		EntityID: sourceID, Label: label, CollisionKey: key,
 	}
 	return nil
 }
@@ -112,7 +116,14 @@ func buildMerchantReassignment(
 		}
 		return nil
 	}
-	key, err := domain.CollisionKey(input.Label)
+	if entityIDExists(profile, input.DestinationID) {
+		return errors.New("new merchant identity was already used by another entity")
+	}
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	key, err := domain.CollisionKey(label)
 	if err != nil {
 		return err
 	}
@@ -120,7 +131,7 @@ func buildMerchantReassignment(
 		return errors.New("new merchant label collides with an existing merchant")
 	}
 	operation.Reassign.CreatedMerchant = &domain.Merchant{
-		ID: input.DestinationID, Label: input.Label, CollisionKey: key,
+		ID: input.DestinationID, Label: label, CollisionKey: key,
 	}
 	return nil
 }

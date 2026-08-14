@@ -143,6 +143,66 @@ func TestReplayUsesOnlyActivePrefixAndPreservesInactiveTail(t *testing.T) {
 	assert.Equal(t, committed, effective.Committed)
 }
 
+func TestReplayRetargetsTombstonesAcrossChainedMerges(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		kind        domain.OperationType
+		firstSource domain.EntityID
+		middle      domain.EntityID
+		destination domain.EntityID
+		lookup      func(*testing.T, domain.CommittedProfile, domain.EntityID) *domain.EntityID
+	}{
+		{
+			kind: domain.OperationMerchantMerge, firstSource: "merchant_a", middle: "merchant_b",
+			destination: "merchant_c", lookup: func(t *testing.T, profile domain.CommittedProfile, id domain.EntityID) *domain.EntityID {
+				return merchantByID(t, profile, id).MergeDestination
+			},
+		},
+		{
+			kind: domain.OperationCategoryMerge, firstSource: "category_a", middle: "category_b",
+			destination: "category_c", lookup: func(t *testing.T, profile domain.CommittedProfile, id domain.EntityID) *domain.EntityID {
+				return categoryByID(t, profile, id).MergeDestination
+			},
+		},
+		{
+			kind: domain.OperationGroupMerge, firstSource: "group_a", middle: "group_b",
+			destination: "group_c", lookup: func(t *testing.T, profile domain.CommittedProfile, id domain.EntityID) *domain.EntityID {
+				return groupByID(t, profile, id).MergeDestination
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(string(test.kind), func(t *testing.T) {
+			t.Parallel()
+			profile := replayProfileWithThirdEntities(t)
+			first, err := app.ApplyOperation(profile, mergeOperation(1, test.kind, test.firstSource, test.middle))
+			require.NoError(t, err)
+			second, err := app.ApplyOperation(first, mergeOperation(2, test.kind, test.middle, test.destination))
+			require.NoError(t, err)
+			require.NotNil(t, test.lookup(t, second, test.firstSource))
+			assert.Equal(t, test.destination, *test.lookup(t, second, test.firstSource))
+		})
+	}
+}
+
+func TestGroupRetirementMovesRetiredCategories(t *testing.T) {
+	t.Parallel()
+
+	profile := replayProfileWithThirdEntities(t)
+	retired, err := app.ApplyOperation(
+		profile,
+		mergeOperation(1, domain.OperationCategoryMerge, "category_a", "category_b"),
+	)
+	require.NoError(t, err)
+	moved, err := app.ApplyOperation(
+		retired,
+		mergeOperation(2, domain.OperationGroupMerge, "group_a", "group_b"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, domain.EntityID("group_b"), categoryByID(t, moved, "category_a").GroupID)
+}
+
 func TestApplyOperationRejectsProtectedRetiredAndMismatchedTargets(t *testing.T) {
 	t.Parallel()
 
@@ -283,6 +343,22 @@ func replayProfile(t *testing.T) domain.CommittedProfile {
 			},
 		},
 	}
+	require.NoError(t, profile.Validate())
+	return profile
+}
+
+func replayProfileWithThirdEntities(t *testing.T) domain.CommittedProfile {
+	t.Helper()
+	profile := replayProfile(t)
+	profile.Merchants = append(profile.Merchants, domain.Merchant{
+		ID: "merchant_c", Label: "Merchant C", CollisionKey: "merchant c",
+	})
+	profile.Groups = append(profile.Groups, domain.CategoryGroup{
+		ID: "group_c", Label: "Group C", CollisionKey: "group c",
+	})
+	profile.Categories = append(profile.Categories, domain.Category{
+		ID: "category_c", GroupID: "group_c", Label: "Category C", CollisionKey: "category c",
+	})
 	require.NoError(t, profile.Validate())
 	return profile
 }

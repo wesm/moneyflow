@@ -56,6 +56,10 @@ Playwright 1.61.1.
 - The web remains cookie-free, has no CORS, and has one mutable canonical origin. Tokens live only
   in memory/headers and expire after one hour; URLs and browser history contain analytical state
   only.
+- The no-auth slice trusts every process able to reach its listener. Bind it to loopback and use
+  tailnet or reverse-proxy policy for access control. Filesystem hardening prevents accidental
+  exposure but does not defend a profile root beneath ancestors controlled by a malicious local
+  user; mutually untrusted same-host users are outside this slice.
 - `--external-url` path and normalized `--base-path` must match. Direct listener access remains
   readable but noncanonical-origin mutations fail with a canonical-link explanation.
 - Automatic mutation retry is allowed once for `token_expired` only. Revision conflict,
@@ -88,7 +92,8 @@ internal/domain/profile.go         committed/effective snapshots and drill ident
 internal/store/store.go            application-owned persistence interface and fold plan
 internal/store/errors.go           stable renderer-neutral storage failures
 internal/store/sqlite/             open/config, schema install, seed/load, journal, and commit
-internal/app/replay.go             full reference replay and incremental equivalence seam
+internal/replay/                   pure reference replay shared by application and fold validation
+internal/app/replay.go             application-facing replay wrapper
 internal/app/mutations.go          capability, exact target resolution, and operation construction
 internal/app/profile_service.go    revision-aware cache and store coordination
 internal/app/review.go             bounded operation summaries and target windows
@@ -542,6 +547,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 
 **Files:**
 
+- Create: `internal/replay/replay.go`
 - Create: `internal/app/replay.go`
 - Create: `internal/app/replay_test.go`
 - Create: `internal/app/replay_property_test.go`

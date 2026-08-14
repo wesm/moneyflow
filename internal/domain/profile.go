@@ -168,10 +168,13 @@ func (profile CommittedProfile) Validate() error {
 		categories[category.ID] = category
 	}
 
-	if group, ok := groups[UncategorizedGroupID]; !ok || !group.Protected || group.Retired {
+	if group, ok := groups[UncategorizedGroupID]; !ok || !group.Protected || group.Retired ||
+		group.Label != UncategorizedLabel || group.CollisionKey != UncategorizedCollisionKey {
 		return errors.New("validate profile: protected Uncategorized group is missing or invalid")
 	}
-	if category, ok := categories[UncategorizedCategoryID]; !ok || !category.Protected || category.Retired || category.GroupID != UncategorizedGroupID {
+	if category, ok := categories[UncategorizedCategoryID]; !ok || !category.Protected ||
+		category.Retired || category.GroupID != UncategorizedGroupID ||
+		category.Label != UncategorizedLabel || category.CollisionKey != UncategorizedCollisionKey {
 		return errors.New("validate profile: protected Uncategorized category is missing or invalid")
 	}
 	if err := validateActiveCollisions("account", profile.Accounts, func(value Account) (string, bool) { return value.CollisionKey, value.Retired }); err != nil {

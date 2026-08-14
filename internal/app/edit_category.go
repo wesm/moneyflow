@@ -69,10 +69,17 @@ func buildCategoryCreation(
 	profile domain.CommittedProfile,
 	input EditInput,
 ) error {
+	if input.DestinationID == "" || entityIDExists(profile, input.DestinationID) {
+		return errors.New("new category identity is empty or was already used")
+	}
 	if !activeGroupWithID(profile, input.GroupID) {
 		return errors.New("new category group is retired or missing")
 	}
-	key, err := domain.CollisionKey(input.Label)
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	key, err := domain.CollisionKey(label)
 	if err != nil {
 		return err
 	}
@@ -85,7 +92,7 @@ func buildCategoryCreation(
 	operation.Create = &domain.CreatePayload{
 		EntityType:   string(domain.EntityKindCategory),
 		EntityID:     input.DestinationID,
-		Label:        input.Label,
+		Label:        label,
 		CollisionKey: key,
 		ParentID:     input.GroupID,
 	}

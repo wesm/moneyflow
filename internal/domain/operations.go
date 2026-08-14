@@ -155,6 +155,9 @@ func (operation Operation) validate() error {
 		if operation.Merge.SourceID == "" || operation.Merge.DestinationID == "" || operation.Merge.SourceID == operation.Merge.DestinationID {
 			return errors.New("validate operation: merge payload is incomplete")
 		}
+		if err := validateOnlyTarget(operation.Targets, operation.Merge.SourceID); err != nil {
+			return err
+		}
 	case OperationMerchantReassign, OperationCategoryAssign:
 		if operation.Reassign == nil || operation.Reassign.DestinationID == "" {
 			return errors.New("validate operation: reassign payload is incomplete")
@@ -178,13 +181,24 @@ func (operation Operation) validate() error {
 		if err := validateCreatePayload(operation.Type, *operation.Create); err != nil {
 			return err
 		}
+		if operation.Type == OperationGroupCreate {
+			if err := validateOnlyTarget(operation.Targets, operation.Create.EntityID); err != nil {
+				return err
+			}
+		}
 	case OperationCategoryMove:
 		if operation.Move == nil || operation.Move.EntityID == "" || operation.Move.DestinationID == "" {
 			return errors.New("validate operation: move payload is incomplete")
 		}
+		if err := validateOnlyTarget(operation.Targets, operation.Move.EntityID); err != nil {
+			return err
+		}
 	case OperationCategoryDelete, OperationGroupDelete:
 		if operation.Delete == nil || operation.Delete.SourceID == "" || operation.Delete.ReplacementID == "" || operation.Delete.SourceID == operation.Delete.ReplacementID {
 			return errors.New("validate operation: delete payload is incomplete")
+		}
+		if err := validateOnlyTarget(operation.Targets, operation.Delete.SourceID); err != nil {
+			return err
 		}
 	case OperationTransactionHide:
 		if operation.HideToggle == nil {
@@ -192,6 +206,13 @@ func (operation Operation) validate() error {
 		}
 	default:
 		return fmt.Errorf("validate operation: unknown type %q", operation.Type)
+	}
+	return nil
+}
+
+func validateOnlyTarget(targets []EntityID, expected EntityID) error {
+	if len(targets) != 1 || targets[0] != expected {
+		return errors.New("validate operation: target does not match payload")
 	}
 	return nil
 }

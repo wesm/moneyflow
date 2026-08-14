@@ -85,7 +85,11 @@ func buildManagedCategoryCreate(
 	if !activeGroupWithID(profile, input.GroupID) {
 		return errors.New("new category group is retired or missing")
 	}
-	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindCategory, "", input.Label)
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindCategory, "", label)
 	if err != nil {
 		return err
 	}
@@ -93,7 +97,7 @@ func buildManagedCategoryCreate(
 	operation.Targets = []domain.EntityID{input.EntityID}
 	operation.Create = &domain.CreatePayload{
 		EntityType: string(domain.EntityKindCategory), EntityID: input.EntityID,
-		Label: input.Label, CollisionKey: key, ParentID: input.GroupID,
+		Label: label, CollisionKey: key, ParentID: input.GroupID,
 	}
 	return nil
 }
@@ -107,14 +111,18 @@ func buildManagedCategoryRename(
 	if err != nil {
 		return err
 	}
-	if category.Label == input.Label {
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	if category.Label == label {
 		return errors.New("category label is unchanged")
 	}
 	key, err := availableTaxonomyCollisionKey(
 		profile,
 		domain.EntityKindCategory,
 		category.ID,
-		input.Label,
+		label,
 	)
 	if err != nil {
 		return err
@@ -122,7 +130,7 @@ func buildManagedCategoryRename(
 	operation.Type = domain.OperationCategoryLabel
 	operation.Targets = []domain.EntityID{category.ID}
 	operation.Label = &domain.LabelPayload{
-		EntityID: category.ID, Label: input.Label, CollisionKey: key,
+		EntityID: category.ID, Label: label, CollisionKey: key,
 	}
 	return nil
 }
@@ -228,7 +236,11 @@ func buildManagedGroupCreate(
 	if input.EntityID == "" || entityIDExists(profile, input.EntityID) {
 		return errors.New("group identity is empty or was already used")
 	}
-	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindGroup, "", input.Label)
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindGroup, "", label)
 	if err != nil {
 		return err
 	}
@@ -236,7 +248,7 @@ func buildManagedGroupCreate(
 	operation.Targets = []domain.EntityID{input.EntityID}
 	operation.Create = &domain.CreatePayload{
 		EntityType: string(domain.EntityKindGroup), EntityID: input.EntityID,
-		Label: input.Label, CollisionKey: key,
+		Label: label, CollisionKey: key,
 	}
 	return nil
 }
@@ -250,17 +262,21 @@ func buildManagedGroupRename(
 	if err != nil {
 		return err
 	}
-	if group.Label == input.Label {
+	label, err := domain.NormalizeDisplayLabel(input.Label)
+	if err != nil {
+		return err
+	}
+	if group.Label == label {
 		return errors.New("group label is unchanged")
 	}
-	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindGroup, group.ID, input.Label)
+	key, err := availableTaxonomyCollisionKey(profile, domain.EntityKindGroup, group.ID, label)
 	if err != nil {
 		return err
 	}
 	operation.Type = domain.OperationGroupLabel
 	operation.Targets = []domain.EntityID{group.ID}
 	operation.Label = &domain.LabelPayload{
-		EntityID: group.ID, Label: input.Label, CollisionKey: key,
+		EntityID: group.ID, Label: label, CollisionKey: key,
 	}
 	return nil
 }

@@ -63,6 +63,48 @@ func TestOpenRejectsIncompatibleSchemaWithoutUpgrading(t *testing.T) {
 	}
 }
 
+func TestOpenRecognizesLegacyMigrationTableAsOlderWithoutModifyingIt(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	require.NoError(t, home.PrepareDatabase(paths))
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	_, err = database.ExecContext(context.Background(), `
+		CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY) STRICT;
+		INSERT INTO schema_migrations(version) VALUES (1)`)
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+
+	opened, err := Open(context.Background(), paths, DefaultOptions)
+	assert.Nil(t, opened)
+	assertStoreCode(t, err, store.CodeSchemaIncompatible)
+
+	database, err = sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	var count int
+	require.NoError(t, database.QueryRowContext(context.Background(),
+		"SELECT count(*) FROM schema_migrations").Scan(&count))
+	assert.Equal(t, 1, count)
+}
+
+func TestOpenRejectsDatabaseContainingOnlyAUserView(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	require.NoError(t, home.PrepareDatabase(paths))
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	_, err = database.ExecContext(context.Background(), "CREATE VIEW existing_view AS SELECT 1 AS value")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+
+	opened, err := Open(context.Background(), paths, DefaultOptions)
+	assert.Nil(t, opened)
+	assertStoreCode(t, err, store.CodeStoreCorrupt)
+}
+
 func TestOpenRejectsCorruptDatabase(t *testing.T) {
 	t.Parallel()
 

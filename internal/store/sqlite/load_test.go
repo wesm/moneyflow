@@ -75,3 +75,23 @@ func TestLoadRejectsInvalidStoredMetadataShape(t *testing.T) {
 	_, err = profile.Load(ctx)
 	assertStoreCode(t, err, store.CodeStoreCorrupt)
 }
+
+func TestLoadRejectsJournalHeaderWithoutPayloadEvenWhenInactive(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profileStore, err := Open(ctx, temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	_, err = profile.CreateSeededProfile(ctx, fixtureProfile(t))
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO journal_operations(
+			id, sequence, operation_type, payload_version, creation_revision, created_at_unix_ms
+		) VALUES ('operation_missing_payload', 1, 'transaction.hide-toggle', 1, 1, 1)`)
+	require.NoError(t, err)
+
+	_, err = profile.Load(ctx)
+	assertStoreCode(t, err, store.CodeStoreCorrupt)
+}

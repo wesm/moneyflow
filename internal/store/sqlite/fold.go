@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -49,6 +50,25 @@ func (profile *profile) Fold(
 		return 0, store.NewError(
 			store.CodeInvalidOperation,
 			errors.New("fold active operation prefix changed"),
+		)
+	}
+	replayed, err := profilereplay.Replay(snapshot)
+	if err != nil {
+		return 0, store.NewError(store.CodeStoreCorrupt, err)
+	}
+	authoritativeDrills, err := profilereplay.KnownDrillsForFold(
+		snapshot.KnownDrills,
+		replayed.Effective,
+		snapshot.Journal[:cursor],
+	)
+	if err != nil {
+		return 0, store.NewError(store.CodeStoreCorrupt, err)
+	}
+	if !reflect.DeepEqual(plan.Effective, replayed.Effective) ||
+		!reflect.DeepEqual(plan.KnownDrills, authoritativeDrills) {
+		return 0, store.NewError(
+			store.CodeInvalidOperation,
+			errors.New("fold plan does not match authoritative journal replay"),
 		)
 	}
 	if err = validateFoldShape(snapshot, plan); err != nil {
@@ -162,6 +182,9 @@ func applyFold(
 	connection *sql.Conn,
 	before, after domain.CommittedProfile,
 ) error {
+	if err := releaseFoldCollisionKeys(ctx, connection, before, after); err != nil {
+		return err
+	}
 	statements, err := prepareFoldStatements(ctx, connection)
 	if err != nil {
 		return mapDriverError(err, store.CodeStoreError)
@@ -177,6 +200,63 @@ func applyFold(
 		return err
 	}
 	return foldTransactions(ctx, statements, before.Transactions, after.Transactions)
+}
+
+func releaseFoldCollisionKeys(
+	ctx context.Context,
+	connection *sql.Conn,
+	before, after domain.CommittedProfile,
+) error {
+	merchantAfter := make(map[domain.EntityID]domain.Merchant, len(after.Merchants))
+	for _, value := range after.Merchants {
+		merchantAfter[value.ID] = value
+	}
+	for _, value := range before.Merchants {
+		next := merchantAfter[value.ID]
+		if !value.Retired && (next.Retired || next.CollisionKey != value.CollisionKey) {
+			if err := releaseFoldCollisionKey(ctx, connection, "merchants", value.ID); err != nil {
+				return err
+			}
+		}
+	}
+	groupAfter := make(map[domain.EntityID]domain.CategoryGroup, len(after.Groups))
+	for _, value := range after.Groups {
+		groupAfter[value.ID] = value
+	}
+	for _, value := range before.Groups {
+		next := groupAfter[value.ID]
+		if !value.Retired && (next.Retired || next.CollisionKey != value.CollisionKey) {
+			if err := releaseFoldCollisionKey(ctx, connection, "category_groups", value.ID); err != nil {
+				return err
+			}
+		}
+	}
+	categoryAfter := make(map[domain.EntityID]domain.Category, len(after.Categories))
+	for _, value := range after.Categories {
+		categoryAfter[value.ID] = value
+	}
+	for _, value := range before.Categories {
+		next := categoryAfter[value.ID]
+		if !value.Retired && (next.Retired || next.CollisionKey != value.CollisionKey) {
+			if err := releaseFoldCollisionKey(ctx, connection, "categories", value.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func releaseFoldCollisionKey(
+	ctx context.Context,
+	connection *sql.Conn,
+	table string,
+	id domain.EntityID,
+) error {
+	query := "UPDATE " + table + " SET collision_key = ? WHERE id = ?" //nolint:gosec // table is an internal constant.
+	if _, err := connection.ExecContext(ctx, query, "\x1fmoneyflow-fold:"+string(id), id); err != nil {
+		return mapDriverError(err, store.CodeStoreError)
+	}
+	return nil
 }
 
 type foldStatements struct {

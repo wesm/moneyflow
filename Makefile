@@ -81,7 +81,7 @@ web-test:
 web-budgets:
 	bun run --cwd web budgets
 
-web-e2e:
+web-e2e: web-build
 	bun run --cwd web test:e2e -- --project=chromium
 	bun run --cwd web test:e2e -- --project=firefox --grep @smoke
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke

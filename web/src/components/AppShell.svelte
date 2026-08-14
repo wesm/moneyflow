@@ -80,6 +80,9 @@
     popChartScope = open ? shortcuts?.manager.pushScope('charts') : undefined
     chartDrawer = open
   }
+  $effect(() => {
+    if (!compact.current && chartDrawer) setChartDrawer(false)
+  })
   onMount(() => {
     if (!projection) return
     shortcuts = createMoneyflowShortcuts(projection.capabilities ?? [], {

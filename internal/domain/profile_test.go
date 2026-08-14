@@ -76,3 +76,34 @@ func TestDrillIdentityCanonicalKeyValidatesCompletePartition(t *testing.T) {
 		assert.Error(t, err)
 	}
 }
+
+func TestCommittedProfileRejectsRenamedProtectedSentinels(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*CommittedProfile){
+		"group label": func(profile *CommittedProfile) {
+			for index := range profile.Groups {
+				if profile.Groups[index].ID == UncategorizedGroupID {
+					profile.Groups[index].Label = "Other"
+					profile.Groups[index].CollisionKey = "other"
+				}
+			}
+		},
+		"category label": func(profile *CommittedProfile) {
+			for index := range profile.Categories {
+				if profile.Categories[index].ID == UncategorizedCategoryID {
+					profile.Categories[index].Label = "Other"
+					profile.Categories[index].CollisionKey = "other"
+				}
+			}
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			profile := validCommittedProfile(t)
+			mutate(&profile)
+			assert.ErrorContains(t, profile.Validate(), "Uncategorized")
+		})
+	}
+}

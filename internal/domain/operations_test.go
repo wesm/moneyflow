@@ -52,6 +52,25 @@ func TestOperationRejectsInvalidUnionOrTargets(t *testing.T) {
 	}
 }
 
+func TestStructuralOperationsRequirePayloadSourceAsTheirOnlyTarget(t *testing.T) {
+	t.Parallel()
+
+	for name, operation := range validOperations() {
+		switch operation.Type {
+		case OperationMerchantMerge, OperationCategoryMove, OperationCategoryMerge,
+			OperationCategoryDelete, OperationGroupCreate, OperationGroupMerge,
+			OperationGroupDelete:
+		default:
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			operation.Targets = []EntityID{"contradictory_target"}
+			assert.ErrorContains(t, operation.ValidateDraft(), "target")
+		})
+	}
+}
+
 func TestOperationCloneOwnsTargetsAndNestedPayload(t *testing.T) {
 	t.Parallel()
 

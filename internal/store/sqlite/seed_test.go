@@ -119,6 +119,32 @@ func TestSeedStoresMoneyAsSQLiteInteger(t *testing.T) {
 	assert.Zero(t, nonIntegers)
 }
 
+func TestSeedAcceptsRetiredEntitiesOrderedBeforeTheirMergeDestination(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profileStore, err := Open(ctx, temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	committed := fixtureProfile(t)
+	destination := committed.Merchants[0].ID
+	sourceID := domain.EntityID("merchant_000_before_destination")
+	committed.Merchants = append([]domain.Merchant{{
+		ID: sourceID, Label: "Retired Merchant", CollisionKey: "retired merchant",
+		Retired: true, MergeDestination: &destination,
+	}}, committed.Merchants...)
+	require.NoError(t, committed.Validate())
+
+	_, err = profile.CreateSeededProfile(ctx, committed)
+	require.NoError(t, err)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	seeded := merchantRecord(t, loaded.Committed, sourceID)
+	require.NotNil(t, seeded.MergeDestination)
+	assert.Equal(t, destination, *seeded.MergeDestination)
+}
+
 func fixtureProfile(t *testing.T) domain.CommittedProfile {
 	t.Helper()
 	transactions, err := fixture.Load(filepath.Join(

@@ -95,3 +95,25 @@ func TestCategoryAssignmentRejectsCollisionAndRetiredDestination(t *testing.T) {
 	_, err = app.BuildCategoryAssignment(retired, base, operationMetadata("category_retired"))
 	assertMutationCode(t, err, app.MutationInvalidTarget)
 }
+
+func TestCategoryCreationNormalizesLabelAndRejectsCrossKindID(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveForMutation(t, 5)
+	request := app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, State: detailViewState(),
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "merchant_a",
+			Label: "  New Category  ", GroupID: "group_a",
+		},
+	}
+	_, err := app.BuildCategoryAssignment(effective, request, operationMetadata("category_cross_kind"))
+	assertMutationCode(t, err, app.MutationInvalidOperation)
+
+	request.Input.DestinationID = "category_new"
+	plan, err := app.BuildCategoryAssignment(effective, request, operationMetadata("category_trimmed"))
+	require.NoError(t, err)
+	assert.Equal(t, "New Category", plan.Operation.Create.Label)
+}

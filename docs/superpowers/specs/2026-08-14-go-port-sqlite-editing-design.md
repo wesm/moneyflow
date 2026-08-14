@@ -132,10 +132,12 @@ Svelte web ── Huma HTTP adapter ───┤
                   committed entities + operation journal
 ```
 
-The application service remains the only owner of editing semantics, target resolution,
-capabilities, journal replay, and commit behavior. Renderers collect input and display returned
-state. The store owns SQL and atomic persistence. Analytics consumes ordinary domain slices and
-does not know how they were loaded or edited.
+The application layer remains the only owner of editing semantics, target resolution,
+capabilities, journal replay, and commit behavior. Its pure deterministic replay engine lives in
+`internal/replay` so the application service and the SQLite commit transaction can use the exact
+same reference implementation. Renderers collect input and display returned state. The store owns
+SQL and atomic persistence. Analytics consumes ordinary domain slices and does not know how they
+were loaded or edited.
 
 No request holds a database read transaction while rendering, waiting for input, or serving a
 windowed projection. Each process holds an immutable effective snapshot outside SQLite and checks
@@ -149,7 +151,8 @@ internal/home/          canonical v2 paths and filesystem protection
 internal/store/         application-owned persistence contract
 internal/store/sqlite/  driver setup, current-schema installation, journal, and snapshots
 internal/domain/        persistent entities, money, and typed operations
-internal/app/           replay, target resolution, capabilities, review, and commit
+internal/replay/        pure deterministic journal replay shared by application and commit checks
+internal/app/           target resolution, capabilities, review, and commit coordination
 internal/api/           Huma mutation types, security, and error mapping
 internal/tui/           Bubble Tea editing overlays and review presentation
 internal/fixture/       committed synthetic seed source
@@ -183,6 +186,12 @@ Path handling follows the hardened Docbank conventions:
 - apply an owner-restricted DACL on Windows
 - pre-create the private database file so SQLite WAL and SHM siblings inherit its protection
 - reject a database path that resolves outside the selected root
+
+These controls protect accidental exposure and ordinary at-rest access; they do not claim to
+defend against a malicious same-host principal that controls an ancestor of the configured root.
+The operator must choose a root beneath trusted ancestors. Supporting mutually untrusted operating
+system users on one host would require a separate authenticated transport and filesystem design
+and is outside this no-auth slice.
 
 Application-level database encryption is not a requirement. Transaction data uses ordinary
 SQLite protected by filesystem permissions and the host's full-disk encryption where available.
@@ -618,6 +627,12 @@ send SQLite rows, provider metadata, complete datasets, or private operation pay
 
 The server sets no authentication cookies and supports no CORS. Tailnet policy, TLS, and optional
 proxy authentication remain external responsibilities.
+
+The no-auth design deliberately trusts every principal that can connect to the HTTP listener,
+including another local process. Bind only to loopback and expose it through the approved tailnet
+or trusted reverse proxy; deployments with untrusted same-host users must add authentication at
+that proxy or not run this slice. Origin, Fetch Metadata, and mutation tokens defend browser
+request-forgery paths, not direct clients, and are not represented as user authentication.
 
 The web command supports the existing listener and base path plus:
 

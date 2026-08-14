@@ -121,7 +121,7 @@ func insertSeed(
 	for _, merchant := range profile.Merchants {
 		if _, err = statements.merchant.ExecContext(ctx,
 			merchant.ID, merchant.Label, merchant.CollisionKey, booleanInteger(merchant.Retired),
-			nullableEntityID(merchant.MergeDestination)); err != nil {
+			nil); err != nil {
 			return err
 		}
 	}
@@ -131,7 +131,7 @@ func insertSeed(
 		}
 		if _, err = statements.group.ExecContext(ctx,
 			group.ID, group.Label, group.CollisionKey, booleanInteger(group.Retired),
-			booleanInteger(group.Protected), nullableEntityID(group.MergeDestination)); err != nil {
+			booleanInteger(group.Protected), nil); err != nil {
 			return err
 		}
 	}
@@ -142,7 +142,35 @@ func insertSeed(
 		if _, err = statements.category.ExecContext(ctx,
 			category.ID, category.GroupID, category.Label, category.CollisionKey,
 			booleanInteger(category.Retired), booleanInteger(category.Protected),
-			nullableEntityID(category.MergeDestination)); err != nil {
+			nil); err != nil {
+			return err
+		}
+	}
+	for _, merchant := range profile.Merchants {
+		if merchant.MergeDestination == nil {
+			continue
+		}
+		if _, err = statements.merchantMerge.ExecContext(
+			ctx, *merchant.MergeDestination, merchant.ID,
+		); err != nil {
+			return err
+		}
+	}
+	for _, group := range profile.Groups {
+		if group.MergeDestination == nil {
+			continue
+		}
+		if _, err = statements.groupMerge.ExecContext(ctx, *group.MergeDestination, group.ID); err != nil {
+			return err
+		}
+	}
+	for _, category := range profile.Categories {
+		if category.MergeDestination == nil {
+			continue
+		}
+		if _, err = statements.categoryMerge.ExecContext(
+			ctx, *category.MergeDestination, category.ID,
+		); err != nil {
 			return err
 		}
 	}
@@ -183,6 +211,9 @@ type seedStatements struct {
 	transaction      *sql.Stmt
 	externalIdentity *sql.Stmt
 	knownDrill       *sql.Stmt
+	merchantMerge    *sql.Stmt
+	groupMerge       *sql.Stmt
+	categoryMerge    *sql.Stmt
 }
 
 func prepareSeedStatements(ctx context.Context, connection *sql.Conn) (*seedStatements, error) {
@@ -216,6 +247,12 @@ func prepareSeedStatements(ctx context.Context, connection *sql.Conn) (*seedStat
 		{&statements.knownDrill, `
 			INSERT INTO known_drills(dimension, currency, scale, identity_key)
 			VALUES (?, ?, ?, ?)`},
+		{&statements.merchantMerge,
+			"UPDATE merchants SET merge_destination_id = ? WHERE id = ?"},
+		{&statements.groupMerge,
+			"UPDATE category_groups SET merge_destination_id = ? WHERE id = ?"},
+		{&statements.categoryMerge,
+			"UPDATE categories SET merge_destination_id = ? WHERE id = ?"},
 	}
 	for _, candidate := range queries {
 		prepared, err := connection.PrepareContext(ctx, candidate.query)
@@ -237,6 +274,9 @@ func (statements *seedStatements) close() {
 		statements.transaction,
 		statements.externalIdentity,
 		statements.knownDrill,
+		statements.merchantMerge,
+		statements.groupMerge,
+		statements.categoryMerge,
 	} {
 		if statement != nil {
 			_ = statement.Close()
