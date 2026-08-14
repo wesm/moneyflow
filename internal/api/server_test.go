@@ -215,7 +215,7 @@ func apiTransaction(t testing.TB) domain.Transaction {
 		ID: "txn-1", ProviderID: "provider-txn-1", Provider: "fixture",
 		Account: domain.EntityRef{ID: "account-card", Name: "Account Name"}, Date: date,
 		Merchant: domain.EntityRef{ID: "merchant-example", Name: "Example Merchant"},
-		Category: domain.CategoryRef{ID: "category-example", Name: "Example Category", Group: "Example Group"},
+		Category: domain.CategoryRef{ID: "category-example", Name: "Example Category", GroupID: "group-example", Group: "Example Group"},
 		Amount:   money,
 	})
 	require.NoError(t, err)

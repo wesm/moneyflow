@@ -1,7 +1,10 @@
 """Strict loader and existing-Polars adapter for the shared parity fixture."""
 
+import base64
+import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -40,6 +43,14 @@ class FixtureDocument:
 
     currencies: dict[str, int]
     transactions: tuple[dict[str, Any], ...]
+
+
+def synthetic_group_id(label: str) -> str:
+    """Derive the Go fixture adapter's stable group identity without changing fixture schema."""
+    collision_key = " ".join(unicodedata.normalize("NFKC", label).split()).casefold()
+    digest = hashlib.sha256(b"fixture-group\0" + collision_key.encode()).digest()[:16]
+    encoded = base64.b32encode(digest).decode().rstrip("=").lower()
+    return f"group-synthetic-{encoded}"
 
 
 def load_document(path: Path) -> FixtureDocument:

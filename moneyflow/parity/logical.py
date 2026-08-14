@@ -11,7 +11,12 @@ from typing import Any
 import polars as pl
 
 from moneyflow.data.state import AppState, SortDirection, SortMode, TimeGranularity, ViewMode
-from moneyflow.parity.fixture import FixtureDocument, adapt_to_polars, load_document
+from moneyflow.parity.fixture import (
+    FixtureDocument,
+    adapt_to_polars,
+    load_document,
+    synthetic_group_id,
+)
 from moneyflow.tui.formatters import ViewPresenter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -386,6 +391,8 @@ def _aggregate_key(row: dict[str, Any], dimension: str) -> str:
         return str(row[f"{dimension}_id"])
     if dimension == "time":
         return str(row["time_period_display"])
+    if dimension == "group":
+        return synthetic_group_id(str(row["group"]))
     return str(row[dimension])
 
 

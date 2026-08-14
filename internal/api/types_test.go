@@ -47,7 +47,7 @@ func TestWireProjectionOmitsProviderAndPrivateDomainData(t *testing.T) {
 				ID: "txn-safe", ProviderID: "private-provider-id", Provider: "private-provider",
 				Date: date, Account: domain.EntityRef{ID: "account-id", Name: "Account Name"},
 				Merchant: domain.EntityRef{ID: "merchant-id", Name: "Example Merchant"},
-				Category: domain.CategoryRef{ID: "category-id", Name: "Example Category", Group: "Example Group"},
+				Category: domain.CategoryRef{ID: "category-id", Name: "Example Category", GroupID: "group-id", Group: "Example Group"},
 				Amount:   domain.Money{Minor: -1234, Currency: "USD", Scale: 2},
 				Notes:    "private note", Metadata: map[string]string{"private": "value"},
 			}, Flags: domain.RowFlags{Selected: true}},

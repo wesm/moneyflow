@@ -52,7 +52,7 @@ func TestAggregateDimensionsAndHiddenSemantics(t *testing.T) {
 
 	groupRows, err := Aggregate(transactions, domain.DimensionGroup, domain.TimeGranularityYear)
 	require.NoError(t, err)
-	assert.Equal(t, "Living", groupRows[0].Key)
+	assert.Equal(t, "group-living", groupRows[0].Key)
 	assert.Equal(t, "Living", groupRows[0].Label)
 }
 

@@ -72,7 +72,7 @@ func matchesDrilldown(transaction domain.Transaction, drilldown domain.Drilldown
 	case domain.DimensionCategory:
 		return transaction.Category.ID == drilldown.Key
 	case domain.DimensionGroup:
-		return transaction.Category.Group == drilldown.Key
+		return transaction.Category.GroupID == drilldown.Key
 	case domain.DimensionAccount:
 		return transaction.Account.ID == drilldown.Key
 	case domain.DimensionTime:

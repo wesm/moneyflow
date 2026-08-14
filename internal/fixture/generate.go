@@ -57,6 +57,10 @@ func Generate(seed int64, count int) []domain.Transaction {
 			category.id = "category-transfer"
 			category.name = "Transfer"
 		}
+		groupID, groupErr := syntheticGroupID(category.group)
+		if groupErr != nil {
+			panic("fixture generator has an invalid fixed group")
+		}
 		dayOffset := 2_191 - index*2_192/count
 		date, dateErr := baseDate.AddDays(dayOffset)
 		if dateErr != nil {
@@ -81,7 +85,9 @@ func Generate(seed int64, count int) []domain.Transaction {
 			Merchant: domain.EntityRef{
 				ID: fmt.Sprintf("merchant-%03d", merchantIndex), Name: fmt.Sprintf("Merchant %03d", merchantIndex),
 			},
-			Category: domain.CategoryRef{ID: category.id, Name: category.name, Group: category.group},
+			Category: domain.CategoryRef{
+				ID: category.id, Name: category.name, GroupID: groupID, Group: category.group,
+			},
 			Amount:   domain.Money{Minor: magnitude, Currency: currency.code, Scale: currency.scale},
 			Hidden:   random.Intn(20) == 0,
 			Pending:  random.Intn(25) == 0,

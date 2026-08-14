@@ -9,9 +9,13 @@ import polars as pl
 import pytest
 
 from moneyflow.data.data_manager import TRANSACTION_SCHEMA
-from moneyflow.parity.fixture import adapt_to_polars, load_document
+from moneyflow.parity.fixture import adapt_to_polars, load_document, synthetic_group_id
 
 PARITY_FIXTURE = Path("testdata/parity/transactions.json")
+
+
+def test_synthetic_group_id_matches_go_fixture_adapter() -> None:
+    assert synthetic_group_id("  LIVING  ") == ("group-synthetic-y5ivhjfvyvob7hmorb76h7vix4")
 
 
 def test_loads_shared_fixture_and_adapts_existing_schema(tmp_path: Path) -> None:

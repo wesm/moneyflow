@@ -118,9 +118,11 @@ func appTransaction(
 		Account:    domain.EntityRef{ID: "account-card", Name: "Everyday Card"},
 		Date:       date,
 		Merchant:   domain.EntityRef{ID: "merchant-" + merchant, Name: merchant},
-		Category:   domain.CategoryRef{ID: "category-" + category, Name: category, Group: group},
-		Amount:     amount,
-		Metadata:   map[string]string{"source": "fixture"},
+		Category: domain.CategoryRef{
+			ID: "category-" + category, Name: category, GroupID: "group-" + group, Group: group,
+		},
+		Amount:   amount,
+		Metadata: map[string]string{"source": "fixture"},
 	})
 	require.NoError(t, err)
 	return transaction

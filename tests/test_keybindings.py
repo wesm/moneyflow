@@ -30,3 +30,10 @@ def test_help_has_no_conflicting_active_keys() -> None:
         actions_by_key.setdefault(binding.key, set()).add(binding.action)
 
     assert {key: actions for key, actions in actions_by_key.items() if len(actions) > 1} == {}
+
+
+def test_help_describes_complete_category_and_group_managers() -> None:
+    descriptions = {binding.key: binding.description for binding in KEYBINDINGS}
+
+    assert descriptions["C"] == "Manage categories (create, rename, move, merge, delete)"
+    assert descriptions["G"] == "Manage category groups (create, rename, merge, delete)"

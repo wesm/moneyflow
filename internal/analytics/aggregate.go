@@ -103,7 +103,7 @@ func dimensionValue(transaction domain.Transaction, dimension domain.Dimension) 
 	case domain.DimensionCategory:
 		return transaction.Category.ID, transaction.Category.Name
 	case domain.DimensionGroup:
-		return transaction.Category.Group, transaction.Category.Group
+		return transaction.Category.GroupID, transaction.Category.Group
 	case domain.DimensionAccount:
 		return transaction.Account.ID, transaction.Account.Name
 	default:

@@ -46,11 +46,26 @@ func TestLoadValidDocument(t *testing.T) {
 	require.Len(t, transactions, 1)
 	assert.Equal(t, int64(-1234), transactions[0].Amount.Minor)
 	assert.Equal(t, "2024-02-29", transactions[0].Date.String())
+	assert.NotEmpty(t, transactions[0].Category.GroupID)
 
 	transactions[0].Metadata["source"] = "changed"
 	again, err := Load(writeDocument(t, validDocument))
 	require.NoError(t, err)
 	assert.Equal(t, "fixture", again[0].Metadata["source"])
+}
+
+func TestDecodeDerivesStableGroupIdentityFromLegacyFixtureLabel(t *testing.T) {
+	t.Parallel()
+
+	first, err := Decode(strings.NewReader(validDocument))
+	require.NoError(t, err)
+	second, err := Decode(strings.NewReader(validDocument))
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.Len(t, second, 1)
+	assert.Equal(t, first[0].Category.GroupID, second[0].Category.GroupID)
+	assert.Equal(t, "group-synthetic-y5ivhjfvyvob7hmorb76h7vix4", first[0].Category.GroupID)
+	assert.NotEqual(t, first[0].Category.Group, first[0].Category.GroupID)
 }
 
 func TestLoadSharedParityCorpus(t *testing.T) {

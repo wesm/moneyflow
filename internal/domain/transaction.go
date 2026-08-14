@@ -13,9 +13,10 @@ type EntityRef struct {
 
 // CategoryRef identifies a normalized category and its group.
 type CategoryRef struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Group string `json:"group"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	GroupID string `json:"group_id"`
+	Group   string `json:"group"`
 }
 
 // Transaction is a normalized provider transaction.
@@ -49,6 +50,7 @@ func NewTransaction(transaction Transaction) (Transaction, error) {
 		{"merchant.name", transaction.Merchant.Name},
 		{"category.id", transaction.Category.ID},
 		{"category.name", transaction.Category.Name},
+		{"category.group_id", transaction.Category.GroupID},
 		{"category.group", transaction.Category.Group},
 	}
 	for _, field := range required {

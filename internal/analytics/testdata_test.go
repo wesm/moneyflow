@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,9 +30,12 @@ func testTransaction(
 		Account:    domain.EntityRef{ID: "account-card", Name: "Everyday Card"},
 		Date:       date,
 		Merchant:   domain.EntityRef{ID: "merchant-" + id, Name: merchant},
-		Category:   domain.CategoryRef{ID: "category-" + id, Name: category, Group: group},
-		Amount:     money,
-		Metadata:   map[string]string{"source": "test"},
+		Category: domain.CategoryRef{
+			ID: "category-" + id, Name: category,
+			GroupID: "group-" + strings.ToLower(strings.ReplaceAll(group, " ", "-")), Group: group,
+		},
+		Amount:   money,
+		Metadata: map[string]string{"source": "test"},
 	})
 	require.NoError(t, err)
 	return transaction

@@ -16,6 +16,7 @@ from textual.widgets import Checkbox, DataTable, Input
 
 from moneyflow.data.state import SortDirection, SortMode, TimeGranularity, ViewMode
 from moneyflow.parity.backend import FixtureBackend
+from moneyflow.parity.fixture import synthetic_group_id
 from moneyflow.parity.logical import canonical_json
 from moneyflow.tui.app import MoneyflowApp
 from moneyflow.tui.backend_config import MONARCH_CONFIG
@@ -181,8 +182,8 @@ def _aggregate_label(key: str, dimension: str, backend: FixtureBackend) -> str:
             return transaction["category"]["name"]
         if dimension == "account" and transaction["account"]["id"] == key:
             return transaction["account"]["name"]
-        if dimension == "group" and transaction["category"]["group"] == key:
-            return key
+        if dimension == "group" and synthetic_group_id(transaction["category"]["group"]) == key:
+            return transaction["category"]["group"]
     return key
 
 
@@ -392,6 +393,8 @@ def _aggregate_identity(row: dict[str, Any], dimension: ViewMode, backend: Fixtu
 def _aggregate_key(row: dict[str, Any], dimension: ViewMode) -> str:
     if dimension == ViewMode.TIME:
         return str(row["time_period_display"])
+    if dimension == ViewMode.GROUP:
+        return synthetic_group_id(str(row[dimension.value]))
     id_field = f"{dimension.value}_id"
     if id_field in row:
         return str(row[id_field])
@@ -413,7 +416,10 @@ def _partitions_for_key(
             (dimension == ViewMode.MERCHANT and transaction["merchant"]["id"] == key)
             or (dimension == ViewMode.CATEGORY and transaction["category"]["id"] == key)
             or (dimension == ViewMode.ACCOUNT and transaction["account"]["id"] == key)
-            or (dimension == ViewMode.GROUP and transaction["category"]["group"] == key)
+            or (
+                dimension == ViewMode.GROUP
+                and synthetic_group_id(transaction["category"]["group"]) == key
+            )
             or dimension == ViewMode.TIME
         )
         if matches:

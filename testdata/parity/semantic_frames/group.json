@@ -88,11 +88,11 @@
   "selection_ids": [],
   "stats": "28 txns | In: +10,613.25 | Out: -1,876.17 | Net: +8,737.08",
   "visible_row_ids": [
-    "group:6:Living:2:USD",
-    "group:14:Transportation:2:USD",
-    "group:13:Discretionary:2:USD",
-    "group:13:Uncategorized:2:USD",
-    "group:6:Income:2:USD"
+    "group:42:group-synthetic-y5ivhjfvyvob7hmorb76h7vix4:2:USD",
+    "group:42:group-synthetic-v26mf6zcrp4blumb5zxnpl5khi:2:USD",
+    "group:42:group-synthetic-cz7d4df5iu2s23rphiqxqniaxu:2:USD",
+    "group:42:group-synthetic-yjrimlw3w4pgzs4owv5cfn7mla:2:USD",
+    "group:42:group-synthetic-hdrwwuif4dfcwx3vruzolwa4jm:2:USD"
   ],
   "width": 150
 }

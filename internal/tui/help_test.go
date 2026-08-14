@@ -58,6 +58,9 @@ func TestHelpMatchesCorrectedPythonContent(t *testing.T) {
 		"/":      "Search transactions",
 		"?":      "Show this help screen",
 		"ctrl+c": "Force quit application",
+		"C":      "Manage categories (create, rename, move, merge, delete)",
+		"G":      "Manage category groups (create, rename, merge, delete)",
+		"U":      "Redo most recent undone edit",
 	}
 	for keyName, description := range want {
 		binding, ok := helpBinding(defaultBindings(), keyName)

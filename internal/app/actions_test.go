@@ -40,8 +40,8 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", app.ScopeOverlay, false, true},
 		{app.ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", app.ScopeAnalytical, false, true},
 		{app.ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", app.ScopeAnalytical, false, true},
-		{app.ActionManageCategories, []string{"C"}, "C", "Manage categories (rename, merge, delete)", "Actions", app.ScopeOverlay, false, true},
-		{app.ActionManageGroups, []string{"G"}, "G", "Manage category groups (create, rename, delete)", "Actions", app.ScopeOverlay, false, true},
+		{app.ActionManageCategories, []string{"C"}, "C", "Manage categories (create, rename, move, merge, delete)", "Actions", app.ScopeOverlay, false, true},
+		{app.ActionManageGroups, []string{"G"}, "G", "Manage category groups (create, rename, merge, delete)", "Actions", app.ScopeOverlay, false, true},
 		{app.ActionToggleHidden, []string{"h"}, "h", "Toggle hide from reports", "Actions", app.ScopeAnalytical, false, true},
 		{app.ActionDeleteTransaction, []string{"x"}, "x", "Delete transaction (with confirmation)", "Actions", app.ScopeAnalytical, false, true},
 		{app.ActionToggleSelection, []string{"space"}, "space", "Toggle selection (for bulk operations)", "Actions", app.ScopeSelection, true, true},
@@ -51,6 +51,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionReviewChanges, []string{"w"}, "w", "Review and commit pending changes", "System", app.ScopeOverlay, false, true},
 		{app.ActionExport, []string{"E"}, "E", "Export transactions", "System", app.ScopeOverlay, false, true},
 		{app.ActionUndo, []string{"u"}, "u", "Undo most recent pending edit", "System", app.ScopeAnalytical, false, true},
+		{app.ActionRedo, []string{"U"}, "U", "Redo most recent undone edit", "System", app.ScopeAnalytical, false, true},
 		{app.ActionQuit, []string{"q"}, "q", "Quit application", "System", app.ScopeLifecycle, true, false},
 		{app.ActionForceQuit, []string{"ctrl+c"}, "ctrl+c", "Force quit application", "System", app.ScopeLifecycle, true, false},
 		{app.ActionOpenHelp, []string{"?"}, "?", "Show this help screen", "System", app.ScopeOverlay, true, true},
@@ -70,6 +71,22 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		assert.Equal(t, expected.scope, actual.Scope)
 		assert.Equal(t, expected.implemented, actual.Implemented)
 		assert.Equal(t, expected.web, actual.Web)
+	}
+}
+
+func TestEditingActionsReserveRedoWithoutChangingExistingKeys(t *testing.T) {
+	t.Parallel()
+
+	want := map[app.ActionID]string{
+		app.ActionEditMerchant: "m", app.ActionEditCategory: "c", app.ActionManageCategories: "C",
+		app.ActionManageGroups: "G", app.ActionToggleHidden: "h", app.ActionReviewChanges: "w",
+		app.ActionUndo: "u", app.ActionRedo: "U",
+	}
+	for action, keyName := range want {
+		definition, ok := app.ActionByID(action)
+		require.True(t, ok, action)
+		assert.Equal(t, []string{keyName}, definition.Keys)
+		assert.False(t, definition.Implemented)
 	}
 }
 

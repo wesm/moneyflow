@@ -3,11 +3,14 @@ package fixture
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/wesm/moneyflow/internal/domain"
 )
@@ -107,6 +110,12 @@ func Decode(reader io.Reader) ([]domain.Transaction, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load fixture: transactions[%d].amount: %w", index, err)
 		}
+		if raw.Category.GroupID == "" {
+			raw.Category.GroupID, err = syntheticGroupID(raw.Category.Group)
+			if err != nil {
+				return nil, fmt.Errorf("load fixture: transactions[%d].category.group: %w", index, err)
+			}
+		}
 		transaction, err := domain.NewTransaction(domain.Transaction{
 			ID: raw.ID, ProviderID: raw.ProviderID, Provider: raw.Provider,
 			Account: raw.Account, Date: date, Merchant: raw.Merchant, Category: raw.Category,
@@ -119,6 +128,16 @@ func Decode(reader io.Reader) ([]domain.Transaction, error) {
 		transactions = append(transactions, transaction)
 	}
 	return transactions, nil
+}
+
+func syntheticGroupID(label string) (string, error) {
+	key, err := domain.CollisionKey(label)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte("fixture-group\x00" + key))
+	encoded := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:16])
+	return "group-synthetic-" + strings.ToLower(encoded), nil
 }
 
 func validCurrency(currency domain.Currency) bool {

@@ -78,6 +78,8 @@ const (
 	ActionExport ActionID = "transactions.export"
 	// ActionUndo reverts the latest pending edit when available.
 	ActionUndo ActionID = "changes.undo"
+	// ActionRedo reapplies the latest undone edit when available.
+	ActionRedo ActionID = "changes.redo"
 	// ActionQuit exits the terminal process normally.
 	ActionQuit ActionID = "lifecycle.quit"
 	// ActionForceQuit exits the terminal process immediately.
@@ -121,8 +123,8 @@ var readOnlyActions = []ActionDefinition{
 	{ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", ScopeOverlay, false, true},
 	{ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", ScopeAnalytical, false, true},
 	{ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", ScopeAnalytical, false, true},
-	{ActionManageCategories, []string{"C"}, "C", "Manage categories (rename, merge, delete)", "Actions", ScopeOverlay, false, true},
-	{ActionManageGroups, []string{"G"}, "G", "Manage category groups (create, rename, delete)", "Actions", ScopeOverlay, false, true},
+	{ActionManageCategories, []string{"C"}, "C", "Manage categories (create, rename, move, merge, delete)", "Actions", ScopeOverlay, false, true},
+	{ActionManageGroups, []string{"G"}, "G", "Manage category groups (create, rename, merge, delete)", "Actions", ScopeOverlay, false, true},
 	{ActionToggleHidden, []string{"h"}, "h", "Toggle hide from reports", "Actions", ScopeAnalytical, false, true},
 	{ActionDeleteTransaction, []string{"x"}, "x", "Delete transaction (with confirmation)", "Actions", ScopeAnalytical, false, true},
 	{ActionToggleSelection, []string{"space"}, "space", "Toggle selection (for bulk operations)", "Actions", ScopeSelection, true, true},
@@ -132,6 +134,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionReviewChanges, []string{"w"}, "w", "Review and commit pending changes", "System", ScopeOverlay, false, true},
 	{ActionExport, []string{"E"}, "E", "Export transactions", "System", ScopeOverlay, false, true},
 	{ActionUndo, []string{"u"}, "u", "Undo most recent pending edit", "System", ScopeAnalytical, false, true},
+	{ActionRedo, []string{"U"}, "U", "Redo most recent undone edit", "System", ScopeAnalytical, false, true},
 	{ActionQuit, []string{"q"}, "q", "Quit application", "System", ScopeLifecycle, true, false},
 	{ActionForceQuit, []string{"ctrl+c"}, "ctrl+c", "Force quit application", "System", ScopeLifecycle, true, false},
 	{ActionOpenHelp, []string{"?"}, "?", "Show this help screen", "System", ScopeOverlay, true, true},

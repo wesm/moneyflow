@@ -70,7 +70,7 @@ func serverTestService(t testing.TB) *app.Service {
 		ID: "txn-1", ProviderID: "provider-txn-1", Provider: "fixture", Date: date, Amount: amount,
 		Account:  domain.EntityRef{ID: "account-1", Name: "Account Name"},
 		Merchant: domain.EntityRef{ID: "merchant-1", Name: "Example Merchant"},
-		Category: domain.CategoryRef{ID: "category-1", Name: "Example Category", Group: "Example Group"},
+		Category: domain.CategoryRef{ID: "category-1", Name: "Example Category", GroupID: "group-1", Group: "Example Group"},
 	})
 	require.NoError(t, err)
 	service, err := app.NewService([]domain.Transaction{transaction})

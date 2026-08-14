@@ -109,6 +109,25 @@ func TestFilterDrilldownUsesStableEntityKey(t *testing.T) {
 	assert.Equal(t, []string{"second"}, ids(filtered))
 }
 
+func TestFilterGroupDrilldownUsesStableGroupID(t *testing.T) {
+	t.Parallel()
+
+	first := testTransaction(t, "first", "2024-01-01", "-1.00", "First", "Dining", "Living")
+	second := testTransaction(t, "second", "2024-01-02", "-2.00", "Second", "Dining", "Living")
+	second.Category.GroupID = "group-renamed"
+	second.Category.Group = "Living"
+
+	filtered, err := Filter([]domain.Transaction{first, second}, domain.QuerySpec{
+		Mode: domain.ResultModeDetail,
+		Drilldowns: []domain.Drilldown{{
+			Dimension: domain.DimensionGroup, Currency: "USD", Scale: 2,
+			Key: second.Category.GroupID, Label: "Renamed Group",
+		}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"second"}, ids(filtered))
+}
+
 func TestFilterRejectsInvalidRegex(t *testing.T) {
 	t.Parallel()
 

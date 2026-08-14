@@ -37,6 +37,9 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 				model = updateModel(t, model, semanticKey(keyName))
 			}
 			got := parity.ProjectSemantic(scenario.Name, model.RenderScreen())
+			if scenario.Name == "help" {
+				got.Overlay = withoutNamedRedoDivergence(t, got.Overlay)
+			}
 			want, loadErr := parity.LoadSemanticFrame(filepath.Join(
 				root, "testdata", "parity", "semantic_frames", scenario.Name+".json",
 			))
@@ -46,6 +49,22 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func withoutNamedRedoDivergence(t testing.TB, overlay []string) []string {
+	t.Helper()
+	const redo = "  U               Redo most recent undone edit"
+	result := make([]string, 0, len(overlay)-1)
+	found := false
+	for _, line := range overlay {
+		if line == redo {
+			found = true
+			continue
+		}
+		result = append(result, line)
+	}
+	require.True(t, found, "named Go redo help entry is missing")
+	return result
 }
 
 func updateModel(t testing.TB, model tui.Model, message tea.Msg) tui.Model {
