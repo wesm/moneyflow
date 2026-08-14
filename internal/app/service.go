@@ -3,9 +3,11 @@ package app
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 // AggregateIdentity returns a stable identity for one dimension and money partition.
@@ -22,7 +24,11 @@ func AggregateIdentity(row domain.AggregateRow) string {
 
 // Service owns the immutable normalized transaction set used by every interface.
 type Service struct {
+	mu           sync.RWMutex
+	interactions sync.Mutex
 	transactions []domain.Transaction
+	profile      store.Profile
+	snapshot     *EffectiveSnapshot
 }
 
 // NewService validates and defensively copies the normalized transaction set.
@@ -45,7 +51,11 @@ func NewService(transactions []domain.Transaction) (*Service, error) {
 
 // Query evaluates the current session without exposing the service's owned data.
 func (service *Service) Query(session Session) (domain.QueryResult, error) {
-	result, err := analytics.Query(service.transactions, session.QuerySpec())
+	service.mu.RLock()
+	transactions := append([]domain.Transaction(nil), service.transactions...)
+	persistent := service.profile != nil
+	service.mu.RUnlock()
+	result, err := analytics.Query(transactions, session.QuerySpec())
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
 	}
@@ -57,7 +67,9 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 	for index := range result.DetailRows {
 		// Pending edits do not exist in this read-only slice. Provider pending state remains
 		// available on Transaction.Pending without borrowing the Python edit marker.
-		result.DetailRows[index].Flags.Pending = false
+		if !persistent {
+			result.DetailRows[index].Flags.Pending = false
+		}
 	}
 	for index := range result.AggregateRows {
 		identity := AggregateIdentity(result.AggregateRows[index])

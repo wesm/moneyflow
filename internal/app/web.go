@@ -119,6 +119,9 @@ type ChartProjection struct {
 
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
+	Revision       uint64
+	Pending        PendingSummary
+	Capabilities   []Capability
 	State          ViewState
 	Selection      SelectionValue
 	Breadcrumbs    []BreadcrumbSegment
@@ -161,14 +164,29 @@ func (service *Service) ProjectView(
 	}
 	decorateWebSelection(&result, snapshot)
 
+	actions := webActionIDs()
+	var revision uint64
+	var pending PendingSummary
+	var capabilities []Capability
+	if snapshot, snapshotErr := service.effectiveSnapshot(); snapshotErr == nil {
+		revision = snapshot.Revision
+		pending = pendingSummary(snapshot)
+		capabilities = capabilitiesForSnapshot(snapshot)
+		for _, capability := range capabilities {
+			if capability.Available {
+				actions = appendActionID(actions, capability.Action)
+			}
+		}
+	}
 	projection := WebProjection{
+		Revision: revision, Pending: pending, Capabilities: capabilities,
 		State: state.Clone(), Selection: selection,
 		Breadcrumbs: breadcrumbs, BreadcrumbText: resolvedSession.Breadcrumb(result.DateRange),
 		Filters: Filters{
 			DateRange:  cloneDateRange(state.Current.DateRange),
 			ShowHidden: state.Current.ShowHidden, ShowTransfers: state.Current.ShowTransfers,
 		},
-		Actions: webActionIDs(), TotalRows: resultRowCount(result),
+		Actions: actions, TotalRows: resultRowCount(result),
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 	}
 	projection.Window = windowResult(window, projection.TotalRows)
@@ -553,7 +571,10 @@ func (service *Service) resolveDrillLabel(
 		GroupBy: target.Dimension, TimeGranularity: state.TimeGranularity,
 		Sort: domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc},
 	}
-	result, err := analytics.Query(service.transactions, spec)
+	service.mu.RLock()
+	transactions := append([]domain.Transaction(nil), service.transactions...)
+	service.mu.RUnlock()
+	result, err := analytics.Query(transactions, spec)
 	if err != nil {
 		return "", invalidWebRequest(err)
 	}
@@ -569,9 +590,53 @@ func (service *Service) resolveDrillLabel(
 		label = row.Label
 	}
 	if label == "" {
+		if known, ok := service.knownEmptyDrillLabel(target); ok {
+			return known, nil
+		}
 		return "", staleWebTarget(errors.New("stable key no longer resolves"))
 	}
 	return label, nil
+}
+
+func (service *Service) knownEmptyDrillLabel(target domain.Drilldown) (string, bool) {
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return "", false
+	}
+	identity := domain.DrillIdentity{
+		Dimension: target.Dimension, Currency: target.Currency, Scale: target.Scale, Key: target.Key,
+	}
+	if ClassifyKnownDrill(snapshot, identity) != DrillEmpty {
+		return "", false
+	}
+	id := domain.EntityID(target.Key)
+	switch target.Dimension {
+	case domain.DimensionAccount:
+		for _, value := range snapshot.Effective.Accounts {
+			if value.ID == id {
+				return value.Label, true
+			}
+		}
+	case domain.DimensionMerchant:
+		for _, value := range snapshot.Effective.Merchants {
+			if value.ID == id {
+				return value.Label, true
+			}
+		}
+	case domain.DimensionCategory:
+		for _, value := range snapshot.Effective.Categories {
+			if value.ID == id {
+				return value.Label, true
+			}
+		}
+	case domain.DimensionGroup:
+		for _, value := range snapshot.Effective.Groups {
+			if value.ID == id {
+				return value.Label, true
+			}
+		}
+	}
+	return "Unavailable", true
 }
 
 func decorateWebSelection(result *domain.QueryResult, selection SelectionSnapshot) {
@@ -667,6 +732,15 @@ func webActionIDs() []ActionID {
 		}
 	}
 	return result
+}
+
+func appendActionID(actions []ActionID, candidate ActionID) []ActionID {
+	for _, action := range actions {
+		if action == candidate {
+			return actions
+		}
+	}
+	return append(actions, candidate)
 }
 
 func invalidWebRequest(cause error) *WebError {
