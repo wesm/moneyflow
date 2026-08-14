@@ -1,4 +1,4 @@
-.PHONY: build clean fmt lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-audit web-build web-check web-dev web-generate web-install web-test
+.PHONY: build clean fmt lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-assets-check web-audit web-build web-check web-dev web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -71,6 +71,15 @@ web-test:
 
 web-build:
 	bun run --cwd web build
+
+web-assets-check:
+	bun run --cwd web scripts/validate-assets.ts dist
+
+web-embed: web-assets-check
+	bun run --cwd web scripts/embed-assets.ts
+
+web-embed-check: web-assets-check
+	bun run --cwd web scripts/embed-assets.ts --check
 
 web-dev:
 	bun run --cwd web dev

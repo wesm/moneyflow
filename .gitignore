@@ -77,3 +77,7 @@ result-*
 /web/.vite/
 !/web/src/lib/
 !/web/src/lib/**
+
+# Committed production frontend embedded by Go
+!/internal/web/dist/
+!/internal/web/dist/**
