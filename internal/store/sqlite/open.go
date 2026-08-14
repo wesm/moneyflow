@@ -26,7 +26,7 @@ const driverName = "sqlite"
 type Options struct {
 	MaxOpenConnections  int
 	MutationBusyTimeout time.Duration
-	MigrationDeadline   time.Duration
+	StartupDeadline     time.Duration
 	Now                 func() time.Time
 }
 
@@ -34,7 +34,7 @@ type Options struct {
 var DefaultOptions = Options{
 	MaxOpenConnections:  3,
 	MutationBusyTimeout: 5 * time.Second,
-	MigrationDeadline:   60 * time.Second,
+	StartupDeadline:     60 * time.Second,
 	Now:                 time.Now,
 }
 
@@ -46,7 +46,7 @@ type profile struct {
 
 var _ store.Profile = (*profile)(nil)
 
-// Open prepares, migrates, validates, and opens one isolated v2 profile.
+// Open prepares, installs or validates, and opens one isolated v2 profile.
 func Open(ctx context.Context, paths home.Paths, options Options) (store.Profile, error) {
 	if err := validateOptions(options); err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func Open(ctx context.Context, paths home.Paths, options Options) (store.Profile
 	if err = verifyConnection(ctx, database, options); err != nil {
 		return nil, err
 	}
-	if err = migrate(ctx, database, options, migrations); err != nil {
+	if err = ensureCurrentSchema(ctx, database, options); err != nil {
 		return nil, err
 	}
 	if err = validateSchema(ctx, database); err != nil {
@@ -96,8 +96,8 @@ func validateOptions(options Options) error {
 	if options.MutationBusyTimeout < time.Millisecond {
 		return errors.New("open SQLite profile: busy timeout must be at least one millisecond")
 	}
-	if options.MigrationDeadline <= 0 {
-		return errors.New("open SQLite profile: migration deadline must be positive")
+	if options.StartupDeadline <= 0 {
+		return errors.New("open SQLite profile: startup deadline must be positive")
 	}
 	return nil
 }
@@ -146,7 +146,7 @@ func verifyConnection(ctx context.Context, database *sql.DB, options Options) er
 
 func validateSchema(ctx context.Context, database *sql.DB) error {
 	required := []string{
-		"schema_migrations", "profile_state", "accounts", "merchants", "category_groups",
+		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
 		"journal_operations", "operation_payloads", "operation_targets",
 	}

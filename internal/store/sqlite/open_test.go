@@ -45,9 +45,9 @@ func TestOpenRejectsInvalidOptions(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]func(*Options){
-		"pool":      func(options *Options) { options.MaxOpenConnections = 0 },
-		"busy":      func(options *Options) { options.MutationBusyTimeout = 0 },
-		"migration": func(options *Options) { options.MigrationDeadline = 0 },
+		"pool":    func(options *Options) { options.MaxOpenConnections = 0 },
+		"busy":    func(options *Options) { options.MutationBusyTimeout = 0 },
+		"startup": func(options *Options) { options.StartupDeadline = 0 },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

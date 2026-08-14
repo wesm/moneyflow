@@ -17,7 +17,7 @@ func TestStableErrorCodesAndSafeRendererDetail(t *testing.T) {
 	codes := []store.ErrorCode{
 		store.CodeRevisionConflict, store.CodeInvalidOperation, store.CodeInvalidTarget,
 		store.CodeStoreBusy, store.CodeStoreError, store.CodeSchemaNewer,
-		store.CodeMigrationFailed, store.CodeStoreCorrupt,
+		store.CodeSchemaIncompatible, store.CodeStoreCorrupt,
 	}
 	require.Len(t, codes, 8)
 	for _, code := range codes {

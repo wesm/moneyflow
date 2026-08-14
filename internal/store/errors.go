@@ -7,25 +7,25 @@ type ErrorCode string
 
 // Stable storage error codes.
 const (
-	CodeRevisionConflict ErrorCode = "revision_conflict"
-	CodeInvalidOperation ErrorCode = "invalid_operation"
-	CodeInvalidTarget    ErrorCode = "invalid_target"
-	CodeStoreBusy        ErrorCode = "store_busy"
-	CodeStoreError       ErrorCode = "store_error"
-	CodeSchemaNewer      ErrorCode = "schema_newer"
-	CodeMigrationFailed  ErrorCode = "migration_failed"
-	CodeStoreCorrupt     ErrorCode = "store_corrupt"
+	CodeRevisionConflict   ErrorCode = "revision_conflict"
+	CodeInvalidOperation   ErrorCode = "invalid_operation"
+	CodeInvalidTarget      ErrorCode = "invalid_target"
+	CodeStoreBusy          ErrorCode = "store_busy"
+	CodeStoreError         ErrorCode = "store_error"
+	CodeSchemaNewer        ErrorCode = "schema_newer"
+	CodeSchemaIncompatible ErrorCode = "schema_incompatible"
+	CodeStoreCorrupt       ErrorCode = "store_corrupt"
 )
 
 var safeDetails = map[ErrorCode]string{
-	CodeRevisionConflict: "profile revision changed",
-	CodeInvalidOperation: "operation is invalid",
-	CodeInvalidTarget:    "operation target is invalid",
-	CodeStoreBusy:        "profile is busy",
-	CodeStoreError:       "profile storage failed",
-	CodeSchemaNewer:      "profile schema is newer than this application",
-	CodeMigrationFailed:  "profile migration failed",
-	CodeStoreCorrupt:     "profile is corrupt",
+	CodeRevisionConflict:   "profile revision changed",
+	CodeInvalidOperation:   "operation is invalid",
+	CodeInvalidTarget:      "operation target is invalid",
+	CodeStoreBusy:          "profile is busy",
+	CodeStoreError:         "profile storage failed",
+	CodeSchemaNewer:        "profile schema is newer than this application",
+	CodeSchemaIncompatible: "profile schema is incompatible with this application",
+	CodeStoreCorrupt:       "profile is corrupt",
 }
 
 // Error contains only allowlisted renderer detail while retaining an internal diagnostic cause.

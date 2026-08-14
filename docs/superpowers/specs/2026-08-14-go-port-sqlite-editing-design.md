@@ -59,6 +59,8 @@ data.
 - SimpleFIN, Monarch Money, YNAB, Amazon, or other provider adapters.
 - Provider credentials, synchronization queues, refresh policies, or conflict resolution.
 - Python cache/profile migration.
+- Database schema upgrades before the Go v2 format stabilizes; pre-stability profile databases
+  are disposable and must be recreated when the schema version changes.
 - Export, backup, repair, or disaster-recovery tooling.
 - Built-in authentication, authorization, user accounts, or CORS.
 - Application-level database encryption or SQLCipher.
@@ -145,7 +147,7 @@ the profile revision before using it.
 cmd/moneyflow/          command wiring, profile opening, demo seeding, and server lifecycle
 internal/home/          canonical v2 paths and filesystem protection
 internal/store/         application-owned persistence contract
-internal/store/sqlite/  driver setup, schema, migrations, journal, and snapshots
+internal/store/sqlite/  driver setup, current-schema installation, journal, and snapshots
 internal/domain/        persistent entities, money, and typed operations
 internal/app/           replay, target resolution, capabilities, review, and commit
 internal/api/           Huma mutation types, security, and error mapping
@@ -171,8 +173,8 @@ imports terminal types, and frontend code never reimplements journal or analytic
 <moneyflow-home>/moneyflow.db
 ```
 
-The `v2` directory prevents the Go port from reading or modifying Python state before the later
-migration slice. A future migration can explicitly inspect the sibling v1 layout.
+The `v2` directory prevents the Go port from reading or modifying Python state. Any later import
+from the sibling v1 layout requires a separate post-stabilization design.
 
 Path handling follows the hardened Docbank conventions:
 
@@ -225,18 +227,23 @@ benefit of `NORMAL`. Correctness does not depend on checkpointing. Clean close a
 truncating checkpoint after application work has stopped, but checkpoint failure cannot undo a
 successful mutation.
 
-Startup applies embedded forward-only migrations atomically. Concurrent startup uses a separate
-60-second bounded migration deadline: a waiting process repeatedly rechecks the schema rather than
-failing after the shorter mutation busy timeout. Expiry reports `store_busy` and refuses startup;
-a binary otherwise refuses startup when the schema is newer, migration fails, or integrity checks
-report corruption. There is no degraded read-only mode that might render unreliable financial
-results.
+Before Go v2 stabilizes, startup never upgrades a database. It atomically installs the one current
+embedded schema into an empty database and opens only an exact-version schema. An older schema is
+`schema_incompatible`; a newer schema is `schema_newer`; the user recreates the disposable v2
+profile after either result.
+
+Concurrent first startup uses a separate 60-second bounded startup deadline: a waiting process
+rechecks whether another process completed the current-schema installation rather than failing
+after the shorter mutation busy timeout. Expiry reports `store_busy`. Failed installation rolls
+back, and integrity failures report `store_corrupt`. There is no degraded read-only mode. Schema
+migrations become a requirement only after the v2 format is declared stable and receive a new
+design then.
 
 ## Persistent Schema
 
 The schema uses SQLite `STRICT` tables and explicit constraints. The logical tables are:
 
-- schema migration history
+- singleton current-schema metadata
 - singleton profile state containing schema-independent profile revision and journal cursor
 - committed accounts
 - committed merchants
@@ -349,9 +356,10 @@ The journal is an ordered sequence of typed pending operations. Each record has:
 - explicit stable local target IDs
 - creation revision and non-sensitive timing metadata
 
-Forward-only SQL migrations are not sufficient for payload evolution. Every supported pending
-payload version must retain a compatible decoder or be transactionally rewritten by a migration.
-An unknown operation type or payload version refuses mutable startup.
+Every payload carries a version. During the disposable pre-stability period, the current binary
+decodes only its supported versions; an unknown operation type or payload version refuses startup
+as `schema_incompatible`. No payload is rewritten in place. Compatible decoders and transactional
+payload migrations become requirements only after schema stability.
 
 Operations resolve targets once at creation. Replay never re-evaluates a predicate such as “all
 transactions currently named X.” Bulk operations store the exact transaction IDs resolved at the
@@ -384,9 +392,8 @@ runtime rewrites are permitted:
 1. redo-tail truncation
 2. Python-compatible hide cancellation
 
-Both require the caller's expected revision and the authoritative transactional CAS.
-Transactional payload-version rewrites during startup migration are a separate migration mechanism,
-not a runtime journal rewrite.
+Both require the caller's expected revision and the authoritative transactional CAS. There is no
+other journal rewrite path in the pre-stability schema.
 
 ### Hide cancellation
 
@@ -681,7 +688,7 @@ Stable renderer-neutral errors include:
 - `store_busy`: preserve state and require explicit retry after the bounded wait
 - `store_error`: roll back disk-full, permission, and other runtime I/O failures
 - `schema_newer`: refuse startup
-- `migration_failed`: refuse startup after transactional rollback
+- `schema_incompatible`: refuse an older or unsupported pre-stability schema/payload version
 - `store_corrupt`: refuse startup without repair or recreation
 
 `store_error` reports the last reliably observed revision and the current revision only when it can
@@ -731,13 +738,15 @@ Every invariant maps to a named test obligation.
 
 ### Schema and storage
 
-- migrate from every committed schema version and reject newer versions
+- atomically install the current schema only into an empty database
+- reject older and newer schema versions without changing them
 - verify `STRICT` tables, foreign keys, integer money, and absence of `REAL` money columns
 - verify WAL, `synchronous=FULL`, busy timeout, pool bounds, checkpoint, and restrictive permissions
-- prove concurrent migration waits use the longer startup deadline and recheck the schema
+- prove concurrent first-start installation waits use the longer startup deadline and rechecks
+  the schema
 - create seeded profiles atomically and prove refuse-overwrite against a populated profile
 - reject seeded fixtures whose active labels have normalized collisions
-- reject corrupt profiles and roll back failed migrations without mutation
+- reject corrupt profiles and roll back failed current-schema installation without residue
 
 ### Journal and model properties
 
@@ -747,7 +756,7 @@ every append, undo, redo, cancellation, taxonomy change, and commit. They cover:
 - redo-tail truncation and commit behind the head
 - active-count cursor behavior with sequence holes and partial-batch hide cancellation
 - creation-time target snapshots with no predicate re-evaluation
-- payload-version compatibility and migration
+- unsupported payload-version refusal without rewrite
 - label collision rules and stable identity
 - merchant label update versus merge versus transaction reassignment
 - taxonomy reassignment, retirement, explicit unassignment, and never-reused IDs

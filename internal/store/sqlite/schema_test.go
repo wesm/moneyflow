@@ -19,7 +19,7 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
 
 	requiredTables := []string{
-		"schema_migrations", "profile_state", "accounts", "merchants", "category_groups",
+		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
 		"journal_operations", "operation_payloads", "operation_targets",
 	}

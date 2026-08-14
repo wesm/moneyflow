@@ -1,7 +1,9 @@
-CREATE TABLE schema_migrations (
-    version INTEGER PRIMARY KEY CHECK(typeof(version) = 'integer' AND version > 0),
-    applied_at_unix_ms INTEGER NOT NULL CHECK(typeof(applied_at_unix_ms) = 'integer' AND applied_at_unix_ms >= 0)
+CREATE TABLE schema_metadata (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
+
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 1);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),

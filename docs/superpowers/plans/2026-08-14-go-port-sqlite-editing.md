@@ -44,11 +44,13 @@ Playwright 1.61.1.
 - Every journal append, cursor move, runtime journal rewrite, and commit must compare and advance
   the profile revision in the same SQLite transaction. A cached revision check is only fast-fail.
 - Runtime journal rewrites are limited to redo-tail truncation and Python-compatible hide
-  cancellation. Payload-version rewrites occur only in startup migrations.
+  cancellation. Pre-stability payload versions are never rewritten in place.
 - Pending-only drill identities are known through effective state but do not enter the permanent
   registry. Seeding and successful commit folds are the only registry insertion points.
 - SQLite uses `STRICT` tables, foreign keys, WAL, `synchronous=FULL`, bounded pools and mutation
-  waits, plus a separate 60-second startup migration deadline with schema rechecks.
+  waits, plus a separate 60-second first-start deadline with schema rechecks. Until Go v2 is
+  declared stable, install the current schema only into an empty database and reject every schema
+  version mismatch without upgrading it.
 - Tests and demos use explicit restrictive temporary profile roots. They must never open the
   default profile. Every demo run gets a fresh synthetic profile that is removed on clean exit.
 - The web remains cookie-free, has no CORS, and has one mutable canonical origin. Tokens live only
@@ -85,7 +87,7 @@ internal/domain/operations.go      typed versioned pending operations
 internal/domain/profile.go         committed/effective snapshots and drill identities
 internal/store/store.go            application-owned persistence interface and fold plan
 internal/store/errors.go           stable renderer-neutral storage failures
-internal/store/sqlite/             open/config, migrations, seed/load, journal, and commit
+internal/store/sqlite/             open/config, schema install, seed/load, journal, and commit
 internal/app/replay.go             full reference replay and incremental equivalence seam
 internal/app/mutations.go          capability, exact target resolution, and operation construction
 internal/app/profile_service.go    revision-aware cache and store coordination
@@ -378,7 +380,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
   ```
 
   Stable codes are `revision_conflict`, `invalid_operation`, `invalid_target`, `store_busy`,
-  `store_error`, `schema_newer`, `migration_failed`, and `store_corrupt`. `Error` carries safe
+  `store_error`, `schema_newer`, `schema_incompatible`, and `store_corrupt`. `Error` carries safe
   detail, optional reliable observed/current revisions, and an unexported diagnostic cause.
 
 - [ ] **Step 4: Implement defensive store DTOs and errors.** `FoldPlan.Validate` must require a
@@ -399,7 +401,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 - [ ] **Step 6: Run the Required Commit Gate and commit.** Commit with subject
       `feat: define private profile store boundary`.
 
-### Task 3: Open and Migrate the Pure-Go SQLite Profile
+### Task 3: Open and Install the Current Pure-Go SQLite Profile
 
 **Files:**
 
@@ -407,9 +409,9 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 - Create: `internal/store/sqlite/open_test.go`
 - Create: `internal/store/sqlite/errors.go`
 - Create: `internal/store/sqlite/errors_test.go`
-- Create: `internal/store/sqlite/migrations.go`
-- Create: `internal/store/sqlite/migrations_test.go`
-- Create: `internal/store/sqlite/schema/0001_profile.sql`
+- Create: `internal/store/sqlite/initialize.go`
+- Create: `internal/store/sqlite/initialize_test.go`
+- Create: `internal/store/sqlite/schema/profile.sql`
 - Create: `internal/store/sqlite/schema_test.go`
 - Modify: `go.mod`
 - Modify: `go.sum`
@@ -418,7 +420,8 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 
 - Consumes: Task 2 paths, permissions, store interface, and errors.
 - Produces: `sqlite.Open(context.Context, home.Paths, sqlite.Options) (store.Profile, error)`, a
-  current schema version constant, embedded forward-only migrations, and driver-error mapping.
+  current schema version constant, atomic empty-database installation, exact-version refusal, and
+  driver-error mapping. No database migration or payload rewrite path exists before v2 stabilizes.
 
 - [ ] **Step 1: Add the dependency and failing open/configuration tests.** Add
       `modernc.org/sqlite v1.56.0`. Require every connection to report foreign keys on, WAL,
@@ -429,7 +432,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
   type Options struct {
       MaxOpenConnections int
       MutationBusyTimeout time.Duration
-      MigrationDeadline time.Duration
+      StartupDeadline time.Duration
       Now func() time.Time
   }
   var DefaultOptions = Options{3, 5 * time.Second, 60 * time.Second, time.Now}
@@ -439,14 +442,14 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 
   Expected: FAIL because the SQLite package does not exist.
 
-- [ ] **Step 2: Write schema-inspection tests before the migration.** Require `STRICT` tables for
-      migration history, profile state, accounts, merchants, groups, categories, transactions,
+- [ ] **Step 2: Write schema-inspection tests before installation.** Require `STRICT` tables for
+      singleton schema metadata, profile state, accounts, merchants, groups, categories, transactions,
       external identities, known drills, journal headers, operation payloads, and targets. Assert
       every money column is `INTEGER`, no money table declares `REAL`, all foreign keys exist, the
       singleton revision/cursor row is constrained, collision-key uniqueness applies only to
       active entities, and operation sequence/type/version constraints exist.
 
-- [ ] **Step 3: Implement embedded migration 0001 atomically.** The core money constraint must be
+- [ ] **Step 3: Implement embedded current-schema installation atomically.** The core money constraint must be
       equivalent to:
 
   ```sql
@@ -459,11 +462,12 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
   DSN, verify them after open, and never export `sql.DB`, `sql.Tx`, statements, rows, or modernc
   errors.
 
-- [ ] **Step 4: Implement migration concurrency and refusal behavior.** One process acquires the
-      migration write lock. Other openers re-read schema state until the separate 60-second
-      deadline. Deadline expiry maps to `store_busy`; newer schema maps to `schema_newer`; a failed
-      transactional migration maps to `migration_failed`; failed integrity maps to
-      `store_corrupt`. Do not open a degraded read-only session.
+- [ ] **Step 4: Implement first-start concurrency and exact-version refusal.** One process acquires
+      the schema-install write lock for an empty database. Other openers re-read schema state until
+      the separate 60-second deadline. Deadline expiry maps to `store_busy`; older schema maps to
+      `schema_incompatible`; newer schema maps to `schema_newer`; failed installation rolls back;
+      failed integrity maps to `store_corrupt`. Never upgrade or rewrite an existing database and
+      do not open a degraded read-only session.
 
 - [ ] **Step 5: Run focused, race, and no-CGO checks.** Run:
 
@@ -489,7 +493,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 - Create: `internal/store/sqlite/seed_test.go`
 - Create: `internal/store/sqlite/load.go`
 - Create: `internal/store/sqlite/load_test.go`
-- Modify: `internal/store/sqlite/schema/0001_profile.sql`
+- Modify: `internal/store/sqlite/schema/profile.sql`
 
 **Interfaces:**
 
@@ -620,29 +624,26 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 - Create: `internal/store/sqlite/journal_test.go`
 - Create: `internal/store/sqlite/revision_test.go`
 - Modify: `internal/store/sqlite/load.go`
-- Modify: `internal/store/sqlite/migrations.go`
-- Create: `internal/store/sqlite/schema/0002_operation_payload_v1.sql`
 
 **Interfaces:**
 
-- Consumes: Task 1 operation union, Task 2 store methods, and Task 3 migration machinery.
+- Consumes: Task 1 operation union, Task 2 store methods, and Task 3 exact-version schema.
 - Produces: SQLite implementations of `Append` and `MoveCursor`, versioned typed payload codecs,
   authoritative revision CAS, redo-tail truncation, and journal-inclusive `Load`.
 
-- [ ] **Step 1: Write failing codec and migration tests.** Round-trip every operation type through
+- [ ] **Step 1: Write failing codec and version-refusal tests.** Round-trip every operation type through
       `(type, payload_version, canonical JSON, ordered targets)`. Reject unknown types/versions,
-      duplicate targets, payload/type mismatch, trailing JSON, and noncanonical data. Open a
-      version-1 fixture database and prove migration 0002 transactionally rewrites a compatible
-      legacy payload or rolls back the whole migration.
+      duplicate targets, payload/type mismatch, trailing JSON, and noncanonical data. Prove an
+      unsupported stored payload refuses load as `schema_incompatible` without rewriting any row.
 
-  Run: `go test ./internal/store/sqlite -run 'Test(OperationCodec|PayloadMigration)' -count=1`
+  Run: `go test ./internal/store/sqlite -run 'Test(OperationCodec|PayloadVersion)' -count=1`
 
-  Expected: FAIL because the codec and payload migration do not exist.
+  Expected: FAIL because the codec and payload-version refusal do not exist.
 
 - [ ] **Step 2: Implement one canonical codec boundary.** Keep JSON bytes private to
       `internal/store/sqlite`. Decode into `domain.Operation`, call `Validate`, and encode structs
       with fixed field order. Loading any unsupported entry must fail mutable startup with
-      `migration_failed`, never skip the entry.
+      `schema_incompatible`, never skip or rewrite the entry.
 
 - [ ] **Step 3: Write failing append/cursor transaction tests.** Assert:
 
@@ -849,7 +850,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 - Create: `internal/store/sqlite/fold.go`
 - Create: `internal/store/sqlite/fold_test.go`
 - Modify: `internal/store/sqlite/load.go`
-- Modify: `internal/store/sqlite/schema/0001_profile.sql`
+- Modify: `internal/store/sqlite/schema/profile.sql`
 
 **Interfaces:**
 
@@ -1029,7 +1030,7 @@ format, lint, unit, audit, build, asset, browser, accessibility, and visual chec
 
   Expected: FAIL because commands still construct fixture-backed services.
 
-- [ ] **Step 2: Implement the profile opener and lifecycle.** Normal missing profile migrates to an
+- [ ] **Step 2: Implement the profile opener and lifecycle.** Normal missing profile installs an
       empty current schema without seeding. Demo creates a restrictive directory under the OS temp
       root, converts the embedded synthetic fixture, calls `CreateSeededProfile`, and returns an
       idempotent close that stops application work, closes SQLite, then removes that exact temp
