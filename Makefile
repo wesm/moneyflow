@@ -1,4 +1,4 @@
-.PHONY: build clean fmt lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-assets-check web-audit web-build web-check web-dev web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go vet web-assets-check web-audit web-build web-check web-demo web-dev web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -13,6 +13,9 @@ endif
 build:
 	mkdir -p bin
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) ./cmd/moneyflow
+
+help:
+	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
 test:
 	go test $(GOFLAGS_TEST) ./...
@@ -53,6 +56,9 @@ fmt:
 
 tui-demo: build
 	$(BINARY) demo
+
+web-demo: build
+	$(BINARY) web --open=false
 
 web-install:
 	bun install --cwd web --frozen-lockfile

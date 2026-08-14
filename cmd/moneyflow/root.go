@@ -26,6 +26,11 @@ type IOStreams struct {
 	Out    io.Writer
 	Err    io.Writer
 	RunTUI tuiRunner
+	RunWeb WebRunner
+	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.
+	Listen        ListenerFactory
+	OpenBrowser   BrowserOpener
+	SignalContext SignalContext
 	// OpenAPIWriter overrides deterministic schema generation in command tests.
 	OpenAPIWriter openAPIWriter
 }
@@ -71,7 +76,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "moneyflow",
 		Short:         "Portable personal-finance analysis",
-		Example:       "  moneyflow demo\n  moneyflow version",
+		Example:       "  moneyflow demo\n  moneyflow web --open=false\n  moneyflow version",
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -107,6 +112,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		},
 	})
 	command.AddCommand(newOpenAPICommand(streams))
+	command.AddCommand(newWebCommand(streams))
 	return command
 }
 
@@ -139,13 +145,9 @@ func newOpenAPICommand(streams IOStreams) *cobra.Command {
 }
 
 func writeOpenAPI(format string) ([]byte, error) {
-	transactions, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
+	service, err := newEmbeddedService()
 	if err != nil {
-		return nil, fmt.Errorf("decode embedded fixture: %w", err)
-	}
-	service, err := app.NewService(transactions)
-	if err != nil {
-		return nil, fmt.Errorf("build fixture service: %w", err)
+		return nil, err
 	}
 	server, err := api.New(api.Config{
 		Service: service, BasePath: "/", Version: version.Version,
