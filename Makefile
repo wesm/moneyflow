@@ -18,7 +18,8 @@ help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
 test:
-	go test $(GOFLAGS_TEST) ./...
+	go test $(GOFLAGS_TEST) -skip '^TestQuery100KCompletesWithinInteractiveBudget$$' ./...
+	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
 
 test-race:
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...

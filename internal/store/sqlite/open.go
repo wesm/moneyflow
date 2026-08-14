@@ -205,14 +205,6 @@ func (profile *profile) CurrentRevision(ctx context.Context) (uint64, error) {
 	return revision, nil
 }
 
-func (profile *profile) Load(context.Context) (domain.ProfileSnapshot, error) {
-	return domain.ProfileSnapshot{}, store.NewError(store.CodeInvalidOperation, errors.New("load is not implemented"))
-}
-
-func (profile *profile) CreateSeededProfile(context.Context, domain.CommittedProfile) (uint64, error) {
-	return 0, store.NewError(store.CodeInvalidOperation, errors.New("seed is not implemented"))
-}
-
 func (profile *profile) Append(context.Context, uint64, domain.Operation) (uint64, error) {
 	return 0, store.NewError(store.CodeInvalidOperation, errors.New("append is not implemented"))
 }

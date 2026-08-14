@@ -51,6 +51,12 @@ CREATE TABLE category_groups (
 CREATE UNIQUE INDEX category_groups_active_collision_key
 ON category_groups(collision_key) WHERE retired = 0;
 
+INSERT INTO category_groups(
+    id, label, collision_key, retired, protected, merge_destination_id
+) VALUES (
+    'group_system_uncategorized', 'Uncategorized', 'uncategorized', 0, 1, NULL
+);
+
 CREATE TABLE categories (
     id TEXT PRIMARY KEY CHECK(id <> ''),
     group_id TEXT NOT NULL REFERENCES category_groups(id),
@@ -65,6 +71,13 @@ CREATE TABLE categories (
 
 CREATE UNIQUE INDEX categories_active_collision_key
 ON categories(collision_key) WHERE retired = 0;
+
+INSERT INTO categories(
+    id, group_id, label, collision_key, retired, protected, merge_destination_id
+) VALUES (
+    'category_system_uncategorized', 'group_system_uncategorized',
+    'Uncategorized', 'uncategorized', 0, 1, NULL
+);
 
 CREATE TABLE transactions (
     id TEXT PRIMARY KEY CHECK(id <> ''),
