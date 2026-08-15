@@ -11,6 +11,7 @@ const (
 	sqliteLocked  = 6
 	sqliteIOError = 10
 	sqliteCorrupt = 11
+	sqliteFull    = 13
 	sqliteNotADB  = 26
 	sqlitePrimary = 0xff
 )
@@ -35,7 +36,7 @@ func mapDriverError(err error, fallback store.ErrorCode) error {
 			return store.NewError(store.CodeStoreBusy, err)
 		case sqliteCorrupt, sqliteNotADB:
 			return store.NewError(store.CodeStoreCorrupt, err)
-		case sqliteIOError:
+		case sqliteIOError, sqliteFull:
 			return store.NewError(store.CodeStoreError, err)
 		}
 	}

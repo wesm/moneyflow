@@ -612,13 +612,15 @@ changes that constraint.
 ```bash
 make build       # Build bin/moneyflow (bin/moneyflow.exe on Windows), never at the repository root
 make test        # Run Go tests with randomized package test order
+make test-store  # Run SQLite atomicity, schema, cold-load, and 100k bulk-editing gates
+make test-editing-e2e # Run focused Go and Chromium editing/restart/origin journeys
 make test-race   # Run the race detector; only the performance smoke is skipped
 make lint        # Run golangci-lint with the repository configuration
 make parity      # Check Python semantic frames and Go visual frames without writes
-make tui-demo    # Run the Go TUI against the committed synthetic fixture
-make verify-go   # Run format, test, vet, lint, and parity checks
-make web-demo    # Build and run the read-only loopback web application
-make verify-web  # Run every read-only frontend, asset, API, and browser check
+make tui-demo    # Run the Go TUI against a fresh temporary synthetic SQLite profile
+make verify-go   # Run format, tests, storage gates, vet, lint, and parity checks
+make web-demo    # Build and run a fresh temporary synthetic SQLite web profile
+make verify-web  # Run every frontend, asset, API, editing, security, and browser check
 ```
 
 Ordinary tests never update parity artifacts. Use `make parity-update-python` or
@@ -627,7 +629,10 @@ generated Go frame previews before committing it. `make web-generate` and `make 
 deliberate write operations: ordinary verification uses generation and embed checks and never
 updates committed artifacts. Stable frontend targets are `web-install`, `web-generate`,
 `web-check`, `web-test`, `web-audit`, `web-build`, `web-assets-check`, `web-embed`,
-`web-embed-check`, `web-e2e`, `web-demo`, and `verify-web`.
+`web-embed-check`, `web-e2e`, `test-editing-e2e`, `web-demo`, and `verify-web`.
+
+The Go v2 schema is install-only until the format stabilizes. Do not add schema or journal-payload
+migrations; empty databases install the exact current schema and incompatible versions are refused.
 
 All Go accounting and analytics use signed integer minor units after input parsing; never
 represent money with `float32` or `float64`.

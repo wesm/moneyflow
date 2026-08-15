@@ -156,11 +156,11 @@ func applyMerchantReassign(profile *domain.CommittedProfile, operation domain.Op
 	if _, err := activeMerchant(profile, payload.DestinationID); err != nil {
 		return err
 	}
-	for _, target := range operation.Targets {
-		index, err := transactionIndex(profile, target)
-		if err != nil {
-			return err
-		}
+	indexes, err := targetTransactionIndexes(profile, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, index := range indexes {
 		profile.Transactions[index].MerchantID = payload.DestinationID
 	}
 	return nil
@@ -170,11 +170,11 @@ func applyCategoryAssign(profile *domain.CommittedProfile, operation domain.Oper
 	if _, err := activeCategory(profile, operation.Reassign.DestinationID); err != nil {
 		return err
 	}
-	for _, target := range operation.Targets {
-		index, err := transactionIndex(profile, target)
-		if err != nil {
-			return err
-		}
+	indexes, err := targetTransactionIndexes(profile, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, index := range indexes {
 		profile.Transactions[index].CategoryID = operation.Reassign.DestinationID
 	}
 	return nil
@@ -195,11 +195,11 @@ func applyCategoryCreate(profile *domain.CommittedProfile, operation domain.Oper
 	if len(operation.Targets) == 1 && operation.Targets[0] == payload.EntityID {
 		return nil
 	}
-	for _, target := range operation.Targets {
-		index, err := transactionIndex(profile, target)
-		if err != nil {
-			return err
-		}
+	indexes, err := targetTransactionIndexes(profile, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, index := range indexes {
 		profile.Transactions[index].CategoryID = payload.EntityID
 	}
 	return nil
@@ -373,11 +373,11 @@ func applyGroupRetirement(
 }
 
 func applyHideToggle(profile *domain.CommittedProfile, operation domain.Operation) error {
-	for _, target := range operation.Targets {
-		index, err := transactionIndex(profile, target)
-		if err != nil {
-			return err
-		}
+	indexes, err := targetTransactionIndexes(profile, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, index := range indexes {
 		profile.Transactions[index].Hidden = !profile.Transactions[index].Hidden
 	}
 	return nil
@@ -441,13 +441,23 @@ func groupIndex(profile *domain.CommittedProfile, id domain.EntityID) (int, bool
 	return 0, false
 }
 
-func transactionIndex(profile *domain.CommittedProfile, id domain.EntityID) (int, error) {
+func targetTransactionIndexes(
+	profile *domain.CommittedProfile,
+	targets []domain.EntityID,
+) ([]int, error) {
+	byID := make(map[domain.EntityID]int, len(profile.Transactions))
 	for index := range profile.Transactions {
-		if profile.Transactions[index].ID == id {
-			return index, nil
-		}
+		byID[profile.Transactions[index].ID] = index
 	}
-	return 0, errors.New("transaction target is missing")
+	indexes := make([]int, len(targets))
+	for index, target := range targets {
+		position, ok := byID[target]
+		if !ok {
+			return nil, errors.New("transaction target is missing")
+		}
+		indexes[index] = position
+	}
+	return indexes, nil
 }
 
 func entityIDPointer(value domain.EntityID) *domain.EntityID {

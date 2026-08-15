@@ -64,15 +64,24 @@ budgets, you'll be prompted to select one. See the [YNAB setup guide](https://mo
 
 ---
 
-## Go Read-Only Web Preview
+## Go v2 SQLite Preview
 
-The `go-port` branch includes the first read-only Go replacement slice. It serves the same
-keyboard-driven refinement workflow in an embedded browser application using only synthetic data.
+The `go-port` branch contains the in-progress full Go replacement. Both its TUI and embedded web
+application use the same pure-Go SQLite profile and preserve the keyboard-driven refinement and
+editing workflow. The default profile is `~/.moneyflow/v2/moneyflow.db`; set `MONEYFLOW_HOME` to
+choose a different v2 profile root.
 
 ```bash
 make build
 
-# Loopback with automatic browser launch
+# Fresh temporary SQLite demos; edits disappear when each process exits
+make tui-demo
+make web-demo
+
+# Persistent TUI profile
+./bin/moneyflow
+
+# Persistent web profile on loopback, with automatic browser launch
 ./bin/moneyflow web
 
 # Loopback without launching a browser
@@ -82,10 +91,19 @@ make build
 ./bin/moneyflow web --open=false --listen 100.64.0.10:8080
 ```
 
-For a Caddy mount, preserve the request path and give Moneyflow the same base path:
+Pending edits, undo history, and redo history survive process restarts. Press `u` to undo, `U` to
+redo, `C` to manage categories, `G` to manage category groups, and `w` to review and atomically
+commit local changes. A TUI and web process may share one profile; revision checks reject stale
+mutations instead of silently overwriting another process.
+
+For a Caddy mount, preserve the request path and make `--external-url` use exactly the configured
+base path:
 
 ```bash
-./bin/moneyflow web --open=false --listen 127.0.0.1:8080 --base-path /moneyflow/
+./bin/moneyflow web --open=false \
+  --listen 127.0.0.1:8080 \
+  --base-path /moneyflow/ \
+  --external-url https://moneyflow.example.invalid/moneyflow/
 ```
 
 ```caddyfile
@@ -99,7 +117,16 @@ moneyflow.example.invalid {
 Replace the reserved example host and address with private values for your network. Non-loopback
 HTTP has no built-in authentication or transport encryption; restrict it to a trusted private
 network or put authentication and TLS at the proxy. Configure proxy access logs to omit URL query
-strings because durable view state can contain financial refinements.
+strings because durable view state can contain financial refinements. When `--external-url` is
+set, the direct listener remains readable for diagnostics but mutations are accepted only through
+the canonical origin.
+
+The v2 database is not application-encrypted. Use full-disk encryption and protect backups as you
+would other financial files. Moneyflow creates the profile with private platform permissions and
+uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic writes. The current
+v2 preview intentionally has no provider synchronization, credentials, authentication, profile
+manager, export/backup workflow, Python-state import, or schema migrations; incompatible schemas
+are refused until the v2 format stabilizes.
 
 ---
 

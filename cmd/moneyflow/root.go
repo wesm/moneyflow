@@ -119,7 +119,7 @@ func newOpenAPICommand(streams IOStreams) *cobra.Command {
 	var format string
 	command := &cobra.Command{
 		Use:   "openapi",
-		Short: "Write the read-only HTTP API contract",
+		Short: "Write the HTTP API contract",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if format != "yaml" && format != "json" {

@@ -49,4 +49,6 @@ jobs:
         run: bun run --cwd web playwright install --with-deps chromium firefox webkit
 
       - name: Run browser workflows
-        run: make web-e2e
+        run: |
+          make test-editing-e2e
+          make web-e2e

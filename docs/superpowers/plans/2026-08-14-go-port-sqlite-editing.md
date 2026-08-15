@@ -4,7 +4,7 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** Ready for execution
+**Status:** Implemented and verified
 
 **Goal:** Replace the fixture-backed Go runtime with one durable SQLite profile and deliver the
 same staged merchant, category, group, hide, undo/redo, review, and local-commit workflows through

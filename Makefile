@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help lint parity parity-go parity-python parity-update-go parity-update-python test test-race tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help lint parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -18,8 +18,12 @@ help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
 test:
-	go test $(GOFLAGS_TEST) -skip '^TestQuery100KCompletesWithinInteractiveBudget$$' ./...
+	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
+
+test-store:
+	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
+	go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
 test-race:
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...
@@ -48,6 +52,7 @@ parity-update-go:
 verify-go:
 	go run ./internal/tools/checkfmt cmd internal
 	$(MAKE) test
+	$(MAKE) test-store
 	$(MAKE) vet
 	$(MAKE) lint
 	$(MAKE) parity
@@ -86,6 +91,10 @@ web-e2e: web-build
 	bun run --cwd web test:e2e -- --project=firefox --grep @smoke
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke
 
+test-editing-e2e: web-build
+	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly)' -count=1
+	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
+
 web-build:
 	bun run --cwd web build
 
@@ -104,6 +113,7 @@ verify-web:
 	$(MAKE) web-test
 	$(MAKE) web-audit
 	$(MAKE) web-embed-check
+	$(MAKE) test-editing-e2e
 	$(MAKE) web-e2e
 	go test ./internal/api -run TestProjectionPerformance100K -count=1
 

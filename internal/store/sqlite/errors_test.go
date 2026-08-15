@@ -27,6 +27,7 @@ func TestMapDriverErrorUsesStableSafeCodes(t *testing.T) {
 		"corrupt":      {11, store.CodeStoreCorrupt},
 		"not database": {26, store.CodeStoreCorrupt},
 		"io":           {10, store.CodeStoreError},
+		"full":         {13, store.CodeStoreError},
 		"constraint":   {19, store.CodeStoreError},
 	}
 	for name, test := range tests {

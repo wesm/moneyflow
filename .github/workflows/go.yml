@@ -17,6 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      CGO_ENABLED: "0"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -38,8 +40,10 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          go test -shuffle=on -skip '^TestQuery100KCompletesWithinInteractiveBudget$' ./...
+          MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
           go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$' -count=1
+          go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
+          go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
       - name: Vet
         run: go vet ./...
