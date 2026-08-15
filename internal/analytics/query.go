@@ -8,6 +8,20 @@ import (
 
 // Query validates and evaluates one complete renderer-neutral view.
 func Query(transactions []domain.Transaction, spec domain.QuerySpec) (domain.QueryResult, error) {
+	return query(transactions, spec, false)
+}
+
+// QueryWithPending evaluates a durable editing projection whose transaction pending flags
+// were derived from the active journal rather than provider metadata.
+func QueryWithPending(
+	transactions []domain.Transaction, spec domain.QuerySpec,
+) (domain.QueryResult, error) {
+	return query(transactions, spec, true)
+}
+
+func query(
+	transactions []domain.Transaction, spec domain.QuerySpec, includePending bool,
+) (domain.QueryResult, error) {
 	if err := spec.Validate(); err != nil {
 		return domain.QueryResult{}, err
 	}
@@ -28,7 +42,7 @@ func Query(transactions []domain.Transaction, spec domain.QuerySpec) (domain.Que
 		result.DetailRows = DetailRows(filtered, spec.Sort)
 		return result, nil
 	}
-	rows, err := Aggregate(filtered, spec.GroupBy, spec.TimeGranularity)
+	rows, err := aggregate(filtered, spec.GroupBy, spec.TimeGranularity, includePending)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query: %w", err)
 	}

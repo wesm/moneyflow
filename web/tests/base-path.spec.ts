@@ -13,6 +13,8 @@ test('@smoke root and nested deployments keep every request in their configured 
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
     await page.keyboard.press('g')
     await expect(page).toHaveURL(/\/moneyflow\/\?group=category&v=1$/)
+    await page.keyboard.press('h')
+    await expect(page.getByText(/1 pending/)).toBeVisible()
 
     const health = await page.request.get(`${server.origin}/moneyflow/api/v1/health`)
     expect(health.ok()).toBe(true)

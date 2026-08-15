@@ -27,6 +27,15 @@ func Aggregate(
 	dimension domain.Dimension,
 	granularity domain.TimeGranularity,
 ) ([]domain.AggregateRow, error) {
+	return aggregate(filtered, dimension, granularity, false)
+}
+
+func aggregate(
+	filtered []domain.Transaction,
+	dimension domain.Dimension,
+	granularity domain.TimeGranularity,
+	includePending bool,
+) ([]domain.AggregateRow, error) {
 	if !dimension.Valid() {
 		return nil, errors.New("aggregate: invalid dimension")
 	}
@@ -34,7 +43,7 @@ func Aggregate(
 		return nil, errors.New("aggregate: invalid time granularity")
 	}
 	if dimension == domain.DimensionTime {
-		return aggregateTime(filtered, granularity)
+		return aggregateTime(filtered, granularity, includePending)
 	}
 
 	accumulators := make(map[aggregateKey]*accumulator)
@@ -63,6 +72,9 @@ func Aggregate(
 			value.row.Label = label
 		}
 		value.row.Count++
+		if includePending {
+			value.row.Flags.Pending = value.row.Flags.Pending || transaction.Pending
+		}
 		if transaction.Hidden {
 			continue
 		}
@@ -144,7 +156,7 @@ func setTopCategory(value *accumulator) error {
 }
 
 func aggregateTime(
-	filtered []domain.Transaction, granularity domain.TimeGranularity,
+	filtered []domain.Transaction, granularity domain.TimeGranularity, includePending bool,
 ) ([]domain.AggregateRow, error) {
 	if len(filtered) == 0 {
 		return []domain.AggregateRow{}, nil
@@ -180,6 +192,9 @@ func aggregateTime(
 			actual[mapKey] = value
 		}
 		value.row.Count++
+		if includePending {
+			value.row.Flags.Pending = value.row.Flags.Pending || transaction.Pending
+		}
 		if !transaction.Hidden {
 			total, err := value.row.Total.Add(transaction.Amount)
 			if err != nil {

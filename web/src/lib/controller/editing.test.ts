@@ -122,7 +122,7 @@ describe('browser editing controller', () => {
     expect(controller.state.announcement).toContain('Selection refreshed')
   })
 
-  it.each(['store_busy', 'store_error', 'invalid_operation', 'token_expired'])(
+  it.each(['store_busy', 'store_error', 'invalid_operation', 'invalid_origin', 'token_expired'])(
     'announces %s without controller-level replay',
     async (code) => {
       const transport = problemTransport(code, '2')

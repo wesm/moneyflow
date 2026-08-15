@@ -55,6 +55,7 @@ func TestServiceDecoratesSelectionsWithoutMutatingAnalytics(t *testing.T) {
 
 	transaction := appTransaction(t, "txn-1", "2024-01-01", "-1.00", "Example", "Category", "Group")
 	transaction.Hidden = true
+	transaction.Pending = true
 	service, err := NewService([]domain.Transaction{transaction})
 	require.NoError(t, err)
 
@@ -74,6 +75,7 @@ func TestServiceDecoratesSelectionsWithoutMutatingAnalytics(t *testing.T) {
 	result, err = service.Query(session)
 	require.NoError(t, err)
 	assert.True(t, result.AggregateRows[0].Flags.Selected)
+	assert.False(t, result.AggregateRows[0].Flags.Pending)
 }
 
 func TestServiceAggregateSelectionUsesMoneyPartitionIdentity(t *testing.T) {

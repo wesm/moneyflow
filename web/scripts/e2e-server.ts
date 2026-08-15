@@ -11,6 +11,13 @@ export interface E2EServer {
   stop(): Promise<void>
 }
 
+export interface E2EServerOptions {
+  basePath?: string
+  externalURL?: string
+  profileHome?: string
+  seedProfile?: boolean
+}
+
 async function availablePort(): Promise<number> {
   return await new Promise((resolvePort, reject) => {
     const server = createServer()
@@ -76,8 +83,11 @@ async function stopProcessGroup(child: ChildProcess): Promise<void> {
   await Promise.race([exited, forced])
 }
 
-export async function startE2EServer(basePath = '/'): Promise<E2EServer> {
-  const normalized = normalizedBasePath(basePath)
+export async function startE2EServer(
+  requested: string | E2EServerOptions = '/',
+): Promise<E2EServer> {
+  const options = typeof requested === 'string' ? { basePath: requested } : requested
+  const normalized = normalizedBasePath(options.basePath ?? '/')
   const repository = resolve(process.cwd(), '..')
   const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-e2e-'))
   const binary = join(binaryDirectory, process.platform === 'win32' ? 'moneyflow.exe' : 'moneyflow')
@@ -89,25 +99,56 @@ export async function startE2EServer(basePath = '/'): Promise<E2EServer> {
     await rm(binaryDirectory, { recursive: true, force: true })
     throw new Error(`Could not build Moneyflow E2E server: ${build.stderr}`)
   }
+  if (options.seedProfile) {
+    if (!options.profileHome) {
+      await rm(binaryDirectory, { recursive: true, force: true })
+      throw new Error('A persistent E2E profile home is required before seeding.')
+    }
+    const seedBinary = join(
+      binaryDirectory,
+      process.platform === 'win32' ? 'seedprofile.exe' : 'seedprofile',
+    )
+    const seedBuild = spawnSync('go', ['build', '-o', seedBinary, './internal/tools/seedprofile'], {
+      cwd: repository,
+      encoding: 'utf8',
+    })
+    if (seedBuild.status !== 0) {
+      await rm(binaryDirectory, { recursive: true, force: true })
+      throw new Error(`Could not build the E2E profile seeder: ${seedBuild.stderr}`)
+    }
+    const seeded = spawnSync(seedBinary, [options.profileHome], {
+      cwd: repository,
+      encoding: 'utf8',
+    })
+    if (seeded.status !== 0) {
+      await rm(binaryDirectory, { recursive: true, force: true })
+      throw new Error(`Could not seed the E2E profile: ${seeded.stderr}`)
+    }
+  }
   let lastError: unknown
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const port = await availablePort()
       const origin = `http://127.0.0.1:${port}`
       let stderr = ''
-      const child = spawn(
-        binary,
-        [
-          'web',
-          '--demo',
-          '--open=false',
-          '--listen',
-          `127.0.0.1:${port}`,
-          '--base-path',
-          normalized,
-        ],
-        { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
-      )
+      const args = [
+        'web',
+        ...(options.profileHome ? [] : ['--demo']),
+        '--open=false',
+        '--listen',
+        `127.0.0.1:${port}`,
+        '--base-path',
+        normalized,
+        ...(options.externalURL ? ['--external-url', options.externalURL] : []),
+      ]
+      const child = spawn(binary, args, {
+        cwd: repository,
+        detached: true,
+        env: options.profileHome
+          ? { ...process.env, MONEYFLOW_HOME: options.profileHome }
+          : process.env,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      })
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => (stderr += chunk))
       try {

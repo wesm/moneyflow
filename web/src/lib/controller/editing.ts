@@ -260,6 +260,7 @@ function safeFailureMessage(code: string): string {
   if (code === 'store_busy') return 'The profile is busy. Try the action again when ready.'
   if (code === 'store_error') return 'The profile could not save that action.'
   if (code === 'token_expired') return 'The secure browser session expired. Reload and try again.'
+  if (code === 'invalid_origin') return 'Open the canonical Moneyflow URL to make changes.'
   if (code === 'invalid_operation' || code === 'invalid_target') {
     return 'That action is not available for the current target.'
   }

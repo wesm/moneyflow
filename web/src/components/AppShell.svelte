@@ -106,7 +106,7 @@
     overlay = undefined
     popOverlayScope?.()
     popOverlayScope = undefined
-    void tick().then(focusGrid)
+    void tick().then(() => requestAnimationFrame(focusGrid))
   }
   function focusGrid(): void {
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })

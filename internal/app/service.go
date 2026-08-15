@@ -55,7 +55,11 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 	transactions := append([]domain.Transaction(nil), service.transactions...)
 	persistent := service.profile != nil
 	service.mu.RUnlock()
-	result, err := analytics.Query(transactions, session.QuerySpec())
+	query := analytics.Query
+	if persistent {
+		query = analytics.QueryWithPending
+	}
+	result, err := query(transactions, session.QuerySpec())
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
 	}

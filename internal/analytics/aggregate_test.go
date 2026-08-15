@@ -70,6 +70,28 @@ func TestAggregateMerchantTopCategoryTieUsesLabel(t *testing.T) {
 	assert.Equal(t, 50, rows[0].TopCategoryPercent)
 }
 
+func TestEditingAggregateMarksEveryAffectedDimensionAndTimeBucketPending(t *testing.T) {
+	t.Parallel()
+	transaction := testTransaction(
+		t, "txn-pending", "2024-01-01", "-10.00", "Example Store", "Dining", "Living",
+	)
+	transaction.Pending = true
+	for _, dimension := range []domain.Dimension{
+		domain.DimensionMerchant,
+		domain.DimensionCategory,
+		domain.DimensionGroup,
+		domain.DimensionAccount,
+		domain.DimensionTime,
+	} {
+		rows, err := aggregate(
+			[]domain.Transaction{transaction}, dimension, domain.TimeGranularityYear, true,
+		)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		assert.True(t, rows[0].Flags.Pending, dimension)
+	}
+}
+
 func TestAggregateSeparatesMoneyPartitions(t *testing.T) {
 	t.Parallel()
 
