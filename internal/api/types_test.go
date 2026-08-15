@@ -62,7 +62,8 @@ func TestWireProjectionOmitsProviderAndPrivateDomainData(t *testing.T) {
 	assert.NotContains(t, text, "private-provider")
 	assert.NotContains(t, text, "private note")
 	assert.NotContains(t, text, "metadata")
-	assert.NotContains(t, text, "provider")
+	assert.NotContains(t, text, `"provider":`)
+	assert.NotContains(t, text, `"provider_id":`)
 	assert.NotContains(t, text, "returns")
 }
 

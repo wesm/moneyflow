@@ -104,11 +104,16 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	for id := range affectedTransactionIDs(replayed) {
 		localPending[string(id)] = struct{}{}
 	}
+	providerState, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return mapAppError(err, loaded.Revision)
+	}
 	service.mu.Lock()
 	service.snapshot = cloneEffectiveSnapshot(replayed)
 	service.transactions = transactions
 	service.committedTransactions = committedTransactions
 	service.localPending = localPending
+	service.providerBound = providerState.Binding != nil
 	service.mu.Unlock()
 	return nil
 }
@@ -337,6 +342,15 @@ func (service *Service) Commit(
 			AppRevisionConflict, snapshot.Revision, errors.New("commit review is stale"),
 		)
 	}
+	if service.isProviderBound() {
+		failure := newAppError(
+			AppInvalidOperation,
+			snapshot.Revision,
+			errors.New("provider write-back is not implemented"),
+		)
+		failure.Detail = "Pending provider edits are safely stored until write-back is available."
+		return MutationResult{}, failure
+	}
 	plan, err := BuildFoldPlan(snapshot, request.ReviewedRevision)
 	if err != nil {
 		return MutationResult{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
@@ -401,7 +415,7 @@ func (service *Service) mutationResult(
 	return MutationResult{
 		Revision: snapshot.Revision, State: state.Clone(), Selection: selection,
 		SelectionDisposition: disposition, Pending: pendingSummary(snapshot),
-		Capabilities: capabilitiesForSnapshot(snapshot), Projection: projection,
+		Capabilities: service.capabilitiesForSnapshot(snapshot), Projection: projection,
 	}, nil
 }
 

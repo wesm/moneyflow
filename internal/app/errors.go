@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 
+	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -13,29 +14,49 @@ type AppErrorCode string
 
 // Stable application interaction failure codes.
 const (
-	AppRevisionConflict   AppErrorCode = "revision_conflict"
-	AppInvalidOperation   AppErrorCode = "invalid_operation"
-	AppInvalidTarget      AppErrorCode = "invalid_target"
-	AppSelectionStale     AppErrorCode = "selection_stale"
-	AppStoreBusy          AppErrorCode = "store_busy"
-	AppStoreError         AppErrorCode = "store_error"
-	AppSchemaNewer        AppErrorCode = "schema_newer"
-	AppSchemaIncompatible AppErrorCode = "schema_incompatible"
-	AppStoreCorrupt       AppErrorCode = "store_corrupt"
-	AppJournalFull        AppErrorCode = "journal_full"
+	AppRevisionConflict                     AppErrorCode = "revision_conflict"
+	AppInvalidOperation                     AppErrorCode = "invalid_operation"
+	AppInvalidTarget                        AppErrorCode = "invalid_target"
+	AppSelectionStale                       AppErrorCode = "selection_stale"
+	AppStoreBusy                            AppErrorCode = "store_busy"
+	AppStoreError                           AppErrorCode = "store_error"
+	AppSchemaNewer                          AppErrorCode = "schema_newer"
+	AppSchemaIncompatible                   AppErrorCode = "schema_incompatible"
+	AppStoreCorrupt                         AppErrorCode = "store_corrupt"
+	AppJournalFull                          AppErrorCode = "journal_full"
+	AppProviderReconnectRequired            AppErrorCode = "provider_reconnect_required"
+	AppProviderIdentityMismatch             AppErrorCode = "provider_identity_mismatch"
+	AppProviderSnapshotUnstable             AppErrorCode = "provider_snapshot_unstable"
+	AppProviderRefreshInProgress            AppErrorCode = "provider_refresh_in_progress"
+	AppProviderDeletionConfirmationRequired AppErrorCode = "provider_deletion_confirmation_required"
+	AppProviderConfirmationInvalid          AppErrorCode = "provider_confirmation_invalid"
+	AppProviderRefreshStale                 AppErrorCode = "provider_refresh_stale"
+	AppProviderRateLimited                  AppErrorCode = "provider_rate_limited"
+	AppProviderUnavailable                  AppErrorCode = "provider_unavailable"
+	AppProviderDataInvalid                  AppErrorCode = "provider_data_invalid"
 )
 
 var appErrorDetails = map[AppErrorCode]string{
-	AppRevisionConflict:   "The profile changed and must be refreshed.",
-	AppInvalidOperation:   "The requested operation is invalid.",
-	AppInvalidTarget:      "The requested target is no longer available.",
-	AppSelectionStale:     "The selection changed and must be reviewed.",
-	AppStoreBusy:          "The profile is busy. Try the action again.",
-	AppStoreError:         "The profile could not be updated.",
-	AppSchemaNewer:        "The profile was created by a newer application.",
-	AppSchemaIncompatible: "The profile format is not supported.",
-	AppStoreCorrupt:       "The profile is corrupt and cannot be opened.",
-	AppJournalFull:        "The pending edit limit is reached. Review or undo existing edits.",
+	AppRevisionConflict:                     "The profile changed and must be refreshed.",
+	AppInvalidOperation:                     "The requested operation is invalid.",
+	AppInvalidTarget:                        "The requested target is no longer available.",
+	AppSelectionStale:                       "The selection changed and must be reviewed.",
+	AppStoreBusy:                            "The profile is busy. Try the action again.",
+	AppStoreError:                           "The profile could not be updated.",
+	AppSchemaNewer:                          "The profile was created by a newer application.",
+	AppSchemaIncompatible:                   "The profile format is not supported.",
+	AppStoreCorrupt:                         "The profile is corrupt and cannot be opened.",
+	AppJournalFull:                          "The pending edit limit is reached. Review or undo existing edits.",
+	AppProviderReconnectRequired:            "Reconnect the provider through the command line.",
+	AppProviderIdentityMismatch:             "The provider profile does not match this local profile.",
+	AppProviderSnapshotUnstable:             "The provider changed while it was read. Try again later.",
+	AppProviderRefreshInProgress:            "Another process is refreshing this profile.",
+	AppProviderDeletionConfirmationRequired: "Confirm the proposed provider removals.",
+	AppProviderConfirmationInvalid:          "The refresh confirmation is no longer valid.",
+	AppProviderRefreshStale:                 "A newer provider refresh already committed.",
+	AppProviderRateLimited:                  "The provider rate limit prevented refresh.",
+	AppProviderUnavailable:                  "The provider is temporarily unavailable.",
+	AppProviderDataInvalid:                  "The provider returned invalid data.",
 }
 
 // AppError carries allowlisted recovery state without exposing diagnostics.
@@ -95,6 +116,9 @@ func mapAppError(err error, reliableRevision uint64) error {
 		}
 		failure.Selection = mutation.Selection
 		return failure
+	}
+	if providerCode, ok := provider.CodeOf(err); ok {
+		return newAppError(AppErrorCode(providerCode), reliableRevision, err)
 	}
 	var storage *store.Error
 	if errors.As(err, &storage) {

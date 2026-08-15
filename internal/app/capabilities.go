@@ -15,7 +15,7 @@ func (service *Service) Capabilities() []Capability {
 	if err != nil {
 		return nil
 	}
-	return capabilitiesForSnapshot(snapshot)
+	return service.capabilitiesForSnapshot(snapshot)
 }
 
 // Pending returns the current profile-global journal summary.
@@ -44,4 +44,26 @@ func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 		}
 	}
 	return result
+}
+
+func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
+	result := capabilitiesForSnapshot(snapshot)
+	service.mu.RLock()
+	bound := service.providerBound
+	configured := service.providerRuntime != nil
+	service.mu.RUnlock()
+	refresh := Capability{Action: ActionRefreshProvider, Available: bound && configured}
+	switch {
+	case !bound:
+		refresh.Reason = "Connect a provider before refreshing."
+	case !configured:
+		refresh.Reason = "Reconnect the provider through the command line."
+	}
+	return append(result, refresh)
+}
+
+func (service *Service) isProviderBound() bool {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.providerBound
 }

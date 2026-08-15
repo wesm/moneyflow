@@ -491,7 +491,7 @@ func (profile *memoryProfile) Fold(
 }
 
 func (profile *memoryProfile) ProviderState(context.Context) (store.ProviderState, error) {
-	return store.ProviderState{}, errors.New("not implemented")
+	return store.ProviderState{}, nil
 }
 
 func (profile *memoryProfile) AcquireRefreshLease(

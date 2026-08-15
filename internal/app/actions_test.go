@@ -52,6 +52,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionExport, []string{"E"}, "E", "Export transactions", "System", app.ScopeOverlay, false, true},
 		{app.ActionUndo, []string{"u"}, "u", "Undo most recent pending edit", "System", app.ScopeAnalytical, false, true},
 		{app.ActionRedo, []string{"U"}, "U", "Redo most recent undone edit", "System", app.ScopeAnalytical, false, true},
+		{app.ActionRefreshProvider, []string{"r"}, "r", "Refresh provider data", "System", app.ScopeAnalytical, false, true},
 		{app.ActionQuit, []string{"q"}, "q", "Quit application", "System", app.ScopeLifecycle, true, false},
 		{app.ActionForceQuit, []string{"ctrl+c"}, "ctrl+c", "Force quit application", "System", app.ScopeLifecycle, true, false},
 		{app.ActionOpenHelp, []string{"?"}, "?", "Show this help screen", "System", app.ScopeOverlay, true, true},

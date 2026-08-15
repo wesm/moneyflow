@@ -31,6 +31,8 @@ type Service struct {
 	localPending          map[string]struct{}
 	profile               store.Profile
 	snapshot              *EffectiveSnapshot
+	providerRuntime       *providerRuntimeState
+	providerBound         bool
 }
 
 // NewService validates and defensively copies the normalized transaction set.
