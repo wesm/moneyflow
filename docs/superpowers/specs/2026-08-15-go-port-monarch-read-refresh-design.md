@@ -288,10 +288,10 @@ Initial binding requires the exact pristine-profile predicate used by `CreateSee
 
 A journal-only profile is not pristine. Connection never orphans pending local state.
 
-A populated default profile is refused without `--replace`. The error prints the exact profile
-path and explains that, until profile management exists, the user must stop moneyflow and move or
-remove that file outside the application before connecting. The CLI does not delete or overwrite
-the profile.
+A populated default profile is refused; there is no `--replace` option. The error prints the exact
+profile path and explains that, until profile management exists, the user must stop moneyflow and
+move or remove that file outside the application before connecting. The CLI does not delete or
+overwrite the profile.
 
 The binding identity is `subscription.id` from `GetSubscriptionDetails`. The design assumes this
 value is stable for one Monarch household across sessions and devices; an opt-in live
