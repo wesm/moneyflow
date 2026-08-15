@@ -25,11 +25,39 @@ func TestOpenInstallsOnlyCurrentSchemaIntoEmptyDatabase(t *testing.T) {
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
 	assert.Equal(t, CurrentSchemaVersion, version)
+	assert.Equal(t, 3, version)
 	var migrationTableCount int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(), `
 		SELECT count(*) FROM sqlite_schema
 		WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&migrationTableCount))
 	assert.Zero(t, migrationTableCount)
+}
+
+func TestOpenRejectsVersionTwoWithoutUpgrading(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	profileStore, err := Open(context.Background(), paths, DefaultOptions)
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Close())
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	_, err = database.ExecContext(context.Background(),
+		"UPDATE schema_metadata SET schema_version = 2 WHERE singleton = 1")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+
+	opened, err := Open(context.Background(), paths, DefaultOptions)
+	assert.Nil(t, opened)
+	assertStoreCode(t, err, store.CodeSchemaIncompatible)
+
+	database, err = sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	var version int
+	require.NoError(t, database.QueryRowContext(context.Background(),
+		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
+	assert.Equal(t, 2, version)
 }
 
 func TestOpenRejectsIncompatibleSchemaWithoutUpgrading(t *testing.T) {

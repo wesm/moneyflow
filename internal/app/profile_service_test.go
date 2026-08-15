@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -450,6 +451,38 @@ func (profile *memoryProfile) Fold(
 	profile.snapshot.Cursor = 0
 	profile.snapshot.Revision++
 	return profile.snapshot.Revision, nil
+}
+
+func (profile *memoryProfile) ProviderState(context.Context) (store.ProviderState, error) {
+	return store.ProviderState{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) AcquireRefreshLease(
+	context.Context,
+	store.RefreshLease,
+	time.Time,
+) (store.RefreshLease, bool, error) {
+	return store.RefreshLease{}, false, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) RenewRefreshLease(
+	context.Context,
+	string,
+	time.Time,
+	time.Time,
+) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ReleaseRefreshLease(context.Context, string) error {
+	return errors.New("not implemented")
+}
+
+func (profile *memoryProfile) RecordRefreshFailure(
+	context.Context,
+	store.RefreshFailure,
+) error {
+	return errors.New("not implemented")
 }
 
 func (profile *memoryProfile) Close() error { return nil }

@@ -69,7 +69,11 @@ func (profile *profile) CreateSeededProfile(
 	return 1, nil
 }
 
-func profilePopulated(ctx context.Context, connection *sql.Conn) (bool, error) {
+type profileStateQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func profilePopulated(ctx context.Context, connection profileStateQueryer) (bool, error) {
 	var revision, cursor, rowCount, sentinelGroups, sentinelCategories int64
 	err := connection.QueryRowContext(ctx, `
 		SELECT revision, journal_cursor,
@@ -82,7 +86,9 @@ func profilePopulated(ctx context.Context, connection *sql.Conn) (bool, error) {
 			(SELECT count(*) FROM known_drills) +
 			(SELECT count(*) FROM journal_operations) +
 			(SELECT count(*) FROM operation_payloads) +
-			(SELECT count(*) FROM operation_targets),
+			(SELECT count(*) FROM operation_targets) +
+			(SELECT count(*) FROM provider_binding) +
+			(SELECT count(*) FROM provider_label_allocations),
 			(SELECT count(*) FROM category_groups
 			 WHERE id = ? AND label = 'Uncategorized' AND collision_key = 'uncategorized'
 			   AND retired = 0 AND protected = 1 AND merge_destination_id IS NULL),

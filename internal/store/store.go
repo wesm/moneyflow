@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
 )
@@ -18,7 +19,65 @@ type Profile interface {
 	MoveCursor(context.Context, uint64, int) (uint64, error)
 	CancelHide(context.Context, uint64, []domain.EntityID) (uint64, error)
 	Fold(context.Context, uint64, FoldPlan) (uint64, error)
+	ProviderState(context.Context) (ProviderState, error)
+	AcquireRefreshLease(context.Context, RefreshLease, time.Time) (RefreshLease, bool, error)
+	RenewRefreshLease(context.Context, string, time.Time, time.Time) (bool, error)
+	ReleaseRefreshLease(context.Context, string) error
+	RecordRefreshFailure(context.Context, RefreshFailure) error
 	Close() error
+}
+
+// ProviderBinding locks one local profile to one remote provider profile.
+type ProviderBinding struct {
+	Kind            string
+	Namespace       string
+	RemoteProfileID string
+	BoundAt         time.Time
+}
+
+// RefreshState is counts-only provider bookkeeping. Generation changes only after a fold.
+type RefreshState struct {
+	Generation           uint64
+	LastAttempt          time.Time
+	LastSuccess          time.Time
+	NextEligible         time.Time
+	StatusCode           string
+	ImportedTransactions int
+	RemovedTransactions  int
+}
+
+// RefreshLease coordinates provider network work without providing correctness.
+type RefreshLease struct {
+	OwnerID   string
+	Renderer  string
+	ExpiresAt time.Time
+}
+
+// LabelAllocation preserves one provider identity's sticky display-label decision.
+type LabelAllocation struct {
+	Kind             domain.EntityKind
+	Namespace        string
+	ExternalID       string
+	BaseCollisionKey string
+	DisplayLabel     string
+	SuffixToken      string
+	Unsuffixed       bool
+}
+
+// ProviderState is a short-lived projection of provider metadata and pristine eligibility.
+type ProviderState struct {
+	Binding     *ProviderBinding
+	Refresh     RefreshState
+	Lease       *RefreshLease
+	Allocations []LabelAllocation
+	Pristine    bool
+}
+
+// RefreshFailure records allowlisted operational failure bookkeeping.
+type RefreshFailure struct {
+	Code         string
+	AttemptedAt  time.Time
+	NextEligible time.Time
 }
 
 // FoldPlan is the validated application result to commit atomically.

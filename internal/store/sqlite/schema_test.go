@@ -22,6 +22,8 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
 		"journal_operations", "operation_payloads", "operation_targets",
+		"provider_binding", "provider_refresh_state", "provider_refresh_lease",
+		"provider_label_allocations",
 	}
 	for _, table := range requiredTables {
 		var strict int
@@ -45,6 +47,47 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 			"SELECT count(*) FROM pragma_foreign_key_list(?)", table).Scan(&count))
 		assert.Positive(t, count, table)
 	}
+}
+
+func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	ctx := context.Background()
+
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_binding(singleton, kind, namespace, remote_profile_id, bound_at_unix_ms)
+		VALUES (2, 'monarch', 'monarch', 'remote-a', 1)`)
+	assert.Error(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_refresh_lease(singleton, owner_id, renderer, expires_at_unix_ms)
+		VALUES (1, 'owner-a', 'background', 1)`)
+	assert.Error(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_label_allocations(
+			entity_type, namespace, external_id, base_collision_key,
+			display_label, suffix_token, unsuffixed
+		) VALUES ('transaction', 'monarch/transaction', 'external-a', 'example',
+			'Example', 'a1b2', 0)`)
+	assert.Error(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_label_allocations(
+			entity_type, namespace, external_id, base_collision_key,
+			display_label, suffix_token, unsuffixed
+		) VALUES ('merchant', 'shared', 'external-a', 'example', 'Example', '', 1)`)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_label_allocations(
+			entity_type, namespace, external_id, base_collision_key,
+			display_label, suffix_token, unsuffixed
+		) VALUES ('group', 'shared', 'external-a', 'group', 'Group', '', 1)`)
+	assert.Error(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		UPDATE provider_refresh_state SET generation = -1 WHERE singleton = 1`)
+	assert.Error(t, err)
 }
 
 func TestSchemaEnforcesMoneySingletonCollisionAndJournalConstraints(t *testing.T) {

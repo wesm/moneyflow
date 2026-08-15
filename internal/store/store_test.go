@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,24 @@ func (fakeProfile) CancelHide(context.Context, uint64, []domain.EntityID) (uint6
 	return 0, nil
 }
 func (fakeProfile) Fold(context.Context, uint64, store.FoldPlan) (uint64, error) { return 0, nil }
-func (fakeProfile) Close() error                                                 { return nil }
+func (fakeProfile) ProviderState(context.Context) (store.ProviderState, error) {
+	return store.ProviderState{}, nil
+}
+func (fakeProfile) AcquireRefreshLease(
+	context.Context,
+	store.RefreshLease,
+	time.Time,
+) (store.RefreshLease, bool, error) {
+	return store.RefreshLease{}, false, nil
+}
+func (fakeProfile) RenewRefreshLease(context.Context, string, time.Time, time.Time) (bool, error) {
+	return false, nil
+}
+func (fakeProfile) ReleaseRefreshLease(context.Context, string) error { return nil }
+func (fakeProfile) RecordRefreshFailure(context.Context, store.RefreshFailure) error {
+	return nil
+}
+func (fakeProfile) Close() error { return nil }
 
 var _ store.Profile = fakeProfile{}
 

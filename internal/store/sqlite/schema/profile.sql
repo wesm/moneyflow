@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 2);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 3);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -152,4 +152,69 @@ CREATE TABLE operation_targets (
     entity_id TEXT NOT NULL CHECK(entity_id <> ''),
     PRIMARY KEY(operation_id, ordinal),
     UNIQUE(operation_id, entity_id)
+) STRICT;
+
+CREATE TABLE provider_binding (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    kind TEXT NOT NULL CHECK(kind <> ''),
+    namespace TEXT NOT NULL CHECK(namespace <> ''),
+    remote_profile_id TEXT NOT NULL CHECK(remote_profile_id <> ''),
+    bound_at_unix_ms INTEGER NOT NULL CHECK(
+        typeof(bound_at_unix_ms) = 'integer' AND bound_at_unix_ms >= 0
+    )
+) STRICT;
+
+CREATE TABLE provider_refresh_state (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    generation INTEGER NOT NULL CHECK(typeof(generation) = 'integer' AND generation >= 0),
+    last_attempt_unix_ms INTEGER CHECK(
+        last_attempt_unix_ms IS NULL OR
+        (typeof(last_attempt_unix_ms) = 'integer' AND last_attempt_unix_ms >= 0)
+    ),
+    last_success_unix_ms INTEGER CHECK(
+        last_success_unix_ms IS NULL OR
+        (typeof(last_success_unix_ms) = 'integer' AND last_success_unix_ms >= 0)
+    ),
+    next_eligible_unix_ms INTEGER CHECK(
+        next_eligible_unix_ms IS NULL OR
+        (typeof(next_eligible_unix_ms) = 'integer' AND next_eligible_unix_ms >= 0)
+    ),
+    status_code TEXT NOT NULL CHECK(status_code IN (
+        '', 'provider_reconnect_required', 'provider_identity_mismatch',
+        'provider_snapshot_unstable', 'provider_refresh_in_progress',
+        'provider_deletion_confirmation_required', 'provider_confirmation_invalid',
+        'provider_refresh_stale', 'provider_rate_limited', 'provider_unavailable',
+        'provider_data_invalid'
+    )),
+    imported_transactions INTEGER NOT NULL CHECK(
+        typeof(imported_transactions) = 'integer' AND imported_transactions >= 0
+    ),
+    removed_transactions INTEGER NOT NULL CHECK(
+        typeof(removed_transactions) = 'integer' AND removed_transactions >= 0
+    )
+) STRICT;
+
+INSERT INTO provider_refresh_state(
+    singleton, generation, status_code, imported_transactions, removed_transactions
+) VALUES (1, 0, '', 0, 0);
+
+CREATE TABLE provider_refresh_lease (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    owner_id TEXT NOT NULL CHECK(owner_id <> ''),
+    renderer TEXT NOT NULL CHECK(renderer IN ('cli', 'tui', 'web')),
+    expires_at_unix_ms INTEGER NOT NULL CHECK(
+        typeof(expires_at_unix_ms) = 'integer' AND expires_at_unix_ms >= 0
+    )
+) STRICT;
+
+CREATE TABLE provider_label_allocations (
+    entity_type TEXT NOT NULL CHECK(entity_type IN ('account', 'merchant', 'group', 'category')),
+    namespace TEXT NOT NULL CHECK(namespace <> ''),
+    external_id TEXT NOT NULL CHECK(external_id <> ''),
+    base_collision_key TEXT NOT NULL CHECK(base_collision_key <> ''),
+    display_label TEXT NOT NULL CHECK(display_label <> ''),
+    suffix_token TEXT NOT NULL,
+    unsuffixed INTEGER NOT NULL CHECK(unsuffixed IN (0, 1)),
+    CHECK((unsuffixed = 1 AND suffix_token = '') OR (unsuffixed = 0 AND suffix_token <> '')),
+    PRIMARY KEY(namespace, external_id)
 ) STRICT;
