@@ -26,9 +26,19 @@
 
   onMount(() => {
     const restore = (event: PopStateEvent) => void controller.restore(event)
+    const recheck = () => void controller.recheck().catch(() => undefined)
+    const visible = () => {
+      if (document.visibilityState === 'visible') recheck()
+    }
     window.addEventListener('popstate', restore)
+    window.addEventListener('focus', recheck)
+    document.addEventListener('visibilitychange', visible)
     void controller.hydrate()
-    return () => window.removeEventListener('popstate', restore)
+    return () => {
+      window.removeEventListener('popstate', restore)
+      window.removeEventListener('focus', recheck)
+      document.removeEventListener('visibilitychange', visible)
+    }
   })
 </script>
 
@@ -67,7 +77,7 @@
         </section>
       {:else}
         <section class="moneyflow-loading" aria-labelledby="loading-title">
-          <p class="moneyflow-eyebrow">Read-only fixture</p>
+          <p class="moneyflow-eyebrow">Local profile</p>
           <h1 id="loading-title">Loading financial view…</h1>
           <p>Preparing the keyboard-first transaction workspace.</p>
         </section>
@@ -79,12 +89,12 @@
       {#snippet left()}
         <span role="status">
           {controller.loading
-            ? 'Loading fixture data…'
+            ? 'Loading profile data…'
             : (controller.projection?.status ?? 'Ready')}
         </span>
       {/snippet}
       {#snippet right()}
-        <span>read only · {basePath}</span>
+        <span>profile · {basePath}</span>
       {/snippet}
     </StatusBar>
   </div>

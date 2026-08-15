@@ -8,7 +8,9 @@ import {
 } from '../api/client'
 import { SvelteMap } from 'svelte/reactivity'
 import { applicationURL, normalizeBrowserBasePath } from './base-path'
+import { createEditingController, type EditingController } from './editing'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
+import { createReviewController, type ReviewController } from './review'
 import { preserveCursor, WindowCache } from './windows'
 
 const windowSize = 200
@@ -40,7 +42,10 @@ export interface ViewController {
   readonly cursorIdentity: string | undefined
   readonly cursorIndex: number
   readonly problem: ControllerProblem | undefined
+  readonly editing: EditingController
+  readonly review: ReviewController
   hydrate(): Promise<void>
+  recheck(selection?: SelectionValue): Promise<ViewProjection | undefined>
   moveCursor(delta: -1 | 1): Promise<void>
   moveCursorTo(index: number): Promise<void>
   moveHome(): Promise<void>
@@ -61,6 +66,7 @@ export interface ViewControllerOptions {
   location?: Pick<Location, 'search'>
   instance?: string
   prefetch?: boolean
+  recheckDebounceMillis?: number
 }
 
 export function createViewController(options: ViewControllerOptions): ViewController {
@@ -71,6 +77,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const ledger = new OwnedHistoryLedger(instance)
   const cache = new WindowCache(windowSize)
   const prefetchEnabled = options.prefetch ?? true
+  const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
   const existing = ledger.record(browserHistory.state)
 
   let projection = $state<ViewProjection | undefined>()
@@ -85,7 +92,22 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let activeRequest: AbortController | undefined
   let lastRetry: (() => Promise<void>) | undefined
   let searchSnapshot: SearchSnapshot | undefined
+  let recheckRequest: Promise<ViewProjection | undefined> | undefined
+  let lastRevisionObservation = 0
   const prefetchRequests = new SvelteMap<string, AbortController>()
+
+  const editing = createEditingController({
+    transport: options.client.mutations,
+    host: {
+      current: () => projection,
+      accept: acceptProfileProjection,
+      refresh: recheck,
+    },
+  })
+  const review = createReviewController({
+    transport: options.client.mutations,
+    revision: () => editing.state.revision,
+  })
 
   async function hydrate(): Promise<void> {
     const query = currentQuery(browserLocation)
@@ -99,6 +121,37 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       (next) => accept(next, 'replace', owned),
       hydrate,
     )
+  }
+
+  async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
+    if (!projection) return undefined
+    if (selection === undefined && recheckRequest) return await recheckRequest
+    if (selection === undefined && Date.now() - lastRevisionObservation < recheckDebounceMillis) {
+      return projection
+    }
+    const current = projection
+    const request = options.client
+      .view(
+        viewBody(
+          current.canonical_query,
+          selection ?? current.selection,
+          alignedOffset(cursorIndex),
+        ),
+      )
+      .then((next) => {
+        if (projection !== current) return projection
+        if (next.revision === current.revision && next.selection === current.selection) {
+          return projection
+        }
+        acceptProfileProjection(next)
+        editing.sync(next)
+        return next
+      })
+    if (selection !== undefined) return await request
+    recheckRequest = request.finally(() => {
+      recheckRequest = undefined
+    })
+    return await recheckRequest
   }
 
   async function apply(action: TransitionAction): Promise<boolean> {
@@ -316,6 +369,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
     if (restored) sequence = restored.sequence
     projection = next
+    lastRevisionObservation = Date.now()
+    editing.sync(next)
     const cursor = preserveCursor(
       next,
       restored?.cursorIdentity ?? cursorIdentity,
@@ -336,10 +391,25 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
+  function acceptProfileProjection(next: ViewProjection): void {
+    cache.store(next)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
+    projection = next
+    lastRevisionObservation = Date.now()
+    const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
+    cursorIdentity = cursor.identity
+    cursorIndex = cursor.index
+    announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
+    problem = undefined
+    schedulePrefetch(next)
+  }
+
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {
     cache.store(next)
     cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
     projection = next
+    lastRevisionObservation = Date.now()
+    editing.sync(next)
     const cursor = preserveCursor(next, undefined, requestedIndex)
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
@@ -442,7 +512,10 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     get problem() {
       return problem
     },
+    editing,
+    review,
     hydrate,
+    recheck,
     moveCursor,
     moveCursorTo,
     moveHome,

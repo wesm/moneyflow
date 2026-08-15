@@ -11,6 +11,15 @@ export type ViewProjection = Omit<components['schemas']['Projection'], 'selectio
   selection: SelectionValue
 }
 export type Problem = components['schemas']['Problem']
+export type MutationBody = components['schemas']['MutationBody']
+export type MutationInput = components['schemas']['MutationInput']
+export type MutationResponse = components['schemas']['MutationResponse']
+export type RevisionBody = components['schemas']['RevisionBody']
+export type CommitBody = components['schemas']['CommitBody']
+export type PendingSummary = components['schemas']['PendingSummary']
+export type ReviewBody = components['schemas']['ReviewBody']
+export type ReviewTargetsBody = components['schemas']['ReviewTargetsBody']
+export type ReviewResponse = components['schemas']['ReviewResponse']
 
 interface BootstrapResponse {
   mutation_token: string
@@ -28,6 +37,27 @@ export interface MoneyflowClient {
 
 export interface MutationFetch {
   request(path: string, body: string, signal?: AbortSignal): Promise<Response>
+}
+
+export async function requestProfileJSON<T>(
+  transport: MutationFetch,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await transport.request(path, JSON.stringify(body), signal)
+  let value: unknown
+  try {
+    value = await response.json()
+  } catch {
+    throw new Error('The Moneyflow profile response is invalid.')
+  }
+  if (!response.ok) {
+    if (isProblem(value)) throw new MoneyflowProblem(value)
+    throw new Error('The Moneyflow profile request failed.')
+  }
+  if (!isRecord(value)) throw new Error('The Moneyflow profile response is invalid.')
+  return value as T
 }
 
 export function createMutationFetch(

@@ -7,12 +7,12 @@ import type { ViewController } from './lib/controller/view-controller.svelte'
 describe('Moneyflow application scaffold', () => {
   afterEach(cleanup)
 
-  it('mounts the shared chrome around a fixture loading state', () => {
+  it('mounts the shared chrome around a profile loading state', () => {
     render(App, { basePath: '/moneyflow/', controller: stubController() })
 
     expect(screen.getByRole('main', { name: 'Moneyflow' })).not.toBeNull()
     expect(screen.getByRole('heading', { name: 'Loading financial view…' })).not.toBeNull()
-    expect(screen.getByRole('status').textContent).toBe('Loading fixture data…')
+    expect(screen.getByRole('status').textContent).toBe('Loading profile data…')
     expect(screen.getByRole('button', { name: /change theme/i })).not.toBeNull()
   })
 
@@ -29,6 +29,16 @@ describe('Moneyflow application scaffold', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Reset view' }))
     expect(controller.reset).toHaveBeenCalledTimes(1)
   })
+
+  it('rechecks the profile on focus without polling', async () => {
+    const controller = stubController()
+    render(App, { basePath: '/moneyflow/', controller })
+    vi.mocked(controller.recheck).mockClear()
+
+    await fireEvent.focus(window)
+
+    expect(controller.recheck).toHaveBeenCalledTimes(1)
+  })
 })
 
 function stubController(overrides: Partial<ViewController> = {}): ViewController {
@@ -39,7 +49,10 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     cursorIdentity: undefined,
     cursorIndex: 0,
     problem: undefined,
+    editing: {} as ViewController['editing'],
+    review: {} as ViewController['review'],
     hydrate: vi.fn(async () => undefined),
+    recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),
     moveCursorTo: vi.fn(async () => undefined),
     moveHome: vi.fn(async () => undefined),

@@ -286,6 +286,36 @@ describe('browser view controller', () => {
     expect(controller.problem).toEqual({ kind: 'invalid-view', code: 'invalid_view_state' })
     expect(controller.announcement).not.toContain('raw URL')
   })
+
+  it('deduplicates passive revision checks and preserves stable cursor without history writes', async () => {
+    let release!: (value: ViewProjection) => void
+    const passive = new Promise<ViewProjection>((resolve) => (release = resolve))
+    const client = clientWith({
+      view: vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3))
+        .mockImplementationOnce(async () => await passive),
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    await controller.moveCursorTo(1)
+    const pushes = vi.spyOn(history, 'pushState')
+    const replacements = vi.spyOn(history, 'replaceState')
+    pushes.mockClear()
+    replacements.mockClear()
+
+    const first = controller.recheck()
+    const duplicate = controller.recheck()
+    release(projection('v=1', 0, 3, '2'))
+    await Promise.all([first, duplicate])
+
+    expect(client.view).toHaveBeenCalledTimes(2)
+    expect(controller.projection?.revision).toBe('2')
+    expect(controller.cursorIdentity).toBe('row-1')
+    expect(pushes).not.toHaveBeenCalled()
+    expect(replacements).not.toHaveBeenCalled()
+    expect(controller.editing.state.revision).toBe(2n)
+  })
 })
 
 function controllerFor(client: MoneyflowClient, prefetch = true) {
@@ -296,6 +326,7 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
     location: window.location,
     instance: 'test-instance',
     prefetch,
+    recheckDebounceMillis: 0,
   })
 }
 
@@ -308,12 +339,12 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
   }
 }
 
-function projection(query: string, offset: number, total: number): ViewProjection {
+function projection(query: string, offset: number, total: number, revision = '0'): ViewProjection {
   const count = Math.max(0, Math.min(200, total - offset))
   return {
     api_schema_version: '1',
     projection_schema_version: '1',
-    revision: '0',
+    revision,
     pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: query,
     view: {

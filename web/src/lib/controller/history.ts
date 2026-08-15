@@ -21,7 +21,18 @@ export class OwnedHistoryLedger {
 
   read(value: unknown): MoneyflowHistoryState | undefined {
     if (!isRecord(value)) return undefined
+    const allowed = new Set([
+      'owner',
+      'instance',
+      'sequence',
+      'query',
+      'cursorIdentity',
+      'cursorIndex',
+      'scrollTop',
+      'selection',
+    ])
     if (
+      Object.keys(value).some((key) => !allowed.has(key)) ||
       value.owner !== 'moneyflow-web-v1' ||
       value.instance !== this.#instance ||
       !Number.isSafeInteger(value.sequence) ||
