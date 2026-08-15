@@ -46,6 +46,13 @@ func (fakeProfile) ReleaseRefreshLease(context.Context, string) error { return n
 func (fakeProfile) RecordRefreshFailure(context.Context, store.RefreshFailure) error {
 	return nil
 }
+func (fakeProfile) ApplyProviderRefresh(
+	context.Context,
+	store.AtomicRefreshRequest,
+	store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	return store.RefreshCommit{}, nil
+}
 func (fakeProfile) Close() error { return nil }
 
 var _ store.Profile = fakeProfile{}

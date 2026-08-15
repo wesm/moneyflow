@@ -522,6 +522,14 @@ func (profile *memoryProfile) RecordRefreshFailure(
 	return errors.New("not implemented")
 }
 
+func (profile *memoryProfile) ApplyProviderRefresh(
+	context.Context,
+	store.AtomicRefreshRequest,
+	store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	return store.RefreshCommit{}, errors.New("not implemented")
+}
+
 func (profile *memoryProfile) Close() error { return nil }
 
 func (profile *memoryProfile) advanceExternally(operation domain.Operation) {

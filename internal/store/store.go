@@ -24,6 +24,7 @@ type Profile interface {
 	RenewRefreshLease(context.Context, string, time.Time, time.Time) (bool, error)
 	ReleaseRefreshLease(context.Context, string) error
 	RecordRefreshFailure(context.Context, RefreshFailure) error
+	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
 	Close() error
 }
 
@@ -79,6 +80,70 @@ type RefreshFailure struct {
 	Code         string
 	AttemptedAt  time.Time
 	NextEligible time.Time
+}
+
+// RefreshInputs contains every authoritative value a refresh planner may consult.
+type RefreshInputs struct {
+	Snapshot         domain.ProfileSnapshot
+	Binding          *ProviderBinding
+	Refresh          RefreshState
+	Allocations      []LabelAllocation
+	Candidate        domain.ImportSnapshot
+	ProposedIDs      map[string]domain.EntityID
+	ProposedSuffixes map[string]string
+	ObservedAt       time.Time
+}
+
+// RefreshPlan is the complete logical state produced by one pure refresh calculation.
+type RefreshPlan struct {
+	Committed   domain.CommittedProfile
+	Effective   domain.CommittedProfile
+	Journal     []domain.Operation
+	Cursor      int
+	KnownDrills []domain.DrillIdentity
+	Allocations []LabelAllocation
+	Summary     RefreshSummary
+}
+
+// RefreshSummary contains counts safe for durable status and logs.
+type RefreshSummary struct {
+	ImportedAccounts        int
+	ImportedMerchants       int
+	ImportedGroups          int
+	ImportedCategories      int
+	ImportedTransactions    int
+	RemovedTransactions     int
+	RemovedOperations       int
+	RemovedTargets          int
+	RetainedOperations      int
+	RebasedHideTargets      int
+	DiscardedRedoOperations int
+}
+
+// RefreshPlanner deterministically produces a complete refresh plan without store access.
+type RefreshPlanner func(RefreshInputs) (RefreshPlan, error)
+
+// AtomicRefreshRequest carries a validated provider observation into the atomic fold.
+type AtomicRefreshRequest struct {
+	ExpectedGeneration uint64
+	LeaseOwnerID       string
+	Binding            *ProviderBinding
+	Candidate          domain.ImportSnapshot
+	ProposedIDs        map[string]domain.EntityID
+	ProposedSuffixes   map[string]string
+	ObservedAt         time.Time
+}
+
+// RefreshCommit reports the two semantic versions and counts committed by a refresh.
+type RefreshCommit struct {
+	Revision   uint64
+	Generation uint64
+	Summary    RefreshSummary
+}
+
+// RefreshApplier is the narrow atomic provider-fold capability.
+type RefreshApplier interface {
+	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
 }
 
 // FoldPlan is the validated application result to commit atomically.

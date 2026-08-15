@@ -23,7 +23,7 @@ test:
 	go test ./internal/api -run '^TestProjectionPerformance100K$$' -count=1
 
 test-store:
-	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
+	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|ProviderRefreshPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
 	go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
 test-race:
