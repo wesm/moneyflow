@@ -14,7 +14,7 @@ export class WindowCache {
   store(projection: ViewProjection): void {
     const offset = projection.window.offset
     if (offset % this.#windowSize !== 0) throw new Error('projection window is not aligned')
-    const cacheKey = key(projection.canonical_query, projection.selection)
+    const cacheKey = key(projection.canonical_query, projection.selection, projection.revision)
     let query = this.#entries.get(cacheKey)
     if (!query) {
       query = new Map()
@@ -23,18 +23,23 @@ export class WindowCache {
     query.set(offset, projection)
   }
 
-  get(query: string, selection: string, offset: number): ViewProjection | undefined {
-    return this.#entries.get(key(query, selection))?.get(offset)
+  get(
+    query: string,
+    selection: string,
+    revision: string,
+    offset: number,
+  ): ViewProjection | undefined {
+    return this.#entries.get(key(query, selection, revision))?.get(offset)
   }
 
-  offsets(query: string, selection: string): number[] {
-    return [...(this.#entries.get(key(query, selection))?.keys() ?? [])].sort(
+  offsets(query: string, selection: string, revision: string): number[] {
+    return [...(this.#entries.get(key(query, selection, revision))?.keys() ?? [])].sort(
       (left, right) => left - right,
     )
   }
 
-  retainAdjacent(query: string, selection: string, currentOffset: number): void {
-    const cacheKey = key(query, selection)
+  retainAdjacent(query: string, selection: string, revision: string, currentOffset: number): void {
+    const cacheKey = key(query, selection, revision)
     const entries = this.#entries.get(cacheKey)
     if (!entries) return
     const retained = new Set([
@@ -51,8 +56,8 @@ export class WindowCache {
   }
 }
 
-function key(query: string, selection: string): string {
-  return `${query}\u0000${selection}`
+function key(query: string, selection: string, revision: string): string {
+  return `${query}\u0000${selection}\u0000${revision}`
 }
 
 export function preserveCursor(

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"strings"
@@ -25,10 +26,38 @@ type EditorCatalog struct {
 
 // EditorCatalog returns active profile choices without exposing the effective snapshot.
 func (service *Service) EditorCatalog() (EditorCatalog, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
 	snapshot, err := service.effectiveSnapshot()
 	if err != nil {
 		return EditorCatalog{}, errors.New("editor catalog is unavailable")
 	}
+	return editorCatalog(snapshot), nil
+}
+
+// EditorCatalogAt refreshes, revision-checks, and derives choices from one cache generation.
+func (service *Service) EditorCatalogAt(
+	ctx context.Context,
+	expected uint64,
+) (EditorCatalog, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return EditorCatalog{}, err
+	}
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return EditorCatalog{}, mapAppError(err, service.Revision())
+	}
+	if snapshot.Revision != expected {
+		return EditorCatalog{}, newAppError(
+			AppRevisionConflict, snapshot.Revision, errors.New("editor catalog revision is stale"),
+		)
+	}
+	return editorCatalog(snapshot), nil
+}
+
+func editorCatalog(snapshot EffectiveSnapshot) EditorCatalog {
 	catalog := EditorCatalog{}
 	for _, merchant := range snapshot.Effective.Merchants {
 		if !merchant.Retired {
@@ -55,7 +84,7 @@ func (service *Service) EditorCatalog() (EditorCatalog, error) {
 	sortEditorChoices(catalog.Merchants, false)
 	sortEditorChoices(catalog.Categories, true)
 	sortEditorChoices(catalog.Groups, false)
-	return catalog, nil
+	return catalog
 }
 
 func sortEditorChoices(choices []EditorChoice, protectedFirst bool) {

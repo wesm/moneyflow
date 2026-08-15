@@ -1,7 +1,7 @@
 <script lang="ts">
   import { DetailDrawer, MEDIA, StatusBar, ThemeToggle, Toggle, TopBar } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import FiltersDialog from './FiltersDialog.svelte'
   import FinanceTable from './FinanceTable.svelte'
   import HelpDialog from './HelpDialog.svelte'
@@ -40,6 +40,7 @@
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
+  let focusRestoreFrame: number | undefined
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
 
@@ -50,9 +51,11 @@
     else if (action === 'overlay.search') openOverlay('search')
     else if (action === 'overlay.filters') openOverlay('filters')
     else if (action === 'overlay.help') openOverlay('help')
-    else if (action === 'edit.merchant') openOverlay('merchant')
-    else if (action === 'edit.category') openOverlay('category')
-    else if (action === 'manage.categories') openOverlay('categories')
+    else if (action === 'edit.merchant') {
+      if (focusedRow()) openOverlay('merchant')
+    } else if (action === 'edit.category') {
+      if (focusedRow()) openOverlay('category')
+    } else if (action === 'manage.categories') openOverlay('categories')
     else if (action === 'manage.groups') openOverlay('groups')
     else if (action === 'edit.review') openOverlay('review')
     else if (action === 'edit.undo') void controller.editing.undo()
@@ -98,6 +101,8 @@
     focusGrid()
   }
   function openOverlay(next: Overlay): void {
+    if (focusRestoreFrame !== undefined) cancelAnimationFrame(focusRestoreFrame)
+    focusRestoreFrame = undefined
     popOverlayScope?.()
     popOverlayScope = shortcuts?.manager.pushScope(next)
     overlay = next
@@ -106,7 +111,12 @@
     overlay = undefined
     popOverlayScope?.()
     popOverlayScope = undefined
-    void tick().then(() => requestAnimationFrame(focusGrid))
+    void tick().then(() => {
+      focusRestoreFrame = requestAnimationFrame(() => {
+        focusRestoreFrame = undefined
+        if (overlay === undefined) focusGrid()
+      })
+    })
   }
   function focusGrid(): void {
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
@@ -130,6 +140,10 @@
       apply: (action) => void apply(action),
     })
     shortcuts = current
+    const activeOverlay = untrack(() => overlay)
+    const activeChartDrawer = untrack(() => chartDrawer)
+    popOverlayScope = activeOverlay ? current.manager.pushScope(activeOverlay) : undefined
+    popChartScope = activeChartDrawer ? current.manager.pushScope('charts') : undefined
     return () => current.destroy()
   })
   onMount(() => {
@@ -142,6 +156,7 @@
       window.removeEventListener('keydown', keydown)
       popOverlayScope?.()
       popChartScope?.()
+      if (focusRestoreFrame !== undefined) cancelAnimationFrame(focusRestoreFrame)
     }
   })
 </script>

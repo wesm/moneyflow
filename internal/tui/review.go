@@ -98,7 +98,8 @@ func (model *Model) loadReviewDetails(offset int) {
 		return
 	}
 	operation := model.review.projection.Operations[model.review.selected]
-	limit := min(app.MaxReviewTargetLimit, max(1, model.height-12))
+	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
+	limit := min(app.MaxReviewTargetLimit, max(1, rect.Height-8))
 	projection, err := model.service.Review(model.ctx, model.review.reviewedRevision, app.ReviewWindow{
 		OperationID: operation.OperationID, Offset: offset, Limit: limit,
 	})
@@ -202,10 +203,11 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 		projection.Pending.ActiveOperations, projection.Pending.InactiveOperations,
 		projection.Pending.AffectedTransactions)
 	screen.Frame.PutText(x, rect.Y+2, Truncate(summary, width), model.palette.Text)
-	for index, operation := range projection.Operations {
-		if index >= max(0, rect.Height-8) {
-			break
-		}
+	visible := max(0, rect.Height-8)
+	start := max(0, model.review.selected-visible+1)
+	end := min(len(projection.Operations), start+visible)
+	for index := start; index < end; index++ {
+		operation := projection.Operations[index]
 		state := "active"
 		if !operation.Active {
 			state = "redo"
@@ -218,7 +220,7 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 		line := fmt.Sprintf("%s%d. %s [%s] %d targets %s → %s", prefix,
 			operation.Sequence, operation.Type, state, operation.AffectedCount,
 			operation.Before, operation.After)
-		screen.Frame.PutText(x, rect.Y+4+index, Truncate(line, width), style)
+		screen.Frame.PutText(x, rect.Y+4+index-start, Truncate(line, width), style)
 	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "↑/↓=Choose | Enter=Details | c=Commit | Esc=Cancel", model.palette.Muted)
 }

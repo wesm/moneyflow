@@ -32,6 +32,9 @@ type MutationResult struct {
 type CommitRequest struct {
 	ExpectedRevision uint64
 	ReviewedRevision uint64
+	State            ViewState
+	Selection        SelectionValue
+	Window           WindowRequest
 }
 
 // NewProfileService loads and validates one durable profile into an immutable replay cache.
@@ -89,27 +92,25 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	if err != nil {
 		return newAppError(AppStoreCorrupt, loaded.Revision, err)
 	}
-	transactions, err := materializePendingTransactions(replayed)
+	transactions, err := replayed.Effective.MaterializeTransactions()
 	if err != nil {
 		return newAppError(AppStoreCorrupt, loaded.Revision, err)
+	}
+	committedTransactions, err := replayed.Committed.MaterializeTransactions()
+	if err != nil {
+		return newAppError(AppStoreCorrupt, loaded.Revision, err)
+	}
+	localPending := make(map[string]struct{})
+	for id := range affectedTransactionIDs(replayed) {
+		localPending[string(id)] = struct{}{}
 	}
 	service.mu.Lock()
 	service.snapshot = cloneEffectiveSnapshot(replayed)
 	service.transactions = transactions
+	service.committedTransactions = committedTransactions
+	service.localPending = localPending
 	service.mu.Unlock()
 	return nil
-}
-
-func materializePendingTransactions(snapshot EffectiveSnapshot) ([]domain.Transaction, error) {
-	transactions, err := snapshot.Effective.MaterializeTransactions()
-	if err != nil {
-		return nil, err
-	}
-	affected := affectedTransactionIDs(snapshot)
-	for index := range transactions {
-		_, transactions[index].Pending = affected[domain.EntityID(transactions[index].ID)]
-	}
-	return transactions, nil
 }
 
 func cloneEffectiveSnapshot(snapshot EffectiveSnapshot) *EffectiveSnapshot {
@@ -182,7 +183,7 @@ func (service *Service) Mutate(
 	if selection == "" || plan.SelectionDisposition == SelectionCleared {
 		selection = EmptySelection()
 	}
-	return service.mutationResult(plan.State, selection, plan.SelectionDisposition)
+	return service.mutationResult(plan.State, selection, plan.SelectionDisposition, request.Window)
 }
 
 func buildMutationPlan(
@@ -208,18 +209,47 @@ func buildMutationPlan(
 
 // Undo moves the active-count cursor back by one operation.
 func (service *Service) Undo(ctx context.Context, expected uint64) (MutationResult, error) {
-	return service.moveCursor(ctx, expected, -1)
+	return service.UndoInteraction(
+		ctx, expected, DefaultViewState(), EmptySelection(), WindowRequest{},
+	)
+}
+
+// UndoInteraction moves the cursor and projects the caller's exact analytical context.
+func (service *Service) UndoInteraction(
+	ctx context.Context,
+	expected uint64,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	return service.moveCursor(ctx, expected, -1, state, selection, window)
 }
 
 // Redo moves the active-count cursor forward by one operation.
 func (service *Service) Redo(ctx context.Context, expected uint64) (MutationResult, error) {
-	return service.moveCursor(ctx, expected, 1)
+	return service.RedoInteraction(
+		ctx, expected, DefaultViewState(), EmptySelection(), WindowRequest{},
+	)
+}
+
+// RedoInteraction moves the cursor and projects the caller's exact analytical context.
+func (service *Service) RedoInteraction(
+	ctx context.Context,
+	expected uint64,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	return service.moveCursor(ctx, expected, 1, state, selection, window)
 }
 
 func (service *Service) moveCursor(
 	ctx context.Context,
 	expected uint64,
 	direction int,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
 ) (MutationResult, error) {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
@@ -239,7 +269,7 @@ func (service *Service) moveCursor(
 	if err = service.reloadExpected(ctx, next); err != nil {
 		return MutationResult{}, err
 	}
-	return service.mutationResult(DefaultViewState(), EmptySelection(), SelectionPreserved)
+	return service.mutationResult(state, selection, SelectionPreserved, window)
 }
 
 // Commit folds the exact reviewed active prefix and permanently discards its redo tail.
@@ -273,7 +303,15 @@ func (service *Service) Commit(
 	if err = service.reloadExpected(ctx, next); err != nil {
 		return MutationResult{}, err
 	}
-	return service.mutationResult(DefaultViewState(), EmptySelection(), SelectionPreserved)
+	state := request.State
+	if err := state.Validate(); err != nil {
+		state = DefaultViewState()
+	}
+	selection := request.Selection
+	if selection == "" {
+		selection = EmptySelection()
+	}
+	return service.mutationResult(state, selection, SelectionPreserved, request.Window)
 }
 
 func (service *Service) reloadExpected(ctx context.Context, minimum uint64) error {
@@ -305,12 +343,13 @@ func (service *Service) mutationResult(
 	state ViewState,
 	selection SelectionValue,
 	disposition SelectionDisposition,
+	window WindowRequest,
 ) (MutationResult, error) {
 	snapshot, err := service.effectiveSnapshot()
 	if err != nil {
 		return MutationResult{}, mapAppError(err, service.Revision())
 	}
-	projection, err := service.ProjectView(state, selection, WindowRequest{})
+	projection, err := service.projectViewLocked(state, selection, window)
 	if err != nil {
 		return MutationResult{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}

@@ -86,7 +86,13 @@ type commitInput struct{ Body CommitBody }
 type mutationOutput struct{ Body MutationResponse }
 
 func (server *Server) registerMutationEndpoints(config Config) {
-	register := func(operationID, path string, handler func(context.Context, uint64) (app.MutationResult, error)) {
+	register := func(
+		operationID string,
+		path string,
+		handler func(
+			context.Context, uint64, app.ViewState, app.SelectionValue, app.WindowRequest,
+		) (app.MutationResult, error),
+	) {
 		huma.Register(server.api, huma.Operation{
 			OperationID: operationID, Method: http.MethodPost, Path: path,
 			Errors: []int{400, 403, 409, 413, 422, 500, 503},
@@ -98,14 +104,12 @@ func (server *Server) registerMutationEndpoints(config Config) {
 			if err != nil {
 				return nil, problemFromError(err)
 			}
-			result, err := handler(ctx, expected)
+			window := app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit}
+			result, err := handler(ctx, expected, state, selection, window)
 			if err != nil {
 				return nil, problemFromError(err)
 			}
-			return mutationOutputFor(
-				config.Service, result, state, selection,
-				app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
-			)
+			return mutationOutputFor(result, state, selection)
 		})
 	}
 
@@ -122,17 +126,20 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return mutationOutputFor(
-			config.Service, result, state, selection,
-			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
-		)
+		return mutationOutputFor(result, state, selection)
 	})
 
-	register("undoProfile", server.basePath+"api/v1/undo", func(ctx context.Context, expected uint64) (app.MutationResult, error) {
-		return config.Service.Undo(ctx, expected)
+	register("undoProfile", server.basePath+"api/v1/undo", func(
+		ctx context.Context, expected uint64, state app.ViewState,
+		selection app.SelectionValue, window app.WindowRequest,
+	) (app.MutationResult, error) {
+		return config.Service.UndoInteraction(ctx, expected, state, selection, window)
 	})
-	register("redoProfile", server.basePath+"api/v1/redo", func(ctx context.Context, expected uint64) (app.MutationResult, error) {
-		return config.Service.Redo(ctx, expected)
+	register("redoProfile", server.basePath+"api/v1/redo", func(
+		ctx context.Context, expected uint64, state app.ViewState,
+		selection app.SelectionValue, window app.WindowRequest,
+	) (app.MutationResult, error) {
+		return config.Service.RedoInteraction(ctx, expected, state, selection, window)
 	})
 
 	huma.Register(server.api, huma.Operation{
@@ -153,14 +160,13 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		}
 		result, err := config.Service.Commit(ctx, app.CommitRequest{
 			ExpectedRevision: expected, ReviewedRevision: reviewed,
+			State: state, Selection: selection,
+			Window: app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
 		})
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return mutationOutputFor(
-			config.Service, result, state, selection,
-			app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
-		)
+		return mutationOutputFor(result, state, selection)
 	})
 }
 
@@ -184,6 +190,7 @@ func mutationToApp(body MutationBody) (app.MutationRequest, app.ViewState, app.S
 	if body.Target != nil {
 		request.Target = &app.RowTarget{Kind: body.Target.Kind, Identity: body.Target.Identity}
 	}
+	request.Window = app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit}
 	return request, state, selection, nil
 }
 
@@ -212,19 +219,15 @@ func mutationContext(
 }
 
 func mutationOutputFor(
-	service *app.Service,
 	result app.MutationResult,
 	state app.ViewState,
 	requestedSelection app.SelectionValue,
-	window app.WindowRequest,
 ) (*mutationOutput, error) {
 	selection := result.Selection
-	if selection == "" {
+	if result.SelectionDisposition == app.SelectionPreserved {
 		selection = requestedSelection
-	}
-	projection, err := service.ProjectView(state, selection, window)
-	if err != nil {
-		return nil, problemFromError(err)
+	} else if selection == "" {
+		selection = requestedSelection
 	}
 	canonical, err := EncodeViewQuery(state)
 	if err != nil {
@@ -232,7 +235,7 @@ func mutationOutputFor(
 	}
 	return &mutationOutput{Body: MutationResponse{
 		Version: MutationSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),
-		CanonicalQuery: canonical, Projection: projectionToWire(projection, canonical, nil),
+		CanonicalQuery: canonical, Projection: projectionToWire(result.Projection, canonical, nil),
 		Pending: pendingToWire(result.Pending),
 		Selection: SelectionDisposition{
 			Kind: string(result.SelectionDisposition), Value: string(selection),

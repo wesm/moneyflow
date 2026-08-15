@@ -66,6 +66,7 @@ func ResolveOrigin(listen string, basePath string, externalURL string) (OriginCo
 		if parseErr != nil {
 			return OriginConfig{}, fmt.Errorf("resolve origin: listener URL: %w", parseErr)
 		}
+		canonicalizeOrigin(canonical)
 		return OriginConfig{Canonical: canonical, BasePath: normalized}, nil
 	}
 	canonical, err := url.Parse(externalURL)
@@ -87,7 +88,24 @@ func ResolveOrigin(listen string, basePath string, externalURL string) (OriginCo
 	}
 	canonical.Path = normalized
 	canonical.RawPath = ""
+	canonicalizeOrigin(canonical)
 	return OriginConfig{Canonical: canonical, BasePath: normalized}, nil
+}
+
+func canonicalizeOrigin(value *url.URL) {
+	value.Scheme = strings.ToLower(value.Scheme)
+	host := strings.ToLower(value.Hostname())
+	port := value.Port()
+	if (value.Scheme == "http" && port == "80") || (value.Scheme == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		value.Host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		value.Host = "[" + host + "]"
+	} else {
+		value.Host = host
+	}
 }
 
 func validateOriginAuthority(authority string) error {

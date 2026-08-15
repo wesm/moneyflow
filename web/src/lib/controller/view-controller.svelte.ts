@@ -101,7 +101,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: acceptProfileProjection,
-      refresh: recheck,
+      refresh: recheckInternal,
     },
   })
   const review = createReviewController({
@@ -124,9 +124,20 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   async function recheck(selection?: SelectionValue): Promise<ViewProjection | undefined> {
+    return await recheckInternal(selection, false)
+  }
+
+  async function recheckInternal(
+    selection?: SelectionValue,
+    force = false,
+  ): Promise<ViewProjection | undefined> {
     if (!projection) return undefined
-    if (selection === undefined && recheckRequest) return await recheckRequest
-    if (selection === undefined && Date.now() - lastRevisionObservation < recheckDebounceMillis) {
+    if (!force && selection === undefined && recheckRequest) return await recheckRequest
+    if (
+      !force &&
+      selection === undefined &&
+      Date.now() - lastRevisionObservation < recheckDebounceMillis
+    ) {
       return projection
     }
     const current = projection
@@ -284,6 +295,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     announcement = snapshot.projection.status ?? ''
     sequence = snapshot.history.sequence
     cache.store(snapshot.projection)
+    editing.sync(snapshot.projection)
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -313,7 +325,12 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function moveToIndex(nextIndex: number): Promise<void> {
     if (!projection) return
     const offset = alignedOffset(nextIndex)
-    const cached = cache.get(projection.canonical_query, projection.selection, offset)
+    const cached = cache.get(
+      projection.canonical_query,
+      projection.selection,
+      projection.revision,
+      offset,
+    )
     if (cached) {
       setProjectionWindow(cached, nextIndex)
       replaceOwnedHistory()
@@ -366,7 +383,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     restored?: MoneyflowHistoryState,
   ): void {
     cache.store(next)
-    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     if (restored) sequence = restored.sequence
     projection = next
     lastRevisionObservation = Date.now()
@@ -393,7 +410,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function acceptProfileProjection(next: ViewProjection): void {
     cache.store(next)
-    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     projection = next
     lastRevisionObservation = Date.now()
     const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
@@ -406,7 +423,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
 
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {
     cache.store(next)
-    cache.retainAdjacent(next.canonical_query, next.selection, next.window.offset)
+    cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     projection = next
     lastRevisionObservation = Date.now()
     editing.sync(next)
@@ -438,18 +455,22 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   function schedulePrefetch(current: ViewProjection): void {
     if (!prefetchEnabled) return
     for (const [key, request] of prefetchRequests) {
-      if (!key.startsWith(`${current.canonical_query}\u0000${current.selection}\u0000`)) {
+      if (
+        !key.startsWith(
+          `${current.canonical_query}\u0000${current.selection}\u0000${current.revision}\u0000`,
+        )
+      ) {
         request.abort()
         prefetchRequests.delete(key)
       }
     }
     const offsets = [current.window.offset - windowSize, current.window.offset + windowSize]
     for (const offset of offsets) {
-      const key = `${current.canonical_query}\u0000${current.selection}\u0000${offset}`
+      const key = `${current.canonical_query}\u0000${current.selection}\u0000${current.revision}\u0000${offset}`
       if (
         offset < 0 ||
         offset >= current.total_rows ||
-        cache.get(current.canonical_query, current.selection, offset) ||
+        cache.get(current.canonical_query, current.selection, current.revision, offset) ||
         prefetchRequests.has(key)
       ) {
         continue
@@ -461,11 +482,18 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         .then((next) => {
           if (
             projection?.canonical_query !== current.canonical_query ||
-            projection.selection !== current.selection
+            projection.selection !== current.selection ||
+            projection.revision !== current.revision ||
+            next.revision !== current.revision
           )
             return
           cache.store(next)
-          cache.retainAdjacent(current.canonical_query, current.selection, current.window.offset)
+          cache.retainAdjacent(
+            current.canonical_query,
+            current.selection,
+            current.revision,
+            current.window.offset,
+          )
         })
         .catch(() => undefined)
         .finally(() => prefetchRequests.delete(key))

@@ -12,15 +12,16 @@ import (
 )
 
 type merchantEditorState struct {
-	input        textinput.Model
-	choices      []app.EditorChoice
-	filtered     []app.EditorChoice
-	selected     int
-	scope        app.EditScope
-	entityScope  bool
-	original     editorSnapshot
-	err          string
-	confirmMerge bool
+	input          textinput.Model
+	choices        []app.EditorChoice
+	filtered       []app.EditorChoice
+	selected       int
+	scope          app.EditScope
+	entityScope    bool
+	original       editorSnapshot
+	err            string
+	confirmMerge   bool
+	choiceExplicit bool
 }
 
 func (model *Model) openMerchantEditor() tea.Cmd {
@@ -94,9 +95,11 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "up":
 		model.merchant.selected = max(0, model.merchant.selected-1)
+		model.merchant.choiceExplicit = true
 		return nil
 	case "down":
 		model.merchant.selected = min(max(0, len(model.merchant.filtered)-1), model.merchant.selected+1)
+		model.merchant.choiceExplicit = true
 		return nil
 	case "tab":
 		if model.merchant.entityScope {
@@ -117,6 +120,7 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 	if changed {
 		model.merchant.filtered = filterEditorChoices(model.merchant.choices, updated.Value())
 		model.merchant.selected = 0
+		model.merchant.choiceExplicit = false
 		model.merchant.err = ""
 	}
 	return command
@@ -125,7 +129,7 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 func (model *Model) submitMerchantEditor() {
 	label := strings.TrimSpace(model.merchant.input.Value())
 	destination, existing := exactEditorChoice(model.merchant.choices, label)
-	if !existing && len(model.merchant.filtered) > 0 {
+	if !existing && model.merchant.choiceExplicit && len(model.merchant.filtered) > 0 {
 		destination = model.merchant.filtered[model.merchant.selected]
 		label, existing = destination.Label, true
 	}

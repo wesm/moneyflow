@@ -21,6 +21,12 @@
       choice.label.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
     ),
   )
+  $effect(() => {
+    if (destination === '__new__') return
+    if (!categories.some((choice) => choice.id === destination)) {
+      destination = categories[0]?.id ?? '__new__'
+    }
+  })
   onMount(() => {
     void controller
       .catalog()

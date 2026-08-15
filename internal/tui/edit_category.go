@@ -19,15 +19,16 @@ const (
 )
 
 type categoryEditorState struct {
-	input    textinput.Model
-	choices  []app.EditorChoice
-	filtered []app.EditorChoice
-	groups   []app.EditorChoice
-	selected int
-	original editorSnapshot
-	err      string
-	phase    categoryEditorPhase
-	newLabel string
+	input          textinput.Model
+	choices        []app.EditorChoice
+	filtered       []app.EditorChoice
+	groups         []app.EditorChoice
+	selected       int
+	original       editorSnapshot
+	err            string
+	phase          categoryEditorPhase
+	newLabel       string
+	choiceExplicit bool
 }
 
 func (model *Model) openCategoryEditor() tea.Cmd {
@@ -67,6 +68,7 @@ func (model *Model) routeCategoryEditor(message tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "up":
 		model.category.selected = max(0, model.category.selected-1)
+		model.category.choiceExplicit = true
 		return nil
 	case "down":
 		count := len(model.category.filtered)
@@ -74,6 +76,7 @@ func (model *Model) routeCategoryEditor(message tea.KeyPressMsg) tea.Cmd {
 			count = len(model.category.groups)
 		}
 		model.category.selected = min(max(0, count-1), model.category.selected+1)
+		model.category.choiceExplicit = true
 		return nil
 	case "enter":
 		model.submitCategoryEditor()
@@ -90,6 +93,7 @@ func (model *Model) routeCategoryEditor(message tea.KeyPressMsg) tea.Cmd {
 	if changed {
 		model.category.filtered = filterEditorChoices(model.category.choices, updated.Value())
 		model.category.selected = 0
+		model.category.choiceExplicit = false
 		model.category.err = ""
 	}
 	return command
@@ -119,7 +123,7 @@ func (model *Model) submitCategoryEditor() {
 	}
 	label := strings.TrimSpace(model.category.input.Value())
 	destination, existing := exactEditorChoice(model.category.choices, label)
-	if !existing && len(model.category.filtered) > 0 {
+	if !existing && model.category.choiceExplicit && len(model.category.filtered) > 0 {
 		destination = model.category.filtered[model.category.selected]
 		label, existing = destination.Label, true
 	}

@@ -51,10 +51,7 @@ func (server *Server) registerEditorCatalogEndpoint(config Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		if _, err = config.Service.Review(ctx, expected, app.ReviewWindow{}); err != nil {
-			return nil, problemFromError(err)
-		}
-		catalog, err := config.Service.EditorCatalog()
+		catalog, err := config.Service.EditorCatalogAt(ctx, expected)
 		if err != nil {
 			return nil, problemFromError(err)
 		}

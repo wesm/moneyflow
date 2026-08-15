@@ -142,6 +142,48 @@ func TestMutationEndpointsUndoRedoAndRejectStaleReviewedCommit(t *testing.T) {
 	assert.Equal(t, "Renamed Merchant", committed.Projection.AggregateRows[0].Label)
 }
 
+func TestUndoPreservesSubmittedSelectionInProjectionAndDisposition(t *testing.T) {
+	t.Parallel()
+	server := newPersistentAPITestServer(t)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	mutate := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: "1", Query: query,
+		Selection: string(app.EmptySelection()), Action: app.ActionToggleHidden,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: "txn-1"},
+		Input:  MutationInput{}, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, mutate.Code, mutate.Body.String())
+	var mutated MutationResponse
+	require.NoError(t, json.Unmarshal(mutate.Body.Bytes(), &mutated))
+	require.NotEmpty(t, mutated.Projection.DetailRows)
+	selected := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
+		Query: query, Selection: mutated.Projection.Selection,
+		Action: app.ActionToggleSelection,
+		Target: &TransitionTarget{
+			Kind: app.IdentityTransaction, Identity: mutated.Projection.DetailRows[0].Identity,
+		},
+		Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, selected.Code, selected.Body.String())
+	var selectedProjection Projection
+	require.NoError(t, json.Unmarshal(selected.Body.Bytes(), &selectedProjection))
+	selection := selectedProjection.Selection
+
+	undo := requestProtectedJSON(t, server, "/api/v1/undo", RevisionBody{
+		Version: MutationSchemaVersion, ExpectedRevision: "2", Query: query,
+		Selection: string(selection), Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, undo.Code, undo.Body.String())
+	var response MutationResponse
+	require.NoError(t, json.Unmarshal(undo.Body.Bytes(), &response))
+	assert.Equal(t, "preserved", response.Selection.Kind)
+	assert.Equal(t, string(selection), response.Selection.Value)
+	assert.Equal(t, string(selection), response.Projection.Selection)
+}
+
 func TestProjectionRevisionRefreshesAfterAnotherProfileServiceMutation(t *testing.T) {
 	t.Parallel()
 

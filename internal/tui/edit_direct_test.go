@@ -95,12 +95,58 @@ func TestExternalRevisionMakesSelectionStaleWithoutReplayingHide(t *testing.T) {
 	model = press(t, model, keyRune('h'))
 	assert.Equal(t, uint64(2), model.service.Revision())
 	assert.Equal(t, 1, model.pending.ActiveOperations, "stale action must not append")
-	assert.Contains(t, model.status, "selection changed")
+	assert.Contains(t, model.status, "profile changed")
 	assert.Contains(t, model.session.SelectedTransactionIDs, selectedID)
 
 	model = press(t, model, keyRune('h'))
 	assert.Equal(t, uint64(3), model.service.Revision())
 	assert.Equal(t, 2, model.pending.ActiveOperations)
+}
+
+func TestExternalRevisionConsumesUnselectedMutationKey(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('d'))
+	focusedID := model.result.DetailRows[model.cursor].Transaction.ID
+
+	externalStore, err := sqlite.Open(context.Background(), fixture.paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = externalStore.Close() })
+	externalService, err := app.NewProfileService(context.Background(), externalStore)
+	require.NoError(t, err)
+	state := app.DefaultViewState()
+	state.Current.Mode = "detail"
+	_, err = externalService.Mutate(context.Background(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: externalService.Revision(),
+		State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: focusedID},
+	})
+	require.NoError(t, err)
+
+	model = press(t, model, keyRune('h'))
+	assert.Equal(t, uint64(2), model.service.Revision())
+	assert.Equal(t, 1, model.pending.ActiveOperations, "refresh must consume the triggering key")
+	assert.Contains(t, model.status, "changed")
+}
+
+func TestExternalRefreshReplacesStalePendingStatus(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('d'))
+	model = press(t, model, keyRune('h'))
+	require.Contains(t, model.status, "Pending: 1 operation")
+
+	externalStore, err := sqlite.Open(context.Background(), fixture.paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = externalStore.Close() })
+	externalService, err := app.NewProfileService(context.Background(), externalStore)
+	require.NoError(t, err)
+	_, err = externalService.Undo(context.Background(), externalService.Revision())
+	require.NoError(t, err)
+
+	model = press(t, model, keyRune('j'))
+	assert.NotContains(t, model.RenderScreen().Frame.RenderANSI(), "Pending: 1 operation / 1 transaction")
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "Redo: 1 operation")
 }
 
 func TestPendingEditRestoresAfterStoreReopen(t *testing.T) {

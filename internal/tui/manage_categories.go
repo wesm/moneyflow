@@ -361,7 +361,11 @@ func (model Model) renderTaxonomyManager(screen *RenderedScreen, category bool) 
 		phaseTitle = "Confirm " + string(manager.action)
 		choices = manager.destinations[manager.selected : manager.selected+1]
 	}
-	renderEditorChoices(&screen.Frame, x, rect.Y+5, width, choices, manager.selected, model.palette)
+	selected := manager.selected
+	if manager.phase == taxonomyPhaseConfirm {
+		selected = 0
+	}
+	renderEditorChoices(&screen.Frame, x, rect.Y+5, width, choices, selected, model.palette)
 	if manager.phase != taxonomyPhaseBrowse {
 		screen.Frame.PutText(x, rect.Y+3, Truncate(phaseTitle, width), model.palette.Heading)
 	}

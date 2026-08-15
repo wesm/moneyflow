@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
@@ -73,6 +74,38 @@ func TestReviewStaleConfirmationRefreshesWithoutReplayingCommit(t *testing.T) {
 	assert.Greater(t, model.review.reviewedRevision, reviewed)
 	assert.Contains(t, model.review.err, "review")
 	assert.Equal(t, 0, model.pending.ActiveOperations)
+}
+
+func TestReviewDetailPageMatchesCappedOverlayRows(t *testing.T) {
+	t.Parallel()
+	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('d'))
+	model = press(t, model, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	model = press(t, model, keyRune('h'))
+	model.height = 50
+	model.width = 150
+	model = press(t, model, keyRune('w'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
+	assert.Equal(t, rect.Height-8, model.review.detailLimit)
+	assert.Equal(t, rect.Height-8, len(model.review.projection.Targets))
+}
+
+func TestReviewSummaryScrollsToSelectedOperation(t *testing.T) {
+	t.Parallel()
+	model := newPersistentModel(t, app.NewSession()).model
+	model.width, model.height = 150, 50
+	model.overlay = overlayReview
+	model.review.phase = reviewPhaseSummary
+	for index := 0; index < 40; index++ {
+		model.review.projection.Operations = append(model.review.projection.Operations, app.ReviewOperation{
+			OperationID: "operation", Sequence: int64(index + 1),
+			Type: domain.OperationTransactionHide, Active: true, AffectedCount: 1,
+		})
+	}
+	model.review.selected = 35
+	frame := model.RenderScreen().Frame.RenderANSI()
+	assert.Contains(t, frame, "36. transaction.hide-toggle")
 }
 
 func TestQuitAlwaysConfirmsAndExplainsDurablePending(t *testing.T) {

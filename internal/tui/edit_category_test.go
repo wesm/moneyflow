@@ -87,3 +87,23 @@ func TestCategoryEditorCreatesOnTheFlyAfterGroupSelection(t *testing.T) {
 	assert.Equal(t, "New Category", model.result.DetailRows[model.cursor].Transaction.Category.Name)
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 }
+
+func TestCategoryEditorTreatsTypedSubstringAsNewCategory(t *testing.T) {
+	t.Parallel()
+	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('d'))
+	model = press(t, model, keyRune('c'))
+	var choice app.EditorChoice
+	for _, candidate := range model.category.choices {
+		if !candidate.Protected && len(candidate.Label) > 1 {
+			choice = candidate
+			break
+		}
+	}
+	require.NotEmpty(t, choice.ID)
+	wanted := choice.Label[:len(choice.Label)-1]
+	model = typeText(t, model, wanted)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	assert.Equal(t, categoryPhaseGroup, model.category.phase)
+	assert.Equal(t, wanted, model.category.newLabel)
+}

@@ -33,7 +33,7 @@ export interface MutationIntent {
 export interface EditingProjectionHost {
   current(): ViewProjection | undefined
   accept(projection: ViewProjection): void
-  refresh(selection?: SelectionValue): Promise<ViewProjection | undefined>
+  refresh(selection?: SelectionValue, force?: boolean): Promise<ViewProjection | undefined>
 }
 
 export interface EditingController {
@@ -89,6 +89,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   async function submit(intent: MutationIntent): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
+    if (!projectionRevisionIsCurrent(current)) return false
     const body: MutationBody = {
       version: '1',
       expected_revision: state.revision.toString(10),
@@ -113,6 +114,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   async function moveCursor(path: 'api/v1/undo' | 'api/v1/redo'): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
+    if (!projectionRevisionIsCurrent(current)) return false
     const body: RevisionBody = {
       version: '1',
       expected_revision: state.revision.toString(10),
@@ -130,6 +132,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
   async function commit(reviewedRevision: bigint): Promise<boolean> {
     const current = options.host.current()
     if (!current) return false
+    if (!projectionRevisionIsCurrent(current)) return false
     const body: CommitBody = {
       version: '1',
       expected_revision: state.revision.toString(10),
@@ -183,6 +186,17 @@ export function createEditingController(options: EditingControllerOptions): Edit
     }
   }
 
+  function projectionRevisionIsCurrent(current: ViewProjection): boolean {
+    if (parseRevision(current.revision) === state.revision) return true
+    setState({
+      ...state,
+      phase: 'conflict',
+      announcement:
+        'The displayed profile revision changed. Review the current data and try again.',
+    })
+    return false
+  }
+
   async function handleFailure(error: unknown): Promise<void> {
     if (!(error instanceof MoneyflowProblem)) {
       setState({ ...state, phase: 'failed', announcement: 'The profile request failed.' })
@@ -218,7 +232,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
 
   async function refreshAfterRejection(selection?: SelectionValue): Promise<boolean> {
     try {
-      const projection = await options.host.refresh(selection)
+      const projection = await options.host.refresh(selection, true)
       if (projection) sync(projection)
       return projection !== undefined
     } catch {

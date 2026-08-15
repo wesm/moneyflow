@@ -120,6 +120,39 @@ func TestMerchantEntityRenameKeepsDrillIdentityAndUpdatesBreadcrumb(t *testing.T
 	assert.NotZero(t, model.rowCount())
 }
 
+func TestMerchantEditorTreatsTypedSubstringAsNewLabel(t *testing.T) {
+	t.Parallel()
+	model := newPersistentModel(t, app.NewSession()).model
+	source := model.result.AggregateRows[model.cursor]
+	require.Greater(t, len(source.Label), 1)
+	wanted := source.Label[:len(source.Label)-1]
+
+	model = press(t, model, keyRune('m'))
+	model = typeText(t, model, wanted)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Equal(t, wanted, model.result.AggregateRows[model.cursor].Label)
+	assert.Equal(t, 1, model.pending.ActiveOperations)
+}
+
+func TestUndoRedoRefreshDrillBreadcrumbLabels(t *testing.T) {
+	t.Parallel()
+	model := newPersistentModel(t, app.NewSession()).model
+	original := model.result.AggregateRows[model.cursor].Label
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('m'))
+	model = typeText(t, model, "Drilled Merchant")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Contains(t, model.displayBreadcrumb(), "Drilled Merchant")
+
+	model = press(t, model, keyRune('u'))
+	assert.Contains(t, model.displayBreadcrumb(), original)
+	assert.NotContains(t, model.displayBreadcrumb(), "Drilled Merchant")
+	model = press(t, model, keyRune('U'))
+	assert.Contains(t, model.displayBreadcrumb(), "Drilled Merchant")
+}
+
 func mustEditorCatalog(t testing.TB, model Model) app.EditorCatalog {
 	t.Helper()
 	catalog, err := model.service.EditorCatalog()

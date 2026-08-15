@@ -35,3 +35,20 @@ func TestEditorCatalogReturnsSortedActiveDetachedChoices(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, "changed outside service", again.Merchants[0].Label)
 }
+
+func TestEditorCatalogAtRefreshesBeforeCheckingRevision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	profile.advanceExternally(hideOperation(1, "transaction_a"))
+
+	_, err = service.EditorCatalogAt(ctx, 5)
+	assertAppCode(t, err, app.AppRevisionConflict)
+	assert.Equal(t, uint64(6), service.Revision())
+
+	catalog, err := service.EditorCatalogAt(ctx, 6)
+	require.NoError(t, err)
+	assert.NotEmpty(t, catalog.Categories)
+}

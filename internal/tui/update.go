@@ -185,6 +185,13 @@ func (model *Model) refreshForInteraction() bool {
 	}
 	model.result = result
 	model.syncProfileMetadata()
+	if selectedSessionCount(model.session) > 0 {
+		if err := model.rebuildSelectionValue(); err != nil {
+			model.clearSessionSelection()
+		}
+	}
+	model.status = "The profile changed. Review the refreshed data and invoke the action again."
+	model.overlay = overlayNone
 	model.clampCursor()
 	if identity != "" {
 		for index := 0; index < model.rowCount(); index++ {
@@ -195,7 +202,7 @@ func (model *Model) refreshForInteraction() bool {
 			}
 		}
 	}
-	return true
+	return false
 }
 
 func (model *Model) drill() {

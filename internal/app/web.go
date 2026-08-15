@@ -144,6 +144,16 @@ func (service *Service) ProjectView(
 	selection SelectionValue,
 	window WindowRequest,
 ) (WebProjection, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	return service.projectViewLocked(state, selection, window)
+}
+
+func (service *Service) projectViewLocked(
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (WebProjection, error) {
 	if err := state.Validate(); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
@@ -211,6 +221,17 @@ func (service *Service) TransitionView(
 	transition TransitionRequest,
 	window WindowRequest,
 ) (ViewState, SelectionValue, WebProjection, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	return service.transitionViewLocked(state, selection, transition, window)
+}
+
+func (service *Service) transitionViewLocked(
+	state ViewState,
+	selection SelectionValue,
+	transition TransitionRequest,
+	window WindowRequest,
+) (ViewState, SelectionValue, WebProjection, error) {
 	if err := state.Validate(); err != nil {
 		return rejectedTransition(state, selection, invalidWebRequest(err))
 	}
@@ -237,7 +258,7 @@ func (service *Service) TransitionView(
 		if nextSelection == selection {
 			return rejectedTransition(state, selection, noChangeWeb(errors.New("selection did not change")))
 		}
-		projection, err := service.ProjectView(state, nextSelection, window)
+		projection, err := service.projectViewLocked(state, nextSelection, window)
 		if err != nil {
 			return rejectedTransition(state, selection, err)
 		}
@@ -287,7 +308,7 @@ func (service *Service) TransitionView(
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
-	projection, err := service.ProjectView(nextState, nextSelection, window)
+	projection, err := service.projectViewLocked(nextState, nextSelection, window)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
@@ -607,7 +628,7 @@ func (service *Service) knownEmptyDrillLabel(target domain.Drilldown) (string, b
 	identity := domain.DrillIdentity{
 		Dimension: target.Dimension, Currency: target.Currency, Scale: target.Scale, Key: target.Key,
 	}
-	if ClassifyKnownDrill(snapshot, identity) != DrillEmpty {
+	if ClassifyKnownDrill(snapshot, identity) == DrillInvalid {
 		return "", false
 	}
 	id := domain.EntityID(target.Key)

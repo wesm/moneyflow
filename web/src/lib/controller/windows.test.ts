@@ -9,28 +9,38 @@ describe('bounded projection windows', () => {
     cache.store(projection('v=1', 0, 1000))
     cache.store(projection('v=1', 200, 1000))
     cache.store(projection('v=1', 400, 1000))
-    cache.retainAdjacent('v=1', 'mfsel1.example', 200)
+    cache.retainAdjacent('v=1', 'mfsel1.example', '0', 200)
 
-    expect(cache.offsets('v=1', 'mfsel1.example')).toEqual([0, 200, 400])
+    expect(cache.offsets('v=1', 'mfsel1.example', '0')).toEqual([0, 200, 400])
     cache.store(projection('v=1', 600, 1000))
-    cache.retainAdjacent('v=1', 'mfsel1.example', 600)
-    expect(cache.offsets('v=1', 'mfsel1.example')).toEqual([400, 600])
+    cache.retainAdjacent('v=1', 'mfsel1.example', '0', 600)
+    expect(cache.offsets('v=1', 'mfsel1.example', '0')).toEqual([400, 600])
   })
 
   it('never merges rows across canonical queries', () => {
     const cache = new WindowCache(200)
     cache.store(projection('v=1', 0, 500))
     cache.store(projection('v=1&search=x', 0, 1))
-    expect(cache.get('v=1', 'mfsel1.example', 0)?.total_rows).toBe(500)
-    expect(cache.get('v=1&search=x', 'mfsel1.example', 0)?.total_rows).toBe(1)
+    expect(cache.get('v=1', 'mfsel1.example', '0', 0)?.total_rows).toBe(500)
+    expect(cache.get('v=1&search=x', 'mfsel1.example', '0', 0)?.total_rows).toBe(1)
   })
 
   it('never reuses decorated rows across selection values', () => {
     const cache = new WindowCache(200)
     cache.store(projection('v=1', 0, 1, 'mfsel1.first'))
     cache.store(projection('v=1', 0, 1, 'mfsel1.second'))
-    expect(cache.get('v=1', 'mfsel1.first', 0)?.selection).toBe('mfsel1.first')
-    expect(cache.get('v=1', 'mfsel1.second', 0)?.selection).toBe('mfsel1.second')
+    expect(cache.get('v=1', 'mfsel1.first', '0', 0)?.selection).toBe('mfsel1.first')
+    expect(cache.get('v=1', 'mfsel1.second', '0', 0)?.selection).toBe('mfsel1.second')
+  })
+
+  it('never reuses a window from another profile revision', () => {
+    const cache = new WindowCache(200)
+    const old = projection('v=1', 0, 1)
+    const current = { ...projection('v=1', 0, 2), revision: '2' }
+    cache.store(old)
+    cache.store(current)
+    expect(cache.get('v=1', 'mfsel1.example', '0', 0)?.total_rows).toBe(1)
+    expect(cache.get('v=1', 'mfsel1.example', '2', 0)?.total_rows).toBe(2)
   })
 
   it('preserves cursor identity, then clamps an absent absolute index', () => {

@@ -52,6 +52,7 @@ type MutationRequest struct {
 	Selection        SelectionValue
 	Target           *RowTarget
 	Input            EditInput
+	Window           WindowRequest
 }
 
 // ResolvedTargets are stable local identities fixed at operation-creation time.

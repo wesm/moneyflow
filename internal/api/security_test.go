@@ -29,6 +29,13 @@ func TestOriginResolution(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://moneyflow.example/moneyflow/", external.Canonical.String())
 
+	canonical, err := ResolveOrigin(
+		"127.0.0.1:8080", "/moneyflow/", "https://Moneyflow.Example:443/moneyflow",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "https://moneyflow.example", canonical.Origin())
+	assert.Equal(t, "https://moneyflow.example/moneyflow/", canonical.Canonical.String())
+
 	for _, value := range []string{
 		"https://user@moneyflow.example/moneyflow",
 		"https://moneyflow.example/moneyflow?q=private",

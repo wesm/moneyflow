@@ -79,6 +79,19 @@ describe('browser editing controller', () => {
     await expect(first).resolves.toBe(true)
   })
 
+  it('rejects a mutation when the displayed projection and editing revision differ', async () => {
+    const host = editingHost(testProjection({ revision: '3' }))
+    const transport = mutationTransport(mutationResponse('4', 'mfsel1.example' as SelectionValue))
+    const controller = createEditingController({ transport, host })
+    host.install(testProjection({ revision: '4' }))
+
+    await expect(controller.undo()).resolves.toBe(false)
+
+    expect(transport.request).not.toHaveBeenCalled()
+    expect(controller.state.phase).toBe('conflict')
+    expect(controller.state.announcement).toContain('displayed profile revision changed')
+  })
+
   it('refreshes once on revision conflict and never replays the mutation', async () => {
     const host = editingHost(testProjection({ revision: '3' }))
     host.refresh = vi.fn(async () => {
@@ -91,7 +104,7 @@ describe('browser editing controller', () => {
     await expect(controller.redo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledTimes(1)
+    expect(host.refresh).toHaveBeenCalledWith(undefined, true)
     expect(controller.state.phase).toBe('conflict')
     expect(controller.state.revision).toBe(4n)
     expect(controller.state.announcement).toContain('changed in another session')
@@ -117,7 +130,7 @@ describe('browser editing controller', () => {
     await expect(controller.undo()).resolves.toBe(false)
 
     expect(transport.request).toHaveBeenCalledTimes(1)
-    expect(host.refresh).toHaveBeenCalledWith(refreshed)
+    expect(host.refresh).toHaveBeenCalledWith(refreshed, true)
     expect(controller.state.phase).toBe('idle')
     expect(controller.state.announcement).toContain('Selection refreshed')
   })

@@ -220,6 +220,7 @@ func (model *Model) executeCursorMutation(action app.ActionID) {
 	model.pending = result.Pending
 	model.installCapabilities(result.Capabilities)
 	model.refreshPreserving(identity)
+	model.refreshDrillLabels()
 	model.status = formatPendingSummary(model.pending)
 }
 

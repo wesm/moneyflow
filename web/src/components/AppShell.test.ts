@@ -114,6 +114,56 @@ describe('AppShell', () => {
       expect(screen.getByRole('combobox', { name: /Selected transactions/ })).not.toBeNull(),
     )
   })
+
+  it('does not trap shortcuts when an editor has no focused row', async () => {
+    const controller = stubController(testProjection({ total_rows: 0, detail_rows: [] }))
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'm' })
+    expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull()
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(controller.moveCursor).toHaveBeenCalledWith(1)
+  })
+
+  it('keeps overlay scope active when a newer projection rebuilds shortcuts', async () => {
+    const initial = stubController()
+    const rendered = render(AppShell, { controller: initial })
+    await fireEvent.keyDown(window, { key: 'm' })
+    expect(screen.getByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
+
+    const refreshed = stubController(testProjection({ revision: '2' }))
+    await rendered.rerender({ controller: refreshed })
+    await fireEvent.keyDown(window, { key: 'j' })
+    expect(refreshed.moveCursor).not.toHaveBeenCalled()
+  })
+
+  it('does not restore grid focus through a newly opened overlay', async () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      callbacks[id - 1] = () => undefined
+    })
+    try {
+      const controller = stubController()
+      render(AppShell, { controller })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      await fireEvent.keyDown(window, { key: 'm' })
+      await fireEvent.keyDown(window, { key: 'Escape' })
+      await vi.waitFor(() => expect(callbacks.length).toBe(1))
+      await vi.waitFor(() =>
+        expect(screen.queryByRole('dialog', { name: 'Edit merchant' })).toBeNull(),
+      )
+      await fireEvent.keyDown(window, { key: '?' })
+      screen.getByRole('dialog', { name: 'Keyboard shortcuts' }).focus()
+      callbacks[0]?.(0)
+      expect(document.activeElement).not.toBe(grid)
+      expect(screen.getByRole('dialog', { name: 'Keyboard shortcuts' })).not.toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 function stubController(projection = testProjection()): ViewController {
@@ -129,6 +179,7 @@ function stubController(projection = testProjection()): ViewController {
           available: true,
         },
         ...[
+          ['overlay.help', '?'],
           ['transaction.edit-merchant', 'm'],
           ['transaction.edit-category', 'c'],
           ['category.manage', 'C'],

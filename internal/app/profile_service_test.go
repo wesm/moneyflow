@@ -201,6 +201,135 @@ func TestProfileServiceProjectsStableRenameRetiredEmptyAndNeverKnown(t *testing.
 	})
 }
 
+func TestProfileServicePreservesProviderPendingSeparatelyFromLocalEdits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Transactions[1].Pending = true
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+
+	state := detailViewState()
+	initial, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, initial.DetailRows, 2)
+	assert.False(t, initial.DetailRows[0].Row.Transaction.Pending)
+	assert.True(t, initial.DetailRows[1].Row.Transaction.Pending)
+
+	mutated, err := service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, State: state,
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input:     app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "category_b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, mutated.Projection.DetailRows, 2)
+	assert.False(t, mutated.Projection.DetailRows[0].Row.Transaction.Pending)
+	assert.True(t, mutated.Projection.DetailRows[0].Row.Flags.Pending)
+	assert.True(t, mutated.Projection.DetailRows[1].Row.Transaction.Pending)
+	assert.False(t, mutated.Projection.DetailRows[1].Row.Flags.Pending)
+}
+
+func TestProfileServiceMarksBothChangedAggregateMembershipsPending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Transactions[1].Hidden = false
+	profile.snapshot.Committed.Transactions = append(
+		profile.snapshot.Committed.Transactions,
+		profile.snapshot.Committed.Transactions[0],
+	)
+	profile.snapshot.Committed.Transactions[2].ID = "transaction_c"
+	profile.snapshot.Committed.Transactions[2].ProviderID = "provider-c"
+	require.NoError(t, profile.snapshot.Committed.Validate())
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	state := detailViewState()
+
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: state,
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input:     app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "merchant_b"},
+	})
+	require.NoError(t, err)
+	aggregates, err := service.ProjectView(
+		app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{},
+	)
+	require.NoError(t, err)
+	pending := make(map[string]bool)
+	for _, row := range aggregates.AggregateRows {
+		pending[row.Row.Key] = row.Row.Flags.Pending
+	}
+	assert.True(t, pending["merchant_a"])
+	assert.True(t, pending["merchant_b"])
+}
+
+func TestProfileServiceMarksOnlyDirectlyAffectedAggregatePending(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Transactions[1].Hidden = false
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: 5, State: detailViewState(),
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+	})
+	require.NoError(t, err)
+	aggregates, err := service.ProjectView(
+		app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{},
+	)
+	require.NoError(t, err)
+	require.Len(t, aggregates.AggregateRows, 2)
+	pending := make(map[string]bool)
+	for _, row := range aggregates.AggregateRows {
+		pending[row.Row.Key] = row.Row.Flags.Pending
+	}
+	assert.True(t, pending["merchant_a"])
+	assert.False(t, pending["merchant_b"])
+}
+
+func TestProfileServiceAllowsContextualEmptyNestedDrill(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.snapshot.Committed.Accounts = append(profile.snapshot.Committed.Accounts,
+		domain.Account{ID: "account_b", Label: "Account B", CollisionKey: "account b"})
+	profile.snapshot.Committed.Transactions[1].AccountID = "account_b"
+	profile.snapshot.Committed.Transactions[1].Hidden = false
+	profile.snapshot.Committed.Transactions = append(
+		profile.snapshot.Committed.Transactions,
+		profile.snapshot.Committed.Transactions[0],
+	)
+	profile.snapshot.Committed.Transactions[2].ID = "transaction_c"
+	profile.snapshot.Committed.Transactions[2].ProviderID = "provider-c"
+	profile.snapshot.Committed.Transactions[2].AccountID = "account_b"
+	require.NoError(t, profile.snapshot.Committed.Validate())
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+
+	state := app.DefaultViewState()
+	state.Current.Drilldowns = []domain.Drilldown{
+		{Dimension: domain.DimensionAccount, Key: "account_a", Currency: "USD", Scale: 2},
+		{Dimension: domain.DimensionMerchant, Key: "merchant_a", Currency: "USD", Scale: 2},
+	}
+	state.Current.Mode = domain.ResultModeDetail
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: 5, State: state,
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input:     app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "merchant_b"},
+	})
+	require.NoError(t, err)
+	empty, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Zero(t, empty.TotalRows)
+	assert.Equal(t, "Merchant A", empty.Breadcrumbs[1].Label)
+}
+
 func aggregateTargetByKey(
 	t *testing.T,
 	projection app.WebProjection,

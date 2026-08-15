@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -124,6 +125,22 @@ func TestManageCategoriesRenameCollisionDirectsToMerge(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, taxonomyPhaseLabel, model.categoryManager.phase)
 	assert.Contains(t, model.categoryManager.err, "merge")
+}
+
+func TestTaxonomyConfirmationRendersSelectedDestination(t *testing.T) {
+	t.Parallel()
+	model := newPersistentModel(t, app.NewSession()).model
+	model.width, model.height = 120, 40
+	model.overlay = overlayCategoryManager
+	model.categoryManager.phase = taxonomyPhaseConfirm
+	for index := 0; index < 7; index++ {
+		model.categoryManager.destinations = append(
+			model.categoryManager.destinations,
+			app.EditorChoice{ID: domain.EntityID(fmt.Sprintf("category_%d", index)), Label: fmt.Sprintf("Destination %d", index)},
+		)
+	}
+	model.categoryManager.selected = 6
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "Destination 6")
 }
 
 func findEditorChoice(choices []app.EditorChoice, label string) app.EditorChoice {
