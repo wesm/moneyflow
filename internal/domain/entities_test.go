@@ -94,6 +94,36 @@ func TestCommittedProfileCloneOwnsNestedValues(t *testing.T) {
 	require.Equal(t, "provider-transaction-1", profile.ExternalIdentities[0].ExternalID)
 }
 
+func TestCommittedProfileAllowsExternalTransactionTombstone(t *testing.T) {
+	t.Parallel()
+
+	profile := validCommittedProfile(t)
+	profile.Transactions = nil
+
+	require.NoError(t, profile.Validate())
+}
+
+func TestCommittedProfileRejectsEmptyExternalTransactionTombstoneID(t *testing.T) {
+	t.Parallel()
+
+	profile := validCommittedProfile(t)
+	profile.Transactions = nil
+	profile.ExternalIdentities[0].EntityID = ""
+
+	require.ErrorContains(t, profile.Validate(), "unknown transaction")
+}
+
+func TestCommittedProfileRejectsTwoProviderIDsForOneLocalEntity(t *testing.T) {
+	t.Parallel()
+
+	profile := validCommittedProfile(t)
+	duplicate := profile.ExternalIdentities[0]
+	duplicate.ExternalID = "provider-transaction-2"
+	profile.ExternalIdentities = append(profile.ExternalIdentities, duplicate)
+
+	require.ErrorContains(t, profile.Validate(), "duplicate local external identity")
+}
+
 func validCommittedProfile(t *testing.T) CommittedProfile {
 	t.Helper()
 
