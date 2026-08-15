@@ -262,6 +262,9 @@ func (service *Service) moveCursor(
 			AppRevisionConflict, current, errors.New("cursor revision is stale"),
 		)
 	}
+	if _, err := service.projectViewLocked(state, selection, window); err != nil {
+		return MutationResult{}, newAppError(AppInvalidOperation, current, err)
+	}
 	next, err := service.profile.MoveCursor(ctx, expected, direction)
 	if err != nil {
 		return MutationResult{}, service.refreshAfterFailure(ctx, err, current)
@@ -269,7 +272,49 @@ func (service *Service) moveCursor(
 	if err = service.reloadExpected(ctx, next); err != nil {
 		return MutationResult{}, err
 	}
-	return service.mutationResult(state, selection, SelectionPreserved, window)
+	return service.cursorMutationResult(state, selection, window)
+}
+
+func (service *Service) cursorMutationResult(
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	result, err := service.mutationResult(state, selection, SelectionPreserved, window)
+	if err == nil {
+		return result, nil
+	}
+	recovery := state.Clone()
+	for len(recovery.Returns) > 0 {
+		last := len(recovery.Returns) - 1
+		recovery.Current = recovery.Returns[last].State.Clone()
+		recovery.Returns = recovery.Returns[:last]
+		result, recoveryErr := service.mutationResult(
+			recovery, selection, SelectionPreserved, window,
+		)
+		if recoveryErr == nil {
+			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			return result, nil
+		}
+	}
+	for len(recovery.Current.Drilldowns) > 0 {
+		recovery.Current.Drilldowns = recovery.Current.Drilldowns[:len(recovery.Current.Drilldowns)-1]
+		result, recoveryErr := service.mutationResult(
+			recovery, selection, SelectionPreserved, window,
+		)
+		if recoveryErr == nil {
+			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			return result, nil
+		}
+	}
+	result, recoveryErr := service.mutationResult(
+		DefaultViewState(), EmptySelection(), SelectionCleared, window,
+	)
+	if recoveryErr != nil {
+		return MutationResult{}, recoveryErr
+	}
+	result.Projection.Status = "The previous view target is unavailable; returned to the main view."
+	return result, nil
 }
 
 // Commit folds the exact reviewed active prefix and permanently discards its redo tail.

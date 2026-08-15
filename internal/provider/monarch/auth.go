@@ -19,11 +19,15 @@ const loginMutation = `
 mutation LoginMutation($email: String!, $password: String!, $rememberMe: Boolean!, $totpToken: String) {
   login(email: $email, password: $password, rememberMe: $rememberMe, totpToken: $totpToken) {
     token
-    errors { code }
+    errors { messages }
   }
 }`
 
 var errMFARequired = errors.New("monarch MFA required")
+
+type loginFailure struct {
+	Messages []string `json:"messages"`
+}
 
 // Authenticator implements the provider-neutral connection and validation capability.
 type Authenticator struct {
@@ -182,7 +186,7 @@ func (authenticator *Authenticator) restLogin(
 		return "", 0, errors.New("create monarch login request")
 	}
 	setReadHeaders(request.Header, "", deviceUUID)
-	response, err := authenticator.options.HTTPClient.Do(request)
+	response, err := credentialHTTPClient(authenticator.options.HTTPClient).Do(request)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", 0, ctxErr
@@ -190,15 +194,15 @@ func (authenticator *Authenticator) restLogin(
 		return "", 0, provider.NewError(provider.CodeUnavailable)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return "", response.StatusCode, nil
+	}
 	payload, err := io.ReadAll(io.LimitReader(response.Body, authenticator.options.MaxBodyBytes+1))
 	if err != nil {
 		return "", 0, provider.NewError(provider.CodeUnavailable)
 	}
 	if int64(len(payload)) > authenticator.options.MaxBodyBytes {
 		return "", 0, provider.NewError(provider.CodeDataInvalid)
-	}
-	if response.StatusCode != http.StatusOK {
-		return "", response.StatusCode, nil
 	}
 	var result struct {
 		Token string `json:"token"`
@@ -215,7 +219,9 @@ func (authenticator *Authenticator) graphQLLogin(
 	deviceUUID string,
 	code string,
 ) (string, error) {
-	client, err := NewClient(authenticator.options, "", deviceUUID)
+	credentialOptions := authenticator.options
+	credentialOptions.HTTPClient = credentialHTTPClient(authenticator.options.HTTPClient)
+	client, err := NewClient(credentialOptions, "", deviceUUID)
 	if err != nil {
 		return "", provider.NewError(provider.CodeReconnectRequired)
 	}
@@ -227,20 +233,42 @@ func (authenticator *Authenticator) graphQLLogin(
 	}
 	type loginData struct {
 		Login struct {
-			Token  string `json:"token"`
-			Errors []struct {
-				Code string `json:"code"`
-			} `json:"errors"`
+			Token  string         `json:"token"`
+			Errors []loginFailure `json:"errors"`
 		} `json:"login"`
 	}
 	data, err := graphQLCall[loginData](ctx, client, "LoginMutation", loginMutation, variables)
 	if err != nil {
 		return "", err
 	}
+	if code == "" && loginRequiresMFA(data.Login.Errors) {
+		return "", errMFARequired
+	}
 	if len(data.Login.Errors) > 0 || data.Login.Token == "" {
 		return "", provider.NewError(provider.CodeReconnectRequired)
 	}
 	return data.Login.Token, nil
+}
+
+func credentialHTTPClient(source *http.Client) *http.Client {
+	client := cloneHTTPClient(source)
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return client
+}
+
+func loginRequiresMFA(failures []loginFailure) bool {
+	for _, failure := range failures {
+		for _, message := range failure.Messages {
+			switch strings.ToLower(strings.TrimSpace(message)) {
+			case "mfa required", "multi-factor auth required",
+				"multi-factor authentication required", "two-factor authentication required":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func newDeviceUUID(random io.Reader) (string, error) {

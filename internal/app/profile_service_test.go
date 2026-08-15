@@ -99,6 +99,43 @@ func TestProfileServiceMutateUndoRedoReviewAndCommit(t *testing.T) {
 	).CategoryID)
 }
 
+func TestUndoCreationReturnsSuccessfulParentProjection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	created, err := service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, State: detailViewState(),
+		Selection: app.EmptySelection(),
+		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "category_new",
+			Label: "New Category", GroupID: "group_a",
+		},
+	})
+	require.NoError(t, err)
+	drilled := detailViewState()
+	drilled.Current.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2,
+		Key: "category_new",
+	}}
+	_, err = service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err, "the pending-only drill must be valid before undo")
+
+	undone, err := service.UndoInteraction(
+		ctx, created.Revision, drilled, app.EmptySelection(), app.WindowRequest{},
+	)
+	require.NoError(t, err, "durable undo must not be reported as failed")
+	assert.Equal(t, uint64(7), undone.Revision)
+	assert.Empty(t, undone.State.Current.Drilldowns)
+	assert.Contains(t, undone.Projection.Status, "returned")
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, loaded.Cursor)
+}
+
 func TestProfileServiceStaleMutationRefreshesWithoutReplayingAction(t *testing.T) {
 	t.Parallel()
 

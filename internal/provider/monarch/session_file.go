@@ -27,8 +27,12 @@ func NewSessionStore(paths home.Paths) (*SessionStore, error) {
 	if paths.Root == "" || !filepath.IsAbs(paths.Root) {
 		return nil, errors.New("create monarch session store: profile root must be absolute")
 	}
+	providerDirectory, err := home.EnsurePrivateSubdirectory(paths.Root, "providers", providerKind)
+	if err != nil {
+		return nil, fmt.Errorf("create monarch session store: %w", err)
+	}
 	return &SessionStore{
-		path: filepath.Join(paths.Root, "providers", providerKind, "session.json"),
+		path: filepath.Join(providerDirectory, "session.json"),
 	}, nil
 }
 

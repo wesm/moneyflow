@@ -1,6 +1,12 @@
 package provider
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
+
+// MaxRetryAfter bounds provider-controlled scheduling metadata.
+const MaxRetryAfter = 24 * time.Hour
 
 // ErrorCode is one renderer-neutral provider failure classification.
 type ErrorCode string
@@ -47,12 +53,26 @@ var errorCodes = []ErrorCode{
 
 // Error is a redacted provider failure. Raw transport and response errors never enter this type.
 type Error struct {
-	code ErrorCode
+	code       ErrorCode
+	retryAfter time.Duration
 }
 
 // NewError constructs a provider failure from a stable code.
 func NewError(code ErrorCode) *Error {
+	if !knownErrorCode(code) {
+		code = CodeDataInvalid
+	}
 	return &Error{code: code}
+}
+
+// NewErrorWithRetry constructs a rate-limit failure with bounded safe retry metadata.
+func NewErrorWithRetry(code ErrorCode, retryAfter time.Duration) *Error {
+	failure := NewError(code)
+	if failure.code != CodeRateLimited || retryAfter <= 0 {
+		return failure
+	}
+	failure.retryAfter = min(retryAfter, MaxRetryAfter)
+	return failure
 }
 
 // Error returns only the stable code and its fixed allowlisted detail.
@@ -78,7 +98,21 @@ func CodeOf(err error) (ErrorCode, bool) {
 	return failure.Code(), true
 }
 
+// RetryAfterOf extracts bounded retry timing through ordinary wrapping errors.
+func RetryAfterOf(err error) (time.Duration, bool) {
+	var failure *Error
+	if !errors.As(err, &failure) || failure.code != CodeRateLimited || failure.retryAfter <= 0 {
+		return 0, false
+	}
+	return failure.retryAfter, true
+}
+
 // ErrorCodes returns the complete stable code set in declaration order.
 func ErrorCodes() []ErrorCode {
 	return append([]ErrorCode(nil), errorCodes...)
+}
+
+func knownErrorCode(code ErrorCode) bool {
+	_, ok := errorDetails[code]
+	return ok
 }

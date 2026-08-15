@@ -131,6 +131,15 @@ func TestRefreshLeaseExpiryRecoveryAndOperationalWritesPreserveVersions(t *testi
 	renewed, err := profile.RenewRefreshLease(ctx, first.OwnerID, renewedExpiry, now.Add(2*time.Second))
 	require.NoError(t, err)
 	assert.True(t, renewed)
+	shortened, err := profile.RenewRefreshLease(
+		ctx, first.OwnerID, now.Add(2*time.Minute), now.Add(3*time.Second),
+	)
+	require.NoError(t, err)
+	assert.True(t, shortened)
+	state, err := profile.ProviderState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, state.Lease)
+	assert.Equal(t, renewedExpiry, state.Lease.ExpiresAt, "renewal must be monotonic")
 	require.NoError(t, profile.ReleaseRefreshLease(ctx, blocked.OwnerID))
 
 	recoveredAt := renewedExpiry.Add(time.Millisecond)
@@ -141,10 +150,10 @@ func TestRefreshLeaseExpiryRecoveryAndOperationalWritesPreserveVersions(t *testi
 	assert.Equal(t, blocked, current)
 
 	require.NoError(t, profile.RecordRefreshFailure(ctx, store.RefreshFailure{
-		Code: "provider_unavailable", AttemptedAt: recoveredAt,
+		OwnerID: blocked.OwnerID, Code: "provider_unavailable", AttemptedAt: recoveredAt,
 		NextEligible: recoveredAt.Add(5 * time.Minute),
 	}))
-	state, err := profile.ProviderState(ctx)
+	state, err = profile.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0), state.Refresh.Generation)
 	assert.Equal(t, "provider_unavailable", state.Refresh.StatusCode)
@@ -161,4 +170,35 @@ func TestRefreshLeaseExpiryRecoveryAndOperationalWritesPreserveVersions(t *testi
 	require.NoError(t, err)
 	assert.Nil(t, state.Lease)
 	assert.Zero(t, state.Refresh.Generation)
+}
+
+func TestExpiredLeaseOwnerCannotOverwriteSuccessorStatus(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	ctx := context.Background()
+	now := time.Date(2026, time.August, 15, 16, 0, 0, 0, time.UTC)
+	former := store.RefreshLease{OwnerID: "former", Renderer: "tui", ExpiresAt: now.Add(time.Minute)}
+	_, acquired, err := profile.AcquireRefreshLease(ctx, former, now)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	successor := store.RefreshLease{
+		OwnerID: "successor", Renderer: "web", ExpiresAt: now.Add(3 * time.Minute),
+	}
+	_, acquired, err = profile.AcquireRefreshLease(ctx, successor, former.ExpiresAt)
+	require.NoError(t, err)
+	require.True(t, acquired)
+
+	err = profile.RecordRefreshFailure(ctx, store.RefreshFailure{
+		OwnerID: former.OwnerID, Code: "provider_unavailable", AttemptedAt: former.ExpiresAt,
+	})
+	assertStoreCode(t, err, store.CodeRevisionConflict)
+	state, err := profile.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, state.Refresh.StatusCode)
+	require.NotNil(t, state.Lease)
+	assert.Equal(t, successor.OwnerID, state.Lease.OwnerID)
 }

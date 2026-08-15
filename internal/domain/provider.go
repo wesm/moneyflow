@@ -122,7 +122,8 @@ func validateImportEntities(
 		if entity.ExternalID == "" || strings.TrimSpace(entity.ExternalID) != entity.ExternalID {
 			return nil, fmt.Errorf("validate import snapshot: %s[%d] has invalid external ID", name, index)
 		}
-		if entity.Label == "" || strings.TrimSpace(entity.Label) != entity.Label {
+		normalizedLabel, labelErr := NormalizeDisplayLabel(entity.Label)
+		if labelErr != nil || normalizedLabel != entity.Label {
 			return nil, fmt.Errorf("validate import snapshot: %s[%d] has invalid label", name, index)
 		}
 		if requireParent && entity.ParentExternalID == "" {

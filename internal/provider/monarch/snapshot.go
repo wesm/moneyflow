@@ -1,7 +1,9 @@
 package monarch
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -58,48 +60,126 @@ func (client *Client) fetchSnapshotAttempt(
 	attempt int,
 	progress provider.ProgressFunc,
 ) (domain.ImportSnapshot, error) {
-	accounts, err := client.GetAccounts(ctx)
+	first, err := client.fetchRemoteSnapshot(ctx, attempt, progress)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
+	}
+	second, err := client.fetchRemoteSnapshot(ctx, attempt, progress)
+	if err != nil {
+		return domain.ImportSnapshot{}, err
+	}
+	matching, err := matchingRemoteSnapshots(first, second)
+	if err != nil {
+		return domain.ImportSnapshot{}, provider.NewError(provider.CodeDataInvalid)
+	}
+	if !matching {
+		return domain.ImportSnapshot{}, errSnapshotChanged
+	}
+	return client.normalizeSnapshot(
+		second.accounts,
+		second.merchants,
+		second.groups,
+		second.categories,
+		second.transactions,
+	)
+}
+
+type remoteSnapshot struct {
+	accounts     []Account
+	merchants    []Merchant
+	groups       []CategoryGroup
+	categories   []Category
+	transactions []Transaction
+}
+
+func (client *Client) fetchRemoteSnapshot(
+	ctx context.Context,
+	attempt int,
+	progress provider.ProgressFunc,
+) (remoteSnapshot, error) {
+	accounts, err := client.GetAccounts(ctx)
+	if err != nil {
+		return remoteSnapshot{}, err
 	}
 	merchants, err := client.GetMerchants(ctx)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	groups, err := client.GetCategoryGroups(ctx)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	categories, err := client.GetCategories(ctx)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	visible, err := client.fetchTransactionPartition(ctx, false, attempt, progress)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	hidden, err := client.fetchTransactionPartition(ctx, true, attempt, progress)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	if partitionsOverlap(visible.rows, hidden.rows) {
-		return domain.ImportSnapshot{}, errSnapshotChanged
+		return remoteSnapshot{}, errSnapshotChanged
 	}
 	if err := client.verifyPartitionCount(ctx, false, visible.total); err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	if err := client.verifyPartitionCount(ctx, true, hidden.total); err != nil {
-		return domain.ImportSnapshot{}, err
+		return remoteSnapshot{}, err
 	}
 	allTransactions := append(
 		append(make([]Transaction, 0, len(visible.rows)+len(hidden.rows)), visible.rows...),
 		hidden.rows...,
 	)
-	snapshot, err := client.normalizeSnapshot(accounts, merchants, groups, categories, allTransactions)
+	return remoteSnapshot{
+		accounts: accounts, merchants: merchants, groups: groups,
+		categories: categories, transactions: allTransactions,
+	}, nil
+}
+
+func matchingRemoteSnapshots(left remoteSnapshot, right remoteSnapshot) (bool, error) {
+	leftPayload, err := canonicalRemoteSnapshot(left)
 	if err != nil {
-		return domain.ImportSnapshot{}, err
+		return false, err
 	}
-	return snapshot, nil
+	rightPayload, err := canonicalRemoteSnapshot(right)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(leftPayload, rightPayload), nil
+}
+
+func canonicalRemoteSnapshot(snapshot remoteSnapshot) ([]byte, error) {
+	accounts := append([]Account(nil), snapshot.accounts...)
+	merchants := append([]Merchant(nil), snapshot.merchants...)
+	groups := append([]CategoryGroup(nil), snapshot.groups...)
+	categories := append([]Category(nil), snapshot.categories...)
+	transactions := append([]Transaction(nil), snapshot.transactions...)
+	sort.Slice(accounts, func(left int, right int) bool {
+		return accounts[left].ID < accounts[right].ID
+	})
+	sort.Slice(merchants, func(left int, right int) bool {
+		return merchants[left].ID < merchants[right].ID
+	})
+	sort.Slice(groups, func(left int, right int) bool {
+		return groups[left].ID < groups[right].ID
+	})
+	sort.Slice(categories, func(left int, right int) bool {
+		return categories[left].ID < categories[right].ID
+	})
+	sort.Slice(transactions, func(left int, right int) bool {
+		return transactions[left].ID < transactions[right].ID
+	})
+	return json.Marshal(struct {
+		Accounts     []Account
+		Merchants    []Merchant
+		Groups       []CategoryGroup
+		Categories   []Category
+		Transactions []Transaction
+	}{accounts, merchants, groups, categories, transactions})
 }
 
 func (client *Client) normalizeSnapshot(

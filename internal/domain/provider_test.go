@@ -85,6 +85,12 @@ func TestImportSnapshotRejectsInvalidRecords(t *testing.T) {
 		"invalid money": func(snapshot *ImportSnapshot) {
 			snapshot.Transactions[0].Amount.Currency = "usd"
 		},
+		"invalid UTF-8 label": func(snapshot *ImportSnapshot) {
+			snapshot.Merchants[0].Label = string([]byte{0xff})
+		},
+		"control character label": func(snapshot *ImportSnapshot) {
+			snapshot.Categories[0].Label = "Example\nCategory"
+		},
 	}
 
 	for name, mutate := range tests {

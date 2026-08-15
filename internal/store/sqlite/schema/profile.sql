@@ -218,3 +218,7 @@ CREATE TABLE provider_label_allocations (
     CHECK((unsuffixed = 1 AND suffix_token = '') OR (unsuffixed = 0 AND suffix_token <> '')),
     PRIMARY KEY(namespace, external_id)
 ) STRICT;
+
+CREATE UNIQUE INDEX provider_label_allocations_unsuffixed_owner
+ON provider_label_allocations(entity_type, base_collision_key)
+WHERE unsuffixed = 1;

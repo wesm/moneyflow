@@ -75,6 +75,7 @@ type ProviderState struct {
 
 // RefreshFailure records allowlisted operational failure bookkeeping.
 type RefreshFailure struct {
+	OwnerID      string
 	Code         string
 	AttemptedAt  time.Time
 	NextEligible time.Time

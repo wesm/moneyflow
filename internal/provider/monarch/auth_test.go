@@ -117,6 +117,91 @@ func TestAuthenticatorCompletesMFAWithoutPersistingTheCode(t *testing.T) {
 	assert.NotContains(t, string(serialized), "123456")
 }
 
+func TestAuthenticatorCompletesMFAThroughGraphQLFallback(t *testing.T) {
+	t.Parallel()
+
+	var loginCalls atomic.Int32
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/auth/login/" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var envelope graphQLRequest
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&envelope))
+		switch envelope.OperationName {
+		case "LoginMutation":
+			if loginCalls.Add(1) == 1 {
+				_, _ = writer.Write([]byte(`{"data":{"login":{"token":"","errors":[{"messages":["Multi-factor authentication required"]}]}}}`))
+				return
+			}
+			assert.Equal(t, "123456", envelope.Variables["totpToken"])
+			_, _ = writer.Write([]byte(`{"data":{"login":{"token":"graphql-mfa-token","errors":[]}}}`))
+		case "GetSubscriptionDetails":
+			_, _ = writer.Write([]byte(`{"data":{"subscription":{"id":"subscription-a"}}}`))
+		default:
+			t.Fatalf("unexpected operation %q", envelope.OperationName)
+		}
+	})
+	authenticator := newTestAuthenticator(t, server.URL)
+
+	session, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password",
+	}, func(context.Context, provider.Challenge) (string, error) {
+		return "123456", nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "graphql-mfa-token", session.(Session).Token)
+}
+
+func TestAuthenticatorRejectsCredentialRedirects(t *testing.T) {
+	t.Parallel()
+
+	var targetCalls atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetCalls.Add(1)
+	}))
+	t.Cleanup(target.Close)
+	redirect := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL, http.StatusTemporaryRedirect)
+	})
+	authenticator := newTestAuthenticator(t, redirect.URL)
+
+	_, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password",
+	}, nil)
+	require.Error(t, err)
+	assert.Zero(t, targetCalls.Load(), "credential-bearing request must not follow redirects")
+}
+
+func TestAuthenticatorClassifiesOversizedForbiddenBodyAsMFA(t *testing.T) {
+	t.Parallel()
+
+	var attempts atomic.Int32
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/auth/login/" {
+			if attempts.Add(1) == 1 {
+				writer.WriteHeader(http.StatusForbidden)
+				_, _ = writer.Write([]byte(strings.Repeat("x", 128)))
+				return
+			}
+			_, _ = writer.Write([]byte(`{"token":"mfa-token"}`))
+			return
+		}
+		writeSubscriptionResponse(t, writer, request, "subscription-a")
+	})
+	options := testClientOptions(t, server.URL)
+	options.MaxBodyBytes = 64
+	options.Now = func() time.Time { return time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC) }
+	options.Random = strings.NewReader(strings.Repeat("a", 64))
+	authenticator, err := NewAuthenticator(options)
+	require.NoError(t, err)
+
+	_, err = authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password",
+	}, func(context.Context, provider.Challenge) (string, error) { return "123456", nil })
+	require.NoError(t, err)
+}
+
 func TestAuthenticatorRejectsInvalidSessionAndRedactsLoginFailure(t *testing.T) {
 	t.Parallel()
 

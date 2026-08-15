@@ -226,6 +226,11 @@ contexts, bounded bodies, explicit timeouts, a stable user agent, and no cross-o
 authorization headers. Safe reads may retry only under the bounded policy in this design. Login,
 MFA submission, and future writes are never generalized through that retry path.
 
+The adapter rejects missing or null GraphQL `data` and classifies a non-success HTTP status before
+reading its body. Provider errors admit only the declared fixed codes. A rate-limit error may also
+carry a validated duration capped at 24 hours; no raw header or remote response text crosses the
+provider boundary. Credential-bearing REST and GraphQL requests refuse every redirect.
+
 Monarch decimal strings are parsed directly into signed integer minor units with an explicit
 currency and scale. No provider, domain, store, or test-fixture path represents money with
 `float32` or `float64`. Unsupported precision, currency, or numeric syntax is
@@ -367,7 +372,12 @@ partitions:
 1. visible transactions with `hideFromReports: false`
 2. hidden transactions with `hideFromReports: true`
 
-Each complete two-partition attempt must satisfy all of these conditions:
+Each attempt performs two complete reads of accounts, merchants, groups, categories, and both
+transaction partitions. Canonical imported fields and external identities from the two reads must
+match exactly before absence can mean deletion. This deliberately doubles read traffic so stable
+counts cannot conceal equal-cardinality offset churn or a changing authoritative entity list.
+
+Each complete read must also satisfy all of these conditions:
 
 - The first page records the partition's `totalCount`.
 - Every page returns the same `totalCount`.
@@ -380,8 +390,9 @@ Each complete two-partition attempt must satisfy all of these conditions:
   imported transaction reference resolves within the same candidate.
 
 The final count probes catch a transaction whose hidden flag changed during the window between
-partition fetches. Any integrity failure discards both partitions and retries from page zero. A
-refresh receives at most three complete attempts with bounded, cancellable backoff. Exhaustion is
+partition fetches. The matching second read catches insert/delete churn that preserves counts.
+Any integrity failure discards both reads and retries from page zero. A refresh receives at most
+three complete attempts with bounded, cancellable backoff. Exhaustion is
 `provider_snapshot_unstable`; nothing folds, and no confirmation token can override it.
 
 A missing related entity is treated as snapshot instability because separate provider queries can
@@ -704,6 +715,10 @@ without creating a two-process refresh loop.
 Operational failure handling releases the lease without advancing profile revision or refresh
 generation. No client automatically replays a refresh confirmation, an identity decision, or a
 storage mutation after an error.
+
+Lease renewal is monotonic. Renewal, release, failure status, and the successful fold compare the
+opaque lease owner inside their write transaction. Work from an expired former owner cannot clear
+a successor's lease or overwrite its status.
 
 ## Performance Contract
 

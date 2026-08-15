@@ -68,6 +68,62 @@ func TestGraphQLCallRedactsRemoteErrors(t *testing.T) {
 	assert.NotContains(t, err.Error(), "private provider detail")
 }
 
+func TestGraphQLCallRejectsMissingAndNullData(t *testing.T) {
+	t.Parallel()
+
+	for name, payload := range map[string]string{
+		"missing": `{}`,
+		"null":    `{"data":null}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(payload))
+			}))
+			t.Cleanup(server.Close)
+
+			client := newLoopbackClient(t, server.URL, defaultMaxBodyBytes)
+			_, err := client.GetSubscriptionDetails(context.Background())
+			assertProviderCode(t, err, provider.CodeDataInvalid)
+		})
+	}
+}
+
+func TestGraphQLCallClassifiesStatusBeforeOversizedBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Retry-After", "120")
+		writer.WriteHeader(http.StatusTooManyRequests)
+		_, _ = writer.Write([]byte(strings.Repeat("x", 128)))
+	}))
+	t.Cleanup(server.Close)
+
+	client := newLoopbackClient(t, server.URL, 64)
+	_, err := client.GetSubscriptionDetails(context.Background())
+	assertProviderCode(t, err, provider.CodeRateLimited)
+	retryAfter, ok := provider.RetryAfterOf(err)
+	require.True(t, ok)
+	assert.Equal(t, 2*time.Minute, retryAfter)
+}
+
+func TestGraphQLCallParsesHTTPDateRetryAfterWithInjectedClock(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Retry-After", now.Add(90*time.Minute).Format(http.TimeFormat))
+		writer.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(server.Close)
+
+	client := newLoopbackClient(t, server.URL, defaultMaxBodyBytes)
+	client.options.Now = func() time.Time { return now }
+	_, err := client.GetSubscriptionDetails(context.Background())
+	retryAfter, ok := provider.RetryAfterOf(err)
+	require.True(t, ok)
+	assert.Equal(t, 90*time.Minute, retryAfter)
+}
+
 func TestGraphQLRedirectStripsSessionHeadersAcrossOrigins(t *testing.T) {
 	t.Parallel()
 

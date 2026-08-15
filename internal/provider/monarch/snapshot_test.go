@@ -40,7 +40,7 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	assert.Contains(t, progress, provider.Progress{
 		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1,
 	})
-	assert.Equal(t, 1, server.CompleteAttempts())
+	assert.Equal(t, 2, server.CompleteScans())
 }
 
 func TestSnapshotProbeReturnsSubscriptionIdentity(t *testing.T) {
@@ -64,7 +64,7 @@ func TestSnapshotRejectsInvalidMoneyWithoutRetry(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
-	assert.Equal(t, 1, server.CompleteAttempts())
+	assert.Equal(t, 2, server.CompleteScans())
 }
 
 func TestSnapshotRejectsDuplicateEntityIDsWithoutRetry(t *testing.T) {
@@ -79,7 +79,7 @@ func TestSnapshotRejectsDuplicateEntityIDsWithoutRetry(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
-	assert.Equal(t, 1, server.CompleteAttempts())
+	assert.Equal(t, 2, server.CompleteScans())
 }
 
 func TestSnapshotRetriesMissingCategoryGroup(t *testing.T) {
@@ -92,7 +92,7 @@ func TestSnapshotRetriesMissingCategoryGroup(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 3, server.CompleteAttempts())
+	assert.Equal(t, 6, server.CompleteScans())
 }
 
 func TestSnapshotRetriesRelationshipRace(t *testing.T) {
@@ -109,7 +109,7 @@ func TestSnapshotRetriesRelationshipRace(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
-	assert.Equal(t, 2, server.CompleteAttempts())
+	assert.Equal(t, 4, server.CompleteScans())
 }
 
 func TestSnapshotPersistentRelationshipRaceExhaustsThreeAttempts(t *testing.T) {
@@ -126,7 +126,7 @@ func TestSnapshotPersistentRelationshipRaceExhaustsThreeAttempts(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 3, server.CompleteAttempts())
+	assert.Equal(t, 6, server.CompleteScans())
 }
 
 func TestPendingRowsParticipateInPartitionIntegrity(t *testing.T) {
@@ -142,7 +142,7 @@ func TestPendingRowsParticipateInPartitionIntegrity(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 3, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestSnapshotCancellationStopsRetryBackoff(t *testing.T) {
@@ -161,7 +161,7 @@ func TestSnapshotCancellationStopsRetryBackoff(t *testing.T) {
 
 	_, err := client.FetchSnapshot(ctx, nil)
 	assert.ErrorIs(t, err, context.Canceled)
-	assert.Equal(t, 1, server.CompleteAttempts())
+	assert.Equal(t, 1, server.CompleteScans())
 }
 
 func TestSnapshotRequiresExplicitMoneyFormat(t *testing.T) {
@@ -177,13 +177,14 @@ func TestSnapshotRequiresExplicitMoneyFormat(t *testing.T) {
 }
 
 type snapshotScenario struct {
-	Accounts   []Account
-	Merchants  []Merchant
-	Groups     []CategoryGroup
-	Categories []Category
-	Visible    []Transaction
-	Hidden     []Transaction
-	BeforePage func(
+	Accounts       []Account
+	Merchants      []Merchant
+	Groups         []CategoryGroup
+	Categories     []Category
+	Visible        []Transaction
+	Hidden         []Transaction
+	BeforeAccounts func(scan int, rows []Account) []Account
+	BeforePage     func(
 		attempt int,
 		hidden bool,
 		offset int,
@@ -235,7 +236,7 @@ func newSnapshotServer(t *testing.T, scenario snapshotScenario) *scriptedSnapsho
 
 func (server *scriptedSnapshotServer) URL() string { return server.server.URL }
 
-func (server *scriptedSnapshotServer) CompleteAttempts() int {
+func (server *scriptedSnapshotServer) CompleteScans() int {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	return server.attempts
@@ -253,9 +254,14 @@ func (server *scriptedSnapshotServer) serveHTTP(writer http.ResponseWriter, requ
 	case "GetAccounts":
 		server.mu.Lock()
 		server.attempts++
+		scan := server.attempts
 		server.mu.Unlock()
+		accounts := append([]Account(nil), server.scenario.Accounts...)
+		if server.scenario.BeforeAccounts != nil {
+			accounts = server.scenario.BeforeAccounts(scan, accounts)
+		}
 		writeJSON(server.t, writer, map[string]any{"data": map[string]any{
-			"accounts": server.scenario.Accounts,
+			"accounts": accounts,
 		}})
 	case "GetAllMerchants":
 		aggregates := make([]map[string]any, 0, len(server.scenario.Merchants))

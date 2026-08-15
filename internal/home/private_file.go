@@ -114,6 +114,13 @@ func ReadPrivateFileWithFingerprint(
 	if !os.SameFile(info, openedInfo) {
 		return nil, "", errors.New("read private file: target changed while opening")
 	}
+	openedInfo, err = secureOpenedPrivateFile(file, openedInfo)
+	if err != nil {
+		return nil, "", err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return nil, "", errors.New("read private file: opened target is not a regular file")
+	}
 	contents, err := io.ReadAll(io.LimitReader(file, maximumBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("read private file: read: %w", err)

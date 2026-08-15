@@ -409,6 +409,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   }
 
   function acceptProfileProjection(next: ViewProjection): void {
+    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return
+    generation += 1
+    activeRequest?.abort()
+    activeRequest = undefined
+    loading = false
     cache.store(next)
     cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     projection = next

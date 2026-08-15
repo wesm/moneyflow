@@ -195,6 +195,40 @@ describe('browser view controller', () => {
     expect(vi.mocked(client.view).mock.calls[0]?.[1]?.aborted).toBe(true)
   })
 
+  it('cannot install an older foreground response after accepting a mutation', async () => {
+    let release!: (value: ViewProjection) => void
+    const delayed = new Promise<ViewProjection>((resolve) => (release = resolve))
+    const client = clientWith({
+      view: vi
+        .fn()
+        .mockResolvedValueOnce(projection('v=1', 0, 3, '1'))
+        .mockImplementationOnce(async () => await delayed),
+      mutations: {
+        request: vi.fn(async () => {
+          const next = projection('v=1', 0, 3, '2')
+          return Response.json({
+            version: '1',
+            revision: '2',
+            canonical_query: 'v=1',
+            projection: next,
+            pending: next.pending,
+            selection: { kind: 'preserved', value: next.selection },
+          })
+        }),
+      },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+
+    const stale = controller.hydrate()
+    await expect(controller.editing.undo()).resolves.toBe(true)
+    release(projection('v=1', 0, 3, '1'))
+    await stale
+
+    expect(controller.projection?.revision).toBe('2')
+    expect(vi.mocked(client.view).mock.calls[1]?.[1]?.aborted).toBe(true)
+  })
+
   it('retains the last good projection on bounded errors and supports retry', async () => {
     const problem = new MoneyflowProblem({
       type: 'about:blank',

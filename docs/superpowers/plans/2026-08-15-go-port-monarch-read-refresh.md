@@ -235,7 +235,9 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
   `Error.Error` returns only code plus its fixed allowlisted detail. The neutral error exposes no
   raw cause or unwrap chain; Monarch classifies raw HTTP and GraphQL failures and discards their
-  content at the adapter boundary.
+  content at the adapter boundary. Construction replaces unknown codes with `CodeDataInvalid`.
+  Rate-limit errors alone may carry a validated duration capped at 24 hours through
+  `NewErrorWithRetry` and `RetryAfterOf`; raw header text never crosses the boundary.
 
 - [ ] **Step 4: Run the focused tests and verify GREEN.**
 
@@ -273,8 +275,10 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 1: Add failing transport, query-surface, and decoder tests.** Cover HTTPS-only
       production endpoints, loopback test overrides, bounded bodies, context cancellation,
-      authorization stripping on cross-origin redirects, GraphQL errors, malformed money, and
-      query documents that omit unused attachments, rules, and drawer fields.
+      authorization stripping on cross-origin read redirects, missing/null GraphQL data,
+      non-success status classification before body decoding, bounded `Retry-After`, GraphQL
+      errors, malformed money, and query documents that omit unused attachments, rules, and drawer
+      fields.
 
   ```go
   func TestDecodeAmountNeverUsesFloat(t *testing.T) {
@@ -355,9 +359,10 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
   atomic-file helpers.
 
 - [ ] **Step 1: Add failing filesystem and authentication tests.** Cover private pre-creation,
-      symlink/non-regular refusal, bounded reads, atomic replacement, REST-first success, GraphQL
-      fallback, MFA challenge, invalid session, one reload after replacement, and serialized JSON
-      that cannot contain email/password/MFA fields.
+      trusted-root and intermediate-symlink refusal, existing-file permission tightening,
+      non-regular refusal, bounded reads, atomic replacement, REST-first success, GraphQL fallback,
+      MFA challenge on both login paths, credential-redirect refusal, invalid session, one reload
+      after replacement, and serialized JSON that cannot contain email/password/MFA fields.
 
   ```go
   type Session struct {
@@ -380,9 +385,11 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 3: Implement session persistence and authentication.** Add
       `<moneyflow-home>/providers/monarch/session.json`, owner-only parent creation, atomic replace,
-      format validation, session fingerprinting, `Source.Reader(ctx, forceReload)`, and
-      `Source.Changed`. Keep REST login first and invoke GraphQL login only for the proven fallback
-      response. Accept an MFA callback for a one-time code; never persist credential input.
+      validated root anchoring, existing-file permission enforcement, format validation, session
+      fingerprinting, `Source.Reader(ctx, forceReload)`, and `Source.Changed`. Keep REST login first
+      and invoke GraphQL login only for the proven fallback response. Credential-bearing requests
+      refuse redirects. Accept an MFA callback for a one-time code on either login path; never
+      persist credential input.
 
 - [ ] **Step 4: Run focused tests and verify GREEN on the current platform.** Portable build
       coverage remains in the repository's Linux/macOS/Windows CI jobs; do not try to execute a
@@ -463,7 +470,9 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
       `provider_refresh_state`, `provider_refresh_lease`, and strict `provider_label_allocations`.
       Extend `store.Profile` with `ProviderState`, `AcquireRefreshLease`, `RenewRefreshLease`,
       `ReleaseRefreshLease`, and `RecordRefreshFailure`. Operational methods update no profile
-      revision or refresh generation.
+      revision or refresh generation. Unsuffixed label ownership is unique per entity type and
+      collision key. Lease renewal is monotonic, and failure status carries and compares the
+      current opaque owner ID so expired work cannot overwrite a successor.
 
 - [ ] **Step 4: Run schema and reopen tests and verify GREEN.**
 
@@ -496,7 +505,8 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 - Consumes: Task 1 `provider.Reader`, Task 2 queries/decoder, and Task 3 sessions.
 - Produces: a complete `provider.Reader` implementation with integrity-before-pending-exclusion.
 
-- [ ] **Step 1: Add failing exhaustive-snapshot table tests.** Cover constant `totalCount`, unique
+- [ ] **Step 1: Add failing exhaustive-snapshot table tests.** Cover two matching complete reads,
+      same-cardinality churn, authoritative entity-list changes, constant `totalCount`, unique
       count equality, visible/hidden disjointness, final count rechecks, offset insert/delete races,
       cross-partition hidden flips, duplicate entity IDs, missing related entities, pending-row
       integrity, cancellation, page progress, and exactly three complete attempts.
@@ -519,10 +529,12 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
   Expected: FAIL because the complete reader is absent.
 
-- [ ] **Step 3: Implement the two-partition reader.** Fetch `hideFromReports: false` and `true`
-      with no date/search/category filter; verify each page and both final counts; validate entity
-      relationships; then remove pending rows. Treat relationship races as snapshot instability
-      and invalid scalars as data invalid. Use cancellable bounded backoff and no SQLite access.
+- [ ] **Step 3: Implement the two-partition reader.** Fetch accounts, merchants, groups,
+      categories, `hideFromReports: false`, and `hideFromReports: true` twice with no
+      date/search/category filter. Require canonical identity and imported-field equality between
+      both complete reads, verify each page and all final counts, validate entity relationships,
+      then remove pending rows. Treat relationship races as snapshot instability and invalid
+      scalars as data invalid. Use cancellable bounded backoff and no SQLite access.
 
 - [ ] **Step 4: Run focused provider tests and verify GREEN.**
 
@@ -725,6 +737,7 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
   }
 
   type RefreshPlan struct {
+      Committed domain.CommittedProfile
       Effective domain.CommittedProfile
       Journal []domain.Operation
       Cursor int
@@ -783,8 +796,10 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 3: Implement the reference transaction.** `ApplyProviderRefresh` begins immediate,
       compares expected generation, loads all inputs, invokes the callback once, validates full
-      replay, writes committed rows/mappings/allocations/journal/drills/summary, advances revision
-      and generation once, releases the lease, and commits. The callback receives no SQL handle.
+      replay, proves `Effective` is the replay of `Committed` plus the rewritten journal, writes
+      the refreshed `Committed` base separately from `Effective`, writes mappings, allocations,
+      journal, drills, and summary, advances revision and generation once, conditionally releases
+      the caller-owned lease, and commits. The callback receives no SQL handle.
 
 - [ ] **Step 4: Add canonical logical encoding and optional precompute path.** Sort and encode
       logical rows/payloads, excluding physical SQLite/WAL layout. If precomputation is enabled,
@@ -904,9 +919,11 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 4: Implement orchestration and capability policy.** Probe identity every refresh,
       fetch outside SQLite, evaluate plausibility against generation, acquire/release the lease,
-      call the atomic fold, reload the service cache, and project the caller's exact state. Add
-      `provider.refresh` with key `r`. Keep edit/review actions available, but reject provider
-      commit with the durable-intent explanation.
+      renew the lease periodically throughout network work, call the atomic fold, reload the
+      service cache, and project the caller's exact state. Every renew, release, status write, and
+      successful fold compares the current opaque owner; an expired former owner cannot affect a
+      successor. Add `provider.refresh` with key `r`. Keep edit/review actions available, but
+      reject provider commit with the durable-intent explanation.
 
 - [ ] **Step 5: Implement in-memory confirmation and parked reconnect state.** Bind candidate
       tokens to owner, expiry, generation, and exact candidate. On reconnect-required, inspect only

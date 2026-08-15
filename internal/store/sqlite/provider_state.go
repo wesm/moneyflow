@@ -113,7 +113,7 @@ func (profile *profile) RenewRefreshLease(
 		)
 	}
 	result, err := profile.database.ExecContext(ctx, `
-		UPDATE provider_refresh_lease SET expires_at_unix_ms = ?
+		UPDATE provider_refresh_lease SET expires_at_unix_ms = MAX(expires_at_unix_ms, ?)
 		WHERE singleton = 1 AND owner_id = ? AND expires_at_unix_ms > ?`,
 		expiresAt.UnixMilli(), ownerID, observedAt.UnixMilli())
 	if err != nil {
@@ -143,6 +143,9 @@ func (profile *profile) RecordRefreshFailure(
 	ctx context.Context,
 	failure store.RefreshFailure,
 ) error {
+	if err := validateLeaseOwner(failure.OwnerID); err != nil {
+		return store.NewError(store.CodeInvalidOperation, err)
+	}
 	if !validProviderStatusCode(failure.Code) {
 		return store.NewError(store.CodeInvalidOperation, errors.New("refresh failure code is invalid"))
 	}
@@ -162,7 +165,10 @@ func (profile *profile) RecordRefreshFailure(
 	result, err := profile.database.ExecContext(ctx, `
 		UPDATE provider_refresh_state
 		SET last_attempt_unix_ms = ?, next_eligible_unix_ms = ?, status_code = ?
-		WHERE singleton = 1`, failure.AttemptedAt.UnixMilli(), nextEligible, failure.Code)
+		WHERE singleton = 1 AND EXISTS (
+			SELECT 1 FROM provider_refresh_lease
+			WHERE singleton = 1 AND owner_id = ?
+		)`, failure.AttemptedAt.UnixMilli(), nextEligible, failure.Code, failure.OwnerID)
 	if err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
@@ -171,7 +177,10 @@ func (profile *profile) RecordRefreshFailure(
 		return mapDriverError(err, store.CodeStoreError)
 	}
 	if affected != 1 {
-		return store.NewError(store.CodeStoreCorrupt, errors.New("provider refresh state is missing"))
+		return store.NewError(
+			store.CodeRevisionConflict,
+			errors.New("refresh failure owner no longer holds the lease"),
+		)
 	}
 	return nil
 }

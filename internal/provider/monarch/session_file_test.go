@@ -49,6 +49,30 @@ func TestSessionStoreRejectsInvalidAndOversizedFiles(t *testing.T) {
 	assert.ErrorContains(t, err, "maximum size")
 }
 
+func TestSessionStoreRejectsRedirectedRootAndIntermediateDirectory(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	target, err := home.ResolveRoot(filepath.Join(base, "target"), nil, "")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(target.Root, 0o700))
+	redirect := filepath.Join(base, "redirect")
+	if err = os.Symlink(target.Root, redirect); err != nil {
+		t.Skipf("creating a symlink requires additional platform permission: %v", err)
+	}
+	_, err = NewSessionStore(home.Paths{
+		Root: redirect, Database: filepath.Join(redirect, "moneyflow.db"),
+	})
+	assert.ErrorContains(t, err, "redirect")
+
+	profile, err := home.ResolveRoot(filepath.Join(base, "profile"), nil, "")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(profile.Root, 0o700))
+	require.NoError(t, os.Symlink(target.Root, filepath.Join(profile.Root, "providers")))
+	_, err = NewSessionStore(profile)
+	assert.ErrorContains(t, err, "symbolic link")
+}
+
 func TestSessionStoreDetectsReplacementAndDeletePreservesProfile(t *testing.T) {
 	t.Parallel()
 

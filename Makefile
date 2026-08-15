@@ -20,6 +20,7 @@ help:
 test:
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
+	go test ./internal/api -run '^TestProjectionPerformance100K$$' -count=1
 
 test-store:
 	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1

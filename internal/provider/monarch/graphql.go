@@ -10,6 +10,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/provider"
 )
@@ -34,9 +37,9 @@ type graphQLError struct {
 	Message string `json:"message"`
 }
 
-type graphQLResponse[T any] struct {
-	Data   T              `json:"data"`
-	Errors []graphQLError `json:"errors"`
+type graphQLResponse struct {
+	Data   json.RawMessage `json:"data"`
+	Errors []graphQLError  `json:"errors"`
 }
 
 func graphQLCall[T any](
@@ -73,6 +76,9 @@ func graphQLCall[T any](
 		return zero, providerErrorForTransport(err)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return zero, providerErrorForResponse(response, client.options.Now())
+	}
 
 	payload, err := io.ReadAll(io.LimitReader(response.Body, client.options.MaxBodyBytes+1))
 	if err != nil {
@@ -81,14 +87,18 @@ func graphQLCall[T any](
 	if int64(len(payload)) > client.options.MaxBodyBytes {
 		return zero, provider.NewError(provider.CodeDataInvalid)
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return zero, providerErrorForStatus(response.StatusCode)
-	}
-	var envelope graphQLResponse[T]
+	var envelope graphQLResponse
 	if err = json.Unmarshal(payload, &envelope); err != nil || len(envelope.Errors) > 0 {
 		return zero, provider.NewError(provider.CodeDataInvalid)
 	}
-	return envelope.Data, nil
+	data := bytes.TrimSpace(envelope.Data)
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return zero, provider.NewError(provider.CodeDataInvalid)
+	}
+	if err = json.Unmarshal(data, &zero); err != nil {
+		return zero, provider.NewError(provider.CodeDataInvalid)
+	}
+	return zero, nil
 }
 
 func setReadHeaders(header http.Header, authorization string, deviceUUID string) {
@@ -126,6 +136,42 @@ func providerErrorForStatus(status int) error {
 		}
 		return provider.NewError(provider.CodeDataInvalid)
 	}
+}
+
+func providerErrorForResponse(response *http.Response, now time.Time) error {
+	if response.StatusCode != http.StatusTooManyRequests {
+		return providerErrorForStatus(response.StatusCode)
+	}
+	retryAfter, ok := parseRetryAfter(response.Header.Get("Retry-After"), now)
+	if !ok {
+		return provider.NewError(provider.CodeRateLimited)
+	}
+	return provider.NewErrorWithRetry(provider.CodeRateLimited, retryAfter)
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds <= 0 || seconds > int64(provider.MaxRetryAfter/time.Second) {
+			if seconds > int64(provider.MaxRetryAfter/time.Second) {
+				return provider.MaxRetryAfter, true
+			}
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	delay := when.Sub(now)
+	if delay <= 0 {
+		return 0, false
+	}
+	return min(delay, provider.MaxRetryAfter), true
 }
 
 func cloneHTTPClient(source *http.Client) *http.Client {

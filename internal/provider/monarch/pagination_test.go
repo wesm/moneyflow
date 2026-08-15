@@ -33,7 +33,7 @@ func TestPaginationCountChangeRestartsCompleteSnapshot(t *testing.T) {
 	snapshot, err := client.FetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.Transactions, len(visible)+1)
-	assert.Equal(t, 2, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestPaginationCountDecreaseRestartsCompleteSnapshot(t *testing.T) {
@@ -59,7 +59,7 @@ func TestPaginationCountDecreaseRestartsCompleteSnapshot(t *testing.T) {
 	snapshot, err := client.FetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.Transactions, len(visible)+1)
-	assert.Equal(t, 2, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestPaginationDuplicateTransactionIDExhaustsAttempts(t *testing.T) {
@@ -73,7 +73,7 @@ func TestPaginationDuplicateTransactionIDExhaustsAttempts(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 3, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestHiddenFlipBetweenPartitionsRestartsWholeAttempt(t *testing.T) {
@@ -90,7 +90,7 @@ func TestHiddenFlipBetweenPartitionsRestartsWholeAttempt(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
-	assert.Equal(t, 2, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestPaginationIntegrityFailureCannotReturnPartialRows(t *testing.T) {
@@ -105,5 +105,49 @@ func TestPaginationIntegrityFailureCannotReturnPartialRows(t *testing.T) {
 	snapshot, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Empty(t, snapshot.Transactions)
-	assert.Equal(t, 3, server.CompleteAttempts())
+	assert.Equal(t, 3, server.CompleteScans())
+}
+
+func TestSameCardinalityPaginationChurnRequiresMatchingCompleteScans(t *testing.T) {
+	t.Parallel()
+
+	visible := []Transaction{
+		snapshotTransaction("transaction-a", false, false),
+		snapshotTransaction("transaction-b", false, false),
+		snapshotTransaction("transaction-c", false, false),
+	}
+	scenario := snapshotScenario{
+		Visible: visible,
+		BeforePage: func(scan int, hidden bool, offset int, _ int, total int, rows []Transaction) (int, []Transaction) {
+			if scan == 1 && !hidden && offset == 2 {
+				return total, []Transaction{snapshotTransaction("transaction-d", false, false)}
+			}
+			return total, rows
+		},
+	}
+	server := newSnapshotServer(t, scenario)
+	client := newSnapshotClient(t, server)
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Len(t, snapshot.Transactions, len(visible)+1)
+	assert.Equal(t, 4, server.CompleteScans())
+}
+
+func TestEntityListChangesRequireMatchingCompleteScans(t *testing.T) {
+	t.Parallel()
+
+	server := newSnapshotServer(t, snapshotScenario{
+		BeforeAccounts: func(scan int, rows []Account) []Account {
+			if scan == 1 {
+				rows[0].DisplayName = "Transient Account Label"
+			}
+			return rows
+		},
+	})
+	client := newSnapshotClient(t, server)
+
+	_, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, 4, server.CompleteScans())
 }

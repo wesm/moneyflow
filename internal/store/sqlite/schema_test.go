@@ -82,6 +82,12 @@ func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
+			display_label, suffix_token, unsuffixed)
+		VALUES ('merchant', 'other', 'external-b', 'example', 'Example', '', 1)`)
+	assert.Error(t, err, "one collision key can have only one permanent unsuffixed owner")
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_label_allocations(
+			entity_type, namespace, external_id, base_collision_key,
 			display_label, suffix_token, unsuffixed
 		) VALUES ('group', 'shared', 'external-a', 'group', 'Group', '', 1)`)
 	assert.Error(t, err)

@@ -94,6 +94,78 @@ func PrepareDatabase(paths Paths) error {
 	return nil
 }
 
+// PreparePrivateRoot validates the existing path chain before creating and restricting a root.
+func PreparePrivateRoot(root string) error {
+	if root == "" || !filepath.IsAbs(root) {
+		return errors.New("prepare private root: path must be absolute")
+	}
+	canonical, err := canonicalRoot(root)
+	if err != nil {
+		return err
+	}
+	if filepath.Clean(canonical) != filepath.Clean(root) {
+		return errors.New("prepare private root: path is redirected")
+	}
+	existing := filepath.Clean(root)
+	for {
+		if _, err = os.Lstat(existing); err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("prepare private root: inspect ancestor: %w", err)
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return errors.New("prepare private root: no existing ancestor")
+		}
+		existing = parent
+	}
+	if err = validateTrustedRootAncestors(existing, filepath.Clean(root)); err != nil {
+		return err
+	}
+	if err = os.MkdirAll(root, 0o700); err != nil {
+		return fmt.Errorf("prepare private root: create: %w", err)
+	}
+	if err = enforcePrivateDirectory(root); err != nil {
+		return err
+	}
+	return nil
+}
+
+// EnsurePrivateSubdirectory creates a fixed relative path without following an intermediate link.
+func EnsurePrivateSubdirectory(root string, components ...string) (string, error) {
+	if err := PreparePrivateRoot(root); err != nil {
+		return "", err
+	}
+	current := filepath.Clean(root)
+	for _, component := range components {
+		if component == "" || component == "." || component == ".." || filepath.Base(component) != component {
+			return "", errors.New("prepare private subdirectory: invalid component")
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			if err = os.Mkdir(current, 0o700); err != nil {
+				return "", fmt.Errorf("prepare private subdirectory: create: %w", err)
+			}
+			info, err = os.Lstat(current)
+		}
+		if err != nil {
+			return "", fmt.Errorf("prepare private subdirectory: inspect: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("prepare private subdirectory: path is a symbolic link")
+		}
+		if !info.IsDir() {
+			return "", errors.New("prepare private subdirectory: path is not a directory")
+		}
+		if err = enforcePrivateDirectory(current); err != nil {
+			return "", err
+		}
+	}
+	return current, nil
+}
+
 // canonicalRoot resolves the existing prefix while retaining a missing suffix exactly.
 func canonicalRoot(input string) (string, error) {
 	target := input

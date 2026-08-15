@@ -2,7 +2,9 @@ package provider_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,4 +54,26 @@ func TestProviderCodeOfRejectsUnrelatedErrors(t *testing.T) {
 
 	_, ok := provider.CodeOf(errors.New("unrelated"))
 	assert.False(t, ok)
+}
+
+func TestProviderErrorReplacesUnknownCodes(t *testing.T) {
+	t.Parallel()
+
+	failure := provider.NewError(provider.ErrorCode("private remote response"))
+	code, ok := provider.CodeOf(failure)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeDataInvalid, code)
+	assert.NotContains(t, failure.Error(), "private remote response")
+}
+
+func TestProviderRetryAfterIsBoundedAndSurvivesWrapping(t *testing.T) {
+	t.Parallel()
+
+	failure := provider.NewErrorWithRetry(provider.CodeRateLimited, 48*time.Hour)
+	retryAfter, ok := provider.RetryAfterOf(fmt.Errorf("refresh failed: %w", failure))
+	require.True(t, ok)
+	assert.Equal(t, provider.MaxRetryAfter, retryAfter)
+
+	_, ok = provider.RetryAfterOf(provider.NewErrorWithRetry(provider.CodeUnavailable, time.Hour))
+	assert.False(t, ok, "only rate-limit failures carry retry timing")
 }

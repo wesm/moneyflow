@@ -4,6 +4,7 @@ package home
 
 import (
 	"fmt"
+	"os"
 
 	"golang.org/x/sys/windows"
 )
@@ -12,6 +13,15 @@ var restrictWindowsPath = restrictCurrentUserPath
 
 func enforcePrivateDirectory(path string) error { return restrictWindowsPath(path, true) }
 func enforcePrivateFile(path string) error      { return restrictWindowsPath(path, false) }
+
+func validateTrustedRootAncestors(string, string) error { return nil }
+
+func secureOpenedPrivateFile(file *os.File, info os.FileInfo) (os.FileInfo, error) {
+	if err := enforcePrivateFile(file.Name()); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
 
 func restrictCurrentUserPath(path string, directory bool) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
