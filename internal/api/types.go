@@ -197,6 +197,7 @@ type Projection struct {
 	Pending                 PendingSummary `json:"pending"`
 	CanonicalQuery          string         `json:"canonical_query"`
 	Selection               string         `json:"selection"`
+	SelectionCount          int            `json:"selection_count"`
 	View                    ViewMetadata   `json:"view"`
 	Breadcrumbs             []Breadcrumb   `json:"breadcrumbs"`
 	BreadcrumbText          string         `json:"breadcrumb_text"`
@@ -221,6 +222,7 @@ func projectionToWire(
 		APISchemaVersion: APISchemaVersion, ProjectionSchemaVersion: ProjectionSchemaVersion,
 		Revision: strconv.FormatUint(projection.Revision, 10), Pending: pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
+		SelectionCount: projection.SelectionCount,
 		View: ViewMetadata{
 			Mode:            string(projection.State.Current.Mode),
 			Grouping:        string(projection.State.Current.Dimension),

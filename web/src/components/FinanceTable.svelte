@@ -92,6 +92,7 @@
         id={`moneyflow-row-${row.identity}`}
         class:finance-grid__row--active={row.index === cursorIndex}
         class:finance-grid__row--hidden={row.flags.hidden}
+        class:finance-grid__row--pending={row.flags.pending}
         role="row"
         tabindex="-1"
         aria-rowindex={row.index + 2}
@@ -108,11 +109,15 @@
         {#if 'merchant' in row}
           <div role="gridcell">{row.date}</div>
           <div role="gridcell">{row.account}</div>
-          <div role="gridcell">{row.merchant}</div>
+          <div role="gridcell">
+            {row.merchant}{#if row.flags.pending}<span class="pending-marker">pending</span>{/if}
+          </div>
           <div role="gridcell">{row.category}</div>
           <div class="money" role="gridcell">{row.amount.display}</div>
         {:else}
-          <div role="gridcell">{row.label}</div>
+          <div role="gridcell">
+            {row.label}{#if row.flags.pending}<span class="pending-marker">pending</span>{/if}
+          </div>
           <div role="gridcell">{row.count}</div>
           <div class="money" role="gridcell">{row.total.display}</div>
         {/if}

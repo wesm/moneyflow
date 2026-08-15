@@ -20,6 +20,7 @@ export type PendingSummary = components['schemas']['PendingSummary']
 export type ReviewBody = components['schemas']['ReviewBody']
 export type ReviewTargetsBody = components['schemas']['ReviewTargetsBody']
 export type ReviewResponse = components['schemas']['ReviewResponse']
+export type EditorCatalog = components['schemas']['EditorCatalogResponse']
 
 interface BootstrapResponse {
   mutation_token: string

@@ -355,6 +355,7 @@ function projection(query: string, offset: number, total: number, revision = '0'
       sort_direction: 'desc',
     },
     selection: 'mfsel1.example' as ViewProjection['selection'],
+    selection_count: 0,
     breadcrumbs: [],
     breadcrumb_text: 'All transactions',
     filters: { show_hidden: false, show_transfers: false },

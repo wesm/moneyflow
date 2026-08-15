@@ -219,6 +219,68 @@ components:
         - amount
         - flags
       type: object
+    EditorCatalogBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - expected_revision
+      type: object
+    EditorCatalogResponse:
+      additionalProperties: false
+      properties:
+        categories:
+          items:
+            $ref: "#/components/schemas/EditorChoice"
+          type:
+            - array
+            - "null"
+        groups:
+          items:
+            $ref: "#/components/schemas/EditorChoice"
+          type:
+            - array
+            - "null"
+        merchants:
+          items:
+            $ref: "#/components/schemas/EditorChoice"
+          type:
+            - array
+            - "null"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - merchants
+        - categories
+        - groups
+      type: object
+    EditorChoice:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        parent_id:
+          type: string
+        protected:
+          type: boolean
+      required:
+        - id
+        - label
+        - protected
+      type: object
     ErrorDetail:
       additionalProperties: false
       properties:
@@ -522,6 +584,9 @@ components:
           type: string
         selection:
           type: string
+        selection_count:
+          format: int64
+          type: integer
         statistics:
           items:
             $ref: "#/components/schemas/Statistics"
@@ -550,6 +615,7 @@ components:
         - pending
         - canonical_query
         - selection
+        - selection_count
         - view
         - breadcrumbs
         - breadcrumb_text
@@ -962,6 +1028,65 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Commit one reviewed active journal prefix
+  /api/v1/editor-catalog:
+    post:
+      operationId: editorCatalog
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditorCatalogBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EditorCatalogResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Load bounded active editor choices
   /api/v1/health:
     get:
       operationId: health

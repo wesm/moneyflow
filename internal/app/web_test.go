@@ -35,6 +35,7 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 	assert.Equal(t, 250, projection.TotalRows)
 	assert.Equal(t, Window{Offset: 0, Limit: DefaultWindowLimit, Count: 200}, projection.Window)
 	require.Len(t, projection.DetailRows, 200)
+	assert.Equal(t, 1, projection.SelectionCount)
 	assert.Equal(t, 0, projection.DetailRows[0].Index)
 	assert.Equal(t, 199, projection.DetailRows[199].Index)
 	assert.Empty(t, projection.Chart.Marks)
@@ -48,6 +49,7 @@ func TestProjectViewDefaultsWindowAndDecoratesExactSelection(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, second.DetailRows, 50)
+	assert.Equal(t, 1, second.SelectionCount)
 	assert.Equal(t, 200, second.DetailRows[0].Index)
 	selectedFound := false
 	for _, row := range append(projection.DetailRows, second.DetailRows...) {

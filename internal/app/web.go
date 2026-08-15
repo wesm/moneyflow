@@ -124,6 +124,7 @@ type WebProjection struct {
 	Capabilities   []Capability
 	State          ViewState
 	Selection      SelectionValue
+	SelectionCount int
 	Breadcrumbs    []BreadcrumbSegment
 	BreadcrumbText string
 	Filters        Filters
@@ -180,7 +181,7 @@ func (service *Service) ProjectView(
 	}
 	projection := WebProjection{
 		Revision: revision, Pending: pending, Capabilities: capabilities,
-		State: state.Clone(), Selection: selection,
+		State: state.Clone(), Selection: selection, SelectionCount: len(snapshot.IDs),
 		Breadcrumbs: breadcrumbs, BreadcrumbText: resolvedSession.Breadcrumb(result.DateRange),
 		Filters: Filters{
 			DateRange:  cloneDateRange(state.Current.DateRange),

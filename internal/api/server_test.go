@@ -156,6 +156,7 @@ func TestServerProtectsEveryPersistentEndpoint(t *testing.T) {
 	for _, path := range []string{
 		"/api/v1/mutations", "/api/v1/undo", "/api/v1/redo", "/api/v1/commit",
 		"/api/v1/review", "/api/v1/review/targets",
+		"/api/v1/editor-catalog",
 	} {
 		t.Run(path, func(t *testing.T) {
 			response := requestServer(t, server, http.MethodPost, path, strings.NewReader(`{}`))

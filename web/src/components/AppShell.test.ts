@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
+import { testEditingController, testReviewController } from '../test/editing'
 
 describe('AppShell', () => {
   afterEach(cleanup)
@@ -76,11 +77,49 @@ describe('AppShell', () => {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
     }
   })
+
+  it('routes direct hide, undo, redo, and review keys through the editing surface', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'h' })
+    expect(controller.editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'transaction.toggle-hidden',
+        target: { kind: 'detail', identity: 'row-0' },
+      }),
+    )
+    await fireEvent.keyDown(window, { key: 'u' })
+    expect(controller.editing.undo).toHaveBeenCalled()
+    await fireEvent.keyDown(window, { key: 'U', shiftKey: true })
+    expect(controller.editing.redo).toHaveBeenCalled()
+    await fireEvent.keyDown(window, { key: 'w' })
+    expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
+  })
+
+  it('opens an editor from the table and restores stable grid focus on cancel', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    await fireEvent.keyDown(window, { key: 'm' })
+    expect(screen.getByRole('dialog', { name: 'Edit merchant' })).not.toBeNull()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+  })
+
+  it('uses the profile-wide selection count when choosing merchant edit scope', async () => {
+    const controller = stubController(testProjection({ selection_count: 1 }))
+    render(AppShell, { controller })
+    await fireEvent.keyDown(window, { key: 'm' })
+    await vi.waitFor(() =>
+      expect(screen.getByRole('combobox', { name: /Selected transactions/ })).not.toBeNull(),
+    )
+  })
 })
 
-function stubController(): ViewController {
+function stubController(projection = testProjection()): ViewController {
   return {
     projection: testProjection({
+      ...projection,
       capabilities: [
         {
           id: 'cursor.down',
@@ -89,6 +128,22 @@ function stubController(): ViewController {
           category: '',
           available: true,
         },
+        ...[
+          ['transaction.edit-merchant', 'm'],
+          ['transaction.edit-category', 'c'],
+          ['category.manage', 'C'],
+          ['category-group.manage', 'G'],
+          ['transaction.toggle-hidden', 'h'],
+          ['changes.undo', 'u'],
+          ['changes.redo', 'U'],
+          ['changes.review', 'w'],
+        ].map(([id, key_display]) => ({
+          id: id!,
+          key_display: key_display!,
+          description: id!,
+          category: 'Actions',
+          available: true,
+        })),
       ],
     }),
     loading: false,
@@ -96,8 +151,8 @@ function stubController(): ViewController {
     cursorIdentity: 'row-0',
     cursorIndex: 0,
     problem: undefined,
-    editing: {} as ViewController['editing'],
-    review: {} as ViewController['review'],
+    editing: testEditingController(),
+    review: testReviewController(),
     hydrate: vi.fn(),
     recheck: vi.fn(),
     moveCursor: vi.fn(),

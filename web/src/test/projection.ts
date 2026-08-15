@@ -8,6 +8,7 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
     pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: 'v=1',
     selection: 'mfsel1.example' as ViewProjection['selection'],
+    selection_count: 0,
     view: {
       mode: 'detail',
       grouping: 'merchant',

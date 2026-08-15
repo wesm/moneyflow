@@ -22,6 +22,14 @@ const capabilities = [
   ['overlay.filters', 'f'],
   ['overlay.search', '/'],
   ['overlay.help', '?'],
+  ['transaction.edit-merchant', 'm'],
+  ['transaction.edit-category', 'c'],
+  ['category.manage', 'C'],
+  ['category-group.manage', 'G'],
+  ['transaction.toggle-hidden', 'h'],
+  ['changes.undo', 'u'],
+  ['changes.redo', 'U'],
+  ['changes.review', 'w'],
 ].map(([id, key_display]) => ({
   id: id!,
   key_display: key_display!,
@@ -56,10 +64,18 @@ describe('Moneyflow browser shortcuts', () => {
       'f',
       '/',
       '?',
+      'm',
+      'c',
+      'h',
+      'u',
+      'w',
     ]) {
       expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(true)
     }
     expect(shortcuts.manager.handleKeydown(keyboard('A', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('C', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('G', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('U', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('a', { ctrlKey: true }))).toBe(true)
     for (const key of ['End', 'q'])
       expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(false)
@@ -91,6 +107,17 @@ describe('Moneyflow browser shortcuts', () => {
     Object.defineProperty(event, 'target', { value: document.createElement('input') })
     expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
     expect(handlers.apply).not.toHaveBeenCalled()
+  })
+
+  it('dispatches editing keys only when the server capability is available', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.filter((capability) => capability.id === 'transaction.toggle-hidden'),
+      handlers,
+    )
+    expect(shortcuts.manager.handleKeydown(keyboard('h'))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('edit.hide')
+    expect(shortcuts.manager.handleKeydown(keyboard('m'))).toBe(false)
   })
 })
 

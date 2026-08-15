@@ -126,4 +126,18 @@ describe('FinanceTable', () => {
       'ascending',
     )
   })
+
+  it('labels pending rows with visible text instead of color alone', () => {
+    render(FinanceTable, {
+      projection: testProjection({
+        detail_rows: testProjection().detail_rows!.map((row) => ({
+          ...row,
+          flags: { ...row.flags, pending: true },
+        })),
+      }),
+      cursorIndex: 0,
+      ...callbacks(),
+    })
+    expect(screen.getByText('pending')).not.toBeNull()
+  })
 })

@@ -9,6 +9,14 @@ export type LocalAction =
   | 'overlay.filters'
   | 'overlay.search'
   | 'overlay.help'
+  | 'edit.merchant'
+  | 'edit.category'
+  | 'manage.categories'
+  | 'manage.groups'
+  | 'edit.hide'
+  | 'edit.undo'
+  | 'edit.redo'
+  | 'edit.review'
 
 const bindings = [
   { id: 'cursor.up', display: '↑/k', combos: ['arrowup', 'k'], local: true },
@@ -30,6 +38,44 @@ const bindings = [
   { id: 'overlay.filters', display: 'f', combos: ['f'], local: true },
   { id: 'overlay.search', display: '/', combos: ['/'], local: true },
   { id: 'overlay.help', display: '?', combos: ['?'], local: true },
+  {
+    id: 'transaction.edit-merchant',
+    display: 'm',
+    combos: ['m'],
+    local: true,
+    localID: 'edit.merchant',
+  },
+  {
+    id: 'transaction.edit-category',
+    display: 'c',
+    combos: ['c'],
+    local: true,
+    localID: 'edit.category',
+  },
+  {
+    id: 'category.manage',
+    display: 'C',
+    combos: ['shift+c'],
+    local: true,
+    localID: 'manage.categories',
+  },
+  {
+    id: 'category-group.manage',
+    display: 'G',
+    combos: ['shift+g'],
+    local: true,
+    localID: 'manage.groups',
+  },
+  {
+    id: 'transaction.toggle-hidden',
+    display: 'h',
+    combos: ['h'],
+    local: true,
+    localID: 'edit.hide',
+  },
+  { id: 'changes.undo', display: 'u', combos: ['u'], local: true, localID: 'edit.undo' },
+  { id: 'changes.redo', display: 'U', combos: ['shift+u'], local: true, localID: 'edit.redo' },
+  { id: 'changes.review', display: 'w', combos: ['w'], local: true, localID: 'edit.review' },
 ] as const
 
 export function validateCapabilities(capabilities: Capability[]): void {
@@ -57,8 +103,9 @@ export function createMoneyflowShortcuts(
     for (const combo of binding.combos) {
       cleanup.push(
         manager.register(combo, () => {
-          if ('local' in binding) handlers.local(binding.id as LocalAction)
-          else handlers.apply(binding.id)
+          if ('local' in binding) {
+            handlers.local(('localID' in binding ? binding.localID : binding.id) as LocalAction)
+          } else handlers.apply(binding.id)
         }),
       )
     }

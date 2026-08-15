@@ -243,6 +243,7 @@ func TestAllResultSelectionMutationReturnsOnlyOpaqueClearedSelection(t *testing.
 	var selected Projection
 	require.NoError(t, json.Unmarshal(selectionResponse.Body.Bytes(), &selected))
 	assert.NotEqual(t, string(app.EmptySelection()), selected.Selection)
+	assert.Greater(t, selected.SelectionCount, 0)
 
 	body := MutationBody{
 		Version: MutationSchemaVersion, ExpectedRevision: selected.Revision,

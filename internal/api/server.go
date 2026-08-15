@@ -107,6 +107,7 @@ func New(config Config) (*Server, error) {
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
+	server.registerEditorCatalogEndpoint(config)
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
@@ -131,6 +132,7 @@ func persistentMutationSecurity(
 		basePath + "api/v1/commit":         {},
 		basePath + "api/v1/review":         {},
 		basePath + "api/v1/review/targets": {},
+		basePath + "api/v1/editor-catalog": {},
 	}
 	guarded := security.Protect(next)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

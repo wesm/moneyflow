@@ -154,6 +154,24 @@ describe('browser editing controller', () => {
       reviewed_revision: '8',
     })
   })
+
+  it('loads bounded editor choices at the exact current revision', async () => {
+    const transport = mutationTransport({
+      version: '1',
+      revision: '6',
+      merchants: [],
+      categories: [],
+      groups: [],
+    })
+    const controller = createEditingController({
+      transport,
+      host: editingHost(testProjection({ revision: '6' })),
+    })
+    await controller.catalog()
+    const [path, rawBody] = vi.mocked(transport.request).mock.calls[0]!
+    expect(path).toBe('api/v1/editor-catalog')
+    expect(JSON.parse(rawBody)).toEqual({ version: '1', expected_revision: '6' })
+  })
 })
 
 function editingHost(initial: ReturnType<typeof testProjection>): EditingProjectionHost & {

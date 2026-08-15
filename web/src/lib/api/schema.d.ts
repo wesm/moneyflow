@@ -38,6 +38,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/editor-catalog': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Load bounded active editor choices */
+    post: operations['editorCatalog']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/health': {
     parameters: {
       query?: never
@@ -255,6 +272,23 @@ export interface components {
       index: number
       merchant: string
     }
+    EditorCatalogBody: {
+      expected_revision: string
+      version: string
+    }
+    EditorCatalogResponse: {
+      categories: components['schemas']['EditorChoice'][] | null
+      groups: components['schemas']['EditorChoice'][] | null
+      merchants: components['schemas']['EditorChoice'][] | null
+      revision: string
+      version: string
+    }
+    EditorChoice: {
+      id: string
+      label: string
+      parent_id?: string
+      protected: boolean
+    }
     ErrorDetail: {
       /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
       location?: string
@@ -390,6 +424,8 @@ export interface components {
       projection_schema_version: string
       revision: string
       selection: string
+      /** Format: int64 */
+      selection_count: number
       statistics: components['schemas']['Statistics'][] | null
       status?: string
       /** Format: int64 */
@@ -574,6 +610,93 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['MutationResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  editorCatalog: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EditorCatalogBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['EditorCatalogResponse']
         }
       }
       /** @description Bad Request */

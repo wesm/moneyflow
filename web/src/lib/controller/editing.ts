@@ -4,6 +4,7 @@ import {
   MoneyflowProblem,
   requestProfileJSON,
   type CommitBody,
+  type EditorCatalog,
   type MutationBody,
   type MutationFetch,
   type MutationInput,
@@ -42,6 +43,7 @@ export interface EditingController {
   undo(): Promise<boolean>
   redo(): Promise<boolean>
   commit(reviewedRevision: bigint): Promise<boolean>
+  catalog(): Promise<EditorCatalog>
 }
 
 interface EditingControllerOptions {
@@ -97,7 +99,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
       window: { offset: current.window.offset, limit: current.window.limit },
       ...(intent.target === undefined ? {} : { target: intent.target }),
     }
-    return await mutate('api/v1/mutations', body)
+    return await mutate('api/v1/mutations', body, 'Change saved as pending.')
   }
 
   async function undo(): Promise<boolean> {
@@ -118,7 +120,11 @@ export function createEditingController(options: EditingControllerOptions): Edit
       selection: current.selection,
       window: { offset: current.window.offset, limit: current.window.limit },
     }
-    return await mutate(path, body)
+    return await mutate(
+      path,
+      body,
+      path.endsWith('/undo') ? 'Pending change undone.' : 'Pending change redone.',
+    )
   }
 
   async function commit(reviewedRevision: bigint): Promise<boolean> {
@@ -132,10 +138,21 @@ export function createEditingController(options: EditingControllerOptions): Edit
       selection: current.selection,
       window: { offset: current.window.offset, limit: current.window.limit },
     }
-    return await mutate('api/v1/commit', body)
+    return await mutate('api/v1/commit', body, 'Reviewed changes committed.')
   }
 
-  async function mutate(path: string, body: MutationBody | RevisionBody | CommitBody) {
+  async function catalog(): Promise<EditorCatalog> {
+    return await requestProfileJSON<EditorCatalog>(options.transport, 'api/v1/editor-catalog', {
+      version: '1',
+      expected_revision: state.revision.toString(10),
+    })
+  }
+
+  async function mutate(
+    path: string,
+    body: MutationBody | RevisionBody | CommitBody,
+    successMessage: string,
+  ) {
     if (state.phase === 'submitting') return false
     setState({ ...state, phase: 'submitting', announcement: '' })
     try {
@@ -157,7 +174,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
         revision,
         phase: 'idle',
         pending: response.pending,
-        announcement: mutationAnnouncement(response.selection.kind),
+        announcement: mutationAnnouncement(successMessage, response.selection.kind),
       })
       return true
     } catch (error) {
@@ -224,6 +241,7 @@ export function createEditingController(options: EditingControllerOptions): Edit
     undo,
     redo,
     commit,
+    catalog,
   }
 }
 
@@ -232,10 +250,10 @@ function parseRevision(value: string): bigint {
   return BigInt(value)
 }
 
-function mutationAnnouncement(disposition: string): string {
-  if (disposition === 'cleared') return 'Change saved as pending. Selection cleared.'
-  if (disposition === 'refreshed') return 'Change saved as pending. Selection refreshed.'
-  return 'Change saved as pending.'
+function mutationAnnouncement(message: string, disposition: string): string {
+  if (disposition === 'cleared') return `${message} Selection cleared.`
+  if (disposition === 'refreshed') return `${message} Selection refreshed.`
+  return message
 }
 
 function safeFailureMessage(code: string): string {

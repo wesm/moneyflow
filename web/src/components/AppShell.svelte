@@ -8,6 +8,12 @@
   import RefinementBar from './RefinementBar.svelte'
   import SearchOverlay from './SearchOverlay.svelte'
   import VisualizationRail from './VisualizationRail.svelte'
+  import CategoryDialog from './editing/CategoryDialog.svelte'
+  import CategoryManager from './editing/CategoryManager.svelte'
+  import GroupManager from './editing/GroupManager.svelte'
+  import MerchantDialog from './editing/MerchantDialog.svelte'
+  import PendingStatus from './editing/PendingStatus.svelte'
+  import ReviewDrawer from './editing/ReviewDrawer.svelte'
   import {
     createMoneyflowShortcuts,
     handleMoneyflowKeydown,
@@ -21,7 +27,16 @@
   let charts = $state(true)
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
-  let overlay = $state<'search' | 'filters' | 'help' | undefined>()
+  type Overlay =
+    | 'search'
+    | 'filters'
+    | 'help'
+    | 'merchant'
+    | 'category'
+    | 'categories'
+    | 'groups'
+    | 'review'
+  let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
@@ -35,6 +50,31 @@
     else if (action === 'overlay.search') openOverlay('search')
     else if (action === 'overlay.filters') openOverlay('filters')
     else if (action === 'overlay.help') openOverlay('help')
+    else if (action === 'edit.merchant') openOverlay('merchant')
+    else if (action === 'edit.category') openOverlay('category')
+    else if (action === 'manage.categories') openOverlay('categories')
+    else if (action === 'manage.groups') openOverlay('groups')
+    else if (action === 'edit.review') openOverlay('review')
+    else if (action === 'edit.undo') void controller.editing.undo()
+    else if (action === 'edit.redo') void controller.editing.redo()
+    else if (action === 'edit.hide') {
+      const row = focusedRow()
+      if (row) {
+        void controller.editing.submit({
+          action: 'transaction.toggle-hidden',
+          input: {},
+          target: row,
+        })
+      }
+    }
+  }
+  function focusedRow(): { identity: string; kind: 'detail' | 'aggregate' } | undefined {
+    const row = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])].find(
+      (candidate) => candidate.index === controller.cursorIndex,
+    )
+    return row
+      ? { identity: row.identity, kind: projection?.detail_rows ? 'detail' : 'aggregate' }
+      : undefined
   }
   async function apply(action: string): Promise<void> {
     if (action === 'view.drill' || action === 'selection.toggle') {
@@ -57,7 +97,7 @@
     await controller.apply({ action, target: { identity, kind } })
     focusGrid()
   }
-  function openOverlay(next: 'search' | 'filters' | 'help'): void {
+  function openOverlay(next: Overlay): void {
     popOverlayScope?.()
     popOverlayScope = shortcuts?.manager.pushScope(next)
     overlay = next
@@ -83,12 +123,17 @@
   $effect(() => {
     if (!compact.current && chartDrawer) setChartDrawer(false)
   })
-  onMount(() => {
+  $effect(() => {
     if (!projection) return
-    shortcuts = createMoneyflowShortcuts(projection.capabilities ?? [], {
+    const current = createMoneyflowShortcuts(projection.capabilities ?? [], {
       local,
       apply: (action) => void apply(action),
     })
+    shortcuts = current
+    return () => current.destroy()
+  })
+  onMount(() => {
+    if (!projection) return
     const keydown = (event: KeyboardEvent) =>
       shortcuts ? handleMoneyflowKeydown(shortcuts.manager, event) : false
     window.addEventListener('keydown', keydown)
@@ -97,7 +142,6 @@
       window.removeEventListener('keydown', keydown)
       popOverlayScope?.()
       popChartScope?.()
-      shortcuts?.destroy()
     }
   })
 </script>
@@ -137,9 +181,15 @@
       {/if}
     </main>
     <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
+    <p class="kit-sr-only" aria-live="polite">{controller.editing.state.announcement}</p>
     <StatusBar
-      >{#snippet left()}<span>{projection.total_rows} results</span
-        >{/snippet}{#snippet right()}<span>read only</span>{/snippet}</StatusBar
+      >{#snippet left()}<span
+          >{projection.total_rows} results · <PendingStatus
+            pending={controller.editing.state.pending}
+          /></span
+        >{/snippet}{#snippet right()}<span
+          >profile revision {controller.editing.state.revision.toString(10)}</span
+        >{/snippet}</StatusBar
     >
   </div>
   {#if overlay === 'search'}
@@ -152,6 +202,21 @@
     />
   {:else if overlay === 'help'}
     <HelpDialog capabilities={projection.capabilities ?? []} onclose={closeOverlay} />
+  {:else if overlay === 'merchant' && focusedRow()}
+    <MerchantDialog
+      controller={controller.editing}
+      target={focusedRow()!}
+      hasSelection={projection.selection_count > 0}
+      onclose={closeOverlay}
+    />
+  {:else if overlay === 'category' && focusedRow()}
+    <CategoryDialog controller={controller.editing} target={focusedRow()!} onclose={closeOverlay} />
+  {:else if overlay === 'categories'}
+    <CategoryManager controller={controller.editing} onclose={closeOverlay} />
+  {:else if overlay === 'groups'}
+    <GroupManager controller={controller.editing} onclose={closeOverlay} />
+  {:else if overlay === 'review'}
+    <ReviewDrawer editing={controller.editing} review={controller.review} onclose={closeOverlay} />
   {/if}
   {#if compact.current && chartDrawer}
     <DetailDrawer

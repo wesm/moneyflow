@@ -161,6 +161,74 @@ input {
 .finance-grid__row--hidden {
   opacity: var(--opacity-disabled);
 }
+
+.finance-grid__row--pending {
+  box-shadow: inset 3px 0 0 var(--moneyflow-focus);
+}
+
+.pending-marker {
+  margin-left: var(--space-2);
+  padding: 1px 5px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.editing-form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: min(420px, calc(100vw - 64px));
+}
+
+.editing-form select {
+  min-height: 30px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.editing-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.editing-error {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.review-list button {
+  width: 100%;
+  padding: var(--space-2);
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+}
+
+.review-list button span {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.review-redo {
+  margin-top: var(--space-5);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-default);
+}
+
+.review-paging {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kit-space-2);
+  justify-content: space-between;
+  margin-block: var(--kit-space-2);
+}
 .finance-grid .money {
   text-align: right;
   font-family: var(--font-mono);

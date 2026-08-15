@@ -31,6 +31,7 @@ func TestOpenAPIDeterministicEditingContract(t *testing.T) {
 	assert.Contains(t, string(yaml), "/moneyflow/api/v1/commit")
 	assert.Contains(t, string(yaml), "/moneyflow/api/v1/review")
 	assert.Contains(t, string(yaml), "/moneyflow/api/v1/review/targets")
+	assert.Contains(t, string(yaml), "/moneyflow/api/v1/editor-catalog")
 	assert.Contains(t, string(yaml), "minor:")
 	assert.Contains(t, string(yaml), "type: string")
 	assert.NotContains(t, string(yaml), "Date: {}")
