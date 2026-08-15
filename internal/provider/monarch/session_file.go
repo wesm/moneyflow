@@ -2,6 +2,7 @@ package monarch
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,6 +102,8 @@ type Source struct {
 	fingerprint provider.SessionFingerprint
 }
 
+var _ provider.Source = (*Source)(nil)
+
 // NewSource constructs a session-backed client source.
 func NewSource(options Options, store *SessionStore) (*Source, error) {
 	if store == nil {
@@ -133,6 +136,14 @@ func (source *Source) OpenClient(
 	source.client = client
 	source.fingerprint = fingerprint
 	return source.client, source.fingerprint, nil
+}
+
+// Reader returns the cached provider reader or reloads an atomically replaced session.
+func (source *Source) Reader(
+	_ context.Context,
+	forceReload bool,
+) (provider.Reader, provider.SessionFingerprint, error) {
+	return source.OpenClient(forceReload)
 }
 
 // Changed delegates opaque replacement detection to the hardened session store.

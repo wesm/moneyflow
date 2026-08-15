@@ -10,17 +10,22 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 // Options supplies bounded transport dependencies. Production callers normally use defaults.
 type Options struct {
-	HTTPClient   *http.Client
-	LoginURL     *url.URL
-	GraphQLURL   *url.URL
-	Now          func() time.Time
-	Sleep        func(context.Context, time.Duration) error
-	Random       io.Reader
-	MaxBodyBytes int64
+	HTTPClient     *http.Client
+	LoginURL       *url.URL
+	GraphQLURL     *url.URL
+	Now            func() time.Time
+	Sleep          func(context.Context, time.Duration) error
+	Random         io.Reader
+	MaxBodyBytes   int64
+	ImportCurrency domain.Currency
+	ImportScale    uint8
+	PageSize       int
 }
 
 // Client is the minimal authenticated Monarch read client.
@@ -55,6 +60,12 @@ func NewClient(options Options, authorization string, deviceUUID string) (*Clien
 	}
 	if options.MaxBodyBytes < 1 {
 		return nil, errors.New("monarch maximum response body must be positive")
+	}
+	if options.PageSize == 0 {
+		options.PageSize = defaultSnapshotPageSize
+	}
+	if options.PageSize < 1 || options.PageSize > defaultSnapshotPageSize {
+		return nil, errors.New("monarch snapshot page size must be between 1 and 1000")
 	}
 	if options.Now == nil {
 		options.Now = time.Now

@@ -28,8 +28,8 @@ type ImportTransaction struct {
 	Pending            bool
 }
 
-// ImportSnapshot is one complete provider observation, including pending rows needed for
-// snapshot-integrity checks. A later normalization step removes pending rows before persistence.
+// ImportSnapshot is one complete provider observation ready for identity mapping and persistence.
+// Provider adapters may inspect pending rows while checking snapshot integrity, but omit them here.
 type ImportSnapshot struct {
 	Accounts     []ImportEntity
 	Merchants    []ImportEntity
