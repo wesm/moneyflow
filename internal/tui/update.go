@@ -7,7 +7,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-// Update routes synchronous fixture interactions through the application session.
+// Update routes synchronous profile interactions through the application session.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
@@ -22,6 +22,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		matched := matchAction(message, model.bindings)
 		if matched == app.ActionForceQuit {
 			return model, tea.Quit
+		}
+		if !model.refreshForInteraction() {
+			return model, nil
 		}
 		if model.overlay != overlayNone {
 			return model, model.routeOverlay(message)
@@ -49,6 +52,10 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		case "down", "j":
 			model.help.scroll = min(model.helpMaxScroll(), model.help.scroll+1)
 		}
+	case overlayMerchantEditor:
+		return model.routeMerchantEditor(message)
+	case overlayCategoryEditor:
+		return model.routeCategoryEditor(message)
 	}
 	return nil
 }
@@ -105,6 +112,10 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.toggleSelection()
 	case app.ActionToggleSelectAll:
 		model.session.ToggleSelectAll(model.result)
+		if err := model.rebuildSelectionValue(); err != nil {
+			model.status = safeInteractionMessage(err)
+			model.clearSessionSelection()
+		}
 		model.refresh()
 	case app.ActionOpenFilters:
 		return model.openFilters()
@@ -113,12 +124,64 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionOpenHelp:
 		model.help = helpState{}
 		model.overlay = overlayHelp
+	case app.ActionEditMerchant:
+		return model.openMerchantEditor()
+	case app.ActionEditCategory:
+		return model.openCategoryEditor()
+	case app.ActionToggleHidden:
+		if capability, available := model.capability(app.ActionToggleHidden); available {
+			model.executeMutation(app.ActionToggleHidden, app.EditInput{})
+		} else {
+			model.status = capabilityMessage(capability)
+		}
+	case app.ActionUndo:
+		if capability, available := model.capability(app.ActionUndo); available {
+			model.executeCursorMutation(app.ActionUndo)
+		} else {
+			model.status = capabilityMessage(capability)
+		}
+	case app.ActionRedo:
+		if capability, available := model.capability(app.ActionRedo); available {
+			model.executeCursorMutation(app.ActionRedo)
+		} else {
+			model.status = capabilityMessage(capability)
+		}
 	default:
 		if definition, ok := app.ActionByID(matchAction(message, model.bindings)); ok && !definition.Implemented {
-			model.status = "Unavailable in read-only Go preview"
+			model.status = "This action is not available for the current profile."
 		}
 	}
 	return nil
+}
+
+func (model *Model) refreshForInteraction() bool {
+	identity := model.rowIdentity(model.cursor)
+	changed, err := model.service.Refresh(model.ctx)
+	if err != nil {
+		model.status = safeInteractionMessage(err)
+		return false
+	}
+	if !changed {
+		return true
+	}
+	result, err := model.service.Query(model.session)
+	if err != nil {
+		model.status = "The profile could not be refreshed."
+		return false
+	}
+	model.result = result
+	model.syncProfileMetadata()
+	model.clampCursor()
+	if identity != "" {
+		for index := 0; index < model.rowCount(); index++ {
+			if model.rowIdentity(index) == identity {
+				model.cursor = index
+				model.ensureCursorVisible()
+				break
+			}
+		}
+	}
+	return true
 }
 
 func (model *Model) drill() {
@@ -143,6 +206,10 @@ func (model *Model) back() {
 	}
 	model.cursor, model.scroll = position.Cursor, position.Scroll
 	model.refresh()
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.clearSessionSelection()
+		model.status = safeInteractionMessage(err)
+	}
 }
 
 func (model *Model) toggleSelection() {
@@ -154,6 +221,10 @@ func (model *Model) toggleSelection() {
 	} else {
 		model.session.ToggleAggregateSelection(app.AggregateIdentity(model.result.AggregateRows[model.cursor]))
 	}
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.status = safeInteractionMessage(err)
+		model.clearSessionSelection()
+	}
 	model.refresh()
 }
 
@@ -161,6 +232,10 @@ func (model *Model) resetAndRefresh() {
 	model.cursor, model.scroll = 0, 0
 	model.status = ""
 	model.refresh()
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.clearSessionSelection()
+		model.status = safeInteractionMessage(err)
+	}
 }
 
 func (model Model) timeContext() bool {

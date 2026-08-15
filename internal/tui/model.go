@@ -29,6 +29,8 @@ const (
 	overlaySearch
 	overlayFilters
 	overlayHelp
+	overlayMerchantEditor
+	overlayCategoryEditor
 )
 
 type searchState struct {
@@ -41,23 +43,28 @@ type searchState struct {
 
 // Model owns terminal-only state around a renderer-neutral application session.
 type Model struct {
-	ctx      context.Context
-	service  *app.Service
-	session  app.Session
-	options  Options
-	palette  Palette
-	bindings []binding
-	result   domain.QueryResult
-	width    int
-	height   int
-	cursor   int
-	scroll   int
-	status   string
-	err      error
-	overlay  overlayKind
-	search   searchState
-	filters  filterState
-	help     helpState
+	ctx       context.Context
+	service   *app.Service
+	session   app.Session
+	options   Options
+	palette   Palette
+	bindings  []binding
+	result    domain.QueryResult
+	width     int
+	height    int
+	cursor    int
+	scroll    int
+	status    string
+	err       error
+	overlay   overlayKind
+	search    searchState
+	filters   filterState
+	help      helpState
+	merchant  merchantEditorState
+	category  categoryEditorState
+	pending   app.PendingSummary
+	caps      map[app.ActionID]app.Capability
+	selection app.SelectionValue
 }
 
 // NewModel validates presentation options and evaluates the initial session.
@@ -85,17 +92,20 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 	if err != nil {
 		return Model{}, err
 	}
-	return Model{
-		ctx:      ctx,
-		service:  service,
-		session:  session,
-		options:  options,
-		palette:  palette,
-		bindings: defaultBindings(),
-		result:   result,
-		width:    minimumWidth,
-		height:   minimumHeight,
-	}, nil
+	model := Model{
+		ctx:       ctx,
+		service:   service,
+		session:   session,
+		options:   options,
+		palette:   palette,
+		bindings:  defaultBindings(),
+		result:    result,
+		width:     minimumWidth,
+		height:    minimumHeight,
+		selection: app.EmptySelection(),
+	}
+	model.syncProfileMetadata()
+	return model, nil
 }
 
 // Init has no asynchronous work; interactions refresh through the command context.
@@ -120,7 +130,29 @@ func (model *Model) refresh() {
 	if err == nil {
 		model.result = result
 	}
+	model.syncProfileMetadata()
 	model.clampCursor()
+}
+
+func (model *Model) syncProfileMetadata() {
+	capabilities := model.service.Capabilities()
+	model.caps = make(map[app.ActionID]app.Capability, len(capabilities))
+	for _, capability := range capabilities {
+		model.caps[capability.Action] = capability
+	}
+	model.pending = model.service.Pending()
+}
+
+func (model Model) capability(action app.ActionID) (app.Capability, bool) {
+	capability, exists := model.caps[action]
+	return capability, exists && capability.Available
+}
+
+func capabilityMessage(capability app.Capability) string {
+	if capability.Reason != "" {
+		return capability.Reason
+	}
+	return "This action is not available for the current profile."
 }
 
 func (model *Model) refreshPreserving(identity string) {

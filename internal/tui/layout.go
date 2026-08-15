@@ -54,6 +54,14 @@ func (model Model) RenderScreen() RenderedScreen {
 	if model.err != nil {
 		statusText = model.err.Error()
 	}
+	if model.pending.ActiveOperations > 0 || model.pending.InactiveOperations > 0 {
+		pendingText := formatPendingSummary(model.pending)
+		if statusText == "" || statusText == pendingText {
+			statusText = pendingText
+		} else {
+			statusText = pendingText + " | " + statusText
+		}
+	}
 	statusLine := Rect{X: 1, Y: model.height - 2, Width: contentWidth, Height: 1}
 	hintsText := model.actionHints()
 	hints := Rect{X: 1, Y: model.height - 2, Width: contentWidth, Height: 1}
@@ -162,6 +170,97 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderFilterOverlay(screen)
 	case overlayHelp:
 		model.renderHelpOverlay(screen)
+	case overlayMerchantEditor:
+		model.renderMerchantEditor(screen)
+	case overlayCategoryEditor:
+		model.renderCategoryEditor(screen)
+	}
+}
+
+func (model Model) renderMerchantEditor(screen *RenderedScreen) {
+	rect := responsiveOverlayRect(model.width, model.height, 68, 20)
+	fillRect(&screen.Frame, rect, model.palette.Panel)
+	title := overlayTitle(&screen.Frame, rect, "Edit Merchant", model.palette.Heading)
+	x, width := rect.X+2, max(0, rect.Width-4)
+	scope := "selected transactions"
+	if model.merchant.scope == app.EditScopeEntity {
+		scope = "whole merchant"
+	}
+	screen.Frame.PutText(x, rect.Y+2, Truncate("Scope: "+scope+" (Tab to change)", width), model.palette.Muted)
+	value := model.merchant.input.Value()
+	if value == "" {
+		value = "search or enter a new merchant"
+	}
+	drawOverlayBox(&screen.Frame, Rect{X: x, Y: rect.Y + 4, Width: width, Height: 3}, model.palette, "")
+	screen.Frame.PutText(x+2, rect.Y+5, Truncate(value, max(0, width-4)), model.palette.Text)
+	renderEditorChoices(&screen.Frame, x, rect.Y+8, width, model.merchant.filtered, model.merchant.selected, model.palette)
+	if model.merchant.err != "" {
+		screen.Frame.PutText(x, rect.Y+15, Truncate(model.merchant.err, width), model.palette.Warning)
+	}
+	actions := "↑/↓=Choose | Tab=Scope | Enter=Apply | Esc=Cancel"
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
+	screen.Regions = append(screen.Regions,
+		NamedRegion{Name: "merchant_editor", Rect: rect},
+		NamedRegion{Name: "merchant_editor_semantic", Rect: title},
+	)
+	screen.Overlay = []string{"Edit Merchant", "Scope: " + scope, model.merchant.input.Value()}
+	if model.merchant.confirmMerge {
+		screen.Overlay = append(screen.Overlay, "Confirm merge")
+	}
+}
+
+func (model Model) renderCategoryEditor(screen *RenderedScreen) {
+	rect := responsiveOverlayRect(model.width, model.height, 68, 20)
+	fillRect(&screen.Frame, rect, model.palette.Panel)
+	titleText := "Change Category"
+	if model.category.phase == categoryPhaseGroup {
+		titleText = "Choose Group for New Category"
+	}
+	title := overlayTitle(&screen.Frame, rect, titleText, model.palette.Heading)
+	x, width := rect.X+2, max(0, rect.Width-4)
+	if model.category.phase == categoryPhaseGroup {
+		screen.Frame.PutText(x, rect.Y+2, Truncate("New category: "+model.category.newLabel, width), model.palette.Text)
+		renderEditorChoices(&screen.Frame, x, rect.Y+4, width, model.category.groups, model.category.selected, model.palette)
+	} else {
+		value := model.category.input.Value()
+		if value == "" {
+			value = "search or enter a new category"
+		}
+		drawOverlayBox(&screen.Frame, Rect{X: x, Y: rect.Y + 3, Width: width, Height: 3}, model.palette, "")
+		screen.Frame.PutText(x+2, rect.Y+4, Truncate(value, max(0, width-4)), model.palette.Text)
+		renderEditorChoices(&screen.Frame, x, rect.Y+7, width, model.category.filtered, model.category.selected, model.palette)
+	}
+	if model.category.err != "" {
+		screen.Frame.PutText(x, rect.Y+15, Truncate(model.category.err, width), model.palette.Warning)
+	}
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1},
+		"↑/↓=Choose | Enter=Apply | Esc=Cancel", model.palette.Muted)
+	screen.Regions = append(screen.Regions,
+		NamedRegion{Name: "category_editor", Rect: rect},
+		NamedRegion{Name: "category_editor_semantic", Rect: title},
+	)
+	screen.Overlay = []string{titleText, model.category.input.Value(), model.category.newLabel}
+}
+
+func renderEditorChoices(
+	frame *Frame,
+	x int,
+	y int,
+	width int,
+	choices []app.EditorChoice,
+	selected int,
+	palette Palette,
+) {
+	start := max(0, selected-5)
+	end := min(len(choices), start+6)
+	for index := start; index < end; index++ {
+		style := palette.Text
+		prefix := "  "
+		if index == selected {
+			style = palette.Selection
+			prefix = "> "
+		}
+		frame.PutText(x, y+index-start, Truncate(prefix+choices[index].Label, width), style)
 	}
 }
 

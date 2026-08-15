@@ -57,7 +57,7 @@ func FormatPercent(tenths int) string {
 	return fmt.Sprintf("%s%d.%d%%", sign, tenths/10, tenths%10)
 }
 
-// FormatFlags renders only selection and hidden-state markers in the read-only slice.
+// FormatFlags renders selection, hidden-state, and pending-edit markers.
 func FormatFlags(flags domain.RowFlags) string {
 	var result strings.Builder
 	if flags.Selected {
@@ -65,6 +65,9 @@ func FormatFlags(flags domain.RowFlags) string {
 	}
 	if flags.Hidden {
 		result.WriteString("H")
+	}
+	if flags.Pending {
+		result.WriteString("*")
 	}
 	return result.String()
 }

@@ -18,6 +18,15 @@ func (service *Service) Capabilities() []Capability {
 	return capabilitiesForSnapshot(snapshot)
 }
 
+// Pending returns the current profile-global journal summary.
+func (service *Service) Pending() PendingSummary {
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return PendingSummary{}
+	}
+	return pendingSummary(snapshot)
+}
+
 func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 	result := []Capability{
 		{Action: ActionEditMerchant, Available: true},

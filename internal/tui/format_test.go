@@ -35,8 +35,8 @@ func TestFormatPeriodPercentageFlagsAndSortArrow(t *testing.T) {
 	}))
 	assert.Equal(t, "12.5%", FormatPercent(125))
 	assert.Equal(t, "10.0%", FormatPercent(100))
-	assert.Equal(t, "✓H", FormatFlags(domain.RowFlags{Selected: true, Hidden: true, Pending: true}))
-	assert.Equal(t, "", FormatFlags(domain.RowFlags{Pending: true}))
+	assert.Equal(t, "✓H*", FormatFlags(domain.RowFlags{Selected: true, Hidden: true, Pending: true}))
+	assert.Equal(t, "*", FormatFlags(domain.RowFlags{Pending: true}))
 	assert.Equal(t, "↑", SortArrow(domain.SortDirectionAsc))
 	assert.Equal(t, "↓", SortArrow(domain.SortDirectionDesc))
 }

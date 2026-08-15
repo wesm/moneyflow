@@ -80,7 +80,7 @@ func TestUpdateTimeAndUnavailableActions(t *testing.T) {
 	assert.Empty(t, model.session.Drilldowns)
 
 	model = press(t, model, keyRune('m'))
-	assert.Equal(t, "Unavailable in read-only Go preview", model.status)
+	assert.Equal(t, "This action is not available for the current profile.", model.status)
 }
 
 func TestUpdateQuitRespectsTextInputOverlays(t *testing.T) {
