@@ -77,6 +77,35 @@ func TestWebCommandPassesValidatedOptionsAndEmbeddedFixture(t *testing.T) {
 	assert.Equal(t, WebOptions{Listen: "localhost:9090", BasePath: "/finance/", Open: false}, received)
 }
 
+func TestExternalURLValidationAndCommandPropagation(t *testing.T) {
+	t.Parallel()
+	var received WebOptions
+	streams := IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		OpenProfile: testProfileOpener(t),
+		RunWeb: func(_ context.Context, _ *app.Service, options WebOptions, _ IOStreams) error {
+			received = options
+			return nil
+		},
+	}
+	command := newRootCommand(streams)
+	command.SetArgs([]string{
+		"web", "--listen", "127.0.0.1:8080", "--base-path", "/moneyflow",
+		"--external-url", "https://moneyflow.example/moneyflow", "--open=false",
+	})
+	require.NoError(t, command.Execute())
+	assert.Equal(t, "https://moneyflow.example/moneyflow", received.ExternalURL)
+
+	for _, value := range []string{
+		"https://moneyflow.example/other", "ftp://moneyflow.example/moneyflow",
+		"https://user@moneyflow.example/moneyflow",
+	} {
+		command = newRootCommand(streams)
+		command.SetArgs([]string{"web", "--base-path", "/moneyflow", "--external-url", value})
+		assert.Error(t, command.Execute(), value)
+	}
+}
+
 func TestWebCommandWarnsBeforeNonLoopbackRunner(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer

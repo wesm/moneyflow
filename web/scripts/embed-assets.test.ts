@@ -15,7 +15,7 @@ const manifest = JSON.stringify({
   },
 })
 const index =
-  '<meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><script src="./assets/index-Ab12_cd3.js"></script>'
+  '<base href="__MONEYFLOW_BASE_HREF__"><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><meta name="moneyflow-mutation-token" content="__MONEYFLOW_MUTATION_TOKEN__"><link rel="canonical" href="__MONEYFLOW_CANONICAL_URL__"><body>__MONEYFLOW_ORIGIN_WARNING__<script src="./assets/index-Ab12_cd3.js"></script>'
 
 describe('production asset embedding', () => {
   const directories: string[] = []

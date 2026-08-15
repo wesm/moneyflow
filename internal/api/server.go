@@ -22,6 +22,8 @@ type Config struct {
 	Service  *app.Service
 	BasePath string
 	Version  string
+	Origin   OriginConfig
+	Security *MutationSecurity
 }
 
 // Health reports non-sensitive process and fixture capability metadata.
@@ -38,6 +40,7 @@ type Server struct {
 	basePath string
 	handler  http.Handler
 	api      huma.API
+	security *MutationSecurity
 }
 
 type healthOutput struct {
@@ -56,6 +59,10 @@ type projectionOutput struct {
 	Body Projection
 }
 
+type bootstrapOutput struct {
+	Body Bootstrap
+}
+
 // New builds the API without binding a listener or retaining request state.
 func New(config Config) (*Server, error) {
 	if config.Service == nil {
@@ -68,6 +75,21 @@ func New(config Config) (*Server, error) {
 	if config.Version == "" {
 		config.Version = "dev"
 	}
+	if config.Origin.Canonical == nil {
+		config.Origin, err = ResolveOrigin("127.0.0.1:8080", basePath, "")
+		if err != nil {
+			return nil, fmt.Errorf("new API server origin: %w", err)
+		}
+	}
+	if config.Origin.BasePath != basePath {
+		return nil, errors.New("new API server: origin base path differs from API base path")
+	}
+	if config.Security == nil {
+		config.Security, err = NewMutationSecurity(config.Origin, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("new API server security: %w", err)
+		}
+	}
 
 	mux := http.NewServeMux()
 	humaConfig := huma.DefaultConfig("moneyflow", APISchemaVersion)
@@ -78,7 +100,7 @@ func New(config Config) (*Server, error) {
 	humaConfig.Transformers = nil
 	humaConfig.Servers = []*huma.Server{{URL: basePath}}
 	humaAPI := humago.New(mux, humaConfig)
-	server := &Server{basePath: basePath, api: humaAPI}
+	server := &Server{basePath: basePath, api: humaAPI, security: config.Security}
 	server.register(config, mux)
 	server.installProblemSchemas()
 
@@ -123,6 +145,23 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	healthPath := server.basePath + "api/v1/health"
 	viewPath := server.basePath + "api/v1/view"
 	transitionPath := server.basePath + "api/v1/view/transition"
+	bootstrapPath := server.basePath + "api/v1/bootstrap"
+
+	huma.Register(server.api, huma.Operation{
+		OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
+		Summary: "Issue browser-memory mutation configuration", Errors: []int{500},
+	}, func(_ context.Context, _ *struct{}) (*bootstrapOutput, error) {
+		body, err := newBootstrap(
+			config.Version, config.Origin, config.Service.Revision(), config.Security,
+		)
+		if err != nil {
+			return nil, newProblem(
+				http.StatusInternalServerError, "internal_error",
+				"The bootstrap configuration could not be issued.",
+			)
+		}
+		return &bootstrapOutput{Body: body}, nil
+	})
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "health", Method: http.MethodGet, Path: healthPath,

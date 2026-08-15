@@ -15,7 +15,7 @@ const manifest = {
     src: 'index.html',
   },
 }
-const index = `<!doctype html><html><head><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><link rel="stylesheet" href="./assets/index-Zy98_Xw7.css"></head><body><div id="app"></div><script type="module" src="./assets/index-Ab12_cd3.js"></script></body></html>`
+const index = `<!doctype html><html><head><base href="__MONEYFLOW_BASE_HREF__"><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><meta name="moneyflow-mutation-token" content="__MONEYFLOW_MUTATION_TOKEN__"><link rel="canonical" href="__MONEYFLOW_CANONICAL_URL__"><link rel="stylesheet" href="./assets/index-Zy98_Xw7.css"></head><body>__MONEYFLOW_ORIGIN_WARNING__<div id="app"></div><script type="module" src="./assets/index-Ab12_cd3.js"></script></body></html>`
 
 describe('production asset validation', () => {
   const directories: string[] = []

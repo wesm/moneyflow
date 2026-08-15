@@ -97,7 +97,15 @@ export async function startE2EServer(basePath = '/'): Promise<E2EServer> {
       let stderr = ''
       const child = spawn(
         binary,
-        ['web', '--open=false', '--listen', `127.0.0.1:${port}`, '--base-path', normalized],
+        [
+          'web',
+          '--demo',
+          '--open=false',
+          '--listen',
+          `127.0.0.1:${port}`,
+          '--base-path',
+          normalized,
+        ],
         { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
       )
       child.stderr?.setEncoding('utf8')

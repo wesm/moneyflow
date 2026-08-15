@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"html"
 	"io/fs"
@@ -12,24 +13,45 @@ import (
 )
 
 const (
-	basePathPlaceholder   = "__MONEYFLOW_BASE_PATH__"
-	baseHrefPlaceholder   = "__MONEYFLOW_BASE_HREF__"
-	contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	basePathPlaceholder = "__MONEYFLOW_BASE_PATH__"
+	baseHrefPlaceholder = "__MONEYFLOW_BASE_HREF__"
+	// #nosec G101 -- this build marker is replaced by per-response token material.
+	mutationTokenPlaceholder = "__MONEYFLOW_MUTATION_TOKEN__"
+	canonicalURLPlaceholder  = "__MONEYFLOW_CANONICAL_URL__"
+	originWarningPlaceholder = "__MONEYFLOW_ORIGIN_WARNING__"
+	contentSecurityPolicy    = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
 		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 )
 
 type handler struct {
-	basePath     string
-	distribution *distribution
+	basePath         string
+	distribution     *distribution
+	origin           api.OriginConfig
+	security         *api.MutationSecurity
+	warnNonCanonical bool
 }
 
 // NewHandler constructs the static application handler from the committed production assets.
 func NewHandler(basePath string) (http.Handler, error) {
-	return newHandler(basePath, embeddedDistribution)
+	origin, err := api.ResolveOrigin("127.0.0.1:8080", basePath, "")
+	if err != nil {
+		return nil, fmt.Errorf("new web handler origin: %w", err)
+	}
+	security, err := api.NewMutationSecurity(origin, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new web handler security: %w", err)
+	}
+	return newHandler(basePath, embeddedDistribution, origin, security, false)
 }
 
-func newHandler(basePath string, filesystem fs.FS) (http.Handler, error) {
+func newHandler(
+	basePath string,
+	filesystem fs.FS,
+	origin api.OriginConfig,
+	security *api.MutationSecurity,
+	warnNonCanonical bool,
+) (http.Handler, error) {
 	normalized, err := api.NormalizeBasePath(basePath)
 	if err != nil {
 		return nil, fmt.Errorf("new web handler: %w", err)
@@ -38,7 +60,13 @@ func newHandler(basePath string, filesystem fs.FS) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new web handler: %w", err)
 	}
-	return &handler{basePath: normalized, distribution: distribution}, nil
+	if origin.Canonical == nil || origin.BasePath != normalized || security == nil {
+		return nil, errors.New("new web handler: bootstrap configuration is invalid")
+	}
+	return &handler{
+		basePath: normalized, distribution: distribution, origin: origin,
+		security: security, warnNonCanonical: warnNonCanonical,
+	}, nil
 }
 
 func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -82,6 +110,11 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 }
 
 func (handler *handler) serveIndex(response http.ResponseWriter, request *http.Request) {
+	issued, err := handler.security.Issue()
+	if err != nil {
+		writeStatus(response, request, http.StatusInternalServerError)
+		return
+	}
 	content := strings.Replace(
 		string(handler.distribution.index),
 		basePathPlaceholder,
@@ -89,6 +122,16 @@ func (handler *handler) serveIndex(response http.ResponseWriter, request *http.R
 		1,
 	)
 	content = strings.Replace(content, baseHrefPlaceholder, html.EscapeString(handler.basePath), 1)
+	content = strings.Replace(content, mutationTokenPlaceholder, html.EscapeString(issued.Value), 1)
+	content = strings.Replace(
+		content, canonicalURLPlaceholder, html.EscapeString(handler.origin.Canonical.String()), 1,
+	)
+	warning := ""
+	if handler.warnNonCanonical && !strings.EqualFold(request.Host, handler.origin.Canonical.Host) {
+		canonical := html.EscapeString(handler.origin.Canonical.String())
+		warning = `<aside role="alert">This listener is read-only. Open the canonical Moneyflow URL: <a href="` + canonical + `">` + canonical + `</a></aside>`
+	}
+	content = strings.Replace(content, originWarningPlaceholder, warning, 1)
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
 	response.WriteHeader(http.StatusOK)

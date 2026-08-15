@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/api"
 )
 
 const testCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
@@ -55,6 +58,9 @@ func TestHandlerServesIndexAssetsAndHEAD(t *testing.T) {
 	assert.Equal(t, "no-store", index.Header().Get("Cache-Control"))
 	assert.Contains(t, index.Body.String(), `content="/money&amp;flow/"`)
 	assert.Contains(t, index.Body.String(), `<base href="/money&amp;flow/"`)
+	assert.Contains(t, index.Body.String(), `name="moneyflow-mutation-token"`)
+	assert.NotContains(t, index.Body.String(), mutationTokenPlaceholder)
+	assert.NotContains(t, index.Body.String(), originWarningPlaceholder)
 	assert.NotContains(t, index.Body.String(), "__MONEYFLOW_BASE_PATH__")
 	assertSecurityHeaders(t, index)
 
@@ -121,9 +127,33 @@ func TestEmbeddedDistributionConstructs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, response.Code)
 }
 
+func TestHandlerWarnsOnDirectListenerAndLinksCanonicalOrigin(t *testing.T) {
+	t.Parallel()
+	origin, err := api.ResolveOrigin(
+		"127.0.0.1:8080", "/moneyflow", "https://moneyflow.example/moneyflow",
+	)
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
+	)
+	require.NoError(t, err)
+	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true)
+	require.NoError(t, err)
+
+	direct := request(t, handler, http.MethodGet, "/moneyflow/", "text/html")
+	assert.Contains(t, direct.Body.String(), "This listener is read-only")
+	assert.Contains(t, direct.Body.String(), `href="https://moneyflow.example/moneyflow/"`)
+	canonicalRequest := httptest.NewRequest(http.MethodGet, "/moneyflow/", http.NoBody)
+	canonicalRequest.Host = "moneyflow.example"
+	canonicalRequest.Header.Set("Accept", "text/html")
+	canonical := httptest.NewRecorder()
+	handler.ServeHTTP(canonical, canonicalRequest)
+	assert.NotContains(t, canonical.Body.String(), "This listener is read-only")
+}
+
 func testDistribution() fstest.MapFS {
 	return fstest.MapFS{
-		"dist/index.html":                 {Data: []byte(`<!doctype html><base href="__MONEYFLOW_BASE_HREF__"><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><script src="./assets/index-Ab12_cd3.js"></script>`)},
+		"dist/index.html":                 {Data: []byte(`<!doctype html><base href="__MONEYFLOW_BASE_HREF__"><meta name="moneyflow-base-path" content="__MONEYFLOW_BASE_PATH__"><meta name="moneyflow-mutation-token" content="__MONEYFLOW_MUTATION_TOKEN__"><link rel="canonical" href="__MONEYFLOW_CANONICAL_URL__"><body>__MONEYFLOW_ORIGIN_WARNING__<script src="./assets/index-Ab12_cd3.js"></script>`)},
 		"dist/.moneyflow-production.json": {Data: []byte(`{"schema_version":1,"kind":"moneyflow-production","entry":"index.html"}`)},
 		"dist/.vite/manifest.json":        {Data: []byte(`{"index.html":{"file":"assets/index-Ab12_cd3.js","isEntry":true,"src":"index.html"}}`)},
 		"dist/assets/index-Ab12_cd3.js":   {Data: []byte("compiled")},
@@ -132,7 +162,13 @@ func testDistribution() fstest.MapFS {
 
 func newTestHandler(t testing.TB, basePath string) http.Handler {
 	t.Helper()
-	handler, err := newHandler(basePath, testDistribution())
+	origin, err := api.ResolveOrigin("example.com:80", basePath, "")
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
+	)
+	require.NoError(t, err)
+	handler, err := newHandler(basePath, testDistribution(), origin, security, false)
 	require.NoError(t, err)
 	return handler
 }

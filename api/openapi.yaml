@@ -63,6 +63,31 @@ components:
         - share_tenths
         - flags
       type: object
+    Bootstrap:
+      additionalProperties: false
+      properties:
+        base_path:
+          type: string
+        canonical_url:
+          type: string
+        mutation_token:
+          type: string
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        token_expires_at:
+          format: date-time
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - canonical_url
+        - base_path
+        - revision
+        - mutation_token
+        - token_expires_at
+      type: object
     Breadcrumb:
       additionalProperties: false
       properties:
@@ -569,6 +594,23 @@ info:
   version: "1"
 openapi: 3.1.0
 paths:
+  /api/v1/bootstrap:
+    get:
+      operationId: bootstrap
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+          description: OK
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Issue browser-memory mutation configuration
   /api/v1/health:
     get:
       operationId: health

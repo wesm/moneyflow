@@ -12,9 +12,103 @@ export type ViewProjection = Omit<components['schemas']['Projection'], 'selectio
 }
 export type Problem = components['schemas']['Problem']
 
+interface BootstrapResponse {
+  mutation_token: string
+  token_expires_at: string
+}
+
+const mutationTokenHeader = 'X-Moneyflow-Mutation-Token'
+const proactiveRefreshMillis = 5 * 60 * 1000
+
 export interface MoneyflowClient {
+  readonly mutations: MutationFetch
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
+}
+
+export interface MutationFetch {
+  request(path: string, body: string, signal?: AbortSignal): Promise<Response>
+}
+
+export function createMutationFetch(
+  basePath: string,
+  upstream: typeof fetch = fetch,
+  root: Document | undefined = globalThis.document,
+  now: () => number = Date.now,
+): MutationFetch {
+  const origin = globalThis.location?.origin ?? 'http://localhost'
+  const baseURL = new URL(basePath, origin)
+  let token = readMutationToken(root)
+  let refreshAt = token === '' ? 0 : now() + 55 * 60 * 1000
+
+  const refresh = async (signal?: AbortSignal): Promise<void> => {
+    const response = await upstream(new URL('api/v1/bootstrap', baseURL), {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'error',
+      ...(signal === undefined ? {} : { signal }),
+    })
+    const value: unknown = await response.json()
+    if (!response.ok || !isBootstrap(value)) {
+      throw new Error('The Moneyflow mutation bootstrap response is invalid.')
+    }
+    token = value.mutation_token
+    refreshAt = Date.parse(value.token_expires_at) - proactiveRefreshMillis
+  }
+
+  const send = async (path: string, body: string, signal?: AbortSignal): Promise<Response> => {
+    if (token === '' || now() >= refreshAt) await refresh(signal)
+    const options = (): RequestInit => ({
+      method: 'POST',
+      body,
+      credentials: 'omit',
+      redirect: 'error',
+      headers: {
+        'Content-Type': 'application/json',
+        [mutationTokenHeader]: token,
+      },
+      ...(signal === undefined ? {} : { signal }),
+    })
+    let response = await upstream(new URL(path.replace(/^\/+/, ''), baseURL), options())
+    if (await hasProblemCode(response, 'token_expired')) {
+      await refresh(signal)
+      response = await upstream(new URL(path.replace(/^\/+/, ''), baseURL), options())
+    }
+    return response
+  }
+
+  return { request: send }
+}
+
+function readMutationToken(root: Document | undefined): string {
+  return (
+    root
+      ?.querySelector<HTMLMetaElement>('meta[name="moneyflow-mutation-token"]')
+      ?.getAttribute('content') ?? ''
+  )
+}
+
+function isBootstrap(value: unknown): value is BootstrapResponse {
+  if (!isRecord(value)) return false
+  return (
+    typeof value.mutation_token === 'string' &&
+    value.mutation_token !== '' &&
+    typeof value.token_expires_at === 'string' &&
+    Number.isFinite(Date.parse(value.token_expires_at))
+  )
+}
+
+async function hasProblemCode(response: Response, code: string): Promise<boolean> {
+  if (response.ok) return false
+  const contentType = response.headers.get('Content-Type') ?? ''
+  if (!contentType.includes('application/problem+json')) return false
+  try {
+    const value: unknown = await response.clone().json()
+    return isRecord(value) && value.code === code
+  } catch {
+    return false
+  }
 }
 
 export class MoneyflowProblem extends Error {
@@ -39,8 +133,10 @@ export function createMoneyflowClient(
   })
   const requestOptions = <Body>(body: Body, signal?: AbortSignal) =>
     signal === undefined ? { body } : { body, signal }
+  const mutations = createMutationFetch(basePath, upstream)
 
   return {
+    mutations,
     async view(body, signal) {
       const result = await client.POST('/api/v1/view', requestOptions(body, signal))
       return projectionOrThrow(result.data, result.error)

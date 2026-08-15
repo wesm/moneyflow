@@ -91,9 +91,16 @@ function manifestReferences(manifest: Record<string, unknown>): Set<string> {
 }
 
 function validateIndex(content: string): void {
-  const placeholder = '__MONEYFLOW_BASE_PATH__'
-  if (content.split(placeholder).length - 1 !== 1) {
-    throw new Error('index.html must contain exactly one base-path placeholder')
+  for (const [placeholder, label] of [
+    ['__MONEYFLOW_BASE_PATH__', 'base-path'],
+    ['__MONEYFLOW_BASE_HREF__', 'base-href'],
+    ['__MONEYFLOW_MUTATION_TOKEN__', 'mutation-token'],
+    ['__MONEYFLOW_CANONICAL_URL__', 'canonical-URL'],
+    ['__MONEYFLOW_ORIGIN_WARNING__', 'origin-warning'],
+  ] as const) {
+    if (content.split(placeholder).length - 1 !== 1) {
+      throw new Error(`index.html must contain exactly one ${label} placeholder`)
+    }
   }
   if (/\/(?:src|@vite)\//i.test(content)) {
     throw new Error('index.html is a development placeholder, not compiled production output')

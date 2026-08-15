@@ -37,9 +37,10 @@ type WebRunner func(context.Context, *app.Service, WebOptions, IOStreams) error
 
 // WebOptions contains the explicitly bounded web-command configuration.
 type WebOptions struct {
-	Listen   string
-	BasePath string
-	Open     bool
+	Listen      string
+	BasePath    string
+	ExternalURL string
+	Open        bool
 }
 
 var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
@@ -58,6 +59,9 @@ func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 			}
 			options.BasePath, err = api.NormalizeBasePath(options.BasePath)
 			if err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
 			opener := streams.OpenProfile
@@ -93,6 +97,7 @@ func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 	}
 	command.Flags().StringVar(&options.Listen, "listen", options.Listen, "explicit host and port")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
+	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
 	command.Flags().BoolVar(&demo, "demo", false, "serve a temporary profile seeded with synthetic data")
 	return command
@@ -149,12 +154,6 @@ func runWeb(
 		return fmt.Errorf("normalize base path: %w", err)
 	}
 	options.BasePath = basePath
-	application, err := webserver.NewServer(webserver.ServerConfig{
-		Service: service, BasePath: options.BasePath, Version: version.Version,
-	})
-	if err != nil {
-		return err
-	}
 	signalContext := streams.SignalContext
 	if signalContext == nil {
 		signalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
@@ -173,8 +172,26 @@ func runWeb(
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", options.Listen, err)
 	}
+	origin, err := api.ResolveOrigin(listener.Addr().String(), options.BasePath, options.ExternalURL)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	security, err := api.NewMutationSecurity(origin, nil, nil)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	application, err := webserver.NewServer(webserver.ServerConfig{
+		Service: service, BasePath: options.BasePath, Version: version.Version,
+		Origin: origin, Security: security, WarnNonCanonical: options.ExternalURL != "",
+	})
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
 	server := application.HTTPServer(listener.Addr().String(), streams.Err)
-	url := "http://" + listener.Addr().String() + options.BasePath
+	url := origin.Canonical.String()
 	if _, err := fmt.Fprintf(streams.Out, "Moneyflow web: %s\n", url); err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("write web address: %w", err)

@@ -11,6 +11,12 @@ const (
 	CodeInvalidViewState ErrorCode = "invalid_view_state"
 	// CodeViewStateTooLarge identifies a valid transition that cannot fit the URL contract.
 	CodeViewStateTooLarge ErrorCode = "view_state_too_large"
+	// CodeInvalidOrigin identifies a persistent request from a noncanonical browser origin.
+	CodeInvalidOrigin ErrorCode = "invalid_origin"
+	// CodeInvalidToken identifies a malformed token or invalid signed claims.
+	CodeInvalidToken ErrorCode = "invalid_token"
+	// CodeTokenExpired permits one bootstrap refresh and unchanged request retry.
+	CodeTokenExpired ErrorCode = "token_expired"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.

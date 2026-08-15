@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+  '/api/v1/bootstrap': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Issue browser-memory mutation configuration */
+    get: operations['bootstrap']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/health': {
     parameters: {
       query?: never
@@ -84,6 +101,15 @@ export interface components {
       /** Format: int64 */
       top_category_percent?: number
       total: components['schemas']['Money']
+    }
+    Bootstrap: {
+      base_path: string
+      canonical_url: string
+      mutation_token: string
+      revision: string
+      /** Format: date-time */
+      token_expires_at: string
+      version: string
     }
     Breadcrumb: {
       dimension: string
@@ -303,6 +329,35 @@ export interface components {
 }
 export type $defs = Record<string, never>
 export interface operations {
+  bootstrap: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Bootstrap']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
   health: {
     parameters: {
       query?: never

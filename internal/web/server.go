@@ -15,9 +15,12 @@ import (
 
 // ServerConfig supplies the immutable dependencies shared by the API and browser application.
 type ServerConfig struct {
-	Service  *app.Service
-	BasePath string
-	Version  string
+	Service          *app.Service
+	BasePath         string
+	Version          string
+	Origin           api.OriginConfig
+	Security         *api.MutationSecurity
+	WarnNonCanonical bool
 }
 
 // Server is the composed profile API and embedded browser application.
@@ -35,13 +38,31 @@ func NewServer(config ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new web server: %w", err)
 	}
+	if config.Origin.Canonical == nil {
+		config.Origin, err = api.ResolveOrigin("127.0.0.1:8080", basePath, "")
+		if err != nil {
+			return nil, fmt.Errorf("new web server origin: %w", err)
+		}
+	}
+	if config.Origin.BasePath != basePath {
+		return nil, errors.New("new web server: origin base path differs from server base path")
+	}
+	if config.Security == nil {
+		config.Security, err = api.NewMutationSecurity(config.Origin, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("new web server security: %w", err)
+		}
+	}
 	apiServer, err := api.New(api.Config{
 		Service: config.Service, BasePath: basePath, Version: config.Version,
+		Origin: config.Origin, Security: config.Security,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new web server API: %w", err)
 	}
-	staticHandler, err := NewHandler(basePath)
+	staticHandler, err := newHandler(
+		basePath, embeddedDistribution, config.Origin, config.Security, config.WarnNonCanonical,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("new web server application: %w", err)
 	}

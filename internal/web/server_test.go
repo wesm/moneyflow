@@ -4,13 +4,19 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+)
+
+var mutationTokenMetaPattern = regexp.MustCompile(
+	`<meta name="moneyflow-mutation-token" content="([^"]+)"[^>]*>`,
 )
 
 func TestComposedServerRoutesAPIBeforeSPA(t *testing.T) {
@@ -58,6 +64,42 @@ func TestHTTPServerUsesBoundedTimeoutsAndNoRequestLogging(t *testing.T) {
 	server.Handler.ServeHTTP(response, request)
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.NotContains(t, logs.String(), "do-not-log")
+}
+
+func TestComposedServerSharesCanonicalMutationSecurityWithHTMLAndAPI(t *testing.T) {
+	t.Parallel()
+	origin, err := api.ResolveOrigin(
+		"127.0.0.1:8080", "/moneyflow", "https://moneyflow.example/moneyflow",
+	)
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
+	)
+	require.NoError(t, err)
+	application, err := NewServer(ServerConfig{
+		Service: serverTestService(t), BasePath: origin.BasePath, Version: "test",
+		Origin: origin, Security: security, WarnNonCanonical: true,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequest(http.MethodGet, "/moneyflow/", http.NoBody)
+	request.Host = "127.0.0.1:8080"
+	request.Header.Set("Accept", "text/html")
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+	assert.Contains(t, response.Body.String(), "This listener is read-only")
+	match := mutationTokenMetaPattern.FindStringSubmatch(response.Body.String())
+	require.Len(t, match, 2)
+	require.NoError(t, security.Verify(match[1]))
+
+	bootstrap := httptest.NewRequest(
+		http.MethodGet, "/moneyflow/api/v1/bootstrap", http.NoBody,
+	)
+	bootstrapResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(bootstrapResponse, bootstrap)
+	assert.Equal(t, http.StatusOK, bootstrapResponse.Code, bootstrapResponse.Body.String())
+	assert.Equal(t, "no-store", bootstrapResponse.Header().Get("Cache-Control"))
 }
 
 func serverTestService(t testing.TB) *app.Service {

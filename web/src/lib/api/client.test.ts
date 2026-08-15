@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createMoneyflowClient, MoneyflowProblem } from './client'
+import { createMoneyflowClient, createMutationFetch, MoneyflowProblem } from './client'
 import type { ViewProjection } from './client'
 
 describe('Moneyflow generated client adapter', () => {
@@ -63,6 +63,80 @@ describe('Moneyflow generated client adapter', () => {
     await expect(client.view({ query: 'v=1', window: { offset: 0, limit: 200 } })).rejects.toThrow(
       'The Moneyflow API returned an invalid response.',
     )
+  })
+})
+
+describe('Moneyflow mutation token transport', () => {
+  it('keeps the bootstrap token in memory and retries only token expiry once', async () => {
+    document.head.innerHTML = '<meta name="moneyflow-mutation-token" content="initial-token">'
+    const calls: Array<{ url: string; token: string | null; body: string }> = []
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      if (request.url.endsWith('/api/v1/bootstrap')) {
+        return Response.json({
+          mutation_token: 'refreshed-token',
+          token_expires_at: '2026-08-14T13:00:00Z',
+        })
+      }
+      calls.push({
+        url: request.url,
+        token: request.headers.get('X-Moneyflow-Mutation-Token'),
+        body: await request.text(),
+      })
+      if (calls.length === 1) {
+        return Response.json(
+          {
+            type: 'about:blank',
+            title: 'Forbidden',
+            status: 403,
+            detail: 'The mutation token expired.',
+            code: 'token_expired',
+          },
+          { status: 403, headers: { 'Content-Type': 'application/problem+json' } },
+        )
+      }
+      return Response.json({ revision: '2' })
+    })
+    const transport = createMutationFetch('/moneyflow/', upstream as typeof fetch, document, () =>
+      Date.parse('2026-08-14T12:00:00Z'),
+    )
+
+    const response = await transport.request('api/v1/mutations', '{"action":"transaction.hide"}')
+    expect(response.ok).toBe(true)
+    expect(upstream).toHaveBeenCalledTimes(3)
+    expect(calls).toEqual([
+      {
+        url: 'http://localhost:3000/moneyflow/api/v1/mutations',
+        token: 'initial-token',
+        body: '{"action":"transaction.hide"}',
+      },
+      {
+        url: 'http://localhost:3000/moneyflow/api/v1/mutations',
+        token: 'refreshed-token',
+        body: '{"action":"transaction.hide"}',
+      },
+    ])
+    expect(location.search).toBe('')
+  })
+
+  it('does not retry revision conflicts', async () => {
+    document.head.innerHTML = '<meta name="moneyflow-mutation-token" content="token">'
+    const upstream = vi.fn(async () =>
+      Response.json(
+        {
+          type: 'about:blank',
+          title: 'Conflict',
+          status: 409,
+          detail: 'The profile changed.',
+          code: 'revision_conflict',
+        },
+        { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    )
+    const transport = createMutationFetch('/', upstream as typeof fetch, document)
+    const response = await transport.request('api/v1/mutations', '{}')
+    expect(response.status).toBe(409)
+    expect(upstream).toHaveBeenCalledTimes(1)
   })
 })
 
