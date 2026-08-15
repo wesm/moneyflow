@@ -75,6 +75,31 @@ func TestResponsiveRandomMessageSequencesStayBounded(t *testing.T) {
 	}
 }
 
+func TestEditingOverlayResponsiveRegions(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		keys   []rune
+		region string
+	}{
+		{[]rune{'C'}, "category_manager"},
+		{[]rune{'G'}, "group_manager"},
+		{[]rune{'h', 'w'}, "review_overlay"},
+		{[]rune{'q'}, "quit_overlay"},
+	}
+	for _, test := range cases {
+		model := newPersistentModel(t, app.NewSession()).model
+		model.width, model.height = 80, 24
+		for _, key := range test.keys {
+			model = press(t, model, keyRune(key))
+		}
+		screen := model.RenderScreen()
+		region, ok := findRegion(screen.Regions, test.region)
+		assert.True(t, ok, test.region)
+		assertRectInside(t, region.Rect, model.width, model.height)
+	}
+}
+
 func pressMessage(t testing.TB, model Model, message tea.Msg) Model {
 	t.Helper()
 	updated, _ := model.Update(message)

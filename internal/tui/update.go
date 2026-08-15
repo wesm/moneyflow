@@ -30,7 +30,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model, model.routeOverlay(message)
 		}
 		if matched == app.ActionQuit {
-			return model, tea.Quit
+			return model, model.openQuit()
 		}
 		return model, model.routeKey(message)
 	}
@@ -56,6 +56,14 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeMerchantEditor(message)
 	case overlayCategoryEditor:
 		return model.routeCategoryEditor(message)
+	case overlayCategoryManager:
+		return model.routeCategoryManager(message)
+	case overlayGroupManager:
+		return model.routeGroupManager(message)
+	case overlayReview:
+		return model.routeReview(message)
+	case overlayQuit:
+		return model.routeQuit(message)
 	}
 	return nil
 }
@@ -128,6 +136,12 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		return model.openMerchantEditor()
 	case app.ActionEditCategory:
 		return model.openCategoryEditor()
+	case app.ActionManageCategories:
+		return model.openCategoryManager()
+	case app.ActionManageGroups:
+		return model.openGroupManager()
+	case app.ActionReviewChanges:
+		return model.openReview()
 	case app.ActionToggleHidden:
 		if capability, available := model.capability(app.ActionToggleHidden); available {
 			model.executeMutation(app.ActionToggleHidden, app.EditInput{})

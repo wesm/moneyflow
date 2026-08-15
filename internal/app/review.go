@@ -75,51 +75,63 @@ func (service *Service) Review(
 			AppInvalidOperation, snapshot.Revision, errors.New("review window is invalid"),
 		)
 	}
-	projection, details, err := buildReviewProjection(snapshot)
+	limit := window.Limit
+	if limit == 0 {
+		limit = DefaultWindowLimit
+	}
+	projection, transactionIDs, found, err := buildReviewProjection(
+		snapshot, window.OperationID, window.Offset, limit,
+	)
 	if err != nil {
 		return ReviewProjection{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
 	}
 	if window.OperationID == "" {
 		return projection, nil
 	}
-	transactionIDs, ok := details[window.OperationID]
-	if !ok {
+	if !found {
 		return ReviewProjection{}, newAppError(
 			AppInvalidTarget, snapshot.Revision, errors.New("review operation is missing"),
 		)
 	}
-	limit := window.Limit
-	if limit == 0 {
-		limit = DefaultWindowLimit
+	start := window.Offset
+	for _, operation := range projection.Operations {
+		if operation.OperationID == window.OperationID {
+			start = min(start, operation.AffectedCount)
+			break
+		}
 	}
-	start := min(window.Offset, len(transactionIDs))
-	end := min(start+limit, len(transactionIDs))
-	projection.Window = Window{
-		Offset: start, Limit: limit, Count: end - start,
-	}
-	projection.Targets = reviewTargets(snapshot.Effective, transactionIDs[start:end])
+	projection.Window = Window{Offset: start, Limit: limit, Count: len(transactionIDs)}
+	projection.Targets = reviewTargets(snapshot.Effective, transactionIDs)
 	return projection, nil
 }
 
 func buildReviewProjection(
 	snapshot EffectiveSnapshot,
-) (ReviewProjection, map[string][]domain.EntityID, error) {
+	detailOperationID string,
+	detailOffset int,
+	detailLimit int,
+) (ReviewProjection, []domain.EntityID, bool, error) {
 	projection := ReviewProjection{
 		Revision: snapshot.Revision, Pending: pendingSummary(snapshot),
 		Operations: make([]ReviewOperation, 0, len(snapshot.Journal)),
 	}
-	details := make(map[string][]domain.EntityID, len(snapshot.Journal))
+	var detailTargets []domain.EntityID
+	detailFound := detailOperationID == ""
 	state := snapshot.Committed.Clone()
 	for index, operation := range snapshot.Journal {
-		targets := affectedByOperation(state, operation)
+		affectedCount := affectedOperationCount(state, operation)
+		if operation.ID == detailOperationID {
+			detailFound = true
+			detailTargets = affectedOperationWindow(state, operation, detailOffset, detailLimit)
+		}
 		next, err := ApplyOperation(state, operation)
 		if err != nil {
-			return ReviewProjection{}, nil, fmt.Errorf("review operation[%d]: %w", index, err)
+			return ReviewProjection{}, nil, false, fmt.Errorf("review operation[%d]: %w", index, err)
 		}
 		before, after, effect := reviewValues(state, next, operation)
 		summary := ReviewOperation{
 			OperationID: operation.ID, Sequence: operation.Sequence, Type: operation.Type,
-			Active: index < snapshot.Cursor, AffectedCount: len(targets),
+			Active: index < snapshot.Cursor, AffectedCount: affectedCount,
 			Before: before, After: after, TaxonomyEffect: effect,
 		}
 		projection.Operations = append(projection.Operations, summary)
@@ -128,10 +140,39 @@ func buildReviewProjection(
 		} else {
 			projection.InactiveOperations = append(projection.InactiveOperations, summary)
 		}
-		details[operation.ID] = targets
 		state = next
 	}
-	return projection, details, nil
+	return projection, detailTargets, detailFound, nil
+}
+
+func affectedOperationCount(profile domain.CommittedProfile, operation domain.Operation) int {
+	count := 0
+	visitAffectedByOperation(profile, operation, func(domain.EntityID) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+func affectedOperationWindow(
+	profile domain.CommittedProfile,
+	operation domain.Operation,
+	offset int,
+	limit int,
+) []domain.EntityID {
+	if limit <= 0 {
+		return nil
+	}
+	result := make([]domain.EntityID, 0, min(limit, len(profile.Transactions)))
+	visited := 0
+	visitAffectedByOperation(profile, operation, func(id domain.EntityID) bool {
+		if visited >= offset {
+			result = append(result, id)
+		}
+		visited++
+		return len(result) < limit
+	})
+	return result
 }
 
 func reviewValues(
@@ -230,15 +271,21 @@ func reviewTargets(
 ) []ReviewTarget {
 	merchants := make(map[domain.EntityID]string, len(profile.Merchants))
 	categories := make(map[domain.EntityID]string, len(profile.Categories))
-	transactions := make(map[domain.EntityID]domain.TransactionRecord, len(profile.Transactions))
+	wanted := make(map[domain.EntityID]struct{}, len(ids))
+	transactions := make(map[domain.EntityID]domain.TransactionRecord, len(ids))
 	for _, merchant := range profile.Merchants {
 		merchants[merchant.ID] = merchant.Label
 	}
 	for _, category := range profile.Categories {
 		categories[category.ID] = category.Label
 	}
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
 	for _, transaction := range profile.Transactions {
-		transactions[transaction.ID] = transaction
+		if _, exists := wanted[transaction.ID]; exists {
+			transactions[transaction.ID] = transaction
+		}
 	}
 	result := make([]ReviewTarget, 0, len(ids))
 	for _, id := range ids {

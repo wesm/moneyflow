@@ -348,70 +348,67 @@ func affectedByOperation(
 	profile domain.CommittedProfile,
 	operation domain.Operation,
 ) []domain.EntityID {
+	var result []domain.EntityID
+	visitAffectedByOperation(profile, operation, func(id domain.EntityID) bool {
+		result = append(result, id)
+		return true
+	})
+	return result
+}
+
+func visitAffectedByOperation(
+	profile domain.CommittedProfile,
+	operation domain.Operation,
+	visit func(domain.EntityID) bool,
+) {
 	switch operation.Type {
 	case domain.OperationMerchantReassign, domain.OperationCategoryAssign,
 		domain.OperationTransactionHide:
-		return append([]domain.EntityID(nil), operation.Targets...)
+		visitEntityIDs(operation.Targets, visit)
 	case domain.OperationCategoryCreate:
 		if len(operation.Targets) == 1 && operation.Targets[0] == operation.Create.EntityID {
-			return nil
+			return
 		}
-		return append([]domain.EntityID(nil), operation.Targets...)
+		visitEntityIDs(operation.Targets, visit)
 	case domain.OperationMerchantLabel, domain.OperationMerchantMerge:
-		return transactionsForMerchant(profile, operation.Targets[0])
+		visitTransactions(profile, visit, func(transaction domain.TransactionRecord) bool {
+			return transaction.MerchantID == operation.Targets[0]
+		})
 	case domain.OperationCategoryLabel, domain.OperationCategoryMove,
 		domain.OperationCategoryMerge, domain.OperationCategoryDelete:
-		return transactionsForCategory(profile, operation.Targets[0])
+		visitTransactions(profile, visit, func(transaction domain.TransactionRecord) bool {
+			return transaction.CategoryID == operation.Targets[0]
+		})
 	case domain.OperationGroupLabel, domain.OperationGroupMerge, domain.OperationGroupDelete:
-		return transactionsForGroup(profile, operation.Targets[0])
-	case domain.OperationGroupCreate:
-		return nil
-	default:
-		return nil
+		categories := make(map[domain.EntityID]struct{})
+		for _, category := range profile.Categories {
+			if category.GroupID == operation.Targets[0] {
+				categories[category.ID] = struct{}{}
+			}
+		}
+		visitTransactions(profile, visit, func(transaction domain.TransactionRecord) bool {
+			_, exists := categories[transaction.CategoryID]
+			return exists
+		})
 	}
 }
 
-func transactionsForMerchant(
-	profile domain.CommittedProfile,
-	id domain.EntityID,
-) []domain.EntityID {
-	var result []domain.EntityID
-	for _, transaction := range profile.Transactions {
-		if transaction.MerchantID == id {
-			result = append(result, transaction.ID)
+func visitEntityIDs(ids []domain.EntityID, visit func(domain.EntityID) bool) {
+	for _, id := range ids {
+		if !visit(id) {
+			return
 		}
 	}
-	return result
 }
 
-func transactionsForCategory(
+func visitTransactions(
 	profile domain.CommittedProfile,
-	id domain.EntityID,
-) []domain.EntityID {
-	var result []domain.EntityID
+	visit func(domain.EntityID) bool,
+	match func(domain.TransactionRecord) bool,
+) {
 	for _, transaction := range profile.Transactions {
-		if transaction.CategoryID == id {
-			result = append(result, transaction.ID)
+		if match(transaction) && !visit(transaction.ID) {
+			return
 		}
 	}
-	return result
-}
-
-func transactionsForGroup(
-	profile domain.CommittedProfile,
-	id domain.EntityID,
-) []domain.EntityID {
-	categories := make(map[domain.EntityID]struct{})
-	for _, category := range profile.Categories {
-		if category.GroupID == id {
-			categories[category.ID] = struct{}{}
-		}
-	}
-	var result []domain.EntityID
-	for _, transaction := range profile.Transactions {
-		if _, ok := categories[transaction.CategoryID]; ok {
-			result = append(result, transaction.ID)
-		}
-	}
-	return result
 }

@@ -31,6 +31,10 @@ const (
 	overlayHelp
 	overlayMerchantEditor
 	overlayCategoryEditor
+	overlayCategoryManager
+	overlayGroupManager
+	overlayReview
+	overlayQuit
 )
 
 type searchState struct {
@@ -43,28 +47,32 @@ type searchState struct {
 
 // Model owns terminal-only state around a renderer-neutral application session.
 type Model struct {
-	ctx       context.Context
-	service   *app.Service
-	session   app.Session
-	options   Options
-	palette   Palette
-	bindings  []binding
-	result    domain.QueryResult
-	width     int
-	height    int
-	cursor    int
-	scroll    int
-	status    string
-	err       error
-	overlay   overlayKind
-	search    searchState
-	filters   filterState
-	help      helpState
-	merchant  merchantEditorState
-	category  categoryEditorState
-	pending   app.PendingSummary
-	caps      map[app.ActionID]app.Capability
-	selection app.SelectionValue
+	ctx             context.Context
+	service         *app.Service
+	session         app.Session
+	options         Options
+	palette         Palette
+	bindings        []binding
+	result          domain.QueryResult
+	width           int
+	height          int
+	cursor          int
+	scroll          int
+	status          string
+	err             error
+	overlay         overlayKind
+	search          searchState
+	filters         filterState
+	help            helpState
+	merchant        merchantEditorState
+	category        categoryEditorState
+	categoryManager taxonomyManagerState
+	groupManager    taxonomyManagerState
+	review          reviewState
+	quit            quitState
+	pending         app.PendingSummary
+	caps            map[app.ActionID]app.Capability
+	selection       app.SelectionValue
 }
 
 // NewModel validates presentation options and evaluates the initial session.

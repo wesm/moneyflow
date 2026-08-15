@@ -174,6 +174,14 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderMerchantEditor(screen)
 	case overlayCategoryEditor:
 		model.renderCategoryEditor(screen)
+	case overlayCategoryManager:
+		model.renderCategoryManager(screen)
+	case overlayGroupManager:
+		model.renderGroupManager(screen)
+	case overlayReview:
+		model.renderReview(screen)
+	case overlayQuit:
+		model.renderQuit(screen)
 	}
 }
 

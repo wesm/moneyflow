@@ -88,12 +88,15 @@ func TestUpdateQuitRespectsTextInputOverlays(t *testing.T) {
 
 	model := newTestModel(t, app.NewSession())
 	model.width, model.height = 20, 5
-	_, command := model.Update(keyRune('q'))
-	assert.NotNil(t, command)
+	updated, command := model.Update(keyRune('q'))
+	model = updated.(Model)
+	assert.Nil(t, command)
+	assert.Equal(t, overlayQuit, model.overlay)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 	_, command = model.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	assert.NotNil(t, command)
 	model = press(t, model, keyRune('/'))
-	updated, command := model.Update(keyRune('q'))
+	updated, command = model.Update(keyRune('q'))
 	model = updated.(Model)
 	assert.Equal(t, "q", model.search.input.Value())
 	if command != nil {

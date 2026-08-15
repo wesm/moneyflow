@@ -11,8 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/parity"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 	"github.com/wesm/moneyflow/internal/tui"
 )
 
@@ -21,6 +24,7 @@ type visualScenario struct {
 	scenario  parity.FrameScenario
 	theme     tui.ThemeName
 	colorMode tui.ColorMode
+	durable   bool
 }
 
 func TestVisualGoldens(t *testing.T) {
@@ -28,8 +32,6 @@ func TestVisualGoldens(t *testing.T) {
 	document, err := parity.LoadFrameScenarios(filepath.Join(root, "testdata", "parity", "frame_scenarios.json"))
 	require.NoError(t, err)
 	transactions, err := fixture.Load(filepath.Join(root, document.Fixture))
-	require.NoError(t, err)
-	service, err := app.NewService(transactions)
 	require.NoError(t, err)
 	artifactDirectory := filepath.Join(root, "testdata", "parity", "go_frames")
 	update := os.Getenv("MONEYFLOW_UPDATE_GO_FRAMES") == "1"
@@ -46,6 +48,7 @@ func TestVisualGoldens(t *testing.T) {
 
 	for _, visual := range scenarios {
 		t.Run(visual.name, func(t *testing.T) {
+			service := visualGoldenService(t, transactions, visual.durable)
 			session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
 			require.NoError(t, sessionErr)
 			model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
@@ -56,6 +59,11 @@ func TestVisualGoldens(t *testing.T) {
 				Width: visual.scenario.Width, Height: visual.scenario.Height,
 			})
 			for _, keyName := range visual.scenario.Keys {
+				if keyName == "external_undo" {
+					_, mutationErr := service.Undo(context.Background(), service.Revision())
+					require.NoError(t, mutationErr)
+					continue
+				}
 				model = updateModel(t, model, semanticKey(keyName))
 			}
 			frame := model.RenderScreen().Frame
@@ -79,7 +87,7 @@ func TestVisualGoldens(t *testing.T) {
 }
 
 func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenario {
-	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames()))
+	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+7)
 	var merchant parity.FrameScenario
 	for _, scenario := range document.Scenarios {
 		result = append(result, visualScenario{
@@ -103,7 +111,60 @@ func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenar
 		name: "merchant_no_color", scenario: merchant,
 		theme: tui.ThemeDefault, colorMode: tui.ColorModeNone,
 	})
+	result = append(result, goOnlyEditingScenarios(merchant)...)
 	return result
+}
+
+func goOnlyEditingScenarios(initial parity.FrameScenario) []visualScenario {
+	definitions := []struct {
+		name string
+		keys []string
+	}{
+		{"category_manager", []string{"C"}},
+		{"group_manager", []string{"G"}},
+		{"redo_pending", []string{"h", "u"}},
+		{"active_inactive_review", []string{"h", "down", "h", "u", "w"}},
+		{"commit_redo_warning", []string{"h", "down", "h", "u", "w", "c"}},
+		{"durable_pending_quit", []string{"h", "q"}},
+		{"stale_review_conflict", []string{"h", "w", "c", "external_undo", "enter"}},
+	}
+	result := make([]visualScenario, 0, len(definitions))
+	for _, definition := range definitions {
+		scenario := initial
+		scenario.Name = definition.name
+		scenario.Keys = append([]string(nil), definition.keys...)
+		result = append(result, visualScenario{
+			name: definition.name, scenario: scenario, theme: tui.ThemeDefault,
+			colorMode: tui.ColorModeTrueColor, durable: true,
+		})
+	}
+	return result
+}
+
+func visualGoldenService(
+	t testing.TB,
+	transactions []domain.Transaction,
+	durable bool,
+) *app.Service {
+	t.Helper()
+	if !durable {
+		service, err := app.NewService(transactions)
+		require.NoError(t, err)
+		return service
+	}
+	ctx := context.Background()
+	paths, err := home.ResolveRoot(filepath.Join(t.TempDir(), "profile"), nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	committed, err := fixture.CommittedProfile(transactions)
+	require.NoError(t, err)
+	_, err = profile.CreateSeededProfile(ctx, committed)
+	require.NoError(t, err)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	return service
 }
 
 func removeStaleVisualArtifacts(t testing.TB, directory string, scenarios []visualScenario) {
