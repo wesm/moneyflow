@@ -193,6 +193,8 @@ type ViewMetadata struct {
 type Projection struct {
 	APISchemaVersion        string         `json:"api_schema_version"`
 	ProjectionSchemaVersion string         `json:"projection_schema_version"`
+	Revision                string         `json:"revision" pattern:"^[0-9]+$"`
+	Pending                 PendingSummary `json:"pending"`
 	CanonicalQuery          string         `json:"canonical_query"`
 	Selection               string         `json:"selection"`
 	View                    ViewMetadata   `json:"view"`
@@ -217,6 +219,7 @@ func projectionToWire(
 ) Projection {
 	wire := Projection{
 		APISchemaVersion: APISchemaVersion, ProjectionSchemaVersion: ProjectionSchemaVersion,
+		Revision: strconv.FormatUint(projection.Revision, 10), Pending: pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
 		View: ViewMetadata{
 			Mode:            string(projection.State.Current.Mode),

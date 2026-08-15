@@ -158,6 +158,34 @@ components:
         - amount
         - plot_ratio
       type: object
+    CommitBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        query:
+          maxLength: 65536
+          type: string
+        reviewed_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        selection:
+          maxLength: 1468006
+          type: string
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - version
+        - expected_revision
+        - reviewed_revision
+        - query
+        - window
+      type: object
     DetailRow:
       additionalProperties: false
       properties:
@@ -266,8 +294,13 @@ components:
           type: string
         data_status:
           type: string
+        pending:
+          $ref: "#/components/schemas/PendingSummary"
         read_only:
           type: boolean
+        revision:
+          pattern: ^[0-9]+$
+          type: string
         version:
           type: string
       required:
@@ -276,6 +309,8 @@ components:
         - read_only
         - base_path
         - data_status
+        - revision
+        - pending
       type: object
     Money:
       additionalProperties: false
@@ -298,6 +333,103 @@ components:
         - scale
         - decimal
         - display
+      type: object
+    MutationBody:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        input:
+          $ref: "#/components/schemas/MutationInput"
+        query:
+          maxLength: 65536
+          type: string
+        selection:
+          maxLength: 1468006
+          type: string
+        target:
+          $ref: "#/components/schemas/TransitionTarget"
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - version
+        - expected_revision
+        - query
+        - action
+        - input
+        - window
+      type: object
+    MutationInput:
+      additionalProperties: false
+      properties:
+        destination_id:
+          maxLength: 512
+          type: string
+        entity_id:
+          maxLength: 512
+          type: string
+        group_id:
+          maxLength: 512
+          type: string
+        label:
+          maxLength: 512
+          type: string
+        replacement_id:
+          maxLength: 512
+          type: string
+        scope:
+          maxLength: 32
+          type: string
+        taxonomy:
+          maxLength: 32
+          type: string
+      type: object
+    MutationResponse:
+      additionalProperties: false
+      properties:
+        canonical_query:
+          type: string
+        pending:
+          $ref: "#/components/schemas/PendingSummary"
+        projection:
+          $ref: "#/components/schemas/Projection"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        selection:
+          $ref: "#/components/schemas/SelectionDisposition"
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - canonical_query
+        - projection
+        - pending
+        - selection
+      type: object
+    PendingSummary:
+      additionalProperties: false
+      properties:
+        active_operations:
+          format: int64
+          type: integer
+        affected_transactions:
+          format: int64
+          type: integer
+        inactive_operations:
+          format: int64
+          type: integer
+      required:
+        - active_operations
+        - inactive_operations
+        - affected_transactions
       type: object
     Period:
       additionalProperties: false
@@ -322,8 +454,13 @@ components:
       properties:
         code:
           type: string
+        current_revision:
+          pattern: ^[0-9]+$
+          type: string
         detail:
           type: string
+        selection:
+          $ref: "#/components/schemas/SelectionDisposition"
         status:
           format: int64
           type: integer
@@ -376,7 +513,12 @@ components:
             - "null"
         filters:
           $ref: "#/components/schemas/ActiveFilters"
+        pending:
+          $ref: "#/components/schemas/PendingSummary"
         projection_schema_version:
+          type: string
+        revision:
+          pattern: ^[0-9]+$
           type: string
         selection:
           type: string
@@ -404,6 +546,8 @@ components:
       required:
         - api_schema_version
         - projection_schema_version
+        - revision
+        - pending
         - canonical_query
         - selection
         - view
@@ -432,6 +576,154 @@ components:
         - offset
         - limit
         - count
+      type: object
+    ReviewBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - expected_revision
+      type: object
+    ReviewOperation:
+      additionalProperties: false
+      properties:
+        active:
+          type: boolean
+        affected_count:
+          format: int64
+          type: integer
+        after:
+          type: string
+        before:
+          type: string
+        operation_id:
+          type: string
+        taxonomy_effect:
+          type: string
+        type:
+          type: string
+      required:
+        - operation_id
+        - type
+        - active
+        - affected_count
+      type: object
+    ReviewResponse:
+      additionalProperties: false
+      properties:
+        active_operations:
+          items:
+            $ref: "#/components/schemas/ReviewOperation"
+          type:
+            - array
+            - "null"
+        inactive_operations:
+          items:
+            $ref: "#/components/schemas/ReviewOperation"
+          type:
+            - array
+            - "null"
+        operation_id:
+          type: string
+        pending:
+          $ref: "#/components/schemas/PendingSummary"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        targets:
+          items:
+            $ref: "#/components/schemas/ReviewTarget"
+          type:
+            - array
+            - "null"
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/ReturnedWindow"
+      required:
+        - version
+        - revision
+        - pending
+        - active_operations
+        - inactive_operations
+        - window
+      type: object
+    ReviewTarget:
+      additionalProperties: false
+      properties:
+        category:
+          type: string
+        date:
+          type: string
+        hidden:
+          type: boolean
+        merchant:
+          type: string
+      required:
+        - date
+        - merchant
+        - category
+        - hidden
+      type: object
+    ReviewTargetsBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        operation_id:
+          maxLength: 512
+          type: string
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - version
+        - expected_revision
+        - operation_id
+        - window
+      type: object
+    RevisionBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        query:
+          maxLength: 65536
+          type: string
+        selection:
+          maxLength: 1468006
+          type: string
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - version
+        - expected_revision
+        - query
+        - window
+      type: object
+    SelectionDisposition:
+      additionalProperties: false
+      properties:
+        kind:
+          type: string
+        value:
+          type: string
+      required:
+        - kind
+        - value
       type: object
     Statistics:
       additionalProperties: false
@@ -611,6 +903,65 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
       summary: Issue browser-memory mutation configuration
+  /api/v1/commit:
+    post:
+      operationId: commitProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Commit one reviewed active journal prefix
   /api/v1/health:
     get:
       operationId: health
@@ -627,7 +978,300 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Error
-      summary: Report read-only fixture service health
+      summary: Report persistent profile service health
+  /api/v1/mutations:
+    post:
+      operationId: mutateProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MutationBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Apply one persistent profile action
+  /api/v1/redo:
+    post:
+      operationId: redoProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevisionBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+  /api/v1/review:
+    post:
+      operationId: reviewProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Review pending operation summaries
+  /api/v1/review/targets:
+    post:
+      operationId: reviewProfileTargets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewTargetsBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Review one bounded affected-target window
+  /api/v1/undo:
+    post:
+      operationId: undoProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevisionBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MutationResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
   /api/v1/view:
     post:
       operationId: projectView

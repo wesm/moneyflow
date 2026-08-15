@@ -82,8 +82,13 @@ func TestWireRequestShapesUseOpaqueSelectionAndBoundedWindow(t *testing.T) {
 func TestWireProjectionIncludesServerDerivedViewMetadata(t *testing.T) {
 	t.Parallel()
 
-	projection := app.WebProjection{State: app.DefaultViewState(), Selection: app.EmptySelection()}
+	projection := app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(), Revision: 42,
+		Pending: app.PendingSummary{ActiveOperations: 3, InactiveOperations: 1, AffectedTransactions: 7},
+	}
 	wire := projectionToWire(projection, "v=1", nil)
+	assert.Equal(t, "42", wire.Revision)
+	assert.Equal(t, PendingSummary{ActiveOperations: 3, InactiveOperations: 1, AffectedTransactions: 7}, wire.Pending)
 	assert.Equal(t, string(projection.State.Current.Mode), wire.View.Mode)
 	assert.Equal(t, string(projection.State.Current.Dimension), wire.View.Grouping)
 	assert.Equal(t, string(projection.State.Current.Sort.Field), wire.View.SortField)

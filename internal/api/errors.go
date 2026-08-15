@@ -17,6 +17,18 @@ const (
 	CodeInvalidToken ErrorCode = "invalid_token"
 	// CodeTokenExpired permits one bootstrap refresh and unchanged request retry.
 	CodeTokenExpired ErrorCode = "token_expired"
+	// CodeRevisionConflict requires a fresh projection and explicit reinvocation.
+	CodeRevisionConflict ErrorCode = "revision_conflict"
+	// CodeInvalidOperation identifies unsupported or malformed persistent intent.
+	CodeInvalidOperation ErrorCode = "invalid_operation"
+	// CodeInvalidTarget identifies a target that is unavailable for the requested action.
+	CodeInvalidTarget ErrorCode = "invalid_target"
+	// CodeSelectionStale returns deterministic selection recovery without applying an action.
+	CodeSelectionStale ErrorCode = "selection_stale"
+	// CodeStoreBusy requires an explicit retry after the bounded store wait.
+	CodeStoreBusy ErrorCode = "store_busy"
+	// CodeStoreError identifies a rolled-back runtime storage failure.
+	CodeStoreError ErrorCode = "store_error"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.
@@ -42,11 +54,13 @@ func newSafeError(code ErrorCode, detail string, cause error) *SafeError {
 
 // Problem is the single safe RFC 9457-compatible API error envelope.
 type Problem struct {
-	Type   string `json:"type,omitempty" format:"uri" default:"about:blank"`
-	Title  string `json:"title"`
-	Status int    `json:"status"`
-	Detail string `json:"detail"`
-	Code   string `json:"code"`
+	Type            string                `json:"type,omitempty" format:"uri" default:"about:blank"`
+	Title           string                `json:"title"`
+	Status          int                   `json:"status"`
+	Detail          string                `json:"detail"`
+	Code            string                `json:"code"`
+	CurrentRevision string                `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
+	Selection       *SelectionDisposition `json:"selection,omitempty"`
 }
 
 // Error satisfies error without exposing request data.

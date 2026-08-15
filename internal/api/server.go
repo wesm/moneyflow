@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -26,13 +27,15 @@ type Config struct {
 	Security *MutationSecurity
 }
 
-// Health reports non-sensitive process and fixture capability metadata.
+// Health reports non-sensitive process and persistent-profile metadata.
 type Health struct {
-	Version          string `json:"version"`
-	APISchemaVersion string `json:"api_schema_version"`
-	ReadOnly         bool   `json:"read_only"`
-	BasePath         string `json:"base_path"`
-	DataStatus       string `json:"data_status"`
+	Version          string         `json:"version"`
+	APISchemaVersion string         `json:"api_schema_version"`
+	ReadOnly         bool           `json:"read_only"`
+	BasePath         string         `json:"base_path"`
+	DataStatus       string         `json:"data_status"`
+	Revision         string         `json:"revision" pattern:"^[0-9]+$"`
+	Pending          PendingSummary `json:"pending"`
 }
 
 // Server owns a self-contained mux and its generated Huma contract.
@@ -102,15 +105,42 @@ func New(config Config) (*Server, error) {
 	humaAPI := humago.New(mux, humaConfig)
 	server := &Server{basePath: basePath, api: humaAPI, security: config.Security}
 	server.register(config, mux)
+	server.registerMutationEndpoints(config)
+	server.registerReviewEndpoints(config)
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler)
+	handler = persistentMutationSecurity(handler, basePath, config.Security)
 	handler = safeProblemResponses(handler)
 	handler = recoverAPI(handler)
 	handler = noStore(handler)
 	server.handler = handler
 	return server, nil
+}
+
+func persistentMutationSecurity(
+	next http.Handler,
+	basePath string,
+	security *MutationSecurity,
+) http.Handler {
+	protected := map[string]struct{}{
+		basePath + "api/v1/mutations":      {},
+		basePath + "api/v1/undo":           {},
+		basePath + "api/v1/redo":           {},
+		basePath + "api/v1/commit":         {},
+		basePath + "api/v1/review":         {},
+		basePath + "api/v1/review/targets": {},
+	}
+	guarded := security.Protect(next)
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		_, requiresProtection := protected[request.URL.Path]
+		if request.Method == http.MethodPost && requiresProtection {
+			guarded.ServeHTTP(response, request)
+			return
+		}
+		next.ServeHTTP(response, request)
+	})
 }
 
 // Handler returns the complete API handler without exposing its mux.
@@ -150,7 +180,10 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
 		Summary: "Issue browser-memory mutation configuration", Errors: []int{500},
-	}, func(_ context.Context, _ *struct{}) (*bootstrapOutput, error) {
+	}, func(ctx context.Context, _ *struct{}) (*bootstrapOutput, error) {
+		if _, err := config.Service.Refresh(ctx); err != nil {
+			return nil, problemFromError(err)
+		}
 		body, err := newBootstrap(
 			config.Version, config.Origin, config.Service.Revision(), config.Security,
 		)
@@ -165,18 +198,26 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "health", Method: http.MethodGet, Path: healthPath,
-		Summary: "Report read-only fixture service health",
-	}, func(_ context.Context, _ *struct{}) (*healthOutput, error) {
+		Summary: "Report persistent profile service health",
+	}, func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
+		if _, err := config.Service.Refresh(ctx); err != nil {
+			return nil, problemFromError(err)
+		}
 		return &healthOutput{Body: Health{
 			Version: config.Version, APISchemaVersion: APISchemaVersion,
-			ReadOnly: true, BasePath: server.basePath, DataStatus: "fixture",
+			ReadOnly: false, BasePath: server.basePath, DataStatus: "profile",
+			Revision: strconv.FormatUint(config.Service.Revision(), 10),
+			Pending:  pendingToWire(config.Service.Pending()),
 		}}, nil
 	})
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "projectView", Method: http.MethodPost, Path: viewPath,
 		Summary: "Project one stateless read-only view", Errors: []int{400, 413, 422, 500},
-	}, func(_ context.Context, input *viewInput) (*projectionOutput, error) {
+	}, func(ctx context.Context, input *viewInput) (*projectionOutput, error) {
+		if _, err := config.Service.Refresh(ctx); err != nil {
+			return nil, problemFromError(err)
+		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
 			return nil, problemFromError(err)
@@ -213,7 +254,10 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		OperationID: "transitionView", Method: http.MethodPost, Path: transitionPath,
 		Summary: "Apply one stateless read-only view transition",
 		Errors:  []int{400, 409, 413, 422, 500},
-	}, func(_ context.Context, input *transitionInput) (*projectionOutput, error) {
+	}, func(ctx context.Context, input *transitionInput) (*projectionOutput, error) {
+		if _, err := config.Service.Refresh(ctx); err != nil {
+			return nil, problemFromError(err)
+		}
 		state, _, err := DecodeViewQuery(input.Body.Query)
 		if err != nil {
 			return nil, problemFromError(err)
@@ -325,10 +369,43 @@ func problemFromError(err error) *Problem {
 	var safe *SafeError
 	if errors.As(err, &safe) {
 		status := http.StatusBadRequest
-		if safe.Code == CodeViewStateTooLarge {
+		switch safe.Code {
+		case CodeViewStateTooLarge:
 			status = http.StatusConflict
+		case CodeInvalidOperation:
+			status = http.StatusUnprocessableEntity
 		}
 		return newProblem(status, string(safe.Code), safe.Detail)
+	}
+	var application *app.AppError
+	if errors.As(err, &application) {
+		status := http.StatusInternalServerError
+		code := ErrorCode(application.Code)
+		switch application.Code {
+		case app.AppRevisionConflict, app.AppSelectionStale:
+			status = http.StatusConflict
+		case app.AppInvalidOperation:
+			status = http.StatusUnprocessableEntity
+		case app.AppInvalidTarget:
+			status = http.StatusConflict
+		case app.AppStoreBusy:
+			status = http.StatusServiceUnavailable
+		case app.AppStoreError:
+		case app.AppSchemaNewer, app.AppSchemaIncompatible, app.AppStoreCorrupt:
+			code = CodeStoreError
+		}
+		problem := newProblem(status, string(code), application.Detail)
+		problem.CurrentRevision = strconv.FormatUint(application.CurrentRevision, 10)
+		if application.Code == app.AppSelectionStale {
+			selection := application.Selection
+			kind := "refreshed"
+			if selection == "" || selection == app.EmptySelection() {
+				selection = app.EmptySelection()
+				kind = "cleared"
+			}
+			problem.Selection = &SelectionDisposition{Kind: kind, Value: string(selection)}
+		}
+		return problem
 	}
 	var selectionErr *app.SelectionError
 	if errors.As(err, &selectionErr) {

@@ -4,6 +4,8 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
   return {
     api_schema_version: '1',
     projection_schema_version: '1',
+    revision: '0',
+    pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: 'v=1',
     selection: 'mfsel1.example' as ViewProjection['selection'],
     view: {

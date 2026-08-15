@@ -31,8 +31,10 @@ func TestServerHealthAndBasePath(t *testing.T) {
 	assert.NotContains(t, response.Body.String(), "$schema")
 	assert.Equal(t, "/moneyflow/", body.BasePath)
 	assert.Equal(t, APISchemaVersion, body.APISchemaVersion)
-	assert.True(t, body.ReadOnly)
-	assert.Equal(t, "fixture", body.DataStatus)
+	assert.False(t, body.ReadOnly)
+	assert.Equal(t, "profile", body.DataStatus)
+	assert.Equal(t, "0", body.Revision)
+	assert.Zero(t, body.Pending.ActiveOperations)
 
 	outside := requestServer(t, server, http.MethodGet, "/api/v1/health", nil)
 	assert.Equal(t, http.StatusNotFound, outside.Code)
@@ -48,6 +50,8 @@ func TestServerProjectsAndTransitionsCanonicalViews(t *testing.T) {
 	var projection Projection
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
 	assert.Equal(t, "v=1", projection.CanonicalQuery)
+	assert.Equal(t, "0", projection.Revision)
+	assert.Zero(t, projection.Pending.ActiveOperations)
 	assert.NotEmpty(t, projection.Selection)
 	assert.NotEmpty(t, projection.AggregateRows)
 
@@ -143,6 +147,24 @@ func TestServerEnforcesBodyLimitAndMethods(t *testing.T) {
 	response = requestServer(t, server, http.MethodHead, "/api/v1/health", nil)
 	assert.Equal(t, http.StatusOK, response.Code)
 	assert.Empty(t, response.Body.String())
+}
+
+func TestServerProtectsEveryPersistentEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := newPersistentAPITestServer(t)
+	for _, path := range []string{
+		"/api/v1/mutations", "/api/v1/undo", "/api/v1/redo", "/api/v1/commit",
+		"/api/v1/review", "/api/v1/review/targets",
+	} {
+		t.Run(path, func(t *testing.T) {
+			response := requestServer(t, server, http.MethodPost, path, strings.NewReader(`{}`))
+			assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+			var problem Problem
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.Equal(t, string(CodeInvalidOrigin), problem.Code)
+		})
+	}
 }
 
 func TestServerEnforcesBodyLimitWithoutContentLength(t *testing.T) {
