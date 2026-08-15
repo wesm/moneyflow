@@ -210,7 +210,6 @@ func (profile CommittedProfile) Validate() error {
 		}
 	}
 
-	transactionIDs := make(map[EntityID]struct{}, len(profile.Transactions))
 	for _, transaction := range profile.Transactions {
 		if transaction.ID == "" {
 			return errors.New("validate profile: transaction ID is empty")
@@ -218,7 +217,6 @@ func (profile CommittedProfile) Validate() error {
 		if err := addEntityID(allIDs, transaction.ID, EntityKindTransaction); err != nil {
 			return err
 		}
-		transactionIDs[transaction.ID] = struct{}{}
 		if account, ok := accounts[transaction.AccountID]; !ok || account.Retired {
 			return fmt.Errorf("validate profile: transaction %q references missing or retired account %q", transaction.ID, transaction.AccountID)
 		}
@@ -246,8 +244,14 @@ func (profile CommittedProfile) Validate() error {
 		}
 	}
 
-	seenExternal := make(map[string]struct{}, len(profile.ExternalIdentities))
-	seenLocalExternal := make(map[string]struct{}, len(profile.ExternalIdentities))
+	type providerIdentityKey struct{ namespace, externalID string }
+	type localProviderIdentityKey struct {
+		kind      EntityKind
+		entityID  EntityID
+		namespace string
+	}
+	seenExternal := make(map[providerIdentityKey]struct{}, len(profile.ExternalIdentities))
+	seenLocalExternal := make(map[localProviderIdentityKey]struct{}, len(profile.ExternalIdentities))
 	for _, identity := range profile.ExternalIdentities {
 		if identity.Namespace == "" || identity.ExternalID == "" {
 			return errors.New("validate profile: external identity is incomplete")
@@ -264,13 +268,14 @@ func (profile CommittedProfile) Validate() error {
 		if (!entityExists && !transactionTombstone) || (entityExists && kind != identity.EntityType) {
 			return fmt.Errorf("validate profile: external identity references unknown %s %q", identity.EntityType, identity.EntityID)
 		}
-		key := identity.Namespace + "\x00" + identity.ExternalID
+		key := providerIdentityKey{identity.Namespace, identity.ExternalID}
 		if _, exists := seenExternal[key]; exists {
 			return fmt.Errorf("validate profile: duplicate external identity %q", identity.ExternalID)
 		}
 		seenExternal[key] = struct{}{}
-		localKey := string(identity.EntityType) + "\x00" + string(identity.EntityID) + "\x00" +
-			identity.Namespace
+		localKey := localProviderIdentityKey{
+			kind: identity.EntityType, entityID: identity.EntityID, namespace: identity.Namespace,
+		}
 		if _, exists := seenLocalExternal[localKey]; exists {
 			return fmt.Errorf(
 				"validate profile: duplicate local external identity for %s %q",

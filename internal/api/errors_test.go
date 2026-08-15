@@ -36,6 +36,7 @@ func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {
 		{app.AppSelectionStale, http.StatusConflict},
 		{app.AppStoreBusy, http.StatusServiceUnavailable},
 		{app.AppStoreError, http.StatusInternalServerError},
+		{app.AppJournalFull, http.StatusConflict},
 	}
 	for _, test := range tests {
 		t.Run(string(test.code), func(t *testing.T) {

@@ -24,6 +24,7 @@ func TestAppErrorMapsStableStoreCodesAndReliableRevision(t *testing.T) {
 		store.CodeSchemaNewer:        app.AppSchemaNewer,
 		store.CodeSchemaIncompatible: app.AppSchemaIncompatible,
 		store.CodeStoreCorrupt:       app.AppStoreCorrupt,
+		store.CodeJournalFull:        app.AppJournalFull,
 	}
 	for storageCode, appCode := range tests {
 		t.Run(string(storageCode), func(t *testing.T) {

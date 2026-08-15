@@ -392,6 +392,8 @@ func problemFromError(err error) *Problem {
 			status = http.StatusConflict
 		case app.AppStoreBusy:
 			status = http.StatusServiceUnavailable
+		case app.AppJournalFull:
+			status = http.StatusConflict
 		case app.AppStoreError:
 		case app.AppSchemaNewer, app.AppSchemaIncompatible, app.AppStoreCorrupt:
 			code = CodeStoreError

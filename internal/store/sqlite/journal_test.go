@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -171,6 +172,81 @@ func TestMoveCursorChecksAuthoritativeRevisionBeforeBoundary(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, revision, loaded.Revision)
 	assert.Equal(t, 1, loaded.Cursor)
+}
+
+func TestJournalLimitRejectsAppendAtOperationCeilingWithoutChangingState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	_, err := profile.database.ExecContext(ctx, `
+		WITH RECURSIVE numbers(value) AS (
+			SELECT 1 UNION ALL SELECT value + 1 FROM numbers WHERE value < ?
+		)
+		INSERT INTO journal_operations(
+			id, sequence, operation_type, payload_version, creation_revision, created_at_unix_ms
+		)
+		SELECT printf('operation_limit_%05d', value), value,
+			'transaction.hide-toggle', 1, 1, 1786712400000 FROM numbers`, maxJournalOperations)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO operation_payloads(operation_id, payload_version, payload_json)
+		SELECT id, 1, '{}' FROM journal_operations WHERE id LIKE 'operation_limit_%'`)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO operation_targets(operation_id, ordinal, entity_id)
+		SELECT id, 0, 'transaction_a' FROM journal_operations WHERE id LIKE 'operation_limit_%'`)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx,
+		"UPDATE profile_state SET journal_cursor = ? WHERE singleton = 1", maxJournalOperations)
+	require.NoError(t, err)
+
+	before := journalCounts(t, profile)
+	_, err = profile.Append(ctx, 1, draftHideOperation("operation_over_limit", 1, "transaction_b"))
+	assertStoreCode(t, err, store.CodeJournalFull)
+	assert.Equal(t, before, journalCounts(t, profile))
+
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, maxJournalOperations, loaded.Cursor)
+	assert.Len(t, loaded.Journal, maxJournalOperations)
+	revision, err := profile.MoveCursor(ctx, 1, -1)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), revision)
+}
+
+func TestJournalLimitBoundaries(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateJournalCapacity(
+		maxJournalOperations-1, maxJournalTargets-1, 1,
+	))
+	assert.ErrorIs(t, validateJournalCapacity(maxJournalOperations, 0, 1), errJournalFull)
+	assert.ErrorIs(t, validateJournalCapacity(0, maxJournalTargets, 1), errJournalFull)
+}
+
+func TestJournalLimitRejectsOversizedTargetBatchBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	operation := draftHideOperation("operation_too_many_targets", 1, "transaction_a")
+	operation.Targets = make([]domain.EntityID, maxJournalTargets+1)
+	before := journalCounts(t, profile)
+
+	_, err := profile.Append(ctx, 1, operation)
+	assertStoreCode(t, err, store.CodeJournalFull)
+	assert.Equal(t, before, journalCounts(t, profile))
+}
+
+func journalCounts(t *testing.T, profile *profile) string {
+	t.Helper()
+	var operations, targets, cursor int
+	require.NoError(t, profile.database.QueryRow(`
+		SELECT (SELECT count(*) FROM journal_operations),
+			(SELECT count(*) FROM operation_targets), journal_cursor
+		FROM profile_state WHERE singleton = 1`).Scan(&operations, &targets, &cursor))
+	return fmt.Sprintf("%d/%d/%d", operations, targets, cursor)
 }
 
 func openSeededProfile(t *testing.T, options Options) *profile {

@@ -12,13 +12,26 @@ import (
 	"github.com/wesm/moneyflow/internal/store"
 )
 
+const (
+	maxJournalOperations = 10_000
+	maxJournalTargets    = 1_000_000
+)
+
+var errJournalFull = errors.New("pending journal capacity exceeded")
+
 func (profile *profile) Append(
 	ctx context.Context,
 	expectedRevision uint64,
 	operation domain.Operation,
 ) (uint64, error) {
+	if len(operation.Targets) > maxJournalTargets {
+		return 0, store.NewError(store.CodeJournalFull, errJournalFull)
+	}
 	if err := operation.ValidateDraft(); err != nil {
 		return 0, store.NewError(store.CodeInvalidOperation, err)
+	}
+	if err := validateJournalCapacity(0, 0, len(operation.Targets)); err != nil {
+		return 0, store.NewError(store.CodeJournalFull, err)
 	}
 	if operation.CreatedRevision != expectedRevision {
 		return 0, store.NewError(
@@ -52,6 +65,15 @@ func (profile *profile) Append(
 	if err = truncateRedoTail(ctx, connection, cursor, count); err != nil {
 		return 0, err
 	}
+	var targetCount int
+	if err = connection.QueryRowContext(ctx, "SELECT count(*) FROM operation_targets").Scan(
+		&targetCount,
+	); err != nil {
+		return 0, mapDriverError(err, store.CodeStoreError)
+	}
+	if err = validateJournalCapacity(cursor, targetCount, len(operation.Targets)); err != nil {
+		return 0, store.NewError(store.CodeJournalFull, err)
+	}
 	var sequence int64
 	if err = connection.QueryRowContext(ctx,
 		"SELECT coalesce(max(sequence), 0) + 1 FROM journal_operations").Scan(&sequence); err != nil {
@@ -72,6 +94,17 @@ func (profile *profile) Append(
 		return 0, err
 	}
 	return next, nil
+}
+
+func validateJournalCapacity(operationCount, targetCount, newTargetCount int) error {
+	if operationCount < 0 || targetCount < 0 || newTargetCount < 0 {
+		return errors.New("journal capacity counts are negative")
+	}
+	if operationCount >= maxJournalOperations || newTargetCount > maxJournalTargets ||
+		targetCount > maxJournalTargets-newTargetCount {
+		return errJournalFull
+	}
+	return nil
 }
 
 func truncateRedoTail(

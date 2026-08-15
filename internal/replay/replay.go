@@ -32,9 +32,6 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 			return EffectiveSnapshot{}, fmt.Errorf("replay operation[%d]: %w", index, err)
 		}
 	}
-	if _, err := effective.MaterializeTransactions(); err != nil {
-		return EffectiveSnapshot{}, fmt.Errorf("replay materialize: %w", err)
-	}
 	return EffectiveSnapshot{
 		Revision: snapshot.Revision, Cursor: snapshot.Cursor,
 		Committed: owned.Committed.Clone(), Effective: effective,

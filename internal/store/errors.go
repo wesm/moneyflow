@@ -15,6 +15,7 @@ const (
 	CodeSchemaNewer        ErrorCode = "schema_newer"
 	CodeSchemaIncompatible ErrorCode = "schema_incompatible"
 	CodeStoreCorrupt       ErrorCode = "store_corrupt"
+	CodeJournalFull        ErrorCode = "journal_full"
 )
 
 var safeDetails = map[ErrorCode]string{
@@ -26,6 +27,7 @@ var safeDetails = map[ErrorCode]string{
 	CodeSchemaNewer:        "profile schema is newer than this application",
 	CodeSchemaIncompatible: "profile schema is incompatible with this application",
 	CodeStoreCorrupt:       "profile is corrupt",
+	CodeJournalFull:        "pending edit limit reached",
 }
 
 // Error contains only allowlisted renderer detail while retaining an internal diagnostic cause.

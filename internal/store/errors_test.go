@@ -17,9 +17,9 @@ func TestStableErrorCodesAndSafeRendererDetail(t *testing.T) {
 	codes := []store.ErrorCode{
 		store.CodeRevisionConflict, store.CodeInvalidOperation, store.CodeInvalidTarget,
 		store.CodeStoreBusy, store.CodeStoreError, store.CodeSchemaNewer,
-		store.CodeSchemaIncompatible, store.CodeStoreCorrupt,
+		store.CodeSchemaIncompatible, store.CodeStoreCorrupt, store.CodeJournalFull,
 	}
-	require.Len(t, codes, 8)
+	require.Len(t, codes, 9)
 	for _, code := range codes {
 		failure := store.NewError(code, errors.New(
 			`merchant Private Merchant transaction_123 SELECT * FROM x /private/profile.db`,
@@ -32,6 +32,14 @@ func TestStableErrorCodesAndSafeRendererDetail(t *testing.T) {
 		assert.NotContains(t, failure.Error(), "/private/profile.db")
 		assert.ErrorContains(t, errors.Unwrap(failure), "Private Merchant")
 	}
+}
+
+func TestJournalFullErrorUsesAllowlistedDetail(t *testing.T) {
+	t.Parallel()
+
+	failure := store.NewError(store.CodeJournalFull, errors.New("private target detail"))
+	assert.Equal(t, "journal_full: pending edit limit reached", failure.Error())
+	assert.NotContains(t, failure.Error(), "private target detail")
 }
 
 func TestRevisionErrorExposesOnlyReliableRevisionNumbers(t *testing.T) {

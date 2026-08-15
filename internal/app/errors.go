@@ -22,6 +22,7 @@ const (
 	AppSchemaNewer        AppErrorCode = "schema_newer"
 	AppSchemaIncompatible AppErrorCode = "schema_incompatible"
 	AppStoreCorrupt       AppErrorCode = "store_corrupt"
+	AppJournalFull        AppErrorCode = "journal_full"
 )
 
 var appErrorDetails = map[AppErrorCode]string{
@@ -34,6 +35,7 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppSchemaNewer:        "The profile was created by a newer application.",
 	AppSchemaIncompatible: "The profile format is not supported.",
 	AppStoreCorrupt:       "The profile is corrupt and cannot be opened.",
+	AppJournalFull:        "The pending edit limit is reached. Review or undo existing edits.",
 }
 
 // AppError carries allowlisted recovery state without exposing diagnostics.
@@ -112,6 +114,8 @@ func mapAppError(err error, reliableRevision uint64) error {
 			code = AppSchemaIncompatible
 		case store.CodeStoreCorrupt:
 			code = AppStoreCorrupt
+		case store.CodeJournalFull:
+			code = AppJournalFull
 		case store.CodeStoreError:
 		}
 		if storage.CurrentRevision != nil {
