@@ -3,6 +3,7 @@ package monarch
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"io"
@@ -57,6 +58,9 @@ func NewClient(options Options, authorization string, deviceUUID string) (*Clien
 	}
 	if options.Now == nil {
 		options.Now = time.Now
+	}
+	if options.Random == nil {
+		options.Random = cryptorand.Reader
 	}
 	if options.Sleep == nil {
 		options.Sleep = sleepContext
