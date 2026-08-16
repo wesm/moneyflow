@@ -90,6 +90,48 @@ func TestProviderRefreshImportsBindsAndValidatesIdentityEveryTime(t *testing.T) 
 	assert.Equal(t, 2, source.probeCalls())
 }
 
+func TestProviderRefreshFoldsMonarchUncategorizedShapesIntoSQLite(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 18, 15, 0, 0, time.UTC)
+	snapshot := providerSnapshot(t, now, 1)
+	snapshot.Categories[0].ParentExternalID = ""
+	snapshot.Transactions[0].CategoryExternalID = ""
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: snapshot, fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 1)
+	assert.Equal(
+		t,
+		domain.UncategorizedCategoryID,
+		loaded.Committed.Transactions[0].CategoryID,
+	)
+	categoryID := providerEntityID(
+		t,
+		loaded.Committed,
+		domain.EntityKindCategory,
+		"category-example",
+	)
+	for _, category := range loaded.Committed.Categories {
+		if category.ID == categoryID {
+			assert.Equal(t, domain.UncategorizedGroupID, category.GroupID)
+			return
+		}
+	}
+	t.Fatalf("provider category %q not found", categoryID)
+}
+
 func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -485,6 +527,23 @@ func transactionExternalID(index int) string {
 		index /= 10
 	}
 	return string(value)
+}
+
+func providerEntityID(
+	t testing.TB,
+	committed domain.CommittedProfile,
+	kind domain.EntityKind,
+	externalID string,
+) domain.EntityID {
+	t.Helper()
+	namespace := "monarch/" + string(kind)
+	for _, identity := range committed.ExternalIdentities {
+		if identity.Namespace == namespace && identity.ExternalID == externalID {
+			return identity.EntityID
+		}
+	}
+	t.Fatalf("provider identity %s/%s not found", namespace, externalID)
+	return ""
 }
 
 type fakeProviderSource struct {

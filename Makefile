@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-provider test-provider-e2e test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-go-quick test-provider test-provider-e2e test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -22,6 +22,9 @@ test:
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
 	go test ./internal/api -run '^TestProjectionPerformance100K$$' -count=1
 
+test-go-quick:
+	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
+
 test-store:
 	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|ProviderRefresh100KPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
 	go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
@@ -44,6 +47,13 @@ vet:
 
 lint:
 	GOLANGCI_LINT_CACHE="$(CURDIR)/.cache/golangci-lint" golangci-lint run --config .golangci.yml
+
+install-hooks:
+	@if ! command -v prek >/dev/null 2>&1; then \
+		echo "prek not found. Install with: brew install prek" >&2; \
+		exit 1; \
+	fi
+	prek install -f
 
 parity-python:
 	uv run python -m moneyflow.parity.semantic --check

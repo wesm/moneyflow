@@ -486,9 +486,12 @@ func validateCandidateMaterialization(
 		if err != nil {
 			return err
 		}
-		parentID, err := resolve(domain.EntityKindGroup, imported.ParentExternalID)
+		parentID := domain.UncategorizedGroupID
+		if imported.ParentExternalID != "" {
+			parentID, err = resolve(domain.EntityKindGroup, imported.ParentExternalID)
+		}
 		category, exists := categories[id]
-		if err != nil || !exists || category.Retired || category.GroupID != parentID {
+		if err != nil || !groups[parentID] || !exists || category.Retired || category.GroupID != parentID {
 			return errors.New("refresh candidate category is not materialized")
 		}
 	}
@@ -503,9 +506,20 @@ func validateCandidateMaterialization(
 		}
 		accountID, accountErr := resolve(domain.EntityKindAccount, imported.AccountExternalID)
 		merchantID, merchantErr := resolve(domain.EntityKindMerchant, imported.MerchantExternalID)
-		categoryID, categoryErr := resolve(domain.EntityKindCategory, imported.CategoryExternalID)
+		categoryID := domain.UncategorizedCategoryID
+		var categoryErr error
+		if imported.CategoryExternalID != "" {
+			categoryID, categoryErr = resolve(
+				domain.EntityKindCategory,
+				imported.CategoryExternalID,
+			)
+		}
+		category, categoryExists := categories[categoryID]
 		if accountErr != nil || merchantErr != nil || categoryErr != nil {
 			return errors.New("refresh candidate transaction is not materialized")
+		}
+		if !categoryExists || category.Retired {
+			return errors.New("refresh candidate transaction category is not active")
 		}
 		expectedTransactions[id] = domain.TransactionRecord{
 			ID: id, Provider: binding.Kind, ProviderID: imported.ExternalID,
