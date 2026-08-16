@@ -97,6 +97,36 @@ type ProviderStatus struct {
 	Summary           store.RefreshSummary
 }
 
+// ProviderConnectionState exposes only the binding facts needed by the CLI lifecycle.
+type ProviderConnectionState struct {
+	Pristine        bool
+	Bound           bool
+	Kind            string
+	RemoteProfileID string
+}
+
+// ProviderConnection returns the current pristine and binding state without provider I/O.
+func (service *Service) ProviderConnection(ctx context.Context) (ProviderConnectionState, error) {
+	if service.profile == nil {
+		return ProviderConnectionState{}, newAppError(
+			AppInvalidOperation,
+			service.Revision(),
+			errors.New("provider connection requires a persistent profile"),
+		)
+	}
+	state, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return ProviderConnectionState{}, mapAppError(err, service.Revision())
+	}
+	result := ProviderConnectionState{Pristine: state.Pristine}
+	if state.Binding != nil {
+		result.Bound = true
+		result.Kind = state.Binding.Kind
+		result.RemoteProfileID = state.Binding.RemoteProfileID
+	}
+	return result, nil
+}
+
 // ConfigureProvider installs process-local provider dependencies without reading the network.
 func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	if runtime.Source == nil || runtime.Provider == "" ||

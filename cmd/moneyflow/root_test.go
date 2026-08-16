@@ -35,6 +35,7 @@ func TestRootCommandHelp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, stderr)
 	assert.Contains(t, stdout, "Portable personal-finance analysis")
+	assert.Contains(t, stdout, "moneyflow provider connect monarch")
 	assert.Contains(t, stdout, "moneyflow version")
 }
 

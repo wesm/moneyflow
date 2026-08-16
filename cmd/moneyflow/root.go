@@ -18,6 +18,9 @@ import (
 type tuiRunner func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error
 type openAPIWriter func(format string) ([]byte, error)
 
+// PromptFunc reads one local prompt value. Secret prompts must disable terminal echo.
+type PromptFunc func(context.Context, string, bool) (string, error)
+
 // IOStreams contains command input, output, and the injectable terminal runner.
 type IOStreams struct {
 	In     io.Reader
@@ -27,6 +30,9 @@ type IOStreams struct {
 	RunWeb WebRunner
 	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
 	OpenProfile ProfileOpener
+	// OpenMonarch and Prompt are provider lifecycle seams overridden in tests.
+	OpenMonarch MonarchCommandFactory
+	Prompt      PromptFunc
 	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.
 	Listen        ListenerFactory
 	OpenBrowser   BrowserOpener
@@ -73,9 +79,12 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	}
 
 	command := &cobra.Command{
-		Use:           "moneyflow",
-		Short:         "Portable personal-finance analysis",
-		Example:       "  moneyflow demo\n  moneyflow web --open=false\n  moneyflow version",
+		Use:   "moneyflow",
+		Short: "Portable personal-finance analysis",
+		Example: "  moneyflow demo\n" +
+			"  moneyflow provider connect monarch\n" +
+			"  moneyflow web --open=false\n" +
+			"  moneyflow version",
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -112,6 +121,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	})
 	command.AddCommand(newOpenAPICommand(streams))
 	command.AddCommand(newWebCommand(streams, &fixturePath))
+	command.AddCommand(newProviderCommand(streams))
 	return command
 }
 

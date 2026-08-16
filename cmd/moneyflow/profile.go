@@ -27,6 +27,7 @@ type OpenedProfile struct {
 	Service *app.Service
 	Close   func() error
 	Path    string
+	Paths   home.Paths
 	Demo    bool
 }
 
@@ -70,6 +71,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		Service: service,
 		Close:   idempotentClose(profile.Close),
 		Path:    paths.Database,
+		Paths:   paths,
 	}, nil
 }
 
@@ -119,8 +121,9 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 				profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
 			)
 		}),
-		Path: paths.Database,
-		Demo: true,
+		Path:  paths.Database,
+		Paths: paths,
+		Demo:  true,
 	}, nil
 }
 
