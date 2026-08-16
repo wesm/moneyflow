@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
@@ -273,7 +274,9 @@ func includeTransactionAccounts(
 		if _, exists := providerOwned[account.ID]; exists {
 			continue
 		}
-		if !validProviderText(account.ID) || !validProviderText(account.DisplayName) {
+		var err error
+		account.DisplayName, err = normalizeProviderLabel(account.DisplayName)
+		if !validProviderText(account.ID) || err != nil {
 			return nil, provider.NewDataInvalidError(provider.DataInvalidTransactionID)
 		}
 		if name, exists := known[account.ID]; exists {
@@ -304,7 +307,9 @@ func includeTransactionMerchants(
 		if _, exists := providerOwned[merchant.ID]; exists {
 			continue
 		}
-		if !validProviderText(merchant.ID) || !validProviderText(merchant.Name) {
+		var err error
+		merchant.Name, err = normalizeProviderLabel(merchant.Name)
+		if !validProviderText(merchant.ID) || err != nil {
 			return nil, provider.NewDataInvalidError(provider.DataInvalidTransactionID)
 		}
 		if name, exists := known[merchant.ID]; exists {
@@ -372,12 +377,14 @@ func validateEntities(
 	entities []domain.ImportEntity,
 ) ([]domain.ImportEntity, map[string]struct{}, error) {
 	ids := make(map[string]struct{}, len(entities))
-	for _, entity := range entities {
-		if !validProviderText(entity.ExternalID) || !validProviderText(entity.Label) ||
+	for index, entity := range entities {
+		label, err := normalizeProviderLabel(entity.Label)
+		if err != nil || !validProviderText(entity.ExternalID) ||
 			(entity.Kind == domain.EntityKindCategory && entity.ParentExternalID != "" &&
 				!validProviderText(entity.ParentExternalID)) {
 			return nil, nil, provider.NewDataInvalidError(provider.DataInvalidEntity)
 		}
+		entities[index].Label = label
 		if _, duplicate := ids[entity.ExternalID]; duplicate {
 			return nil, nil, provider.NewDataInvalidError(provider.DataInvalidDuplicateIdentity)
 		}
@@ -448,6 +455,22 @@ func sortSnapshot(snapshot *domain.ImportSnapshot) {
 
 func validProviderText(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value
+}
+
+func normalizeProviderLabel(value string) (string, error) {
+	var normalized strings.Builder
+	normalized.Grow(len(value))
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			character = ' '
+		}
+		normalized.WriteRune(character)
+	}
+	label, err := domain.NormalizeDisplayLabel(normalized.String())
+	if err != nil {
+		return "", provider.NewDataInvalidError(provider.DataInvalidEntity)
+	}
+	return label, nil
 }
 
 func validCurrency(currency domain.Currency) bool {

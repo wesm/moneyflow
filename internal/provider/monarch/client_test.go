@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,4 +52,58 @@ func TestClientDecodesMinimalReadResponses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, page.TotalCount)
 	assert.Equal(t, "transaction-a", page.Results[0].ID)
+}
+
+func TestClientAppliesTransactionRangeToVisibleAndHiddenPages(t *testing.T) {
+	t.Parallel()
+
+	var filtersSeen []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var envelope graphQLRequest
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&envelope))
+		filters := envelope.Variables["filters"].(map[string]any)
+		filtersSeen = append(filtersSeen, filters)
+		_, _ = writer.Write([]byte(`{"data":{"allTransactions":{"totalCount":0,"results":[]}}}`))
+	}))
+	t.Cleanup(server.Close)
+	endpoint, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	client, err := NewClient(Options{
+		HTTPClient:           &http.Client{Timeout: time.Second},
+		GraphQLURL:           endpoint,
+		TransactionStartDate: "2026-08-01",
+		TransactionEndDate:   "2026-08-15",
+	}, "session-token", "device-a")
+	require.NoError(t, err)
+
+	for _, hidden := range []bool{false, true} {
+		_, err = client.GetTransactionsPage(context.Background(), TransactionPageRequest{
+			Offset: 0, Limit: 1000, Hidden: hidden,
+		})
+		require.NoError(t, err)
+	}
+	require.Len(t, filtersSeen, 2)
+	for index, hidden := range []bool{false, true} {
+		assert.Equal(t, hidden, filtersSeen[index]["hideFromReports"])
+		assert.Equal(t, "2026-08-01", filtersSeen[index]["startDate"])
+		assert.Equal(t, "2026-08-15", filtersSeen[index]["endDate"])
+	}
+}
+
+func TestClientRejectsIncompleteOrInvalidTransactionRange(t *testing.T) {
+	t.Parallel()
+
+	for name, dates := range map[string][2]string{
+		"missing end":   {"2026-08-01", ""},
+		"missing start": {"", "2026-08-15"},
+		"invalid date":  {"2026-08-XX", "2026-08-15"},
+		"reversed":      {"2026-08-15", "2026-08-01"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewClient(Options{
+				TransactionStartDate: dates[0], TransactionEndDate: dates[1],
+			}, "session-token", "device-a")
+			assert.ErrorContains(t, err, "transaction date range")
+		})
+	}
 }

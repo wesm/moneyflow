@@ -101,6 +101,42 @@ func TestProviderConnectCreatesCurrentSchemaAndBindsPristineProfile(t *testing.T
 	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
+func TestProviderConnectMonthToDateSeedsPristineProfile(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	connector := &fakeMonarchConnector{
+		session: testMonarchSession(commandCredentialTime, "subscription-example"),
+	}
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, commandCredentialTime),
+	}
+	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
+
+	stdout, _, err := executeProviderCommand(
+		t, connector, source, prompts.Prompt,
+		"provider", "connect", "monarch", "--mtd",
+	)
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "Imported 1 posted month-to-date transaction.")
+	assert.Equal(t, "2026-08-01", source.startDate)
+	assert.Equal(t, "2026-08-15", source.endDate)
+}
+
+func TestProviderConnectMonthToDateRefusesPopulatedProfile(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	bindCommandProfile(t, root, commandCredentialTime)
+	source := &commandProviderSource{}
+
+	_, _, err := executeProviderCommand(
+		t, &fakeMonarchConnector{}, source, nil,
+		"provider", "connect", "monarch", "--mtd",
+	)
+	require.ErrorContains(t, err, "month-to-date import requires a pristine profile")
+	assert.Empty(t, source.startDate)
+}
+
 func TestProviderConnectRefusesJournalOnlyAndPopulatedProfiles(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 22, 15, 0, 0, time.UTC)
 	for _, test := range []struct {
@@ -691,6 +727,16 @@ type commandProviderSource struct {
 	snapshot    domain.ImportSnapshot
 	fetchErr    error
 	fingerprint provider.SessionFingerprint
+	startDate   string
+	endDate     string
+}
+
+func (source *commandProviderSource) SetTransactionRange(startDate string, endDate string) error {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.startDate = startDate
+	source.endDate = endDate
+	return nil
 }
 
 func (source *commandProviderSource) Reader(

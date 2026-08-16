@@ -983,7 +983,8 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
       explicit login/import progress, valid retained-session import retry without prompts,
       saved-settings reconnect with one vault-password prompt, same-household reconnect,
       different-household refusal, initial-import rollback with retained session and credentials,
-      and disconnect preserving SQLite state.
+      Python-compatible `--mtd` pristine seeding and populated-profile refusal, and disconnect
+      preserving SQLite state.
 
   ```go
   func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
@@ -1004,7 +1005,9 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 3: Implement injected command orchestration.** Add prompt seams to `IOStreams`, never
       echo secrets, authenticate and validate before atomic session installation, call initial
-      refresh/bind, and print only safe status. Disconnect removes only the session file.
+      refresh/bind, and print only safe status. `--mtd` applies an inclusive first-of-month through
+      current-date transaction range only while seeding a pristine profile. Disconnect removes only
+      the session file.
 
 - [ ] **Step 4: Run command and reopen tests and verify GREEN.**
 

@@ -47,6 +47,10 @@ type MonarchCommandRuntime struct {
 // MonarchCommandFactory constructs provider dependencies for the selected private profile root.
 type MonarchCommandFactory func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error)
 
+type monarchTransactionRanger interface {
+	SetTransactionRange(startDate string, endDate string) error
+}
+
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
 		Use:   "provider",
@@ -60,6 +64,7 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 	}
 	var importCurrency string
 	var importScale uint8
+	var monthToDate bool
 	connectMonarch := &cobra.Command{
 		Use:   "monarch",
 		Short: "Connect and import one Monarch profile",
@@ -68,11 +73,14 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 			configured := command.Flags().Changed("currency") && command.Flags().Changed("scale")
 			return runMonarchConnect(command, streams, monarch.ImportConfig{
 				Currency: domain.Currency(importCurrency), Scale: importScale,
-			}, configured)
+			}, configured, monthToDate)
 		},
 	}
 	connectMonarch.Flags().StringVar(&importCurrency, "currency", "", "three-letter import currency")
 	connectMonarch.Flags().Uint8Var(&importScale, "scale", 0, "currency minor-unit scale (0-9)")
+	connectMonarch.Flags().BoolVar(
+		&monthToDate, "mtd", false, "load month-to-date transactions (from 1st of current month)",
+	)
 	connect.AddCommand(connectMonarch)
 	disconnect := &cobra.Command{
 		Use:   "disconnect",
@@ -96,13 +104,14 @@ func runMonarchConnect(
 	streams IOStreams,
 	importConfig monarch.ImportConfig,
 	importConfigured bool,
+	monthToDate bool,
 ) error {
 	opened, runtime, err := openMonarchCommand(command.Context(), streams, importConfig)
 	if err != nil {
 		return fmt.Errorf("connect Monarch: %w", err)
 	}
 	runErr := connectMonarchProfile(
-		command, streams, opened, runtime, importConfig, importConfigured,
+		command, streams, opened, runtime, importConfig, importConfigured, monthToDate,
 	)
 	if closeErr := opened.Close(); closeErr != nil {
 		runErr = errors.Join(runErr, closeErr)
@@ -120,16 +129,37 @@ func connectMonarchProfile(
 	runtime MonarchCommandRuntime,
 	importConfig monarch.ImportConfig,
 	importConfigured bool,
+	monthToDate bool,
 ) error {
 	connection, err := opened.Service.ProviderConnection(command.Context())
 	if err != nil {
 		return err
+	}
+	if monthToDate && !connection.Pristine {
+		return errors.New("month-to-date import requires a pristine profile; run without --mtd to refresh the complete profile")
 	}
 	if !connection.Bound && !connection.Pristine {
 		return fmt.Errorf(
 			"profile %s contains local state; stop moneyflow and move or remove that file outside the application before connecting",
 			opened.Path,
 		)
+	}
+	if monthToDate {
+		now := runtime.Now
+		if now == nil {
+			now = time.Now
+		}
+		today := now()
+		first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
+		ranger, ok := runtime.Source.(monarchTransactionRanger)
+		if !ok {
+			return errors.New("monarch source does not support scoped transaction loading")
+		}
+		if err = ranger.SetTransactionRange(
+			first.Format(time.DateOnly), today.Format(time.DateOnly),
+		); err != nil {
+			return err
+		}
 	}
 
 	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Checking saved Monarch session..."); err != nil {
@@ -200,7 +230,11 @@ func connectMonarchProfile(
 	if count == 1 {
 		noun = "transaction"
 	}
-	_, err = fmt.Fprintf(command.OutOrStdout(), "Imported %d posted %s.\n", count, noun)
+	scope := ""
+	if monthToDate {
+		scope = "month-to-date "
+	}
+	_, err = fmt.Fprintf(command.OutOrStdout(), "Imported %d posted %s%s.\n", count, scope, noun)
 	return err
 }
 

@@ -121,6 +121,27 @@ func TestSnapshotMapsMissingTransactionCategoryToProtectedCategory(t *testing.T)
 	assert.Equal(t, 2, server.CompleteScans())
 }
 
+func TestSnapshotCanonicalizesProviderControlCharactersInLabels(t *testing.T) {
+	t.Parallel()
+
+	for name, input := range map[string]string{
+		"whitespace control":     "Example\tGroup",
+		"non-whitespace control": "Example\u007fGroup",
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := newSnapshotServer(t, snapshotScenario{Groups: []CategoryGroup{{
+				ID: "group-a", Name: input,
+			}}})
+			client := newSnapshotClient(t, server)
+
+			snapshot, err := client.FetchSnapshot(context.Background(), nil)
+			require.NoError(t, err)
+			require.Len(t, snapshot.Groups, 1)
+			assert.Equal(t, "Example Group", snapshot.Groups[0].Label)
+		})
+	}
+}
+
 func TestSnapshotProbeReturnsSubscriptionIdentity(t *testing.T) {
 	t.Parallel()
 

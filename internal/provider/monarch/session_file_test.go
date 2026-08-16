@@ -140,6 +140,26 @@ func TestSourceUsesPersistedImportConfiguration(t *testing.T) {
 	assert.Equal(t, uint8(0), client.options.ImportScale)
 }
 
+func TestSourceAppliesNonPersistedTransactionRange(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSessionStore(t)
+	require.NoError(t, store.Save(validSession()))
+	source, err := NewSource(testClientOptions(t, ""), store)
+	require.NoError(t, err)
+	ranger, ok := any(source).(interface {
+		SetTransactionRange(string, string) error
+	})
+	require.True(t, ok)
+	require.NoError(t, ranger.SetTransactionRange("2026-08-01", "2026-08-15"))
+
+	client, _, err := source.OpenClient(false)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-08-01", client.options.TransactionStartDate)
+	assert.Equal(t, "2026-08-15", client.options.TransactionEndDate)
+	assert.Equal(t, ImportConfig{Currency: "USD", Scale: 2}, validSession().Import)
+}
+
 func TestSessionImplementsOpaqueProviderContract(t *testing.T) {
 	t.Parallel()
 

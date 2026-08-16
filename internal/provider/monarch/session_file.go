@@ -120,6 +120,21 @@ func NewSource(options Options, store *SessionStore) (*Source, error) {
 	return &Source{options: validated.options, store: store}, nil
 }
 
+// SetTransactionRange applies one non-persisted inclusive range before the first reader opens.
+func (source *Source) SetTransactionRange(startDate string, endDate string) error {
+	if err := validateTransactionRange(startDate, endDate); err != nil {
+		return err
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.client != nil {
+		return errors.New("set monarch transaction range after reader opened")
+	}
+	source.options.TransactionStartDate = startDate
+	source.options.TransactionEndDate = endDate
+	return nil
+}
+
 // OpenClient returns the cached client or reloads one atomically replaced session.
 func (source *Source) OpenClient(
 	forceReload bool,

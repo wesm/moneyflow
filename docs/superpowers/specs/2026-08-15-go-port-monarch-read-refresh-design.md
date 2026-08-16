@@ -398,6 +398,13 @@ At the supported scale, avoiding a second cache state machine is more valuable t
 number of pages. The complete path also remains the correctness reference for any future
 optimization.
 
+The Python-compatible `moneyflow provider connect monarch --mtd` option is a bounded initial-load
+exception. It applies the inclusive first-of-current-month through current-date filter to both
+transaction partitions and may seed only a pristine profile, where absence cannot delete prior
+provider data. It is rejected for every populated or already-bound profile. The scope is
+process-local and never enters the session file; the next ordinary refresh remains a complete
+reconciliation.
+
 The transaction query uses no date window, search, category, or ordinary account filter. Monarch
 excludes hidden transactions when `hideFromReports` is omitted, so Go fetches two explicit
 partitions:
@@ -439,6 +446,11 @@ transaction with no category references the protected Uncategorized category dir
 sentinel references create no fabricated provider identity. Decimal amounts may contain fractional
 digits beyond the configured scale only when every excess digit is zero; the adapter removes those
 zeroes exactly and never rounds a nonzero digit.
+
+Provider display labels are canonicalized before they enter the domain snapshot: surrounding
+Unicode whitespace is trimmed and control characters are replaced with ordinary spaces. This
+matches Python's tolerance of provider-owned labels while preventing terminal-control data from
+entering renderers. External IDs and transaction values are never changed by label normalization.
 
 The final count probes catch a transaction whose hidden flag changed during the window between
 partition fetches. The matching second read catches insert/delete churn that preserves counts.
@@ -830,7 +842,8 @@ messages.
   passwords and tampering identically, contains no plaintext credentials, and is never created
   after failed authentication
 - exercise masked terminal input, editing, cancellation, secret-redacted output, reconnect unlock,
-  persisted currency/scale reuse, and bounded CLI import progress
+  persisted currency/scale reuse, bounded CLI import progress, and Python-compatible `--mtd`
+  pristine seeding with both transaction partitions date-bounded
 - validate visible and hidden pagination, duplicate IDs, changing per-page counts, final count
   probes, cross-partition flag changes, duplicate entity IDs, missing related entities, and
   three-attempt exhaustion
@@ -839,6 +852,8 @@ messages.
   without merging external IDs, and reject conflicting inline labels
 - prove groupless categories and missing transaction categories map to protected Uncategorized
   sentinels while preserving all available provider identities
+- prove provider labels containing surrounding Unicode whitespace and internal control characters
+  become domain-valid display labels without exposing raw values
 - prove deterministic first-read validation skips the verification read and returns only an
   allowlisted value-free reason
 - verify sticky first-observed collision ownership, simultaneous-import external-ID ordering,

@@ -26,6 +26,9 @@ type Options struct {
 	ImportCurrency domain.Currency
 	ImportScale    uint8
 	PageSize       int
+	// TransactionStartDate and TransactionEndDate are an optional inclusive YYYY-MM-DD pair.
+	TransactionStartDate string
+	TransactionEndDate   string
 }
 
 // Client is the minimal authenticated Monarch read client.
@@ -67,6 +70,11 @@ func NewClient(options Options, authorization string, deviceUUID string) (*Clien
 	if options.PageSize < 1 || options.PageSize > defaultSnapshotPageSize {
 		return nil, errors.New("monarch snapshot page size must be between 1 and 1000")
 	}
+	if err := validateTransactionRange(
+		options.TransactionStartDate, options.TransactionEndDate,
+	); err != nil {
+		return nil, err
+	}
 	if options.Now == nil {
 		options.Now = time.Now
 	}
@@ -77,6 +85,21 @@ func NewClient(options Options, authorization string, deviceUUID string) (*Clien
 		options.Sleep = sleepContext
 	}
 	return &Client{options: options, authorization: authorization, deviceUUID: deviceUUID}, nil
+}
+
+func validateTransactionRange(startDate string, endDate string) error {
+	if startDate == "" && endDate == "" {
+		return nil
+	}
+	if startDate == "" || endDate == "" {
+		return errors.New("monarch transaction date range requires both start and end dates")
+	}
+	start, startErr := time.Parse(time.DateOnly, startDate)
+	end, endErr := time.Parse(time.DateOnly, endDate)
+	if startErr != nil || endErr != nil || end.Before(start) {
+		return errors.New("monarch transaction date range is invalid")
+	}
+	return nil
 }
 
 type subscriptionDetailsData struct {
@@ -226,11 +249,16 @@ func (client *Client) GetTransactionsPage(
 	ctx context.Context,
 	page TransactionPageRequest,
 ) (TransactionPage, error) {
+	filters := map[string]any{"hideFromReports": page.Hidden}
+	if client.options.TransactionStartDate != "" {
+		filters["startDate"] = client.options.TransactionStartDate
+		filters["endDate"] = client.options.TransactionEndDate
+	}
 	variables := map[string]any{
 		"offset":  page.Offset,
 		"limit":   page.Limit,
 		"orderBy": "date",
-		"filters": map[string]any{"hideFromReports": page.Hidden},
+		"filters": filters,
 	}
 	data, err := graphQLCall[transactionsData](
 		ctx, client, "GetTransactionsList", getTransactionsQuery, variables,
