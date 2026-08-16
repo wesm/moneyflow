@@ -1,5 +1,36 @@
 # Security
 
+## Go v2 Preview
+
+The `go-port` branch uses a separate `~/.moneyflow/v2` profile and does not read Python credential
+state. Its SQLite database is not application-encrypted; use full-disk encryption and protect
+profile copies and backups as financial data. SQLite files are created with owner-only platform
+permissions, exact integer money, `synchronous=FULL`, and atomic revision-checked writes.
+
+The Monarch read/refresh preview stores only session material at
+`~/.moneyflow/v2/providers/monarch/session.json`. It never persists the Monarch email, password,
+multifactor secret, or one-time code. The session file and its parent directories use owner-only
+permissions and atomic replacement, but the session is still sensitive bearer material. Do not
+copy it into logs, bug reports, fixtures, shell arguments, or repositories. Use:
+
+```bash
+moneyflow provider disconnect monarch
+```
+
+to remove only that session while preserving imported SQLite data. An expired session leaves the
+profile browsable offline; reconnect through `moneyflow provider connect monarch`.
+
+The embedded Go web server has no built-in user authentication. Keep its listener on loopback or
+one explicit private/tailnet address, and use a trusted reverse proxy for TLS and any desired
+authentication. When using `--external-url`, mutations are accepted only through that canonical
+origin. Configure proxy access logs to omit query strings because URLs contain durable analytical
+view state. Provider tokens, remote identifiers, labels, transaction contents, financial values,
+and search text must never enter application logs.
+
+Go v2 uses an install-only schema while the format stabilizes. It refuses incompatible profiles
+instead of migrating them. Stop all moneyflow processes and move the complete v2 profile directory
+aside before recreation; do not manipulate a live database or only one of its WAL-related files.
+
 ## Credential Storage
 
 moneyflow provides secure credential storage to avoid storing plaintext passwords or requiring environment variables.

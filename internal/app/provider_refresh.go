@@ -736,12 +736,24 @@ func buildProviderRefreshPlan(
 	}, rebased.Details, nil
 }
 
+// BuildProviderRefreshPlanReference runs the complete deterministic provider refresh planner.
+// It is exported so storage performance and equivalence tests can exercise the same reference
+// path used by Service without introducing a second implementation.
+func BuildProviderRefreshPlanReference(inputs store.RefreshInputs) (store.RefreshPlan, error) {
+	plan, _, err := buildProviderRefreshPlan(inputs)
+	return plan, err
+}
+
 func knownDrillsForProviderRefresh(
 	existing []domain.DrillIdentity,
 	committed domain.CommittedProfile,
 	journal []domain.Operation,
 ) ([]domain.DrillIdentity, error) {
-	known := make(map[string]domain.DrillIdentity, len(existing)+len(committed.Transactions)*4)
+	// Most transactions share dimension identities. Size for the entity cardinality rather than
+	// four entries per transaction; multi-currency profiles can grow the map naturally.
+	knownCapacity := len(existing) + len(committed.Accounts) + len(committed.Merchants) +
+		len(committed.Groups) + len(committed.Categories)
+	known := make(map[string]domain.DrillIdentity, knownCapacity)
 	for _, identity := range existing {
 		key, err := identity.CanonicalKey()
 		if err != nil {

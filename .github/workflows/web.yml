@@ -51,4 +51,5 @@ jobs:
       - name: Run browser workflows
         run: |
           make test-editing-e2e
+          make test-provider-e2e
           make web-e2e

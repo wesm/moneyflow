@@ -96,6 +96,34 @@ redo, `C` to manage categories, `G` to manage category groups, and `w` to review
 commit local changes. A TUI and web process may share one profile; revision checks reject stale
 mutations instead of silently overwriting another process.
 
+### Monarch read and refresh preview
+
+The Go v2 preview can bind one pristine profile to one Monarch household and import posted
+transactions. Connection is deliberately interactive and CLI-only:
+
+```bash
+./bin/moneyflow provider connect monarch
+./bin/moneyflow
+
+# Remove only the local session; imported data remains available offline
+./bin/moneyflow provider disconnect monarch
+```
+
+There is no `--replace` option. If the default profile already contains local state, stop every
+moneyflow process and move or remove the v2 profile outside the application before connecting.
+Profile management will provide a safer in-application path in a later slice.
+
+Press `r` in the TUI or web UI to run a complete refresh. A long-lived TUI or web server also
+checks every six hours and lets one process fetch at a time. If the session expires, browsing and
+pending edits remain available offline; run `moneyflow provider connect monarch` again to
+reconnect. The CLI reuses a retained valid session after a failed import, so retrying does not
+repeat credential or multifactor prompts unnecessarily.
+
+This slice is read/import/refresh only. Edits are durable local intent, survive refresh and
+restart, and may be reviewed or undone, but `w` cannot commit them until the separate Monarch
+write-back slice lands. Moneyflow imports posted transactions only; pending provider rows are used
+for snapshot-integrity checks and do not enter the local profile.
+
 For a Caddy mount, preserve the request path and make `--external-url` use exactly the configured
 base path:
 
@@ -123,10 +151,13 @@ the canonical origin.
 
 The v2 database is not application-encrypted. Use full-disk encryption and protect backups as you
 would other financial files. Moneyflow creates the profile with private platform permissions and
-uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic writes. The current
-v2 preview intentionally has no provider synchronization, credentials, authentication, profile
-manager, export/backup workflow, Python-state import, or schema migrations; incompatible schemas
-are refused until the v2 format stabilizes.
+uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic writes. Monarch
+session material is stored separately at `~/.moneyflow/v2/providers/monarch/session.json` with
+owner-only platform permissions; email, password, and multifactor secrets are never persisted by
+Go v2. The current preview intentionally has no provider write-back, built-in web authentication,
+profile manager, export/backup workflow, Python-state import, or schema migrations. If the
+install-only schema is incompatible, stop moneyflow, move the complete v2 profile directory aside,
+and reconnect or recreate it; automatic migration begins only after the v2 format stabilizes.
 
 ---
 

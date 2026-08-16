@@ -46,6 +46,9 @@ jobs:
           go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
           go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
+      - name: Test provider refresh slice
+        run: make test-provider
+
       - name: Vet
         run: go vet ./...
 

@@ -13,7 +13,6 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
-	"github.com/wesm/moneyflow/internal/store"
 )
 
 const editingPerformanceRows = 100_000
@@ -75,29 +74,6 @@ func TestBulkEditingPerformance100K(t *testing.T) {
 	_ = requireEditingDuration(t, "fold", func() (uint64, error) {
 		return profile.Fold(ctx, revision, plan)
 	})
-}
-
-func TestProviderRefreshPerformance100K(t *testing.T) {
-	skipEditingPerformance(t)
-	ctx := context.Background()
-	paths := createPerformanceProfile(t)
-	profileStore, err := Open(ctx, paths, DefaultOptions)
-	require.NoError(t, err)
-	profile := profileStore.(*profile)
-	t.Cleanup(func() { require.NoError(t, profile.Close()) })
-	now := time.Date(2026, time.August, 15, 21, 0, 0, 0, time.UTC)
-	bindProviderForRefreshTest(t, profile, now)
-	acquireProviderRefreshLease(t, profile, "performance-owner", now)
-
-	started := time.Now()
-	_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
-		ExpectedGeneration: 0, LeaseOwnerID: "performance-owner",
-		Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
-	}, passthroughRefreshPlanner)
-	require.NoError(t, err)
-	duration := time.Since(started)
-	t.Logf("provider refresh write-locked phase: %s", duration)
-	require.Less(t, duration, time.Second)
 }
 
 func BenchmarkColdProfile100K(b *testing.B) {

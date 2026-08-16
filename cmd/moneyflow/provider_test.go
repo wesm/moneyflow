@@ -280,6 +280,44 @@ func TestProviderDisconnectRemovesOnlySessionAndPreservesSQLiteState(t *testing.
 	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
+func TestProviderConnectImportReopenAndBrowseOffline(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 15, 23, 40, 0, 0, time.UTC)
+	connector := &fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")}
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, now),
+	}
+	prompts := &recordingPrompt{answers: []string{"user@example.com", "not-a-real-password"}}
+	_, _, err := executeProviderCommand(
+		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
+	)
+	require.NoError(t, err)
+	_, _, err = executeProviderCommand(
+		t, &fakeMonarchConnector{}, &commandProviderSource{}, nil,
+		"provider", "disconnect", "monarch",
+	)
+	require.NoError(t, err)
+
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	reopened, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	service, err := app.NewProfileService(context.Background(), reopened)
+	require.NoError(t, err)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Len(t, projection.DetailRows, 1)
+	providerState, err := reopened.ProviderState(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, providerState.Binding)
+	assert.Equal(t, uint64(1), providerState.Refresh.Generation)
+}
+
 func executeProviderCommand(
 	t *testing.T,
 	connector provider.Connector,

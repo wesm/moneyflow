@@ -63,6 +63,31 @@ test('keyboard-only deletion confirmation applies only after explicit Enter', as
   }
 })
 
+test('Escape cancels deletion confirmation and a later refresh fetches a new candidate', async ({
+  page,
+}) => {
+  const server = await startE2EServer('/moneyflow/')
+  try {
+    const fixture = await installProviderRoutes(page, true)
+    await openMoneyflow(page, server)
+
+    await page.keyboard.press('r')
+    const dialog = page.getByRole('dialog', { name: 'Confirm provider refresh' })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    expect(fixture.confirmBodies).toHaveLength(0)
+
+    await page.keyboard.press('r')
+    await expect(dialog).toBeVisible()
+    expect(fixture.refreshBodies).toHaveLength(2)
+    expect(fixture.confirmBodies).toHaveLength(0)
+    expect(page.url()).toBe(`${server.url}?v=1`)
+  } finally {
+    await server.stop()
+  }
+})
+
 async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
   let projection: Record<string, unknown> | undefined
   const refreshBodies: Record<string, unknown>[] = []
