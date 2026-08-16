@@ -301,6 +301,11 @@ func (service *Service) RefreshProvider(
 			failure,
 		)
 		result.Status.ConfirmationToken = token
+		result.Status.Summary = store.RefreshSummary{
+			ImportedAccounts: len(candidate.Accounts), ImportedMerchants: len(candidate.Merchants),
+			ImportedGroups: len(candidate.Groups), ImportedCategories: len(candidate.Categories),
+			ImportedTransactions: len(candidate.Transactions), RemovedTransactions: removed,
+		}
 		return result, failErr
 	}
 	return service.foldProviderCandidate(

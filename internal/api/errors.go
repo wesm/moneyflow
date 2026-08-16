@@ -1,7 +1,10 @@
 // Package api adapts stateless browser requests to the application service.
 package api
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 // ErrorCode is a stable machine-readable API failure code.
 type ErrorCode string
@@ -29,6 +32,26 @@ const (
 	CodeStoreBusy ErrorCode = "store_busy"
 	// CodeStoreError identifies a rolled-back runtime storage failure.
 	CodeStoreError ErrorCode = "store_error"
+	// CodeProviderReconnectRequired requires a CLI reconnect before another refresh.
+	CodeProviderReconnectRequired ErrorCode = "provider_reconnect_required"
+	// CodeProviderIdentityMismatch refuses a session for another remote profile.
+	CodeProviderIdentityMismatch ErrorCode = "provider_identity_mismatch"
+	// CodeProviderSnapshotUnstable rejects an internally inconsistent complete read.
+	CodeProviderSnapshotUnstable ErrorCode = "provider_snapshot_unstable"
+	// CodeProviderRefreshInProgress reports another live refresh lease owner.
+	CodeProviderRefreshInProgress ErrorCode = "provider_refresh_in_progress"
+	// CodeProviderDeletionConfirmationRequired requires an explicit second mutation.
+	CodeProviderDeletionConfirmationRequired ErrorCode = "provider_deletion_confirmation_required"
+	// CodeProviderConfirmationInvalid rejects a stale, expired, or foreign confirmation.
+	CodeProviderConfirmationInvalid ErrorCode = "provider_confirmation_invalid"
+	// CodeProviderRefreshStale rejects a candidate built against an older generation.
+	CodeProviderRefreshStale ErrorCode = "provider_refresh_stale"
+	// CodeProviderRateLimited reports exhausted bounded provider backoff.
+	CodeProviderRateLimited ErrorCode = "provider_rate_limited"
+	// CodeProviderUnavailable reports exhausted transient provider failures.
+	CodeProviderUnavailable ErrorCode = "provider_unavailable"
+	// CodeProviderDataInvalid rejects provider data that violates domain invariants.
+	CodeProviderDataInvalid ErrorCode = "provider_data_invalid"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.
@@ -54,14 +77,17 @@ func newSafeError(code ErrorCode, detail string, cause error) *SafeError {
 
 // Problem is the single safe RFC 9457-compatible API error envelope.
 type Problem struct {
-	Type            string                `json:"type,omitempty" format:"uri" default:"about:blank"`
-	Title           string                `json:"title"`
-	Status          int                   `json:"status"`
-	Detail          string                `json:"detail"`
-	Code            string                `json:"code"`
-	CurrentRevision string                `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
-	Selection       *SelectionDisposition `json:"selection,omitempty"`
+	Type            string                  `json:"type,omitempty" format:"uri" default:"about:blank"`
+	Title           string                  `json:"title"`
+	Status          int                     `json:"status"`
+	Detail          string                  `json:"detail"`
+	Code            string                  `json:"code"`
+	CurrentRevision string                  `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
+	Selection       *SelectionDisposition   `json:"selection,omitempty"`
+	Provider        *ProviderStatusResponse `json:"provider,omitempty"`
 }
+
+var errUnsupportedProviderVersion = errors.New("unsupported provider request version")
 
 // Error satisfies error without exposing request data.
 func (problem *Problem) Error() string {

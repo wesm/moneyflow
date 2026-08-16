@@ -108,6 +108,7 @@ func New(config Config) (*Server, error) {
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
 	server.registerEditorCatalogEndpoint(config)
+	server.registerProviderEndpoints(config)
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
@@ -126,13 +127,15 @@ func persistentMutationSecurity(
 	security *MutationSecurity,
 ) http.Handler {
 	protected := map[string]struct{}{
-		basePath + "api/v1/mutations":      {},
-		basePath + "api/v1/undo":           {},
-		basePath + "api/v1/redo":           {},
-		basePath + "api/v1/commit":         {},
-		basePath + "api/v1/review":         {},
-		basePath + "api/v1/review/targets": {},
-		basePath + "api/v1/editor-catalog": {},
+		basePath + "api/v1/mutations":                {},
+		basePath + "api/v1/undo":                     {},
+		basePath + "api/v1/redo":                     {},
+		basePath + "api/v1/commit":                   {},
+		basePath + "api/v1/review":                   {},
+		basePath + "api/v1/review/targets":           {},
+		basePath + "api/v1/editor-catalog":           {},
+		basePath + "api/v1/provider/refresh":         {},
+		basePath + "api/v1/provider/refresh/confirm": {},
 	}
 	guarded := security.Protect(next)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -395,6 +398,15 @@ func problemFromError(err error) *Problem {
 		case app.AppJournalFull:
 			status = http.StatusConflict
 		case app.AppStoreError:
+		case app.AppProviderReconnectRequired, app.AppProviderIdentityMismatch,
+			app.AppProviderDeletionConfirmationRequired, app.AppProviderConfirmationInvalid,
+			app.AppProviderRefreshStale:
+			status = http.StatusConflict
+		case app.AppProviderSnapshotUnstable, app.AppProviderRefreshInProgress,
+			app.AppProviderRateLimited, app.AppProviderUnavailable:
+			status = http.StatusServiceUnavailable
+		case app.AppProviderDataInvalid:
+			status = http.StatusUnprocessableEntity
 		case app.AppSchemaNewer, app.AppSchemaIncompatible, app.AppStoreCorrupt:
 			code = CodeStoreError
 		}
@@ -428,6 +440,27 @@ func problemFromError(err error) *Problem {
 		return newProblem(status, string(webErr.Code), webErr.Detail)
 	}
 	return newProblem(500, "internal_error", "The request could not be completed.")
+}
+
+func problemFromProviderError(
+	err error,
+	result app.ProviderRefreshResult,
+	capability Capability,
+) *Problem {
+	problem := problemFromError(err)
+	if result.Status.Code != "" || result.Status.ConfirmationToken != "" {
+		revision := result.Revision
+		if revision == 0 {
+			var failure *app.AppError
+			if errors.As(err, &failure) {
+				revision = failure.CurrentRevision
+			}
+		}
+		status := providerStatusToWire(revision, result.Status)
+		status.Capability = capability
+		problem.Provider = &status
+	}
+	return problem
 }
 
 func isInvalidHydrationSelection(err error) bool {

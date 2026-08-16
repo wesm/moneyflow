@@ -96,6 +96,15 @@ describe('AppShell', () => {
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
   })
 
+  it('routes r through the provider refresh controller', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: 'r' })
+
+    expect(controller.provider.refresh).toHaveBeenCalledTimes(1)
+  })
+
   it('opens an editor from the table and restores stable grid focus on cancel', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -188,6 +197,7 @@ function stubController(projection = testProjection()): ViewController {
           ['changes.undo', 'u'],
           ['changes.redo', 'U'],
           ['changes.review', 'w'],
+          ['provider.refresh', 'r'],
         ].map(([id, key_display]) => ({
           id: id!,
           key_display: key_display!,
@@ -204,6 +214,24 @@ function stubController(projection = testProjection()): ViewController {
     problem: undefined,
     editing: testEditingController(),
     review: testReviewController(),
+    provider: {
+      state: {
+        phase: 'idle',
+        announcement: '',
+        capability: {
+          id: 'provider.refresh',
+          key_display: 'r',
+          description: 'Refresh provider data',
+          category: 'System',
+          available: true,
+        },
+      },
+      sync: vi.fn(),
+      poll: vi.fn(),
+      refresh: vi.fn(),
+      confirm: vi.fn(),
+      dismissConfirmation: vi.fn(),
+    },
     hydrate: vi.fn(),
     recheck: vi.fn(),
     moveCursor: vi.fn(),

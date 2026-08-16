@@ -89,6 +89,57 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/provider/refresh': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Refresh one complete provider snapshot */
+    post: operations['refreshProvider']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/provider/refresh/confirm': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Confirm one suspicious provider refresh candidate */
+    post: operations['confirmProviderRefresh']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/provider/status': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Report counts-only provider refresh status */
+    get: operations['providerStatus']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/redo': {
     parameters: {
       query?: never
@@ -238,6 +289,7 @@ export interface components {
       description: string
       id: string
       key_display?: string
+      reason?: string
     }
     Chart: {
       marks?: components['schemas']['ChartMark'][] | null
@@ -400,6 +452,7 @@ export interface components {
       code: string
       current_revision?: string
       detail: string
+      provider?: components['schemas']['ProviderStatusResponse']
       selection?: components['schemas']['SelectionDisposition']
       /** Format: int64 */
       status: number
@@ -433,6 +486,75 @@ export interface components {
       view: components['schemas']['ViewMetadata']
       warnings?: components['schemas']['Warning'][] | null
       window: components['schemas']['ReturnedWindow']
+    }
+    ProviderConfirmationBody: {
+      confirmation_token: string
+      manual: boolean
+      query: string
+      selection?: string
+      version: string
+      window: components['schemas']['Window']
+    }
+    ProviderProgress: {
+      /** Format: int64 */
+      fetched: number
+      /** Format: int64 */
+      total: number
+    }
+    ProviderRefreshBody: {
+      manual: boolean
+      query: string
+      selection?: string
+      version: string
+      window: components['schemas']['Window']
+    }
+    ProviderRefreshResponse: {
+      generation: string
+      projection: components['schemas']['Projection']
+      revision: string
+      selection: components['schemas']['SelectionDisposition']
+      status: components['schemas']['ProviderStatusResponse']
+      version: string
+    }
+    ProviderRefreshSummary: {
+      /** Format: int64 */
+      discarded_redo_operations: number
+      /** Format: int64 */
+      imported_accounts: number
+      /** Format: int64 */
+      imported_categories: number
+      /** Format: int64 */
+      imported_groups: number
+      /** Format: int64 */
+      imported_merchants: number
+      /** Format: int64 */
+      imported_transactions: number
+      /** Format: int64 */
+      rebased_hide_targets: number
+      /** Format: int64 */
+      removed_operations: number
+      /** Format: int64 */
+      removed_targets: number
+      /** Format: int64 */
+      removed_transactions: number
+      /** Format: int64 */
+      retained_operations: number
+    }
+    ProviderStatusResponse: {
+      capability: components['schemas']['Capability']
+      code?: string
+      confirmation_token?: string
+      generation: string
+      /** Format: date-time */
+      last_success?: string
+      /** Format: date-time */
+      next_eligible?: string
+      owner_instance_id?: string
+      owner_renderer?: string
+      progress: components['schemas']['ProviderProgress']
+      revision: string
+      summary: components['schemas']['ProviderRefreshSummary']
+      version: string
     }
     ReturnedWindow: {
       /** Format: int64 */
@@ -858,6 +980,218 @@ export interface operations {
         }
         content: {
           'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  refreshProvider: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProviderRefreshBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ProviderRefreshResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  confirmProviderRefresh: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProviderConfirmationBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ProviderRefreshResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  providerStatus: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ProviderStatusResponse']
         }
       }
       /** @description Internal Server Error */

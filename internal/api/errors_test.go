@@ -37,6 +37,16 @@ func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {
 		{app.AppStoreBusy, http.StatusServiceUnavailable},
 		{app.AppStoreError, http.StatusInternalServerError},
 		{app.AppJournalFull, http.StatusConflict},
+		{app.AppProviderReconnectRequired, http.StatusConflict},
+		{app.AppProviderIdentityMismatch, http.StatusConflict},
+		{app.AppProviderSnapshotUnstable, http.StatusServiceUnavailable},
+		{app.AppProviderRefreshInProgress, http.StatusServiceUnavailable},
+		{app.AppProviderDeletionConfirmationRequired, http.StatusConflict},
+		{app.AppProviderConfirmationInvalid, http.StatusConflict},
+		{app.AppProviderRefreshStale, http.StatusConflict},
+		{app.AppProviderRateLimited, http.StatusServiceUnavailable},
+		{app.AppProviderUnavailable, http.StatusServiceUnavailable},
+		{app.AppProviderDataInvalid, http.StatusUnprocessableEntity},
 	}
 	for _, test := range tests {
 		t.Run(string(test.code), func(t *testing.T) {

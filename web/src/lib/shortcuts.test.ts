@@ -30,6 +30,7 @@ const capabilities = [
   ['changes.undo', 'u'],
   ['changes.redo', 'U'],
   ['changes.review', 'w'],
+  ['provider.refresh', 'r'],
 ].map(([id, key_display]) => ({
   id: id!,
   key_display: key_display!,
@@ -69,6 +70,7 @@ describe('Moneyflow browser shortcuts', () => {
       'h',
       'u',
       'w',
+      'r',
     ]) {
       expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(true)
     }

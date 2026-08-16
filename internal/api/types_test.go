@@ -116,3 +116,21 @@ func TestWireCapabilitiesIncludeCategoriesAndUnavailableWebActions(t *testing.T)
 	_, filtersApplyVisible := byID[app.ActionApplyFilters]
 	assert.False(t, filtersApplyVisible)
 }
+
+func TestWireCapabilitiesCarryDynamicUnavailableReason(t *testing.T) {
+	t.Parallel()
+
+	projection := app.WebProjection{Capabilities: []app.Capability{{
+		Action: app.ActionRefreshProvider, Available: false,
+		Reason: "Connect a provider before refreshing.",
+	}}}
+	wire := projectionToWire(projection, "v=1", nil)
+	for _, capability := range wire.Capabilities {
+		if capability.ID == app.ActionRefreshProvider {
+			assert.False(t, capability.Available)
+			assert.Equal(t, "Connect a provider before refreshing.", capability.Reason)
+			return
+		}
+	}
+	t.Fatal("provider refresh capability is missing")
+}

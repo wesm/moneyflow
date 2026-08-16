@@ -26,15 +26,28 @@
 
   onMount(() => {
     const restore = (event: PopStateEvent) => void controller.restore(event)
-    const recheck = () => void controller.recheck().catch(() => undefined)
+    const pollProvider = () => {
+      if (document.visibilityState === 'visible') {
+        void controller.provider.poll().catch(() => undefined)
+      }
+    }
+    const recheck = () => {
+      void controller.recheck().catch(() => undefined)
+      pollProvider()
+    }
     const visible = () => {
       if (document.visibilityState === 'visible') recheck()
     }
     window.addEventListener('popstate', restore)
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', visible)
-    void controller.hydrate()
+    const statusInterval = window.setInterval(pollProvider, 60_000)
+    void controller
+      .hydrate()
+      .then(pollProvider)
+      .catch(() => undefined)
     return () => {
+      window.clearInterval(statusInterval)
       window.removeEventListener('popstate', restore)
       window.removeEventListener('focus', recheck)
       document.removeEventListener('visibilitychange', visible)

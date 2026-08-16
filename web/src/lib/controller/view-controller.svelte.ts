@@ -10,6 +10,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { applicationURL, normalizeBrowserBasePath } from './base-path'
 import { createEditingController, type EditingController } from './editing'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
+import { createProviderController, type ProviderController } from './provider'
 import { createReviewController, type ReviewController } from './review'
 import { preserveCursor, WindowCache } from './windows'
 
@@ -44,6 +45,7 @@ export interface ViewController {
   readonly problem: ControllerProblem | undefined
   readonly editing: EditingController
   readonly review: ReviewController
+  readonly provider: ProviderController
   hydrate(): Promise<void>
   recheck(selection?: SelectionValue): Promise<ViewProjection | undefined>
   moveCursor(delta: -1 | 1): Promise<void>
@@ -107,6 +109,16 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const review = createReviewController({
     transport: options.client.mutations,
     revision: () => editing.state.revision,
+  })
+  const provider = createProviderController({
+    transport: { mutations: options.client.mutations, status: options.client.providerStatus },
+    host: {
+      current: () => projection,
+      accept: (next) => {
+        acceptProfileProjection(next)
+        editing.sync(next)
+      },
+    },
   })
 
   async function hydrate(): Promise<void> {
@@ -296,6 +308,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     sequence = snapshot.history.sequence
     cache.store(snapshot.projection)
     editing.sync(snapshot.projection)
+    provider.sync(snapshot.projection)
     browserHistory.replaceState(
       snapshot.history,
       '',
@@ -388,6 +401,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     projection = next
     lastRevisionObservation = Date.now()
     editing.sync(next)
+    provider.sync(next)
     const cursor = preserveCursor(
       next,
       restored?.cursorIdentity ?? cursorIdentity,
@@ -418,6 +432,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     projection = next
     lastRevisionObservation = Date.now()
+    provider.sync(next)
     const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
@@ -432,6 +447,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     projection = next
     lastRevisionObservation = Date.now()
     editing.sync(next)
+    provider.sync(next)
     const cursor = preserveCursor(next, undefined, requestedIndex)
     cursorIdentity = cursor.identity
     cursorIndex = cursor.index
@@ -547,6 +563,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     editing,
     review,
+    provider,
     hydrate,
     recheck,
     moveCursor,

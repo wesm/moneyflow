@@ -17,6 +17,7 @@ export type LocalAction =
   | 'edit.undo'
   | 'edit.redo'
   | 'edit.review'
+  | 'provider.refresh'
 
 const bindings = [
   { id: 'cursor.up', display: '↑/k', combos: ['arrowup', 'k'], local: true },
@@ -76,6 +77,13 @@ const bindings = [
   { id: 'changes.undo', display: 'u', combos: ['u'], local: true, localID: 'edit.undo' },
   { id: 'changes.redo', display: 'U', combos: ['shift+u'], local: true, localID: 'edit.redo' },
   { id: 'changes.review', display: 'w', combos: ['w'], local: true, localID: 'edit.review' },
+  {
+    id: 'provider.refresh',
+    display: 'r',
+    combos: ['r'],
+    local: true,
+    localID: 'provider.refresh',
+  },
 ] as const
 
 export function validateCapabilities(capabilities: Capability[]): void {

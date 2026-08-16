@@ -367,6 +367,9 @@ function controllerFor(client: MoneyflowClient, prefetch = true) {
 function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
   return {
     mutations: { request: vi.fn(async () => new Response(null, { status: 204 })) },
+    providerStatus: vi.fn(async () => {
+      throw new Error('provider status not stubbed')
+    }),
     view: vi.fn(async (body) => projection('v=1', body.window.offset, 3)),
     transition: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
     ...overrides,

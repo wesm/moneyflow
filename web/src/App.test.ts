@@ -30,14 +30,35 @@ describe('Moneyflow application scaffold', () => {
     expect(controller.reset).toHaveBeenCalledTimes(1)
   })
 
-  it('rechecks the profile on focus without polling', async () => {
+  it('rechecks the profile and provider on focus', async () => {
     const controller = stubController()
     render(App, { basePath: '/moneyflow/', controller })
+    await Promise.resolve()
     vi.mocked(controller.recheck).mockClear()
+    vi.mocked(controller.provider.poll).mockClear()
 
     await fireEvent.focus(window)
 
     expect(controller.recheck).toHaveBeenCalledTimes(1)
+    expect(controller.provider.poll).toHaveBeenCalledTimes(1)
+  })
+
+  it('polls provider status only while the document is visible', async () => {
+    vi.useFakeTimers()
+    try {
+      const controller = stubController()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+      const rendered = render(App, { basePath: '/moneyflow/', controller })
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(controller.provider.poll).not.toHaveBeenCalled()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      await fireEvent(document, new Event('visibilitychange'))
+      expect(controller.provider.poll).toHaveBeenCalledTimes(1)
+      rendered.unmount()
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -51,6 +72,14 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     problem: undefined,
     editing: {} as ViewController['editing'],
     review: {} as ViewController['review'],
+    provider: {
+      state: { phase: 'idle', announcement: '', capability: undefined },
+      sync: vi.fn(),
+      poll: vi.fn(async () => undefined),
+      refresh: vi.fn(async () => true),
+      confirm: vi.fn(async () => true),
+      dismissConfirmation: vi.fn(),
+    } as ViewController['provider'],
     hydrate: vi.fn(async () => undefined),
     recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),

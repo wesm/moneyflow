@@ -13,6 +13,7 @@
   import GroupManager from './editing/GroupManager.svelte'
   import MerchantDialog from './editing/MerchantDialog.svelte'
   import PendingStatus from './editing/PendingStatus.svelte'
+  import ProviderStatus from './ProviderStatus.svelte'
   import ReviewDrawer from './editing/ReviewDrawer.svelte'
   import {
     createMoneyflowShortcuts,
@@ -58,6 +59,7 @@
     } else if (action === 'manage.categories') openOverlay('categories')
     else if (action === 'manage.groups') openOverlay('groups')
     else if (action === 'edit.review') openOverlay('review')
+    else if (action === 'provider.refresh') void controller.provider.refresh()
     else if (action === 'edit.undo') void controller.editing.undo()
     else if (action === 'edit.redo') void controller.editing.redo()
     else if (action === 'edit.hide') {
@@ -146,6 +148,11 @@
     popChartScope = activeChartDrawer ? current.manager.pushScope('charts') : undefined
     return () => current.destroy()
   })
+  $effect(() => {
+    if (controller.provider.state.phase !== 'confirmation') return
+    const popScope = shortcuts?.manager.pushScope('provider-confirmation')
+    return () => popScope?.()
+  })
   onMount(() => {
     if (!projection) return
     const keydown = (event: KeyboardEvent) =>
@@ -165,7 +172,7 @@
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}<Toggle
+      {#snippet right()}<ProviderStatus controller={controller.provider} /><Toggle
           checked={compact.current ? chartDrawer : charts}
           onchange={toggleCharts}
           label="Charts"
@@ -197,6 +204,7 @@
     </main>
     <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.editing.state.announcement}</p>
+    <p class="kit-sr-only" aria-live="polite">{controller.provider.state.announcement}</p>
     <StatusBar
       >{#snippet left()}<span
           >{projection.total_rows} results · <PendingStatus

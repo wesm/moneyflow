@@ -21,6 +21,10 @@ export type ReviewBody = components['schemas']['ReviewBody']
 export type ReviewTargetsBody = components['schemas']['ReviewTargetsBody']
 export type ReviewResponse = components['schemas']['ReviewResponse']
 export type EditorCatalog = components['schemas']['EditorCatalogResponse']
+export type ProviderStatus = components['schemas']['ProviderStatusResponse']
+export type ProviderRefreshBody = components['schemas']['ProviderRefreshBody']
+export type ProviderConfirmationBody = components['schemas']['ProviderConfirmationBody']
+export type ProviderRefreshResponse = components['schemas']['ProviderRefreshResponse']
 
 interface BootstrapResponse {
   mutation_token: string
@@ -34,6 +38,7 @@ export interface MoneyflowClient {
   readonly mutations: MutationFetch
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
+  providerStatus(signal?: AbortSignal): Promise<ProviderStatus>
 }
 
 export interface MutationFetch {
@@ -176,6 +181,15 @@ export function createMoneyflowClient(
       const result = await client.POST('/api/v1/view/transition', requestOptions(body, signal))
       return projectionOrThrow(result.data, result.error)
     },
+    async providerStatus(signal) {
+      const result = await client.GET(
+        '/api/v1/provider/status',
+        signal === undefined ? {} : { signal },
+      )
+      if (isProviderStatus(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow provider status response is invalid.')
+    },
   }
 }
 
@@ -203,6 +217,18 @@ function isProblem(value: unknown): value is Problem {
     typeof value.status === 'number' &&
     typeof value.detail === 'string' &&
     typeof value.code === 'string'
+  )
+}
+
+function isProviderStatus(value: unknown): value is ProviderStatus {
+  if (!isRecord(value)) return false
+  return (
+    value.version === '1' &&
+    typeof value.revision === 'string' &&
+    typeof value.generation === 'string' &&
+    isRecord(value.progress) &&
+    isRecord(value.summary) &&
+    isRecord(value.capability)
   )
 }
 

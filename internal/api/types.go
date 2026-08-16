@@ -164,6 +164,7 @@ type Capability struct {
 	Description string       `json:"description"`
 	Category    string       `json:"category"`
 	Available   bool         `json:"available"`
+	Reason      string       `json:"reason,omitempty"`
 }
 
 // Warning is a safe announced non-fatal condition.
@@ -248,15 +249,24 @@ func projectionToWire(
 	for _, actionID := range projection.Actions {
 		availableActions[actionID] = struct{}{}
 	}
+	dynamicCapabilities := make(map[app.ActionID]app.Capability, len(projection.Capabilities))
+	for _, capability := range projection.Capabilities {
+		dynamicCapabilities[capability.Action] = capability
+	}
 	for _, definition := range app.ReadOnlyActions() {
 		if !definition.Web || len(definition.Keys) == 0 {
 			continue
 		}
 		_, available := availableActions[definition.ID]
+		reason := ""
+		if dynamic, exists := dynamicCapabilities[definition.ID]; exists {
+			available = dynamic.Available
+			reason = dynamic.Reason
+		}
 		wire.Capabilities = append(wire.Capabilities, Capability{
 			ID: definition.ID, KeyDisplay: definition.KeyDisplay,
 			Description: definition.Description, Category: definition.Category,
-			Available: available,
+			Available: available, Reason: reason,
 		})
 	}
 	for _, row := range projection.DetailRows {

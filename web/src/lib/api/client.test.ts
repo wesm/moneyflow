@@ -4,6 +4,46 @@ import { createMoneyflowClient, createMutationFetch, MoneyflowProblem } from './
 import type { ViewProjection } from './client'
 
 describe('Moneyflow generated client adapter', () => {
+  it('loads counts-only provider status beneath the configured base path', async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input
+      void init
+      return Response.json({
+        version: '1',
+        revision: '3',
+        generation: '2',
+        progress: { fetched: 20, total: 40 },
+        summary: {
+          imported_accounts: 0,
+          imported_merchants: 0,
+          imported_groups: 0,
+          imported_categories: 0,
+          imported_transactions: 40,
+          removed_transactions: 0,
+          removed_operations: 0,
+          removed_targets: 0,
+          retained_operations: 0,
+          rebased_hide_targets: 0,
+          discarded_redo_operations: 0,
+        },
+        capability: {
+          id: 'provider.refresh',
+          key_display: 'r',
+          description: 'Refresh provider data',
+          category: 'System',
+          available: true,
+        },
+      })
+    })
+    const client = createMoneyflowClient('/moneyflow/', upstream as typeof fetch)
+
+    await expect(client.providerStatus()).resolves.toMatchObject({ revision: '3' })
+    const sent = upstream.mock.calls[0]?.[0]
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      '/moneyflow/api/v1/provider/status',
+    )
+  })
+
   it('transports opaque selection and exact money text without decoding either', async () => {
     const opaqueSelection = 'mfsel1.eyJvcGFxdWUiOiJub3QtY2xpZW50LXN0YXRlIn0'
     const hugeMinor = '-9223372036854775808'
