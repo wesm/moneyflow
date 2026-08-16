@@ -1,6 +1,20 @@
 package store
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// InvalidOperationReason is an allowlisted, value-free validation stage.
+type InvalidOperationReason string
+
+// Safe invalid-operation stages that may cross renderer boundaries.
+const (
+	InvalidOperationRefreshRequest InvalidOperationReason = "refresh_request"
+	InvalidOperationRefreshBinding InvalidOperationReason = "refresh_binding"
+	InvalidOperationRefreshPlanner InvalidOperationReason = "refresh_planner"
+	InvalidOperationRefreshPlan    InvalidOperationReason = "refresh_plan"
+)
 
 // ErrorCode is a stable renderer-neutral storage failure classification.
 type ErrorCode string
@@ -30,12 +44,20 @@ var safeDetails = map[ErrorCode]string{
 	CodeJournalFull:        "pending edit limit reached",
 }
 
+var invalidOperationDetails = map[InvalidOperationReason]string{
+	InvalidOperationRefreshRequest: "Moneyflow rejected the local refresh request before writing financial data.",
+	InvalidOperationRefreshBinding: "Moneyflow rejected the local provider binding before writing financial data.",
+	InvalidOperationRefreshPlanner: "Moneyflow could not construct a local refresh plan. No financial data changed.",
+	InvalidOperationRefreshPlan:    "Moneyflow rejected its local refresh plan before writing financial data.",
+}
+
 // Error contains only allowlisted renderer detail while retaining an internal diagnostic cause.
 type Error struct {
 	Code             ErrorCode
 	Detail           string
 	ObservedRevision *uint64
 	CurrentRevision  *uint64
+	invalidReason    InvalidOperationReason
 	cause            error
 }
 
@@ -54,6 +76,30 @@ func NewRevisionError(code ErrorCode, observed, current uint64, cause error) *Er
 	failure.ObservedRevision = uint64Pointer(observed)
 	failure.CurrentRevision = uint64Pointer(current)
 	return failure
+}
+
+// NewInvalidOperationError attaches one safe local validation stage to an invalid operation.
+func NewInvalidOperationError(reason InvalidOperationReason, cause error) *Error {
+	failure := NewError(CodeInvalidOperation, cause)
+	if _, ok := invalidOperationDetails[reason]; ok {
+		failure.invalidReason = reason
+	}
+	return failure
+}
+
+// InvalidOperationReasonOf extracts an allowlisted stage through ordinary wrapping errors.
+func InvalidOperationReasonOf(err error) (InvalidOperationReason, bool) {
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Code != CodeInvalidOperation {
+		return "", false
+	}
+	_, ok := invalidOperationDetails[failure.invalidReason]
+	return failure.invalidReason, ok
+}
+
+// InvalidOperationDetail returns fixed user-facing text for an allowlisted stage.
+func InvalidOperationDetail(reason InvalidOperationReason) string {
+	return invalidOperationDetails[reason]
 }
 
 // Error returns only the stable code and allowlisted safe detail.

@@ -249,7 +249,8 @@ func (client *Client) normalizeSnapshot(
 	snapshot := domain.ImportSnapshot{
 		Accounts: accountEntities, Merchants: merchantEntities,
 		Groups: groupEntities, Categories: categoryEntities,
-		Transactions: importedTransactions, ObservedAt: client.options.Now().UTC(),
+		Transactions: importedTransactions,
+		ObservedAt:   client.options.Now().UTC().Truncate(time.Millisecond),
 	}
 	sortSnapshot(&snapshot)
 	if err := snapshot.Validate(); err != nil {

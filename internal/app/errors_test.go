@@ -100,3 +100,26 @@ func TestAppErrorIncludesOnlyAllowlistedProviderValidationReason(t *testing.T) {
 	)
 	assert.NotContains(t, failure.Detail, "subscription-example")
 }
+
+func TestAppErrorIncludesOnlyAllowlistedRefreshValidationStage(t *testing.T) {
+	t.Parallel()
+
+	profile := newMemoryProfile(t, 9)
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	profile.currentErr = store.NewInvalidOperationError(
+		store.InvalidOperationRefreshPlan,
+		errors.New("private planner detail"),
+	)
+
+	_, err = service.Refresh(context.Background())
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppInvalidOperation, failure.Code)
+	assert.Equal(
+		t,
+		"The requested operation is invalid. Moneyflow rejected its local refresh plan before writing financial data.",
+		failure.Detail,
+	)
+	assert.NotContains(t, failure.Detail, "private planner detail")
+}

@@ -23,7 +23,10 @@ func (profile *profile) ApplyProviderRefresh(
 	planner store.RefreshPlanner,
 ) (store.RefreshCommit, error) {
 	if err := validateAtomicRefreshRequest(request, planner); err != nil {
-		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
+		return store.RefreshCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshRequest,
+			err,
+		)
 	}
 	connection, finish, err := profile.beginImmediate(ctx)
 	if err != nil {
@@ -79,13 +82,19 @@ func (profile *profile) ApplyProviderRefresh(
 	}
 	plan, err := planner(inputs)
 	if err != nil {
-		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
+		return store.RefreshCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshPlanner,
+			err,
+		)
 	}
 	plan = cloneRefreshPlan(plan)
 	if err = validateRefreshPlan(
 		snapshot, binding, allocations, request.Candidate, request.ProposedIDs, plan,
 	); err != nil {
-		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
+		return store.RefreshCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshPlan,
+			err,
+		)
 	}
 
 	if err = applyProviderCommitted(
@@ -182,16 +191,16 @@ func resolveRefreshBinding(
 ) (*store.ProviderBinding, error) {
 	if current != nil {
 		if requested != nil && !reflect.DeepEqual(*current, *requested) {
-			return nil, store.NewError(
-				store.CodeInvalidOperation,
+			return nil, store.NewInvalidOperationError(
+				store.InvalidOperationRefreshBinding,
 				errors.New("refresh cannot replace provider binding"),
 			)
 		}
 		return current, nil
 	}
 	if requested == nil {
-		return nil, store.NewError(
-			store.CodeInvalidOperation,
+		return nil, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshBinding,
 			errors.New("initial refresh requires provider binding"),
 		)
 	}
@@ -200,8 +209,8 @@ func resolveRefreshBinding(
 		return nil, mapDriverError(err, store.CodeStoreError)
 	}
 	if populated {
-		return nil, store.NewError(
-			store.CodeInvalidOperation,
+		return nil, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshBinding,
 			errors.New("provider binding requires a pristine profile"),
 		)
 	}

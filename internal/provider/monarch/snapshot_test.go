@@ -43,6 +43,19 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	assert.Equal(t, 2, server.CompleteScans())
 }
 
+func TestSnapshotCanonicalizesObservationTimeToMilliseconds(t *testing.T) {
+	t.Parallel()
+
+	server := newSnapshotServer(t, snapshotScenario{})
+	client := newSnapshotClient(t, server)
+	observedAt := time.Date(2026, time.August, 15, 17, 0, 0, 123_456_789, time.UTC)
+	client.options.Now = func() time.Time { return observedAt }
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, observedAt.Truncate(time.Millisecond), snapshot.ObservedAt)
+}
+
 func TestSnapshotUsesInlineMerchantForHiddenOnlyTransaction(t *testing.T) {
 	t.Parallel()
 

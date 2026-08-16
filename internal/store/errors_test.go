@@ -56,3 +56,28 @@ func TestErrorRejectsUnknownCode(t *testing.T) {
 
 	assert.Panics(t, func() { _ = store.NewError("unknown", nil) })
 }
+
+func TestInvalidOperationReasonIsAllowlistedAndSurvivesWrapping(t *testing.T) {
+	t.Parallel()
+
+	failure := store.NewInvalidOperationError(
+		store.InvalidOperationRefreshPlan,
+		errors.New("private planner detail"),
+	)
+	reason, ok := store.InvalidOperationReasonOf(fmt.Errorf("fold failed: %w", failure))
+	require.True(t, ok)
+	assert.Equal(t, store.InvalidOperationRefreshPlan, reason)
+	assert.Equal(
+		t,
+		"Moneyflow rejected its local refresh plan before writing financial data.",
+		store.InvalidOperationDetail(reason),
+	)
+	assert.NotContains(t, failure.Error(), "private planner detail")
+
+	unknown := store.NewInvalidOperationError(
+		store.InvalidOperationReason("private provider value"),
+		errors.New("private planner detail"),
+	)
+	_, ok = store.InvalidOperationReasonOf(unknown)
+	assert.False(t, ok)
+}

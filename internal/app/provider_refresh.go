@@ -440,6 +440,9 @@ func (service *Service) fetchProviderCandidate(
 	if err != nil {
 		return service.retryProviderAfterSessionReload(ctx, runtime, fingerprint, err)
 	}
+	// Provider observation times cross the SQLite persistence boundary. Canonicalize them here
+	// so every adapter follows the store's millisecond timestamp contract.
+	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
 	if err = candidate.Validate(); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint,
 			provider.NewError(provider.CodeDataInvalid)

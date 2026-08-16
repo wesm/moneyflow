@@ -132,6 +132,28 @@ func TestProviderRefreshFoldsMonarchUncategorizedShapesIntoSQLite(t *testing.T) 
 	t.Fatalf("provider category %q not found", categoryID)
 }
 
+func TestProviderRefreshCanonicalizesProviderObservationTimeBeforeFold(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 18, 20, 0, 123_456_789, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	result, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), result.Generation)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Len(t, loaded.Committed.Transactions, 1)
+}
+
 func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 	t.Parallel()
 

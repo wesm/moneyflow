@@ -91,6 +91,11 @@ func newAppError(code AppErrorCode, current uint64, cause error) *AppError {
 			detail += " " + provider.DataInvalidDetail(reason)
 		}
 	}
+	if code == AppInvalidOperation {
+		if reason, ok := store.InvalidOperationReasonOf(cause); ok {
+			detail += " " + store.InvalidOperationDetail(reason)
+		}
+	}
 	return &AppError{
 		Code: code, Detail: detail, CurrentRevision: current, cause: cause,
 	}
