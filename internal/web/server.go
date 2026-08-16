@@ -91,7 +91,7 @@ func (server *Server) HTTPServer(address string, errorOutput io.Writer) *http.Se
 		Addr: address, Handler: server.handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      api.ProviderRefreshTimeout + time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 		ErrorLog:          log.New(errorOutput, "moneyflow web: ", 0),

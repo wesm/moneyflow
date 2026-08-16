@@ -166,7 +166,7 @@ func TestProviderLabelKeepsMissingSuffixedDisplayKeyReserved(t *testing.T) {
 	).Label)
 }
 
-func TestProviderLabelRejectsChangedSuffixMaterialAtMinimumLength(t *testing.T) {
+func TestProviderLabelIgnoresFreshMaterialWhenStoredSuffixStillFits(t *testing.T) {
 	t.Parallel()
 
 	input := providerIdentityInput(t)
@@ -184,8 +184,10 @@ func TestProviderLabelRejectsChangedSuffixMaterialAtMinimumLength(t *testing.T) 
 	input.ProposedSuffixes = map[string]string{
 		app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_a"): "deadbeef",
 	}
-	_, err = app.PlanProviderIdentities(input)
-	require.ErrorContains(t, err, "suffix material changed")
+	second, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, merchantByProviderID(t, first.Committed, "merchant_a").Label,
+		merchantByProviderID(t, second.Committed, "merchant_a").Label)
 }
 
 func TestProviderLabelRenameCollisionKeepsIncumbent(t *testing.T) {

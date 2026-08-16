@@ -15,6 +15,8 @@ import (
 
 var restrictWindowsPath = restrictCurrentUserPath
 
+const trustedInstallerSIDText = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+
 func enforcePrivateDirectory(path string) error { return restrictWindowsPath(path, true) }
 func enforcePrivateFile(path string) error      { return restrictWindowsPath(path, false) }
 
@@ -54,6 +56,18 @@ func secureOpenedPrivateFile(file *os.File, _ os.FileInfo) (os.FileInfo, error) 
 		return nil, fmt.Errorf("read private file: verify opened file: %w", err)
 	}
 	return info, nil
+}
+
+func openPrivateFile(path string) (*os.File, error) {
+	handle, err := openWindowsPath(
+		path,
+		false,
+		windows.GENERIC_READ|windows.READ_CONTROL|windows.WRITE_DAC,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return os.NewFile(uintptr(handle), path), nil
 }
 
 func restrictCurrentUserPath(path string, directory bool) error {
@@ -251,7 +265,11 @@ func trustedWindowsSIDs() ([]*windows.SID, error) {
 	if err != nil {
 		return nil, err
 	}
-	return uniqueWindowsSIDs(append(owners, system, admins)), nil
+	trustedInstaller, err := windows.StringToSid(trustedInstallerSIDText)
+	if err != nil {
+		return nil, err
+	}
+	return uniqueWindowsSIDs(append(owners, system, admins, trustedInstaller)), nil
 }
 
 func currentOwnerSIDs() ([]*windows.SID, error) {

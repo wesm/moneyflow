@@ -54,7 +54,7 @@ func TestHTTPServerUsesBoundedTimeoutsAndNoRequestLogging(t *testing.T) {
 	server := application.HTTPServer("127.0.0.1:0", &logs)
 	assert.Equal(t, 5*time.Second, server.ReadHeaderTimeout)
 	assert.Equal(t, 15*time.Second, server.ReadTimeout)
-	assert.Equal(t, 30*time.Second, server.WriteTimeout)
+	assert.Equal(t, api.ProviderRefreshTimeout+time.Minute, server.WriteTimeout)
 	assert.Equal(t, 60*time.Second, server.IdleTimeout)
 	assert.Equal(t, 1<<20, server.MaxHeaderBytes)
 

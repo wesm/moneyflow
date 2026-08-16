@@ -78,6 +78,11 @@ func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
+			if err = configureOpenedMonarchProvider(
+				command.Context(), opened, streams, "web",
+			); err != nil {
+				return fmt.Errorf("start web: %w", closeOpenedProfile(opened, err))
+			}
 			if !isLoopbackHost(host) {
 				_, _ = fmt.Fprintln(
 					command.ErrOrStderr(),

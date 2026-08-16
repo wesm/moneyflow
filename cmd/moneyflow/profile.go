@@ -45,16 +45,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	if options.Demo || options.FixturePath != "" {
 		return openDemoProfile(ctx, options.FixturePath)
 	}
-	userHome := ""
-	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
-	if options.ExplicitHome == "" && (!configured || configuredHome == "") {
-		var err error
-		userHome, err = os.UserHomeDir()
-		if err != nil {
-			return OpenedProfile{}, fmt.Errorf("open profile: resolve user home: %w", err)
-		}
-	}
-	paths, err := home.ResolveRoot(options.ExplicitHome, os.LookupEnv, userHome)
+	paths, err := resolvePersistentPaths(options.ExplicitHome)
 	if err != nil {
 		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
 	}
@@ -73,6 +64,19 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		Path:    paths.Database,
 		Paths:   paths,
 	}, nil
+}
+
+func resolvePersistentPaths(explicitHome string) (home.Paths, error) {
+	userHome := ""
+	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
+	if explicitHome == "" && (!configured || configuredHome == "") {
+		var err error
+		userHome, err = os.UserHomeDir()
+		if err != nil {
+			return home.Paths{}, fmt.Errorf("resolve user home: %w", err)
+		}
+	}
+	return home.ResolveRoot(explicitHome, os.LookupEnv, userHome)
 }
 
 func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {

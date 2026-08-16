@@ -15,12 +15,15 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case providerStatusMsg:
 		return model, model.handleProviderStatus(message)
 	case providerScheduleTickMsg:
+		if message.timerGeneration != model.provider.timerGeneration {
+			return model, nil
+		}
 		if _, available := model.capability(app.ActionRefreshProvider); !available {
 			return model, nil
 		}
 		return model, model.providerStatusCommand(message.at)
 	case providerProgressTickMsg:
-		if !model.provider.refreshing {
+		if message.timerGeneration != model.provider.timerGeneration || !model.provider.refreshing {
 			return model, nil
 		}
 		return model, model.providerProgressStatusCommand(message.at)
@@ -43,6 +46,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			model.status = "Cancellation requested; waiting for provider work to stop."
 			return model, nil
+		}
+		if model.provider.refreshing {
+			model.provider.interactionVersion++
 		}
 		if !model.refreshForInteraction() {
 			return model, nil

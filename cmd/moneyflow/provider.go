@@ -37,7 +37,7 @@ type MonarchCommandRuntime struct {
 }
 
 // MonarchCommandFactory constructs provider dependencies for the selected private profile root.
-type MonarchCommandFactory func(home.Paths) (MonarchCommandRuntime, error)
+type MonarchCommandFactory func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error)
 
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
@@ -50,14 +50,22 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 		Short: "Connect a financial provider",
 		Args:  cobra.NoArgs,
 	}
-	connect.AddCommand(&cobra.Command{
+	var importCurrency string
+	var importScale uint8
+	connectMonarch := &cobra.Command{
 		Use:   "monarch",
 		Short: "Connect and import one Monarch profile",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return runMonarchConnect(command, streams)
+			configured := command.Flags().Changed("currency") && command.Flags().Changed("scale")
+			return runMonarchConnect(command, streams, monarch.ImportConfig{
+				Currency: domain.Currency(importCurrency), Scale: importScale,
+			}, configured)
 		},
-	})
+	}
+	connectMonarch.Flags().StringVar(&importCurrency, "currency", "", "three-letter import currency")
+	connectMonarch.Flags().Uint8Var(&importScale, "scale", 0, "currency minor-unit scale (0-9)")
+	connect.AddCommand(connectMonarch)
 	disconnect := &cobra.Command{
 		Use:   "disconnect",
 		Short: "Disconnect a financial provider",
@@ -75,12 +83,19 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 	return providerCommand
 }
 
-func runMonarchConnect(command *cobra.Command, streams IOStreams) error {
-	opened, runtime, err := openMonarchCommand(command.Context(), streams)
+func runMonarchConnect(
+	command *cobra.Command,
+	streams IOStreams,
+	importConfig monarch.ImportConfig,
+	importConfigured bool,
+) error {
+	opened, runtime, err := openMonarchCommand(command.Context(), streams, importConfig)
 	if err != nil {
 		return fmt.Errorf("connect Monarch: %w", err)
 	}
-	runErr := connectMonarchProfile(command, streams, opened, runtime)
+	runErr := connectMonarchProfile(
+		command, streams, opened, runtime, importConfig, importConfigured,
+	)
 	if closeErr := opened.Close(); closeErr != nil {
 		runErr = errors.Join(runErr, closeErr)
 	}
@@ -95,6 +110,8 @@ func connectMonarchProfile(
 	streams IOStreams,
 	opened OpenedProfile,
 	runtime MonarchCommandRuntime,
+	importConfig monarch.ImportConfig,
+	importConfigured bool,
 ) error {
 	connection, err := opened.Service.ProviderConnection(command.Context())
 	if err != nil {
@@ -116,6 +133,9 @@ func connectMonarchProfile(
 			return err
 		}
 	} else {
+		if !importConfigured || importConfig.Validate() != nil {
+			return errors.New("first Monarch connection requires explicit --currency and --scale")
+		}
 		var session monarch.Session
 		identity, session, err = authenticateMonarch(command, streams, runtime)
 		if err != nil {
@@ -236,16 +256,23 @@ func monarchSessionValue(session provider.Session) (monarch.Session, error) {
 }
 
 func runMonarchDisconnect(command *cobra.Command, streams IOStreams) error {
-	opened, runtime, err := openMonarchCommand(command.Context(), streams)
+	paths, err := resolvePersistentPaths("")
 	if err != nil {
 		return fmt.Errorf("disconnect Monarch: %w", err)
 	}
-	runErr := runtime.Sessions.Delete()
-	if closeErr := opened.Close(); closeErr != nil {
-		runErr = errors.Join(runErr, closeErr)
+	factory := streams.OpenMonarch
+	if factory == nil {
+		factory = defaultMonarchCommandFactory
 	}
-	if runErr != nil {
-		return fmt.Errorf("disconnect Monarch: %w", runErr)
+	runtime, err := factory(paths, monarch.ImportConfig{})
+	if err != nil {
+		return fmt.Errorf("disconnect Monarch: %w", err)
+	}
+	if runtime.Sessions == nil {
+		return errors.New("disconnect Monarch: session store is unavailable")
+	}
+	if err = runtime.Sessions.Delete(); err != nil {
+		return fmt.Errorf("disconnect Monarch: %w", err)
 	}
 	_, err = fmt.Fprintln(command.OutOrStdout(), "Disconnected Monarch. Profile data was preserved.")
 	return err
@@ -254,6 +281,7 @@ func runMonarchDisconnect(command *cobra.Command, streams IOStreams) error {
 func openMonarchCommand(
 	ctx context.Context,
 	streams IOStreams,
+	importConfig monarch.ImportConfig,
 ) (OpenedProfile, MonarchCommandRuntime, error) {
 	opener := streams.OpenProfile
 	if opener == nil {
@@ -271,7 +299,7 @@ func openMonarchCommand(
 	if factory == nil {
 		factory = defaultMonarchCommandFactory
 	}
-	runtime, err := factory(paths)
+	runtime, err := factory(paths, importConfig)
 	if err != nil {
 		_ = opened.Close()
 		return OpenedProfile{}, MonarchCommandRuntime{}, err
@@ -284,8 +312,14 @@ func openMonarchCommand(
 	return opened, runtime, nil
 }
 
-func defaultMonarchCommandFactory(paths home.Paths) (MonarchCommandRuntime, error) {
-	options := monarch.Options{ImportCurrency: domain.Currency("USD"), ImportScale: 2}
+func defaultMonarchCommandFactory(
+	paths home.Paths,
+	importConfig monarch.ImportConfig,
+) (MonarchCommandRuntime, error) {
+	options := monarch.Options{
+		ImportCurrency: importConfig.Currency,
+		ImportScale:    importConfig.Scale,
+	}
 	connector, err := monarch.NewAuthenticator(options)
 	if err != nil {
 		return MonarchCommandRuntime{}, err
@@ -298,7 +332,7 @@ func defaultMonarchCommandFactory(paths home.Paths) (MonarchCommandRuntime, erro
 	if err != nil {
 		return MonarchCommandRuntime{}, err
 	}
-	instanceID, err := newCLIInstanceID()
+	instanceID, err := newProviderInstanceID("cli")
 	if err != nil {
 		return MonarchCommandRuntime{}, err
 	}
@@ -307,12 +341,56 @@ func defaultMonarchCommandFactory(paths home.Paths) (MonarchCommandRuntime, erro
 	}, nil
 }
 
-func newCLIInstanceID() (string, error) {
+func newProviderInstanceID(renderer string) (string, error) {
 	material := make([]byte, 16)
 	if _, err := cryptorand.Read(material); err != nil {
-		return "", errors.New("create CLI instance identity")
+		return "", errors.New("create provider instance identity")
 	}
-	return "cli-" + hex.EncodeToString(material), nil
+	return renderer + "-" + hex.EncodeToString(material), nil
+}
+
+func configureOpenedMonarchProvider(
+	ctx context.Context,
+	opened OpenedProfile,
+	streams IOStreams,
+	renderer string,
+) error {
+	if opened.Demo || (opened.Paths.Root == "" && opened.Path == "") {
+		return nil
+	}
+	connection, err := opened.Service.ProviderConnection(ctx)
+	if err != nil {
+		return err
+	}
+	if !connection.Bound {
+		return nil
+	}
+	paths := opened.Paths
+	if paths.Root == "" {
+		paths = home.Paths{Root: filepath.Dir(opened.Path), Database: opened.Path}
+	}
+	factory := streams.OpenMonarch
+	production := factory == nil
+	if production {
+		factory = defaultMonarchCommandFactory
+	}
+	runtime, err := factory(paths, monarch.ImportConfig{})
+	if err != nil {
+		return err
+	}
+	if runtime.Source == nil {
+		return errors.New("monarch renderer source is unavailable")
+	}
+	if production {
+		runtime.InstanceID, err = newProviderInstanceID(renderer)
+		if err != nil {
+			return err
+		}
+	}
+	return opened.Service.ConfigureProvider(app.ProviderRuntime{
+		Source: runtime.Source, Provider: "monarch", Renderer: renderer,
+		InstanceID: runtime.InstanceID,
+	})
 }
 
 func terminalPrompt(command *cobra.Command) PromptFunc {

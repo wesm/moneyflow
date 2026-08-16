@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 func TestPrepareDatabaseRoutesWindowsProtectionThroughInjectableDACL(t *testing.T) {
@@ -20,4 +22,12 @@ func TestPrepareDatabaseRoutesWindowsProtectionThroughInjectableDACL(t *testing.
 	root := filepath.Join(t.TempDir(), "profile")
 	require.NoError(t, PrepareDatabase(Paths{Root: root, Database: filepath.Join(root, databaseName)}))
 	require.Equal(t, []bool{true, false}, calls)
+}
+
+func TestTrustedWindowsSIDsIncludeTrustedInstaller(t *testing.T) {
+	values, err := trustedWindowsSIDs()
+	require.NoError(t, err)
+	want, err := windows.StringToSid(trustedInstallerSIDText)
+	require.NoError(t, err)
+	assert.True(t, windowsSIDIn(want, values))
 }

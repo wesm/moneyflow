@@ -75,6 +75,53 @@ func TestRefreshKeyStartsAsyncAndEscapeCancelsBeforeFold(t *testing.T) {
 	assert.Equal(t, uint64(1), model.provider.status.Generation)
 }
 
+func TestProviderRefreshDoesNotBlockInputOrRestoreStaleSelection(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderModel(t, 3)
+	model := press(t, fixture.model, keyRune('d'))
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.source.setFetch(func(
+		_ context.Context,
+		_ provider.ProgressFunc,
+	) (domain.ImportSnapshot, error) {
+		close(started)
+		<-release
+		return tuiProviderSnapshot(t, fixture.now.Add(time.Minute), 3), nil
+	})
+	updated, _ := model.Update(keyRune('r'))
+	model = updated.(Model)
+	result := make(chan tea.Msg, 1)
+	go func(command tea.Cmd) { result <- command() }(model.providerRefreshCommand(true, ""))
+	<-started
+
+	interaction := make(chan Model, 1)
+	go func(current Model) {
+		updatedModel, _ := current.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+		current = updatedModel.(Model)
+		updatedModel, _ = current.Update(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+		interaction <- updatedModel.(Model)
+	}(model)
+	select {
+	case model = <-interaction:
+		assert.Equal(t, 1, model.cursor)
+		require.Len(t, model.session.SelectedTransactionIDs, 1)
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("provider network fetch blocked TUI input")
+	}
+	selected := model.rowIdentity(model.cursor)
+	close(release)
+	updated, _ = model.Update(<-result)
+	model = updated.(Model)
+
+	assert.Equal(t, selected, model.rowIdentity(model.cursor))
+	_, selectedStillVisible := model.session.SelectedTransactionIDs[selected]
+	assert.True(t, selectedStillVisible)
+	require.Len(t, model.session.SelectedTransactionIDs, 1)
+}
+
 func TestRefreshResultClearsExactSelectionAndRestoresCursor(t *testing.T) {
 	t.Parallel()
 
@@ -106,7 +153,10 @@ func TestProviderStandingTickStartsOnlyWhenSixHoursOld(t *testing.T) {
 	fixture := newProviderModel(t, 3)
 	model := fixture.model
 
-	updated, command := model.Update(providerScheduleTickMsg{at: fixture.now.Add(6*time.Hour - time.Second)})
+	updated, command := model.Update(providerScheduleTickMsg{
+		at:              fixture.now.Add(6*time.Hour - time.Second),
+		timerGeneration: model.provider.timerGeneration,
+	})
 	model = updated.(Model)
 	require.NotNil(t, command)
 	updated, refreshCommand := model.Update(command())
@@ -114,7 +164,9 @@ func TestProviderStandingTickStartsOnlyWhenSixHoursOld(t *testing.T) {
 	assert.False(t, model.provider.refreshing)
 	assert.NotNil(t, refreshCommand)
 
-	updated, command = model.Update(providerScheduleTickMsg{at: fixture.now.Add(6 * time.Hour)})
+	updated, command = model.Update(providerScheduleTickMsg{
+		at: fixture.now.Add(6 * time.Hour), timerGeneration: model.provider.timerGeneration,
+	})
 	model = updated.(Model)
 	require.NotNil(t, command)
 	updated, refreshCommand = model.Update(command())
@@ -139,6 +191,25 @@ func TestProviderLateProgressStatusCannotStartSecondRefresh(t *testing.T) {
 	assert.NotNil(t, command)
 }
 
+func TestProviderManualRefreshInvalidatesOutstandingStandingTimer(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderModel(t, 3)
+	model := fixture.model
+	standingGeneration := model.provider.timerGeneration
+	updated, command := model.Update(keyRune('r'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	require.NotEqual(t, standingGeneration, model.provider.timerGeneration)
+
+	updated, staleCommand := model.Update(providerScheduleTickMsg{
+		at: fixture.now.Add(7 * time.Hour), timerGeneration: standingGeneration,
+	})
+	model = updated.(Model)
+	assert.Nil(t, staleCommand)
+	assert.True(t, model.provider.refreshing)
+}
+
 func TestProviderStatusHealsReconnectAndExplainsOtherConfirmationOwner(t *testing.T) {
 	t.Parallel()
 
@@ -161,7 +232,7 @@ func TestProviderStatusHealsReconnectAndExplainsOtherConfirmationOwner(t *testin
 	updated, _ = model.Update(providerStatusMsg{status: app.ProviderStatus{
 		Code: provider.CodeDeletionConfirmationRequired, OwnerRenderer: "web",
 		OwnerInstanceID: "instance-other",
-	}, at: fixture.now.Add(time.Minute)})
+	}, at: fixture.now.Add(time.Minute), timerGeneration: model.provider.timerGeneration})
 	model = updated.(Model)
 	assert.Contains(t, model.status, "confirm in the web interface")
 	assert.Contains(t, model.status, "press r")

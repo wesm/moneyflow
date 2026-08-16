@@ -23,6 +23,7 @@ import (
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
+	"github.com/wesm/moneyflow/internal/tui"
 	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
@@ -33,6 +34,20 @@ func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
 	command.SetArgs([]string{"provider", "connect", "monarch", "--replace"})
 	err := command.Execute()
 	require.ErrorContains(t, err, "unknown flag: --replace")
+}
+
+func TestProviderConnectRequiresExplicitMoneyConfiguration(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 15, 21, 59, 0, 0, time.UTC)
+	_, _, err := executeProviderCommandRaw(
+		t,
+		&fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")},
+		&commandProviderSource{},
+		(&recordingPrompt{answers: []string{"user@example.com", "not-a-real-password"}}).Prompt,
+		"provider", "connect", "monarch",
+	)
+	require.ErrorContains(t, err, "requires explicit --currency and --scale")
 }
 
 func TestProviderConnectCreatesCurrentSchemaAndBindsPristineProfile(t *testing.T) {
@@ -280,6 +295,95 @@ func TestProviderDisconnectRemovesOnlySessionAndPreservesSQLiteState(t *testing.
 	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
+func TestProviderDisconnectDoesNotOpenOrCreateSQLite(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		database   []byte
+		wantExists bool
+	}{
+		{name: "missing database"},
+		{name: "incompatible database", database: []byte("not sqlite"), wantExists: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "profile")
+			t.Setenv("MONEYFLOW_HOME", root)
+			now := time.Date(2026, time.August, 15, 23, 35, 0, 0, time.UTC)
+			saveCommandSession(t, root, testMonarchSession(now, "subscription-example"))
+			paths, err := home.ResolveRoot(root, nil, "")
+			require.NoError(t, err)
+			if test.database != nil {
+				require.NoError(t, os.WriteFile(paths.Database, test.database, 0o600))
+			}
+
+			_, _, err = executeProviderCommand(
+				t, &fakeMonarchConnector{}, &commandProviderSource{}, nil,
+				"provider", "disconnect", "monarch",
+			)
+			require.NoError(t, err)
+			_, statErr := os.Stat(paths.Database)
+			assert.Equal(t, test.wantExists, statErr == nil)
+			if test.wantExists {
+				contents, readErr := os.ReadFile(paths.Database)
+				require.NoError(t, readErr)
+				assert.Equal(t, test.database, contents)
+			}
+		})
+	}
+}
+
+func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "tui"},
+		{name: "web", args: []string{"web", "--open=false"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "profile")
+			t.Setenv("MONEYFLOW_HOME", root)
+			now := time.Date(2026, time.August, 15, 23, 40, 0, 0, time.UTC)
+			bindCommandProfile(t, root, now)
+			saveCommandSession(t, root, testMonarchSession(now, "subscription-example"))
+			configured := false
+			streams := IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				OpenMonarch: func(paths home.Paths, _ monarch.ImportConfig) (MonarchCommandRuntime, error) {
+					sessions, err := monarch.NewSessionStore(paths)
+					return MonarchCommandRuntime{
+						Connector: &fakeMonarchConnector{}, Sessions: sessions,
+						Source: &commandProviderSource{}, InstanceID: test.name + "-instance",
+					}, err
+				},
+			}
+			assertConfigured := func(service *app.Service) {
+				for _, capability := range service.Capabilities() {
+					if capability.Action == app.ActionRefreshProvider {
+						configured = capability.Available
+					}
+				}
+			}
+			streams.RunTUI = func(
+				_ context.Context, service *app.Service, _ app.Session, _ tui.Options, _ IOStreams,
+			) error {
+				assertConfigured(service)
+				return nil
+			}
+			streams.RunWeb = func(
+				_ context.Context, service *app.Service, _ WebOptions, _ IOStreams,
+			) error {
+				assertConfigured(service)
+				return nil
+			}
+
+			command := newRootCommand(streams)
+			command.SetArgs(test.args)
+			require.NoError(t, command.Execute())
+			assert.True(t, configured)
+		})
+	}
+}
+
 func TestProviderConnectImportReopenAndBrowseOffline(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
@@ -325,12 +429,25 @@ func executeProviderCommand(
 	prompt PromptFunc,
 	args ...string,
 ) (string, string, error) {
+	if len(args) >= 3 && args[0] == "provider" && args[1] == "connect" && args[2] == "monarch" {
+		args = append(args, "--currency", "USD", "--scale", "2")
+	}
+	return executeProviderCommandRaw(t, connector, source, prompt, args...)
+}
+
+func executeProviderCommandRaw(
+	t *testing.T,
+	connector provider.Connector,
+	source provider.Source,
+	prompt PromptFunc,
+	args ...string,
+) (string, string, error) {
 	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &stdout, Err: &stderr, Prompt: prompt,
-		OpenMonarch: func(paths home.Paths) (MonarchCommandRuntime, error) {
+		OpenMonarch: func(paths home.Paths, _ monarch.ImportConfig) (MonarchCommandRuntime, error) {
 			sessions, err := monarch.NewSessionStore(paths)
 			if err != nil {
 				return MonarchCommandRuntime{}, err
@@ -471,9 +588,10 @@ func (prompt *recordingPrompt) secretFlags() []bool {
 
 func testMonarchSession(at time.Time, remoteID string) monarch.Session {
 	return monarch.Session{
-		Version: 1, Token: "synthetic-session-token",
+		Version: 2, Token: "synthetic-session-token",
 		DeviceUUID:      "00000000-0000-4000-8000-000000000000",
 		RemoteProfileID: remoteID, IssuedAt: at, ValidatedAt: at,
+		Import: monarch.ImportConfig{Currency: "USD", Scale: 2},
 	}
 }
 

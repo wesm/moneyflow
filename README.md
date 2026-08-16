@@ -102,12 +102,17 @@ The Go v2 preview can bind one pristine profile to one Monarch household and imp
 transactions. Connection is deliberately interactive and CLI-only:
 
 ```bash
-./bin/moneyflow provider connect monarch
+./bin/moneyflow provider connect monarch --currency USD --scale 2
 ./bin/moneyflow
 
 # Remove only the local session; imported data remains available offline
 ./bin/moneyflow provider disconnect monarch
 ```
+
+The first connection requires an explicit three-letter currency and its decimal scale; those exact
+money settings are stored with the hardened Monarch session and reused by later refreshes. For
+example, USD uses scale 2 and JPY commonly uses scale 0. A reconnect that can validate the retained
+session does not require the flags again.
 
 There is no `--replace` option. If the default profile already contains local state, stop every
 moneyflow process and move or remove the v2 profile outside the application before connecting.

@@ -59,6 +59,11 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("start TUI: %w", err)
 		}
+		if err = configureOpenedMonarchProvider(
+			command.Context(), opened, streams, "tui",
+		); err != nil {
+			return fmt.Errorf("start TUI: %w", closeOpenedProfile(opened, err))
+		}
 		runner := streams.RunTUI
 		if runner == nil {
 			runner = func(
@@ -82,7 +87,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		Use:   "moneyflow",
 		Short: "Portable personal-finance analysis",
 		Example: "  moneyflow demo\n" +
-			"  moneyflow provider connect monarch\n" +
+			"  moneyflow provider connect monarch --currency USD --scale 2\n" +
 			"  moneyflow web --open=false\n" +
 			"  moneyflow version",
 		Args:          cobra.NoArgs,

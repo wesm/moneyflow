@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -137,10 +138,49 @@ func TestProviderStatusReturnsUnboundCapabilityWithoutDispatch(t *testing.T) {
 	assert.Equal(t, "Connect a provider before refreshing.", status.Capability.Reason)
 }
 
+func TestProviderStatusRemainsResponsiveDuringProviderFetch(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	fixture.source.blockNextFetch(started, release)
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+			Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		})
+		refreshDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("provider fetch did not start")
+	}
+
+	responseDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		responseDone <- requestServer(
+			t, fixture.server, http.MethodGet, "/api/v1/provider/status", nil,
+		)
+	}()
+	select {
+	case response := <-responseDone:
+		assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("provider status blocked behind the network fetch")
+	}
+
+	close(release)
+	require.NoError(t, <-refreshDone)
+}
+
 type providerAPIFixture struct {
-	server *Server
-	source *apiProviderSource
-	now    time.Time
+	server  *Server
+	service *app.Service
+	source  *apiProviderSource
+	now     time.Time
 }
 
 func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPIFixture {
@@ -174,7 +214,7 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 		Service: service, BasePath: basePath, Version: "test", Origin: origin, Security: security,
 	})
 	require.NoError(t, err)
-	return providerAPIFixture{server: server, source: source, now: now}
+	return providerAPIFixture{server: server, service: service, source: source, now: now}
 }
 
 func apiProviderSnapshot(t testing.TB, observedAt time.Time, count int) domain.ImportSnapshot {
@@ -212,10 +252,12 @@ func apiProviderTransactionID(index int) string {
 }
 
 type apiProviderSource struct {
-	mu          sync.Mutex
-	identity    provider.ProfileIdentity
-	snapshot    domain.ImportSnapshot
-	fingerprint provider.SessionFingerprint
+	mu           sync.Mutex
+	identity     provider.ProfileIdentity
+	snapshot     domain.ImportSnapshot
+	fingerprint  provider.SessionFingerprint
+	fetchStarted chan struct{}
+	fetchRelease chan struct{}
 }
 
 func (source *apiProviderSource) Reader(
@@ -239,6 +281,13 @@ func (source *apiProviderSource) setSnapshot(snapshot domain.ImportSnapshot) {
 	source.snapshot = snapshot.Clone()
 }
 
+func (source *apiProviderSource) blockNextFetch(started, release chan struct{}) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.fetchStarted = started
+	source.fetchRelease = release
+}
+
 type apiProviderReader apiProviderSource
 
 func (reader *apiProviderReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
@@ -255,7 +304,15 @@ func (reader *apiProviderReader) FetchSnapshot(
 	source := (*apiProviderSource)(reader)
 	source.mu.Lock()
 	snapshot := source.snapshot.Clone()
+	started := source.fetchStarted
+	release := source.fetchRelease
+	source.fetchStarted = nil
+	source.fetchRelease = nil
 	source.mu.Unlock()
+	if started != nil {
+		close(started)
+		<-release
+	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}

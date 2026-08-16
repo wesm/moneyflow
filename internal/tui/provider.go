@@ -18,17 +18,20 @@ const (
 )
 
 type providerTUIState struct {
-	bound             bool
-	refreshing        bool
-	cancel            context.CancelFunc
-	refreshContext    context.Context
-	status            app.ProviderStatus
-	confirmationToken string
+	bound              bool
+	refreshing         bool
+	cancel             context.CancelFunc
+	refreshContext     context.Context
+	status             app.ProviderStatus
+	confirmationToken  string
+	interactionVersion uint64
+	timerGeneration    uint64
 }
 
 type providerRefreshMsg struct {
-	result app.ProviderRefreshResult
-	err    error
+	result             app.ProviderRefreshResult
+	err                error
+	interactionVersion uint64
 }
 
 type providerStatusMsg struct {
@@ -36,11 +39,18 @@ type providerStatusMsg struct {
 	at     time.Time
 	err    error
 	// progress distinguishes a polling response from a standing-schedule response.
-	progress bool
+	progress        bool
+	timerGeneration uint64
 }
 
-type providerScheduleTickMsg struct{ at time.Time }
-type providerProgressTickMsg struct{ at time.Time }
+type providerScheduleTickMsg struct {
+	at              time.Time
+	timerGeneration uint64
+}
+type providerProgressTickMsg struct {
+	at              time.Time
+	timerGeneration uint64
+}
 
 func (model *Model) startProviderRefresh(manual bool, confirmationToken string) tea.Cmd {
 	if model.provider.refreshing {
@@ -57,10 +67,12 @@ func (model *Model) startProviderRefresh(manual bool, confirmationToken string) 
 	model.provider.cancel = cancel
 	model.provider.refreshContext = refreshContext
 	model.provider.confirmationToken = confirmationToken
+	model.provider.timerGeneration++
+	timerGeneration := model.provider.timerGeneration
 	model.status = "Refreshing provider data… Esc cancels before the atomic fold."
 	return tea.Batch(
 		model.providerRefreshCommand(manual, confirmationToken),
-		providerProgressTickCommand(),
+		providerProgressTickCommand(timerGeneration),
 	)
 }
 
@@ -74,6 +86,7 @@ func (model Model) providerRefreshCommand(manual bool, confirmationToken string)
 		State: model.session.ViewState(), Selection: model.selection,
 	}
 	service := model.service
+	interactionVersion := model.provider.interactionVersion
 	return func() tea.Msg {
 		var result app.ProviderRefreshResult
 		var err error
@@ -82,7 +95,9 @@ func (model Model) providerRefreshCommand(manual bool, confirmationToken string)
 		} else {
 			result, err = service.ConfirmProviderRefresh(ctx, request)
 		}
-		return providerRefreshMsg{result: result, err: err}
+		return providerRefreshMsg{
+			result: result, err: err, interactionVersion: interactionVersion,
+		}
 	}
 }
 
@@ -99,23 +114,32 @@ func (model Model) providerStatusCommandFor(at time.Time, progress bool) tea.Cmd
 	ctx := model.ctx
 	return func() tea.Msg {
 		status, err := service.ProviderStatus(ctx)
-		return providerStatusMsg{status: status, at: at, err: err, progress: progress}
+		return providerStatusMsg{
+			status: status, at: at, err: err, progress: progress,
+			timerGeneration: model.provider.timerGeneration,
+		}
 	}
 }
 
-func providerScheduleTickCommand() tea.Cmd {
+func providerScheduleTickCommand(timerGeneration uint64) tea.Cmd {
 	return tea.Tick(providerScheduleInterval, func(at time.Time) tea.Msg {
-		return providerScheduleTickMsg{at: at}
+		return providerScheduleTickMsg{at: at, timerGeneration: timerGeneration}
 	})
 }
 
-func providerProgressTickCommand() tea.Cmd {
+func providerProgressTickCommand(timerGeneration uint64) tea.Cmd {
 	return tea.Tick(providerProgressInterval, func(at time.Time) tea.Msg {
-		return providerProgressTickMsg{at: at}
+		return providerProgressTickMsg{at: at, timerGeneration: timerGeneration}
 	})
+}
+
+func (model *Model) nextProviderScheduleTick() tea.Cmd {
+	model.provider.timerGeneration++
+	return providerScheduleTickCommand(model.provider.timerGeneration)
 }
 
 func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
+	interactionChanged := message.interactionVersion != model.provider.interactionVersion
 	model.provider.refreshing = false
 	model.provider.cancel = nil
 	model.provider.refreshContext = nil
@@ -126,7 +150,7 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 	if message.err != nil {
 		if errors.Is(message.err, context.Canceled) || errors.Is(message.err, context.DeadlineExceeded) {
 			model.status = "Provider refresh canceled; no provider data changed."
-			return providerScheduleTickCommand()
+			return model.nextProviderScheduleTick()
 		}
 		var failure *app.AppError
 		if errors.As(message.err, &failure) &&
@@ -136,13 +160,31 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 			model.provider.status = message.result.Status
 			model.overlay = overlayProviderConfirmation
 			model.status = "Review the provider removal confirmation."
-			return providerScheduleTickCommand()
+			return model.nextProviderScheduleTick()
 		}
 		model.status = safeInteractionMessage(message.err)
-		return providerScheduleTickCommand()
+		return model.nextProviderScheduleTick()
 	}
 
 	identity := model.rowIdentity(model.cursor)
+	if interactionChanged {
+		model.provider.status = message.result.Status
+		model.syncProfileMetadata()
+		model.refreshPreserving(identity)
+		if selectedSessionCount(model.session) > 0 {
+			if err := model.rebuildSelectionValue(); err != nil {
+				model.clearSessionSelection()
+				model.status = "Provider data refreshed. Selection cleared because an identity disappeared."
+			} else {
+				model.status = providerSuccessMessage(message.result.Status)
+			}
+		} else {
+			model.selection = app.EmptySelection()
+			model.status = providerSuccessMessage(message.result.Status)
+		}
+		model.refreshDrillLabels()
+		return model.nextProviderScheduleTick()
+	}
 	if message.result.SelectionDisposition == app.SelectionCleared {
 		model.clearSessionSelection()
 		model.status = "Provider data refreshed. Selection cleared because an identity disappeared."
@@ -154,22 +196,25 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 	model.syncProfileMetadata()
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	return providerScheduleTickCommand()
+	return model.nextProviderScheduleTick()
 }
 
 func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
+	if message.timerGeneration != model.provider.timerGeneration {
+		return nil
+	}
 	if message.progress && !model.provider.refreshing {
-		return providerScheduleTickCommand()
+		return model.nextProviderScheduleTick()
 	}
 	if message.err != nil {
 		model.status = safeInteractionMessage(message.err)
-		return providerScheduleTickCommand()
+		return model.nextProviderScheduleTick()
 	}
 	previousCode := model.provider.status.Code
 	model.provider.status = message.status
 	if model.provider.refreshing {
 		model.status = providerProgressMessage(message.status)
-		return providerProgressTickCommand()
+		return providerProgressTickCommand(model.provider.timerGeneration)
 	}
 	if message.status.Code != "" {
 		model.status = providerStatusMessage(message.status)
@@ -182,7 +227,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	} else if !available && model.status == "" {
 		model.status = capabilityMessage(capability)
 	}
-	return providerScheduleTickCommand()
+	return model.nextProviderScheduleTick()
 }
 
 func (model *Model) routeProviderConfirmation(message tea.KeyPressMsg) tea.Cmd {

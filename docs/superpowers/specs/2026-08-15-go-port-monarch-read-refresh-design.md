@@ -232,7 +232,8 @@ carry a validated duration capped at 24 hours; no raw header or remote response 
 provider boundary. Credential-bearing REST and GraphQL requests refuse every redirect.
 
 Monarch decimal strings are parsed directly into signed integer minor units with an explicit
-currency and scale. No provider, domain, store, or test-fixture path represents money with
+currency and scale supplied on the first connection and persisted with the provider session. No
+provider, domain, store, or test-fixture path represents money with
 `float32` or `float64`. Unsupported precision, currency, or numeric syntax is
 `provider_data_invalid` and cannot partially import.
 
@@ -244,9 +245,9 @@ The provider-specific session file lives under the v2 moneyflow home:
 <moneyflow-home>/providers/monarch/session.json
 ```
 
-It may contain the session token, device UUID, bound `subscription.id`, issue/validation timing,
-and a format version. It never contains email, password, a time-based one-time-password secret, a
-one-time code, transaction data, labels, or search text.
+It may contain the session token, device UUID, bound `subscription.id`, explicit import currency
+and scale, issue/validation timing, and a format version. It never contains email, password, a
+time-based one-time-password secret, a one-time code, transaction data, labels, or search text.
 
 The Monarch package owns the file schema. It reuses `internal/home` for owner-only directory and
 file creation, validation of existing permissions and file types, bounded reads, atomic
@@ -272,8 +273,13 @@ retries.
 The connection command is:
 
 ```text
-moneyflow provider connect monarch
+moneyflow provider connect monarch --currency USD --scale 2
 ```
+
+The first connection requires both an explicit three-letter currency and a scale from zero through
+nine. They are validated and persisted with the session so every subsequent refresh interprets
+provider decimals identically. A retained session that still validates supplies its persisted
+settings, so an import retry or reconnect does not require the flags again.
 
 When the default profile file is missing, the command creates the exact current empty schema before
 evaluating the pristine predicate. It does not seed the synthetic demo fixture.

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 )
@@ -123,6 +124,22 @@ func TestSourceReloadsAtomicallyReplacedSessionOnce(t *testing.T) {
 	assert.NotEqual(t, firstFingerprint, secondFingerprint)
 }
 
+func TestSourceUsesPersistedImportConfiguration(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSessionStore(t)
+	session := validSession()
+	session.Import = ImportConfig{Currency: "JPY", Scale: 0}
+	require.NoError(t, store.Save(session))
+	source, err := NewSource(testClientOptions(t, ""), store)
+	require.NoError(t, err)
+
+	client, _, err := source.OpenClient(false)
+	require.NoError(t, err)
+	assert.Equal(t, domain.Currency("JPY"), client.options.ImportCurrency)
+	assert.Equal(t, uint8(0), client.options.ImportScale)
+}
+
 func TestSessionImplementsOpaqueProviderContract(t *testing.T) {
 	t.Parallel()
 
@@ -145,6 +162,7 @@ func validSession() Session {
 		Token:           "session-token",
 		DeviceUUID:      "00000000-0000-4000-8000-000000000001",
 		RemoteProfileID: "subscription-a",
+		Import:          ImportConfig{Currency: "USD", Scale: 2},
 		IssuedAt:        time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC),
 		ValidatedAt:     time.Date(2026, time.August, 15, 12, 1, 0, 0, time.UTC),
 	}

@@ -82,7 +82,9 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
 	}
 	plan = cloneRefreshPlan(plan)
-	if err = validateRefreshPlan(snapshot, binding, allocations, request.Candidate, plan); err != nil {
+	if err = validateRefreshPlan(
+		snapshot, binding, allocations, request.Candidate, request.ProposedIDs, plan,
+	); err != nil {
 		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
 	}
 
@@ -220,6 +222,7 @@ func validateRefreshPlan(
 	binding *store.ProviderBinding,
 	allocations []store.LabelAllocation,
 	candidate domain.ImportSnapshot,
+	proposedIDs map[string]domain.EntityID,
 	plan store.RefreshPlan,
 ) error {
 	if plan.Cursor != len(plan.Journal) {
@@ -257,6 +260,11 @@ func validateRefreshPlan(
 		return err
 	}
 	if err = requireAllocationSuperset(allocations, plan.Allocations); err != nil {
+		return err
+	}
+	if err = validateProposedExternalIdentities(
+		snapshot.Committed, plan.Committed.ExternalIdentities, proposedIDs,
+	); err != nil {
 		return err
 	}
 	if err = validateRefreshJournalRewrite(snapshot, plan); err != nil {
@@ -342,41 +350,76 @@ func validateRefreshJournalRewrite(
 	snapshot domain.ProfileSnapshot,
 	plan store.RefreshPlan,
 ) error {
-	active := snapshot.Journal[:snapshot.Cursor]
-	next := 0
-	for _, operation := range plan.Journal {
-		for next < len(active) && active[next].ID != operation.ID {
-			next++
+	if snapshot.Cursor == 0 {
+		if plan.Cursor != 0 || len(plan.Journal) != 0 {
+			return errors.New("refresh journal does not discard the inactive redo tail")
 		}
-		if next == len(active) {
-			return errors.New("refresh journal is not an ordered subset of the active prefix")
-		}
-		before := active[next].Clone()
-		after := operation.Clone()
-		beforeTargets := before.Targets
-		afterTargets := after.Targets
-		before.Targets = nil
-		after.Targets = nil
-		if !reflect.DeepEqual(before, after) || !orderedTargetSubset(beforeTargets, afterTargets) {
-			return errors.New("refresh journal rewrites more than operation targets")
-		}
-		next++
+		return nil
+	}
+	expected, err := profilereplay.RebaseProviderJournal(
+		snapshot.Committed, plan.Committed, snapshot.Journal, snapshot.Cursor,
+	)
+	if err != nil {
+		return err
+	}
+	if plan.Cursor != expected.Cursor || !reflect.DeepEqual(plan.Journal, expected.Journal) {
+		return errors.New("refresh journal does not match authoritative rebase")
 	}
 	return nil
 }
 
-func orderedTargetSubset(before, after []domain.EntityID) bool {
-	next := 0
-	for _, target := range after {
-		for next < len(before) && before[next] != target {
-			next++
-		}
-		if next == len(before) {
-			return false
-		}
-		next++
+func validateProposedExternalIdentities(
+	before domain.CommittedProfile,
+	after []domain.ExternalIdentity,
+	proposed map[string]domain.EntityID,
+) error {
+	existing := make(map[externalIdentityIndexKey]struct{}, len(before.ExternalIdentities))
+	reserved := make(map[domain.EntityID]struct{})
+	for _, identity := range before.ExternalIdentities {
+		existing[externalIdentityIndexKey{identity.Namespace, identity.ExternalID}] = struct{}{}
 	}
-	return true
+	for _, batch := range [][]domain.EntityID{
+		entityIDs(before.Accounts, func(value domain.Account) domain.EntityID { return value.ID }),
+		entityIDs(before.Merchants, func(value domain.Merchant) domain.EntityID { return value.ID }),
+		entityIDs(before.Groups, func(value domain.CategoryGroup) domain.EntityID { return value.ID }),
+		entityIDs(before.Categories, func(value domain.Category) domain.EntityID { return value.ID }),
+		entityIDs(before.Transactions, func(value domain.TransactionRecord) domain.EntityID { return value.ID }),
+	} {
+		for _, id := range batch {
+			reserved[id] = struct{}{}
+		}
+	}
+	used := make(map[domain.EntityID]struct{})
+	for _, identity := range after {
+		lookup := externalIdentityIndexKey{identity.Namespace, identity.ExternalID}
+		if _, existed := existing[lookup]; existed {
+			continue
+		}
+		providerName, kindText, separator := strings.Cut(identity.Namespace, "/")
+		if !separator || providerName == "" || kindText != string(identity.EntityType) {
+			return errors.New("refresh new external identity has an invalid namespace")
+		}
+		key := providerName + "/" + kindText + "\x00" + identity.ExternalID
+		if expected, supplied := proposed[key]; supplied && expected != identity.EntityID {
+			return errors.New("refresh new external identity does not use its proposed local ID")
+		}
+		if _, exists := reserved[identity.EntityID]; exists {
+			return errors.New("refresh new external identity reuses a durable local ID")
+		}
+		if _, exists := used[identity.EntityID]; exists {
+			return errors.New("refresh new external identities share a local ID")
+		}
+		used[identity.EntityID] = struct{}{}
+	}
+	return nil
+}
+
+func entityIDs[T any](values []T, id func(T) domain.EntityID) []domain.EntityID {
+	result := make([]domain.EntityID, len(values))
+	for index, value := range values {
+		result[index] = id(value)
+	}
+	return result
 }
 
 func validateCandidateMaterialization(

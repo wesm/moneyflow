@@ -350,6 +350,37 @@ describe('browser view controller', () => {
     expect(replacements).not.toHaveBeenCalled()
     expect(controller.editing.state.revision).toBe(2n)
   })
+
+  it('replaces the owned history selection after provider refresh', async () => {
+    const initial = projection('v=1', 0, 3, '1')
+    initial.capabilities = [
+      {
+        id: 'provider.refresh',
+        key_display: 'r',
+        description: 'Refresh provider data',
+        category: 'System',
+        available: true,
+      },
+    ]
+    const next = projection('v=1', 0, 3, '2')
+    next.selection = 'mfsel1.refreshed' as SelectionValue
+    const client = clientWith({
+      view: vi.fn(async () => initial),
+      mutations: {
+        request: vi.fn(async () => Response.json(providerRefreshResponse(next))),
+      },
+    })
+    const controller = controllerFor(client, false)
+    await controller.hydrate()
+    const replacements = vi.spyOn(history, 'replaceState')
+    replacements.mockClear()
+
+    await expect(controller.provider.refresh()).resolves.toBe(true)
+
+    expect(replacements).toHaveBeenCalledTimes(1)
+    expect(history.state.selection).toBe(next.selection)
+    expect(history.state.cursorIndex).toBe(controller.cursorIndex)
+  })
 })
 
 function controllerFor(client: MoneyflowClient, prefetch = true) {
@@ -412,5 +443,41 @@ function projection(query: string, offset: number, total: number, revision = '0'
     })),
     statistics: [],
     chart: {},
+  }
+}
+
+function providerRefreshResponse(next: ViewProjection) {
+  return {
+    version: '1',
+    revision: next.revision,
+    generation: '2',
+    status: {
+      version: '1',
+      revision: next.revision,
+      generation: '2',
+      progress: { fetched: 0, total: 0 },
+      summary: {
+        imported_accounts: 0,
+        imported_merchants: 0,
+        imported_groups: 0,
+        imported_categories: 0,
+        imported_transactions: 3,
+        removed_transactions: 0,
+        removed_operations: 0,
+        removed_targets: 0,
+        retained_operations: 0,
+        rebased_hide_targets: 0,
+        discarded_redo_operations: 0,
+      },
+      capability: {
+        id: 'provider.refresh',
+        key_display: 'r',
+        description: 'Refresh provider data',
+        category: 'System',
+        available: true,
+      },
+    },
+    projection: next,
+    selection: { kind: 'preserved', value: next.selection },
   }
 }

@@ -89,6 +89,10 @@ func secureOpenedPrivateFile(file *os.File, info os.FileInfo) (os.FileInfo, erro
 	return info, nil
 }
 
+func openPrivateFile(path string) (*os.File, error) {
+	return os.Open(path) //nolint:gosec // validated caller-owned absolute path.
+}
+
 func effectiveUserID() (uint32, error) {
 	uid := os.Geteuid()
 	if uid < 0 || uint64(uid) > math.MaxUint32 {

@@ -123,6 +123,43 @@ func TestProviderIdentityReturnsCanonicalDeterministicCollections(t *testing.T) 
 	assert.Equal(t, first, second)
 }
 
+func TestProviderIdentityReusesStickySuffixAcrossFreshRandomMaterial(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	input.Import.Merchants = []domain.ImportEntity{
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_a", Label: "Example Merchant"},
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_b", Label: "Example Merchant"},
+	}
+	input.Import.Transactions = nil
+	input.ProposedIDs[app.ProviderIdentityKey(
+		"monarch", domain.EntityKindMerchant, "merchant_b",
+	)] = "merchant_second"
+	input.ProposedSuffixes[app.ProviderIdentityKey(
+		"monarch", domain.EntityKindMerchant, "merchant_b",
+	)] = "abcdef12"
+
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	require.Len(t, first.Committed.Merchants, 2)
+	firstLabels := map[domain.EntityID]string{}
+	for _, merchant := range first.Committed.Merchants {
+		firstLabels[merchant.ID] = merchant.Label
+	}
+
+	input.Committed = first.Committed
+	input.Effective = first.Committed
+	input.Allocations = first.Allocations
+	input.ProposedSuffixes[app.ProviderIdentityKey(
+		"monarch", domain.EntityKindMerchant, "merchant_b",
+	)] = "12345678"
+	second, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	for _, merchant := range second.Committed.Merchants {
+		assert.Equal(t, firstLabels[merchant.ID], merchant.Label)
+	}
+}
+
 func TestProviderIdentityRejectsProposedIDUsedByPendingEntity(t *testing.T) {
 	t.Parallel()
 

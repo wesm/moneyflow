@@ -194,7 +194,12 @@ func (service *Service) RefreshProvider(
 	request ProviderRefreshRequest,
 ) (ProviderRefreshResult, error) {
 	service.interactions.Lock()
-	defer service.interactions.Unlock()
+	interactionLocked := true
+	defer func() {
+		if interactionLocked {
+			service.interactions.Unlock()
+		}
+	}()
 	runtime, err := service.requireProviderRuntime()
 	if err != nil {
 		return ProviderRefreshResult{}, err
@@ -238,6 +243,8 @@ func (service *Service) RefreshProvider(
 			service.Revision(),
 		)
 	}
+	service.interactions.Unlock()
+	interactionLocked = false
 
 	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(
 		ctx,
@@ -308,6 +315,8 @@ func (service *Service) RefreshProvider(
 		}
 		return result, failErr
 	}
+	service.interactions.Lock()
+	interactionLocked = true
 	return service.foldProviderCandidate(
 		ctx,
 		runtime,

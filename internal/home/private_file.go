@@ -102,7 +102,7 @@ func ReadPrivateFileWithFingerprint(
 	if err != nil {
 		return nil, "", err
 	}
-	file, err := os.Open(path) //nolint:gosec // validated caller-owned absolute path.
+	file, err := openPrivateFile(path)
 	if err != nil {
 		return nil, "", fmt.Errorf("read private file: open: %w", err)
 	}

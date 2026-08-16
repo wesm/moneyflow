@@ -133,7 +133,10 @@ func (source *Source) OpenClient(
 	if err != nil {
 		return nil, "", provider.NewError(provider.CodeReconnectRequired)
 	}
-	client, err := NewClient(source.options, session.Token, session.DeviceUUID)
+	options := source.options
+	options.ImportCurrency = session.Import.Currency
+	options.ImportScale = session.Import.Scale
+	client, err := NewClient(options, session.Token, session.DeviceUUID)
 	if err != nil {
 		return nil, "", provider.NewError(provider.CodeReconnectRequired)
 	}

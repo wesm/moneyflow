@@ -206,14 +206,27 @@ func TestProviderRefreshAtJournalCeilingMayShrinkJournal(t *testing.T) {
 	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
 		assert.Len(t, inputs.Snapshot.Journal, maxJournalOperations)
 		committed, allocations, planErr := materializeRefreshCandidate(inputs)
+		if planErr != nil {
+			return store.RefreshPlan{}, planErr
+		}
+		rebased, planErr := profilereplay.RebaseProviderJournal(
+			inputs.Snapshot.Committed,
+			committed,
+			inputs.Snapshot.Journal,
+			inputs.Snapshot.Cursor,
+		)
+		if planErr != nil {
+			return store.RefreshPlan{}, planErr
+		}
 		plan := store.RefreshPlan{
 			Committed: committed, Effective: committed.Clone(),
+			Journal: rebased.Journal, Cursor: rebased.Cursor,
 			KnownDrills: inputs.Snapshot.KnownDrills, Allocations: allocations,
 			Summary: refreshCandidateSummary(inputs.Candidate),
 		}
-		plan.Summary.RemovedOperations = maxJournalOperations
-		plan.Summary.RemovedTargets = maxJournalOperations
-		plan.Summary.RetainedOperations = 0
+		plan.Summary.RemovedOperations = rebased.Summary.RemovedOperations
+		plan.Summary.RemovedTargets = rebased.Summary.RemovedTargets
+		plan.Summary.RetainedOperations = rebased.Summary.RetainedOperations
 		return plan, planErr
 	})
 	require.NoErrorf(t, err, "cause: %v", errors.Unwrap(err))
@@ -281,9 +294,18 @@ func passthroughRefreshPlanner(inputs store.RefreshInputs) (store.RefreshPlan, e
 	if err != nil {
 		return store.RefreshPlan{}, err
 	}
+	rebased, err := profilereplay.RebaseProviderJournal(
+		inputs.Snapshot.Committed,
+		committed,
+		inputs.Snapshot.Journal,
+		inputs.Snapshot.Cursor,
+	)
+	if err != nil {
+		return store.RefreshPlan{}, err
+	}
 	replayed, err := profilereplay.Replay(domain.ProfileSnapshot{
 		Revision: inputs.Snapshot.Revision, Committed: committed,
-		Journal: inputs.Snapshot.Journal, Cursor: inputs.Snapshot.Cursor,
+		Journal: rebased.Journal, Cursor: rebased.Cursor,
 		KnownDrills: inputs.Snapshot.KnownDrills,
 	})
 	if err != nil {
@@ -292,8 +314,8 @@ func passthroughRefreshPlanner(inputs store.RefreshInputs) (store.RefreshPlan, e
 	return store.RefreshPlan{
 		Committed:   committed,
 		Effective:   replayed.Effective,
-		Journal:     inputs.Snapshot.Journal,
-		Cursor:      inputs.Snapshot.Cursor,
+		Journal:     rebased.Journal,
+		Cursor:      rebased.Cursor,
 		KnownDrills: inputs.Snapshot.KnownDrills,
 		Allocations: allocations,
 		Summary:     refreshCandidateSummary(inputs.Candidate),
@@ -525,7 +547,11 @@ func refreshCandidateSummary(candidate domain.ImportSnapshot) store.RefreshSumma
 
 func insertJournalAtOperationCeiling(t *testing.T, profile *profile) {
 	t.Helper()
-	_, err := profile.database.ExecContext(context.Background(), `
+	loaded, err := profile.Load(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, loaded.Committed.Transactions)
+	target := loaded.Committed.Transactions[0].ID
+	_, err = profile.database.ExecContext(context.Background(), `
 		WITH RECURSIVE numbers(value) AS (
 			SELECT 1 UNION ALL SELECT value + 1 FROM numbers WHERE value < ?
 		)
@@ -541,8 +567,8 @@ func insertJournalAtOperationCeiling(t *testing.T, profile *profile) {
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(context.Background(), `
 		INSERT INTO operation_targets(operation_id, ordinal, entity_id)
-		SELECT id, 0, 'transaction_a' FROM journal_operations
-		WHERE id LIKE 'operation_refresh_limit_%'`)
+		SELECT id, 0, ? FROM journal_operations
+		WHERE id LIKE 'operation_refresh_limit_%'`, target)
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(context.Background(),
 		"UPDATE profile_state SET journal_cursor = ? WHERE singleton = 1", maxJournalOperations)
@@ -730,6 +756,78 @@ func TestProviderRefreshRejectsRedoReactivationAndPayloadRewrite(t *testing.T) {
 	}
 }
 
+func TestProviderRefreshRejectsDroppingStillValidActiveOperation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	now := time.Date(2026, time.August, 15, 21, 50, 0, 0, time.UTC)
+	bindProviderForRefreshTest(t, profile, now)
+	snapshot, err := profile.Load(ctx)
+	require.NoError(t, err)
+	_, err = profile.Append(ctx, snapshot.Revision, draftHideOperation(
+		"operation_must_survive", snapshot.Revision, snapshot.Committed.Transactions[0].ID,
+	))
+	require.NoError(t, err)
+	acquireProviderRefreshLease(t, profile, "drop-owner", now)
+
+	_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+		ExpectedGeneration: 0, LeaseOwnerID: "drop-owner",
+		Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
+	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
+		plan, planErr := passthroughRefreshPlanner(inputs)
+		plan.Journal = nil
+		plan.Cursor = 0
+		plan.Effective = plan.Committed.Clone()
+		return plan, planErr
+	})
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+}
+
+func TestProviderRefreshRejectsNewIdentityMappedOntoUnrelatedEntity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	now := time.Date(2026, time.August, 15, 21, 55, 0, 0, time.UTC)
+	bindProviderForRefreshTest(t, profile, now)
+	acquireProviderRefreshLease(t, profile, "identity-owner", now)
+	candidate := providerRefreshCandidate(t, now)
+	proposed := providerRefreshProposals(candidate)
+
+	_, err := profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+		ExpectedGeneration: 0, LeaseOwnerID: "identity-owner",
+		Candidate: candidate, ProposedIDs: proposed, ObservedAt: now,
+	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
+		plan, planErr := passthroughRefreshPlanner(inputs)
+		if planErr != nil {
+			return store.RefreshPlan{}, planErr
+		}
+		unrelated := inputs.Snapshot.Committed.Merchants[0].ID
+		var imported domain.EntityID
+		for index := range plan.Committed.ExternalIdentities {
+			identity := &plan.Committed.ExternalIdentities[index]
+			if identity.EntityType == domain.EntityKindMerchant &&
+				identity.ExternalID == "merchant-example" {
+				imported = identity.EntityID
+				identity.EntityID = unrelated
+			}
+		}
+		plan.Committed.Merchants = slices.DeleteFunc(
+			plan.Committed.Merchants,
+			func(value domain.Merchant) bool { return value.ID == imported },
+		)
+		for index := range plan.Committed.Transactions {
+			if plan.Committed.Transactions[index].ProviderID == "transaction-example" {
+				plan.Committed.Transactions[index].MerchantID = unrelated
+			}
+		}
+		plan.Effective = plan.Committed.Clone()
+		return plan, nil
+	})
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+}
+
 func bindProviderForRefreshTest(t *testing.T, profile *profile, boundAt time.Time) {
 	t.Helper()
 	_, err := profile.database.ExecContext(context.Background(), `
@@ -778,4 +876,27 @@ func providerRefreshCandidate(t *testing.T, observedAt time.Time) domain.ImportS
 			Date: date, Amount: domain.Money{Minor: -1234, Currency: "USD", Scale: 2},
 		}},
 	}
+}
+
+func providerRefreshProposals(candidate domain.ImportSnapshot) map[string]domain.EntityID {
+	result := make(map[string]domain.EntityID)
+	for _, batch := range []struct {
+		kind     domain.EntityKind
+		entities []domain.ImportEntity
+	}{
+		{domain.EntityKindAccount, candidate.Accounts},
+		{domain.EntityKindMerchant, candidate.Merchants},
+		{domain.EntityKindGroup, candidate.Groups},
+		{domain.EntityKindCategory, candidate.Categories},
+	} {
+		for _, entity := range batch.entities {
+			result["monarch/"+string(batch.kind)+"\x00"+entity.ExternalID] =
+				domain.EntityID("refresh_" + string(batch.kind) + "_" + entity.ExternalID)
+		}
+	}
+	for _, transaction := range candidate.Transactions {
+		result["monarch/transaction\x00"+transaction.ExternalID] =
+			domain.EntityID("refresh_transaction_" + transaction.ExternalID)
+	}
+	return result
 }

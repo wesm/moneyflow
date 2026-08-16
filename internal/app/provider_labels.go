@@ -207,18 +207,6 @@ func (planner *providerLabelPlanner) reserveHistoricalOwners(
 
 func (planner *providerLabelPlanner) planCandidate(candidate providerLabelCandidate) error {
 	allocation, hasAllocation := planner.currentAllocation(candidate)
-	if hasAllocation && allocation.BaseCollisionKey == candidate.baseKey &&
-		allocation.SuffixToken != "" {
-		material := planner.input.ProposedSuffixes[ProviderIdentityKey(
-			planner.input.Provider, candidate.kind, candidate.externalID,
-		)]
-		if !validSuffixMaterial(material) || !strings.HasPrefix(material, allocation.SuffixToken) {
-			return fmt.Errorf(
-				"plan provider labels: suffix material changed for %s",
-				candidate.externalID,
-			)
-		}
-	}
 	owner, baseReserved := planner.reservations[candidate.kind][candidate.baseKey]
 	canOwnBase := !baseReserved || owner == candidate.localID
 	stickyBase := hasAllocation && allocation.BaseCollisionKey == candidate.baseKey
@@ -267,13 +255,8 @@ func (planner *providerLabelPlanner) planSuffixed(
 	}
 	start := minimumSuffixLength
 	if allocation.BaseCollisionKey == candidate.baseKey && len(allocation.SuffixToken) >= start {
-		if !strings.HasPrefix(material, allocation.SuffixToken) {
-			return fmt.Errorf(
-				"plan provider labels: suffix material changed for %s",
-				candidate.externalID,
-			)
-		}
-		start = len(allocation.SuffixToken)
+		material = allocation.SuffixToken + material
+		start = len(allocation.SuffixToken) + suffixLengthStep
 	}
 	for length := start; length <= len(material); length += suffixLengthStep {
 		suffix := material[:length]

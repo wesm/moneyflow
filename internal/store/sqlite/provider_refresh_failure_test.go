@@ -48,6 +48,19 @@ func TestProviderRefreshLateWriteFailuresRollBackEveryLogicalTable(t *testing.T)
 			}
 			beforeAppend, err := profile.Load(ctx)
 			require.NoError(t, err)
+			if failure.table == "journal_operations" {
+				target := beforeAppend.Committed.Transactions[0].ID
+				_, err = profile.database.ExecContext(ctx, `
+					UPDATE transactions SET provider = 'monarch', provider_id = 'removed-example'
+					WHERE id = ?`, target)
+				require.NoError(t, err)
+				_, err = profile.database.ExecContext(ctx, `
+					INSERT INTO external_identities(entity_type, entity_id, namespace, external_id)
+					VALUES ('transaction', ?, 'monarch/transaction', 'removed-example')`, target)
+				require.NoError(t, err)
+				beforeAppend, err = profile.Load(ctx)
+				require.NoError(t, err)
+			}
 			_, err = profile.Append(ctx, beforeAppend.Revision, draftHideOperation(
 				"operation_refresh_failure",
 				beforeAppend.Revision,

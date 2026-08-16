@@ -15,6 +15,9 @@ import (
 // ProviderSchemaVersion identifies the read/import/refresh wire contract.
 const ProviderSchemaVersion = "1"
 
+// ProviderRefreshTimeout bounds one complete HTTP-triggered reconciliation.
+const ProviderRefreshTimeout = 30 * time.Minute
+
 // ProviderRefreshBody asks for one complete provider reconciliation while preserving view state.
 type ProviderRefreshBody struct {
 	Version   string `json:"version"`
@@ -120,6 +123,8 @@ func (server *Server) registerProviderEndpoints(config Config) {
 				Summary: "Confirm one suspicious provider refresh candidate",
 				Errors:  []int{400, 403, 409, 413, 422, 500, 503},
 			}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
+				ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+				defer cancel()
 				body := input.Body
 				request, err := providerRefreshRequest(body.ProviderRefreshBody)
 				if err != nil {
@@ -142,6 +147,8 @@ func (server *Server) registerProviderEndpoints(config Config) {
 			Summary: "Refresh one complete provider snapshot",
 			Errors:  []int{400, 403, 409, 413, 422, 500, 503},
 		}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
+			ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+			defer cancel()
 			request, err := providerRefreshRequest(input.Body)
 			if err != nil {
 				return nil, problemFromError(err)

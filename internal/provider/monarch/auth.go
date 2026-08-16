@@ -95,8 +95,12 @@ func (authenticator *Authenticator) Connect(
 		Token:           token,
 		DeviceUUID:      deviceUUID,
 		RemoteProfileID: subscription.ID,
-		IssuedAt:        issuedAt,
-		ValidatedAt:     authenticator.options.Now().UTC(),
+		Import: ImportConfig{
+			Currency: authenticator.options.ImportCurrency,
+			Scale:    authenticator.options.ImportScale,
+		},
+		IssuedAt:    issuedAt,
+		ValidatedAt: authenticator.options.Now().UTC(),
 	}, nil
 }
 

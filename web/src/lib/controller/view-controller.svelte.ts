@@ -115,7 +115,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     host: {
       current: () => projection,
       accept: (next) => {
-        acceptProfileProjection(next)
+        acceptProfileProjection(next, true)
         editing.sync(next)
       },
     },
@@ -422,7 +422,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
-  function acceptProfileProjection(next: ViewProjection): void {
+  function acceptProfileProjection(next: ViewProjection, replaceHistory = false): void {
     if (projection && BigInt(next.revision) < BigInt(projection.revision)) return
     generation += 1
     activeRequest?.abort()
@@ -438,6 +438,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cursorIndex = cursor.index
     announcement = next.warnings?.[0]?.detail ?? next.status ?? ''
     problem = undefined
+    if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
   }
 
