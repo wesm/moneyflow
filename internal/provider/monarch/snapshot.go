@@ -60,11 +60,11 @@ func (client *Client) fetchSnapshotAttempt(
 	attempt int,
 	progress provider.ProgressFunc,
 ) (domain.ImportSnapshot, error) {
-	first, err := client.fetchRemoteSnapshot(ctx, attempt, progress)
+	first, err := client.fetchRemoteSnapshot(ctx, attempt, 1, progress)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
 	}
-	second, err := client.fetchRemoteSnapshot(ctx, attempt, progress)
+	second, err := client.fetchRemoteSnapshot(ctx, attempt, 2, progress)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
 	}
@@ -95,6 +95,7 @@ type remoteSnapshot struct {
 func (client *Client) fetchRemoteSnapshot(
 	ctx context.Context,
 	attempt int,
+	pass int,
 	progress provider.ProgressFunc,
 ) (remoteSnapshot, error) {
 	accounts, err := client.GetAccounts(ctx)
@@ -113,11 +114,11 @@ func (client *Client) fetchRemoteSnapshot(
 	if err != nil {
 		return remoteSnapshot{}, err
 	}
-	visible, err := client.fetchTransactionPartition(ctx, false, attempt, progress)
+	visible, err := client.fetchTransactionPartition(ctx, false, attempt, pass, progress)
 	if err != nil {
 		return remoteSnapshot{}, err
 	}
-	hidden, err := client.fetchTransactionPartition(ctx, true, attempt, progress)
+	hidden, err := client.fetchTransactionPartition(ctx, true, attempt, pass, progress)
 	if err != nil {
 		return remoteSnapshot{}, err
 	}
@@ -189,6 +190,16 @@ func (client *Client) normalizeSnapshot(
 	categories []Category,
 	transactions []Transaction,
 ) (domain.ImportSnapshot, error) {
+	// Monarch can omit identities used only by hidden transactions from its account and merchant
+	// list surfaces. The transaction rows still provide the stable IDs and labels required here.
+	accounts, err := includeTransactionAccounts(accounts, transactions)
+	if err != nil {
+		return domain.ImportSnapshot{}, err
+	}
+	merchants, err = includeTransactionMerchants(merchants, transactions)
+	if err != nil {
+		return domain.ImportSnapshot{}, err
+	}
 	accountEntities, accountIDs, err := normalizeAccounts(accounts)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
@@ -235,6 +246,68 @@ func (client *Client) normalizeSnapshot(
 		return domain.ImportSnapshot{}, provider.NewError(provider.CodeDataInvalid)
 	}
 	return snapshot, nil
+}
+
+func includeTransactionAccounts(
+	accounts []Account,
+	transactions []Transaction,
+) ([]Account, error) {
+	result := append([]Account(nil), accounts...)
+	known := make(map[string]string, len(accounts))
+	providerOwned := make(map[string]struct{}, len(accounts))
+	for _, account := range accounts {
+		known[account.ID] = account.DisplayName
+		providerOwned[account.ID] = struct{}{}
+	}
+	for _, transaction := range transactions {
+		account := Account{ID: transaction.Account.ID, DisplayName: transaction.Account.DisplayName}
+		if _, exists := providerOwned[account.ID]; exists {
+			continue
+		}
+		if !validProviderText(account.ID) || !validProviderText(account.DisplayName) {
+			return nil, provider.NewError(provider.CodeDataInvalid)
+		}
+		if name, exists := known[account.ID]; exists {
+			if name != account.DisplayName {
+				return nil, errSnapshotChanged
+			}
+			continue
+		}
+		known[account.ID] = account.DisplayName
+		result = append(result, account)
+	}
+	return result, nil
+}
+
+func includeTransactionMerchants(
+	merchants []Merchant,
+	transactions []Transaction,
+) ([]Merchant, error) {
+	result := append([]Merchant(nil), merchants...)
+	known := make(map[string]string, len(merchants))
+	providerOwned := make(map[string]struct{}, len(merchants))
+	for _, merchant := range merchants {
+		known[merchant.ID] = merchant.Name
+		providerOwned[merchant.ID] = struct{}{}
+	}
+	for _, transaction := range transactions {
+		merchant := Merchant{ID: transaction.Merchant.ID, Name: transaction.Merchant.Name}
+		if _, exists := providerOwned[merchant.ID]; exists {
+			continue
+		}
+		if !validProviderText(merchant.ID) || !validProviderText(merchant.Name) {
+			return nil, provider.NewError(provider.CodeDataInvalid)
+		}
+		if name, exists := known[merchant.ID]; exists {
+			if name != merchant.Name {
+				return nil, errSnapshotChanged
+			}
+			continue
+		}
+		known[merchant.ID] = merchant.Name
+		result = append(result, merchant)
+	}
+	return result, nil
 }
 
 func normalizeAccounts(accounts []Account) ([]domain.ImportEntity, map[string]struct{}, error) {

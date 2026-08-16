@@ -422,6 +422,14 @@ Each complete read must also satisfy all of these conditions:
 - Account, merchant, group, and category lists contain no duplicate external IDs, and every
   imported transaction reference resolves within the same candidate.
 
+Monarch's account-list and merchant-aggregate surfaces may omit identities referenced only by
+hidden transactions. The complete transaction rows already carry stable account and merchant IDs
+plus their display labels, so each read supplements its account and merchant candidate from those
+inline references before relationship validation. An explicit list or aggregate row remains
+authoritative for an ID it contains. Repeated inline references for an otherwise omitted ID must
+agree on the label or the attempt is unstable. This is lossless completion of the same provider
+snapshot, not silent identity coalescing.
+
 The final count probes catch a transaction whose hidden flag changed during the window between
 partition fetches. The matching second read catches insert/delete churn that preserves counts.
 Any integrity failure discards both reads and retries from page zero. A refresh receives at most
@@ -664,9 +672,10 @@ rename overlay continues to own `r` while open. On an unbound profile, refresh i
 disabled through the same capability result with a clear reason; renderers do not dispatch a
 doomed provider call.
 
-The TUI runs refresh as a cancellable command and displays page/partition progress and counts-only
-status. Its standing scheduler uses a bounded local tick and never blocks Bubble Tea update or
-rendering.
+The CLI and TUI display page/partition progress and counts-only status. CLI progress distinguishes
+the first complete read from the verification read so the deliberate second pass never looks like
+an unexplained restart. The TUI runs refresh as a cancellable command; its standing scheduler uses
+a bounded local tick and never blocks Bubble Tea update or rendering.
 
 The web uses the existing protected mutation path for manual refresh and confirmation. It exposes
 a read-only counts/status projection and polls only while the document is visible. It adds no push
@@ -697,7 +706,9 @@ snapshot and journal unless this design explicitly says otherwise:
 
 - `provider_reconnect_required`: authentication still fails after one session-file reload
 - `provider_identity_mismatch`: live `subscription.id` differs from the SQLite binding
-- `provider_snapshot_unstable`: snapshot integrity failed after three complete attempts
+- `provider_snapshot_unstable`: snapshot integrity failed after three complete attempts; renderers
+  state that no financial data changed and recommend one explicit retry followed by reporting the
+  counts if the failure repeats
 - `provider_refresh_in_progress`: another process owns an unexpired refresh lease
 - `provider_deletion_confirmation_required`: a valid candidate exceeded a plausibility threshold
 - `provider_confirmation_invalid`: confirmation expired, belongs to another process, lost its
@@ -811,6 +822,8 @@ messages.
   probes, cross-partition flag changes, duplicate entity IDs, missing related entities, and
   three-attempt exhaustion
 - prove pending rows participate in integrity checks and never enter the import candidate
+- prove hidden-only account and merchant identities are completed from transaction-inline fields
+  without merging external IDs, and reject conflicting inline labels
 - verify sticky first-observed collision ownership, simultaneous-import external-ID ordering,
   deterministic suffix extension, ordinary provider renames, and pending user-label precedence
 - prove identical closed callback inputs return identical refresh plans

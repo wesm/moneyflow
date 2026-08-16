@@ -23,6 +23,7 @@ func (client *Client) fetchTransactionPartition(
 	ctx context.Context,
 	hidden bool,
 	attempt int,
+	pass int,
 	progress provider.ProgressFunc,
 ) (transactionPartition, error) {
 	partitionName := "visible"
@@ -67,6 +68,7 @@ func (client *Client) fetchTransactionPartition(
 				Fetched:   len(seen),
 				Total:     wantTotal,
 				Attempt:   attempt,
+				Pass:      pass,
 			})
 		}
 		if offset == wantTotal {

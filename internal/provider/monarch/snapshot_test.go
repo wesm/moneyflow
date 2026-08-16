@@ -35,10 +35,56 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	assert.Equal(t, domain.Currency("USD"), snapshot.Transactions[0].Amount.Currency)
 	assert.Equal(t, uint8(2), snapshot.Transactions[0].Amount.Scale)
 	assert.Contains(t, progress, provider.Progress{
-		Partition: "visible", Fetched: 2, Total: 2, Attempt: 1,
+		Partition: "visible", Fetched: 2, Total: 2, Attempt: 1, Pass: 1,
 	})
 	assert.Contains(t, progress, provider.Progress{
-		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1,
+		Partition: "hidden", Fetched: 1, Total: 1, Attempt: 1, Pass: 1,
+	})
+	assert.Equal(t, 2, server.CompleteScans())
+}
+
+func TestSnapshotUsesInlineMerchantForHiddenOnlyTransaction(t *testing.T) {
+	t.Parallel()
+
+	hidden := snapshotTransaction("transaction-hidden", true, false)
+	hidden.Merchant.ID = "merchant-hidden-only"
+	hidden.Merchant.Name = "Hidden-only Merchant"
+	server := newSnapshotServer(t, snapshotScenario{
+		Hidden: []Transaction{hidden},
+		Merchants: []Merchant{{
+			ID: "merchant-a", Name: "Example Merchant",
+		}},
+	})
+	client := newSnapshotClient(t, server)
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Contains(t, snapshot.Merchants, domain.ImportEntity{
+		Kind: domain.EntityKindMerchant, ExternalID: "merchant-hidden-only",
+		Label: "Hidden-only Merchant",
+	})
+	assert.Equal(t, 2, server.CompleteScans())
+}
+
+func TestSnapshotUsesInlineAccountForHiddenOnlyTransaction(t *testing.T) {
+	t.Parallel()
+
+	hidden := snapshotTransaction("transaction-hidden", true, false)
+	hidden.Account.ID = "account-hidden-only"
+	hidden.Account.DisplayName = "Hidden Account"
+	server := newSnapshotServer(t, snapshotScenario{
+		Hidden: []Transaction{hidden},
+		Accounts: []Account{{
+			ID: "account-a", DisplayName: "Example Account",
+		}},
+	})
+	client := newSnapshotClient(t, server)
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Contains(t, snapshot.Accounts, domain.ImportEntity{
+		Kind: domain.EntityKindAccount, ExternalID: "account-hidden-only",
+		Label: "Hidden Account",
 	})
 	assert.Equal(t, 2, server.CompleteScans())
 }
@@ -117,7 +163,7 @@ func TestSnapshotPersistentRelationshipRaceExhaustsThreeAttempts(t *testing.T) {
 
 	scenario := snapshotScenario{BeforePage: func(_ int, _ bool, _ int, _ int, total int, rows []Transaction) (int, []Transaction) {
 		if len(rows) > 0 {
-			rows[0].Account.ID = "account-not-in-snapshot"
+			rows[0].Category.ID = "category-not-in-snapshot"
 		}
 		return total, rows
 	}}

@@ -310,7 +310,7 @@ func providerStatusMessage(status app.ProviderStatus) string {
 func providerStatusSafeDetail(code provider.ErrorCode) string {
 	details := map[provider.ErrorCode]string{
 		provider.CodeIdentityMismatch:    "The provider profile does not match this local profile.",
-		provider.CodeSnapshotUnstable:    "The provider changed while it was read. Try again later.",
+		provider.CodeSnapshotUnstable:    "The provider returned inconsistent data after three complete attempts. No financial data changed. Retry once; if it repeats, report the progress counts.",
 		provider.CodeConfirmationInvalid: "The refresh confirmation is no longer valid.",
 		provider.CodeRefreshStale:        "A newer provider refresh already committed.",
 		provider.CodeRateLimited:         "The provider rate limit prevented refresh.",

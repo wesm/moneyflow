@@ -19,6 +19,7 @@ type Progress struct {
 	Fetched   int
 	Total     int
 	Attempt   int
+	Pass      int
 }
 
 // ProgressFunc observes counts-only snapshot progress.

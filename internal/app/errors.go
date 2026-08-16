@@ -49,7 +49,7 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppJournalFull:                          "The pending edit limit is reached. Review or undo existing edits.",
 	AppProviderReconnectRequired:            "Reconnect the provider through the command line.",
 	AppProviderIdentityMismatch:             "The provider profile does not match this local profile.",
-	AppProviderSnapshotUnstable:             "The provider changed while it was read. Try again later.",
+	AppProviderSnapshotUnstable:             "The provider returned inconsistent data after three complete attempts. No financial data changed. Retry once; if it repeats, report the progress counts.",
 	AppProviderRefreshInProgress:            "Another process is refreshing this profile.",
 	AppProviderDeletionConfirmationRequired: "Confirm the proposed provider removals.",
 	AppProviderConfirmationInvalid:          "The refresh confirmation is no longer valid.",

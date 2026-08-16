@@ -416,6 +416,25 @@ func TestProviderConnectInitialImportFailureKeepsValidatedSessionAndPristineProf
 	assert.Nil(t, state.Binding)
 }
 
+func TestProviderConnectExplainsExhaustedSnapshotWithoutSuggestingBlindWait(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 15, 23, 20, 0, 0, time.UTC)
+	saveCommandSession(t, root, testMonarchSession(now, "subscription-example"))
+	saveCommandCredentials(t, root, commandStoredCredentials(), []byte("account-password"))
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		fetchErr: provider.NewError(provider.CodeSnapshotUnstable),
+	}
+
+	_, _, err := executeProviderCommandRaw(
+		t, &fakeMonarchConnector{}, source, nil, "provider", "connect", "monarch",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "No financial data changed")
+	assert.NotContains(t, err.Error(), "Try again later")
+}
+
 func TestProviderDisconnectRemovesOnlySessionAndPreservesSQLiteState(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)

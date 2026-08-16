@@ -28,3 +28,18 @@ func TestCLIProviderProgressThrottlesPagesAndDeduplicatesCompletion(t *testing.T
 	assert.Len(t, strings.Split(strings.TrimSpace(output.String()), "\n"), 3)
 	assert.Contains(t, output.String(), "Fetched 10000 of 10000 visible transactions")
 }
+
+func TestCLIProviderProgressNamesTheVerificationRead(t *testing.T) {
+	t.Parallel()
+	var output bytes.Buffer
+	progress := newCLIProviderProgress(&output)
+	progress.Observe(provider.Progress{
+		Partition: "visible", Fetched: 1_000, Total: 10_000, Attempt: 1, Pass: 1,
+	})
+	progress.Observe(provider.Progress{
+		Partition: "visible", Fetched: 1_000, Total: 10_000, Attempt: 1, Pass: 2,
+	})
+
+	assert.Contains(t, output.String(), "Fetched 1000 of 10000 visible transactions")
+	assert.Contains(t, output.String(), "Verified 1000 of 10000 visible transactions")
+}

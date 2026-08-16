@@ -26,9 +26,14 @@ func (progress *cliProviderProgress) Observe(update provider.Progress) {
 	if progress.err != nil || !progress.shouldWrite(update) {
 		return
 	}
+	verb := "Fetched"
+	if update.Pass > 1 {
+		verb = "Verified"
+	}
 	_, progress.err = fmt.Fprintf(
 		progress.output,
-		"Fetched %d of %d %s transactions (attempt %d).\n",
+		"%s %d of %d %s transactions (attempt %d).\n",
+		verb,
 		update.Fetched,
 		update.Total,
 		update.Partition,
@@ -44,7 +49,7 @@ func (progress *cliProviderProgress) shouldWrite(update provider.Progress) bool 
 	if progress.wrote && update == progress.last {
 		return false
 	}
-	if !progress.wrote || update.Partition != progress.last.Partition ||
+	if !progress.wrote || update.Partition != progress.last.Partition || update.Pass != progress.last.Pass ||
 		update.Attempt != progress.last.Attempt || update.Fetched == update.Total {
 		return true
 	}
