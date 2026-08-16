@@ -44,14 +44,18 @@ func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return errors.New("prepare private root: trusted ancestor is redirected or not a directory")
 		}
-		if err := rejectExtendedACLPath(current); err != nil {
-			return err
+		isSelectedRoot := current == selectedRoot
+		aclError := rejectPermissiveExtendedACLPath(current)
+		if isSelectedRoot {
+			aclError = rejectExtendedACLPath(current)
+		}
+		if aclError != nil {
+			return aclError
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok || (stat.Uid != 0 && stat.Uid != currentUser) {
 			return errors.New("prepare private root: trusted ancestor has an untrusted owner")
 		}
-		isSelectedRoot := current == selectedRoot
 		rootCanBeTightened := isSelectedRoot && stat.Uid == currentUser
 		if !rootCanBeTightened && info.Mode().Perm()&0o022 != 0 {
 			return errors.New("prepare private root: trusted ancestor is group or world writable")

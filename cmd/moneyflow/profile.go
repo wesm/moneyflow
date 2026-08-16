@@ -13,6 +13,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
@@ -51,7 +52,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	}
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	if err != nil {
-		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
+		return OpenedProfile{}, persistentProfileOpenError(paths, err)
 	}
 	service, err := app.NewProfileService(ctx, profile)
 	if err != nil {
@@ -64,6 +65,20 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		Path:    paths.Database,
 		Paths:   paths,
 	}, nil
+}
+
+func persistentProfileOpenError(paths home.Paths, err error) error {
+	var storageFailure *store.Error
+	if errors.As(err, &storageFailure) && storageFailure.Code == store.CodeSchemaIncompatible {
+		return fmt.Errorf(
+			"open profile: profile directory %q uses an incompatible preview schema; "+
+				"Moneyflow does not migrate preview profiles. Stop every Moneyflow process, "+
+				"move the complete directory to a backup location, then rerun the command: %w",
+			paths.Root,
+			err,
+		)
+	}
+	return fmt.Errorf("open profile: %w", err)
 }
 
 func resolvePersistentPaths(explicitHome string) (home.Paths, error) {
