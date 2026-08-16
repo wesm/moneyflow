@@ -616,7 +616,9 @@ func (service *Service) failProviderRefresh(
 	status.Code = code
 	status.NextEligible = nextEligible
 	status.Generation = state.Refresh.Generation
-	return ProviderRefreshResult{Status: status}, providerAppError(code, service.Revision())
+	return ProviderRefreshResult{Status: status}, newAppError(
+		AppErrorCode(code), service.Revision(), failure,
+	)
 }
 
 func (service *Service) foldProviderCandidate(

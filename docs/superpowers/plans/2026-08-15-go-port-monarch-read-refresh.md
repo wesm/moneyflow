@@ -517,7 +517,8 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
       count equality, visible/hidden disjointness, final count rechecks, offset insert/delete races,
       cross-partition hidden flips, duplicate entity IDs, missing related entities, pending-row
       integrity, hidden-only inline account and merchant completion, cancellation, read-versus-
-      verification page progress, and exactly three complete attempts.
+      verification page progress, lossless trailing-zero money precision, protected Uncategorized
+      fallbacks, first-read validation, and exactly three complete attempts.
 
   ```go
   func TestHiddenFlipBetweenPartitionsRestartsWholeAttempt(t *testing.T) {
@@ -542,8 +543,12 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
       date/search/category filter. Require canonical identity and imported-field equality between
       both complete reads, verify each page and all final counts, validate entity relationships,
       supplement aggregate account and merchant lists from transaction-inline identities, then
-      remove pending rows. Treat relationship races as snapshot instability and invalid scalars as
-      data invalid. Use cancellable bounded backoff and no SQLite access.
+      remove pending rows. Map groupless categories and missing transaction categories onto the
+      protected Uncategorized sentinels without fabricating provider identities. Accept excess
+      decimal precision only when every removed digit is zero. Validate the first read before
+      downloading the verification read, and return only allowlisted value-free validation reasons.
+      Treat relationship races as snapshot instability and invalid scalars as data invalid. Use
+      cancellable bounded backoff and no SQLite access.
 
 - [ ] **Step 4: Run focused provider tests and verify GREEN.**
 

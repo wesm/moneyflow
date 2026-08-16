@@ -24,7 +24,7 @@ func (client *Client) ProbeIdentity(ctx context.Context) (provider.ProfileIdenti
 		return provider.ProfileIdentity{}, err
 	}
 	if !validProviderText(subscription.ID) {
-		return provider.ProfileIdentity{}, provider.NewError(provider.CodeDataInvalid)
+		return provider.ProfileIdentity{}, provider.NewDataInvalidError(provider.DataInvalidEntity)
 	}
 	return provider.ProfileIdentity{Kind: providerKind, RemoteID: subscription.ID}, nil
 }
@@ -64,23 +64,30 @@ func (client *Client) fetchSnapshotAttempt(
 	if err != nil {
 		return domain.ImportSnapshot{}, err
 	}
+	if _, err = client.normalizeRemoteSnapshot(first); err != nil {
+		return domain.ImportSnapshot{}, err
+	}
 	second, err := client.fetchRemoteSnapshot(ctx, attempt, 2, progress)
 	if err != nil {
 		return domain.ImportSnapshot{}, err
 	}
 	matching, err := matchingRemoteSnapshots(first, second)
 	if err != nil {
-		return domain.ImportSnapshot{}, provider.NewError(provider.CodeDataInvalid)
+		return domain.ImportSnapshot{}, provider.NewDataInvalidError(provider.DataInvalidSnapshot)
 	}
 	if !matching {
 		return domain.ImportSnapshot{}, errSnapshotChanged
 	}
+	return client.normalizeRemoteSnapshot(second)
+}
+
+func (client *Client) normalizeRemoteSnapshot(snapshot remoteSnapshot) (domain.ImportSnapshot, error) {
 	return client.normalizeSnapshot(
-		second.accounts,
-		second.merchants,
-		second.groups,
-		second.categories,
-		second.transactions,
+		snapshot.accounts,
+		snapshot.merchants,
+		snapshot.groups,
+		snapshot.categories,
+		snapshot.transactions,
 	)
 }
 
@@ -228,8 +235,10 @@ func (client *Client) normalizeSnapshot(
 		if _, ok := merchantIDs[imported.MerchantExternalID]; !ok {
 			return domain.ImportSnapshot{}, errSnapshotChanged
 		}
-		if _, ok := categoryIDs[imported.CategoryExternalID]; !ok {
-			return domain.ImportSnapshot{}, errSnapshotChanged
+		if imported.CategoryExternalID != "" {
+			if _, ok := categoryIDs[imported.CategoryExternalID]; !ok {
+				return domain.ImportSnapshot{}, errSnapshotChanged
+			}
 		}
 		// Pending rows participate in integrity and relationship validation, but never persist.
 		if !imported.Pending {
@@ -243,7 +252,7 @@ func (client *Client) normalizeSnapshot(
 	}
 	sortSnapshot(&snapshot)
 	if err := snapshot.Validate(); err != nil {
-		return domain.ImportSnapshot{}, provider.NewError(provider.CodeDataInvalid)
+		return domain.ImportSnapshot{}, provider.NewDataInvalidError(provider.DataInvalidSnapshot)
 	}
 	return snapshot, nil
 }
@@ -265,7 +274,7 @@ func includeTransactionAccounts(
 			continue
 		}
 		if !validProviderText(account.ID) || !validProviderText(account.DisplayName) {
-			return nil, provider.NewError(provider.CodeDataInvalid)
+			return nil, provider.NewDataInvalidError(provider.DataInvalidTransactionID)
 		}
 		if name, exists := known[account.ID]; exists {
 			if name != account.DisplayName {
@@ -296,7 +305,7 @@ func includeTransactionMerchants(
 			continue
 		}
 		if !validProviderText(merchant.ID) || !validProviderText(merchant.Name) {
-			return nil, provider.NewError(provider.CodeDataInvalid)
+			return nil, provider.NewDataInvalidError(provider.DataInvalidTransactionID)
 		}
 		if name, exists := known[merchant.ID]; exists {
 			if name != merchant.Name {
@@ -365,11 +374,12 @@ func validateEntities(
 	ids := make(map[string]struct{}, len(entities))
 	for _, entity := range entities {
 		if !validProviderText(entity.ExternalID) || !validProviderText(entity.Label) ||
-			(entity.Kind == domain.EntityKindCategory && !validProviderText(entity.ParentExternalID)) {
-			return nil, nil, provider.NewError(provider.CodeDataInvalid)
+			(entity.Kind == domain.EntityKindCategory && entity.ParentExternalID != "" &&
+				!validProviderText(entity.ParentExternalID)) {
+			return nil, nil, provider.NewDataInvalidError(provider.DataInvalidEntity)
 		}
 		if _, duplicate := ids[entity.ExternalID]; duplicate {
-			return nil, nil, provider.NewError(provider.CodeDataInvalid)
+			return nil, nil, provider.NewDataInvalidError(provider.DataInvalidDuplicateIdentity)
 		}
 		ids[entity.ExternalID] = struct{}{}
 	}
@@ -380,12 +390,17 @@ func (client *Client) normalizeTransaction(
 	transaction Transaction,
 ) (domain.ImportTransaction, error) {
 	if !validProviderText(transaction.ID) || !validProviderText(transaction.Account.ID) ||
-		!validProviderText(transaction.Merchant.ID) || !validProviderText(transaction.Category.ID) {
-		return domain.ImportTransaction{}, provider.NewError(provider.CodeDataInvalid)
+		!validProviderText(transaction.Merchant.ID) ||
+		(transaction.Category.ID != "" && !validProviderText(transaction.Category.ID)) {
+		return domain.ImportTransaction{}, provider.NewDataInvalidError(
+			provider.DataInvalidTransactionID,
+		)
 	}
 	date, err := domain.ParseDate(transaction.Date)
 	if err != nil {
-		return domain.ImportTransaction{}, provider.NewError(provider.CodeDataInvalid)
+		return domain.ImportTransaction{}, provider.NewDataInvalidError(
+			provider.DataInvalidTransactionDate,
+		)
 	}
 	amount, err := decodeMoney(
 		transaction.Amount,

@@ -9,9 +9,10 @@ import (
 
 // ImportEntity is one provider-owned dimension identity before local ID mapping.
 type ImportEntity struct {
-	Kind             EntityKind
-	ExternalID       string
-	Label            string
+	Kind       EntityKind
+	ExternalID string
+	Label      string
+	// ParentExternalID is empty only when a category uses the protected Uncategorized group.
 	ParentExternalID string
 }
 
@@ -20,6 +21,7 @@ type ImportTransaction struct {
 	ExternalID         string
 	AccountExternalID  string
 	MerchantExternalID string
+	// CategoryExternalID is empty only when the protected Uncategorized category applies.
 	CategoryExternalID string
 	Date               Date
 	Amount             Money
@@ -75,6 +77,9 @@ func (snapshot ImportSnapshot) Validate() error {
 		return err
 	}
 	for index, category := range snapshot.Categories {
+		if category.ParentExternalID == "" {
+			continue
+		}
 		if _, ok := groups[category.ParentExternalID]; !ok {
 			return fmt.Errorf(
 				"validate import snapshot: category[%d] references unknown group",
@@ -101,8 +106,10 @@ func (snapshot ImportSnapshot) Validate() error {
 		if _, ok := merchants[transaction.MerchantExternalID]; !ok {
 			return fmt.Errorf("validate import snapshot: transaction[%d] references unknown merchant", index)
 		}
-		if _, ok := categories[transaction.CategoryExternalID]; !ok {
-			return fmt.Errorf("validate import snapshot: transaction[%d] references unknown category", index)
+		if transaction.CategoryExternalID != "" {
+			if _, ok := categories[transaction.CategoryExternalID]; !ok {
+				return fmt.Errorf("validate import snapshot: transaction[%d] references unknown category", index)
+			}
 		}
 	}
 	return nil
@@ -112,7 +119,7 @@ func validateImportEntities(
 	name string,
 	wantKind EntityKind,
 	entities []ImportEntity,
-	requireParent bool,
+	permitParent bool,
 ) (map[string]struct{}, error) {
 	seen := make(map[string]struct{}, len(entities))
 	for index, entity := range entities {
@@ -126,10 +133,7 @@ func validateImportEntities(
 		if labelErr != nil || normalizedLabel != entity.Label {
 			return nil, fmt.Errorf("validate import snapshot: %s[%d] has invalid label", name, index)
 		}
-		if requireParent && entity.ParentExternalID == "" {
-			return nil, fmt.Errorf("validate import snapshot: %s[%d] has no parent", name, index)
-		}
-		if !requireParent && entity.ParentExternalID != "" {
+		if !permitParent && entity.ParentExternalID != "" {
 			return nil, fmt.Errorf("validate import snapshot: %s[%d] has unexpected parent", name, index)
 		}
 		if _, duplicate := seen[entity.ExternalID]; duplicate {
@@ -149,11 +153,14 @@ func validateImportTransaction(transaction ImportTransaction) error {
 		"external ID": transaction.ExternalID,
 		"account":     transaction.AccountExternalID,
 		"merchant":    transaction.MerchantExternalID,
-		"category":    transaction.CategoryExternalID,
 	} {
 		if value == "" || strings.TrimSpace(value) != value {
 			return fmt.Errorf("invalid %s", name)
 		}
+	}
+	if transaction.CategoryExternalID != "" &&
+		strings.TrimSpace(transaction.CategoryExternalID) != transaction.CategoryExternalID {
+		return errors.New("invalid category")
 	}
 	if _, err := NewDate(transaction.Date.Year(), transaction.Date.Month(), transaction.Date.Day()); err != nil {
 		return fmt.Errorf("invalid date: %w", err)

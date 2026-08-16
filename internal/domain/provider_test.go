@@ -34,6 +34,16 @@ func TestImportSnapshotValidatesPostedAndPendingRows(t *testing.T) {
 	assert.True(t, snapshot.Transactions[1].Pending)
 }
 
+func TestImportSnapshotAllowsProtectedUncategorizedReferences(t *testing.T) {
+	t.Parallel()
+
+	snapshot := validImportSnapshot(t)
+	snapshot.Categories[0].ParentExternalID = ""
+	snapshot.Transactions[0].CategoryExternalID = ""
+
+	require.NoError(t, snapshot.Validate())
+}
+
 func TestImportSnapshotRejectsDuplicateExternalIdentities(t *testing.T) {
 	t.Parallel()
 
@@ -78,9 +88,6 @@ func TestImportSnapshotRejectsInvalidRecords(t *testing.T) {
 		},
 		"missing merchant": func(snapshot *ImportSnapshot) {
 			snapshot.Transactions[0].MerchantExternalID = ""
-		},
-		"missing category": func(snapshot *ImportSnapshot) {
-			snapshot.Transactions[0].CategoryExternalID = ""
 		},
 		"invalid money": func(snapshot *ImportSnapshot) {
 			snapshot.Transactions[0].Amount.Currency = "usd"

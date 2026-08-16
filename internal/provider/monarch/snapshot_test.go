@@ -89,6 +89,38 @@ func TestSnapshotUsesInlineAccountForHiddenOnlyTransaction(t *testing.T) {
 	assert.Equal(t, 2, server.CompleteScans())
 }
 
+func TestSnapshotMapsUngroupedCategoryToProtectedGroup(t *testing.T) {
+	t.Parallel()
+
+	category := Category{ID: "category-a", Name: "Example Category"}
+	server := newSnapshotServer(t, snapshotScenario{Categories: []Category{category}})
+	client := newSnapshotClient(t, server)
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Validate())
+	assert.Equal(t, "", snapshot.Categories[0].ParentExternalID)
+	assert.Equal(t, 2, server.CompleteScans())
+}
+
+func TestSnapshotMapsMissingTransactionCategoryToProtectedCategory(t *testing.T) {
+	t.Parallel()
+
+	transaction := snapshotTransaction("transaction-uncategorized", false, false)
+	transaction.Category.ID = ""
+	server := newSnapshotServer(t, snapshotScenario{
+		Visible: []Transaction{transaction}, Hidden: []Transaction{},
+	})
+	client := newSnapshotClient(t, server)
+
+	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	require.NoError(t, snapshot.Validate())
+	require.Len(t, snapshot.Transactions, 1)
+	assert.Equal(t, "", snapshot.Transactions[0].CategoryExternalID)
+	assert.Equal(t, 2, server.CompleteScans())
+}
+
 func TestSnapshotProbeReturnsSubscriptionIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -110,7 +142,10 @@ func TestSnapshotRejectsInvalidMoneyWithoutRetry(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
-	assert.Equal(t, 2, server.CompleteScans())
+	reason, ok := provider.DataInvalidReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.DataInvalidTransactionAmount, reason)
+	assert.Equal(t, 1, server.CompleteScans())
 }
 
 func TestSnapshotRejectsDuplicateEntityIDsWithoutRetry(t *testing.T) {
@@ -125,7 +160,29 @@ func TestSnapshotRejectsDuplicateEntityIDsWithoutRetry(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
-	assert.Equal(t, 2, server.CompleteScans())
+	reason, ok := provider.DataInvalidReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.DataInvalidDuplicateIdentity, reason)
+	assert.Equal(t, 1, server.CompleteScans())
+}
+
+func TestSnapshotReportsMissingTransactionIdentityWithoutValues(t *testing.T) {
+	t.Parallel()
+
+	transaction := snapshotTransaction("transaction-invalid", false, false)
+	transaction.Merchant.ID = ""
+	server := newSnapshotServer(t, snapshotScenario{
+		Visible: []Transaction{transaction}, Hidden: []Transaction{},
+	})
+	client := newSnapshotClient(t, server)
+
+	_, err := client.FetchSnapshot(context.Background(), nil)
+	assertProviderCode(t, err, provider.CodeDataInvalid)
+	reason, ok := provider.DataInvalidReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.DataInvalidTransactionID, reason)
+	assert.NotContains(t, err.Error(), "transaction-invalid")
+	assert.Equal(t, 1, server.CompleteScans())
 }
 
 func TestSnapshotRetriesMissingCategoryGroup(t *testing.T) {
@@ -138,7 +195,7 @@ func TestSnapshotRetriesMissingCategoryGroup(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 6, server.CompleteScans())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestSnapshotRetriesRelationshipRace(t *testing.T) {
@@ -172,7 +229,7 @@ func TestSnapshotPersistentRelationshipRaceExhaustsThreeAttempts(t *testing.T) {
 
 	_, err := client.FetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
-	assert.Equal(t, 6, server.CompleteScans())
+	assert.Equal(t, 3, server.CompleteScans())
 }
 
 func TestPendingRowsParticipateInPartitionIntegrity(t *testing.T) {

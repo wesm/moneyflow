@@ -11,6 +11,19 @@ const MaxRetryAfter = 24 * time.Hour
 // ErrorCode is one renderer-neutral provider failure classification.
 type ErrorCode string
 
+// DataInvalidReason is an allowlisted, value-free provider validation classification.
+type DataInvalidReason string
+
+// Safe provider validation reasons that may cross renderer boundaries.
+const (
+	DataInvalidEntity            DataInvalidReason = "entity"
+	DataInvalidDuplicateIdentity DataInvalidReason = "duplicate_identity"
+	DataInvalidTransactionID     DataInvalidReason = "transaction_identity"
+	DataInvalidTransactionDate   DataInvalidReason = "transaction_date"
+	DataInvalidTransactionAmount DataInvalidReason = "transaction_amount"
+	DataInvalidSnapshot          DataInvalidReason = "snapshot"
+)
+
 // Stable provider failure codes for the read/import/refresh slice.
 const (
 	CodeReconnectRequired            ErrorCode = "provider_reconnect_required"
@@ -38,6 +51,15 @@ var errorDetails = map[ErrorCode]string{
 	CodeDataInvalid:                  "the provider returned invalid data",
 }
 
+var dataInvalidDetails = map[DataInvalidReason]string{
+	DataInvalidEntity:            "A provider entity has a missing or malformed identity or label.",
+	DataInvalidDuplicateIdentity: "The provider returned a duplicate stable identity.",
+	DataInvalidTransactionID:     "A transaction has a missing or malformed stable identity.",
+	DataInvalidTransactionDate:   "A transaction has an invalid date.",
+	DataInvalidTransactionAmount: "A transaction amount cannot be represented at the configured currency scale.",
+	DataInvalidSnapshot:          "The normalized provider snapshot violates the import contract.",
+}
+
 var errorCodes = []ErrorCode{
 	CodeReconnectRequired,
 	CodeIdentityMismatch,
@@ -55,6 +77,7 @@ var errorCodes = []ErrorCode{
 type Error struct {
 	code       ErrorCode
 	retryAfter time.Duration
+	reason     DataInvalidReason
 }
 
 // NewError constructs a provider failure from a stable code.
@@ -63,6 +86,15 @@ func NewError(code ErrorCode) *Error {
 		code = CodeDataInvalid
 	}
 	return &Error{code: code}
+}
+
+// NewDataInvalidError constructs a redacted provider validation failure.
+func NewDataInvalidError(reason DataInvalidReason) *Error {
+	failure := NewError(CodeDataInvalid)
+	if _, ok := dataInvalidDetails[reason]; ok {
+		failure.reason = reason
+	}
+	return failure
 }
 
 // NewErrorWithRetry constructs a rate-limit failure with bounded safe retry metadata.
@@ -105,6 +137,21 @@ func RetryAfterOf(err error) (time.Duration, bool) {
 		return 0, false
 	}
 	return failure.retryAfter, true
+}
+
+// DataInvalidReasonOf extracts an allowlisted validation reason through wrapping errors.
+func DataInvalidReasonOf(err error) (DataInvalidReason, bool) {
+	var failure *Error
+	if !errors.As(err, &failure) || failure.code != CodeDataInvalid {
+		return "", false
+	}
+	_, ok := dataInvalidDetails[failure.reason]
+	return failure.reason, ok
+}
+
+// DataInvalidDetail returns fixed user-facing text for an allowlisted validation reason.
+func DataInvalidDetail(reason DataInvalidReason) string {
+	return dataInvalidDetails[reason]
 }
 
 // ErrorCodes returns the complete stable code set in declaration order.

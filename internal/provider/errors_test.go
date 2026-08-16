@@ -66,6 +66,25 @@ func TestProviderErrorReplacesUnknownCodes(t *testing.T) {
 	assert.NotContains(t, failure.Error(), "private remote response")
 }
 
+func TestProviderDataInvalidReasonIsAllowlistedAndSurvivesWrapping(t *testing.T) {
+	t.Parallel()
+
+	failure := provider.NewDataInvalidError(provider.DataInvalidTransactionAmount)
+	reason, ok := provider.DataInvalidReasonOf(fmt.Errorf("refresh failed: %w", failure))
+	require.True(t, ok)
+	assert.Equal(t, provider.DataInvalidTransactionAmount, reason)
+	assert.Equal(
+		t,
+		"A transaction amount cannot be represented at the configured currency scale.",
+		provider.DataInvalidDetail(reason),
+	)
+
+	unknown := provider.NewDataInvalidError(provider.DataInvalidReason("private provider value"))
+	_, ok = provider.DataInvalidReasonOf(unknown)
+	assert.False(t, ok)
+	assert.NotContains(t, unknown.Error(), "private provider value")
+}
+
 func TestProviderRetryAfterIsBoundedAndSurvivesWrapping(t *testing.T) {
 	t.Parallel()
 

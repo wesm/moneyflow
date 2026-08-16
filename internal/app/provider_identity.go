@@ -197,11 +197,15 @@ func (planner *identityPlanner) planDimensions() error {
 				if localID == domain.UncategorizedCategoryID {
 					return errors.New("plan provider identities: provider category uses protected local ID")
 				}
-				parentID, parentErr := planner.resolveExistingIdentity(
-					domain.EntityKindGroup, imported.ParentExternalID,
-				)
-				if parentErr != nil {
-					return parentErr
+				parentID := domain.UncategorizedGroupID
+				if imported.ParentExternalID != "" {
+					var parentErr error
+					parentID, parentErr = planner.resolveExistingIdentity(
+						domain.EntityKindGroup, imported.ParentExternalID,
+					)
+					if parentErr != nil {
+						return parentErr
+					}
 				}
 				planner.categories[localID] = domain.Category{
 					ID: localID, GroupID: parentID, Label: label, CollisionKey: collisionKey,
@@ -237,11 +241,14 @@ func (planner *identityPlanner) planTransactions() error {
 		if err != nil {
 			return err
 		}
-		categoryID, err := planner.resolveExistingIdentity(
-			domain.EntityKindCategory, imported.CategoryExternalID,
-		)
-		if err != nil {
-			return err
+		categoryID := domain.UncategorizedCategoryID
+		if imported.CategoryExternalID != "" {
+			categoryID, err = planner.resolveExistingIdentity(
+				domain.EntityKindCategory, imported.CategoryExternalID,
+			)
+			if err != nil {
+				return err
+			}
 		}
 		if existing, exists := planner.transactions[localID]; exists &&
 			existing.Provider != planner.input.Provider {

@@ -54,7 +54,9 @@ func (client *Client) fetchTransactionPartition(
 		}
 		for _, transaction := range page.Results {
 			if transaction.ID == "" {
-				return transactionPartition{}, provider.NewError(provider.CodeDataInvalid)
+				return transactionPartition{}, provider.NewDataInvalidError(
+					provider.DataInvalidTransactionID,
+				)
 			}
 			if _, duplicate := seen[transaction.ID]; !duplicate {
 				seen[transaction.ID] = struct{}{}

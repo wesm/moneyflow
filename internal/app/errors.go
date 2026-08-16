@@ -85,8 +85,14 @@ func (failure *AppError) Unwrap() error {
 }
 
 func newAppError(code AppErrorCode, current uint64, cause error) *AppError {
+	detail := appErrorDetails[code]
+	if code == AppProviderDataInvalid {
+		if reason, ok := provider.DataInvalidReasonOf(cause); ok {
+			detail += " " + provider.DataInvalidDetail(reason)
+		}
+	}
 	return &AppError{
-		Code: code, Detail: appErrorDetails[code], CurrentRevision: current, cause: cause,
+		Code: code, Detail: detail, CurrentRevision: current, cause: cause,
 	}
 }
 

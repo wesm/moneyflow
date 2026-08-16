@@ -409,6 +409,9 @@ Each attempt performs two complete reads of accounts, merchants, groups, categor
 transaction partitions. Canonical imported fields and external identities from the two reads must
 match exactly before absence can mean deletion. This deliberately doubles read traffic so stable
 counts cannot conceal equal-cardinality offset churn or a changing authoritative entity list.
+Each read is normalized and validated as soon as it completes. Deterministically invalid data from
+the first read fails immediately instead of downloading a verification read that cannot make it
+valid.
 
 Each complete read must also satisfy all of these conditions:
 
@@ -429,6 +432,13 @@ inline references before relationship validation. An explicit list or aggregate 
 authoritative for an ID it contains. Repeated inline references for an otherwise omitted ID must
 agree on the label or the attempt is unstable. This is lossless completion of the same provider
 snapshot, not silent identity coalescing.
+
+Monarch also permits a category without a group and a transaction without a category. Go preserves
+a groupless category's external identity and attaches it to the protected Uncategorized group. A
+transaction with no category references the protected Uncategorized category directly. These
+sentinel references create no fabricated provider identity. Decimal amounts may contain fractional
+digits beyond the configured scale only when every excess digit is zero; the adapter removes those
+zeroes exactly and never rounds a nonzero digit.
 
 The final count probes catch a transaction whose hidden flag changed during the window between
 partition fetches. The matching second read catches insert/delete churn that preserves counts.
@@ -716,7 +726,9 @@ snapshot and journal unless this design explicitly says otherwise:
 - `provider_refresh_stale`: the fold transaction's generation CAS rejected the candidate
 - `provider_rate_limited`: the bounded in-attempt rate-limit policy could not proceed
 - `provider_unavailable`: bounded transport or provider-server retries were exhausted
-- `provider_data_invalid`: data violates money, identity, label, or referential invariants
+- `provider_data_invalid`: data violates money, identity, label, or referential invariants. An
+  ephemeral allowlisted reason identifies the invariant class without including provider values;
+  it is never persisted in refresh status or logs.
 
 Existing `store_busy`, `store_error`, `schema_incompatible`, `schema_newer`, and `store_corrupt`
 retain their established meanings.
@@ -809,6 +821,7 @@ messages.
 ### Pure and provider tests
 
 - parse exact positive and negative decimal amounts at supported scales without floating point
+- accept excess fractional zeroes without rounding and reject excess nonzero precision
 - reject unsupported precision, currency, numeric syntax, dates, labels, and required identities
 - exercise GraphQL request/response behavior through injected loopback transports
 - cover REST-first login, GraphQL fallback, generated TOTP on the initial request and fallback
@@ -824,6 +837,10 @@ messages.
 - prove pending rows participate in integrity checks and never enter the import candidate
 - prove hidden-only account and merchant identities are completed from transaction-inline fields
   without merging external IDs, and reject conflicting inline labels
+- prove groupless categories and missing transaction categories map to protected Uncategorized
+  sentinels while preserving all available provider identities
+- prove deterministic first-read validation skips the verification read and returns only an
+  allowlisted value-free reason
 - verify sticky first-observed collision ownership, simultaneous-import external-ID ordering,
   deterministic suffix extension, ordinary provider renames, and pending user-label precedence
 - prove identical closed callback inputs return identical refresh plans

@@ -21,11 +21,22 @@ func TestDecodeMoneyPreservesExactDecimalText(t *testing.T) {
 	}
 }
 
+func TestDecodeMoneyAcceptsExcessZeroPrecisionWithoutRounding(t *testing.T) {
+	t.Parallel()
+
+	for _, raw := range []json.RawMessage{json.RawMessage(`"-12.3400"`), json.RawMessage(`-12.3400`)} {
+		money, err := decodeMoney(raw, domain.Currency("USD"), 2)
+		require.NoError(t, err)
+		assert.Equal(t, int64(-1234), money.Minor)
+	}
+}
+
 func TestDecodeMoneyRejectsUnsupportedNumericValues(t *testing.T) {
 	t.Parallel()
 
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`12.345`),
+		json.RawMessage(`12.3450`),
 		json.RawMessage(`1e2`),
 		json.RawMessage(`null`),
 		json.RawMessage(`" 1.00"`),

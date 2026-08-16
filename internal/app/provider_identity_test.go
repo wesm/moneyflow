@@ -58,6 +58,22 @@ func TestProviderIdentityReusesKindScopedStableIDs(t *testing.T) {
 	assert.Equal(t, "refreshed", second.Committed.Transactions[0].Notes)
 }
 
+func TestProviderIdentityMapsProtectedUncategorizedReferences(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	input.Import.Categories[0].ParentExternalID = ""
+	input.Import.Transactions[0].CategoryExternalID = ""
+
+	plan, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	require.NoError(t, plan.Committed.Validate())
+	require.Len(t, plan.Committed.Transactions, 1)
+	assert.Equal(t, domain.UncategorizedCategoryID, plan.Committed.Transactions[0].CategoryID)
+	category := categoryByProviderID(t, plan.Committed, "category_a")
+	assert.Equal(t, domain.UncategorizedGroupID, category.GroupID)
+}
+
 func TestProviderIdentityRetiresMissingEntitiesAndRestoresReappearances(t *testing.T) {
 	t.Parallel()
 
@@ -276,4 +292,26 @@ func merchantByProviderID(
 	}
 	require.FailNow(t, "merchant provider identity was not found", externalID)
 	return domain.Merchant{}
+}
+
+func categoryByProviderID(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	externalID string,
+) domain.Category {
+	t.Helper()
+	var localID domain.EntityID
+	for _, identity := range profile.ExternalIdentities {
+		if identity.Namespace == "monarch/category" && identity.ExternalID == externalID {
+			localID = identity.EntityID
+			break
+		}
+	}
+	for _, category := range profile.Categories {
+		if category.ID == localID {
+			return category
+		}
+	}
+	require.FailNow(t, "category provider identity was not found", externalID)
+	return domain.Category{}
 }

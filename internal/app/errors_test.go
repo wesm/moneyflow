@@ -75,3 +75,28 @@ func TestAppErrorMapsEveryProviderCodeWithoutRemoteDetails(t *testing.T) {
 		assert.NotContains(t, failure.Detail, "subscription-example")
 	}
 }
+
+func TestAppErrorIncludesOnlyAllowlistedProviderValidationReason(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 16, 0, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		fetchErr: provider.NewDataInvalidError(provider.DataInvalidTransactionAmount),
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	_, err := service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppProviderDataInvalid, failure.Code)
+	assert.Equal(
+		t,
+		"The provider returned invalid data. A transaction amount cannot be represented at the configured currency scale.",
+		failure.Detail,
+	)
+	assert.NotContains(t, failure.Detail, "subscription-example")
+}

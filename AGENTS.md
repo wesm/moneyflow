@@ -201,7 +201,7 @@ open htmlcov/index.html
 3. **Implement** the feature/fix
 4. **Run tests again** - verify all tests pass
 5. **Check coverage** - ensure new code is tested
-6. **Only commit when tests are green**
+6. **Commit the verified change before yielding to the user**
 
 **Before EVERY commit**:
 ```bash
@@ -220,6 +220,12 @@ npx --yes markdownlint-cli@0.47.0 --config .markdownlint.json README.md 'docs/**
 ```
 
 **All tests must pass, type checking must be clean, and markdown must be properly formatted before committing.** No exceptions.
+
+**AI assistants must not leave agent-authored changes uncommitted at handoff.** Live or manual
+confirmation is follow-up evidence, not a reason to keep a dirty working tree. Commit the verified
+automated change first; any correction discovered by live confirmation gets a new commit. If an
+environmental condition makes a load-sensitive check meaningless, use the repository's supported
+non-performance verification path, commit, and report the exact skipped or failed timing gate.
 
 ### Project Structure
 
@@ -520,7 +526,9 @@ uv sync
 
 **IMPORTANT**: When working with Codex, Claude Code, or other AI assistants:
 - ✅ AI can create commits locally
-- ✅ AI must commit completed changes after all required checks pass, unless the user explicitly says not to commit
+- ✅ AI must ALWAYS commit its changes before yielding to the user, unless the user explicitly says not to commit
+- ✅ AI must commit verified fixes even when live or manual confirmation is still pending
+- ✅ Environmental performance noise must be disclosed, but must not leave an otherwise verified fix uncommitted
 - ❌ AI must NEVER push to git without explicit user permission
 - ❌ AI must NEVER create new branches unless explicitly asked by the user
 - ❌ AI must NEVER amend commits unless explicitly asked by the user
