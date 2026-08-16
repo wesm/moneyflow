@@ -25,31 +25,33 @@ const (
 
 // ProviderRuntime supplies the process-local dependencies for provider refresh orchestration.
 type ProviderRuntime struct {
-	Source          provider.Source
-	Provider        string
-	Renderer        string
-	InstanceID      string
-	Now             func() time.Time
-	Random          io.Reader
-	LeaseDuration   time.Duration
-	ConfirmationTTL time.Duration
+	Source            provider.Source
+	Provider          string
+	Renderer          string
+	InstanceID        string
+	Now               func() time.Time
+	Random            io.Reader
+	LeaseDuration     time.Duration
+	HeartbeatInterval time.Duration
+	ConfirmationTTL   time.Duration
 }
 
 type providerRuntimeState struct {
-	mu              sync.Mutex
-	source          provider.Source
-	provider        string
-	renderer        string
-	instanceID      string
-	now             func() time.Time
-	random          io.Reader
-	leaseDuration   time.Duration
-	confirmationTTL time.Duration
-	fingerprint     provider.SessionFingerprint
-	parkedReconnect bool
-	forceReload     bool
-	progress        provider.Progress
-	confirmations   map[string]providerConfirmation
+	mu                sync.Mutex
+	source            provider.Source
+	provider          string
+	renderer          string
+	instanceID        string
+	now               func() time.Time
+	random            io.Reader
+	leaseDuration     time.Duration
+	heartbeatInterval time.Duration
+	confirmationTTL   time.Duration
+	fingerprint       provider.SessionFingerprint
+	parkedReconnect   bool
+	forceReload       bool
+	progress          provider.Progress
+	confirmations     map[string]providerConfirmation
 }
 
 type providerConfirmation struct {
@@ -152,7 +154,11 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	if runtime.ConfirmationTTL == 0 {
 		runtime.ConfirmationTTL = defaultConfirmationTTL
 	}
-	if runtime.LeaseDuration <= 0 || runtime.ConfirmationTTL <= 0 {
+	if runtime.HeartbeatInterval == 0 {
+		runtime.HeartbeatInterval = runtime.LeaseDuration / 3
+	}
+	if runtime.LeaseDuration <= 0 || runtime.HeartbeatInterval <= 0 ||
+		runtime.HeartbeatInterval >= runtime.LeaseDuration || runtime.ConfirmationTTL <= 0 {
 		return errors.New("configure provider: durations must be positive")
 	}
 	service.interactions.Lock()
@@ -160,8 +166,9 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	configured := &providerRuntimeState{
 		source: runtime.Source, provider: runtime.Provider, renderer: runtime.Renderer,
 		instanceID: runtime.InstanceID, now: runtime.Now, random: runtime.Random,
-		leaseDuration: runtime.LeaseDuration, confirmationTTL: runtime.ConfirmationTTL,
-		confirmations: make(map[string]providerConfirmation),
+		leaseDuration: runtime.LeaseDuration, heartbeatInterval: runtime.HeartbeatInterval,
+		confirmationTTL: runtime.ConfirmationTTL,
+		confirmations:   make(map[string]providerConfirmation),
 	}
 	service.mu.Lock()
 	service.providerRuntime = configured
@@ -203,13 +210,13 @@ func (service *Service) RefreshProvider(
 	if err != nil {
 		return ProviderRefreshResult{}, newAppError(AppInvalidOperation, service.Revision(), err)
 	}
-	providerState, err := service.profile.ProviderState(ctx)
+	providerState, err := service.consistentProviderState(ctx)
 	if err != nil {
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState)
-	if !request.Manual && !ProviderRefreshDue(status, now) {
+	if !request.Manual && !runtime.hasForceReload() && !ProviderRefreshDue(status, now) {
 		return service.providerProjectionResult(
 			request, selectionBefore, SelectionPreserved, status, nil,
 		)
@@ -232,11 +239,23 @@ func (service *Service) RefreshProvider(
 		)
 	}
 
-	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidate(ctx, runtime)
+	candidate, remoteIdentity, fingerprint, fetchErr := service.fetchProviderCandidateWithHeartbeat(
+		ctx,
+		runtime,
+	)
 	if fetchErr != nil {
 		if errors.Is(fetchErr, context.Canceled) || errors.Is(fetchErr, context.DeadlineExceeded) {
 			_ = service.releaseProviderLease(ctx, runtime.instanceID)
 			return ProviderRefreshResult{}, fetchErr
+		}
+		var storage *store.Error
+		if errors.As(fetchErr, &storage) {
+			_ = service.releaseProviderLease(ctx, runtime.instanceID)
+			return ProviderRefreshResult{}, mapAppError(fetchErr, service.Revision())
+		}
+		if code, ok := provider.CodeOf(fetchErr); ok && code == provider.CodeRefreshStale {
+			_ = service.releaseProviderLease(ctx, runtime.instanceID)
+			return ProviderRefreshResult{}, providerAppError(code, service.Revision())
 		}
 		return service.failProviderRefresh(ctx, runtime, providerState, now, fingerprint, fetchErr)
 	}
@@ -412,6 +431,63 @@ func (service *Service) fetchProviderCandidate(
 	return candidate, identity, fingerprint, nil
 }
 
+func (service *Service) fetchProviderCandidateWithHeartbeat(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
+	fetchContext, cancel := context.WithCancelCause(ctx)
+	heartbeatDone := make(chan error, 1)
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(runtime.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				heartbeatDone <- nil
+				return
+			case <-fetchContext.Done():
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				observedAt := runtime.now().UTC().Truncate(time.Millisecond)
+				renewed, err := service.profile.RenewRefreshLease(
+					fetchContext,
+					runtime.instanceID,
+					observedAt.Add(runtime.leaseDuration),
+					observedAt,
+				)
+				if err != nil {
+					if fetchContext.Err() != nil {
+						heartbeatDone <- nil
+						return
+					}
+					cancel(err)
+					heartbeatDone <- err
+					return
+				}
+				if !renewed {
+					failure := provider.NewError(provider.CodeRefreshStale)
+					cancel(failure)
+					heartbeatDone <- failure
+					return
+				}
+			}
+		}
+	}()
+	candidate, identity, fingerprint, fetchErr := service.fetchProviderCandidate(
+		fetchContext,
+		runtime,
+	)
+	close(stopHeartbeat)
+	heartbeatErr := <-heartbeatDone
+	cancel(nil)
+	if heartbeatErr != nil {
+		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, heartbeatErr
+	}
+	return candidate, identity, fingerprint, fetchErr
+}
+
 func (service *Service) retryProviderAfterSessionReload(
 	ctx context.Context,
 	runtime *providerRuntimeState,
@@ -450,18 +526,11 @@ func (service *Service) retryProviderAfterSessionReload(
 }
 
 func (service *Service) providerProgressCallback(
-	ctx context.Context,
+	_ context.Context,
 	runtime *providerRuntimeState,
 ) provider.ProgressFunc {
 	return func(update provider.Progress) {
 		runtime.setProgress(update)
-		observedAt := runtime.now().UTC().Truncate(time.Millisecond)
-		_, _ = service.profile.RenewRefreshLease(
-			ctx,
-			runtime.instanceID,
-			observedAt.Add(runtime.leaseDuration),
-			observedAt,
-		)
 	}
 }
 
@@ -861,6 +930,38 @@ func (runtime *providerRuntimeState) takeForceReload() bool {
 	force := runtime.forceReload
 	runtime.forceReload = false
 	return force
+}
+
+func (runtime *providerRuntimeState) hasForceReload() bool {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.forceReload
+}
+
+func (service *Service) consistentProviderState(ctx context.Context) (store.ProviderState, error) {
+	for attempts := 0; attempts < 3; attempts++ {
+		state, err := service.profile.ProviderState(ctx)
+		if err != nil {
+			return store.ProviderState{}, err
+		}
+		current, err := service.profile.CurrentRevision(ctx)
+		if err != nil {
+			return store.ProviderState{}, err
+		}
+		if current == state.Revision && service.Revision() == state.Revision {
+			return state, nil
+		}
+		if err = service.reloadExpected(ctx, current); err != nil {
+			return store.ProviderState{}, err
+		}
+		if current == state.Revision && service.Revision() == state.Revision {
+			return state, nil
+		}
+	}
+	return store.ProviderState{}, store.NewError(
+		store.CodeRevisionConflict,
+		errors.New("provider state changed while preparing refresh"),
+	)
 }
 
 func (service *Service) snapshotCommitted() domain.CommittedProfile {

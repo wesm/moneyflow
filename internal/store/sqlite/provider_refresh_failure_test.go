@@ -28,7 +28,7 @@ func TestProviderRefreshLateWriteFailuresRollBackEveryLogicalTable(t *testing.T)
 		{"committed insert", "INSERT", "accounts"},
 		{"journal rewrite", "DELETE", "journal_operations"},
 		{"allocation rewrite", "DELETE", "provider_label_allocations"},
-		{"external identity rewrite", "DELETE", "external_identities"},
+		{"external identity append", "INSERT", "external_identities"},
 		{"known drill extension", "INSERT", "known_drills"},
 		{"profile revision", "UPDATE", "profile_state"},
 		{"refresh generation", "UPDATE", "provider_refresh_state"},
@@ -43,6 +43,9 @@ func TestProviderRefreshLateWriteFailuresRollBackEveryLogicalTable(t *testing.T)
 			now := time.Date(2026, time.August, 15, 22, 0, 0, 0, time.UTC)
 			bindProviderForRefreshTest(t, profile, now)
 			acquireProviderRefreshLease(t, profile, "failure-owner", now)
+			if failure.table == "transactions" {
+				seedMissingProviderTransaction(t, profile)
+			}
 			beforeAppend, err := profile.Load(ctx)
 			require.NoError(t, err)
 			_, err = profile.Append(ctx, beforeAppend.Revision, draftHideOperation(
@@ -102,9 +105,6 @@ func TestProviderRefreshInitialBindingFailureRollsBackImportedRows(t *testing.T)
 	providerBefore, err := profile.ProviderState(ctx)
 	require.NoError(t, err)
 	installRefreshFailureTrigger(t, profile, "INSERT", "provider_binding")
-	committed := fixtureProfile(t)
-	knownDrills, err := seededKnownDrills(committed)
-	require.NoError(t, err)
 	binding := store.ProviderBinding{
 		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "subscription-example",
 		BoundAt: now,
@@ -114,10 +114,7 @@ func TestProviderRefreshInitialBindingFailureRollsBackImportedRows(t *testing.T)
 		ExpectedGeneration: 0, LeaseOwnerID: "binding-failure-owner", Binding: &binding,
 		Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
 	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
-		return store.RefreshPlan{
-			Committed: committed, Effective: committed.Clone(), KnownDrills: knownDrills,
-			Summary: refreshCandidateSummary(inputs.Candidate),
-		}, nil
+		return passthroughRefreshPlanner(inputs)
 	})
 	assertStoreCode(t, err, store.CodeStoreError)
 	after, loadErr := profile.Load(ctx)
@@ -130,13 +127,32 @@ func TestProviderRefreshInitialBindingFailureRollsBackImportedRows(t *testing.T)
 
 func failureRefreshPlanner(table string) store.RefreshPlanner {
 	return func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
-		plan, err := passthroughRefreshPlanner(inputs)
-		if err != nil {
-			return store.RefreshPlan{}, err
+		var plan store.RefreshPlan
+		if table == "transactions" {
+			committed, allocations, err := materializeRefreshCandidate(inputs)
+			if err != nil {
+				return store.RefreshPlan{}, err
+			}
+			plan = store.RefreshPlan{
+				Committed: committed, Effective: committed.Clone(),
+				KnownDrills: inputs.Snapshot.KnownDrills, Allocations: allocations,
+				Summary: refreshCandidateSummary(inputs.Candidate),
+			}
+		} else {
+			var err error
+			plan, err = passthroughRefreshPlanner(inputs)
+			if err != nil {
+				return store.RefreshPlan{}, err
+			}
 		}
 		switch table {
 		case "transactions":
-			plan.Committed.Transactions = plan.Committed.Transactions[:len(plan.Committed.Transactions)-1]
+			plan.Journal = nil
+			plan.Cursor = 0
+			plan.Summary.RemovedOperations = len(inputs.Snapshot.Journal)
+			for _, operation := range inputs.Snapshot.Journal {
+				plan.Summary.RemovedTargets += len(operation.Targets)
+			}
 		case "accounts":
 			plan.Committed.Accounts = append(plan.Committed.Accounts, domain.Account{
 				ID: "account_refresh_new", Label: "New Account", CollisionKey: "new account",
@@ -145,14 +161,7 @@ func failureRefreshPlanner(table string) store.RefreshPlanner {
 			plan.Journal = nil
 			plan.Cursor = 0
 		case "provider_label_allocations":
-			plan.Allocations = nil
-		case "external_identities":
-			plan.Committed.ExternalIdentities = slices.DeleteFunc(
-				plan.Committed.ExternalIdentities,
-				func(identity domain.ExternalIdentity) bool {
-					return identity.Namespace == "refresh-test/transaction"
-				},
-			)
+			plan.Allocations[0].DisplayLabel += " Updated"
 		case "known_drills":
 			plan.KnownDrills = append(plan.KnownDrills, domain.DrillIdentity{
 				Dimension: domain.DimensionMerchant, Currency: "USD", Scale: 2,
@@ -164,8 +173,7 @@ func failureRefreshPlanner(table string) store.RefreshPlanner {
 				return strings.Compare(left, right)
 			})
 		}
-		if table == "transactions" || table == "accounts" || table == "journal_operations" ||
-			table == "external_identities" {
+		if table == "transactions" || table == "accounts" || table == "journal_operations" {
 			replayed, replayErr := profilereplay.Replay(domain.ProfileSnapshot{
 				Committed: plan.Committed, Journal: plan.Journal,
 				Cursor: plan.Cursor, KnownDrills: plan.KnownDrills,
@@ -224,7 +232,10 @@ func installRefreshFailureTrigger(
 			"provider_label_allocations": true, "provider_refresh_lease": true,
 			"external_identities": true,
 		},
-		"INSERT": {"accounts": true, "known_drills": true, "provider_binding": true},
+		"INSERT": {
+			"accounts": true, "known_drills": true, "provider_binding": true,
+			"external_identities": true,
+		},
 		"UPDATE": {"profile_state": true, "provider_refresh_state": true},
 	}
 	require.True(t, allowed[event][table])
@@ -236,5 +247,20 @@ func installRefreshFailureTrigger(
 			SELECT RAISE(ABORT, 'synthetic provider refresh failure');
 		END`, event, table)
 	_, err := profile.database.ExecContext(context.Background(), query)
+	require.NoError(t, err)
+}
+
+func seedMissingProviderTransaction(t *testing.T, profile *profile) {
+	t.Helper()
+	var transactionID string
+	require.NoError(t, profile.database.QueryRowContext(context.Background(), `
+		SELECT id FROM transactions ORDER BY id LIMIT 1`).Scan(&transactionID))
+	_, err := profile.database.ExecContext(context.Background(), `
+		UPDATE transactions SET provider = 'monarch', provider_id = 'transaction-missing'
+		WHERE id = ?`, transactionID)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(context.Background(), `
+		INSERT INTO external_identities(entity_type, entity_id, namespace, external_id)
+		VALUES ('transaction', ?, 'monarch/transaction', 'transaction-missing')`, transactionID)
 	require.NoError(t, err)
 }

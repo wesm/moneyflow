@@ -109,7 +109,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 			if err != nil {
 				return nil, problemFromError(err)
 			}
-			return mutationOutputFor(result, state, selection)
+			return mutationOutputFor(result, selection)
 		})
 	}
 
@@ -118,7 +118,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		Path: server.basePath + "api/v1/mutations", Summary: "Apply one persistent profile action",
 		Errors: []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *mutationInput) (*mutationOutput, error) {
-		request, state, selection, err := mutationToApp(input.Body)
+		request, _, selection, err := mutationToApp(input.Body)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
@@ -126,7 +126,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return mutationOutputFor(result, state, selection)
+		return mutationOutputFor(result, selection)
 	})
 
 	register("undoProfile", server.basePath+"api/v1/undo", func(
@@ -166,7 +166,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return mutationOutputFor(result, state, selection)
+		return mutationOutputFor(result, selection)
 	})
 }
 
@@ -220,7 +220,6 @@ func mutationContext(
 
 func mutationOutputFor(
 	result app.MutationResult,
-	state app.ViewState,
 	requestedSelection app.SelectionValue,
 ) (*mutationOutput, error) {
 	selection := result.Selection
@@ -229,7 +228,7 @@ func mutationOutputFor(
 	} else if selection == "" {
 		selection = requestedSelection
 	}
-	canonical, err := EncodeViewQuery(state)
+	canonical, err := EncodeViewQuery(result.State)
 	if err != nil {
 		return nil, problemFromError(err)
 	}

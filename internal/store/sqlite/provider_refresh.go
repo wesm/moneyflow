@@ -82,7 +82,7 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
 	}
 	plan = cloneRefreshPlan(plan)
-	if err = validateRefreshPlan(snapshot, request.Candidate, plan); err != nil {
+	if err = validateRefreshPlan(snapshot, binding, allocations, request.Candidate, plan); err != nil {
 		return store.RefreshCommit{}, store.NewError(store.CodeInvalidOperation, err)
 	}
 
@@ -217,6 +217,8 @@ func validateProviderBinding(binding store.ProviderBinding) error {
 
 func validateRefreshPlan(
 	snapshot domain.ProfileSnapshot,
+	binding *store.ProviderBinding,
+	allocations []store.LabelAllocation,
 	candidate domain.ImportSnapshot,
 	plan store.RefreshPlan,
 ) error {
@@ -244,6 +246,31 @@ func validateRefreshPlan(
 	if err = requireKnownDrillSuperset(snapshot.KnownDrills, plan.KnownDrills); err != nil {
 		return err
 	}
+	if err = requireDurableEntityIDs(snapshot.Committed, plan.Committed); err != nil {
+		return err
+	}
+	identityIndex, err := externalIdentitySupersetIndex(
+		snapshot.Committed.ExternalIdentities,
+		plan.Committed.ExternalIdentities,
+	)
+	if err != nil {
+		return err
+	}
+	if err = requireAllocationSuperset(allocations, plan.Allocations); err != nil {
+		return err
+	}
+	if err = validateRefreshJournalRewrite(snapshot, plan); err != nil {
+		return err
+	}
+	if err = validateCandidateMaterialization(
+		binding,
+		candidate,
+		plan.Committed,
+		plan.Allocations,
+		identityIndex,
+	); err != nil {
+		return err
+	}
 	if err = validateRefreshSummary(plan.Summary); err != nil {
 		return err
 	}
@@ -255,6 +282,219 @@ func validateRefreshPlan(
 		return errors.New("refresh imported counts do not match candidate")
 	}
 	return validateLabelAllocations(plan.Allocations)
+}
+
+func requireDurableEntityIDs(before, after domain.CommittedProfile) error {
+	checks := []struct {
+		name   string
+		before map[domain.EntityID]struct{}
+		after  map[domain.EntityID]struct{}
+	}{
+		{"account", accountIDs(before.Accounts), accountIDs(after.Accounts)},
+		{"merchant", merchantIDs(before.Merchants), merchantIDs(after.Merchants)},
+		{"group", groupIDs(before.Groups), groupIDs(after.Groups)},
+		{"category", categoryIDs(before.Categories), categoryIDs(after.Categories)},
+	}
+	for _, check := range checks {
+		for id := range check.before {
+			if _, exists := check.after[id]; !exists {
+				return errors.New("refresh cannot remove a durable " + check.name + " identity")
+			}
+		}
+	}
+	return nil
+}
+
+type externalIdentityIndexKey struct{ namespace, externalID string }
+
+func externalIdentitySupersetIndex(
+	before,
+	after []domain.ExternalIdentity,
+) (map[externalIdentityIndexKey]domain.ExternalIdentity, error) {
+	retained := make(map[externalIdentityIndexKey]domain.ExternalIdentity, len(after))
+	for _, identity := range after {
+		retained[externalIdentityIndexKey{identity.Namespace, identity.ExternalID}] = identity
+	}
+	for _, identity := range before {
+		lookup := externalIdentityIndexKey{identity.Namespace, identity.ExternalID}
+		if next, exists := retained[lookup]; !exists || next != identity {
+			return nil, errors.New("refresh cannot remove or remap a durable external identity")
+		}
+	}
+	return retained, nil
+}
+
+func requireAllocationSuperset(before, after []store.LabelAllocation) error {
+	type key struct{ namespace, externalID string }
+	retained := make(map[key]struct{}, len(after))
+	for _, allocation := range after {
+		retained[key{allocation.Namespace, allocation.ExternalID}] = struct{}{}
+	}
+	for _, allocation := range before {
+		if _, exists := retained[key{allocation.Namespace, allocation.ExternalID}]; !exists {
+			return errors.New("refresh cannot remove a durable label allocation")
+		}
+	}
+	return nil
+}
+
+func validateRefreshJournalRewrite(
+	snapshot domain.ProfileSnapshot,
+	plan store.RefreshPlan,
+) error {
+	active := snapshot.Journal[:snapshot.Cursor]
+	next := 0
+	for _, operation := range plan.Journal {
+		for next < len(active) && active[next].ID != operation.ID {
+			next++
+		}
+		if next == len(active) {
+			return errors.New("refresh journal is not an ordered subset of the active prefix")
+		}
+		before := active[next].Clone()
+		after := operation.Clone()
+		beforeTargets := before.Targets
+		afterTargets := after.Targets
+		before.Targets = nil
+		after.Targets = nil
+		if !reflect.DeepEqual(before, after) || !orderedTargetSubset(beforeTargets, afterTargets) {
+			return errors.New("refresh journal rewrites more than operation targets")
+		}
+		next++
+	}
+	return nil
+}
+
+func orderedTargetSubset(before, after []domain.EntityID) bool {
+	next := 0
+	for _, target := range after {
+		for next < len(before) && before[next] != target {
+			next++
+		}
+		if next == len(before) {
+			return false
+		}
+		next++
+	}
+	return true
+}
+
+func validateCandidateMaterialization(
+	binding *store.ProviderBinding,
+	candidate domain.ImportSnapshot,
+	committed domain.CommittedProfile,
+	allocations []store.LabelAllocation,
+	identities map[externalIdentityIndexKey]domain.ExternalIdentity,
+) error {
+	if binding == nil {
+		return errors.New("refresh candidate has no provider binding")
+	}
+	allocationKeys := make(map[string]domain.EntityKind, len(allocations))
+	for _, allocation := range allocations {
+		allocationKeys[allocation.Namespace+"\x00"+allocation.ExternalID] = allocation.Kind
+	}
+	resolve := func(kind domain.EntityKind, externalID string) (domain.EntityID, error) {
+		identity, exists := identities[externalIdentityIndexKey{
+			binding.Kind + "/" + string(kind),
+			externalID,
+		}]
+		if !exists || identity.EntityType != kind {
+			return "", errors.New("refresh candidate identity is not materialized")
+		}
+		return identity.EntityID, nil
+	}
+	accounts := entityPresence(committed.Accounts, func(value domain.Account) (domain.EntityID, bool) {
+		return value.ID, value.Retired
+	})
+	merchants := entityPresence(committed.Merchants, func(value domain.Merchant) (domain.EntityID, bool) {
+		return value.ID, value.Retired
+	})
+	groups := entityPresence(committed.Groups, func(value domain.CategoryGroup) (domain.EntityID, bool) {
+		return value.ID, value.Retired
+	})
+	categories := make(map[domain.EntityID]domain.Category, len(committed.Categories))
+	for _, value := range committed.Categories {
+		categories[value.ID] = value
+	}
+	for _, batch := range []struct {
+		kind     domain.EntityKind
+		entities []domain.ImportEntity
+		present  map[domain.EntityID]bool
+	}{
+		{domain.EntityKindAccount, candidate.Accounts, accounts},
+		{domain.EntityKindMerchant, candidate.Merchants, merchants},
+		{domain.EntityKindGroup, candidate.Groups, groups},
+	} {
+		for _, imported := range batch.entities {
+			if allocationKeys[binding.Kind+"/"+string(batch.kind)+"\x00"+imported.ExternalID] != batch.kind {
+				return errors.New("refresh candidate label allocation is not materialized")
+			}
+			id, err := resolve(batch.kind, imported.ExternalID)
+			if err != nil || !batch.present[id] {
+				return errors.New("refresh candidate dimension is not active")
+			}
+		}
+	}
+	for _, imported := range candidate.Categories {
+		if allocationKeys[binding.Kind+"/category\x00"+imported.ExternalID] != domain.EntityKindCategory {
+			return errors.New("refresh candidate label allocation is not materialized")
+		}
+		id, err := resolve(domain.EntityKindCategory, imported.ExternalID)
+		if err != nil {
+			return err
+		}
+		parentID, err := resolve(domain.EntityKindGroup, imported.ParentExternalID)
+		category, exists := categories[id]
+		if err != nil || !exists || category.Retired || category.GroupID != parentID {
+			return errors.New("refresh candidate category is not materialized")
+		}
+	}
+	expectedTransactions := make(
+		map[domain.EntityID]domain.TransactionRecord,
+		len(candidate.Transactions),
+	)
+	for _, imported := range candidate.Transactions {
+		id, err := resolve(domain.EntityKindTransaction, imported.ExternalID)
+		if err != nil {
+			return err
+		}
+		accountID, accountErr := resolve(domain.EntityKindAccount, imported.AccountExternalID)
+		merchantID, merchantErr := resolve(domain.EntityKindMerchant, imported.MerchantExternalID)
+		categoryID, categoryErr := resolve(domain.EntityKindCategory, imported.CategoryExternalID)
+		if accountErr != nil || merchantErr != nil || categoryErr != nil {
+			return errors.New("refresh candidate transaction is not materialized")
+		}
+		expectedTransactions[id] = domain.TransactionRecord{
+			ID: id, Provider: binding.Kind, ProviderID: imported.ExternalID,
+			AccountID: accountID, MerchantID: merchantID, CategoryID: categoryID,
+			Date: imported.Date, Amount: imported.Amount, Notes: imported.Notes,
+			Hidden: imported.Hidden, Pending: imported.Pending,
+		}
+	}
+	for _, transaction := range committed.Transactions {
+		expected, needed := expectedTransactions[transaction.ID]
+		if !needed {
+			continue
+		}
+		transaction.Metadata = nil
+		if !reflect.DeepEqual(transaction, expected) {
+			return errors.New("refresh candidate transaction is not materialized")
+		}
+		delete(expectedTransactions, transaction.ID)
+	}
+	if len(expectedTransactions) != 0 {
+		return errors.New("refresh candidate transaction is not materialized")
+	}
+	return nil
+}
+
+func entityPresence[T any](values []T, fields func(T) (domain.EntityID, bool)) map[domain.EntityID]bool {
+	result := make(map[domain.EntityID]bool, len(values))
+	for _, value := range values {
+		id, retired := fields(value)
+		result[id] = !retired
+	}
+	return result
 }
 
 func requireKnownDrillSuperset(before, after []domain.DrillIdentity) error {

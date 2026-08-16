@@ -21,6 +21,11 @@ func (profile *profile) ProviderState(ctx context.Context) (store.ProviderState,
 	defer func() { _ = transaction.Rollback() }()
 
 	state := store.ProviderState{}
+	if err = transaction.QueryRowContext(ctx,
+		"SELECT revision FROM profile_state WHERE singleton = 1",
+	).Scan(&state.Revision); err != nil {
+		return store.ProviderState{}, mapDriverError(err, store.CodeStoreError)
+	}
 	populated, err := profilePopulated(ctx, transaction)
 	if err != nil {
 		return store.ProviderState{}, mapDriverError(err, store.CodeStoreError)

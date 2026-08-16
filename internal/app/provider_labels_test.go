@@ -106,6 +106,88 @@ func TestProviderLabelExtendsSuffixUntilDisplayKeyIsUnique(t *testing.T) {
 	).Label)
 }
 
+func TestProviderLabelReservesEveryIncomingNaturalLabelBeforeSuffixing(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	input.Committed.Merchants = []domain.Merchant{{
+		ID: "merchant_user", Label: "Example Merchant", CollisionKey: "example merchant",
+	}}
+	input.Effective = input.Committed
+	input.Import.Merchants = []domain.ImportEntity{
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_a", Label: "Example Merchant"},
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_b", Label: "Example Merchant · b2c3"},
+	}
+	input.Import.Transactions = nil
+	input.ProposedIDs[app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_b")] = "merchant_b"
+	input.ProposedSuffixes[app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_b")] = "c3d4e5f6"
+
+	plan, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Example Merchant · b2c3d4", merchantByProviderID(
+		t, plan.Committed, "merchant_a",
+	).Label)
+	assert.Equal(t, "Example Merchant · b2c3", merchantByProviderID(
+		t, plan.Committed, "merchant_b",
+	).Label)
+}
+
+func TestProviderLabelKeepsMissingSuffixedDisplayKeyReserved(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	input.Committed.Merchants = []domain.Merchant{{
+		ID: "merchant_user", Label: "Example Merchant", CollisionKey: "example merchant",
+	}}
+	input.Effective = input.Committed
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Example Merchant · b2c3", merchantByProviderID(
+		t, first.Committed, "merchant_a",
+	).Label)
+
+	input.Committed = first.Committed
+	input.Effective = first.Committed
+	input.Allocations = first.Allocations
+	input.Import.Merchants = []domain.ImportEntity{{
+		Kind: domain.EntityKindMerchant, ExternalID: "merchant_b", Label: "Example Merchant · b2c3",
+	}}
+	input.Import.Transactions = nil
+	input.ProposedIDs = map[string]domain.EntityID{
+		app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_b"): "merchant_b",
+	}
+	input.ProposedSuffixes = map[string]string{
+		app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_b"): "c3d4e5f6",
+	}
+	plan, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Example Merchant · b2c3 · c3d4", merchantByProviderID(
+		t, plan.Committed, "merchant_b",
+	).Label)
+}
+
+func TestProviderLabelRejectsChangedSuffixMaterialAtMinimumLength(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	input.Committed.Merchants = []domain.Merchant{{
+		ID: "merchant_user", Label: "Example Merchant", CollisionKey: "example merchant",
+	}}
+	input.Effective = input.Committed
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+
+	input.Committed = first.Committed
+	input.Effective = first.Committed
+	input.Allocations = first.Allocations
+	input.ProposedIDs = nil
+	input.ProposedSuffixes = map[string]string{
+		app.ProviderIdentityKey("monarch", domain.EntityKindMerchant, "merchant_a"): "deadbeef",
+	}
+	_, err = app.PlanProviderIdentities(input)
+	require.ErrorContains(t, err, "suffix material changed")
+}
+
 func TestProviderLabelRenameCollisionKeepsIncumbent(t *testing.T) {
 	t.Parallel()
 

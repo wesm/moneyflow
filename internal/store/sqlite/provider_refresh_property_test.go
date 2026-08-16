@@ -36,7 +36,8 @@ func TestProviderRefreshRandomizedPlansMatchReopenedCommittedState(t *testing.T)
 			}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
 				planned, err = passthroughRefreshPlanner(inputs)
 				for index := range planned.Committed.Transactions {
-					if (index+seed)%3 == 0 {
+					if planned.Committed.Transactions[index].Provider != "monarch" &&
+						(index+seed)%3 == 0 {
 						planned.Committed.Transactions[index].Notes = fmt.Sprintf(
 							"Synthetic refresh %d", seed,
 						)

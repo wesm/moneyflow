@@ -130,6 +130,7 @@ func (planner *providerLabelPlanner) planAll() error {
 			return strings.Compare(left.externalID, right.externalID)
 		})
 		planner.reserveHistoricalOwners(kind, candidates)
+		planner.reserveIncomingNaturalLabels(kind, candidates)
 
 		// Existing unsuffixed owners claim their unchanged base before new colliders are considered.
 		for _, candidate := range candidates {
@@ -151,6 +152,17 @@ func (planner *providerLabelPlanner) planAll() error {
 	return nil
 }
 
+func (planner *providerLabelPlanner) reserveIncomingNaturalLabels(
+	kind domain.EntityKind,
+	candidates []providerLabelCandidate,
+) {
+	for _, candidate := range candidates {
+		if _, reserved := planner.reservations[kind][candidate.baseKey]; !reserved {
+			planner.reservations[kind][candidate.baseKey] = candidate.localID
+		}
+	}
+}
+
 func (planner *providerLabelPlanner) reserveHistoricalOwners(
 	kind domain.EntityKind,
 	candidates []providerLabelCandidate,
@@ -162,7 +174,7 @@ func (planner *providerLabelPlanner) reserveHistoricalOwners(
 	allocations := make([]store.LabelAllocation, 0)
 	namespace := providerNamespace(planner.input.Provider, kind)
 	for _, allocation := range planner.planner.allocations {
-		if allocation.Kind == kind && allocation.Namespace == namespace && allocation.Unsuffixed {
+		if allocation.Kind == kind && allocation.Namespace == namespace {
 			allocations = append(allocations, allocation)
 		}
 	}
@@ -170,23 +182,43 @@ func (planner *providerLabelPlanner) reserveHistoricalOwners(
 		return strings.Compare(left.ExternalID, right.ExternalID)
 	})
 	for _, allocation := range allocations {
-		if currentBase, present := currentBases[allocation.ExternalID]; present && currentBase != allocation.BaseCollisionKey {
-			continue
-		}
 		identity, exists := planner.planner.identities[externalIdentityKey(
 			allocation.Namespace, allocation.ExternalID,
 		)]
 		if !exists {
 			continue
 		}
-		if _, reserved := planner.reservations[kind][allocation.BaseCollisionKey]; !reserved {
-			planner.reservations[kind][allocation.BaseCollisionKey] = identity.EntityID
+		key := allocation.BaseCollisionKey
+		if !allocation.Unsuffixed {
+			var err error
+			key, err = domain.CollisionKey(allocation.DisplayLabel)
+			if err != nil {
+				continue
+			}
+		} else if currentBase, present := currentBases[allocation.ExternalID]; present &&
+			currentBase != allocation.BaseCollisionKey {
+			continue
+		}
+		if _, reserved := planner.reservations[kind][key]; !reserved {
+			planner.reservations[kind][key] = identity.EntityID
 		}
 	}
 }
 
 func (planner *providerLabelPlanner) planCandidate(candidate providerLabelCandidate) error {
 	allocation, hasAllocation := planner.currentAllocation(candidate)
+	if hasAllocation && allocation.BaseCollisionKey == candidate.baseKey &&
+		allocation.SuffixToken != "" {
+		material := planner.input.ProposedSuffixes[ProviderIdentityKey(
+			planner.input.Provider, candidate.kind, candidate.externalID,
+		)]
+		if !validSuffixMaterial(material) || !strings.HasPrefix(material, allocation.SuffixToken) {
+			return fmt.Errorf(
+				"plan provider labels: suffix material changed for %s",
+				candidate.externalID,
+			)
+		}
+	}
 	owner, baseReserved := planner.reservations[candidate.kind][candidate.baseKey]
 	canOwnBase := !baseReserved || owner == candidate.localID
 	stickyBase := hasAllocation && allocation.BaseCollisionKey == candidate.baseKey
@@ -234,7 +266,7 @@ func (planner *providerLabelPlanner) planSuffixed(
 		)
 	}
 	start := minimumSuffixLength
-	if allocation.BaseCollisionKey == candidate.baseKey && len(allocation.SuffixToken) > start {
+	if allocation.BaseCollisionKey == candidate.baseKey && len(allocation.SuffixToken) >= start {
 		if !strings.HasPrefix(material, allocation.SuffixToken) {
 			return fmt.Errorf(
 				"plan provider labels: suffix material changed for %s",

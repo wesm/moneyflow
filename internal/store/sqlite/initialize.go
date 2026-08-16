@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/store"
@@ -154,12 +155,37 @@ func inspectSchema(ctx context.Context, queryer schemaQueryer) (schemaState, err
 	}
 	switch {
 	case version == CurrentSchemaVersion:
+		compatible, compatibilityErr := currentSchemaObjectsPresent(ctx, queryer)
+		if compatibilityErr != nil {
+			return schemaEmpty, compatibilityErr
+		}
+		if !compatible {
+			return schemaOlder, nil
+		}
 		return schemaCurrent, nil
 	case version < CurrentSchemaVersion:
 		return schemaOlder, nil
 	default:
 		return schemaNewer, nil
 	}
+}
+
+func currentSchemaObjectsPresent(ctx context.Context, queryer schemaQueryer) (bool, error) {
+	var definition string
+	err := queryer.QueryRowContext(ctx, `
+		SELECT sql FROM sqlite_schema
+		WHERE type = 'index' AND name = 'provider_label_allocations_unsuffixed_owner'`,
+	).Scan(&definition)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(definition), ""))
+	const expected = "createuniqueindexprovider_label_allocations_unsuffixed_owner" +
+		"onprovider_label_allocations(entity_type,base_collision_key)whereunsuffixed=1"
+	return normalized == expected, nil
 }
 
 func isBusy(err error) bool {

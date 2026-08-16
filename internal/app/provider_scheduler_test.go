@@ -88,6 +88,11 @@ func TestProviderReconnectParkHealsOnlyAfterSessionFingerprintChanges(t *testing
 	require.NoError(t, err)
 	assert.Equal(t, provider.CodeReconnectRequired, healed.Code)
 	assert.Equal(t, probeCalls, source.probeCalls(), "status checks must not repeat failed auth")
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: false, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, probeCalls, source.probeCalls(), "automatic refresh must remain parked")
 
 	source.setProbeError(nil)
 	source.setFingerprint("session-b")
@@ -96,7 +101,7 @@ func TestProviderReconnectParkHealsOnlyAfterSessionFingerprintChanges(t *testing
 	assert.Empty(t, healed.Code)
 	assert.Equal(t, probeCalls, source.probeCalls())
 	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
-		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Manual: false, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
 	assert.Greater(t, source.probeCalls(), probeCalls)
@@ -118,4 +123,14 @@ func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {
 	assert.True(t, app.ProviderRefreshDue(app.ProviderStatus{
 		LastSuccess: now.Add(-6 * time.Hour),
 	}, now))
+	for _, code := range []provider.ErrorCode{
+		provider.CodeReconnectRequired,
+		provider.CodeIdentityMismatch,
+		provider.CodeDeletionConfirmationRequired,
+		provider.CodeConfirmationInvalid,
+		provider.CodeDataInvalid,
+		provider.CodeRefreshStale,
+	} {
+		assert.False(t, app.ProviderRefreshDue(app.ProviderStatus{Code: code}, now), code)
+	}
 }

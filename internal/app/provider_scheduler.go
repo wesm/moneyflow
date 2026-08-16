@@ -50,6 +50,9 @@ func StoreErrorRetryClass(code store.ErrorCode) ProviderRetryClass {
 
 // ProviderRefreshDue applies the six-hour full-reconciliation cadence and retry floor.
 func ProviderRefreshDue(status ProviderStatus, now time.Time) bool {
+	if status.Code != "" && ProviderErrorRetryClass(status.Code) == ProviderManualActionRequired {
+		return false
+	}
 	if !status.NextEligible.IsZero() && status.NextEligible.After(now) {
 		return false
 	}

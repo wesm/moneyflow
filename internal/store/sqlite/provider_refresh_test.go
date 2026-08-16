@@ -3,6 +3,8 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +29,7 @@ func TestProviderRefreshFoldsCommittedAndEffectiveStateAtomically(t *testing.T) 
 	before, err := profile.Load(ctx)
 	require.NoError(t, err)
 	candidate := providerRefreshCandidate(t, now)
+	candidate.Transactions[0].Notes = "Refreshed note"
 	plannerCalls := 0
 	commit, err := profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
 		ExpectedGeneration: 0,
@@ -41,21 +44,7 @@ func TestProviderRefreshFoldsCommittedAndEffectiveStateAtomically(t *testing.T) 
 		require.NotNil(t, inputs.Binding)
 		assert.Equal(t, candidate, inputs.Candidate)
 		assert.Equal(t, domain.EntityID("proposed"), inputs.ProposedIDs["candidate"])
-		committed := inputs.Snapshot.Committed.Clone()
-		committed.Transactions[0].Notes = "Refreshed note"
-		effective, replayErr := profilereplay.Replay(domain.ProfileSnapshot{
-			Committed: committed, Journal: inputs.Snapshot.Journal,
-			Cursor: inputs.Snapshot.Cursor, KnownDrills: inputs.Snapshot.KnownDrills,
-		})
-		if replayErr != nil {
-			return store.RefreshPlan{}, replayErr
-		}
-		return store.RefreshPlan{
-			Committed: committed, Effective: effective.Effective,
-			Journal: inputs.Snapshot.Journal, Cursor: inputs.Snapshot.Cursor,
-			KnownDrills: inputs.Snapshot.KnownDrills,
-			Summary:     refreshCandidateSummary(candidate),
-		}, nil
+		return passthroughRefreshPlanner(inputs)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 1, plannerCalls)
@@ -64,7 +53,9 @@ func TestProviderRefreshFoldsCommittedAndEffectiveStateAtomically(t *testing.T) 
 
 	after, err := profile.Load(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "Refreshed note", after.Committed.Transactions[0].Notes)
+	assert.Equal(t, "Refreshed note", providerTransactionByExternalID(
+		t, after.Committed, "transaction-example",
+	).Notes)
 	state, err := profile.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, commit.Generation, state.Refresh.Generation)
@@ -176,9 +167,6 @@ func TestProviderRefreshInitialBindingIsPartOfAtomicFold(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
 	now := time.Date(2026, time.August, 15, 19, 30, 0, 0, time.UTC)
 	acquireProviderRefreshLease(t, profile, "initial-owner", now)
-	committed := fixtureProfile(t)
-	knownDrills, err := seededKnownDrills(committed)
-	require.NoError(t, err)
 	binding := store.ProviderBinding{
 		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "subscription-example",
 		BoundAt: now,
@@ -190,10 +178,7 @@ func TestProviderRefreshInitialBindingIsPartOfAtomicFold(t *testing.T) {
 	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
 		require.NotNil(t, inputs.Binding)
 		assert.Equal(t, binding, *inputs.Binding)
-		return store.RefreshPlan{
-			Committed: committed, Effective: committed.Clone(), KnownDrills: knownDrills,
-			Summary: refreshCandidateSummary(inputs.Candidate),
-		}, nil
+		return passthroughRefreshPlanner(inputs)
 	})
 	require.NoError(t, err)
 	state, err := profile.ProviderState(ctx)
@@ -202,7 +187,7 @@ func TestProviderRefreshInitialBindingIsPartOfAtomicFold(t *testing.T) {
 	assert.Equal(t, binding, *state.Binding)
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, committed, loaded.Committed)
+	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
 func TestProviderRefreshAtJournalCeilingMayShrinkJournal(t *testing.T) {
@@ -220,22 +205,18 @@ func TestProviderRefreshAtJournalCeilingMayShrinkJournal(t *testing.T) {
 		Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
 	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
 		assert.Len(t, inputs.Snapshot.Journal, maxJournalOperations)
-		return store.RefreshPlan{
-			Committed:   inputs.Snapshot.Committed,
-			Effective:   inputs.Snapshot.Committed.Clone(),
-			KnownDrills: inputs.Snapshot.KnownDrills,
-			Summary: store.RefreshSummary{
-				ImportedAccounts:     len(inputs.Candidate.Accounts),
-				ImportedMerchants:    len(inputs.Candidate.Merchants),
-				ImportedGroups:       len(inputs.Candidate.Groups),
-				ImportedCategories:   len(inputs.Candidate.Categories),
-				ImportedTransactions: len(inputs.Candidate.Transactions),
-				RemovedOperations:    maxJournalOperations,
-				RemovedTargets:       maxJournalOperations,
-			},
-		}, nil
+		committed, allocations, planErr := materializeRefreshCandidate(inputs)
+		plan := store.RefreshPlan{
+			Committed: committed, Effective: committed.Clone(),
+			KnownDrills: inputs.Snapshot.KnownDrills, Allocations: allocations,
+			Summary: refreshCandidateSummary(inputs.Candidate),
+		}
+		plan.Summary.RemovedOperations = maxJournalOperations
+		plan.Summary.RemovedTargets = maxJournalOperations
+		plan.Summary.RetainedOperations = 0
+		return plan, planErr
 	})
-	require.NoError(t, err)
+	require.NoErrorf(t, err, "cause: %v", errors.Unwrap(err))
 	assert.Equal(t, uint64(1), commit.Generation)
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
@@ -256,18 +237,12 @@ func TestProviderRefreshCanonicalLogicalStateMatchesReopen(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 20, 30, 0, 0, time.UTC)
 	bindProviderForRefreshTest(t, handle, now)
 	acquireProviderRefreshLease(t, handle, "canonical-owner", now)
-	allocation := store.LabelAllocation{
-		Kind: domain.EntityKindMerchant, Namespace: "monarch/merchant",
-		ExternalID: "merchant-example", BaseCollisionKey: "example merchant",
-		DisplayLabel: "Example Merchant", Unsuffixed: true,
-	}
 	var planned store.RefreshPlan
 	commit, err := handle.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
 		ExpectedGeneration: 0, LeaseOwnerID: "canonical-owner",
 		Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
 	}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
 		planned, err = passthroughRefreshPlanner(inputs)
-		planned.Allocations = []store.LabelAllocation{allocation}
 		planned.Summary = refreshCandidateSummary(inputs.Candidate)
 		return planned, err
 	})
@@ -302,19 +277,242 @@ func TestProviderRefreshCanonicalLogicalStateMatchesReopen(t *testing.T) {
 }
 
 func passthroughRefreshPlanner(inputs store.RefreshInputs) (store.RefreshPlan, error) {
-	replayed, err := profilereplay.Replay(inputs.Snapshot)
+	committed, allocations, err := materializeRefreshCandidate(inputs)
+	if err != nil {
+		return store.RefreshPlan{}, err
+	}
+	replayed, err := profilereplay.Replay(domain.ProfileSnapshot{
+		Revision: inputs.Snapshot.Revision, Committed: committed,
+		Journal: inputs.Snapshot.Journal, Cursor: inputs.Snapshot.Cursor,
+		KnownDrills: inputs.Snapshot.KnownDrills,
+	})
 	if err != nil {
 		return store.RefreshPlan{}, err
 	}
 	return store.RefreshPlan{
-		Committed:   inputs.Snapshot.Committed,
+		Committed:   committed,
 		Effective:   replayed.Effective,
 		Journal:     inputs.Snapshot.Journal,
 		Cursor:      inputs.Snapshot.Cursor,
 		KnownDrills: inputs.Snapshot.KnownDrills,
-		Allocations: inputs.Allocations,
+		Allocations: allocations,
 		Summary:     refreshCandidateSummary(inputs.Candidate),
 	}, nil
+}
+
+func materializeRefreshCandidate(
+	inputs store.RefreshInputs,
+) (domain.CommittedProfile, []store.LabelAllocation, error) {
+	committed := inputs.Snapshot.Committed.Clone()
+	providerName := inputs.Binding.Kind
+	identities := make(map[string]domain.ExternalIdentity, len(committed.ExternalIdentities))
+	for _, identity := range committed.ExternalIdentities {
+		identities[identity.Namespace+"\x00"+identity.ExternalID] = identity
+	}
+	resolve := func(kind domain.EntityKind, externalID string) domain.EntityID {
+		key := providerName + "/" + string(kind) + "\x00" + externalID
+		if identity, exists := identities[key]; exists {
+			return identity.EntityID
+		}
+		id := domain.EntityID("refresh_" + string(kind) + "_" + externalID)
+		identity := domain.ExternalIdentity{
+			EntityType: kind, EntityID: id, Namespace: providerName + "/" + string(kind),
+			ExternalID: externalID,
+		}
+		identities[key] = identity
+		committed.ExternalIdentities = append(committed.ExternalIdentities, identity)
+		return id
+	}
+	allocations := append([]store.LabelAllocation(nil), inputs.Allocations...)
+	allocationKeys := make(map[string]struct{}, len(allocations))
+	for _, allocation := range allocations {
+		allocationKeys[allocation.Namespace+"\x00"+allocation.ExternalID] = struct{}{}
+	}
+	label := func(kind domain.EntityKind, externalID string) (string, string, error) {
+		display := "Imported " + string(kind) + " " + externalID
+		key, collisionErr := domain.CollisionKey(display)
+		if collisionErr != nil {
+			return "", "", collisionErr
+		}
+		allocationKey := providerName + "/" + string(kind) + "\x00" + externalID
+		if _, exists := allocationKeys[allocationKey]; !exists {
+			allocations = append(allocations, store.LabelAllocation{
+				Kind: kind, Namespace: providerName + "/" + string(kind), ExternalID: externalID,
+				BaseCollisionKey: key, DisplayLabel: display, Unsuffixed: true,
+			})
+			allocationKeys[allocationKey] = struct{}{}
+		}
+		return display, key, nil
+	}
+	for _, imported := range inputs.Candidate.Accounts {
+		id := resolve(domain.EntityKindAccount, imported.ExternalID)
+		display, key, labelErr := label(domain.EntityKindAccount, imported.ExternalID)
+		if labelErr != nil {
+			return domain.CommittedProfile{}, nil, labelErr
+		}
+		committed.Accounts = upsertRefreshAccount(committed.Accounts, domain.Account{
+			ID: id, Label: display, CollisionKey: key,
+		})
+	}
+	for _, imported := range inputs.Candidate.Merchants {
+		id := resolve(domain.EntityKindMerchant, imported.ExternalID)
+		display, key, labelErr := label(domain.EntityKindMerchant, imported.ExternalID)
+		if labelErr != nil {
+			return domain.CommittedProfile{}, nil, labelErr
+		}
+		committed.Merchants = upsertRefreshMerchant(committed.Merchants, domain.Merchant{
+			ID: id, Label: display, CollisionKey: key,
+		})
+	}
+	for _, imported := range inputs.Candidate.Groups {
+		id := resolve(domain.EntityKindGroup, imported.ExternalID)
+		display, key, labelErr := label(domain.EntityKindGroup, imported.ExternalID)
+		if labelErr != nil {
+			return domain.CommittedProfile{}, nil, labelErr
+		}
+		committed.Groups = upsertRefreshGroup(committed.Groups, domain.CategoryGroup{
+			ID: id, Label: display, CollisionKey: key,
+		})
+	}
+	for _, imported := range inputs.Candidate.Categories {
+		id := resolve(domain.EntityKindCategory, imported.ExternalID)
+		display, key, labelErr := label(domain.EntityKindCategory, imported.ExternalID)
+		if labelErr != nil {
+			return domain.CommittedProfile{}, nil, labelErr
+		}
+		committed.Categories = upsertRefreshCategory(committed.Categories, domain.Category{
+			ID: id, GroupID: resolve(domain.EntityKindGroup, imported.ParentExternalID),
+			Label: display, CollisionKey: key,
+		})
+	}
+	for _, imported := range inputs.Candidate.Transactions {
+		id := resolve(domain.EntityKindTransaction, imported.ExternalID)
+		committed.Transactions = upsertRefreshTransaction(
+			committed.Transactions,
+			domain.TransactionRecord{
+				ID: id, Provider: providerName, ProviderID: imported.ExternalID,
+				AccountID:  resolve(domain.EntityKindAccount, imported.AccountExternalID),
+				MerchantID: resolve(domain.EntityKindMerchant, imported.MerchantExternalID),
+				CategoryID: resolve(domain.EntityKindCategory, imported.CategoryExternalID),
+				Date:       imported.Date, Amount: imported.Amount, Notes: imported.Notes,
+				Hidden: imported.Hidden, Pending: imported.Pending,
+			},
+		)
+	}
+	importedTransactions := make(map[string]struct{}, len(inputs.Candidate.Transactions))
+	for _, imported := range inputs.Candidate.Transactions {
+		importedTransactions[imported.ExternalID] = struct{}{}
+	}
+	committed.Transactions = slices.DeleteFunc(
+		committed.Transactions,
+		func(transaction domain.TransactionRecord) bool {
+			_, retained := importedTransactions[transaction.ProviderID]
+			return transaction.Provider == providerName && !retained
+		},
+	)
+	slices.SortFunc(committed.Accounts, func(left, right domain.Account) int {
+		return strings.Compare(string(left.ID), string(right.ID))
+	})
+	slices.SortFunc(committed.Merchants, func(left, right domain.Merchant) int {
+		return strings.Compare(string(left.ID), string(right.ID))
+	})
+	slices.SortFunc(committed.Groups, func(left, right domain.CategoryGroup) int {
+		return strings.Compare(string(left.ID), string(right.ID))
+	})
+	slices.SortFunc(committed.Categories, func(left, right domain.Category) int {
+		return strings.Compare(string(left.ID), string(right.ID))
+	})
+	slices.SortFunc(committed.Transactions, func(left, right domain.TransactionRecord) int {
+		return strings.Compare(string(left.ID), string(right.ID))
+	})
+	slices.SortFunc(committed.ExternalIdentities, compareRefreshIdentity)
+	slices.SortFunc(allocations, compareRefreshAllocation)
+	return committed, allocations, nil
+}
+
+func upsertRefreshAccount(values []domain.Account, next domain.Account) []domain.Account {
+	for index := range values {
+		if values[index].ID == next.ID {
+			values[index] = next
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+func upsertRefreshMerchant(values []domain.Merchant, next domain.Merchant) []domain.Merchant {
+	for index := range values {
+		if values[index].ID == next.ID {
+			values[index] = next
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+func upsertRefreshGroup(
+	values []domain.CategoryGroup,
+	next domain.CategoryGroup,
+) []domain.CategoryGroup {
+	for index := range values {
+		if values[index].ID == next.ID {
+			values[index] = next
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+func upsertRefreshCategory(values []domain.Category, next domain.Category) []domain.Category {
+	for index := range values {
+		if values[index].ID == next.ID {
+			values[index] = next
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+func upsertRefreshTransaction(
+	values []domain.TransactionRecord,
+	next domain.TransactionRecord,
+) []domain.TransactionRecord {
+	for index := range values {
+		if values[index].ID == next.ID {
+			values[index] = next
+			return values
+		}
+	}
+	return append(values, next)
+}
+
+func compareRefreshIdentity(left, right domain.ExternalIdentity) int {
+	if compared := strings.Compare(left.Namespace, right.Namespace); compared != 0 {
+		return compared
+	}
+	return strings.Compare(left.ExternalID, right.ExternalID)
+}
+
+func compareRefreshAllocation(left, right store.LabelAllocation) int {
+	if compared := strings.Compare(left.Namespace, right.Namespace); compared != 0 {
+		return compared
+	}
+	return strings.Compare(left.ExternalID, right.ExternalID)
+}
+
+func providerTransactionByExternalID(
+	t testing.TB,
+	committed domain.CommittedProfile,
+	externalID string,
+) domain.TransactionRecord {
+	t.Helper()
+	for _, transaction := range committed.Transactions {
+		if transaction.ProviderID == externalID && transaction.Provider == "monarch" {
+			return transaction
+		}
+	}
+	t.Fatalf("provider transaction %q not found", externalID)
+	return domain.TransactionRecord{}
 }
 
 func refreshCandidateSummary(candidate domain.ImportSnapshot) store.RefreshSummary {
@@ -377,6 +575,159 @@ func TestProviderRefreshRejectsPlannerFailureWithoutChanges(t *testing.T) {
 	require.NoError(t, stateErr)
 	assert.Equal(t, before, after)
 	assert.Equal(t, stateBefore, stateAfter)
+}
+
+func TestProviderRefreshRejectsInvalidPlannerOutputWithoutChanges(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(store.RefreshInputs, store.RefreshPlan) store.RefreshPlan
+	}{
+		{
+			name: "candidate ignored",
+			mutate: func(inputs store.RefreshInputs, _ store.RefreshPlan) store.RefreshPlan {
+				replayed, err := profilereplay.Replay(inputs.Snapshot)
+				require.NoError(t, err)
+				return store.RefreshPlan{
+					Committed: inputs.Snapshot.Committed, Effective: replayed.Effective,
+					Journal: inputs.Snapshot.Journal, Cursor: inputs.Snapshot.Cursor,
+					KnownDrills: inputs.Snapshot.KnownDrills, Allocations: inputs.Allocations,
+					Summary: refreshCandidateSummary(inputs.Candidate),
+				}
+			},
+		},
+		{
+			name: "candidate mapping removed",
+			mutate: func(_ store.RefreshInputs, plan store.RefreshPlan) store.RefreshPlan {
+				plan.Committed.ExternalIdentities = slices.DeleteFunc(
+					plan.Committed.ExternalIdentities,
+					func(identity domain.ExternalIdentity) bool {
+						return identity.Namespace == "monarch/transaction"
+					},
+				)
+				plan.Effective = plan.Committed.Clone()
+				return plan
+			},
+		},
+		{
+			name: "candidate allocation removed",
+			mutate: func(_ store.RefreshInputs, plan store.RefreshPlan) store.RefreshPlan {
+				plan.Allocations = slices.DeleteFunc(
+					plan.Allocations,
+					func(allocation store.LabelAllocation) bool {
+						return allocation.Namespace == "monarch/merchant"
+					},
+				)
+				return plan
+			},
+		},
+		{
+			name: "durable dimension removed",
+			mutate: func(_ store.RefreshInputs, plan store.RefreshPlan) store.RefreshPlan {
+				plan.Committed.Merchants = plan.Committed.Merchants[1:]
+				plan.Effective = plan.Committed.Clone()
+				return plan
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile := openSeededProfile(t, DefaultOptions)
+			now := time.Date(2026, time.August, 15, 21, 30, 0, 0, time.UTC)
+			bindProviderForRefreshTest(t, profile, now)
+			acquireProviderRefreshLease(t, profile, "invalid-planner-owner", now)
+			before, err := profile.Load(ctx)
+			require.NoError(t, err)
+			stateBefore, err := profile.ProviderState(ctx)
+			require.NoError(t, err)
+
+			_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+				ExpectedGeneration: 0, LeaseOwnerID: "invalid-planner-owner",
+				Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
+			}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
+				valid, planErr := passthroughRefreshPlanner(inputs)
+				return test.mutate(inputs, valid), planErr
+			})
+			assertStoreCode(t, err, store.CodeInvalidOperation)
+			after, loadErr := profile.Load(ctx)
+			require.NoError(t, loadErr)
+			stateAfter, stateErr := profile.ProviderState(ctx)
+			require.NoError(t, stateErr)
+			assert.Equal(t, before, after)
+			assert.Equal(t, stateBefore, stateAfter)
+		})
+	}
+}
+
+func TestProviderRefreshRejectsRedoReactivationAndPayloadRewrite(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		mutate func(domain.ProfileSnapshot, store.RefreshPlan) store.RefreshPlan
+	}{
+		{
+			name: "redo reactivation",
+			mutate: func(snapshot domain.ProfileSnapshot, plan store.RefreshPlan) store.RefreshPlan {
+				plan.Journal = snapshot.Journal
+				plan.Cursor = len(plan.Journal)
+				replayed, err := profilereplay.Replay(domain.ProfileSnapshot{
+					Committed: plan.Committed, Journal: plan.Journal, Cursor: plan.Cursor,
+					KnownDrills: plan.KnownDrills,
+				})
+				require.NoError(t, err)
+				plan.Effective = replayed.Effective
+				return plan
+			},
+		},
+		{
+			name: "payload rewrite",
+			mutate: func(_ domain.ProfileSnapshot, plan store.RefreshPlan) store.RefreshPlan {
+				plan.Journal[0].CreatedAt = plan.Journal[0].CreatedAt.Add(time.Millisecond)
+				return plan
+			},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile := openSeededProfile(t, DefaultOptions)
+			now := time.Date(2026, time.August, 15, 21, 45, 0, 0, time.UTC)
+			bindProviderForRefreshTest(t, profile, now)
+			snapshot, err := profile.Load(ctx)
+			require.NoError(t, err)
+			revision, err := profile.Append(ctx, snapshot.Revision, draftHideOperation(
+				"operation_active", snapshot.Revision, snapshot.Committed.Transactions[0].ID,
+			))
+			require.NoError(t, err)
+			revision, err = profile.Append(ctx, revision, draftHideOperation(
+				"operation_redo", revision, snapshot.Committed.Transactions[1].ID,
+			))
+			require.NoError(t, err)
+			_, err = profile.MoveCursor(ctx, revision, -1)
+			require.NoError(t, err)
+			acquireProviderRefreshLease(t, profile, "rewrite-owner", now)
+			before, err := profile.Load(ctx)
+			require.NoError(t, err)
+
+			_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+				ExpectedGeneration: 0, LeaseOwnerID: "rewrite-owner",
+				Candidate: providerRefreshCandidate(t, now), ObservedAt: now,
+			}, func(inputs store.RefreshInputs) (store.RefreshPlan, error) {
+				valid, planErr := passthroughRefreshPlanner(inputs)
+				return test.mutate(inputs.Snapshot, valid), planErr
+			})
+			assertStoreCode(t, err, store.CodeInvalidOperation)
+			after, loadErr := profile.Load(ctx)
+			require.NoError(t, loadErr)
+			assert.Equal(t, before, after)
+		})
+	}
 }
 
 func bindProviderForRefreshTest(t *testing.T, profile *profile, boundAt time.Time) {

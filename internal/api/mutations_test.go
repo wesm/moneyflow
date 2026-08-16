@@ -65,6 +65,24 @@ func TestMutationTypesReturnRevisionProjectionPendingAndSelectionDisposition(t *
 	assert.Contains(t, text, `"selection":{"kind":"cleared"`)
 }
 
+func TestMutationOutputUsesAuthoritativeResultState(t *testing.T) {
+	t.Parallel()
+
+	requested := app.DefaultViewState()
+	resultState := requested
+	resultState.Current.Mode = domain.ResultModeDetail
+	result := app.MutationResult{
+		Revision: 7, State: resultState, SelectionDisposition: app.SelectionPreserved,
+		Projection: app.WebProjection{Revision: 7},
+	}
+
+	output, err := mutationOutputFor(result, app.EmptySelection())
+	require.NoError(t, err)
+	expected, err := EncodeViewQuery(resultState)
+	require.NoError(t, err)
+	assert.Equal(t, expected, output.Body.CanonicalQuery)
+}
+
 func TestMutationEndpointAppendsAndReturnsEffectiveProjection(t *testing.T) {
 	t.Parallel()
 

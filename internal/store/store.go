@@ -67,6 +67,7 @@ type LabelAllocation struct {
 
 // ProviderState is a short-lived projection of provider metadata and pristine eligibility.
 type ProviderState struct {
+	Revision    uint64
 	Binding     *ProviderBinding
 	Refresh     RefreshState
 	Lease       *RefreshLease

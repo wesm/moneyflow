@@ -143,14 +143,24 @@ func TestRebaseHideTargetsPreserveIntendedState(t *testing.T) {
 	assert.False(t, transactionByID(t, effective, "transaction_b").Hidden)
 }
 
-func TestRebaseRejectsMoreThanOneActiveHideTogglePerTransaction(t *testing.T) {
+func TestRebaseNormalizesRepeatedActiveHideTogglesPerTransaction(t *testing.T) {
 	t.Parallel()
 
 	base := replayProfile(t)
-	_, err := app.RebaseProviderJournal(base, base, []domain.Operation{
-		hideOperation(1, "transaction_a"), hideOperation(2, "transaction_a"),
+	result, err := app.RebaseProviderJournal(base, base, []domain.Operation{
+		hideOperation(1, "transaction_a"),
+		hideOperation(2, "transaction_a", "transaction_b"),
 	}, 2)
-	require.ErrorContains(t, err, "more than one active hide toggle")
+	require.NoError(t, err)
+	require.Len(t, result.Journal, 1)
+	assert.Equal(t, "operation_2", result.Journal[0].ID)
+	assert.Equal(t, []domain.EntityID{"transaction_b"}, result.Journal[0].Targets)
+	assert.Equal(t, 1, result.Cursor)
+	assert.Equal(t, 1, result.Summary.RemovedOperations)
+	assert.Equal(t, 2, result.Summary.RemovedTargets)
+	effective := replayRebased(t, base, result)
+	assert.False(t, transactionByID(t, effective, "transaction_a").Hidden)
+	assert.False(t, transactionByID(t, effective, "transaction_b").Hidden)
 }
 
 func replayRebased(

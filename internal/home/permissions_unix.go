@@ -15,6 +15,9 @@ func enforcePrivateDirectory(path string) error { return enforceMode(path, 0o700
 func enforcePrivateFile(path string) error      { return enforceMode(path, 0o600) }
 
 func enforceMode(path string, mode os.FileMode) error {
+	if err := rejectExtendedACLPath(path); err != nil {
+		return err
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("secure profile path: inspect: %w", err)
@@ -41,6 +44,9 @@ func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return errors.New("prepare private root: trusted ancestor is redirected or not a directory")
 		}
+		if err := rejectExtendedACLPath(current); err != nil {
+			return err
+		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
 		if !ok || (stat.Uid != 0 && stat.Uid != currentUser) {
 			return errors.New("prepare private root: trusted ancestor has an untrusted owner")
@@ -59,6 +65,9 @@ func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 }
 
 func secureOpenedPrivateFile(file *os.File, info os.FileInfo) (os.FileInfo, error) {
+	if err := rejectExtendedACLFile(file); err != nil {
+		return nil, err
+	}
 	currentUser, err := effectiveUserID()
 	if err != nil {
 		return nil, err

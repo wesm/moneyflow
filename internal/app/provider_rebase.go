@@ -48,10 +48,6 @@ func RebaseProviderJournal(
 	if err = newBase.Validate(); err != nil {
 		return RebaseResult{}, fmt.Errorf("rebase provider journal: new base: %w", err)
 	}
-	if err = validateActiveHideInvariant(journal[:cursor]); err != nil {
-		return RebaseResult{}, err
-	}
-
 	result := RebaseResult{
 		Journal: make([]domain.Operation, 0, cursor),
 		Summary: RebaseSummary{DiscardedRedoOperations: len(journal) - cursor},
@@ -155,27 +151,6 @@ func rebaseHideTargets(
 		result = append(result, target)
 	}
 	return result, removed
-}
-
-func validateActiveHideInvariant(journal []domain.Operation) error {
-	seen := make(map[domain.EntityID]string)
-	for _, operation := range journal {
-		if operation.Type != domain.OperationTransactionHide {
-			continue
-		}
-		for _, target := range operation.Targets {
-			if previous, exists := seen[target]; exists {
-				return fmt.Errorf(
-					"rebase provider journal: transaction %q has more than one active hide toggle (%s and %s)",
-					target,
-					previous,
-					operation.ID,
-				)
-			}
-			seen[target] = operation.ID
-		}
-	}
-	return nil
 }
 
 func hiddenStateByTransaction(profile domain.CommittedProfile) map[domain.EntityID]bool {

@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -274,6 +275,151 @@ func TestProviderRefreshConcurrentLeaseAllowsOneNetworkFetch(t *testing.T) {
 	assert.Equal(t, 1, source.fetchCalls())
 }
 
+func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renews without progress", func(t *testing.T) {
+		ctx := context.Background()
+		service, profileHandle := newProviderRefreshService(t)
+		now := time.Date(2026, time.August, 15, 20, 0, 0, 0, time.UTC)
+		var clockMu sync.Mutex
+		clockValue := now
+		clock := func() time.Time {
+			clockMu.Lock()
+			defer clockMu.Unlock()
+			return clockValue
+		}
+		source := &fakeProviderSource{
+			identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+			snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+		}
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		source.setFetchContextHook(func(context.Context) error {
+			close(entered)
+			<-release
+			return nil
+		})
+		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+			Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-a",
+			Now: clock, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
+			HeartbeatInterval: 15 * time.Millisecond,
+		}))
+		result := make(chan error, 1)
+		go func() {
+			_, refreshErr := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+			result <- refreshErr
+		}()
+		<-entered
+		clockMu.Lock()
+		clockValue = now.Add(80 * time.Millisecond)
+		clockMu.Unlock()
+		require.Eventually(t, func() bool {
+			state, stateErr := profileHandle.ProviderState(ctx)
+			return stateErr == nil && state.Lease != nil &&
+				state.Lease.ExpiresAt.Equal(now.Add(170*time.Millisecond))
+		}, 2*time.Second, 5*time.Millisecond)
+		competitorNow := now.Add(100 * time.Millisecond)
+		_, acquired, err := profileHandle.AcquireRefreshLease(ctx, store.RefreshLease{
+			OwnerID: "instance-b", Renderer: "web", ExpiresAt: competitorNow.Add(time.Minute),
+		}, competitorNow)
+		require.NoError(t, err)
+		assert.False(t, acquired)
+		close(release)
+		refreshErr := <-result
+		require.NoErrorf(
+			t,
+			refreshErr,
+			"causes: %v / %v",
+			errors.Unwrap(refreshErr),
+			errors.Unwrap(errors.Unwrap(refreshErr)),
+		)
+	})
+
+	t.Run("lease loss cancels fetch", func(t *testing.T) {
+		ctx := context.Background()
+		service, profileHandle := newProviderRefreshService(t)
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		source := &fakeProviderSource{
+			identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+			snapshot: providerSnapshot(t, now, 3), fingerprint: "session-a",
+		}
+		entered := make(chan struct{})
+		source.setFetchContextHook(func(fetchContext context.Context) error {
+			close(entered)
+			<-fetchContext.Done()
+			return fetchContext.Err()
+		})
+		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+			Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-a",
+			Now: time.Now, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
+			HeartbeatInterval: 15 * time.Millisecond,
+		}))
+		result := make(chan error, 1)
+		go func() {
+			_, refreshErr := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+			result <- refreshErr
+		}()
+		<-entered
+		require.NoError(t, profileHandle.ReleaseRefreshLease(ctx, "instance-a"))
+		assertProviderAppCode(t, <-result, provider.CodeRefreshStale)
+		state, err := profileHandle.ProviderState(ctx)
+		require.NoError(t, err)
+		assert.Zero(t, state.Refresh.Generation)
+	})
+}
+
+func TestProviderRefreshDeletionGuardUsesMatchingRevisionAndGeneration(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	initial, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 20, 30, 0, 0, time.UTC)
+	initialSource := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 30), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, initial, initialSource, now, "instance-initial")
+	_, err := initial.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	external, err := app.NewProfileService(ctx, profileHandle)
+	require.NoError(t, err)
+	externalSource := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now.Add(time.Minute), 100), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, external, externalSource, now.Add(time.Minute), "instance-external")
+	racing := &providerStateRaceProfile{Profile: profileHandle}
+	primary, err := app.NewProfileService(ctx, racing)
+	require.NoError(t, err)
+	primarySource := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now.Add(2*time.Minute), 25), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, primary, primarySource, now.Add(2*time.Minute), "instance-primary")
+	racing.beforeFirstReturn = func() {
+		_, refreshErr := external.RefreshProvider(ctx, app.ProviderRefreshRequest{
+			Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		})
+		require.NoError(t, refreshErr)
+	}
+	racing.once = sync.Once{}
+
+	result, err := primary.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	assertProviderAppCode(t, err, provider.CodeDeletionConfirmationRequired)
+	assert.NotEmpty(t, result.Status.ConfirmationToken)
+	assert.Equal(t, uint64(2), result.Status.Generation)
+}
+
 func newProviderRefreshService(t *testing.T) (*app.Service, store.Profile) {
 	t.Helper()
 	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
@@ -342,16 +488,37 @@ func transactionExternalID(index int) string {
 }
 
 type fakeProviderSource struct {
-	mu          sync.Mutex
-	identity    provider.ProfileIdentity
-	snapshot    domain.ImportSnapshot
-	fingerprint provider.SessionFingerprint
-	fetchErr    error
-	probeErr    error
-	fetchHook   func() error
-	probes      int
-	fetches     int
-	reloads     int
+	mu               sync.Mutex
+	identity         provider.ProfileIdentity
+	snapshot         domain.ImportSnapshot
+	fingerprint      provider.SessionFingerprint
+	fetchErr         error
+	probeErr         error
+	fetchHook        func() error
+	fetchContextHook func(context.Context) error
+	probes           int
+	fetches          int
+	reloads          int
+}
+
+type providerStateRaceProfile struct {
+	store.Profile
+	once              sync.Once
+	beforeFirstReturn func()
+}
+
+func (profile *providerStateRaceProfile) ProviderState(
+	ctx context.Context,
+) (store.ProviderState, error) {
+	state, err := profile.Profile.ProviderState(ctx)
+	if err == nil {
+		profile.once.Do(func() {
+			if profile.beforeFirstReturn != nil {
+				profile.beforeFirstReturn()
+			}
+		})
+	}
+	return state, err
 }
 
 func (source *fakeProviderSource) Reader(
@@ -388,6 +555,12 @@ func (source *fakeProviderSource) setFetchHook(hook func() error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	source.fetchHook = hook
+}
+
+func (source *fakeProviderSource) setFetchContextHook(hook func(context.Context) error) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.fetchContextHook = hook
 }
 
 func (source *fakeProviderSource) setFingerprint(fingerprint provider.SessionFingerprint) {
@@ -433,19 +606,26 @@ func (reader *fakeProviderReader) ProbeIdentity(
 }
 
 func (reader *fakeProviderReader) FetchSnapshot(
-	_ context.Context,
+	ctx context.Context,
 	progress provider.ProgressFunc,
 ) (domain.ImportSnapshot, error) {
 	source := (*fakeProviderSource)(reader)
 	source.mu.Lock()
 	hook := source.fetchHook
 	source.fetchHook = nil
+	contextHook := source.fetchContextHook
+	source.fetchContextHook = nil
 	snapshot := source.snapshot.Clone()
 	err := source.fetchErr
 	source.fetches++
 	source.mu.Unlock()
 	if hook != nil {
 		if hookErr := hook(); hookErr != nil {
+			return domain.ImportSnapshot{}, hookErr
+		}
+	}
+	if contextHook != nil {
+		if hookErr := contextHook(ctx); hookErr != nil {
 			return domain.ImportSnapshot{}, hookErr
 		}
 	}

@@ -52,6 +52,7 @@ func TestProviderStateLoadsBindingRefreshLeaseAndStickyAllocations(t *testing.T)
 
 	state, err := profile.ProviderState(ctx)
 	require.NoError(t, err)
+	assert.Equal(t, uint64(0), state.Revision)
 	assert.False(t, state.Pristine)
 	require.NotNil(t, state.Binding)
 	assert.Equal(t, store.ProviderBinding{
