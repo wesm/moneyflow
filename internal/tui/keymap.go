@@ -23,10 +23,6 @@ func defaultBindings() []binding {
 	definitions := app.ReadOnlyActions()
 	bindings := make([]binding, 0, len(definitions))
 	for _, definition := range definitions {
-		// The provider action is shared now, but Task 11 installs its asynchronous TUI route.
-		if definition.ID == app.ActionRefreshProvider {
-			continue
-		}
 		if len(definition.Keys) == 0 {
 			continue
 		}

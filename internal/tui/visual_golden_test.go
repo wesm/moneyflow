@@ -87,7 +87,7 @@ func TestVisualGoldens(t *testing.T) {
 }
 
 func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenario {
-	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+7)
+	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+8)
 	var merchant parity.FrameScenario
 	for _, scenario := range document.Scenarios {
 		result = append(result, visualScenario{
@@ -127,6 +127,7 @@ func goOnlyEditingScenarios(initial parity.FrameScenario) []visualScenario {
 		{"commit_redo_warning", []string{"h", "down", "h", "u", "w", "c"}},
 		{"durable_pending_quit", []string{"h", "q"}},
 		{"stale_review_conflict", []string{"h", "w", "c", "external_undo", "enter"}},
+		{"provider_refresh_unbound", []string{"r"}},
 	}
 	result := make([]visualScenario, 0, len(definitions))
 	for _, definition := range definitions {

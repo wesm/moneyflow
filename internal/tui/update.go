@@ -10,6 +10,20 @@ import (
 // Update routes synchronous profile interactions through the application session.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case providerRefreshMsg:
+		return model, model.handleProviderRefresh(message)
+	case providerStatusMsg:
+		return model, model.handleProviderStatus(message)
+	case providerScheduleTickMsg:
+		if _, available := model.capability(app.ActionRefreshProvider); !available {
+			return model, nil
+		}
+		return model, model.providerStatusCommand(message.at)
+	case providerProgressTickMsg:
+		if !model.provider.refreshing {
+			return model, nil
+		}
+		return model, model.providerProgressStatusCommand(message.at)
 	case tea.WindowSizeMsg:
 		model.width = max(message.Width, 0)
 		model.height = max(message.Height, 0)
@@ -22,6 +36,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		matched := matchAction(message, model.bindings)
 		if matched == app.ActionForceQuit {
 			return model, tea.Quit
+		}
+		if model.provider.refreshing && model.overlay == overlayNone && message.Keystroke() == "esc" {
+			if model.provider.cancel != nil {
+				model.provider.cancel()
+			}
+			model.status = "Cancellation requested; waiting for provider work to stop."
+			return model, nil
 		}
 		if !model.refreshForInteraction() {
 			return model, nil
@@ -62,6 +83,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeGroupManager(message)
 	case overlayReview:
 		return model.routeReview(message)
+	case overlayProviderConfirmation:
+		return model.routeProviderConfirmation(message)
 	case overlayQuit:
 		return model.routeQuit(message)
 	}
@@ -160,6 +183,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		} else {
 			model.status = capabilityMessage(capability)
 		}
+	case app.ActionRefreshProvider:
+		return model.startProviderRefresh(true, "")
 	default:
 		if definition, ok := app.ActionByID(matchAction(message, model.bindings)); ok && !definition.Implemented {
 			model.status = "This action is not available for the current profile."

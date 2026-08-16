@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "name": "redo_pending",
+  "name": "provider_refresh_unbound",
   "width": 150,
   "height": 50,
   "rows": [
@@ -6362,7 +6362,147 @@
         "background": "#121826"
       },
       {
-        "glyph": "P",
+        "glyph": "C",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "o",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "n",
+        "display_width": 1,
+        "repeat": 2,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "e",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "c",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "t",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "a",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "p",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "r",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "o",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "v",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "i",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "d",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#d6ad60",
@@ -6382,7 +6522,7 @@
         ]
       },
       {
-        "glyph": "n",
+        "glyph": "r",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#d6ad60",
@@ -6392,7 +6532,147 @@
         ]
       },
       {
-        "glyph": "d",
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "b",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "e",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "f",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "o",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "r",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "e",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "r",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "e",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "f",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "r",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "e",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "s",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#d6ad60",
+        "background": "#121826",
+        "attributes": [
+          "bold"
+        ]
+      },
+      {
+        "glyph": "h",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#d6ad60",
@@ -6432,7 +6712,7 @@
         ]
       },
       {
-        "glyph": ":",
+        "glyph": ".",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#d6ad60",
@@ -6444,507 +6724,7 @@
       {
         "glyph": " ",
         "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "0",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "p",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "r",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "a",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "s",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "/",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "0",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "r",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "a",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "s",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "a",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "c",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "s",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "|",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "R",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "d",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": ":",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "1",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "p",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "r",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "a",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#d6ad60",
-        "background": "#121826",
-        "attributes": [
-          "bold"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 91,
+        "repeat": 112,
         "foreground": "#e6edf3",
         "background": "#121826"
       }

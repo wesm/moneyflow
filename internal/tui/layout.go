@@ -72,6 +72,7 @@ func (model Model) RenderScreen() RenderedScreen {
 		model.palette.Muted,
 	)
 	if statusText != "" {
+		fillRect(&frame, statusLine, model.palette.Background)
 		frame.PutText(statusLine.X, statusLine.Y, Truncate(statusText, statusLine.Width), model.palette.Warning)
 	}
 	footer := Rect{X: 1, Y: model.height - 1, Width: contentWidth, Height: 1}
@@ -180,6 +181,8 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderGroupManager(screen)
 	case overlayReview:
 		model.renderReview(screen)
+	case overlayProviderConfirmation:
+		model.renderProviderConfirmation(screen)
 	case overlayQuit:
 		model.renderQuit(screen)
 	}

@@ -83,6 +83,10 @@ func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 	case "enter":
 		model.loadReviewDetails(0)
 	case "c":
+		if model.provider.bound {
+			model.review.err = "Pending provider edits are safely stored until write-back is available."
+			return nil
+		}
 		if model.review.projection.Pending.ActiveOperations == 0 {
 			model.review.err = "There are no active operations to commit."
 			return nil
@@ -222,7 +226,11 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 			operation.Before, operation.After)
 		screen.Frame.PutText(x, rect.Y+4+index-start, Truncate(line, width), style)
 	}
-	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "↑/↓=Choose | Enter=Details | c=Commit | Esc=Cancel", model.palette.Muted)
+	actions := "↑/↓=Choose | Enter=Details | c=Commit | Esc=Cancel"
+	if model.provider.bound {
+		actions = "↑/↓=Choose | Enter=Details | Commit unavailable until provider write-back | Esc=Cancel"
+	}
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 }
 
 func (model Model) renderReviewDetails(screen *RenderedScreen, rect Rect, x int, width int) {

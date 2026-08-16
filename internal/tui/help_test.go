@@ -61,6 +61,7 @@ func TestHelpMatchesCorrectedPythonContent(t *testing.T) {
 		"C":      "Manage categories (create, rename, move, merge, delete)",
 		"G":      "Manage category groups (create, rename, merge, delete)",
 		"U":      "Redo most recent undone edit",
+		"r":      "Refresh provider data",
 	}
 	for keyName, description := range want {
 		binding, ok := helpBinding(defaultBindings(), keyName)

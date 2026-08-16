@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -20,6 +21,8 @@ const (
 type Options struct {
 	Theme     ThemeName
 	ColorMode ColorMode
+	// Now supplies renderer-local scheduling time. The application owns durable refresh time.
+	Now func() time.Time
 }
 
 type overlayKind uint8
@@ -34,6 +37,7 @@ const (
 	overlayCategoryManager
 	overlayGroupManager
 	overlayReview
+	overlayProviderConfirmation
 	overlayQuit
 )
 
@@ -73,6 +77,8 @@ type Model struct {
 	pending         app.PendingSummary
 	caps            map[app.ActionID]app.Capability
 	selection       app.SelectionValue
+	provider        providerTUIState
+	now             func() time.Time
 }
 
 // NewModel validates presentation options and evaluates the initial session.
@@ -88,6 +94,9 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 	}
 	if options.ColorMode == "" {
 		options.ColorMode = ColorModeNone
+	}
+	if options.Now == nil {
+		options.Now = time.Now
 	}
 	palette, err := PaletteFor(options.Theme, options.ColorMode)
 	if err != nil {
@@ -111,13 +120,19 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 		width:     minimumWidth,
 		height:    minimumHeight,
 		selection: app.EmptySelection(),
+		now:       options.Now,
 	}
 	model.syncProfileMetadata()
 	return model, nil
 }
 
-// Init has no asynchronous work; interactions refresh through the command context.
-func (model Model) Init() tea.Cmd { return nil }
+// Init starts only the bounded provider status/scheduling loop when refresh is available.
+func (model Model) Init() tea.Cmd {
+	if _, available := model.capability(app.ActionRefreshProvider); !available {
+		return nil
+	}
+	return model.providerStatusCommand(model.now())
+}
 
 // View renders the owned cell frame into Bubble Tea's alternate screen.
 func (model Model) View() tea.View {
@@ -149,6 +164,13 @@ func (model *Model) syncProfileMetadata() {
 		model.caps[capability.Action] = capability
 	}
 	model.pending = model.service.Pending()
+	connection, err := model.service.ProviderConnection(model.ctx)
+	model.provider.bound = err == nil && connection.Bound
+	if _, available := model.capability(app.ActionRefreshProvider); available {
+		if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {
+			model.provider.status = status
+		}
+	}
 }
 
 func (model Model) capability(action app.ActionID) (app.Capability, bool) {

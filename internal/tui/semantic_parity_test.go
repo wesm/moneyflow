@@ -39,7 +39,7 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 			}
 			got := parity.ProjectSemantic(scenario.Name, model.RenderScreen())
 			if scenario.Name == "help" {
-				got.Overlay = withoutNamedRedoDivergence(t, got.Overlay)
+				got.Overlay = withoutNamedGoHelpDivergences(t, got.Overlay)
 			}
 			want, loadErr := parity.LoadSemanticFrame(filepath.Join(
 				root, "testdata", "parity", "semantic_frames", scenario.Name+".json",
@@ -52,19 +52,23 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 	}
 }
 
-func withoutNamedRedoDivergence(t testing.TB, overlay []string) []string {
+func withoutNamedGoHelpDivergences(t testing.TB, overlay []string) []string {
 	t.Helper()
-	const redo = "  U               Redo most recent undone edit"
-	result := make([]string, 0, len(overlay)-1)
-	found := false
+	divergences := map[string]bool{
+		"  U               Redo most recent undone edit": false,
+		"  r               Refresh provider data":        false,
+	}
+	result := make([]string, 0, len(overlay)-len(divergences))
 	for _, line := range overlay {
-		if line == redo {
-			found = true
+		if _, divergent := divergences[line]; divergent {
+			divergences[line] = true
 			continue
 		}
 		result = append(result, line)
 	}
-	require.True(t, found, "named Go redo help entry is missing")
+	for line, found := range divergences {
+		require.True(t, found, "named Go help entry is missing: %s", line)
+	}
 	return result
 }
 
