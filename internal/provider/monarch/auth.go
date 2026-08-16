@@ -59,7 +59,7 @@ func (authenticator *Authenticator) Connect(
 	if err != nil {
 		return nil, errors.New("create monarch device identity")
 	}
-	token, err := authenticator.login(ctx, credentials, deviceUUID, "")
+	token, err := authenticator.login(ctx, credentials, deviceUUID, credentials.OneTimeCode)
 	if errors.Is(err, errMFARequired) {
 		if respond == nil {
 			return nil, provider.NewError(provider.CodeReconnectRequired)

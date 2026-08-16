@@ -32,8 +32,8 @@ refresh plan after revision and refresh-generation checks.
 - Preserve the pure-Go, no-CGO Linux, macOS, and Windows contract.
 - Parse provider decimals directly to signed integer minor units. Do not use `float32`, `float64`,
   or SQLite `REAL` for money.
-- Never persist email, password, a multifactor secret, or a one-time code. Store only hardened
-  Monarch session material outside SQLite.
+- Never persist a generated one-time code or plaintext credentials. Store hardened Monarch session
+  material and a separate account-password-encrypted credential vault outside SQLite.
 - Keep GraphQL and Monarch wire types inside `internal/provider/monarch`; keep SQL and driver types
   inside `internal/store/sqlite`.
 - `internal/provider` imports only `internal/domain`; Monarch never imports store; store never
@@ -351,6 +351,10 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 - Create: `internal/provider/monarch/auth_test.go`
 - Modify: `internal/home/root.go`
 - Modify: `internal/home/root_test.go`
+- Create: `internal/provider/monarch/credentials.go`
+- Create: `internal/provider/monarch/credentials_test.go`
+- Create: `internal/provider/monarch/totp.go`
+- Create: `internal/provider/monarch/totp_test.go`
 
 **Interfaces:**
 
@@ -361,8 +365,10 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 - [ ] **Step 1: Add failing filesystem and authentication tests.** Cover private pre-creation,
       trusted-root and intermediate-symlink refusal, existing-file permission tightening,
       non-regular refusal, bounded reads, atomic replacement, REST-first success, GraphQL fallback,
-      MFA challenge on both login paths, credential-redirect refusal, invalid session, one reload
-      after replacement, and serialized JSON that cannot contain email/password/MFA fields.
+      generated TOTP on both login paths, credential-redirect refusal, invalid session, one reload
+      after replacement, serialized session JSON that cannot contain credential fields, and a
+      password-encrypted vault that rejects wrong passwords and tampering without revealing which
+      occurred.
 
   ```go
   type Session struct {
@@ -388,8 +394,9 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
       validated root anchoring, existing-file permission enforcement, format validation, session
       fingerprinting, `Source.Reader(ctx, forceReload)`, and `Source.Changed`. Keep REST login first
       and invoke GraphQL login only for the proven fallback response. Credential-bearing requests
-      refuse redirects. Accept an MFA callback for a one-time code on either login path; never
-      persist credential input.
+      refuse redirects. Add a separate versioned Argon2id and AES-256-GCM credential vault plus
+      RFC 6238 TOTP generation. Never persist the account password, generated one-time codes, or
+      plaintext credential input.
 
 - [ ] **Step 4: Run focused tests and verify GREEN on the current platform.** Portable build
       coverage remains in the repository's Linux/macOS/Windows CI jobs; do not try to execute a
@@ -965,9 +972,11 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 
 - [ ] **Step 1: Add failing Cobra lifecycle tests.** Cover missing-profile current-schema creation,
       pristine bind, journal-only refusal, populated refusal containing the exact profile path,
-      absence of `--replace`, MFA prompting, valid retained-session import retry without prompts,
-      same-household reconnect, different-household refusal, initial-import rollback with retained
-      session, and disconnect preserving SQLite state.
+      absence of `--replace`, password-protected credential setup, masked input, automatic TOTP,
+      explicit login/import progress, valid retained-session import retry without prompts,
+      saved-settings reconnect with one vault-password prompt, same-household reconnect,
+      different-household refusal, initial-import rollback with retained session and credentials,
+      and disconnect preserving SQLite state.
 
   ```go
   func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
@@ -1240,8 +1249,8 @@ format, lint, unit, audit, build, browser, accessibility, security, and visual c
 - [ ] **Step 7: Run the privacy and negative-scope audits.** Scan the complete branch diff,
       generated assets, test fixtures, logs captured by tests, and commit messages. Confirm no
       personal data, session material, provider payload, mutation query, writer interface,
-      outbound queue, credential persistence, multi-profile feature, export, or Python-state import
-      entered the slice.
+      outbound queue, plaintext credential persistence, unattended vault unlock, multi-profile
+      feature, export, or Python-state import entered the slice.
 
 - [ ] **Step 8: Commit the final integration evidence and documentation.**
 

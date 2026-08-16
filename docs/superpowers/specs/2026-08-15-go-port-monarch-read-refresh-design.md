@@ -57,8 +57,8 @@ implementation plan.
 - Keep stable local identities distinct from Monarch identifiers.
 - Make provider refresh available from both TUI and web through the shared action registry.
 - Coordinate concurrent TUI, web, and CLI processes without using a lease as a correctness lock.
-- Keep credentials and raw provider data out of SQLite, URLs, logs, browser state, and committed
-  artifacts.
+- Keep decrypted credentials and raw provider data out of SQLite, URLs, logs, browser state, and
+  committed artifacts.
 - Preserve the no-CGO Linux, macOS, and Windows portability contract.
 - Demonstrate full reconciliation and journal rebase with 100,000 posted transactions.
 
@@ -68,7 +68,7 @@ implementation plan.
 - Committing local operations for a Monarch-backed profile before write-back exists.
 - A provider writer interface, outbound queue, distributed commit, or conflict recovery.
 - SimpleFIN, YNAB, Amazon, or another provider adapter.
-- Scheduled or headless reauthentication with saved passwords or multifactor secrets.
+- Unattended or headless credential-vault unlock; reconnect remains an interactive CLI operation.
 - Multiple named profiles, in-application profile replacement, or profile-management screens.
 - Export, backup, Python-state import, or database repair.
 - Database schema migrations before Go v2 storage stabilizes.
@@ -86,8 +86,9 @@ implementation plan.
    replaces the provider-owned committed base and rebases the existing operation journal.
 3. Refresh fetches a complete remote snapshot. It does not recreate Python's hot and cold cache
    tiers.
-4. Authentication is CLI-only. moneyflow stores session material but never a password, email,
-   time-based one-time-password secret, or one-time code.
+4. Authentication is CLI-only. Moneyflow stores email, password, and a time-based one-time-password
+   secret in a separate password-encrypted credential vault. It never persists a generated one-time
+   code or stores credentials in the session or SQLite profile.
 5. A profile binds to one provider and one remote household identity. Binding never replaces a
    populated profile.
 6. Monarch identifiers map one-to-one to stable opaque local IDs. External labels never silently
@@ -105,9 +106,12 @@ implementation plan.
 The SQLite editing design's consolidated parity decisions remain in force. This slice adds these
 provider-specific decisions:
 
-1. **Credentials are not retained.** Python stores email, password, and a multifactor secret to
-   support silent login. Go stores only validated session material. An expired session requires
-   `moneyflow provider connect monarch` before refresh can resume.
+1. **The proven password-protected credential model is retained and hardened.** Like Python, Go
+   stores email, password, and a multifactor secret so reconnect can generate TOTP codes
+   automatically. Go permits only password-encrypted storage, uses a versioned Argon2id and
+   AES-256-GCM vault, and keeps that vault separate from session material and SQLite. An expired
+   session requires `moneyflow provider connect monarch` and the Moneyflow account password before
+   refresh can resume; unattended unlock remains out of scope.
 2. **Manual refresh is new.** Python has no top-level refresh key. Go adds global `r` to both
    renderers. The category-manager overlay continues to own its local `r` rename binding.
 3. **The six-hour refresh is complete.** Python refreshes its recent 90-day tier every six hours
@@ -249,6 +253,18 @@ It may contain the session token, device UUID, bound `subscription.id`, explicit
 and scale, issue/validation timing, and a format version. It never contains email, password, a
 time-based one-time-password secret, a one-time code, transaction data, labels, or search text.
 
+The provider-specific encrypted credential vault lives beside it:
+
+```text
+<moneyflow-home>/providers/monarch/credentials.enc
+```
+
+It contains a versioned authenticated-encryption envelope. Argon2id derives a 256-bit key from the
+user's Moneyflow account password and a random per-vault salt; AES-256-GCM encrypts and authenticates
+the versioned email, Monarch password, and normalized Base32 TOTP secret payload. The account
+password and generated one-time codes are never persisted. Wrong-password and tamper failures are
+intentionally indistinguishable. No plaintext-storage mode exists.
+
 The Monarch package owns the file schema. It reuses `internal/home` for owner-only directory and
 file creation, validation of existing permissions and file types, bounded reads, atomic
 replacement, and cross-platform behavior. Temporary and replacement files are protected before
@@ -284,8 +300,19 @@ settings, so an import retry or reconnect does not require the flags again.
 When the default profile file is missing, the command creates the exact current empty schema before
 evaluating the pristine predicate. It does not seed the synthetic demo fixture.
 
-It prompts locally for email and password and, when requested, a one-time MFA code. Sensitive
-values exist only for the active login attempt and are never printed or logged.
+On first setup it prompts locally for the Monarch email, Monarch password, Base32 TOTP secret, a
+Moneyflow account password, and confirmation. Secret prompts display one mask character per entered
+character, support ordinary terminal editing and cancellation, and never echo the value. Moneyflow
+validates the TOTP secret, generates a fresh six-digit code for the initial REST or GraphQL request,
+and generates another code itself if Monarch returns an MFA challenge. It never asks the user to
+transcribe a one-time code.
+
+After a saved session expires, the command prompts only for the Moneyflow account password, unlocks
+the stored Monarch credentials, generates TOTP automatically, and replaces the session after
+identity validation. The saved session's currency and scale remain authoritative; reconnect does
+not require those flags again and rejects conflicting values if they are supplied. Login and import
+emit bounded stage and count progress so a slow provider request never appears idle. No sensitive
+value is printed or logged.
 
 Initial binding requires the exact pristine-profile predicate used by `CreateSeededProfile`:
 
@@ -773,8 +800,13 @@ messages.
 - parse exact positive and negative decimal amounts at supported scales without floating point
 - reject unsupported precision, currency, numeric syntax, dates, labels, and required identities
 - exercise GraphQL request/response behavior through injected loopback transports
-- cover REST-first login, GraphQL fallback, MFA, session validation, session replacement, and
-  redacted error translation
+- cover REST-first login, GraphQL fallback, generated TOTP on the initial request and fallback
+  challenge, session validation, session replacement, and redacted error translation
+- prove the encrypted credential vault round-trips with owner-only permissions, rejects wrong
+  passwords and tampering identically, contains no plaintext credentials, and is never created
+  after failed authentication
+- exercise masked terminal input, editing, cancellation, secret-redacted output, reconnect unlock,
+  persisted currency/scale reuse, and bounded CLI import progress
 - validate visible and hidden pagination, duplicate IDs, changing per-page counts, final count
   probes, cross-partition flag changes, duplicate entity IDs, missing related entities, and
   three-attempt exhaustion
@@ -865,8 +897,9 @@ This slice is complete only when fresh evidence shows all of the following:
 - the 100,000-row fold and write-lock performance contracts are met
 - Linux/macOS/Windows build, Go race, vet, format, lint, parity, frontend, browser, security, and
   privacy checks pass
-- the diff contains no provider write-back, provider mutation, outbound queue, password or MFA
-  secret persistence, multi-profile management, export, or Python-state import code
+- the diff contains no provider write-back, provider mutation, outbound queue, plaintext credential
+  persistence, unattended vault unlock, multi-profile management, export, or Python-state import
+  code
 
 The opt-in live dogfood flow covers connect, initial import, offline browse, staged edits,
 refresh/rebase, and CLI reconnect recovery. It does not require destructive deletion confirmation.

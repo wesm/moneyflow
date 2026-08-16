@@ -26,8 +26,9 @@ type ProgressFunc func(Progress)
 
 // Credentials are transient login input and must never be persisted.
 type Credentials struct {
-	Login    string
-	Password string
+	Login       string
+	Password    string
+	OneTimeCode string
 }
 
 // Challenge describes one transient authentication challenge.

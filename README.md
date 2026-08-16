@@ -111,8 +111,11 @@ transactions. Connection is deliberately interactive and CLI-only:
 
 The first connection requires an explicit three-letter currency and its decimal scale; those exact
 money settings are stored with the hardened Monarch session and reused by later refreshes. For
-example, USD uses scale 2 and JPY commonly uses scale 0. A reconnect that can validate the retained
-session does not require the flags again.
+example, USD uses scale 2 and JPY commonly uses scale 0. First-time setup also asks for the Monarch
+email, password, Base32 TOTP secret, and a Moneyflow account password. Secret entry displays masked
+feedback. Credentials are stored only in a password-encrypted vault, and Moneyflow generates Monarch
+verification codes automatically. A reconnect reuses the stored money settings and asks only for
+the Moneyflow account password when the saved Monarch session has expired.
 
 There is no `--replace` option. If the default profile already contains local state, stop every
 moneyflow process and move or remove the v2 profile outside the application before connecting.
@@ -121,8 +124,8 @@ Profile management will provide a safer in-application path in a later slice.
 Press `r` in the TUI or web UI to run a complete refresh. A long-lived TUI or web server also
 checks every six hours and lets one process fetch at a time. If the session expires, browsing and
 pending edits remain available offline; run `moneyflow provider connect monarch` again to
-reconnect. The CLI reuses a retained valid session after a failed import, so retrying does not
-repeat credential or multifactor prompts unnecessarily.
+reconnect. The CLI reports authentication and import stages plus bounded transaction counts, and a
+retained valid session after a failed import skips credential prompts entirely.
 
 This slice is read/import/refresh only. Edits are durable local intent, survive refresh and
 restart, and may be reviewed or undone, but `w` cannot commit them until the separate Monarch
@@ -158,11 +161,13 @@ The v2 database is not application-encrypted. Use full-disk encryption and prote
 would other financial files. Moneyflow creates the profile with private platform permissions and
 uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic writes. Monarch
 session material is stored separately at `~/.moneyflow/v2/providers/monarch/session.json` with
-owner-only platform permissions; email, password, and multifactor secrets are never persisted by
-Go v2. The current preview intentionally has no provider write-back, built-in web authentication,
-profile manager, export/backup workflow, Python-state import, or schema migrations. If the
-install-only schema is incompatible, stop moneyflow, move the complete v2 profile directory aside,
-and reconnect or recreate it; automatic migration begins only after the v2 format stabilizes.
+owner-only platform permissions. Monarch credentials live in a separate owner-only
+`credentials.enc` vault protected by an account password using Argon2id and AES-256-GCM; generated
+verification codes are never persisted. The current preview intentionally has no provider
+write-back, built-in web authentication, profile manager, export/backup workflow, Python-state
+import, or schema migrations. If the install-only schema is incompatible, stop moneyflow, move the
+complete v2 profile directory aside, and reconnect or recreate it; automatic migration begins only
+after the v2 format stabilizes.
 
 ---
 

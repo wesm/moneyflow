@@ -29,6 +29,7 @@ type ProviderRuntime struct {
 	Provider          string
 	Renderer          string
 	InstanceID        string
+	Progress          provider.ProgressFunc
 	Now               func() time.Time
 	Random            io.Reader
 	LeaseDuration     time.Duration
@@ -47,6 +48,7 @@ type providerRuntimeState struct {
 	leaseDuration     time.Duration
 	heartbeatInterval time.Duration
 	confirmationTTL   time.Duration
+	progressObserver  provider.ProgressFunc
 	fingerprint       provider.SessionFingerprint
 	parkedReconnect   bool
 	forceReload       bool
@@ -167,8 +169,9 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 		source: runtime.Source, provider: runtime.Provider, renderer: runtime.Renderer,
 		instanceID: runtime.InstanceID, now: runtime.Now, random: runtime.Random,
 		leaseDuration: runtime.LeaseDuration, heartbeatInterval: runtime.HeartbeatInterval,
-		confirmationTTL: runtime.ConfirmationTTL,
-		confirmations:   make(map[string]providerConfirmation),
+		confirmationTTL:  runtime.ConfirmationTTL,
+		progressObserver: runtime.Progress,
+		confirmations:    make(map[string]providerConfirmation),
 	}
 	service.mu.Lock()
 	service.providerRuntime = configured
@@ -545,6 +548,9 @@ func (service *Service) providerProgressCallback(
 ) provider.ProgressFunc {
 	return func(update provider.Progress) {
 		runtime.setProgress(update)
+		if runtime.progressObserver != nil {
+			runtime.progressObserver(update)
+		}
 	}
 }
 

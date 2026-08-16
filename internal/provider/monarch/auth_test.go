@@ -49,6 +49,35 @@ func TestAuthenticatorUsesRESTFirstAndValidatesSubscription(t *testing.T) {
 	assert.Equal(t, int32(1), restCalls.Load())
 }
 
+func TestAuthenticatorSendsGeneratedOneTimeCodeOnInitialLogin(t *testing.T) {
+	t.Parallel()
+
+	var challengeCalls atomic.Int32
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/auth/login/":
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
+			assert.Equal(t, "287082", body["totp"])
+			_, _ = writer.Write([]byte(`{"token":"rest-token"}`))
+		case "/graphql":
+			writeSubscriptionResponse(t, writer, request, "subscription-a")
+		default:
+			http.NotFound(writer, request)
+		}
+	})
+	authenticator := newTestAuthenticator(t, server.URL)
+
+	_, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password", OneTimeCode: "287082",
+	}, func(context.Context, provider.Challenge) (string, error) {
+		challengeCalls.Add(1)
+		return "must-not-be-used", nil
+	})
+	require.NoError(t, err)
+	assert.Zero(t, challengeCalls.Load())
+}
+
 func TestAuthenticatorFallsBackToProvenGraphQLLoginOnRESTNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -63,6 +92,7 @@ func TestAuthenticatorFallsBackToProvenGraphQLLoginOnRESTNotFound(t *testing.T) 
 		operations = append(operations, envelope.OperationName)
 		switch envelope.OperationName {
 		case "LoginMutation":
+			assert.Equal(t, "287082", envelope.Variables["totpToken"])
 			_, _ = writer.Write([]byte(`{"data":{"login":{"token":"graphql-token","errors":[]}}}`))
 		case "GetSubscriptionDetails":
 			_, _ = writer.Write([]byte(`{"data":{"subscription":{"id":"subscription-a"}}}`))
@@ -73,7 +103,7 @@ func TestAuthenticatorFallsBackToProvenGraphQLLoginOnRESTNotFound(t *testing.T) 
 	authenticator := newTestAuthenticator(t, server.URL)
 
 	sessionValue, err := authenticator.Connect(context.Background(), provider.Credentials{
-		Login: "user@example.com", Password: "transient-password",
+		Login: "user@example.com", Password: "transient-password", OneTimeCode: "287082",
 	}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "graphql-token", sessionValue.(Session).Token)

@@ -27,6 +27,22 @@ import (
 	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
+var commandCredentialTime = time.Date(2026, time.August, 15, 22, 30, 0, 0, time.UTC)
+
+func commandStoredCredentials() monarch.StoredCredentials {
+	return monarch.StoredCredentials{ //nolint:gosec // synthetic test credential.
+		Email: "user@example.com", Password: "not-a-real-password",
+		TOTPSecret: "JBSWY3DPEHPK3PXP",
+	}
+}
+
+func commandCredentialSetupAnswers() []string {
+	return []string{
+		"user@example.com", "not-a-real-password", "JBSWY3DPEHPK3PXP",
+		"account-password", "account-password",
+	}
+}
+
 func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
@@ -59,18 +75,17 @@ func TestProviderConnectCreatesCurrentSchemaAndBindsPristineProfile(t *testing.T
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: commandProviderSnapshot(t, now),
 	}
-	prompts := &recordingPrompt{answers: []string{
-		"user@example.com", "not-a-real-password",
-	}}
+	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
 	stdout, stderr, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
 	)
 	require.NoError(t, err)
-	assert.Empty(t, stderr)
+	assert.Contains(t, stderr, "Authenticated with Monarch.")
+	assert.Contains(t, stderr, "Importing Monarch data...")
 	assert.NotContains(t, stdout, "user@example.com")
 	assert.NotContains(t, stdout, "not-a-real-password")
 	assert.Contains(t, stdout, "Imported 1 posted transaction")
-	assert.Equal(t, []bool{false, true}, prompts.secretFlags())
+	assert.Equal(t, []bool{false, true, true, true, true}, prompts.secretFlags())
 
 	paths, err := home.ResolveRoot(root, nil, "")
 	require.NoError(t, err)
@@ -119,10 +134,10 @@ func TestProviderConnectRefusesJournalOnlyAndPopulatedProfiles(t *testing.T) {
 	}
 }
 
-func TestProviderConnectPromptsForMFAWithoutEchoingSecrets(t *testing.T) {
+func TestProviderConnectCreatesEncryptedCredentialsAndReportsProgress(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
-	now := time.Date(2026, time.August, 15, 22, 30, 0, 0, time.UTC)
+	now := commandCredentialTime
 	connector := &fakeMonarchConnector{
 		session: testMonarchSession(now, "subscription-example"), requireMFA: true,
 	}
@@ -131,21 +146,154 @@ func TestProviderConnectPromptsForMFAWithoutEchoingSecrets(t *testing.T) {
 		snapshot: commandProviderSnapshot(t, now),
 	}
 	prompts := &recordingPrompt{answers: []string{
-		"user@example.com", "not-a-real-password", "000000",
+		"user@example.com", "not-a-real-password", "JBSWY3DPEHPK3PXP",
+		"account-password", "account-password",
 	}}
 
 	stdout, stderr, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
 	)
 	require.NoError(t, err)
-	assert.Equal(t, []bool{false, true, true}, prompts.secretFlags())
+	assert.Equal(t, []bool{false, true, true, true, true}, prompts.secretFlags())
+	oneTimeCode, err := monarch.GenerateTOTPCode("JBSWY3DPEHPK3PXP", now)
+	require.NoError(t, err)
 	assert.Equal(t, provider.Credentials{
-		Login: "user@example.com", Password: "not-a-real-password",
+		Login: "user@example.com", Password: "not-a-real-password", OneTimeCode: oneTimeCode,
 	}, connector.credentials)
-	for _, secret := range []string{"user@example.com", "not-a-real-password", "000000"} {
+	assert.Equal(t, oneTimeCode, connector.challengeResponse)
+	stored := loadCommandCredentials(t, root, []byte("account-password"))
+	assert.Equal(t, monarch.StoredCredentials{ //nolint:gosec // synthetic test credential.
+		Email: "user@example.com", Password: "not-a-real-password",
+		TOTPSecret: "JBSWY3DPEHPK3PXP",
+	}, stored)
+	for _, message := range []string{
+		"Enter the Base32 TOTP secret from Monarch Settings > Security",
+		"Authenticating with Monarch...",
+		"Authenticated with Monarch.",
+		"Importing Monarch data...",
+		"Fetched 1 of 1 visible transactions",
+	} {
+		assert.Contains(t, stderr, message)
+	}
+	for _, secret := range []string{
+		"user@example.com", "not-a-real-password", "JBSWY3DPEHPK3PXP", "account-password",
+	} {
 		assert.NotContains(t, stdout, secret)
 		assert.NotContains(t, stderr, secret)
 	}
+}
+
+func TestProviderConnectUnlocksSavedCredentialsForReconnect(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	saveCommandCredentials(t, root, commandStoredCredentials(), []byte("account-password"))
+	connector := &fakeMonarchConnector{
+		session: testMonarchSession(commandCredentialTime, "subscription-example"),
+	}
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, commandCredentialTime),
+	}
+	prompts := &recordingPrompt{answers: []string{"account-password"}}
+
+	_, _, err := executeProviderCommand(
+		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []promptCall{{label: "Moneyflow account password", secret: true}}, prompts.calls)
+	assert.Equal(t, "user@example.com", connector.credentials.Login)
+	assert.Equal(t, "not-a-real-password", connector.credentials.Password)
+	assert.NotEmpty(t, connector.credentials.OneTimeCode)
+}
+
+func TestProviderReconnectReusesSavedMoneyConfigurationWithoutFlags(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	saveCommandSession(t, root, testMonarchSession(commandCredentialTime, "subscription-example"))
+	saveCommandCredentials(
+		t, root, commandStoredCredentials(), []byte("account-password"),
+	)
+	connector := &fakeMonarchConnector{
+		session:     testMonarchSession(commandCredentialTime, "subscription-example"),
+		validateErr: provider.NewError(provider.CodeReconnectRequired),
+	}
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, commandCredentialTime),
+	}
+	prompts := &recordingPrompt{answers: []string{"account-password"}}
+
+	_, _, err := executeProviderCommandRaw(
+		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, []promptCall{{label: "Moneyflow account password", secret: true}}, prompts.calls)
+	assert.Equal(t, monarch.ImportConfig{Currency: "USD", Scale: 2}, loadCommandSession(t, root).Import)
+}
+
+func TestProviderAuthenticationFailureDoesNotCreateCredentialVault(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	connector := &fakeMonarchConnector{connectErr: provider.NewError(provider.CodeReconnectRequired)}
+	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
+
+	_, _, err := executeProviderCommand(
+		t, connector, &commandProviderSource{}, prompts.Prompt,
+		"provider", "connect", "monarch",
+	)
+	assertProviderCommandCode(t, err, provider.CodeReconnectRequired)
+	paths, pathErr := home.ResolveRoot(root, nil, "")
+	require.NoError(t, pathErr)
+	vault, vaultErr := monarch.NewCredentialVault(paths)
+	require.NoError(t, vaultErr)
+	exists, existsErr := vault.Exists()
+	require.NoError(t, existsErr)
+	assert.False(t, exists)
+}
+
+func TestProviderConnectRejectsWrongAccountPasswordBeforeProviderLogin(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	saveCommandCredentials(
+		t, root, commandStoredCredentials(), []byte("account-password"),
+	)
+	connector := &fakeMonarchConnector{
+		session: testMonarchSession(commandCredentialTime, "subscription-example"),
+	}
+	prompts := &recordingPrompt{answers: []string{"wrong-password"}}
+
+	_, _, err := executeProviderCommand(
+		t, connector, &commandProviderSource{}, prompts.Prompt,
+		"provider", "connect", "monarch",
+	)
+	assert.ErrorIs(t, err, monarch.ErrCredentialUnlock)
+	assert.Zero(t, connector.connectCalls)
+}
+
+func TestProviderConnectRejectsCredentialPasswordMismatchBeforeSaving(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	connector := &fakeMonarchConnector{
+		session: testMonarchSession(commandCredentialTime, "subscription-example"),
+	}
+	prompts := &recordingPrompt{answers: []string{
+		"user@example.com", "not-a-real-password", "JBSWY3DPEHPK3PXP",
+		"first-password", "different-password",
+	}}
+
+	_, _, err := executeProviderCommand(
+		t, connector, &commandProviderSource{}, prompts.Prompt,
+		"provider", "connect", "monarch",
+	)
+	require.ErrorContains(t, err, "account passwords do not match")
+	assert.Zero(t, connector.connectCalls)
+	paths, pathErr := home.ResolveRoot(root, nil, "")
+	require.NoError(t, pathErr)
+	vault, vaultErr := monarch.NewCredentialVault(paths)
+	require.NoError(t, vaultErr)
+	exists, existsErr := vault.Exists()
+	require.NoError(t, existsErr)
+	assert.False(t, exists)
 }
 
 func TestProviderConnectRetriesRetainedValidSessionWithoutPrompts(t *testing.T) {
@@ -153,6 +301,9 @@ func TestProviderConnectRetriesRetainedValidSessionWithoutPrompts(t *testing.T) 
 	t.Setenv("MONEYFLOW_HOME", root)
 	now := time.Date(2026, time.August, 15, 22, 45, 0, 0, time.UTC)
 	saveCommandSession(t, root, testMonarchSession(now, "subscription-example"))
+	saveCommandCredentials(
+		t, root, commandStoredCredentials(), []byte("account-password"),
+	)
 	connector := &fakeMonarchConnector{}
 	source := &commandProviderSource{
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
@@ -209,6 +360,9 @@ func TestProviderConnectSameHouseholdReconnectAndDifferentHouseholdRefusal(t *te
 			original := testMonarchSession(now, "subscription-example")
 			original.Token = "original-token"
 			saveCommandSession(t, root, original)
+			saveCommandCredentials(
+				t, root, commandStoredCredentials(), []byte("account-password"),
+			)
 			connector := &fakeMonarchConnector{
 				session:     testMonarchSession(now.Add(time.Minute), test.remoteID),
 				validateErr: provider.NewError(provider.CodeReconnectRequired),
@@ -218,9 +372,7 @@ func TestProviderConnectSameHouseholdReconnectAndDifferentHouseholdRefusal(t *te
 				identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: test.remoteID},
 				snapshot: commandProviderSnapshot(t, now.Add(time.Minute)),
 			}
-			prompts := &recordingPrompt{answers: []string{
-				"user@example.com", "not-a-real-password",
-			}}
+			prompts := &recordingPrompt{answers: []string{"account-password"}}
 
 			_, _, err := executeProviderCommand(
 				t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
@@ -245,9 +397,7 @@ func TestProviderConnectInitialImportFailureKeepsValidatedSessionAndPristineProf
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		fetchErr: provider.NewError(provider.CodeUnavailable),
 	}
-	prompts := &recordingPrompt{answers: []string{
-		"user@example.com", "not-a-real-password",
-	}}
+	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
 
 	_, _, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
@@ -393,7 +543,7 @@ func TestProviderConnectImportReopenAndBrowseOffline(t *testing.T) {
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: commandProviderSnapshot(t, now),
 	}
-	prompts := &recordingPrompt{answers: []string{"user@example.com", "not-a-real-password"}}
+	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
 	_, _, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
 	)
@@ -452,8 +602,15 @@ func executeProviderCommandRaw(
 			if err != nil {
 				return MonarchCommandRuntime{}, err
 			}
+			credentials, err := monarch.NewCredentialVault(paths)
+			if err != nil {
+				return MonarchCommandRuntime{}, err
+			}
 			return MonarchCommandRuntime{
-				Connector: connector, Sessions: sessions, Source: source, InstanceID: "cli-test",
+				Connector: connector, Sessions: sessions, Credentials: credentials,
+				Source: source, InstanceID: "cli-test", Now: func() time.Time {
+					return commandCredentialTime
+				},
 			}, nil
 		},
 	})
@@ -463,13 +620,14 @@ func executeProviderCommandRaw(
 }
 
 type fakeMonarchConnector struct {
-	session       monarch.Session
-	connectErr    error
-	validateErr   error
-	requireMFA    bool
-	connectCalls  int
-	validateCalls int
-	credentials   provider.Credentials
+	session           monarch.Session
+	connectErr        error
+	validateErr       error
+	requireMFA        bool
+	connectCalls      int
+	validateCalls     int
+	credentials       provider.Credentials
+	challengeResponse string
 }
 
 func (connector *fakeMonarchConnector) Connect(
@@ -480,10 +638,11 @@ func (connector *fakeMonarchConnector) Connect(
 	connector.connectCalls++
 	connector.credentials = credentials
 	if connector.requireMFA {
-		_, err := respond(ctx, provider.Challenge{Kind: "mfa", Prompt: "Enter code"})
+		response, err := respond(ctx, provider.Challenge{Kind: "mfa", Prompt: "Enter code"})
 		if err != nil {
 			return nil, err
 		}
+		connector.challengeResponse = response
 	}
 	return connector.session, connector.connectErr
 }
@@ -545,12 +704,15 @@ func (reader *commandProviderReader) ProbeIdentity(
 }
 
 func (reader *commandProviderReader) FetchSnapshot(
-	context.Context,
-	provider.ProgressFunc,
+	_ context.Context,
+	progress provider.ProgressFunc,
 ) (domain.ImportSnapshot, error) {
 	source := (*commandProviderSource)(reader)
 	source.mu.Lock()
 	defer source.mu.Unlock()
+	if progress != nil {
+		progress(provider.Progress{Partition: "visible", Fetched: 1, Total: 1, Attempt: 1})
+	}
 	return source.snapshot.Clone(), source.fetchErr
 }
 
@@ -720,6 +882,35 @@ func loadCommandSession(t testing.TB, root string) monarch.Session {
 	session, _, err := sessions.Load()
 	require.NoError(t, err)
 	return session
+}
+
+func saveCommandCredentials(
+	t testing.TB,
+	root string,
+	credentials monarch.StoredCredentials,
+	accountPassword []byte,
+) {
+	t.Helper()
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	vault, err := monarch.NewCredentialVault(paths)
+	require.NoError(t, err)
+	require.NoError(t, vault.Save(credentials, accountPassword))
+}
+
+func loadCommandCredentials(
+	t testing.TB,
+	root string,
+	accountPassword []byte,
+) monarch.StoredCredentials {
+	t.Helper()
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	vault, err := monarch.NewCredentialVault(paths)
+	require.NoError(t, err)
+	credentials, err := vault.Load(accountPassword)
+	require.NoError(t, err)
+	return credentials
 }
 
 func assertProviderCommandCode(t testing.TB, err error, code provider.ErrorCode) {
