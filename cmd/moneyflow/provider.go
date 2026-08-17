@@ -234,7 +234,14 @@ func connectMonarchProfile(
 	if monthToDate {
 		scope = "month-to-date "
 	}
-	_, err = fmt.Fprintf(command.OutOrStdout(), "Imported %d posted %s%s.\n", count, scope, noun)
+	if _, err = fmt.Fprintf(
+		command.OutOrStdout(), "Imported %d posted %s%s.\n", count, scope, noun,
+	); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(
+		command.ErrOrStderr(), "Run moneyflow tui or moneyflow web to continue.",
+	)
 	return err
 }
 

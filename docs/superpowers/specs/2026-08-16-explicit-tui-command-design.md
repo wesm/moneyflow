@@ -13,8 +13,9 @@ This is a deliberate command-line parity break from Python Moneyflow.
 ## Command Contract
 
 Running `moneyflow` with no arguments prints the standard Cobra help and exits successfully. It
-does not open a profile or start an interface. Cobra provides this behavior when the root command
-has subcommands but no runnable handler; Moneyflow does not add a custom help handler.
+does not open a profile or start an interface. The root has a minimal runnable handler that
+delegates to Cobra help. Keeping the root runnable is necessary because Cobra otherwise treats an
+unrecognized positional command as a successful help request instead of rejecting it.
 
 The supported interactive entry points are:
 

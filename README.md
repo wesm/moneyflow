@@ -79,7 +79,7 @@ make tui-demo
 make web-demo
 
 # Persistent TUI profile
-./bin/moneyflow
+./bin/moneyflow tui
 
 # Persistent web profile on loopback, with automatic browser launch
 ./bin/moneyflow web
@@ -103,7 +103,7 @@ transactions. Connection is deliberately interactive and CLI-only:
 
 ```bash
 ./bin/moneyflow provider connect monarch --currency USD --scale 2
-./bin/moneyflow
+./bin/moneyflow tui
 
 # Remove only the local session; imported data remains available offline
 ./bin/moneyflow provider disconnect monarch

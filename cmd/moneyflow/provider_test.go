@@ -84,7 +84,8 @@ func TestProviderConnectCreatesCurrentSchemaAndBindsPristineProfile(t *testing.T
 	assert.Contains(t, stderr, "Importing Monarch data...")
 	assert.NotContains(t, stdout, "user@example.com")
 	assert.NotContains(t, stdout, "not-a-real-password")
-	assert.Contains(t, stdout, "Imported 1 posted transaction")
+	assert.Equal(t, "Imported 1 posted transaction.\n", stdout)
+	assert.Contains(t, stderr, "Run moneyflow tui or moneyflow web to continue.\n")
 	assert.Equal(t, []bool{false, true, true, true, true}, prompts.secretFlags())
 
 	paths, err := home.ResolveRoot(root, nil, "")
@@ -113,12 +114,13 @@ func TestProviderConnectMonthToDateSeedsPristineProfile(t *testing.T) {
 	}
 	prompts := &recordingPrompt{answers: commandCredentialSetupAnswers()}
 
-	stdout, _, err := executeProviderCommand(
+	stdout, stderr, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt,
 		"provider", "connect", "monarch", "--mtd",
 	)
 	require.NoError(t, err)
-	assert.Contains(t, stdout, "Imported 1 posted month-to-date transaction.")
+	assert.Equal(t, "Imported 1 posted month-to-date transaction.\n", stdout)
+	assert.Contains(t, stderr, "Run moneyflow tui or moneyflow web to continue.\n")
 	assert.Equal(t, "2026-08-01", source.startDate)
 	assert.Equal(t, "2026-08-15", source.endDate)
 }
@@ -347,10 +349,12 @@ func TestProviderConnectRetriesRetainedValidSessionWithoutPrompts(t *testing.T) 
 	}
 	prompts := &recordingPrompt{answers: []string{"must-not-be-read"}}
 
-	_, _, err := executeProviderCommand(
+	stdout, stderr, err := executeProviderCommand(
 		t, connector, source, prompts.Prompt, "provider", "connect", "monarch",
 	)
 	require.NoError(t, err)
+	assert.Equal(t, "Imported 1 posted transaction.\n", stdout)
+	assert.Contains(t, stderr, "Run moneyflow tui or moneyflow web to continue.\n")
 	assert.Zero(t, connector.connectCalls)
 	assert.Equal(t, 1, connector.validateCalls)
 	assert.Empty(t, prompts.calls)

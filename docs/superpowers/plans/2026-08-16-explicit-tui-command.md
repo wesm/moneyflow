@@ -8,9 +8,10 @@
 Cobra help and `moneyflow web` remains the peer browser entry point.
 
 **Architecture:** Give the TUI its own Cobra subcommand and local flags, just as the web interface
-already has. Keep the root command non-runnable so Cobra provides standard help without opening a
-profile. Move the hidden fixture seam into each interface command and keep provider summaries on
-standard output while sending next-step guidance to standard error.
+already has. Give the root a minimal handler that delegates to Cobra help without opening a
+profile; making it runnable also preserves unknown-command errors. Move the hidden fixture seam
+into each interface command and keep provider summaries on standard output while sending next-step
+guidance to standard error.
 
 **Tech Stack:** Go 1.25, Cobra, Testify, Make, Markdown
 
@@ -146,7 +147,8 @@ remain global, and existing lifecycle tests still invoke the old command surface
 
 - [ ] **Step 3: Add the TUI command and localize interface flags**
 
-In `cmd/moneyflow/root.go`, make the root non-runnable and add a focused command constructor:
+In `cmd/moneyflow/root.go`, make the root delegate to Cobra help and add a focused command
+constructor:
 
 ```go
 func newTUICommand(streams IOStreams) *cobra.Command {
@@ -195,9 +197,9 @@ func newTUICommand(streams IOStreams) *cobra.Command {
 ```
 
 Keep the existing close-error behavior rather than simplifying it if the direct `return` would
-lose an error from both the runner and profile close. In `newRootCommand`, remove `RunE`, the root
-persistent flags, and the `demo` command; add `newTUICommand(streams)`. Lead the Cobra examples with
-`moneyflow tui --demo`.
+lose an error from both the runner and profile close. In `newRootCommand`, replace its TUI `RunE`
+with a handler that returns `command.Help()`, remove the root persistent flags and `demo` command,
+and add `newTUICommand(streams)`. Lead the Cobra examples with `moneyflow tui --demo`.
 
 In `cmd/moneyflow/web.go`, change the constructor to `newWebCommand(streams IOStreams)`, declare a
 local `fixturePath string`, add and hide the local `--fixture` flag, and open profiles with:

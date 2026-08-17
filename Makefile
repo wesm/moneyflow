@@ -83,7 +83,7 @@ fmt:
 	gofmt -w cmd internal
 
 tui-demo: build
-	$(BINARY) demo
+	$(BINARY) tui --demo
 
 web-demo: build
 	$(BINARY) web --demo --open=false
