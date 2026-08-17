@@ -541,7 +541,7 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 		name string
 		args []string
 	}{
-		{name: "tui"},
+		{name: "tui", args: []string{"tui"}},
 		{name: "web", args: []string{"web", "--open=false"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

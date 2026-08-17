@@ -42,73 +42,24 @@ type IOStreams struct {
 }
 
 func newRootCommand(streams IOStreams) *cobra.Command {
-	var theme string
-	var fixturePath string
-	runPreview := func(command *cobra.Command, _ []string) error {
-		options, err := previewOptions(theme)
-		if err != nil {
-			return fmt.Errorf("start TUI: %w", err)
-		}
-		opener := streams.OpenProfile
-		if opener == nil {
-			opener = openProfile
-		}
-		opened, err := opener(command.Context(), ProfileOptions{
-			Demo: command.Name() == "demo" || fixturePath != "", FixturePath: fixturePath,
-		})
-		if err != nil {
-			return fmt.Errorf("start TUI: %w", err)
-		}
-		if err = configureOpenedMonarchProvider(
-			command.Context(), opened, streams, "tui",
-		); err != nil {
-			return fmt.Errorf("start TUI: %w", closeOpenedProfile(opened, err))
-		}
-		runner := streams.RunTUI
-		if runner == nil {
-			runner = func(
-				ctx context.Context,
-				service *app.Service,
-				session app.Session,
-				options tui.Options,
-				streams IOStreams,
-			) error {
-				return tui.Run(ctx, service, session, options, streams.In, streams.Out)
-			}
-		}
-		runErr := runner(command.Context(), opened.Service, app.NewSession(), options, streams)
-		if err = closeOpenedProfile(opened, runErr); err != nil {
-			return fmt.Errorf("start TUI: %w", err)
-		}
-		return nil
-	}
-
 	command := &cobra.Command{
 		Use:   "moneyflow",
 		Short: "Portable personal-finance analysis",
-		Example: "  moneyflow demo\n" +
+		Example: "  moneyflow tui --demo\n" +
 			"  moneyflow provider connect monarch --currency USD --scale 2\n" +
 			"  moneyflow web --open=false\n" +
 			"  moneyflow version",
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          runPreview,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return command.Help()
+		},
 	}
 	command.SetIn(streams.In)
 	command.SetOut(streams.Out)
 	command.SetErr(streams.Err)
-	command.PersistentFlags().StringVar(&theme, "theme", string(tui.ThemeDefault), "color theme")
-	command.PersistentFlags().StringVar(&fixturePath, "fixture", "", "fixture document")
-	if err := command.PersistentFlags().MarkHidden("fixture"); err != nil {
-		panic(err)
-	}
-	command.AddCommand(&cobra.Command{
-		Use:   "demo",
-		Short: "Open a temporary profile seeded with synthetic data",
-		Args:  cobra.NoArgs,
-		RunE:  runPreview,
-	})
+	command.AddCommand(newTUICommand(streams))
 	command.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
@@ -125,8 +76,66 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		},
 	})
 	command.AddCommand(newOpenAPICommand(streams))
-	command.AddCommand(newWebCommand(streams, &fixturePath))
+	command.AddCommand(newWebCommand(streams))
 	command.AddCommand(newProviderCommand(streams))
+	return command
+}
+
+func newTUICommand(streams IOStreams) *cobra.Command {
+	var theme string
+	var fixturePath string
+	var demo bool
+	command := &cobra.Command{
+		Use:   "tui",
+		Short: "Open the terminal application",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			options, err := previewOptions(theme)
+			if err != nil {
+				return fmt.Errorf("start TUI: %w", err)
+			}
+			opener := streams.OpenProfile
+			if opener == nil {
+				opener = openProfile
+			}
+			opened, err := opener(command.Context(), ProfileOptions{
+				Demo: demo || fixturePath != "", FixturePath: fixturePath,
+			})
+			if err != nil {
+				return fmt.Errorf("start TUI: %w", err)
+			}
+			if err = configureOpenedMonarchProvider(
+				command.Context(), opened, streams, "tui",
+			); err != nil {
+				return fmt.Errorf("start TUI: %w", closeOpenedProfile(opened, err))
+			}
+			runner := streams.RunTUI
+			if runner == nil {
+				runner = func(
+					ctx context.Context,
+					service *app.Service,
+					session app.Session,
+					options tui.Options,
+					streams IOStreams,
+				) error {
+					return tui.Run(ctx, service, session, options, streams.In, streams.Out)
+				}
+			}
+			runErr := runner(command.Context(), opened.Service, app.NewSession(), options, streams)
+			if err = closeOpenedProfile(opened, runErr); err != nil {
+				return fmt.Errorf("start TUI: %w", err)
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&theme, "theme", string(tui.ThemeDefault), "color theme")
+	command.Flags().BoolVar(
+		&demo, "demo", false, "open a temporary profile seeded with synthetic data",
+	)
+	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
+	if err := command.Flags().MarkHidden("fixture"); err != nil {
+		panic(err)
+	}
 	return command
 }
 

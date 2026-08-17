@@ -35,83 +35,119 @@ func TestRootCommandHelp(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, stderr)
 	assert.Contains(t, stdout, "Portable personal-finance analysis")
+	assert.Contains(t, stdout, "moneyflow tui --demo")
 	assert.Contains(t, stdout, "moneyflow provider connect monarch")
 	assert.Contains(t, stdout, "moneyflow version")
 }
 
-func TestRootDemoAndDefaultStartFixtureTUI(t *testing.T) {
-	t.Parallel()
+func TestRootCommandWithoutArgumentsPrintsHelpWithoutOpeningProfile(t *testing.T) {
+	var opens int
+	var stdout bytes.Buffer
+	command := newRootCommand(IOStreams{
+		In: strings.NewReader(""), Out: &stdout, Err: &bytes.Buffer{},
+		OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+			opens++
+			return OpenedProfile{}, errors.New("must not open")
+		},
+	})
 
-	for _, args := range [][]string{
-		{"--fixture", filepath.Join("..", "..", "testdata", "parity", "transactions.json")},
-		{"demo", "--fixture", filepath.Join("..", "..", "testdata", "parity", "transactions.json")},
+	require.NoError(t, command.Execute())
+	assert.Zero(t, opens)
+	assert.Contains(t, stdout.String(), "moneyflow tui --demo")
+	assert.Contains(t, stdout.String(), "Available Commands:")
+}
+
+func TestTUICommandStartsPersistentAndTemporaryProfiles(t *testing.T) {
+	fixturePath := filepath.Join("..", "..", "testdata", "parity", "transactions.json")
+	for _, test := range []struct {
+		name string
+		args []string
+		want ProfileOptions
+	}{
+		{name: "persistent", args: []string{"tui"}, want: ProfileOptions{}},
+		{name: "demo", args: []string{"tui", "--demo"}, want: ProfileOptions{Demo: true}},
+		{
+			name: "fixture", args: []string{"tui", "--fixture", fixturePath},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+		},
+		{
+			name: "demo fixture", args: []string{"tui", "--demo", "--fixture", fixturePath},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+		},
 	} {
-		var calls int
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		command := newRootCommand(IOStreams{
-			In:          strings.NewReader(""),
-			Out:         &stdout,
-			Err:         &stderr,
-			OpenProfile: testProfileOpener(t),
-			RunTUI: func(
-				_ context.Context,
-				service *app.Service,
-				session app.Session,
-				options tui.Options,
-				_ IOStreams,
-			) error {
-				calls++
-				assert.NotNil(t, service)
-				assert.Equal(t, app.NewSession().QuerySpec(), session.QuerySpec())
-				assert.Equal(t, tui.ThemeDefault, options.Theme)
-				return nil
-			},
+		t.Run(test.name, func(t *testing.T) {
+			var got ProfileOptions
+			var runs int
+			command := newRootCommand(IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				OpenProfile: func(
+					ctx context.Context, options ProfileOptions,
+				) (OpenedProfile, error) {
+					got = options
+					return testProfileOpener(t)(ctx, options)
+				},
+				RunTUI: func(
+					_ context.Context,
+					service *app.Service,
+					session app.Session,
+					options tui.Options,
+					_ IOStreams,
+				) error {
+					runs++
+					assert.NotNil(t, service)
+					assert.Equal(t, app.NewSession().QuerySpec(), session.QuerySpec())
+					assert.Equal(t, tui.ThemeDefault, options.Theme)
+					return nil
+				},
+			})
+			command.SetArgs(test.args)
+
+			require.NoError(t, command.Execute())
+			assert.Equal(t, test.want, got)
+			assert.Equal(t, 1, runs)
 		})
-		command.SetArgs(args)
-		err := command.Execute()
-		require.NoError(t, err)
-		assert.Equal(t, 1, calls)
-		assert.Empty(t, stdout.String())
-		assert.Empty(t, stderr.String())
 	}
 }
 
-func TestRootDefaultFixtureWorksOutsideRepository(t *testing.T) {
-	t.Chdir(t.TempDir())
-
-	var calls int
+func TestTUIThemeValidationPrecedesProfileOpen(t *testing.T) {
+	var opens int
 	command := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
-		OpenProfile: testProfileOpener(t),
-		RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error {
-			calls++
-			return nil
+		OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+			opens++
+			return OpenedProfile{}, nil
 		},
 	})
-	require.NoError(t, command.Execute())
-	assert.Equal(t, 1, calls)
+	command.SetArgs([]string{"tui", "--theme", "missing"})
+
+	err := command.Execute()
+	require.ErrorContains(t, err, "unknown theme")
+	assert.Zero(t, opens)
 }
 
-func TestRootDemoValidatesBeforeRunner(t *testing.T) {
-	t.Parallel()
+func TestRemovedAndMisScopedCommandsAreRejected(t *testing.T) {
+	for _, test := range []struct {
+		args      []string
+		wantError string
+	}{
+		{args: []string{"demo"}, wantError: "unknown command"},
+		{args: []string{"--demo"}, wantError: "unknown flag"},
+		{args: []string{"web", "--theme", "nord"}, wantError: "unknown flag"},
+	} {
+		var opens int
+		command := newRootCommand(IOStreams{
+			In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+			OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+				opens++
+				return OpenedProfile{}, errors.New("must not open")
+			},
+		})
+		command.SetArgs(test.args)
 
-	var calls int
-	command := newRootCommand(IOStreams{
-		In:          strings.NewReader(""),
-		Out:         &bytes.Buffer{},
-		Err:         &bytes.Buffer{},
-		OpenProfile: testProfileOpener(t),
-		RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error {
-			calls++
-			return nil
-		},
-	})
-	command.SetArgs([]string{"demo", "--theme", "missing"})
-	err := command.Execute()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown theme")
-	assert.Zero(t, calls)
+		err := command.Execute()
+		require.ErrorContains(t, err, test.wantError, test.args)
+		assert.Zero(t, opens, test.args)
+	}
 }
 
 func testProfileOpener(t *testing.T) ProfileOpener {

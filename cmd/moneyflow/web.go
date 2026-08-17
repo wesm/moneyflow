@@ -45,9 +45,10 @@ type WebOptions struct {
 
 var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
-func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
+func newWebCommand(streams IOStreams) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
 	var demo bool
+	var fixturePath string
 	command := &cobra.Command{
 		Use:   "web",
 		Short: "Serve the browser application",
@@ -68,12 +69,8 @@ func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 			if opener == nil {
 				opener = openProfile
 			}
-			fixture := ""
-			if fixturePath != nil {
-				fixture = *fixturePath
-			}
 			opened, err := opener(command.Context(), ProfileOptions{
-				Demo: demo || fixture != "", FixturePath: fixture,
+				Demo: demo || fixturePath != "", FixturePath: fixturePath,
 			})
 			if err != nil {
 				return fmt.Errorf("start web: %w", err)
@@ -105,6 +102,10 @@ func newWebCommand(streams IOStreams, fixturePath *string) *cobra.Command {
 	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
 	command.Flags().BoolVar(&demo, "demo", false, "serve a temporary profile seeded with synthetic data")
+	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
+	if err := command.Flags().MarkHidden("fixture"); err != nil {
+		panic(err)
+	}
 	return command
 }
 

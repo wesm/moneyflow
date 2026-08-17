@@ -161,6 +161,7 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
+	first.SetArgs([]string{"tui"})
 	require.NoError(t, first.Execute())
 
 	second := newRootCommand(IOStreams{
@@ -181,6 +182,7 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
+	second.SetArgs([]string{"tui"})
 	require.NoError(t, second.Execute())
 }
 
@@ -192,10 +194,17 @@ func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
 		args []string
 		want ProfileOptions
 	}{
-		{name: "default", want: ProfileOptions{}},
-		{name: "demo", args: []string{"demo"}, want: ProfileOptions{Demo: true}},
-		{name: "hidden fixture", args: []string{"--fixture", fixturePath}, want: ProfileOptions{Demo: true, FixturePath: fixturePath}},
+		{name: "tui", args: []string{"tui"}, want: ProfileOptions{}},
+		{name: "tui demo", args: []string{"tui", "--demo"}, want: ProfileOptions{Demo: true}},
+		{
+			name: "tui fixture", args: []string{"tui", "--fixture", fixturePath},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+		},
 		{name: "web demo", args: []string{"web", "--demo", "--open=false"}, want: ProfileOptions{Demo: true}},
+		{
+			name: "web fixture", args: []string{"web", "--fixture", fixturePath, "--open=false"},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), profileContextKey{}, test.name)
@@ -223,7 +232,7 @@ func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
 	}
 }
 
-func TestDefaultCommandUsesEmptySQLiteProfileFromEnvironment(t *testing.T) {
+func TestTUICommandUsesEmptySQLiteProfileFromEnvironment(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
 	var rows int
@@ -243,6 +252,7 @@ func TestDefaultCommandUsesEmptySQLiteProfileFromEnvironment(t *testing.T) {
 		},
 	}
 	command := newRootCommand(streams)
+	command.SetArgs([]string{"tui"})
 	require.NoError(t, command.Execute())
 	assert.Zero(t, rows)
 	_, err := os.Stat(filepath.Join(root, "moneyflow.db"))
@@ -264,6 +274,7 @@ func TestCommandClosesProfileWhenRunnerFails(t *testing.T) {
 			return runnerFailure
 		},
 	})
+	command.SetArgs([]string{"tui"})
 	err = command.Execute()
 	assert.ErrorIs(t, err, runnerFailure)
 	assert.Equal(t, 1, closes)
