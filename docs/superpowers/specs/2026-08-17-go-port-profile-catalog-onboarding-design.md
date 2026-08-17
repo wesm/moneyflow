@@ -68,8 +68,8 @@ explicitly.
 The dependency directions are:
 
 ```text
-cmd/moneyflow ─┬─> internal/onboarding ─> internal/profilecatalog ─> internal/home
-               │            │
+cmd/moneyflow ─┬─> internal/onboarding ─> internal/profilecatalog ─┬─> internal/home
+               │            │                                     └─> internal/store/sqlite
                │            ├─> internal/app
                │            └─> internal/provider/monarch
                ├─> internal/tui
@@ -88,7 +88,9 @@ Monarch runtime interfaces. Command, TUI, API, and web packages are presenters.
 
 Catalog code never imports a provider package. Only onboarding and the command's factory wiring may
 import `internal/provider/monarch` in this slice. Provider implementations remain unaware of
-SQLite, catalogs, and renderers. SQL rows and driver types remain confined to the store.
+SQLite, catalogs, and renderers. Profile catalog calls narrow exported SQLite helpers for shallow
+schema inspection, checkpointing, and current-schema installation; it never opens a driver
+connection or handles SQL rows itself. SQL rows and driver types remain confined to the store.
 
 ## Catalog Root and Profile Layout
 
@@ -112,7 +114,7 @@ New profiles use this layout:
         ├── moneyflow.db
         ├── providers/
         │   └── monarch/
-        │       ├── credentials.json
+        │       ├── credentials.enc
         │       └── session.json
         └── recovery/
             └── 20260817T191234.123456789Z/
@@ -195,8 +197,10 @@ field or open-time catalog write.
 The catalog discovers the legacy root from the presence of root-level `moneyflow.db`, regardless
 of schema compatibility and regardless of whether `profile.json` exists. Without a manifest it is
 listed as `Moneyflow`. A compatible successful open writes the version-one manifest in place after
-the database has been closed or while the caller already holds the required catalog and lifecycle
-locks.
+opening the database. For that one manifest-less legacy open, the caller takes `catalog.lock`
+exclusively before the shared `profile.lock`, includes the synthetic `Moneyflow` entry in the
+display-name conflict check, writes the manifest, and then releases the locks. It never attempts a
+catalog acquisition from an already-open ordinary profile.
 
 An incompatible legacy database therefore remains visible and can enter recovery even though it
 could never have produced a manifest. A newer database is also visible but is never recoverable by
@@ -324,14 +328,18 @@ unbound-profile connection workflow used everywhere else.
 The marker and actual files, not a mutable stage counter, are authoritative. Startup/listing routes
 an incomplete recovery through these idempotent cases:
 
-- marker plus old main file at the original path: continue sidecar-before-main moves;
-- marker plus all old files moved and no new database: install and verify the current schema; and
-- marker plus a database at the original path: verify it; install if it is empty, or clear the
-  marker only if it is already current and pristine.
+- if the marker exists and `recovery/<timestamp>/moneyflow.db` does not exist, any main file at the
+  original path is the unmoved old database; continue sidecar-before-main moves;
+- if the backup main exists and no database exists at the original path, install and verify the
+  current schema; and
+- if the backup main and an original-path database both exist, verify the original-path database;
+  install if it is empty, or clear the marker only if it is already current and pristine.
 
-Repeating any case is safe. A nonempty, noncurrent new-path database while the marker exists is
-`profile_recovery_incomplete`; Moneyflow never overwrites it. A completed backup remains after the
-marker is removed. The UI displays its exact path, but logs do not contain it.
+The presence of the backup main is therefore the exact disambiguator between an old database still
+awaiting its move and a newly created database. Repeating any case is safe. When the backup main
+exists, a nonempty, noncurrent original-path database is `profile_recovery_incomplete`; Moneyflow
+never overwrites it. A completed backup remains after the marker is removed. The UI displays its
+exact path, but logs do not contain it.
 
 ## Profile Selection Experience
 
@@ -581,8 +589,9 @@ failure: optional {
 
 No submitted field is copied into status. Huma problem responses never contain request bodies or
 raw provider errors. Attempt IDs are random, expire after 30 minutes without activity, and become
-invalid on server restart. Expiration never rolls back already durable session, vault, or profile
-effects.
+invalid on server restart. Activity means a successful status poll, a submitted transition, or an
+actively running coordinator job; a long authentication or import job cannot expire its own
+attempt. Expiration never rolls back already durable session, vault, or profile effects.
 
 Catalog list/create and recovery endpoints are separate profile-catalog operations under the same
 security envelope. They never accept provider credentials.
@@ -631,8 +640,8 @@ moneyflow web --profile NAME_OR_ID
 
 `--profile` accepts either a canonical profile ID or an exact NFKC/case-folded display-name match.
 An ambiguous or missing name fails before opening any profile and prints the available names with
-copyable IDs. Omitted `--profile` uses the legacy profile only when it is the sole persistent
-profile; with multiple profiles it requires explicit selection for headless provider commands.
+copyable IDs. Omitted `--profile` uses the sole persistent profile when exactly one exists; with
+multiple profiles it requires explicit selection for headless provider commands.
 Interactive TUI and web continue to show the selector when not preselected.
 
 The Cobra presenter drives the same state machine synchronously. It retains secret terminal echo
