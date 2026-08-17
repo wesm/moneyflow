@@ -641,6 +641,8 @@ updates committed artifacts. Stable frontend targets are `web-install`, `web-gen
 
 The Go v2 schema is install-only until the format stabilizes. Do not add schema or journal-payload
 migrations; empty databases install the exact current schema and incompatible versions are refused.
+Every change to the installed schema shape must increment `CurrentSchemaVersion` in the same commit
+so older preview profiles are refused before any query uses the new shape.
 
 All Go accounting and analytics use signed integer minor units after input parsing; never
 represent money with `float32` or `float64`.

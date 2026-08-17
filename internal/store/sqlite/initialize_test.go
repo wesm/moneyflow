@@ -25,7 +25,7 @@ func TestOpenInstallsOnlyCurrentSchemaIntoEmptyDatabase(t *testing.T) {
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
 	assert.Equal(t, CurrentSchemaVersion, version)
-	assert.Equal(t, 3, version)
+	assert.Equal(t, 4, version)
 	var migrationTableCount int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(), `
 		SELECT count(*) FROM sqlite_schema

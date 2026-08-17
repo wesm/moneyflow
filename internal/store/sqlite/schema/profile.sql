@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 3);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 4);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),

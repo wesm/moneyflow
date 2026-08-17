@@ -603,8 +603,8 @@ the entire journal merely because pending edits exist.
 
 ## Persistent Schema and Installation Policy
 
-This slice installs schema version 3. Before Go v2 storage stabilizes, startup performs no schema
-migration. A version 2 preview profile is `schema_incompatible`; a newer profile remains
+This slice installs schema version 4. Before Go v2 storage stabilizes, startup performs no schema
+migration. An older preview profile is `schema_incompatible`; a newer profile remains
 `schema_newer`. The user recreates the disposable preview profile.
 
 In addition to the existing committed entities, journal, external identities, and known drills,
