@@ -64,6 +64,44 @@ func TestResolveRootRejectsTraversalAfterMissingComponent(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestResolveCatalogRootKeepsLegacyProfileAtRoot(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	canonicalBase, err := filepath.EvalSymlinks(base)
+	require.NoError(t, err)
+
+	paths, err := ResolveCatalogRoot(base, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, canonicalBase, paths.Root)
+	assert.Equal(t, filepath.Join(canonicalBase, "profiles"), paths.Profiles)
+	assert.Equal(t, filepath.Join(canonicalBase, "moneyflow.db"), paths.LegacyProfile().Database)
+}
+
+func TestResolveCatalogRootUsesEnvironmentAndDefault(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	canonicalBase, err := filepath.EvalSymlinks(base)
+	require.NoError(t, err)
+	lookup := func(name string) (string, bool) {
+		require.Equal(t, "MONEYFLOW_HOME", name)
+		return filepath.Join(base, "environment"), true
+	}
+
+	paths, err := ResolveCatalogRoot("", lookup, filepath.Join(base, "user"))
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(canonicalBase, "environment", "profiles"), paths.Profiles)
+
+	paths, err = ResolveCatalogRoot(
+		"",
+		func(string) (string, bool) { return "", false },
+		filepath.Join(base, "user"),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(canonicalBase, "user", ".moneyflow", "v2", "profiles"), paths.Profiles)
+}
+
 func TestPrepareDatabaseRejectsPathOutsideSelectedRoot(t *testing.T) {
 	t.Parallel()
 
