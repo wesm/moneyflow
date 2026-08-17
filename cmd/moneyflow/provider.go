@@ -144,6 +144,14 @@ func connectMonarchProfile(
 			opened.Path,
 		)
 	}
+	if connection.Bound {
+		boundConfig := monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
+		if importConfigured && importConfig != boundConfig {
+			return errors.New("monarch currency and scale do not match the bound profile")
+		}
+		importConfig = boundConfig
+		importConfigured = true
+	}
 	if monthToDate {
 		now := runtime.Now
 		if now == nil {
@@ -208,7 +216,8 @@ func connectMonarchProfile(
 
 	progress := newCLIProviderProgress(command.ErrOrStderr())
 	if err = opened.Service.ConfigureProvider(app.ProviderRuntime{
-		Source: runtime.Source, Provider: "monarch", Renderer: "cli",
+		Source: runtime.Source, Provider: "monarch",
+		Currency: importConfig.Currency, Scale: importConfig.Scale, Renderer: "cli",
 		InstanceID: runtime.InstanceID, Progress: progress.Observe,
 	}); err != nil {
 		return err
@@ -495,8 +504,10 @@ func defaultMonarchCommandFactory(
 	if err != nil {
 		return MonarchCommandRuntime{}, err
 	}
-	if storedSession, _, loadErr := sessions.Load(); loadErr == nil {
-		importConfig = storedSession.Import
+	if importConfig.Validate() != nil {
+		if storedSession, _, loadErr := sessions.Load(); loadErr == nil {
+			importConfig = storedSession.Import
+		}
 	}
 	options := monarch.Options{
 		ImportCurrency: importConfig.Currency,
@@ -557,7 +568,8 @@ func configureOpenedMonarchProvider(
 	if production {
 		factory = defaultMonarchCommandFactory
 	}
-	runtime, err := factory(paths, monarch.ImportConfig{})
+	importConfig := monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
+	runtime, err := factory(paths, importConfig)
 	if err != nil {
 		return err
 	}
@@ -571,7 +583,8 @@ func configureOpenedMonarchProvider(
 		}
 	}
 	return opened.Service.ConfigureProvider(app.ProviderRuntime{
-		Source: runtime.Source, Provider: "monarch", Renderer: renderer,
+		Source: runtime.Source, Provider: "monarch",
+		Currency: importConfig.Currency, Scale: importConfig.Scale, Renderer: renderer,
 		InstanceID: runtime.InstanceID,
 	})
 }

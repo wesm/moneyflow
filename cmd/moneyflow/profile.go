@@ -57,7 +57,10 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	service, err := app.NewProfileService(ctx, profile)
 	if err != nil {
 		_ = profile.Close()
-		return OpenedProfile{}, fmt.Errorf("open profile: load service: %w", err)
+		return OpenedProfile{}, persistentProfileOpenError(
+			paths,
+			fmt.Errorf("load service: %w", err),
+		)
 	}
 	return OpenedProfile{
 		Service: service,

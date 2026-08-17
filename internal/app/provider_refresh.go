@@ -27,6 +27,8 @@ const (
 type ProviderRuntime struct {
 	Source            provider.Source
 	Provider          string
+	Currency          domain.Currency
+	Scale             uint8
 	Renderer          string
 	InstanceID        string
 	Progress          provider.ProgressFunc
@@ -41,6 +43,8 @@ type providerRuntimeState struct {
 	mu                sync.Mutex
 	source            provider.Source
 	provider          string
+	currency          domain.Currency
+	scale             uint8
 	renderer          string
 	instanceID        string
 	now               func() time.Time
@@ -107,6 +111,8 @@ type ProviderConnectionState struct {
 	Bound           bool
 	Kind            string
 	RemoteProfileID string
+	Currency        domain.Currency
+	Scale           uint8
 }
 
 // ProviderConnection returns the current pristine and binding state without provider I/O.
@@ -127,6 +133,8 @@ func (service *Service) ProviderConnection(ctx context.Context) (ProviderConnect
 		result.Bound = true
 		result.Kind = state.Binding.Kind
 		result.RemoteProfileID = state.Binding.RemoteProfileID
+		result.Currency = state.Binding.Currency
+		result.Scale = state.Binding.Scale
 	}
 	return result, nil
 }
@@ -136,6 +144,10 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	if runtime.Source == nil || runtime.Provider == "" ||
 		strings.TrimSpace(runtime.Provider) != runtime.Provider {
 		return errors.New("configure provider: source or provider is invalid")
+	}
+	if len(runtime.Currency) != 3 || strings.ToUpper(string(runtime.Currency)) != string(runtime.Currency) ||
+		runtime.Scale > 9 {
+		return errors.New("configure provider: money interpretation is invalid")
 	}
 	if runtime.Renderer != "cli" && runtime.Renderer != "tui" && runtime.Renderer != "web" {
 		return errors.New("configure provider: renderer is invalid")
@@ -166,7 +178,8 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
 	configured := &providerRuntimeState{
-		source: runtime.Source, provider: runtime.Provider, renderer: runtime.Renderer,
+		source: runtime.Source, provider: runtime.Provider,
+		currency: runtime.Currency, scale: runtime.Scale, renderer: runtime.Renderer,
 		instanceID: runtime.InstanceID, now: runtime.Now, random: runtime.Random,
 		leaseDuration: runtime.LeaseDuration, heartbeatInterval: runtime.HeartbeatInterval,
 		confirmationTTL:  runtime.ConfirmationTTL,
@@ -440,10 +453,7 @@ func (service *Service) fetchProviderCandidate(
 	if err != nil {
 		return service.retryProviderAfterSessionReload(ctx, runtime, fingerprint, err)
 	}
-	// Provider observation times cross the SQLite persistence boundary. Canonicalize them here
-	// so every adapter follows the store's millisecond timestamp contract.
-	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
-	if err = candidate.Validate(); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint,
 			provider.NewError(provider.CodeDataInvalid)
 	}
@@ -537,12 +547,28 @@ func (service *Service) retryProviderAfterSessionReload(
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement,
 			normalizeProviderError(err)
 	}
-	if err = candidate.Validate(); err != nil {
+	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement,
 			provider.NewError(provider.CodeDataInvalid)
 	}
 	runtime.setFingerprint(replacement, false)
 	return candidate, identity, replacement, nil
+}
+
+func normalizeProviderSnapshot(
+	candidate *domain.ImportSnapshot,
+	currency domain.Currency,
+	scale uint8,
+) error {
+	// Provider observation times cross the SQLite persistence boundary. Canonicalize them here
+	// so every adapter and session-reload path follows the store's millisecond contract.
+	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
+	for _, transaction := range candidate.Transactions {
+		if transaction.Amount.Currency != currency || transaction.Amount.Scale != scale {
+			return errors.New("provider snapshot money interpretation does not match its runtime")
+		}
+	}
+	return candidate.Validate()
 }
 
 func (service *Service) providerProgressCallback(
@@ -639,6 +665,7 @@ func (service *Service) foldProviderCandidate(
 	if binding == nil {
 		binding = &store.ProviderBinding{
 			Kind: runtime.provider, Namespace: runtime.provider, RemoteProfileID: remoteProfileID,
+			Currency: runtime.currency, Scale: runtime.scale,
 			BoundAt: runtime.now().UTC().Truncate(time.Millisecond),
 		}
 	}

@@ -220,7 +220,9 @@ func resolveRefreshBinding(
 func validateProviderBinding(binding store.ProviderBinding) error {
 	if binding.Kind == "" || strings.TrimSpace(binding.Kind) != binding.Kind ||
 		binding.Namespace == "" || strings.TrimSpace(binding.Namespace) != binding.Namespace ||
-		binding.RemoteProfileID == "" || strings.TrimSpace(binding.RemoteProfileID) != binding.RemoteProfileID {
+		binding.RemoteProfileID == "" || strings.TrimSpace(binding.RemoteProfileID) != binding.RemoteProfileID ||
+		len(binding.Currency) != 3 || strings.ToUpper(string(binding.Currency)) != string(binding.Currency) ||
+		binding.Scale > 9 {
 		return errors.New("provider binding is incomplete")
 	}
 	return validateMillisecondTime("provider binding time", binding.BoundAt)
@@ -994,9 +996,10 @@ func persistRefreshBinding(
 	}
 	if _, err := connection.ExecContext(ctx, `
 		INSERT INTO provider_binding(
-			singleton, kind, namespace, remote_profile_id, bound_at_unix_ms
-		) VALUES (1, ?, ?, ?, ?) ON CONFLICT(singleton) DO NOTHING`,
-		binding.Kind, binding.Namespace, binding.RemoteProfileID, binding.BoundAt.UnixMilli(),
+			singleton, kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
+		) VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(singleton) DO NOTHING`,
+		binding.Kind, binding.Namespace, binding.RemoteProfileID,
+		binding.Currency, binding.Scale, binding.BoundAt.UnixMilli(),
 	); err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}

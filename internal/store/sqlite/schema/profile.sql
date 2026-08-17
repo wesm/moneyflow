@@ -159,6 +159,8 @@ CREATE TABLE provider_binding (
     kind TEXT NOT NULL CHECK(kind <> ''),
     namespace TEXT NOT NULL CHECK(namespace <> ''),
     remote_profile_id TEXT NOT NULL CHECK(remote_profile_id <> ''),
+    currency TEXT NOT NULL CHECK(length(currency) = 3 AND currency GLOB '[A-Z][A-Z][A-Z]'),
+    scale INTEGER NOT NULL CHECK(typeof(scale) = 'integer' AND scale BETWEEN 0 AND 9),
     bound_at_unix_ms INTEGER NOT NULL CHECK(
         typeof(bound_at_unix_ms) = 'integer' AND bound_at_unix_ms >= 0
     )

@@ -149,7 +149,7 @@ func (authenticator *Authenticator) login(
 	if status == http.StatusNotFound {
 		return authenticator.graphQLLogin(ctx, credentials, deviceUUID, code)
 	}
-	if status == http.StatusForbidden && code == "" {
+	if status == http.StatusForbidden {
 		return "", errMFARequired
 	}
 	if status != http.StatusOK {
@@ -245,7 +245,7 @@ func (authenticator *Authenticator) graphQLLogin(
 	if err != nil {
 		return "", err
 	}
-	if code == "" && loginRequiresMFA(data.Login.Errors) {
+	if loginRequiresMFA(data.Login.Errors) {
 		return "", errMFARequired
 	}
 	if len(data.Login.Errors) > 0 || data.Login.Token == "" {

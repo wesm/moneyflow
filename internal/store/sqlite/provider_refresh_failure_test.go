@@ -120,7 +120,7 @@ func TestProviderRefreshInitialBindingFailureRollsBackImportedRows(t *testing.T)
 	installRefreshFailureTrigger(t, profile, "INSERT", "provider_binding")
 	binding := store.ProviderBinding{
 		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "subscription-example",
-		BoundAt: now,
+		Currency: "USD", Scale: 2, BoundAt: now,
 	}
 
 	_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{

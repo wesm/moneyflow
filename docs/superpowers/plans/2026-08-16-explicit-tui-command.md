@@ -13,7 +13,7 @@ profile; making it runnable also preserves unknown-command errors. Move the hidd
 into each interface command and keep provider summaries on standard output while sending next-step
 guidance to standard error.
 
-**Tech Stack:** Go 1.25, Cobra, Testify, Make, Markdown
+**Tech Stack:** Go 1.26.3, Cobra, Testify, Make, Markdown
 
 ## Global Constraints
 
@@ -183,7 +183,13 @@ func newTUICommand(streams IOStreams) *cobra.Command {
                     return tui.Run(ctx, service, session, options, streams.In, streams.Out)
                 }
             }
-            return closeOpenedProfile(opened, runner(command.Context(), opened.Service, app.NewSession(), options, streams))
+            if err = closeOpenedProfile(
+                opened,
+                runner(command.Context(), opened.Service, app.NewSession(), options, streams),
+            ); err != nil {
+                return fmt.Errorf("start TUI: %w", err)
+            }
+            return nil
         },
     }
     command.Flags().StringVar(&theme, "theme", string(tui.ThemeDefault), "color theme")
@@ -214,9 +220,11 @@ Run:
 
 ```bash
 MONEYFLOW_SKIP_PERF=1 go test ./cmd/moneyflow -count=1
+make verify-go
 ```
 
-Expected: PASS.
+Expected: PASS. If only a documented timing ceiling is noisy, record the measured value and run
+`MONEYFLOW_SKIP_PERF=1 make verify-go` before committing; all non-performance gates must pass.
 
 - [ ] **Step 5: Review and commit the command topology**
 

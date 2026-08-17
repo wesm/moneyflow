@@ -169,7 +169,7 @@ func TestProviderRefreshInitialBindingIsPartOfAtomicFold(t *testing.T) {
 	acquireProviderRefreshLease(t, profile, "initial-owner", now)
 	binding := store.ProviderBinding{
 		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "subscription-example",
-		BoundAt: now,
+		Currency: "USD", Scale: 2, BoundAt: now,
 	}
 
 	_, err = profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
@@ -832,8 +832,8 @@ func bindProviderForRefreshTest(t *testing.T, profile *profile, boundAt time.Tim
 	t.Helper()
 	_, err := profile.database.ExecContext(context.Background(), `
 		INSERT INTO provider_binding(
-			singleton, kind, namespace, remote_profile_id, bound_at_unix_ms
-		) VALUES (1, 'monarch', 'monarch', 'subscription-example', ?)`, boundAt.UnixMilli())
+			singleton, kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
+		) VALUES (1, 'monarch', 'monarch', 'subscription-example', 'USD', 2, ?)`, boundAt.UnixMilli())
 	require.NoError(t, err)
 }
 

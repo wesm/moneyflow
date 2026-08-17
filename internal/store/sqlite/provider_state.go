@@ -200,10 +200,12 @@ func loadProviderBinding(
 ) (*store.ProviderBinding, error) {
 	var binding store.ProviderBinding
 	var boundAt int64
+	var scale int
 	err := queryer.QueryRowContext(ctx, `
-		SELECT kind, namespace, remote_profile_id, bound_at_unix_ms
+		SELECT kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
 		FROM provider_binding WHERE singleton = 1`).Scan(
-		&binding.Kind, &binding.Namespace, &binding.RemoteProfileID, &boundAt,
+		&binding.Kind, &binding.Namespace, &binding.RemoteProfileID,
+		&binding.Currency, &scale, &boundAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -211,6 +213,10 @@ func loadProviderBinding(
 	if err != nil {
 		return nil, mapDriverError(err, store.CodeStoreError)
 	}
+	if scale < 0 || scale > 9 {
+		return nil, store.NewError(store.CodeStoreCorrupt, errors.New("stored provider scale is invalid"))
+	}
+	binding.Scale = uint8(scale)
 	binding.BoundAt = time.UnixMilli(boundAt).UTC()
 	return &binding, nil
 }

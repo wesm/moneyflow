@@ -102,6 +102,51 @@ func TestSnapshotUsesInlineAccountForHiddenOnlyTransaction(t *testing.T) {
 	assert.Equal(t, 2, server.CompleteScans())
 }
 
+func TestSnapshotRetriesConflictingInlineIdentityLabels(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*Transaction, string)
+	}{
+		{
+			name: "account",
+			mutate: func(transaction *Transaction, label string) {
+				transaction.Account.ID = "account-inline"
+				transaction.Account.DisplayName = label
+			},
+		},
+		{
+			name: "merchant",
+			mutate: func(transaction *Transaction, label string) {
+				transaction.Merchant.ID = "merchant-inline"
+				transaction.Merchant.Name = label
+			},
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			first := snapshotTransaction("transaction-first", false, false)
+			second := snapshotTransaction("transaction-second", false, false)
+			test.mutate(&first, "First Label")
+			test.mutate(&second, "Second Label")
+			scenario := snapshotScenario{Visible: []Transaction{first, second}, Hidden: []Transaction{}}
+			if test.name == "account" {
+				scenario.Accounts = []Account{{ID: "account-a", DisplayName: "Example Account"}}
+			} else {
+				scenario.Merchants = []Merchant{{ID: "merchant-a", Name: "Example Merchant"}}
+			}
+			server := newSnapshotServer(t, scenario)
+			client := newSnapshotClient(t, server)
+
+			_, err := client.FetchSnapshot(context.Background(), nil)
+			assertProviderCode(t, err, provider.CodeSnapshotUnstable)
+			assert.Equal(t, 3, server.CompleteScans())
+		})
+	}
+}
+
 func TestSnapshotMapsUngroupedCategoryToProtectedGroup(t *testing.T) {
 	t.Parallel()
 

@@ -557,13 +557,6 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 			configured := false
 			streams := IOStreams{
 				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
-				OpenMonarch: func(paths home.Paths, _ monarch.ImportConfig) (MonarchCommandRuntime, error) {
-					sessions, err := monarch.NewSessionStore(paths)
-					return MonarchCommandRuntime{
-						Connector: &fakeMonarchConnector{}, Sessions: sessions,
-						Source: &commandProviderSource{}, InstanceID: test.name + "-instance",
-					}, err
-				},
 			}
 			assertConfigured := func(service *app.Service) {
 				for _, capability := range service.Capabilities() {
@@ -629,6 +622,47 @@ func TestProviderConnectImportReopenAndBrowseOffline(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, providerState.Binding)
 	assert.Equal(t, uint64(1), providerState.Refresh.Generation)
+}
+
+func TestProviderReconnectRejectsDifferentMoneyInterpretationAfterDisconnect(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 15, 23, 40, 0, 0, time.UTC)
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, now),
+	}
+	_, _, err := executeProviderCommand(
+		t, &fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")},
+		source, (&recordingPrompt{answers: commandCredentialSetupAnswers()}).Prompt,
+		"provider", "connect", "monarch",
+	)
+	require.NoError(t, err)
+	_, _, err = executeProviderCommandRaw(
+		t, &fakeMonarchConnector{}, &commandProviderSource{}, nil,
+		"provider", "disconnect", "monarch",
+	)
+	require.NoError(t, err)
+
+	reconnect := &fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")}
+	_, _, err = executeProviderCommandRaw(
+		t, reconnect, source, (&recordingPrompt{answers: []string{"account-password"}}).Prompt,
+		"provider", "connect", "monarch", "--currency", "JPY", "--scale", "0",
+	)
+	require.ErrorContains(t, err, "currency and scale do not match the bound profile")
+	assert.Zero(t, reconnect.connectCalls)
+
+	paths, pathErr := home.ResolveRoot(root, nil, "")
+	require.NoError(t, pathErr)
+	profileHandle, openErr := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, openErr)
+	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
+	state, stateErr := profileHandle.ProviderState(context.Background())
+	require.NoError(t, stateErr)
+	require.NotNil(t, state.Binding)
+	assert.Equal(t, domain.Currency("USD"), state.Binding.Currency)
+	assert.Equal(t, uint8(2), state.Binding.Scale)
+	assert.Equal(t, uint64(1), state.Refresh.Generation)
 }
 
 func executeProviderCommand(
@@ -911,7 +945,8 @@ func newProviderBoundServiceForCommand(
 		snapshot: commandProviderSnapshot(t, now),
 	}
 	err = service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Renderer: "cli", InstanceID: "seed-cli",
+		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "cli", InstanceID: "seed-cli",
 		Now: func() time.Time { return now }, Random: &commandRandomReader{},
 	})
 	return service, err

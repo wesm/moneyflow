@@ -236,8 +236,9 @@ carry a validated duration capped at 24 hours; no raw header or remote response 
 provider boundary. Credential-bearing REST and GraphQL requests refuse every redirect.
 
 Monarch decimal strings are parsed directly into signed integer minor units with an explicit
-currency and scale supplied on the first connection and persisted with the provider session. No
-provider, domain, store, or test-fixture path represents money with
+currency and scale supplied on the first connection and persisted immutably with both the provider
+binding and session. The SQLite binding remains authoritative if the session is disconnected or
+replaced. No provider, domain, store, or test-fixture path represents money with
 `float32` or `float64`. Unsupported precision, currency, or numeric syntax is
 `provider_data_invalid` and cannot partially import.
 
@@ -309,8 +310,9 @@ transcribe a one-time code.
 
 After a saved session expires, the command prompts only for the Moneyflow account password, unlocks
 the stored Monarch credentials, generates TOTP automatically, and replaces the session after
-identity validation. The saved session's currency and scale remain authoritative; reconnect does
-not require those flags again and rejects conflicting values if they are supplied. Login and import
+identity validation. The bound profile's currency and scale remain authoritative; reconnect does
+not require those flags again and rejects either a conflicting saved session or conflicting values
+if they are supplied. Login and import
 emit bounded stage and count progress so a slow provider request never appears idle. No sensitive
 value is printed or logged.
 
@@ -608,8 +610,8 @@ migration. A version 2 preview profile is `schema_incompatible`; a newer profile
 In addition to the existing committed entities, journal, external identities, and known drills,
 the logical schema adds:
 
-- singleton provider binding with provider kind, namespace, remote `subscription.id`, and bounded
-  non-sensitive timing metadata
+- singleton provider binding with provider kind, namespace, remote `subscription.id`, immutable
+  currency and scale, and bounded non-sensitive timing metadata
 - singleton provider refresh state with refresh generation, last-success timing, stable status
   code, and counts-only summaries
 - provider refresh lease with opaque owner ID, renderer class, and expiry

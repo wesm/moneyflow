@@ -78,6 +78,78 @@ func TestAuthenticatorSendsGeneratedOneTimeCodeOnInitialLogin(t *testing.T) {
 	assert.Zero(t, challengeCalls.Load())
 }
 
+func TestAuthenticatorRetriesRESTMFAChallengeAfterInitialOneTimeCode(t *testing.T) {
+	t.Parallel()
+
+	var loginCalls atomic.Int32
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/auth/login/":
+			var body map[string]any
+			require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
+			if loginCalls.Add(1) == 1 {
+				assert.Equal(t, "287082", body["totp"])
+				writer.WriteHeader(http.StatusForbidden)
+				return
+			}
+			assert.Equal(t, "123456", body["totp"])
+			_, _ = writer.Write([]byte(`{"token":"rest-token"}`))
+		case "/graphql":
+			writeSubscriptionResponse(t, writer, request, "subscription-a")
+		default:
+			http.NotFound(writer, request)
+		}
+	})
+	authenticator := newTestAuthenticator(t, server.URL)
+
+	session, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password", OneTimeCode: "287082",
+	}, func(context.Context, provider.Challenge) (string, error) {
+		return "123456", nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "rest-token", session.(Session).Token)
+	assert.Equal(t, int32(2), loginCalls.Load())
+}
+
+func TestAuthenticatorRetriesGraphQLMFAChallengeAfterInitialOneTimeCode(t *testing.T) {
+	t.Parallel()
+
+	var loginCalls atomic.Int32
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/auth/login/" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var envelope graphQLRequest
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&envelope))
+		switch envelope.OperationName {
+		case "LoginMutation":
+			if loginCalls.Add(1) == 1 {
+				assert.Equal(t, "287082", envelope.Variables["totpToken"])
+				_, _ = writer.Write([]byte(`{"data":{"login":{"token":"","errors":[{"messages":["Multi-factor authentication required"]}]}}}`))
+				return
+			}
+			assert.Equal(t, "123456", envelope.Variables["totpToken"])
+			_, _ = writer.Write([]byte(`{"data":{"login":{"token":"graphql-token","errors":[]}}}`))
+		case "GetSubscriptionDetails":
+			_, _ = writer.Write([]byte(`{"data":{"subscription":{"id":"subscription-a"}}}`))
+		default:
+			t.Fatalf("unexpected operation %q", envelope.OperationName)
+		}
+	})
+	authenticator := newTestAuthenticator(t, server.URL)
+
+	session, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password", OneTimeCode: "287082",
+	}, func(context.Context, provider.Challenge) (string, error) {
+		return "123456", nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "graphql-token", session.(Session).Token)
+	assert.Equal(t, int32(2), loginCalls.Load())
+}
+
 func TestAuthenticatorFallsBackToProvenGraphQLLoginOnRESTNotFound(t *testing.T) {
 	t.Parallel()
 

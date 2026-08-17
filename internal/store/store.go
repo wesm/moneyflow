@@ -33,6 +33,8 @@ type ProviderBinding struct {
 	Kind            string
 	Namespace       string
 	RemoteProfileID string
+	Currency        domain.Currency
+	Scale           uint8
 	BoundAt         time.Time
 }
 

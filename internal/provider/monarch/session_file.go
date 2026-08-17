@@ -148,6 +148,13 @@ func (source *Source) OpenClient(
 	if err != nil {
 		return nil, "", provider.NewError(provider.CodeReconnectRequired)
 	}
+	expected := ImportConfig{
+		Currency: source.options.ImportCurrency,
+		Scale:    source.options.ImportScale,
+	}
+	if expected.Validate() == nil && session.Import != expected {
+		return nil, "", provider.NewError(provider.CodeReconnectRequired)
+	}
 	options := source.options
 	options.ImportCurrency = session.Import.Currency
 	options.ImportScale = session.Import.Scale

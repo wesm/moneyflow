@@ -398,7 +398,8 @@ func newPristineProviderModel(
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-tui",
+		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: "instance-tui",
 		Now: func() time.Time { return now }, Random: &tuiIncrementingReader{},
 	}))
 	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{

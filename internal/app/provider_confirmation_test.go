@@ -106,7 +106,8 @@ func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) 
 				snapshot: providerSnapshot(t, current, 30), fingerprint: "session-a",
 			}
 			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-				Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-a",
+				Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+				Renderer: "tui", InstanceID: "instance-a",
 				Now: func() time.Time { return current }, Random: &incrementingReader{},
 				ConfirmationTTL: time.Minute,
 			}))

@@ -59,8 +59,14 @@ func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing
 	ctx := context.Background()
 
 	_, err = profile.database.ExecContext(ctx, `
-		INSERT INTO provider_binding(singleton, kind, namespace, remote_profile_id, bound_at_unix_ms)
-		VALUES (2, 'monarch', 'monarch', 'remote-a', 1)`)
+		INSERT INTO provider_binding(
+			singleton, kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
+		) VALUES (2, 'monarch', 'monarch', 'remote-a', 'USD', 2, 1)`)
+	assert.Error(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		INSERT INTO provider_binding(
+			singleton, kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
+		) VALUES (1, 'monarch', 'monarch', 'remote-a', 'usd', 2, 1)`)
 	assert.Error(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_refresh_lease(singleton, owner_id, renderer, expires_at_unix_ms)

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 )
@@ -103,7 +102,10 @@ func TestSourceReloadsAtomicallyReplacedSessionOnce(t *testing.T) {
 
 	store := newTestSessionStore(t)
 	require.NoError(t, store.Save(validSession()))
-	source, err := NewSource(testClientOptions(t, ""), store)
+	options := testClientOptions(t, "")
+	options.ImportCurrency = "USD"
+	options.ImportScale = 2
+	source, err := NewSource(options, store)
 	require.NoError(t, err)
 	firstClient, firstFingerprint, err := source.OpenClient(false)
 	require.NoError(t, err)
@@ -124,20 +126,21 @@ func TestSourceReloadsAtomicallyReplacedSessionOnce(t *testing.T) {
 	assert.NotEqual(t, firstFingerprint, secondFingerprint)
 }
 
-func TestSourceUsesPersistedImportConfiguration(t *testing.T) {
+func TestSourceRejectsPersistedImportConfigurationDifferentFromExpected(t *testing.T) {
 	t.Parallel()
 
 	store := newTestSessionStore(t)
 	session := validSession()
 	session.Import = ImportConfig{Currency: "JPY", Scale: 0}
 	require.NoError(t, store.Save(session))
-	source, err := NewSource(testClientOptions(t, ""), store)
+	options := testClientOptions(t, "")
+	options.ImportCurrency = "USD"
+	options.ImportScale = 2
+	source, err := NewSource(options, store)
 	require.NoError(t, err)
 
-	client, _, err := source.OpenClient(false)
-	require.NoError(t, err)
-	assert.Equal(t, domain.Currency("JPY"), client.options.ImportCurrency)
-	assert.Equal(t, uint8(0), client.options.ImportScale)
+	_, _, err = source.OpenClient(false)
+	assertProviderCode(t, err, provider.CodeReconnectRequired)
 }
 
 func TestSourceAppliesNonPersistedTransactionRange(t *testing.T) {

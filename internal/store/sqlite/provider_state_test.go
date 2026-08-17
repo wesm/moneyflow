@@ -26,8 +26,8 @@ func TestProviderStateLoadsBindingRefreshLeaseAndStickyAllocations(t *testing.T)
 	expiresAt := boundAt.Add(4 * time.Minute)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_binding(
-			singleton, kind, namespace, remote_profile_id, bound_at_unix_ms
-		) VALUES (1, 'monarch', 'monarch', 'remote-profile-a', ?)`, boundAt.UnixMilli())
+			singleton, kind, namespace, remote_profile_id, currency, scale, bound_at_unix_ms
+		) VALUES (1, 'monarch', 'monarch', 'remote-profile-a', 'USD', 2, ?)`, boundAt.UnixMilli())
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		UPDATE provider_refresh_state SET
@@ -56,7 +56,8 @@ func TestProviderStateLoadsBindingRefreshLeaseAndStickyAllocations(t *testing.T)
 	assert.False(t, state.Pristine)
 	require.NotNil(t, state.Binding)
 	assert.Equal(t, store.ProviderBinding{
-		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "remote-profile-a", BoundAt: boundAt,
+		Kind: "monarch", Namespace: "monarch", RemoteProfileID: "remote-profile-a",
+		Currency: "USD", Scale: 2, BoundAt: boundAt,
 	}, *state.Binding)
 	assert.Equal(t, store.RefreshState{
 		Generation: 7, LastAttempt: lastAttempt, LastSuccess: lastSuccess,

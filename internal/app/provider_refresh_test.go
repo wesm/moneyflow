@@ -154,6 +154,33 @@ func TestProviderRefreshCanonicalizesProviderObservationTimeBeforeFold(t *testin
 	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
+func TestProviderRefreshCanonicalizesObservationTimeAfterSessionReload(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 18, 25, 0, 123_456_789, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+		probeErr: provider.NewError(provider.CodeReconnectRequired),
+	}
+	source.reloadHook = func() {
+		source.probeErr = nil
+		source.fingerprint = "session-b"
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	result, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), result.Generation)
+	state, err := profileHandle.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, now.Truncate(time.Millisecond), state.Refresh.LastSuccess)
+}
+
 func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -365,7 +392,8 @@ func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *t
 			return nil
 		})
 		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-			Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-a",
+			Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			Renderer: "tui", InstanceID: "instance-a",
 			Now: clock, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
 			HeartbeatInterval: 15 * time.Millisecond,
 		}))
@@ -417,7 +445,8 @@ func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *t
 			return fetchContext.Err()
 		})
 		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-			Source: source, Provider: "monarch", Renderer: "tui", InstanceID: "instance-a",
+			Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			Renderer: "tui", InstanceID: "instance-a",
 			Now: time.Now, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
 			HeartbeatInterval: 15 * time.Millisecond,
 		}))
@@ -506,7 +535,8 @@ func configureProviderRefreshService(
 	t.Helper()
 	clock := func() time.Time { return now }
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Renderer: "tui", InstanceID: instanceID,
+		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: instanceID,
 		Now: clock, Random: &incrementingReader{},
 	}))
 }
@@ -580,6 +610,7 @@ type fakeProviderSource struct {
 	probes           int
 	fetches          int
 	reloads          int
+	reloadHook       func()
 }
 
 type providerStateRaceProfile struct {
@@ -610,6 +641,9 @@ func (source *fakeProviderSource) Reader(
 	defer source.mu.Unlock()
 	if forceReload {
 		source.reloads++
+		if source.reloadHook != nil {
+			source.reloadHook()
+		}
 	}
 	return (*fakeProviderReader)(source), source.fingerprint, nil
 }

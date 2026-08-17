@@ -199,7 +199,8 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 		snapshot: apiProviderSnapshot(t, now, count), fingerprint: "session-a",
 	}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Renderer: "web", InstanceID: "instance-web",
+		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-web",
 		Now: func() time.Time { return now }, Random: &apiIncrementingReader{},
 	}))
 	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{

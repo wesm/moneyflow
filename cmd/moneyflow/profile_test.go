@@ -77,6 +77,41 @@ func TestOpenProfileExplainsHowToRecoverAnIncompatiblePreviewSchema(t *testing.T
 	assert.ErrorContains(t, err, "rerun the command")
 }
 
+func TestOpenProfileExplainsHowToRecoverAnUnsupportedJournalPayload(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "profile")
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+
+	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	database, err := sql.Open("sqlite", paths.Database)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `
+		INSERT INTO journal_operations(
+			id, sequence, operation_type, payload_version, creation_revision, created_at_unix_ms
+		) VALUES ('operation_unsupported', 1, 'transaction.hide-toggle', 2, 0, 1);
+		INSERT INTO operation_payloads(operation_id, payload_version, payload_json)
+		VALUES ('operation_unsupported', 2, '{}');
+		INSERT INTO operation_targets(operation_id, ordinal, entity_id)
+		VALUES ('operation_unsupported', 0, 'transaction_a');
+		UPDATE profile_state SET revision = 1, journal_cursor = 1 WHERE singleton = 1;
+	`)
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+
+	opened, err = openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	assert.Nil(t, opened.Service)
+	var storageFailure *store.Error
+	require.ErrorAs(t, err, &storageFailure)
+	assert.Equal(t, store.CodeSchemaIncompatible, storageFailure.Code)
+	assert.ErrorContains(t, err, "load service")
+	assert.ErrorContains(t, err, "profile directory "+strconv.Quote(paths.Root))
+	assert.ErrorContains(t, err, "move the complete directory to a backup location")
+}
+
 func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
