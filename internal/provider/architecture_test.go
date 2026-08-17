@@ -37,6 +37,10 @@ func TestProviderPackagesDoNotImportStore(t *testing.T) {
 		return imported != "github.com/wesm/moneyflow/internal/provider" &&
 			!strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/provider/")
 	})
+	assertNoInternalImport(t, filepath.Join(repoInternalDir, "profilecatalog"), func(_ string, imported string) bool {
+		return imported != "github.com/wesm/moneyflow/internal/provider" &&
+			!strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/provider/")
+	})
 }
 
 func assertNoInternalImport(
