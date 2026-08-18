@@ -283,11 +283,19 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			}
 			return service.writeStatus(ctx, renewErr)
 		}
-		items, claimErr := service.profile.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
-			BatchID: batch.ID, ExpectedVersion: batch.Version,
-			LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationWrite,
-			ObservedAt: now, Limit: providerWriteConcurrency,
+		items, claimStarted, claimErr := runtime.claimProviderWriteItemsUnlessPaused(func() (
+			[]store.WriteItem,
+			error,
+		) {
+			return service.profile.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+				BatchID: batch.ID, ExpectedVersion: batch.Version,
+				LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationWrite,
+				ObservedAt: now, Limit: providerWriteConcurrency,
+			})
 		})
+		if !claimStarted {
+			return service.writeStatus(ctx, nil)
+		}
 		if claimErr != nil {
 			return service.writeStatus(ctx, mapAppError(claimErr, service.Revision()))
 		}
@@ -343,8 +351,18 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			}
 		}
 		if firstFailure != nil {
+			if providerWriteUnavailableCanRetry(firstFailure.item, firstFailure.err) {
+				delay := min(
+					60*time.Second,
+					2*time.Second*time.Duration(1<<min(firstFailure.item.AttemptCount-1, 5)),
+				)
+				if err = runtime.sleep(ctx, delay); err != nil {
+					return service.writeStatus(ctx, err)
+				}
+				continue
+			}
 			return service.handleProviderWriteItemError(
-				ctx, runtime, batch, firstFailure.item, fingerprint, firstFailure.err,
+				ctx, runtime, batch, fingerprint, firstFailure.err,
 			)
 		}
 		if batch.Phase == store.WritePhaseReconciling {
@@ -363,7 +381,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 func (runtime *providerRuntimeState) beginProviderWriteRun() bool {
 	runtime.writeControlMu.Lock()
 	defer runtime.writeControlMu.Unlock()
-	if runtime.writePauseRequested {
+	if runtime.writePauseRequested || runtime.writeRuns > 0 {
 		return false
 	}
 	if runtime.writeRuns == 0 {
@@ -371,6 +389,18 @@ func (runtime *providerRuntimeState) beginProviderWriteRun() bool {
 	}
 	runtime.writeRuns++
 	return true
+}
+
+func (runtime *providerRuntimeState) claimProviderWriteItemsUnlessPaused(
+	claim func() ([]store.WriteItem, error),
+) ([]store.WriteItem, bool, error) {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	if runtime.writePauseRequested {
+		return nil, false, nil
+	}
+	items, err := claim()
+	return items, true, err
 }
 
 func (runtime *providerRuntimeState) endProviderWriteRun() {
@@ -682,7 +712,6 @@ func (service *Service) handleProviderWriteItemError(
 	ctx context.Context,
 	runtime *providerRuntimeState,
 	batch store.WriteBatch,
-	item store.WriteItem,
 	fingerprint provider.SessionFingerprint,
 	failure error,
 ) (ProviderWriteStatus, error) {
@@ -691,17 +720,15 @@ func (service *Service) handleProviderWriteItemError(
 		failure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
 		code = provider.CodeWriteAttentionRequired
 	}
-	if code == provider.CodeUnavailable && item.AttemptCount < providerWriteAttempts {
-		delay := min(60*time.Second, 2*time.Second*time.Duration(1<<min(item.AttemptCount-1, 5)))
-		if err := runtime.sleep(ctx, delay); err != nil {
-			return service.writeStatus(ctx, err)
-		}
-		return service.RunProviderWrite(ctx)
-	}
 	if code == provider.CodeUnavailable {
 		failure = provider.NewWriteFailure(provider.WriteUnavailableExhausted)
 	}
 	return service.parkProviderWriteFailure(ctx, runtime, batch, fingerprint, failure)
+}
+
+func providerWriteUnavailableCanRetry(item store.WriteItem, failure error) bool {
+	code, ok := provider.CodeOf(failure)
+	return ok && code == provider.CodeUnavailable && item.AttemptCount < providerWriteAttempts
 }
 
 func (service *Service) parkProviderWriteFailure(
@@ -904,7 +931,8 @@ func (service *Service) ResumeProviderWrite(
 		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteAttentionRequired))
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
-	_, err = service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+	allowAttemptedRetry := providerWritePhaseAllowsAttemptedRetry(*state.Batch)
+	resumed, err := service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
 		BatchID: state.Batch.ID, ExpectedVersion: expectedVersion,
 		Lease: store.ProviderOperationLease{
 			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
@@ -915,7 +943,20 @@ func (service *Service) ResumeProviderWrite(
 	if err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
+	if _, attempted := firstAttemptedPendingWriteItem(state.Items); attempted && !allowAttemptedRetry {
+		return service.parkProviderWriteFailure(
+			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+		)
+	}
 	return service.RunProviderWrite(ctx)
+}
+
+func providerWritePhaseAllowsAttemptedRetry(batch store.WriteBatch) bool {
+	if batch.Phase == store.WritePhaseReconnectRequired || batch.Phase == store.WritePhaseRateLimited {
+		return true
+	}
+	return batch.Phase == store.WritePhaseAttentionRequired &&
+		batch.AttentionClass == store.WriteAttentionRetryable
 }
 
 // StopAndReconcileProviderWrite abandons the frozen intent and fetches provider truth.

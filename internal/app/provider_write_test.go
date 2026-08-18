@@ -436,7 +436,7 @@ func TestProviderWriteStatusTreatsExpiredLeaseAsOwnerless(t *testing.T) {
 	assert.Empty(t, status.OwnerRenderer)
 }
 
-func TestProviderWriteOwnerChangeParksClaimedItemAsUnknownBeforeResend(t *testing.T) {
+func TestResumeProviderWriteParksClaimedItemAsUnknownBeforeResend(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -492,12 +492,77 @@ func TestProviderWriteOwnerChangeParksClaimedItemAsUnknownBeforeResend(t *testin
 		ctx, "instance-recovery", store.ProviderOperationWrite,
 	))
 
-	status, err := service.RunProviderWrite(ctx)
+	status, err := service.ResumeProviderWrite(ctx, writeState.Batch.Version)
 	require.Error(t, err)
 	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
 	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
 	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
 	assert.Zero(t, writer.callCount(), "an item with an unknown prior outcome must not be resent")
+}
+
+func TestPausePreventsClaimAfterRequestArrivesDuringLeaseRenewal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, profileHandle := newProviderRefreshService(t)
+	wrapped := &blockingWriteRenewProfile{
+		Profile: profileHandle, started: make(chan struct{}), release: make(chan struct{}),
+	}
+	service, err := app.NewProfileService(ctx, wrapped)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 20, 27, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(
+		t, service, &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		now, "instance-pause-renew",
+	)
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-pause-renew", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{target.ID},
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	prepared, err := service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, prepared.ProviderWrite)
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, runErr := service.RunProviderWrite(ctx)
+		runDone <- runErr
+	}()
+	<-wrapped.started
+	pauseDone := make(chan app.ProviderWriteStatus, 1)
+	go func() {
+		status, _ := service.PauseProviderWrite(ctx, prepared.ProviderWrite.Version)
+		pauseDone <- status
+	}()
+	select {
+	case <-pauseDone:
+		t.Fatal("pause returned while the write lease renewal was blocked")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(wrapped.release)
+	require.NoError(t, <-runDone)
+	paused := <-pauseDone
+	assert.Equal(t, store.WritePhasePaused, paused.Phase)
+	assert.Zero(t, writer.callCount(), "pause must prevent claims that have not started")
 }
 
 func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
@@ -558,6 +623,18 @@ func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 	assert.Equal(t, store.WriteAttentionUnavailableExhausted, status.AttentionReason)
 	assert.Equal(t, 5, writer.callCount())
 	assert.Equal(t, 4, sleeps)
+
+	writer.mu.Lock()
+	writer.update = func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+		return provider.TransactionUpdateResult{
+			TransactionExternalID: update.TransactionExternalID,
+			Hidden:                provider.Some(update.Hidden.Value),
+		}, nil
+	}
+	writer.mu.Unlock()
+	_, err = service.ResumeProviderWrite(ctx, status.Version)
+	require.NoError(t, err, "explicit retryable attention must remain resumable")
+	assert.Equal(t, 6, writer.callCount())
 }
 
 func TestProviderWritePersistsConcurrentSuccessBeforeParkingFailure(t *testing.T) {
@@ -1000,6 +1077,31 @@ type heartbeatErrorProfile struct {
 	calls  int
 	failAt int
 	failed chan struct{}
+}
+
+type blockingWriteRenewProfile struct {
+	store.Profile
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (profile *blockingWriteRenewProfile) RenewProviderOperationLease(
+	ctx context.Context,
+	owner string,
+	kind store.ProviderOperationKind,
+	expiresAt time.Time,
+	observedAt time.Time,
+) (bool, error) {
+	if kind == store.ProviderOperationWrite {
+		profile.once.Do(func() { close(profile.started) })
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-profile.release:
+		}
+	}
+	return profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
 }
 
 func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
