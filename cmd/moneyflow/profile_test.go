@@ -430,7 +430,7 @@ func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
 					}
 					return nil
 				},
-				RunWeb: func(context.Context, *app.Service, WebOptions, IOStreams) error { return nil },
+				RunWeb: func(context.Context, WebDependencies, WebOptions, IOStreams) error { return nil },
 			}
 			command := newRootCommand(streams)
 			command.SetContext(ctx)

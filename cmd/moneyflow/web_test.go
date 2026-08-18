@@ -15,7 +15,71 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
+	webserver "github.com/wesm/moneyflow/internal/web"
 )
+
+func TestBuildWebDependenciesOrdinaryStartupDoesNotOpenProfile(t *testing.T) {
+	t.Parallel()
+	opened := false
+	dependencies, err := buildWebDependencies(context.Background(), ProfileOptions{
+		ExplicitHome: t.TempDir(),
+	}, IOStreams{OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+		opened = true
+		return OpenedProfile{}, errors.New("profile must remain lazy")
+	}})
+	require.NoError(t, err)
+	assert.False(t, opened)
+	assert.NotNil(t, dependencies.Catalog)
+	assert.NotNil(t, dependencies.Registry)
+	assert.NotNil(t, dependencies.Onboarding)
+	assert.Empty(t, dependencies.PreselectedProfileID)
+	require.NoError(t, dependencies.Close(context.Background()))
+}
+
+func TestBuildWebDependenciesResolvesPreselectedNameWithoutOpeningService(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	catalog, err := openProfileCatalog(root)
+	require.NoError(t, err)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Household", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	opened := false
+	dependencies, err := buildWebDependencies(context.Background(), ProfileOptions{
+		ExplicitHome: root, Profile: "HOUSEHOLD",
+	}, IOStreams{OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+		opened = true
+		return OpenedProfile{}, errors.New("service must remain lazy")
+	}})
+	require.NoError(t, err)
+	assert.False(t, opened)
+	assert.Equal(t, entry.ID, dependencies.PreselectedProfileID)
+	require.NoError(t, dependencies.Close(context.Background()))
+}
+
+func TestBuildWebDependenciesGivesDemoAProcessLocalCanonicalRoute(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	service := testWebService(t)
+	closes := 0
+	dependencies, err := buildWebDependencies(context.Background(), ProfileOptions{
+		Demo: true,
+	}, IOStreams{OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+		return OpenedProfile{
+			ID: "profile_demo", Service: service,
+			Paths: home.Paths{Root: root, Database: root + "/moneyflow.db"},
+			Close: func() error { closes++; return nil }, Demo: true,
+		}, nil
+	}})
+	require.NoError(t, err)
+	assert.True(t, profilecatalog.ValidProfileID(dependencies.PreselectedProfileID))
+	assert.Nil(t, dependencies.Catalog)
+	require.NoError(t, dependencies.Close(context.Background()))
+	assert.Equal(t, 1, closes)
+}
 
 func TestWebListenValidation(t *testing.T) {
 	t.Parallel()
@@ -63,17 +127,18 @@ func TestBasePathValidation(t *testing.T) {
 func TestWebCommandPassesValidatedOptionsAndEmbeddedFixture(t *testing.T) {
 	t.Parallel()
 	var received WebOptions
-	var service *app.Service
-	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, OpenProfile: testProfileOpener(t)}
-	streams.RunWeb = func(_ context.Context, candidate *app.Service, options WebOptions, _ IOStreams) error {
-		service = candidate
+	var receivedDependencies WebDependencies
+	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	streams.BuildWeb = testWebDependencyBuilder(t)
+	streams.RunWeb = func(_ context.Context, candidate WebDependencies, options WebOptions, _ IOStreams) error {
+		receivedDependencies = candidate
 		received = options
 		return nil
 	}
 	command := newRootCommand(streams)
 	command.SetArgs([]string{"web", "--listen", "localhost:9090", "--base-path", "/finance", "--open=false"})
 	require.NoError(t, command.Execute())
-	assert.NotNil(t, service)
+	assert.NotNil(t, receivedDependencies.Registry)
 	assert.Equal(t, WebOptions{Listen: "localhost:9090", BasePath: "/finance/", Open: false}, received)
 }
 
@@ -82,8 +147,8 @@ func TestExternalURLValidationAndCommandPropagation(t *testing.T) {
 	var received WebOptions
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
-		OpenProfile: testProfileOpener(t),
-		RunWeb: func(_ context.Context, _ *app.Service, options WebOptions, _ IOStreams) error {
+		BuildWeb: testWebDependencyBuilder(t),
+		RunWeb: func(_ context.Context, _ WebDependencies, options WebOptions, _ IOStreams) error {
 			received = options
 			return nil
 		},
@@ -110,8 +175,9 @@ func TestWebCommandWarnsBeforeNonLoopbackRunner(t *testing.T) {
 	t.Parallel()
 	var stderr bytes.Buffer
 	var warningSeen bool
-	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &stderr, OpenProfile: testProfileOpener(t)}
-	streams.RunWeb = func(_ context.Context, _ *app.Service, _ WebOptions, _ IOStreams) error {
+	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &stderr}
+	streams.BuildWeb = testWebDependencyBuilder(t)
+	streams.RunWeb = func(_ context.Context, _ WebDependencies, _ WebOptions, _ IOStreams) error {
 		warningSeen = strings.Contains(stderr.String(), "unauthenticated")
 		return nil
 	}
@@ -140,17 +206,22 @@ func TestRunWebBrowserFailureIsWarning(t *testing.T) {
 			return context.WithCancel(parent)
 		},
 	}
-	service := testWebService(t)
-	require.NoError(t, runWeb(ctx, service, WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}, streams))
+	dependencies := testWebDependencies(t)
+	dependencies.PreselectedProfileID = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	require.NoError(t, runWeb(ctx, dependencies, WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}, streams))
 	assert.Contains(t, stderr.String(), "browser unavailable")
 	assert.NotContains(t, opened, "?")
-	assert.Equal(t, "http://"+listener.Addr().String()+"/", opened)
+	assert.Equal(
+		t,
+		"http://"+listener.Addr().String()+"/p/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/",
+		opened,
+	)
 }
 
 func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 	t.Parallel()
 
-	service := testWebService(t)
+	dependencies := testWebDependencies(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var openedHealthy bool
@@ -161,7 +232,9 @@ func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 		},
 		OpenBrowser: func(url string) error {
 			defer cancel()
-			response, openErr := http.Get(url + "api/v1/health") // #nosec G107 -- injected loopback URL.
+			response, openErr := http.Get( // #nosec G107 -- injected loopback URL.
+				url + "api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/health",
+			)
 			if openErr != nil {
 				return openErr
 			}
@@ -172,7 +245,7 @@ func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 			return context.WithCancel(parent)
 		},
 	}
-	require.NoError(t, runWeb(ctx, service, WebOptions{
+	require.NoError(t, runWeb(ctx, dependencies, WebOptions{
 		Listen: "127.0.0.1:8080", BasePath: "/", Open: true,
 	}, streams))
 	assert.True(t, openedHealthy)
@@ -181,7 +254,7 @@ func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {
-			service := testWebService(t)
+			dependencies := testWebDependencies(t)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			address := make(chan string, 1)
@@ -201,14 +274,15 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 			}
 			result := make(chan error, 1)
 			go func() {
-				result <- runWeb(ctx, service, WebOptions{
+				result <- runWeb(ctx, dependencies, WebOptions{
 					Listen: "127.0.0.1:8080", BasePath: basePath, Open: false,
 				}, streams)
 			}()
 			actualAddress := <-address
 			normalized, err := api.NormalizeBasePath(basePath)
 			require.NoError(t, err)
-			healthURL := "http://" + actualAddress + normalized + "api/v1/health"
+			healthURL := "http://" + actualAddress + normalized +
+				"api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/health"
 			response := eventuallyGET(t, healthURL)
 			assert.Equal(t, http.StatusOK, response.StatusCode)
 			require.NoError(t, response.Body.Close())
@@ -227,7 +301,7 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 
 func TestRunWebPropagatesServeFailure(t *testing.T) {
 	t.Parallel()
-	service := testWebService(t)
+	dependencies := testWebDependencies(t)
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 		Listen: func(context.Context, string, string) (net.Listener, error) {
@@ -237,7 +311,7 @@ func TestRunWebPropagatesServeFailure(t *testing.T) {
 			return context.WithCancel(parent)
 		},
 	}
-	err := runWeb(context.Background(), service, WebOptions{
+	err := runWeb(context.Background(), dependencies, WebOptions{
 		Listen: "127.0.0.1:8080", BasePath: "/", Open: false,
 	}, streams)
 	require.Error(t, err)
@@ -277,4 +351,29 @@ func testWebService(t *testing.T) *app.Service {
 	service, err := app.NewService(nil)
 	require.NoError(t, err)
 	return service
+}
+
+func testWebDependencies(t testing.TB) WebDependencies {
+	t.Helper()
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	root := t.TempDir()
+	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
+		Open: func(context.Context, string) (webserver.RegistryProfile, error) {
+			return webserver.RegistryProfile{
+				ID:      "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Paths:   home.Paths{Root: root, Database: root + "/moneyflow.db"},
+				Service: service, Close: func() error { return nil },
+			}, nil
+		},
+	})
+	require.NoError(t, err)
+	return WebDependencies{Registry: registry}
+}
+
+func testWebDependencyBuilder(t testing.TB) WebDependencyBuilder {
+	t.Helper()
+	return func(context.Context, ProfileOptions, IOStreams) (WebDependencies, error) {
+		return testWebDependencies(t), nil
+	}
 }

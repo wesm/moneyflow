@@ -80,13 +80,19 @@ func TestHandlerNavigationFallbackAndReservations(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t, "/moneyflow/")
 
-	for _, path := range []string{"/moneyflow/accounts", "/moneyflow/transactions/detail"} {
+	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, path := range []string{"/moneyflow/", "/moneyflow/p/" + profileID + "/"} {
 		response := request(t, handler, http.MethodGet, path, "text/html,application/xhtml+xml")
 		assert.Equal(t, http.StatusOK, response.Code, path)
 		assert.Contains(t, response.Body.String(), "moneyflow-base-path")
 		assert.Contains(t, response.Body.String(), `<base href="/moneyflow/"`)
 	}
 	for _, path := range []string{
+		"/moneyflow/accounts",
+		"/moneyflow/transactions/detail",
+		"/moneyflow/p/legacy/",
+		"/moneyflow/p/" + profileID,
+		"/moneyflow/p/" + profileID + "/extra",
 		"/moneyflow/assets/missing-Ab12_cd3.js",
 		"/moneyflow/api/v1/missing",
 		"/moneyflow/openapi.json",
@@ -99,6 +105,33 @@ func TestHandlerNavigationFallbackAndReservations(t *testing.T) {
 	}
 	assert.Equal(t, http.StatusNotFound, request(t, handler, http.MethodGet, "/moneyflow/accounts", "application/json").Code)
 	assert.Equal(t, http.StatusNotFound, request(t, handler, http.MethodHead, "/moneyflow/accounts", "text/html").Code)
+}
+
+func TestHandlerPreselectionRedirectsBaseAndIssuesProfileScopedHTMLToken(t *testing.T) {
+	t.Parallel()
+	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	origin, err := api.ResolveOrigin("example.com:80", "/moneyflow/", "")
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
+	)
+	require.NoError(t, err)
+	handler, err := newHandler(
+		"/moneyflow/", testDistribution(), origin, security, false, profileID,
+	)
+	require.NoError(t, err)
+
+	redirect := request(t, handler, http.MethodGet, "/moneyflow/?v=1&group=merchant", "text/html")
+	assert.Equal(t, http.StatusTemporaryRedirect, redirect.Code)
+	assert.Equal(
+		t, "/moneyflow/p/"+profileID+"/?v=1&group=merchant", redirect.Header().Get("Location"),
+	)
+
+	profile := request(t, handler, http.MethodGet, "/moneyflow/p/"+profileID+"/", "text/html")
+	require.Equal(t, http.StatusOK, profile.Code)
+	match := mutationTokenMetaPattern.FindStringSubmatch(profile.Body.String())
+	require.Len(t, match, 2)
+	require.NoError(t, security.Verify(match[1], profileID))
 }
 
 func TestHandlerRejectsUnsafePathsAndMethods(t *testing.T) {
@@ -137,7 +170,7 @@ func TestHandlerWarnsOnDirectListenerAndLinksCanonicalOrigin(t *testing.T) {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true)
+	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true, "")
 	require.NoError(t, err)
 
 	direct := request(t, handler, http.MethodGet, "/moneyflow/", "text/html")
@@ -168,7 +201,7 @@ func newTestHandler(t testing.TB, basePath string) http.Handler {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler(basePath, testDistribution(), origin, security, false)
+	handler, err := newHandler(basePath, testDistribution(), origin, security, false, "")
 	require.NoError(t, err)
 	return handler
 }

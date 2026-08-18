@@ -45,6 +45,30 @@ func TestProfileCatalogListsLocalStatusAndCreatesWithCatalogAuthority(t *testing
 	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
 }
 
+func TestProfileCatalogActivationUsesCatalogAuthorityAndReturnsCanonicalIdentity(t *testing.T) {
+	t.Parallel()
+	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	catalog := &apiCatalogFake{activate: profilecatalog.Entry{
+		Key: profileID, ID: profileID, DisplayName: "Moneyflow",
+		ProviderKind: "monarch", Status: profilecatalog.StatusReady,
+	}}
+	server := newCatalogAPIServer(t, catalog, &apiEvictorFake{})
+
+	response := requestScopedMutation(t, server, CatalogMutationScope, "/api/v1/profiles/activate", ProfileActivateBody{
+		Version: ProfileCatalogSchemaVersion, Key: profilecatalog.LegacyKey,
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var body ProfileResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	assert.Equal(t, profileID, body.Profile.ID)
+	assert.Equal(t, profilecatalog.LegacyKey, catalog.activatedKey)
+
+	wrongScope := requestScopedMutation(t, server, profileID, "/api/v1/profiles/activate", ProfileActivateBody{
+		Version: ProfileCatalogSchemaVersion, Key: profilecatalog.LegacyKey,
+	})
+	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
+}
+
 func TestRecoveryEvictsCachedServiceBeforeRecreate(t *testing.T) {
 	t.Parallel()
 	calls := make([]string, 0, 2)
@@ -120,10 +144,17 @@ func requestScopedMutation(
 }
 
 type apiCatalogFake struct {
-	entries []profilecatalog.Entry
-	plan    profilecatalog.RecoveryPlan
-	calls   *[]string
-	creates int
+	entries      []profilecatalog.Entry
+	activate     profilecatalog.Entry
+	activatedKey string
+	plan         profilecatalog.RecoveryPlan
+	calls        *[]string
+	creates      int
+}
+
+func (catalog *apiCatalogFake) Activate(_ context.Context, key string) (profilecatalog.Entry, error) {
+	catalog.activatedKey = key
+	return catalog.activate, nil
 }
 
 func (catalog *apiCatalogFake) List(context.Context) ([]profilecatalog.Entry, error) {

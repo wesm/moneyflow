@@ -33,6 +33,7 @@ type ProfileResolver interface {
 type ProfileCatalog interface {
 	List(context.Context) ([]profilecatalog.Entry, error)
 	Create(context.Context, profilecatalog.CreateRequest) (profilecatalog.Entry, error)
+	Activate(context.Context, string) (profilecatalog.Entry, error)
 	RecoveryPlan(context.Context, string) (profilecatalog.RecoveryPlan, error)
 	Recreate(context.Context, profilecatalog.RecoveryRequest) (profilecatalog.RecoveryResult, error)
 }

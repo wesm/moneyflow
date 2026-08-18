@@ -150,6 +150,10 @@ func strictProfileAPIPaths(next http.Handler, basePath string) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		escapedPath := request.URL.EscapedPath()
+		if escapedPath == basePath+"api/v1/profiles/activate" {
+			next.ServeHTTP(response, request)
+			return
+		}
 		if strings.HasPrefix(escapedPath, prefix) {
 			if _, _, err := ParseProfileAPIPath(basePath, escapedPath); err != nil {
 				writeProblem(response, newProblem(
@@ -174,7 +178,8 @@ func profileMutationSecurity(
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost {
-			if request.URL.Path == basePath+"api/v1/profiles" {
+			if request.URL.Path == basePath+"api/v1/profiles" ||
+				request.URL.Path == basePath+"api/v1/profiles/activate" {
 				security.Protect(CatalogMutationScope, next).ServeHTTP(response, request)
 				return
 			}

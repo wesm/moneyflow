@@ -27,6 +27,27 @@ type LegacyManifestRequest struct {
 	ProfileID    string
 }
 
+// Activate resolves a selector and gives a manifest-less legacy profile its durable identity.
+func (catalog *Catalog) Activate(ctx context.Context, selector string) (Entry, error) {
+	entry, err := catalog.Resolve(ctx, selector)
+	if err != nil {
+		return Entry{}, err
+	}
+	if entry.ID != "" {
+		return entry, nil
+	}
+	if entry.Key != LegacyKey {
+		return Entry{}, newError(CodeProfileInvalid, errors.New("profile identity is missing"))
+	}
+	providerKind := entry.ProviderKind
+	if providerKind == "" {
+		providerKind = "local"
+	}
+	return catalog.FinalizeLegacyManifest(ctx, LegacyManifestRequest{
+		DisplayName: "Moneyflow", ProviderKind: providerKind,
+	})
+}
+
 // Create installs one current pristine profile under a new opaque ID.
 func (catalog *Catalog) Create(ctx context.Context, request CreateRequest) (Entry, error) {
 	name, key, err := NormalizeDisplayName(request.DisplayName)

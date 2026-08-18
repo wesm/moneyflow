@@ -617,7 +617,7 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 		args []string
 	}{
 		{name: "tui", args: []string{"tui"}},
-		{name: "web", args: []string{"web", "--open=false"}},
+		{name: "web", args: []string{"web", "--profile", "Moneyflow", "--open=false"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "profile")
@@ -644,9 +644,12 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 				return nil
 			}
 			streams.RunWeb = func(
-				_ context.Context, service *app.Service, _ WebOptions, _ IOStreams,
+				ctx context.Context, dependencies WebDependencies, _ WebOptions, _ IOStreams,
 			) error {
-				assertConfigured(service)
+				lease, acquireErr := dependencies.Registry.Acquire(ctx, dependencies.PreselectedProfileID)
+				require.NoError(t, acquireErr)
+				assertConfigured(lease.Service())
+				require.NoError(t, lease.Release())
 				return nil
 			}
 

@@ -37,6 +37,12 @@ type ProfileCreateBody struct {
 	ProviderKind string `json:"provider_kind" enum:"monarch,local"`
 }
 
+// ProfileActivateBody turns a catalog-only key into a durable canonical profile identity.
+type ProfileActivateBody struct {
+	Version string `json:"version"`
+	Key     string `json:"key" minLength:"1" maxLength:"128"`
+}
+
 // ProfileResponse returns one selector-safe profile.
 type ProfileResponse struct {
 	Version string         `json:"version"`
@@ -70,6 +76,7 @@ type RecoveryResponse struct {
 
 type profileCatalogOutput struct{ Body ProfileCatalogResponse }
 type profileCreateInput struct{ Body ProfileCreateBody }
+type profileActivateInput struct{ Body ProfileActivateBody }
 type profileOutput struct{ Body ProfileResponse }
 type recoveryInput struct {
 	ProfileID string `path:"profile_id"`
@@ -96,6 +103,30 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 		}
 		return &profileCatalogOutput{Body: ProfileCatalogResponse{
 			Version: ProfileCatalogSchemaVersion, Profiles: profiles,
+		}}, nil
+	})
+
+	huma.Register(server.api, huma.Operation{
+		OperationID: "activateProfile", Method: http.MethodPost,
+		Path:    server.basePath + "api/v1/profiles/activate",
+		Summary: "Activate a catalog profile and return its durable identity",
+		Errors:  []int{400, 403, 404, 409, 413, 422, 500, 503},
+	}, func(ctx context.Context, input *profileActivateInput) (*profileOutput, error) {
+		if config.Catalog == nil {
+			return nil, profileCatalogUnavailable()
+		}
+		if input.Body.Version != ProfileCatalogSchemaVersion {
+			return nil, newProblem(
+				http.StatusUnprocessableEntity, string(CodeProfileInvalid),
+				"The profile request version is unsupported.",
+			)
+		}
+		entry, err := config.Catalog.Activate(ctx, input.Body.Key)
+		if err != nil {
+			return nil, problemFromCatalogError(err)
+		}
+		return &profileOutput{Body: ProfileResponse{
+			Version: ProfileCatalogSchemaVersion, Profile: profileSummaryToWire(entry),
 		}}, nil
 	})
 

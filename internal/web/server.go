@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,15 +10,15 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/api"
-	"github.com/wesm/moneyflow/internal/app"
 )
 
 // ServerConfig supplies the immutable dependencies shared by the API and browser application.
 type ServerConfig struct {
-	Service          *app.Service
+	Resolver         api.ProfileResolver
 	Catalog          api.ProfileCatalog
 	Evictor          api.ProfileEvictor
 	Onboarding       api.OnboardingCoordinator
+	PreselectedID    string
 	BasePath         string
 	Version          string
 	Origin           api.OriginConfig
@@ -35,8 +34,8 @@ type Server struct {
 
 // NewServer composes reserved API routes ahead of the single-page application fallback.
 func NewServer(config ServerConfig) (*Server, error) {
-	if config.Service == nil {
-		return nil, errors.New("new web server: service is required")
+	if config.Resolver == nil {
+		return nil, errors.New("new web server: profile resolver is required")
 	}
 	basePath, err := api.NormalizeBasePath(config.BasePath)
 	if err != nil {
@@ -58,8 +57,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		}
 	}
 	apiServer, err := api.New(api.Config{
-		Resolver:        fixedProfileResolver{id: fixedWebProfileID, service: config.Service},
-		LegacyProfileID: fixedWebProfileID, BasePath: basePath, Version: config.Version,
+		Resolver: config.Resolver, BasePath: basePath, Version: config.Version,
 		Origin: config.Origin, Security: config.Security,
 		Catalog: config.Catalog, Evictor: config.Evictor, Onboarding: config.Onboarding,
 	})
@@ -68,6 +66,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 	}
 	staticHandler, err := newHandler(
 		basePath, embeddedDistribution, config.Origin, config.Security, config.WarnNonCanonical,
+		config.PreselectedID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new web server application: %w", err)
@@ -82,27 +81,6 @@ func NewServer(config ServerConfig) (*Server, error) {
 	})
 	return server, nil
 }
-
-const fixedWebProfileID = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-type fixedProfileResolver struct {
-	id      string
-	service *app.Service
-}
-
-func (resolver fixedProfileResolver) Acquire(_ context.Context, profileID string) (api.ProfileLease, error) {
-	if profileID != resolver.id {
-		return nil, errors.New("profile was not found")
-	}
-	return fixedProfileLease{service: resolver.service}, nil
-}
-
-type fixedProfileLease struct {
-	service *app.Service
-}
-
-func (lease fixedProfileLease) Service() *app.Service { return lease.service }
-func (fixedProfileLease) Release() error              { return nil }
 
 // Handler returns the composed transport-independent HTTP handler.
 func (server *Server) Handler() http.Handler {

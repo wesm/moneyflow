@@ -23,11 +23,12 @@ type PromptFunc func(context.Context, string, bool) (string, error)
 
 // IOStreams contains command input, output, and the injectable terminal runner.
 type IOStreams struct {
-	In     io.Reader
-	Out    io.Writer
-	Err    io.Writer
-	RunTUI tuiRunner
-	RunWeb WebRunner
+	In       io.Reader
+	Out      io.Writer
+	Err      io.Writer
+	RunTUI   tuiRunner
+	RunWeb   WebRunner
+	BuildWeb WebDependencyBuilder
 	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
 	OpenProfile ProfileOpener
 	// OpenMonarch and Prompt are provider lifecycle seams overridden in tests.

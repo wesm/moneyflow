@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createMoneyflowClient, createMutationFetch, MoneyflowProblem } from './client'
 import type { ViewProjection } from './client'
 
+const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+
 describe('Moneyflow generated client adapter', () => {
   it('loads counts-only provider status beneath the configured base path', async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -35,7 +37,7 @@ describe('Moneyflow generated client adapter', () => {
         },
       })
     })
-    const client = createMoneyflowClient('/moneyflow/', upstream as typeof fetch)
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
 
     await expect(client.providerStatus()).resolves.toMatchObject({ revision: '3' })
     const sent = upstream.mock.calls[0]?.[0]
@@ -53,7 +55,7 @@ describe('Moneyflow generated client adapter', () => {
       expect(requestBody.selection).toBe(opaqueSelection)
       return Response.json(projection(opaqueSelection, hugeMinor))
     })
-    const client = createMoneyflowClient('/moneyflow/', upstream as typeof fetch)
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
 
     const result = await client.view({
       query: 'v=1',
@@ -74,6 +76,7 @@ describe('Moneyflow generated client adapter', () => {
   it('throws typed safe problems', async () => {
     const client = createMoneyflowClient(
       '/',
+      profileID,
       vi.fn(async () =>
         Response.json(
           {
@@ -99,6 +102,7 @@ describe('Moneyflow generated client adapter', () => {
   it('rejects malformed error payloads without echoing them', async () => {
     const client = createMoneyflowClient(
       '/',
+      profileID,
       vi.fn(async () => Response.json({ private: 'do-not-echo' }, { status: 500 })) as typeof fetch,
     )
 
@@ -109,6 +113,28 @@ describe('Moneyflow generated client adapter', () => {
 })
 
 describe('Moneyflow mutation token transport', () => {
+  it('bootstraps and sends mutations only within the selected profile scope', async () => {
+    document.head.innerHTML = '<meta name="moneyflow-mutation-token" content="catalog-token">'
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      if (request.url.endsWith(`/api/v1/profiles/${profileID}/bootstrap`)) {
+        return Response.json({
+          mutation_token: 'profile-token',
+          token_expires_at: '2099-01-01T00:00:00Z',
+        })
+      }
+      expect(request.url).toContain(`/api/v1/profiles/${profileID}/mutations`)
+      expect(request.headers.get('X-Moneyflow-Mutation-Token')).toBe('profile-token')
+      return Response.json({ revision: '2' })
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    await expect(client.mutations.request('api/v1/mutations', '{}')).resolves.toMatchObject({
+      ok: true,
+    })
+    expect(upstream).toHaveBeenCalledTimes(2)
+  })
+
   it('keeps the bootstrap token in memory and retries only token expiry once', async () => {
     document.head.innerHTML = '<meta name="moneyflow-mutation-token" content="initial-token">'
     const calls: Array<{ url: string; token: string | null; body: string }> = []

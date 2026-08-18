@@ -39,6 +39,9 @@ describe('browser base paths', () => {
       '/moneyflow/?v=1&search=coffee%20shop',
     )
     expect(applicationURL('/', '')).toBe('/')
+    expect(
+      applicationURL('/moneyflow/p/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/', 'v=1&group=merchant'),
+    ).toBe('/moneyflow/p/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/?v=1&group=merchant')
   })
 
   it('reads an injected base path without rejecting legitimate double underscores', () => {

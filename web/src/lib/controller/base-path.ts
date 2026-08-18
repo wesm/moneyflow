@@ -61,7 +61,7 @@ export function apiURL(basePath: string, endpoint: string): string {
   return `${base}${relative}`
 }
 
-export function applicationURL(basePath: string, canonicalQuery: string): string {
-  const base = normalizeBrowserBasePath(basePath)
+export function applicationURL(applicationPath: string, canonicalQuery: string): string {
+  const base = normalizeBrowserBasePath(applicationPath)
   return canonicalQuery === '' ? base : `${base}?${canonicalQuery}`
 }

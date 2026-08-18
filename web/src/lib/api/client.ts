@@ -33,7 +33,6 @@ interface BootstrapResponse {
 
 const mutationTokenHeader = 'X-Moneyflow-Mutation-Token'
 const proactiveRefreshMillis = 5 * 60 * 1000
-const temporaryProfileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 export interface MoneyflowClient {
   readonly mutations: MutationFetch
@@ -70,8 +69,9 @@ export async function requestProfileJSON<T>(
 export function createMutationFetch(
   basePath: string,
   upstream: typeof fetch = fetch,
-  root: Document | undefined = globalThis.document,
+  root: Document | null | undefined = globalThis.document,
   now: () => number = Date.now,
+  bootstrapPath = 'api/v1/bootstrap',
 ): MutationFetch {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const baseURL = new URL(basePath, origin)
@@ -79,7 +79,7 @@ export function createMutationFetch(
   let refreshAt = token === '' ? 0 : now() + 55 * 60 * 1000
 
   const refresh = async (signal?: AbortSignal): Promise<void> => {
-    const response = await upstream(new URL('api/v1/bootstrap', baseURL), {
+    const response = await upstream(new URL(bootstrapPath, baseURL), {
       method: 'GET',
       cache: 'no-store',
       credentials: 'omit',
@@ -118,7 +118,7 @@ export function createMutationFetch(
   return { request: send }
 }
 
-function readMutationToken(root: Document | undefined): string {
+function readMutationToken(root: Document | null | undefined): string {
   return (
     root
       ?.querySelector<HTMLMetaElement>('meta[name="moneyflow-mutation-token"]')
@@ -160,8 +160,8 @@ export class MoneyflowProblem extends Error {
 
 export function createMoneyflowClient(
   basePath: string,
+  profileID: string,
   upstream: typeof fetch = fetch,
-  profileID: string = temporaryProfileID,
 ): MoneyflowClient {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const client = createClient<paths>({
@@ -171,7 +171,27 @@ export function createMoneyflowClient(
   })
   const requestOptions = <Body>(body: Body, signal?: AbortSignal) =>
     signal === undefined ? { body } : { body, signal }
-  const mutations = createMutationFetch(basePath, upstream)
+  const profilePrefix = `api/v1/profiles/${profileID}/`
+  const scopedMutations = createMutationFetch(
+    basePath,
+    upstream,
+    null,
+    Date.now,
+    `${profilePrefix}bootstrap`,
+  )
+  const mutations: MutationFetch = {
+    request(path, body, signal) {
+      const relative = path.replace(/^\/+/, '')
+      if (!relative.startsWith('api/v1/')) {
+        throw new Error('The Moneyflow profile API path is invalid.')
+      }
+      return scopedMutations.request(
+        `${profilePrefix}${relative.slice('api/v1/'.length)}`,
+        body,
+        signal,
+      )
+    },
+  }
 
   return {
     mutations,

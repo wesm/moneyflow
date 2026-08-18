@@ -251,3 +251,19 @@ func TestFinalizeLegacyManifestRejectsDifferentRequestedExistingIdentity(t *test
 	require.NoError(t, readErr)
 	assert.Equal(t, first.ID, manifest.ProfileID)
 }
+
+func TestActivateFinalizesManifestlessLegacyAndLeavesCanonicalProfilesUnchanged(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+
+	activated, err := catalog.Activate(context.Background(), LegacyKey)
+	require.NoError(t, err)
+	assert.True(t, ValidProfileID(activated.ID))
+	assert.Equal(t, activated.ID, activated.Key)
+	assert.Equal(t, "Moneyflow", activated.DisplayName)
+
+	again, err := catalog.Activate(context.Background(), activated.ID)
+	require.NoError(t, err)
+	assert.Equal(t, activated, again)
+}

@@ -6,10 +6,12 @@ import (
 	"html"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
 	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 const (
@@ -30,6 +32,7 @@ type handler struct {
 	origin           api.OriginConfig
 	security         *api.MutationSecurity
 	warnNonCanonical bool
+	preselectedID    string
 }
 
 // NewHandler constructs the static application handler from the generated production assets.
@@ -42,7 +45,7 @@ func NewHandler(basePath string) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new web handler security: %w", err)
 	}
-	return newHandler(basePath, embeddedDistribution, origin, security, false)
+	return newHandler(basePath, embeddedDistribution, origin, security, false, "")
 }
 
 func newHandler(
@@ -51,6 +54,7 @@ func newHandler(
 	origin api.OriginConfig,
 	security *api.MutationSecurity,
 	warnNonCanonical bool,
+	preselectedID string,
 ) (http.Handler, error) {
 	normalized, err := api.NormalizeBasePath(basePath)
 	if err != nil {
@@ -63,9 +67,12 @@ func newHandler(
 	if origin.Canonical == nil || origin.BasePath != normalized || security == nil {
 		return nil, errors.New("new web handler: bootstrap configuration is invalid")
 	}
+	if preselectedID != "" && !profilecatalog.ValidProfileID(preselectedID) {
+		return nil, errors.New("new web handler: preselected profile ID is invalid")
+	}
 	return &handler{
 		basePath: normalized, distribution: distribution, origin: origin,
-		security: security, warnNonCanonical: warnNonCanonical,
+		security: security, warnNonCanonical: warnNonCanonical, preselectedID: preselectedID,
 	}, nil
 }
 
@@ -89,28 +96,41 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		return
 	}
 	relative := strings.TrimPrefix(request.URL.Path, handler.basePath)
-	if !safeRequestPath(relative) {
-		writeStatus(response, request, http.StatusNotFound)
+	if relative == "" {
+		if handler.preselectedID != "" {
+			target := handler.basePath + "p/" + handler.preselectedID + "/"
+			location := (&url.URL{Path: target, RawQuery: request.URL.RawQuery}).RequestURI()
+			http.Redirect(response, request, location, http.StatusTemporaryRedirect)
+			return
+		}
+		handler.serveIndex(response, request, api.CatalogMutationScope)
 		return
 	}
-
-	if relative == "" {
-		handler.serveIndex(response, request)
+	if profileID, ok := applicationProfileID(relative); ok {
+		if !isNavigation(request, relative) {
+			writeStatus(response, request, http.StatusNotFound)
+			return
+		}
+		handler.serveIndex(response, request, profileID)
+		return
+	}
+	if !safeRequestPath(relative) {
+		writeStatus(response, request, http.StatusNotFound)
 		return
 	}
 	if _, ok := handler.distribution.assets[relative]; ok {
 		handler.serveAsset(response, request, relative)
 		return
 	}
-	if isNavigation(request, relative) {
-		handler.serveIndex(response, request)
-		return
-	}
 	writeStatus(response, request, http.StatusNotFound)
 }
 
-func (handler *handler) serveIndex(response http.ResponseWriter, request *http.Request) {
-	issued, err := handler.security.Issue(api.CatalogMutationScope)
+func (handler *handler) serveIndex(
+	response http.ResponseWriter,
+	request *http.Request,
+	mutationScope string,
+) {
+	issued, err := handler.security.Issue(mutationScope)
 	if err != nil {
 		writeStatus(response, request, http.StatusInternalServerError)
 		return
@@ -141,6 +161,17 @@ func (handler *handler) serveIndex(response http.ResponseWriter, request *http.R
 		// #nosec G705 -- content cannot include unescaped request data.
 		_, _ = response.Write([]byte(content))
 	}
+}
+
+func applicationProfileID(relative string) (string, bool) {
+	if !strings.HasPrefix(relative, "p/") || !strings.HasSuffix(relative, "/") {
+		return "", false
+	}
+	profileID := strings.TrimSuffix(strings.TrimPrefix(relative, "p/"), "/")
+	if strings.Contains(profileID, "/") || !profilecatalog.ValidProfileID(profileID) {
+		return "", false
+	}
+	return profileID, true
 }
 
 func (handler *handler) serveAsset(response http.ResponseWriter, request *http.Request, name string) {

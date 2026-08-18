@@ -8,20 +8,24 @@
     createViewController,
     type ViewController,
   } from './lib/controller/view-controller.svelte'
+  import { profileApplicationPath } from './lib/controller/routing'
 
   interface Props {
     basePath: string
+    profileID?: string
     controller?: ViewController
   }
 
-  let { basePath, controller: suppliedController }: Props = $props()
+  let { basePath, profileID, controller: suppliedController }: Props = $props()
   const controller = resolveController()
 
   function resolveController(): ViewController {
-    return (
-      suppliedController ??
-      createViewController({ basePath, client: createMoneyflowClient(basePath) })
-    )
+    if (suppliedController) return suppliedController
+    if (!profileID) throw new Error('Moneyflow profile route is missing.')
+    return createViewController({
+      basePath: profileApplicationPath(basePath, profileID),
+      client: createMoneyflowClient(basePath, profileID),
+    })
   }
 
   onMount(() => {

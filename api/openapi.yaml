@@ -727,6 +727,19 @@ components:
         - detail
         - code
       type: object
+    ProfileActivateBody:
+      additionalProperties: false
+      properties:
+        key:
+          maxLength: 128
+          minLength: 1
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - key
+      type: object
     ProfileCatalogResponse:
       additionalProperties: false
       properties:
@@ -1531,6 +1544,71 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Create a pristine local profile
+  /api/v1/profiles/activate:
+    post:
+      operationId: activateProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileActivateBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Activate a catalog profile and return its durable identity
   /api/v1/profiles/{profile_id}/bootstrap:
     get:
       operationId: profileBootstrap

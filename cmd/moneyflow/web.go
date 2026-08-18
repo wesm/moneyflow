@@ -18,7 +18,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
-	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/version"
 	webserver "github.com/wesm/moneyflow/internal/web"
 )
@@ -32,8 +31,8 @@ type BrowserOpener func(string) error
 // SignalContext adds process lifecycle signals to a command context.
 type SignalContext func(context.Context) (context.Context, context.CancelFunc)
 
-// WebRunner runs the browser transport.
-type WebRunner func(context.Context, *app.Service, WebOptions, IOStreams) error
+// WebRunner runs the browser transport with profile-neutral process dependencies.
+type WebRunner func(context.Context, WebDependencies, WebOptions, IOStreams) error
 
 // WebOptions contains the explicitly bounded web-command configuration.
 type WebOptions struct {
@@ -49,6 +48,7 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
 	var demo bool
 	var fixturePath string
+	var profile string
 	command := &cobra.Command{
 		Use:   "web",
 		Short: "Serve the browser application",
@@ -65,20 +65,15 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
-			opener := streams.OpenProfile
-			if opener == nil {
-				opener = openProfile
+			builder := streams.BuildWeb
+			if builder == nil {
+				builder = buildWebDependencies
 			}
-			opened, err := opener(command.Context(), ProfileOptions{
-				Demo: demo || fixturePath != "", FixturePath: fixturePath,
-			})
+			dependencies, err := builder(command.Context(), ProfileOptions{
+				Demo: demo || fixturePath != "", FixturePath: fixturePath, Profile: profile,
+			}, streams)
 			if err != nil {
 				return fmt.Errorf("start web: %w", err)
-			}
-			if err = configureOpenedMonarchProvider(
-				command.Context(), opened, streams, "web",
-			); err != nil {
-				return fmt.Errorf("start web: %w", closeOpenedProfile(opened, err))
 			}
 			if !isLoopbackHost(host) {
 				_, _ = fmt.Fprintln(
@@ -90,8 +85,8 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 			if runner == nil {
 				runner = runWeb
 			}
-			runErr := runner(command.Context(), opened.Service, options, streams)
-			if err = closeOpenedProfile(opened, runErr); err != nil {
+			runErr := runner(command.Context(), dependencies, options, streams)
+			if err = errors.Join(runErr, dependencies.Close(context.Background())); err != nil {
 				return fmt.Errorf("start web: %w", err)
 			}
 			return nil
@@ -103,6 +98,9 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
 	command.Flags().BoolVar(&demo, "demo", false, "serve a temporary profile seeded with synthetic data")
 	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
+	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
+	command.MarkFlagsMutuallyExclusive("profile", "demo")
+	command.MarkFlagsMutuallyExclusive("profile", "fixture")
 	if err := command.Flags().MarkHidden("fixture"); err != nil {
 		panic(err)
 	}
@@ -151,7 +149,7 @@ func isLoopbackHost(host string) bool {
 
 func runWeb(
 	parent context.Context,
-	service *app.Service,
+	dependencies WebDependencies,
 	options WebOptions,
 	streams IOStreams,
 ) error {
@@ -188,16 +186,28 @@ func runWeb(
 		_ = listener.Close()
 		return err
 	}
-	application, err := webserver.NewServer(webserver.ServerConfig{
-		Service: service, BasePath: options.BasePath, Version: version.Version,
+	serverConfig := webserver.ServerConfig{
+		Resolver: dependencies.Registry, PreselectedID: dependencies.PreselectedProfileID,
+		BasePath: options.BasePath, Version: version.Version,
 		Origin: origin, Security: security, WarnNonCanonical: options.ExternalURL != "",
-	})
+	}
+	if dependencies.Catalog != nil {
+		serverConfig.Catalog = dependencies.Catalog
+		serverConfig.Evictor = dependencies.Registry
+	}
+	if dependencies.Onboarding != nil {
+		serverConfig.Onboarding = dependencies.Onboarding
+	}
+	application, err := webserver.NewServer(serverConfig)
 	if err != nil {
 		_ = listener.Close()
 		return err
 	}
 	server := application.HTTPServer(listener.Addr().String(), streams.Err)
 	url := origin.Canonical.String()
+	if dependencies.PreselectedProfileID != "" {
+		url += "p/" + dependencies.PreselectedProfileID + "/"
+	}
 	if _, err := fmt.Fprintf(streams.Out, "Moneyflow web: %s\n", url); err != nil {
 		_ = listener.Close()
 		return fmt.Errorf("write web address: %w", err)
