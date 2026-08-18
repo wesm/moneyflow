@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -299,6 +301,87 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	}
 }
 
+func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
+	dependencies := testWebDependencies(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	address := make(chan string, 1)
+	streams := IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		Listen: func(ctx context.Context, network, _ string) (net.Listener, error) {
+			listener, err := (&net.ListenConfig{}).Listen(ctx, network, "127.0.0.1:0")
+			if err == nil {
+				address <- listener.Addr().String()
+			}
+			return listener, err
+		},
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return context.WithCancel(parent)
+		},
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- runWeb(ctx, dependencies, WebOptions{
+			Listen: "127.0.0.1:8080", BasePath: "/moneyflow/",
+			ExternalURL: "https://host-a.example/moneyflow/", Open: false,
+		}, streams)
+	}()
+	directOrigin := "http://" + <-address
+	baseURL := directOrigin + "/moneyflow/"
+
+	selector := eventuallyGET(t, baseURL)
+	require.Equal(t, http.StatusOK, selector.StatusCode)
+	selectorBody, err := io.ReadAll(selector.Body)
+	require.NoError(t, err)
+	require.NoError(t, selector.Body.Close())
+	assert.Contains(t, string(selectorBody), `<base href="/moneyflow/"`)
+	assert.Contains(t, string(selectorBody), `href="https://host-a.example/moneyflow/"`)
+	assetMatch := regexp.MustCompile(`(?:src|href)="\./(assets/[^"]+)"`).FindSubmatch(selectorBody)
+	require.Len(t, assetMatch, 2)
+	asset := eventuallyGET(t, baseURL+string(assetMatch[1]))
+	assert.Equal(t, http.StatusOK, asset.StatusCode)
+	require.NoError(t, asset.Body.Close())
+
+	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	selected := eventuallyGETAccept(t, baseURL+"p/"+profileID+"/", "text/html")
+	assert.Equal(t, http.StatusOK, selected.StatusCode)
+	require.NoError(t, selected.Body.Close())
+	bootstrap := eventuallyGET(t, baseURL+"api/v1/profiles/"+profileID+"/bootstrap")
+	require.Equal(t, http.StatusOK, bootstrap.StatusCode)
+	var configuration api.Bootstrap
+	require.NoError(t, json.NewDecoder(bootstrap.Body).Decode(&configuration))
+	require.NoError(t, bootstrap.Body.Close())
+	assert.Equal(t, "/moneyflow/", configuration.BasePath)
+	assert.Equal(t, "https://host-a.example/moneyflow/", configuration.CanonicalURL)
+
+	mutation, err := http.NewRequestWithContext(
+		context.Background(), http.MethodPost,
+		baseURL+"api/v1/profiles/"+profileID+"/mutations", strings.NewReader("{}"),
+	)
+	require.NoError(t, err)
+	mutation.Header.Set("Content-Type", "application/json")
+	mutation.Header.Set("Origin", directOrigin)
+	mutation.Header.Set("Sec-Fetch-Site", "same-origin")
+	mutation.Header.Set("X-Moneyflow-Mutation-Token", configuration.MutationToken)
+	rejected, err := http.DefaultClient.Do(mutation)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, rejected.StatusCode)
+	var problem struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.NewDecoder(rejected.Body).Decode(&problem))
+	require.NoError(t, rejected.Body.Close())
+	assert.Equal(t, string(api.CodeInvalidOrigin), problem.Code)
+
+	cancel()
+	select {
+	case err = <-result:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("web server did not shut down after cancellation")
+	}
+}
+
 func TestRunWebPropagatesServeFailure(t *testing.T) {
 	t.Parallel()
 	dependencies := testWebDependencies(t)
@@ -319,10 +402,21 @@ func TestRunWebPropagatesServeFailure(t *testing.T) {
 }
 
 func eventuallyGET(t testing.TB, url string) *http.Response {
+	return eventuallyGETAccept(t, url, "")
+}
+
+func eventuallyGETAccept(t testing.TB, url, accept string) *http.Response {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		response, err := http.Get(url) // #nosec G107 -- tests use an injected loopback listener.
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
+		if err == nil && accept != "" {
+			request.Header.Set("Accept", accept)
+		}
+		var response *http.Response
+		if err == nil {
+			response, err = http.DefaultClient.Do(request) // #nosec G704 -- injected loopback URL.
+		}
 		if err == nil {
 			return response
 		}

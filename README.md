@@ -94,6 +94,11 @@ make web-demo
 ./bin/moneyflow web --open=false --listen 100.64.0.10:8080
 ```
 
+Both persistent commands open the same profile catalog. The web selector lives at the configured
+base path, and each selected profile uses its stable `/p/<profile-id>/` URL. You can add, connect,
+reconnect, or recover a profile without leaving either application. Use `--profile` with an exact
+profile name or ID only when you want to bypass the selector.
+
 Pending edits, undo history, and redo history survive process restarts. Press `u` to undo, `U` to
 redo, `C` to manage categories, `G` to manage category groups, and `w` to review and atomically
 commit local changes. A TUI and web process may share one profile; revision checks reject stale
@@ -102,11 +107,12 @@ mutations instead of silently overwriting another process.
 ### Monarch read and refresh preview
 
 The Go v2 preview can bind one pristine profile to one Monarch household and import posted
-transactions. Choose **Add profile** in `moneyflow tui` for the keyboard-driven setup wizard. The
-provider command remains available as an advanced terminal workflow:
+transactions. Choose **Add profile** in `moneyflow tui` or `moneyflow web` for the shared setup
+wizard. The provider command remains available as an advanced terminal workflow:
 
 ```bash
 ./bin/moneyflow provider connect monarch --currency USD --scale 2
+./bin/moneyflow provider connect monarch --profile "Example Profile"
 ./bin/moneyflow tui
 
 # Remove only the local session; imported data remains available offline
