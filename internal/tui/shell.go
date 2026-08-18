@@ -87,6 +87,9 @@ type Shell struct {
 	palette      Palette
 	screen       shellScreen
 	entries      []profilecatalog.Entry
+	selector     profileSelectorState
+	providers    providerSelectorState
+	selected     *profilecatalog.Entry
 	finance      *Model
 	opened       *shellOwnedProfile
 	width        int
@@ -96,6 +99,11 @@ type Shell struct {
 }
 
 type switchProfileMsg struct{}
+
+type shellProfileOpenedMsg struct {
+	profile ShellOpenedProfile
+	err     error
+}
 
 // NewShell validates dependencies and starts either at selection or a preselected finance view.
 func NewShell(ctx context.Context, dependencies ShellDependencies, options Options) (Shell, error) {
@@ -129,6 +137,7 @@ func NewShell(ctx context.Context, dependencies ShellDependencies, options Optio
 	if err != nil {
 		return Shell{}, err
 	}
+	shell.selector = newProfileSelector(shell.entries)
 	return shell, nil
 }
 
@@ -143,6 +152,21 @@ func (shell Shell) Init() tea.Cmd {
 // Update routes terminal events to the current child state.
 func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case shellProfileOpenedMsg:
+		if message.err != nil {
+			shell.status = "The selected profile could not be opened."
+			shell.selector.status = shell.status
+			return shell, nil
+		}
+		if err := shell.enterFinance(message.profile, app.NewSession()); err != nil {
+			shell.status = "The selected profile could not be opened."
+			shell.err = err
+			return shell, nil
+		}
+		updated, command := shell.finance.Update(tea.WindowSizeMsg{Width: shell.width, Height: shell.height})
+		finance := updated.(Model)
+		shell.finance = &finance
+		return shell, command
 	case switchProfileMsg:
 		shell.leaveFinance()
 		return shell, nil
@@ -162,8 +186,27 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return shell, tea.Quit
 		}
 		if shell.screen == shellSelector && (message.Keystroke() == "esc" || message.Keystroke() == "q") {
-			shell.err = shell.Close()
-			return shell, tea.Quit
+			selection := shell.selector.update(message)
+			return shell.routeProfileSelection(selection)
+		}
+		if shell.screen == shellSelector {
+			selection := shell.selector.update(message)
+			return shell.routeProfileSelection(selection)
+		}
+		if shell.screen == shellProvider {
+			selection := shell.providers.update(message)
+			if selection.back {
+				shell.screen = shellSelector
+			} else if selection.provider == providerMonarch {
+				shell.screen = shellName
+				shell.status = "Enter a display name for the new Monarch profile."
+			}
+			return shell, nil
+		}
+		if message.Keystroke() == "esc" && shell.screen != shellFinance {
+			shell.screen = shellSelector
+			shell.selected = nil
+			return shell, nil
 		}
 	}
 	if shell.screen == shellFinance && shell.finance != nil {
@@ -171,6 +214,56 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		finance := updated.(Model)
 		shell.finance = &finance
 		return shell, command
+	}
+	return shell, nil
+}
+
+func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model, tea.Cmd) {
+	switch selection.action {
+	case selectorNone:
+		return shell, nil
+	case selectorExit:
+		shell.err = shell.Close()
+		return shell, tea.Quit
+	case selectorDemo:
+		return shell, func() tea.Msg {
+			profile, err := shell.dependencies.OpenDemo(shell.ctx)
+			return shellProfileOpenedMsg{profile: profile, err: err}
+		}
+	case selectorAdd:
+		shell.providers = newProviderSelector()
+		shell.screen = shellProvider
+		return shell, nil
+	case selectorOpen:
+		profileID := selection.entry.ID
+		return shell, func() tea.Msg {
+			profile, err := shell.dependencies.OpenProfile(shell.ctx, profileID)
+			return shellProfileOpenedMsg{profile: profile, err: err}
+		}
+	case selectorOnboarding:
+		entry := selection.entry
+		shell.selected = &entry
+		shell.screen = shellOnboarding
+		shell.status = "Profile setup will continue here."
+	case selectorLocalOnly:
+		entry := selection.entry
+		shell.selected = &entry
+		shell.screen = shellRecovery
+		shell.status = "This profile is local only. Press Enter to open offline or Esc to go back."
+	case selectorRecovery:
+		entry := selection.entry
+		shell.selected = &entry
+		shell.screen = shellRecovery
+		shell.status = "This profile needs recovery."
+	case selectorGuidance:
+		entry := selection.entry
+		shell.selected = &entry
+		shell.screen = shellRecovery
+		if entry.Status == profilecatalog.StatusRequiresNewer {
+			shell.status = "This profile requires a newer Moneyflow. No data was changed."
+		} else {
+			shell.status = "This profile metadata requires another Moneyflow version. No data was changed."
+		}
 	}
 	return shell, nil
 }
@@ -227,6 +320,7 @@ func (shell *Shell) leaveFinance() {
 	if shell.dependencies.Catalog != nil {
 		if entries, err := shell.dependencies.Catalog.List(shell.ctx); err == nil {
 			shell.entries = entries
+			shell.selector.replace(entries)
 		} else {
 			shell.status = "The profile catalog could not be refreshed."
 			shell.err = err
