@@ -411,7 +411,7 @@ func TestProviderConfirmationAndReviewKeepCommitDisabled(t *testing.T) {
 	require.Equal(t, 1, model.pending.ActiveOperations)
 	model = press(t, model, keyRune('w'))
 	require.Equal(t, overlayReview, model.overlay)
-	model = press(t, model, keyRune('c'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, reviewPhaseSummary, model.review.phase)
 	assert.Contains(t, model.review.err, "write-back")
 	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "stored until write-back")

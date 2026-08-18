@@ -171,9 +171,11 @@ func goOnlyEditingScenarios(initial parity.FrameScenario) []visualScenario {
 		{"transaction_info_aggregate", []string{"i"}},
 		{"redo_pending", []string{"h", "u"}},
 		{"active_inactive_review", []string{"h", "down", "h", "u", "w"}},
-		{"commit_redo_warning", []string{"h", "down", "h", "u", "w", "c"}},
+		{"commit_redo_warning", []string{"h", "down", "h", "u", "w"}},
+		{"review_details", []string{"h", "w", "i"}},
+		{"review_immediate_commit", []string{"h", "w", "enter"}},
 		{"durable_pending_quit", []string{"h", "q"}},
-		{"stale_review_conflict", []string{"h", "w", "c", "external_undo", "enter"}},
+		{"stale_review_conflict", []string{"h", "w", "external_undo", "enter"}},
 		{"provider_refresh_unbound", []string{"r"}},
 	}
 	result := make([]visualScenario, 0, len(definitions))

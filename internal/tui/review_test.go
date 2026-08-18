@@ -26,10 +26,12 @@ func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
 	require.Equal(t, overlayReview, model.overlay)
 	assert.Len(t, model.review.projection.ActiveOperations, 1)
 	assert.Len(t, model.review.projection.InactiveOperations, 1)
-	assert.Empty(t, model.review.projection.Targets)
+	assert.NotEmpty(t, model.review.projection.Targets)
 	assert.Contains(t, strings.Join(model.RenderScreen().Overlay, "\n"), "Inactive redo operations")
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "ACTIVE")
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "REDO")
 
-	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('i'))
 	assert.Equal(t, reviewPhaseDetails, model.review.phase)
 	assert.LessOrEqual(t, len(model.review.projection.Targets), app.MaxReviewTargetLimit)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
@@ -48,8 +50,7 @@ func TestReviewCommitWarnsAboutRedoAndClearsPendingHistory(t *testing.T) {
 	model = press(t, model, keyRune('h'))
 	model = press(t, model, keyRune('u'))
 	model = press(t, model, keyRune('w'))
-	model = press(t, model, keyRune('c'))
-	require.Equal(t, reviewPhaseConfirm, model.review.phase)
+	require.Equal(t, reviewPhaseSummary, model.review.phase)
 	assert.Contains(t, strings.Join(model.RenderScreen().Overlay, "\n"), "discard 1 redo operation")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
@@ -63,7 +64,6 @@ func TestReviewStaleConfirmationRefreshesWithoutReplayingCommit(t *testing.T) {
 	fixture := newPersistentModel(t, app.NewSession())
 	model := press(t, fixture.model, keyRune('h'))
 	model = press(t, model, keyRune('w'))
-	model = press(t, model, keyRune('c'))
 	reviewed := model.review.reviewedRevision
 	_, err := model.service.Undo(fixture.ctx, model.service.Revision())
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestReviewDetailPageMatchesCappedOverlayRows(t *testing.T) {
 	model.height = 50
 	model.width = 150
 	model = press(t, model, keyRune('w'))
-	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('i'))
 
 	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
 	assert.Equal(t, rect.Height-8, model.review.detailLimit)
@@ -105,7 +105,53 @@ func TestReviewSummaryScrollsToSelectedOperation(t *testing.T) {
 	}
 	model.review.selected = 35
 	frame := model.RenderScreen().Frame.RenderANSI()
-	assert.Contains(t, frame, "36. transaction.hide-toggle")
+	assert.Contains(t, frame, "Toggle report visibility")
+}
+
+func TestReviewDashboardNavigationRefreshesBoundedPreview(t *testing.T) {
+	t.Parallel()
+	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('h'))
+	model = press(t, model, keyRune('j'))
+	model = press(t, model, keyRune('h'))
+	model.width, model.height = 150, 50
+	model = press(t, model, keyRune('w'))
+	revision := model.review.reviewedRevision
+	require.NotEmpty(t, model.review.projection.Targets)
+	first := model.review.projection.Targets[0].TransactionID
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+
+	assert.Equal(t, 1, model.review.selected)
+	assert.Equal(t, revision, model.review.reviewedRevision)
+	require.NotEmpty(t, model.review.projection.Targets)
+	assert.NotEqual(t, first, model.review.projection.Targets[0].TransactionID)
+	assert.LessOrEqual(t, len(model.review.projection.Targets), model.reviewPreviewLimit())
+}
+
+func TestReviewEnterWithOnlyRedoStaysOpen(t *testing.T) {
+	t.Parallel()
+	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('h'))
+	model = press(t, model, keyRune('u'))
+	model = press(t, model, keyRune('w'))
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	assert.Equal(t, overlayReview, model.overlay)
+	assert.Contains(t, model.review.err, "no active operations")
+}
+
+func TestReviewStorageFailureStaysVisibleInReview(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('h'))
+	model = press(t, model, keyRune('w'))
+	require.NoError(t, fixture.profile.Close())
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	assert.Equal(t, overlayReview, model.overlay)
+	assert.NotEmpty(t, model.review.err)
+	assert.Contains(t, strings.Join(model.RenderScreen().Overlay, "\n"), model.review.err)
 }
 
 func TestQuitAlwaysConfirmsAndExplainsDurablePending(t *testing.T) {

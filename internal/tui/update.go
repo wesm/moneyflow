@@ -213,7 +213,12 @@ func (model *Model) refreshForInteraction() bool {
 	identity := model.rowIdentity(model.cursor)
 	changed, err := model.service.Refresh(model.ctx)
 	if err != nil {
-		model.status = safeInteractionMessage(err)
+		message := safeInteractionMessage(err)
+		if model.overlay == overlayReview {
+			model.review.err = message
+		} else {
+			model.status = message
+		}
 		return false
 	}
 	if !changed {

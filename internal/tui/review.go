@@ -15,7 +15,6 @@ type reviewPhase uint8
 const (
 	reviewPhaseSummary reviewPhase = iota
 	reviewPhaseDetails
-	reviewPhaseConfirm
 )
 
 type reviewState struct {
@@ -27,6 +26,11 @@ type reviewState struct {
 	phase            reviewPhase
 	original         editorSnapshot
 	err              string
+}
+
+type reviewDashboardRow struct {
+	heading        string
+	operationIndex int
 }
 
 func (model *Model) openReview() tea.Cmd {
@@ -46,27 +50,22 @@ func (model *Model) openReview() tea.Cmd {
 	}
 	model.overlay = overlayReview
 	model.status = ""
+	model.loadReviewPreview()
 	return nil
 }
 
 func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 	key := message.Keystroke()
-	if model.review.phase == reviewPhaseConfirm {
-		switch key {
-		case "esc":
-			model.review.phase = reviewPhaseSummary
-		case "enter":
-			model.commitReview()
-		}
-		return nil
-	}
 	if model.review.phase == reviewPhaseDetails {
 		switch key {
-		case "esc":
+		case "esc", "i":
 			model.review.phase = reviewPhaseSummary
-		case "left", "pageup":
+			model.loadReviewPreview()
+		case "enter":
+			model.tryCommitReview()
+		case "left", "pgup", "pageup":
 			model.loadReviewDetails(max(0, model.review.detailOffset-model.review.detailLimit))
-		case "right", "pagedown":
+		case "right", "pgdown", "pagedown":
 			if model.reviewHasNextDetailPage() {
 				model.loadReviewDetails(model.review.detailOffset + model.review.detailLimit)
 			}
@@ -77,33 +76,53 @@ func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 	case "esc":
 		model.cancelEditor(model.review.original)
 	case "up", "k":
+		previous := model.review.selected
 		model.review.selected = max(0, model.review.selected-1)
+		if model.review.selected != previous {
+			model.loadReviewPreview()
+		}
 	case "down", "j":
+		previous := model.review.selected
 		model.review.selected = min(max(0, len(model.review.projection.Operations)-1), model.review.selected+1)
-	case "enter":
+		if model.review.selected != previous {
+			model.loadReviewPreview()
+		}
+	case "i":
 		model.loadReviewDetails(0)
-	case "c":
-		if model.provider.bound {
-			model.review.err = "Pending provider edits are safely stored until write-back is available."
-			return nil
-		}
-		if model.review.projection.Pending.ActiveOperations == 0 {
-			model.review.err = "There are no active operations to commit."
-			return nil
-		}
-		model.review.phase = reviewPhaseConfirm
+	case "enter":
+		model.tryCommitReview()
 	}
 	return nil
 }
 
+func (model *Model) tryCommitReview() {
+	if model.provider.bound {
+		model.review.err = "Pending provider edits are safely stored until write-back is available."
+		return
+	}
+	if model.review.projection.Pending.ActiveOperations == 0 {
+		model.review.err = "There are no active operations to commit."
+		return
+	}
+	model.commitReview()
+}
+
+func (model *Model) loadReviewPreview() {
+	model.loadReviewWindow(0, model.reviewPreviewLimit(), reviewPhaseSummary)
+}
+
 func (model *Model) loadReviewDetails(offset int) {
+	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
+	limit := min(app.MaxReviewTargetLimit, max(1, rect.Height-8))
+	model.loadReviewWindow(offset, limit, reviewPhaseDetails)
+}
+
+func (model *Model) loadReviewWindow(offset int, limit int, phase reviewPhase) {
 	if len(model.review.projection.Operations) == 0 {
 		model.review.err = "There are no operations to inspect."
 		return
 	}
 	operation := model.review.projection.Operations[model.review.selected]
-	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
-	limit := min(app.MaxReviewTargetLimit, max(1, rect.Height-8))
 	projection, err := model.service.Review(model.ctx, model.review.reviewedRevision, app.ReviewWindow{
 		OperationID: operation.OperationID, Offset: offset, Limit: limit,
 	})
@@ -114,7 +133,7 @@ func (model *Model) loadReviewDetails(offset int) {
 	model.review.projection = projection
 	model.review.detailOffset = projection.Window.Offset
 	model.review.detailLimit = limit
-	model.review.phase = reviewPhaseDetails
+	model.review.phase = phase
 	model.review.err = ""
 }
 
@@ -156,6 +175,7 @@ func (model *Model) refreshReviewAfterFailure(err error) {
 		model.review.projection = projection
 		model.review.reviewedRevision = projection.Revision
 		model.review.selected = min(model.review.selected, max(0, len(projection.Operations)-1))
+		model.installReviewPreview(projection)
 	}
 	model.review.phase = reviewPhaseSummary
 	var failure *app.AppError
@@ -166,35 +186,35 @@ func (model *Model) refreshReviewAfterFailure(err error) {
 	}
 }
 
+func (model *Model) installReviewPreview(summary app.ReviewProjection) {
+	if len(summary.Operations) == 0 {
+		return
+	}
+	operation := summary.Operations[model.review.selected]
+	projection, err := model.service.Review(model.ctx, summary.Revision, app.ReviewWindow{
+		OperationID: operation.OperationID, Limit: model.reviewPreviewLimit(),
+	})
+	if err == nil {
+		model.review.projection = projection
+		model.review.detailOffset = projection.Window.Offset
+		model.review.detailLimit = projection.Window.Limit
+	}
+}
+
 func (model Model) renderReview(screen *RenderedScreen) {
-	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
-	fillRect(&screen.Frame, rect, model.palette.Panel)
-	overlayTitle(&screen.Frame, rect, "Pending Changes", model.palette.Heading)
+	rect := model.reviewRect()
+	drawOverlayBox(&screen.Frame, rect, model.palette, "Pending Changes")
 	x, width := rect.X+2, max(0, rect.Width-4)
 	overlay := []string{"Pending Changes"}
-	switch model.review.phase {
-	case reviewPhaseSummary:
-		model.renderReviewSummary(screen, rect, x, width)
-		overlay = append(overlay, reviewSemanticSummary(model.review.projection)...)
-	case reviewPhaseDetails:
+	if model.review.phase == reviewPhaseDetails {
 		model.renderReviewDetails(screen, rect, x, width)
 		overlay = append(overlay, "Bounded operation detail")
-	case reviewPhaseConfirm:
-		message := fmt.Sprintf("Commit %d active operations?", model.review.projection.Pending.ActiveOperations)
-		screen.Frame.PutText(x, rect.Y+4, Truncate(message, width), model.palette.Heading)
-		overlay = append(overlay, message)
-		if count := model.review.projection.Pending.InactiveOperations; count > 0 {
-			warning := fmt.Sprintf("This will permanently discard %d redo operation", count)
-			if count != 1 {
-				warning += "s"
-			}
-			screen.Frame.PutText(x, rect.Y+6, Truncate(warning+".", width), model.palette.Warning)
-			overlay = append(overlay, warning)
-		}
-		putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "Enter=Commit | Esc=Back", model.palette.Muted)
+	} else {
+		model.renderReviewSummary(screen, rect, x, width)
+		overlay = append(overlay, reviewSemanticSummary(model.review.projection)...)
 	}
 	if model.review.err != "" {
-		screen.Frame.PutText(x, rect.Y+rect.Height-4, Truncate(model.review.err, width), model.palette.Warning)
+		screen.Frame.PutText(x, rect.Y+rect.Height-3, Truncate(model.review.err, width), model.palette.Warning)
 		overlay = append(overlay, model.review.err)
 	}
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "review_overlay", Rect: rect})
@@ -207,39 +227,113 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 		projection.Pending.ActiveOperations, projection.Pending.InactiveOperations,
 		projection.Pending.AffectedTransactions)
 	screen.Frame.PutText(x, rect.Y+2, Truncate(summary, width), model.palette.Text)
-	visible := max(0, rect.Height-8)
-	start := max(0, model.review.selected-visible+1)
-	end := min(len(projection.Operations), start+visible)
+	if warning := reviewRedoWarning(projection.Pending.InactiveOperations); warning != "" {
+		screen.Frame.PutText(x, rect.Y+3, Truncate(warning, width), model.palette.Warning)
+	}
+
+	rows, selectedRow := reviewDashboardRows(projection, model.review.selected)
+	operationRows, previewRows := reviewDashboardLayout(rect)
+	start := max(0, selectedRow-operationRows+1)
+	end := min(len(rows), start+operationRows)
 	for index := start; index < end; index++ {
-		operation := projection.Operations[index]
-		state := "active"
-		if !operation.Active {
-			state = "redo"
+		row := rows[index]
+		y := rect.Y + 4 + index - start
+		if row.heading != "" {
+			screen.Frame.PutText(x, y, row.heading, model.palette.Heading)
+			continue
 		}
-		prefix := "  "
-		style := model.palette.Text
-		if index == model.review.selected {
+		operation := projection.Operations[row.operationIndex]
+		prefix, style := "  ", model.palette.Text
+		if row.operationIndex == model.review.selected {
 			prefix, style = "> ", model.palette.Selection
 		}
-		line := fmt.Sprintf("%s%d. %s [%s] %d targets %s → %s", prefix,
-			operation.Sequence, operation.Type, state, operation.AffectedCount,
-			operation.Before, operation.After)
-		screen.Frame.PutText(x, rect.Y+4+index-start, Truncate(line, width), style)
+		state := "[A] "
+		if !operation.Active {
+			state = "[R] "
+		}
+		screen.Frame.PutText(x, y, Truncate(prefix+state+reviewOperationLine(operation), width), style)
 	}
-	actions := "↑/↓=Choose | Enter=Details | c=Commit | Esc=Cancel"
+
+	previewY := rect.Y + 4 + end - start + 1
+	model.renderReviewPreview(screen, Rect{X: x, Y: previewY, Width: width, Height: previewRows + 1})
+	actions := "↑/↓=Choose | i=Details | Enter=Commit | Esc=Cancel"
 	if model.provider.bound {
-		actions = "↑/↓=Choose | Enter=Details | Commit unavailable until provider write-back | Esc=Cancel"
+		actions = "↑/↓=Choose | i=Details | Commit unavailable until provider write-back | Esc=Cancel"
 	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
+}
+
+func (model Model) renderReviewPreview(screen *RenderedScreen, rect Rect) {
+	if model.review.selected < 0 || model.review.selected >= len(model.review.projection.Operations) {
+		return
+	}
+	operation := model.review.projection.Operations[model.review.selected]
+	heading := fmt.Sprintf("Preview · %s · %d affected", friendlyReviewOperationLabel(operation.Type), operation.AffectedCount)
+	screen.Frame.PutText(rect.X, rect.Y, Truncate(heading, rect.Width), model.palette.Heading)
+	if len(model.review.projection.Targets) == 0 {
+		screen.Frame.PutText(rect.X, rect.Y+1, Truncate("No transaction rows are affected.", rect.Width), model.palette.Muted)
+		return
+	}
+	for index, target := range model.review.projection.Targets {
+		if index >= rect.Height-1 {
+			break
+		}
+		line := target.Date.String() + "  " + target.Merchant + "  " + target.Category
+		if target.Hidden {
+			line += "  hidden"
+		}
+		screen.Frame.PutText(rect.X, rect.Y+1+index, Truncate(line, rect.Width), model.palette.Muted)
+	}
+}
+
+func reviewDashboardRows(projection app.ReviewProjection, selected int) ([]reviewDashboardRow, int) {
+	rows := make([]reviewDashboardRow, 0, len(projection.Operations)+2)
+	selectedRow := 0
+	lastHeading := ""
+	for index, operation := range projection.Operations {
+		heading := "ACTIVE"
+		if !operation.Active {
+			heading = "REDO"
+		}
+		if heading != lastHeading {
+			rows = append(rows, reviewDashboardRow{heading: heading, operationIndex: -1})
+			lastHeading = heading
+		}
+		if index == selected {
+			selectedRow = len(rows)
+		}
+		rows = append(rows, reviewDashboardRow{operationIndex: index})
+	}
+	return rows, selectedRow
+}
+
+func reviewDashboardLayout(rect Rect) (int, int) {
+	available := max(4, rect.Height-8)
+	previewRows := min(6, max(1, available/3))
+	return max(2, available-previewRows-1), previewRows
+}
+
+func (model Model) reviewPreviewLimit() int {
+	_, rows := reviewDashboardLayout(model.reviewRect())
+	return min(app.MaxReviewTargetLimit, rows)
+}
+
+func (model Model) reviewRect() Rect {
+	desiredHeight := 36
+	if model.review.phase == reviewPhaseSummary {
+		rows, _ := reviewDashboardRows(model.review.projection, model.review.selected)
+		desiredHeight = min(desiredHeight, max(18, 12+len(rows)))
+	}
+	return responsiveOverlayRect(model.width, model.height, 92, desiredHeight)
 }
 
 func (model Model) renderReviewDetails(screen *RenderedScreen, rect Rect, x int, width int) {
 	projection := model.review.projection
 	if len(projection.Operations) > model.review.selected {
 		operation := projection.Operations[model.review.selected]
-		heading := fmt.Sprintf("%s | %d affected | rows %d-%d", operation.Type,
-			operation.AffectedCount, projection.Window.Offset+1,
-			projection.Window.Offset+projection.Window.Count)
+		end := projection.Window.Offset + projection.Window.Count
+		heading := fmt.Sprintf("%s | %d affected | rows %d-%d", friendlyReviewOperationLabel(operation.Type),
+			operation.AffectedCount, projection.Window.Offset+1, end)
 		screen.Frame.PutText(x, rect.Y+2, Truncate(heading, width), model.palette.Heading)
 	}
 	for index, target := range projection.Targets {
@@ -252,7 +346,7 @@ func (model Model) renderReviewDetails(screen *RenderedScreen, rect Rect, x int,
 		}
 		screen.Frame.PutText(x, rect.Y+4+index, Truncate(line, width), model.palette.Text)
 	}
-	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "←/→=Page | Esc=Operations", model.palette.Muted)
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "←/→=Page | Enter=Commit | Esc/i=Dashboard", model.palette.Muted)
 }
 
 func reviewSemanticSummary(projection app.ReviewProjection) []string {
@@ -260,12 +354,16 @@ func reviewSemanticSummary(projection app.ReviewProjection) []string {
 		"Active operations: " + strconv.Itoa(len(projection.ActiveOperations)),
 		"Inactive redo operations: " + strconv.Itoa(len(projection.InactiveOperations)),
 	}
+	if warning := reviewRedoWarning(projection.Pending.InactiveOperations); warning != "" {
+		result = append(result, warning)
+	}
 	for _, operation := range projection.Operations {
 		state := "active"
 		if !operation.Active {
 			state = "redo"
 		}
-		result = append(result, fmt.Sprintf("%s %s %d targets", state, operation.Type, operation.AffectedCount))
+		result = append(result, fmt.Sprintf("%s %s %d targets", state,
+			friendlyReviewOperationLabel(operation.Type), operation.AffectedCount))
 	}
 	return result
 }
