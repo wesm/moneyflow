@@ -63,6 +63,10 @@ func TestShellValidatesDependenciesAndPropagatesCloseFailure(t *testing.T) {
 	t.Parallel()
 	_, err := NewShell(context.Background(), ShellDependencies{}, Options{})
 	assert.ErrorContains(t, err, "dependencies")
+	missingLifecycle, _ := fakeShellDependencies(t)
+	missingLifecycle.Profiles = nil
+	_, err = NewShell(context.Background(), missingLifecycle, Options{})
+	assert.ErrorContains(t, err, "dependencies")
 
 	dependencies, state := fakeShellDependencies(t)
 	state.closeErr = errors.New("close failed")
@@ -75,9 +79,17 @@ func TestShellValidatesDependenciesAndPropagatesCloseFailure(t *testing.T) {
 }
 
 type fakeShellState struct {
-	opens    int
-	closes   int
-	closeErr error
+	opens          int
+	closes         int
+	creates        int
+	cancelNewCalls int
+	recreates      int
+	closeErr       error
+	createErr      error
+	entries        []profilecatalog.Entry
+	created        profilecatalog.Entry
+	canceledID     string
+	openedSelector string
 }
 
 type fakeCatalogView struct {
@@ -92,9 +104,11 @@ func fakeShellDependencies(t testing.TB) (ShellDependencies, *fakeShellState) {
 	t.Helper()
 	state := &fakeShellState{}
 	return ShellDependencies{
-		Catalog: fakeCatalogView{},
-		OpenProfile: func(context.Context, string) (ShellOpenedProfile, error) {
+		Catalog:  fakeCatalogView{},
+		Profiles: state,
+		OpenProfile: func(_ context.Context, selector string) (ShellOpenedProfile, error) {
 			state.opens++
+			state.openedSelector = selector
 			return fakeShellOpenedProfile(t, state), nil
 		},
 		OpenDemo: func(context.Context) (ShellOpenedProfile, error) {
@@ -102,6 +116,47 @@ func fakeShellDependencies(t testing.TB) (ShellDependencies, *fakeShellState) {
 			return fakeShellOpenedProfile(t, state), nil
 		},
 	}, state
+}
+
+func (state *fakeShellState) Create(
+	context.Context,
+	profilecatalog.CreateRequest,
+) (profilecatalog.Entry, error) {
+	state.creates++
+	if state.createErr != nil {
+		return profilecatalog.Entry{}, state.createErr
+	}
+	state.created = profilecatalog.Entry{
+		Key: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb", ID: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb",
+		DisplayName: "P", ProviderKind: "monarch", Status: profilecatalog.StatusSetupIncomplete,
+	}
+	state.entries = append(state.entries, state.created)
+	return state.created, nil
+}
+
+func (state *fakeShellState) CancelNewProfile(_ context.Context, id string) (bool, error) {
+	state.cancelNewCalls++
+	state.canceledID = id
+	state.entries = nil
+	return true, nil
+}
+
+func (state *fakeShellState) RecoveryPlan(
+	_ context.Context,
+	selector string,
+) (profilecatalog.RecoveryPlan, error) {
+	return profilecatalog.RecoveryPlan{
+		ProfileKey: selector, ProfileID: selector,
+		BackupPath: "/tmp/example/recovery/backup",
+	}, nil
+}
+
+func (state *fakeShellState) Recreate(
+	context.Context,
+	profilecatalog.RecoveryRequest,
+) (profilecatalog.RecoveryResult, error) {
+	state.recreates++
+	return profilecatalog.RecoveryResult{BackupPath: "/tmp/example/recovery/backup"}, nil
 }
 
 func fakeShellOpenedProfile(t testing.TB, state *fakeShellState) ShellOpenedProfile {

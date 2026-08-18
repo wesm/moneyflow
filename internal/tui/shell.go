@@ -29,6 +29,14 @@ type CatalogView interface {
 	List(context.Context) ([]profilecatalog.Entry, error)
 }
 
+// ProfileLifecycle supplies durable create, rollback, and recovery operations.
+type ProfileLifecycle interface {
+	Create(context.Context, profilecatalog.CreateRequest) (profilecatalog.Entry, error)
+	CancelNewProfile(context.Context, string) (bool, error)
+	RecoveryPlan(context.Context, string) (profilecatalog.RecoveryPlan, error)
+	Recreate(context.Context, profilecatalog.RecoveryRequest) (profilecatalog.RecoveryResult, error)
+}
+
 // OnboardingView is the renderer-neutral attempt surface used by later shell screens.
 type OnboardingView interface {
 	Start(context.Context, onboarding.StartRequest) (onboarding.Snapshot, error)
@@ -55,6 +63,7 @@ type ShellDemoOpener func(context.Context) (ShellOpenedProfile, error)
 // ShellDependencies are application boundaries injected by the command composition root.
 type ShellDependencies struct {
 	Catalog     CatalogView
+	Profiles    ProfileLifecycle
 	OpenProfile ShellProfileOpener
 	OpenDemo    ShellDemoOpener
 	Onboarding  OnboardingView
@@ -90,6 +99,9 @@ type Shell struct {
 	selector     profileSelectorState
 	providers    providerSelectorState
 	selected     *profilecatalog.Entry
+	name         profileNameState
+	recovery     profileRecoveryState
+	createdID    string
 	finance      *Model
 	opened       *shellOwnedProfile
 	width        int
@@ -103,6 +115,25 @@ type switchProfileMsg struct{}
 type shellProfileOpenedMsg struct {
 	profile ShellOpenedProfile
 	err     error
+}
+
+type shellProfileCreatedMsg struct {
+	entry profilecatalog.Entry
+	err   error
+}
+
+type shellProfileCanceledMsg struct {
+	err error
+}
+
+type shellRecoveryPlanMsg struct {
+	plan profilecatalog.RecoveryPlan
+	err  error
+}
+
+type shellProfileRecreatedMsg struct {
+	result profilecatalog.RecoveryResult
+	err    error
 }
 
 // NewShell validates dependencies and starts either at selection or a preselected finance view.
@@ -130,7 +161,8 @@ func NewShell(ctx context.Context, dependencies ShellDependencies, options Optio
 		}
 		return shell, nil
 	}
-	if dependencies.Catalog == nil || dependencies.OpenProfile == nil || dependencies.OpenDemo == nil {
+	if dependencies.Catalog == nil || dependencies.Profiles == nil ||
+		dependencies.OpenProfile == nil || dependencies.OpenDemo == nil {
 		return Shell{}, errors.New("new TUI shell: dependencies are incomplete")
 	}
 	shell.entries, err = dependencies.Catalog.List(ctx)
@@ -167,6 +199,51 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		finance := updated.(Model)
 		shell.finance = &finance
 		return shell, command
+	case shellProfileCreatedMsg:
+		shell.name.busy = false
+		if message.err != nil {
+			shell.name.status = profileCreateMessage(message.err)
+			return shell, nil
+		}
+		entry := message.entry
+		shell.selected = &entry
+		shell.createdID = entry.ID
+		shell.screen = shellOnboarding
+		shell.status = "Continue setting up " + entry.DisplayName + "."
+		return shell, nil
+	case shellProfileCanceledMsg:
+		if message.err != nil {
+			shell.status = "The incomplete profile could not be removed."
+			shell.err = message.err
+		}
+		shell.createdID = ""
+		shell.selected = nil
+		shell.screen = shellSelector
+		shell.refreshEntries()
+		return shell, nil
+	case shellRecoveryPlanMsg:
+		if message.err != nil {
+			shell.recovery.status = recoveryMessage(message.err)
+			shell.err = message.err
+			return shell, nil
+		}
+		shell.recovery.applyPlan(message.plan)
+		return shell, nil
+	case shellProfileRecreatedMsg:
+		shell.recovery.busy = false
+		if message.err != nil {
+			shell.recovery.status = recoveryMessage(message.err)
+			shell.err = message.err
+			return shell, nil
+		}
+		if shell.selected != nil {
+			entry := *shell.selected
+			entry.Status = profilecatalog.StatusSetupIncomplete
+			shell.selected = &entry
+		}
+		shell.status = "Profile recreated. The previous database is in the backup at " + message.result.BackupPath
+		shell.screen = shellOnboarding
+		return shell, nil
 	case switchProfileMsg:
 		shell.leaveFinance()
 		return shell, nil
@@ -199,9 +276,45 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				shell.screen = shellSelector
 			} else if selection.provider == providerMonarch {
 				shell.screen = shellName
-				shell.status = "Enter a display name for the new Monarch profile."
+				shell.name, _ = newProfileNameState()
+				shell.status = ""
 			}
 			return shell, nil
+		}
+		if shell.screen == shellName {
+			if message.Keystroke() == "esc" {
+				shell.screen = shellProvider
+				return shell, nil
+			}
+			var name string
+			var command tea.Cmd
+			shell.name, name, command = shell.name.update(message)
+			if name != "" {
+				shell.name.busy = true
+				return shell, func() tea.Msg {
+					entry, err := shell.dependencies.Profiles.Create(shell.ctx, profilecatalog.CreateRequest{
+						DisplayName: name, ProviderKind: "monarch",
+					})
+					return shellProfileCreatedMsg{entry: entry, err: err}
+				}
+			}
+			return shell, command
+		}
+		if shell.screen == shellRecovery {
+			return shell.routeRecoveryKey(message)
+		}
+		if shell.screen == shellOnboarding && message.Keystroke() == "esc" {
+			if shell.createdID == "" {
+				shell.screen = shellSelector
+				shell.selected = nil
+				return shell, nil
+			}
+			profileID := shell.createdID
+			shell.status = "Canceling profile setup…"
+			return shell, func() tea.Msg {
+				_, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
+				return shellProfileCanceledMsg{err: err}
+			}
 		}
 		if message.Keystroke() == "esc" && shell.screen != shellFinance {
 			shell.screen = shellSelector
@@ -235,7 +348,7 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		shell.screen = shellProvider
 		return shell, nil
 	case selectorOpen:
-		profileID := selection.entry.ID
+		profileID := entrySelector(selection.entry)
 		return shell, func() tea.Msg {
 			profile, err := shell.dependencies.OpenProfile(shell.ctx, profileID)
 			return shellProfileOpenedMsg{profile: profile, err: err}
@@ -249,16 +362,26 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		entry := selection.entry
 		shell.selected = &entry
 		shell.screen = shellRecovery
-		shell.status = "This profile is local only. Press Enter to open offline or Esc to go back."
+		shell.recovery = newProfileRecoveryState(entry)
+		shell.status = ""
 	case selectorRecovery:
 		entry := selection.entry
 		shell.selected = &entry
 		shell.screen = shellRecovery
-		shell.status = "This profile needs recovery."
+		shell.recovery = newProfileRecoveryState(entry)
+		selector := entry.Key
+		if selector == "" {
+			selector = entry.ID
+		}
+		return shell, func() tea.Msg {
+			plan, err := shell.dependencies.Profiles.RecoveryPlan(shell.ctx, selector)
+			return shellRecoveryPlanMsg{plan: plan, err: err}
+		}
 	case selectorGuidance:
 		entry := selection.entry
 		shell.selected = &entry
 		shell.screen = shellRecovery
+		shell.recovery = newProfileRecoveryState(entry)
 		if entry.Status == profilecatalog.StatusRequiresNewer {
 			shell.status = "This profile requires a newer Moneyflow. No data was changed."
 		} else {
@@ -266,6 +389,64 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		}
 	}
 	return shell, nil
+}
+
+func (shell Shell) routeRecoveryKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if message.Keystroke() == "esc" {
+		shell.screen = shellSelector
+		shell.selected = nil
+		return shell, nil
+	}
+	if message.Keystroke() != "enter" || shell.selected == nil {
+		return shell, nil
+	}
+	if shell.recovery.entry.Status == profilecatalog.StatusLocalOnly {
+		profileID := entrySelector(*shell.selected)
+		return shell, func() tea.Msg {
+			profile, err := shell.dependencies.OpenProfile(shell.ctx, profileID)
+			return shellProfileOpenedMsg{profile: profile, err: err}
+		}
+	}
+	if !shell.recovery.confirm() {
+		return shell, nil
+	}
+	plan := *shell.recovery.plan
+	shell.recovery.busy = true
+	return shell, func() tea.Msg {
+		result, err := shell.dependencies.Profiles.Recreate(shell.ctx, profilecatalog.RecoveryRequest{
+			Plan: plan, Confirmed: true,
+		})
+		return shellProfileRecreatedMsg{result: result, err: err}
+	}
+}
+
+func entrySelector(entry profilecatalog.Entry) string {
+	if entry.ID != "" {
+		return entry.ID
+	}
+	return entry.Key
+}
+
+func profileCreateMessage(err error) string {
+	switch profilecatalog.CodeOf(err) {
+	case profilecatalog.CodeProfileNameConflict:
+		return "That profile name is already in use."
+	case profilecatalog.CodeProfileBusy:
+		return "The profile catalog is busy. Try again."
+	default:
+		return "The profile name could not be saved."
+	}
+}
+
+func recoveryMessage(err error) string {
+	switch profilecatalog.CodeOf(err) {
+	case profilecatalog.CodeProfileBusy:
+		return "This profile is open elsewhere. Close it before recovery."
+	case profilecatalog.CodeRecoveryIncomplete:
+		return "Profile recovery is incomplete. Restart Moneyflow to continue it."
+	default:
+		return "The profile could not be recreated. No data was discarded."
+	}
 }
 
 // View renders the current child into the alternate screen.
@@ -317,13 +498,18 @@ func (shell *Shell) leaveFinance() {
 		shell.err = err
 	}
 	shell.screen = shellSelector
-	if shell.dependencies.Catalog != nil {
-		if entries, err := shell.dependencies.Catalog.List(shell.ctx); err == nil {
-			shell.entries = entries
-			shell.selector.replace(entries)
-		} else {
-			shell.status = "The profile catalog could not be refreshed."
-			shell.err = err
-		}
+	shell.refreshEntries()
+}
+
+func (shell *Shell) refreshEntries() {
+	if shell.dependencies.Catalog == nil {
+		return
+	}
+	if entries, err := shell.dependencies.Catalog.List(shell.ctx); err == nil {
+		shell.entries = entries
+		shell.selector.replace(entries)
+	} else {
+		shell.status = "The profile catalog could not be refreshed."
+		shell.err = err
 	}
 }

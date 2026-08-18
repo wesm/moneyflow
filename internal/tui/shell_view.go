@@ -1,5 +1,7 @@
 package tui
 
+import "strings"
+
 // renderSelectorPlaceholder provides the stable shell frame before selector rows are added.
 func (shell Shell) renderSelectorPlaceholder() RenderedScreen {
 	frame := NewFrame(shell.width, shell.height, cellFromStyle(" ", shell.palette.Background))
@@ -20,11 +22,42 @@ func (shell Shell) renderSelectorPlaceholder() RenderedScreen {
 		shell.renderProfileSelector(&frame, content)
 	case shellProvider:
 		shell.renderProviderSelector(&frame, content)
+	case shellName:
+		shell.renderProfileName(&frame, content)
+	case shellRecovery:
+		shell.renderProfileRecovery(&frame, content)
 	default:
 		frame.PutText(content.X+2, content.Y+3, Truncate(shell.status, content.Width-4), shell.palette.Warning)
 		frame.PutText(content.X+2, content.Y+content.Height-2, "Esc Back", shell.palette.Muted)
 	}
 	return RenderedScreen{Frame: frame}
+}
+
+func (shell Shell) renderProfileName(frame *Frame, content Rect) {
+	frame.PutText(content.X+2, content.Y+2, "Name this Monarch profile.", shell.palette.Muted)
+	value := shell.name.input.Value()
+	if value == "" {
+		value = "Example Profile"
+	}
+	cursor := ""
+	if !shell.name.busy {
+		cursor = "▏"
+	}
+	frame.PutText(content.X+2, content.Y+5, "Profile name: "+value+cursor, shell.palette.Heading)
+	if shell.name.busy {
+		frame.PutText(content.X+2, content.Y+8, "Creating profile…", shell.palette.Muted)
+	} else if shell.name.status != "" {
+		frame.PutText(content.X+2, content.Y+8, shell.name.status, shell.palette.Warning)
+	}
+	frame.PutText(content.X+2, content.Y+content.Height-2, "Enter Continue  Esc Back", shell.palette.Muted)
+}
+
+func (shell Shell) renderProfileRecovery(frame *Frame, content Rect) {
+	y := content.Y + 2
+	for _, line := range strings.Split(shell.recovery.viewText(), "\n") {
+		frame.PutText(content.X+2, y, Truncate(line, content.Width-4), shell.palette.Text)
+		y++
+	}
 }
 
 func (shell Shell) renderProfileSelector(frame *Frame, content Rect) {
