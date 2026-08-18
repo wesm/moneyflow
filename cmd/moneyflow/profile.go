@@ -204,6 +204,9 @@ func openProfileCatalog(explicitHome string) (*profilecatalog.Catalog, error) {
 	}
 	catalog, err := profilecatalog.New(profilecatalog.Config{
 		Paths: paths, Random: cryptorand.Reader, Now: time.Now, Version: version.Version,
+		InspectSession: func(profileRoot string, providerKind string) (bool, error) {
+			return inspectCommandProviderSession(profileRoot, providerKind)
+		},
 	})
 	if err != nil {
 		return nil, err

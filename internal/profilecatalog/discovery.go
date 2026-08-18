@@ -77,6 +77,11 @@ func ResolveEntries(entries []Entry, selector string) (Entry, error) {
 			return Entry{}, newError(CodeProfileAmbiguous, errors.New("catalog has multiple profiles"))
 		}
 	}
+	for _, entry := range entries {
+		if entry.Key == selector {
+			return entry, nil
+		}
+	}
 	if ValidProfileID(selector) {
 		for _, entry := range entries {
 			if entry.ID == selector {

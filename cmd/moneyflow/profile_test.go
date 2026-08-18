@@ -91,6 +91,43 @@ func TestOpenProfileFinalizesPristineLegacyProfileForRequestedProvider(t *testin
 	require.NoError(t, reopened.Close())
 }
 
+func TestOpenProfileAcceptsLegacyCatalogKey(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "profile")
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	require.NoError(t, sqlite.InstallPristineProfile(ctx, paths, sqlite.DefaultOptions))
+
+	opened, err := openProfile(ctx, ProfileOptions{
+		ExplicitHome: root, Profile: profilecatalog.LegacyKey,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, paths.Database, opened.Path)
+	require.NoError(t, opened.Close())
+}
+
+func TestProductionCatalogDetectsSavedMonarchSession(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "catalog")
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Connected", ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+	bindCommandProfile(t, entry.Root, commandCredentialTime)
+	saveCommandSession(t, entry.Root, testMonarchSession(
+		commandCredentialTime, "subscription-example",
+	))
+
+	productionCatalog, err := openProfileCatalog(root)
+	require.NoError(t, err)
+	entries, err := productionCatalog.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, profilecatalog.StatusReady, entries[0].Status)
+}
+
 func TestOpenProfileUsesSolePersistentCatalogEntry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

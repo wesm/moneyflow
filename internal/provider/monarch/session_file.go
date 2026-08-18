@@ -17,6 +17,8 @@ import (
 
 const maxSessionBytes int64 = 8 << 10
 
+const sessionFilename = "session.json"
+
 // SessionStore persists Monarch-owned session material outside SQLite.
 type SessionStore struct {
 	path string
@@ -32,8 +34,38 @@ func NewSessionStore(paths home.Paths) (*SessionStore, error) {
 		return nil, fmt.Errorf("create monarch session store: %w", err)
 	}
 	return &SessionStore{
-		path: filepath.Join(providerDirectory, "session.json"),
+		path: filepath.Join(providerDirectory, sessionFilename),
 	}, nil
+}
+
+// SessionFilePresent checks the provider-owned session path without creating or
+// modifying profile directories. Catalog listing uses this local-only probe.
+func SessionFilePresent(profileRoot string) (bool, error) {
+	if profileRoot == "" || !filepath.IsAbs(profileRoot) {
+		return false, errors.New("inspect monarch session: profile root must be absolute")
+	}
+	components := []string{profileRoot, filepath.Join(profileRoot, "providers"),
+		filepath.Join(profileRoot, "providers", providerKind)}
+	for _, directory := range components {
+		info, err := os.Lstat(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("inspect monarch session directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return false, errors.New("inspect monarch session: directory is redirected")
+		}
+	}
+	path := filepath.Join(components[len(components)-1], sessionFilename)
+	if _, err := home.PrivateFileFingerprint(path, maxSessionBytes); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect monarch session: %w", err)
+	}
+	return true, nil
 }
 
 // Path returns the fixed session path for CLI diagnostics and hardened file operations.

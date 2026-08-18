@@ -49,6 +49,17 @@ func TestResolveAcceptsNormalizedNameCanonicalIDAndSoleProfile(t *testing.T) {
 	assert.Equal(t, entry.ID, sole.ID)
 }
 
+func TestResolveAcceptsLegacyCatalogKey(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+
+	entry, err := catalog.Resolve(context.Background(), LegacyKey)
+	require.NoError(t, err)
+	assert.Equal(t, LegacyKey, entry.Key)
+	assert.Empty(t, entry.ID)
+}
+
 func TestResolveReportsMissingAndAmbiguousSelections(t *testing.T) {
 	t.Parallel()
 	catalog := newTestCatalog(t, nil)

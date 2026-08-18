@@ -21,6 +21,13 @@ import (
 
 const cliOnboardingPollInterval = 2 * time.Millisecond
 
+func inspectCommandProviderSession(profileRoot string, providerKind string) (bool, error) {
+	if providerKind != "monarch" {
+		return false, nil
+	}
+	return monarch.SessionFilePresent(profileRoot)
+}
+
 type cliOnboardingFailure struct {
 	message string
 	cause   error

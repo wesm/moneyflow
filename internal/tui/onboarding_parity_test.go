@@ -27,19 +27,20 @@ func TestOnboardingSemanticParity(t *testing.T) {
 				root, "testdata", "parity", "onboarding_semantic_frames", scenario.Name+".json",
 			))
 			require.NoError(t, loadErr)
-			goScreen, renderErr := tui.RenderOnboardingPreviewForTest(
+			preview, renderErr := tui.PopulatedOnboardingPreviewForTest(
 				scenario.Screen, scenario.Width, scenario.Height, false,
 			)
 			require.NoError(t, renderErr)
-			semantics := tui.OnboardingPreviewSemanticsForTest(scenario.Screen)
 
-			assert.Equal(t, python.Width, goScreen.Frame.Width())
-			assert.Equal(t, python.Height, goScreen.Frame.Height())
-			assert.Equal(t, python.Focus, semantics.Focus)
-			assert.Equal(t, python.Fields, semantics.Fields)
+			assert.Equal(t, python.Width, preview.Screen.Frame.Width())
+			assert.Equal(t, python.Height, preview.Screen.Frame.Height())
+			assert.Equal(t, python.Focus, preview.Semantics.Focus)
+			assert.Equal(t, python.Fields, preview.Semantics.Fields)
 			assertOnboardingConcepts(t, scenario.Screen, strings.Join(python.Lines, "\n"))
-			assertOnboardingConcepts(t, scenario.Screen, strings.Join(goScreen.Frame.PlainLines(), "\n"))
-			assertCredentialBlindPreview(t, goScreen, semantics)
+			assertOnboardingConcepts(t, scenario.Screen, strings.Join(
+				preview.Screen.Frame.PlainLines(), "\n",
+			))
+			assertCredentialBlindPreview(t, preview)
 		})
 	}
 }
@@ -60,15 +61,18 @@ func assertOnboardingConcepts(t testing.TB, screen string, rendered string) {
 
 func assertCredentialBlindPreview(
 	t testing.TB,
-	screen tui.RenderedScreen,
-	semantics tui.OnboardingPreviewSemantics,
+	preview tui.OnboardingPreview,
 ) {
 	t.Helper()
-	if len(semantics.Fields) == 0 {
+	if len(preview.Semantics.Fields) == 0 {
 		return
 	}
-	rendered := strings.Join(screen.Frame.PlainLines(), "\n")
-	assert.NotContains(t, rendered, "example@example.com")
-	assert.NotContains(t, rendered, "correct horse battery staple")
-	assert.NotContains(t, rendered, "JBSWY3DPEHPK3PXP")
+	rendered := strings.Join(preview.Screen.Frame.PlainLines(), "\n")
+	for _, visible := range preview.VisibleValues {
+		assert.Contains(t, rendered, visible)
+	}
+	for _, secret := range preview.SecretValues {
+		assert.NotContains(t, rendered, secret)
+	}
+	assert.Contains(t, rendered, "•", "populated secret fields must render as masks")
 }

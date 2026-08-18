@@ -33,6 +33,25 @@ func TestSessionStoreRoundTripContainsNoCredentials(t *testing.T) {
 	}
 }
 
+func TestSessionFilePresentInspectsWithoutCreatingProviderDirectories(t *testing.T) {
+	t.Parallel()
+	paths, err := home.ResolveRoot(filepath.Join(t.TempDir(), "profile"), nil, "")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(paths.Root, 0o700))
+
+	present, err := SessionFilePresent(paths.Root)
+	require.NoError(t, err)
+	assert.False(t, present)
+	assert.NoDirExists(t, filepath.Join(paths.Root, "providers"))
+
+	store, err := NewSessionStore(paths)
+	require.NoError(t, err)
+	require.NoError(t, store.Save(validSession()))
+	present, err = SessionFilePresent(paths.Root)
+	require.NoError(t, err)
+	assert.True(t, present)
+}
+
 func TestSessionStoreRejectsInvalidAndOversizedFiles(t *testing.T) {
 	t.Parallel()
 
