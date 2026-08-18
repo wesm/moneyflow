@@ -116,7 +116,7 @@ func (coordinator *Coordinator) runAuthentication(
 		}
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
-	coordinator.setStableState(attemptID, StateImporting, nil)
+	coordinator.startImport(attemptID)
 }
 
 func (coordinator *Coordinator) authenticationInputs(

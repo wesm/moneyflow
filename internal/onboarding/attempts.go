@@ -99,6 +99,12 @@ func (coordinator *Coordinator) Start(
 	if !profilecatalog.ValidProfileID(request.ProfileID) {
 		return Snapshot{}, newError(CodeOnboardingExpired, errors.New("profile ID is invalid"))
 	}
+	if request.Renderer == "" {
+		request.Renderer = "cli"
+	}
+	if request.Renderer != "cli" && request.Renderer != "tui" && request.Renderer != "web" {
+		return Snapshot{}, newError(CodeCredentialInputInvalid, errors.New("renderer is invalid"))
+	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	id, err := coordinator.newAttemptID()
@@ -225,6 +231,13 @@ func (coordinator *Coordinator) Submit(
 		current.failure == nil || !current.failure.CanRetry {
 		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeCredentialInputInvalid, errors.New("action is unavailable"))
+	}
+	if current.flow.retryState == StateImporting {
+		coordinator.transitionLocked(current, StateImporting, nil)
+		coordinator.startJobLocked(current, coordinator.importProfile)
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
 	}
 	coordinator.transitionLocked(current, StateInspect, nil)
 	current.progress = nil

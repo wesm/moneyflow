@@ -27,6 +27,8 @@ func (coordinator *Coordinator) beginFlow(current *attempt, request StartRequest
 			Scale:    request.Settings.Scale,
 		}
 	}
+	current.flow.renderer = request.Renderer
+	current.flow.monthToDate = request.MonthToDate
 	coordinator.startJobLocked(current, coordinator.inspectAndValidate)
 }
 
@@ -196,7 +198,7 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 		return
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
-	coordinator.setStableState(attemptID, StateImporting, nil)
+	coordinator.startImport(attemptID)
 }
 
 func selectImportConfig(

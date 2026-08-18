@@ -111,8 +111,10 @@ type SubmitRequest struct {
 
 // StartRequest starts one profile-bound onboarding attempt.
 type StartRequest struct {
-	ProfileID string
-	Settings  *SettingsInput
+	ProfileID   string
+	Settings    *SettingsInput
+	Renderer    string
+	MonthToDate bool
 }
 
 // StatusRequest reads one profile-bound onboarding attempt.

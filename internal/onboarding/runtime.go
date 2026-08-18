@@ -57,6 +57,11 @@ type attemptFlow struct {
 	explicitConfig  *monarch.ImportConfig
 	retainedSession *monarch.Session
 	identity        *provider.ProfileIdentity
+	renderer        string
+	monthToDate     bool
+	retryState      State
+	imported        int
+	taken           bool
 }
 
 func (flow *attemptFlow) release() error {
