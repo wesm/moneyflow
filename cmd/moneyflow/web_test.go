@@ -448,6 +448,7 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("web server did not shut down after cancellation")
 	}
+	require.NoError(t, dependencies.Close(context.Background()))
 }
 
 func TestRunWebPropagatesServeFailure(t *testing.T) {
