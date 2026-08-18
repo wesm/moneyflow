@@ -337,7 +337,21 @@ func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 }
 
 func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
-	dependencies := testWebDependencies(t)
+	root := t.TempDir()
+	seedCatalog, err := openProfileCatalog(root)
+	require.NoError(t, err)
+	created, err := seedCatalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Household", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	require.True(t, profilecatalog.ValidProfileID(created.ID))
+
+	dependencies, err := buildWebDependencies(
+		context.Background(), ProfileOptions{ExplicitHome: root}, IOStreams{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, dependencies.Catalog)
+	require.NotNil(t, dependencies.Onboarding)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	address := make(chan string, 1)
@@ -370,17 +384,36 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, selector.Body.Close())
 	assert.Contains(t, string(selectorBody), `<base href="/moneyflow/"`)
-	assert.Contains(t, string(selectorBody), `href="https://host-a.example/moneyflow/"`)
+	canonicalLink := regexp.MustCompile(`<link rel="canonical" href="([^"]*)"\s*/?>`).
+		FindSubmatch(selectorBody)
+	require.Len(t, canonicalLink, 2, "selector document must carry one canonical link element")
+	assert.Equal(t, "https://host-a.example/moneyflow/", string(canonicalLink[1]))
 	assetMatch := regexp.MustCompile(`(?:src|href)="\./(assets/[^"]+)"`).FindSubmatch(selectorBody)
 	require.Len(t, assetMatch, 2)
 	asset := eventuallyGET(t, baseURL+string(assetMatch[1]))
 	assert.Equal(t, http.StatusOK, asset.StatusCode)
 	require.NoError(t, asset.Body.Close())
 
-	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	listed := eventuallyGET(t, baseURL+"api/v1/profiles")
+	require.Equal(t, http.StatusOK, listed.StatusCode)
+	var catalogResponse api.ProfileCatalogResponse
+	require.NoError(t, json.NewDecoder(listed.Body).Decode(&catalogResponse))
+	require.NoError(t, listed.Body.Close())
+	assert.Equal(t, api.ProfileCatalogSchemaVersion, catalogResponse.Version)
+	require.Len(t, catalogResponse.Profiles, 1)
+	summary := catalogResponse.Profiles[0]
+	assert.Equal(t, created.ID, summary.ID)
+	assert.Equal(t, "Household", summary.DisplayName)
+	assert.Equal(t, "local", summary.ProviderKind)
+	assert.Equal(t, string(profilecatalog.StatusSetupIncomplete), summary.Status)
+
+	profileID := summary.ID
 	selected := eventuallyGETAccept(t, baseURL+"p/"+profileID+"/", "text/html")
 	assert.Equal(t, http.StatusOK, selected.StatusCode)
 	require.NoError(t, selected.Body.Close())
+	health := eventuallyGET(t, baseURL+"api/v1/profiles/"+profileID+"/health")
+	assert.Equal(t, http.StatusOK, health.StatusCode)
+	require.NoError(t, health.Body.Close())
 	bootstrap := eventuallyGET(t, baseURL+"api/v1/profiles/"+profileID+"/bootstrap")
 	require.Equal(t, http.StatusOK, bootstrap.StatusCode)
 	var configuration api.Bootstrap
