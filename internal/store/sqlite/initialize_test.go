@@ -25,7 +25,7 @@ func TestOpenInstallsOnlyCurrentSchemaIntoEmptyDatabase(t *testing.T) {
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
 	assert.Equal(t, CurrentSchemaVersion, version)
-	assert.Equal(t, 4, version)
+	assert.Equal(t, 5, version)
 	var migrationTableCount int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(), `
 		SELECT count(*) FROM sqlite_schema
@@ -70,7 +70,7 @@ func TestOpenRejectsCurrentVersionMissingRequiredSchemaObject(t *testing.T) {
 	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
 	require.NoError(t, err)
 	_, err = database.ExecContext(context.Background(),
-		"DROP INDEX provider_label_allocations_unsuffixed_owner")
+		"DROP INDEX provider_write_items_batch_state_position")
 	require.NoError(t, err)
 	require.NoError(t, database.Close())
 

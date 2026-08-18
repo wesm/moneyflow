@@ -20,6 +20,17 @@ type Profile interface {
 	CancelHide(context.Context, uint64, []domain.EntityID) (uint64, error)
 	Fold(context.Context, uint64, FoldPlan) (uint64, error)
 	ProviderState(context.Context) (ProviderState, error)
+	AcquireProviderOperationLease(context.Context, ProviderOperationLease, time.Time) (ProviderOperationLease, bool, error)
+	RenewProviderOperationLease(context.Context, string, ProviderOperationKind, time.Time, time.Time) (bool, error)
+	ReleaseProviderOperationLease(context.Context, string, ProviderOperationKind) error
+	ProviderWriteState(context.Context) (ProviderWriteState, error)
+	PrepareProviderWrite(context.Context, PrepareProviderWriteRequest, PrepareProviderWritePlanner) (PrepareProviderWriteCommit, error)
+	ClaimProviderWriteItems(context.Context, ClaimProviderWriteRequest) ([]WriteItem, error)
+	RecordProviderWriteResult(context.Context, RecordProviderWriteResultRequest) (WriteBatch, error)
+	ParkProviderWrite(context.Context, ParkProviderWriteRequest) (WriteBatch, error)
+	ResumeProviderWrite(context.Context, ResumeProviderWriteRequest) (WriteBatch, error)
+	FinalizeProviderWrite(context.Context, FinalizeProviderWriteRequest, FinalizeProviderWritePlanner) (FinalizeProviderWriteCommit, error)
+	// Refresh-only wrappers remain during the port while callers move to the generalized lease.
 	AcquireRefreshLease(context.Context, RefreshLease, time.Time) (RefreshLease, bool, error)
 	RenewRefreshLease(context.Context, string, time.Time, time.Time) (bool, error)
 	ReleaseRefreshLease(context.Context, string) error
@@ -49,7 +60,25 @@ type RefreshState struct {
 	RemovedTransactions  int
 }
 
-// RefreshLease coordinates provider network work without providing correctness.
+// ProviderOperationKind identifies the one provider network operation coordinated by a lease.
+type ProviderOperationKind string
+
+// Supported provider operation lease purposes.
+const (
+	ProviderOperationRefresh   ProviderOperationKind = "refresh"
+	ProviderOperationWrite     ProviderOperationKind = "write"
+	ProviderOperationReconcile ProviderOperationKind = "reconcile"
+)
+
+// ProviderOperationLease coordinates provider network work without providing correctness.
+type ProviderOperationLease struct {
+	OwnerID   string
+	Renderer  string
+	Kind      ProviderOperationKind
+	ExpiresAt time.Time
+}
+
+// RefreshLease is the compatibility projection used by the existing refresh orchestrator.
 type RefreshLease struct {
 	OwnerID   string
 	Renderer  string
@@ -63,6 +92,7 @@ type LabelAllocation struct {
 	ExternalID       string
 	BaseCollisionKey string
 	DisplayLabel     string
+	ProviderLabel    string
 	SuffixToken      string
 	Unsuffixed       bool
 }
@@ -72,8 +102,11 @@ type ProviderState struct {
 	Revision    uint64
 	Binding     *ProviderBinding
 	Refresh     RefreshState
-	Lease       *RefreshLease
+	Lease       *ProviderOperationLease
 	Allocations []LabelAllocation
+	Lineage     []ProviderIdentityLineage
+	Write       *WriteBatchStatus
+	LastWrite   LastWriteSummary
 	Pristine    bool
 }
 

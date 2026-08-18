@@ -37,10 +37,19 @@ func (profile *profile) ProviderState(ctx context.Context) (store.ProviderState,
 	if state.Refresh, err = loadRefreshState(ctx, transaction); err != nil {
 		return store.ProviderState{}, err
 	}
-	if state.Lease, err = loadRefreshLease(ctx, transaction); err != nil {
+	if state.Lease, err = loadProviderOperationLease(ctx, transaction); err != nil {
 		return store.ProviderState{}, err
 	}
 	if state.Allocations, err = loadLabelAllocations(ctx, transaction); err != nil {
+		return store.ProviderState{}, err
+	}
+	if state.Lineage, err = loadProviderIdentityLineage(ctx, transaction); err != nil {
+		return store.ProviderState{}, err
+	}
+	if state.Write, err = loadWriteBatchStatus(ctx, transaction); err != nil {
+		return store.ProviderState{}, err
+	}
+	if state.LastWrite, err = loadLastWriteSummary(ctx, transaction); err != nil {
 		return store.ProviderState{}, err
 	}
 	if err = transaction.Commit(); err != nil {
@@ -49,60 +58,65 @@ func (profile *profile) ProviderState(ctx context.Context) (store.ProviderState,
 	return state, nil
 }
 
-// AcquireRefreshLease atomically removes an expired lease and attempts to install the candidate.
-func (profile *profile) AcquireRefreshLease(
+// AcquireProviderOperationLease atomically replaces an expired lease or returns its live owner.
+func (profile *profile) AcquireProviderOperationLease(
 	ctx context.Context,
-	candidate store.RefreshLease,
+	candidate store.ProviderOperationLease,
 	observedAt time.Time,
-) (store.RefreshLease, bool, error) {
+) (store.ProviderOperationLease, bool, error) {
 	if err := validateLease(candidate, observedAt); err != nil {
-		return store.RefreshLease{}, false, store.NewError(store.CodeInvalidOperation, err)
+		return store.ProviderOperationLease{}, false, store.NewError(store.CodeInvalidOperation, err)
 	}
 	connection, finish, err := profile.beginImmediate(ctx)
 	if err != nil {
-		return store.RefreshLease{}, false, err
+		return store.ProviderOperationLease{}, false, err
 	}
 	defer func() { _ = finish(false) }()
 	if _, err = connection.ExecContext(ctx,
-		"DELETE FROM provider_refresh_lease WHERE expires_at_unix_ms <= ?",
+		"DELETE FROM provider_operation_lease WHERE expires_at_unix_ms <= ?",
 		observedAt.UnixMilli()); err != nil {
-		return store.RefreshLease{}, false, mapDriverError(err, store.CodeStoreError)
+		return store.ProviderOperationLease{}, false, mapDriverError(err, store.CodeStoreError)
 	}
 	result, err := connection.ExecContext(ctx, `
-		INSERT INTO provider_refresh_lease(singleton, owner_id, renderer, expires_at_unix_ms)
-		VALUES (1, ?, ?, ?) ON CONFLICT(singleton) DO NOTHING`,
-		candidate.OwnerID, candidate.Renderer, candidate.ExpiresAt.UnixMilli())
+		INSERT INTO provider_operation_lease(
+			singleton, owner_id, renderer, operation_kind, expires_at_unix_ms
+		) VALUES (1, ?, ?, ?, ?) ON CONFLICT(singleton) DO NOTHING`,
+		candidate.OwnerID, candidate.Renderer, candidate.Kind, candidate.ExpiresAt.UnixMilli())
 	if err != nil {
-		return store.RefreshLease{}, false, mapDriverError(err, store.CodeStoreError)
+		return store.ProviderOperationLease{}, false, mapDriverError(err, store.CodeStoreError)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return store.RefreshLease{}, false, mapDriverError(err, store.CodeStoreError)
+		return store.ProviderOperationLease{}, false, mapDriverError(err, store.CodeStoreError)
 	}
-	current, err := loadRefreshLease(ctx, connection)
+	current, err := loadProviderOperationLease(ctx, connection)
 	if err != nil {
-		return store.RefreshLease{}, false, err
+		return store.ProviderOperationLease{}, false, err
 	}
 	if current == nil {
-		return store.RefreshLease{}, false, store.NewError(
+		return store.ProviderOperationLease{}, false, store.NewError(
 			store.CodeStoreCorrupt,
-			errors.New("refresh lease disappeared during acquisition"),
+			errors.New("provider operation lease disappeared during acquisition"),
 		)
 	}
 	if err = finish(true); err != nil {
-		return store.RefreshLease{}, false, err
+		return store.ProviderOperationLease{}, false, err
 	}
 	return *current, affected == 1, nil
 }
 
-// RenewRefreshLease extends only one unexpired lease owned by the caller.
-func (profile *profile) RenewRefreshLease(
+// RenewProviderOperationLease extends only one unexpired lease owned by the caller and kind.
+func (profile *profile) RenewProviderOperationLease(
 	ctx context.Context,
 	ownerID string,
+	kind store.ProviderOperationKind,
 	expiresAt time.Time,
 	observedAt time.Time,
 ) (bool, error) {
 	if err := validateLeaseOwner(ownerID); err != nil {
+		return false, store.NewError(store.CodeInvalidOperation, err)
+	}
+	if err := validateProviderOperationKind(kind); err != nil {
 		return false, store.NewError(store.CodeInvalidOperation, err)
 	}
 	if err := validateMillisecondTime("refresh lease expiry", expiresAt); err != nil {
@@ -118,9 +132,9 @@ func (profile *profile) RenewRefreshLease(
 		)
 	}
 	result, err := profile.database.ExecContext(ctx, `
-		UPDATE provider_refresh_lease SET expires_at_unix_ms = MAX(expires_at_unix_ms, ?)
-		WHERE singleton = 1 AND owner_id = ? AND expires_at_unix_ms > ?`,
-		expiresAt.UnixMilli(), ownerID, observedAt.UnixMilli())
+		UPDATE provider_operation_lease SET expires_at_unix_ms = MAX(expires_at_unix_ms, ?)
+		WHERE singleton = 1 AND owner_id = ? AND operation_kind = ? AND expires_at_unix_ms > ?`,
+		expiresAt.UnixMilli(), ownerID, kind, observedAt.UnixMilli())
 	if err != nil {
 		return false, mapDriverError(err, store.CodeStoreError)
 	}
@@ -131,16 +145,56 @@ func (profile *profile) RenewRefreshLease(
 	return affected == 1, nil
 }
 
-// ReleaseRefreshLease removes only a lease owned by the caller.
-func (profile *profile) ReleaseRefreshLease(ctx context.Context, ownerID string) error {
+// ReleaseProviderOperationLease removes only a lease owned by the caller and kind.
+func (profile *profile) ReleaseProviderOperationLease(
+	ctx context.Context,
+	ownerID string,
+	kind store.ProviderOperationKind,
+) error {
 	if err := validateLeaseOwner(ownerID); err != nil {
 		return store.NewError(store.CodeInvalidOperation, err)
 	}
+	if err := validateProviderOperationKind(kind); err != nil {
+		return store.NewError(store.CodeInvalidOperation, err)
+	}
 	if _, err := profile.database.ExecContext(ctx,
-		"DELETE FROM provider_refresh_lease WHERE singleton = 1 AND owner_id = ?", ownerID); err != nil {
+		`DELETE FROM provider_operation_lease
+		 WHERE singleton = 1 AND owner_id = ? AND operation_kind = ?`, ownerID, kind); err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
 	return nil
+}
+
+// AcquireRefreshLease preserves the existing refresh-only interface during the port.
+func (profile *profile) AcquireRefreshLease(
+	ctx context.Context,
+	candidate store.RefreshLease,
+	observedAt time.Time,
+) (store.RefreshLease, bool, error) {
+	current, acquired, err := profile.AcquireProviderOperationLease(ctx, store.ProviderOperationLease{
+		OwnerID: candidate.OwnerID, Renderer: candidate.Renderer,
+		Kind: store.ProviderOperationRefresh, ExpiresAt: candidate.ExpiresAt,
+	}, observedAt)
+	return store.RefreshLease{
+		OwnerID: current.OwnerID, Renderer: current.Renderer, ExpiresAt: current.ExpiresAt,
+	}, acquired, err
+}
+
+// RenewRefreshLease preserves the existing refresh-only interface during the port.
+func (profile *profile) RenewRefreshLease(
+	ctx context.Context,
+	ownerID string,
+	expiresAt time.Time,
+	observedAt time.Time,
+) (bool, error) {
+	return profile.RenewProviderOperationLease(
+		ctx, ownerID, store.ProviderOperationRefresh, expiresAt, observedAt,
+	)
+}
+
+// ReleaseRefreshLease preserves the existing refresh-only interface during the port.
+func (profile *profile) ReleaseRefreshLease(ctx context.Context, ownerID string) error {
+	return profile.ReleaseProviderOperationLease(ctx, ownerID, store.ProviderOperationRefresh)
 }
 
 // RecordRefreshFailure updates counts-free operational status without changing either version.
@@ -171,8 +225,8 @@ func (profile *profile) RecordRefreshFailure(
 		UPDATE provider_refresh_state
 		SET last_attempt_unix_ms = ?, next_eligible_unix_ms = ?, status_code = ?
 		WHERE singleton = 1 AND EXISTS (
-			SELECT 1 FROM provider_refresh_lease
-			WHERE singleton = 1 AND owner_id = ?
+			SELECT 1 FROM provider_operation_lease
+			WHERE singleton = 1 AND owner_id = ? AND operation_kind = 'refresh'
 		)`, failure.AttemptedAt.UnixMilli(), nextEligible, failure.Code, failure.OwnerID)
 	if err != nil {
 		return mapDriverError(err, store.CodeStoreError)
@@ -254,13 +308,16 @@ func loadRefreshState(ctx context.Context, queryer providerRowQueryer) (store.Re
 	return state, nil
 }
 
-func loadRefreshLease(ctx context.Context, queryer providerRowQueryer) (*store.RefreshLease, error) {
-	var lease store.RefreshLease
+func loadProviderOperationLease(
+	ctx context.Context,
+	queryer providerRowQueryer,
+) (*store.ProviderOperationLease, error) {
+	var lease store.ProviderOperationLease
 	var expiresAt int64
 	err := queryer.QueryRowContext(ctx, `
-		SELECT owner_id, renderer, expires_at_unix_ms
-		FROM provider_refresh_lease WHERE singleton = 1`).Scan(
-		&lease.OwnerID, &lease.Renderer, &expiresAt,
+		SELECT owner_id, renderer, operation_kind, expires_at_unix_ms
+		FROM provider_operation_lease WHERE singleton = 1`).Scan(
+		&lease.OwnerID, &lease.Renderer, &lease.Kind, &expiresAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -282,7 +339,7 @@ func loadLabelAllocations(
 ) ([]store.LabelAllocation, error) {
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
+			display_label, provider_label, suffix_token, unsuffixed
 		FROM provider_label_allocations
 		ORDER BY entity_type, namespace, external_id`)
 	if err != nil {
@@ -296,7 +353,7 @@ func loadLabelAllocations(
 		var unsuffixed int
 		if err = rows.Scan(
 			&kind, &allocation.Namespace, &allocation.ExternalID,
-			&allocation.BaseCollisionKey, &allocation.DisplayLabel,
+			&allocation.BaseCollisionKey, &allocation.DisplayLabel, &allocation.ProviderLabel,
 			&allocation.SuffixToken, &unsuffixed,
 		); err != nil {
 			return nil, mapDriverError(err, store.CodeStoreError)
@@ -311,12 +368,15 @@ func loadLabelAllocations(
 	return allocations, nil
 }
 
-func validateLease(lease store.RefreshLease, observedAt time.Time) error {
+func validateLease(lease store.ProviderOperationLease, observedAt time.Time) error {
 	if err := validateLeaseOwner(lease.OwnerID); err != nil {
 		return err
 	}
 	if lease.Renderer != "cli" && lease.Renderer != "tui" && lease.Renderer != "web" {
 		return errors.New("refresh lease renderer is invalid")
+	}
+	if err := validateProviderOperationKind(lease.Kind); err != nil {
+		return err
 	}
 	if err := validateMillisecondTime("refresh lease expiry", lease.ExpiresAt); err != nil {
 		return err
@@ -328,6 +388,16 @@ func validateLease(lease store.RefreshLease, observedAt time.Time) error {
 		return errors.New("refresh lease expiry must follow observation")
 	}
 	return nil
+}
+
+func validateProviderOperationKind(kind store.ProviderOperationKind) error {
+	switch kind {
+	case store.ProviderOperationRefresh, store.ProviderOperationWrite,
+		store.ProviderOperationReconcile:
+		return nil
+	default:
+		return errors.New("provider operation lease kind is invalid")
+	}
 }
 
 func validateLeaseOwner(ownerID string) error {

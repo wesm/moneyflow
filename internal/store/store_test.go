@@ -32,6 +32,70 @@ func (fakeProfile) Fold(context.Context, uint64, store.FoldPlan) (uint64, error)
 func (fakeProfile) ProviderState(context.Context) (store.ProviderState, error) {
 	return store.ProviderState{}, nil
 }
+func (fakeProfile) AcquireProviderOperationLease(
+	context.Context,
+	store.ProviderOperationLease,
+	time.Time,
+) (store.ProviderOperationLease, bool, error) {
+	return store.ProviderOperationLease{}, false, nil
+}
+func (fakeProfile) RenewProviderOperationLease(
+	context.Context,
+	string,
+	store.ProviderOperationKind,
+	time.Time,
+	time.Time,
+) (bool, error) {
+	return false, nil
+}
+func (fakeProfile) ReleaseProviderOperationLease(
+	context.Context,
+	string,
+	store.ProviderOperationKind,
+) error {
+	return nil
+}
+func (fakeProfile) ProviderWriteState(context.Context) (store.ProviderWriteState, error) {
+	return store.ProviderWriteState{}, nil
+}
+func (fakeProfile) PrepareProviderWrite(
+	context.Context,
+	store.PrepareProviderWriteRequest,
+	store.PrepareProviderWritePlanner,
+) (store.PrepareProviderWriteCommit, error) {
+	return store.PrepareProviderWriteCommit{}, nil
+}
+func (fakeProfile) ClaimProviderWriteItems(
+	context.Context,
+	store.ClaimProviderWriteRequest,
+) ([]store.WriteItem, error) {
+	return nil, nil
+}
+func (fakeProfile) RecordProviderWriteResult(
+	context.Context,
+	store.RecordProviderWriteResultRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, nil
+}
+func (fakeProfile) ParkProviderWrite(
+	context.Context,
+	store.ParkProviderWriteRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, nil
+}
+func (fakeProfile) ResumeProviderWrite(
+	context.Context,
+	store.ResumeProviderWriteRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, nil
+}
+func (fakeProfile) FinalizeProviderWrite(
+	context.Context,
+	store.FinalizeProviderWriteRequest,
+	store.FinalizeProviderWritePlanner,
+) (store.FinalizeProviderWriteCommit, error) {
+	return store.FinalizeProviderWriteCommit{}, nil
+}
 func (fakeProfile) AcquireRefreshLease(
 	context.Context,
 	store.RefreshLease,

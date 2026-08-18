@@ -10,10 +10,15 @@ type InvalidOperationReason string
 
 // Safe invalid-operation stages that may cross renderer boundaries.
 const (
-	InvalidOperationRefreshRequest InvalidOperationReason = "refresh_request"
-	InvalidOperationRefreshBinding InvalidOperationReason = "refresh_binding"
-	InvalidOperationRefreshPlanner InvalidOperationReason = "refresh_planner"
-	InvalidOperationRefreshPlan    InvalidOperationReason = "refresh_plan"
+	InvalidOperationRefreshRequest       InvalidOperationReason = "refresh_request"
+	InvalidOperationRefreshBinding       InvalidOperationReason = "refresh_binding"
+	InvalidOperationRefreshPlanner       InvalidOperationReason = "refresh_planner"
+	InvalidOperationRefreshPlan          InvalidOperationReason = "refresh_plan"
+	InvalidOperationProviderWriteRequest InvalidOperationReason = "provider_write_request"
+	InvalidOperationProviderWritePlanner InvalidOperationReason = "provider_write_planner"
+	InvalidOperationProviderWritePlan    InvalidOperationReason = "provider_write_plan"
+	InvalidOperationProviderWriteBatch   InvalidOperationReason = "provider_write_batch"
+	InvalidOperationProviderRefreshLease InvalidOperationReason = "provider_refresh_lease"
 )
 
 // ErrorCode is a stable renderer-neutral storage failure classification.
@@ -45,10 +50,15 @@ var safeDetails = map[ErrorCode]string{
 }
 
 var invalidOperationDetails = map[InvalidOperationReason]string{
-	InvalidOperationRefreshRequest: "Moneyflow rejected the local refresh request before writing financial data.",
-	InvalidOperationRefreshBinding: "Moneyflow rejected the local provider binding before writing financial data.",
-	InvalidOperationRefreshPlanner: "Moneyflow could not construct a local refresh plan. No financial data changed.",
-	InvalidOperationRefreshPlan:    "Moneyflow rejected its local refresh plan before writing financial data.",
+	InvalidOperationRefreshRequest:       "Moneyflow rejected the local refresh request before writing financial data.",
+	InvalidOperationRefreshBinding:       "Moneyflow rejected the local provider binding before writing financial data.",
+	InvalidOperationRefreshPlanner:       "Moneyflow could not construct a local refresh plan. No financial data changed.",
+	InvalidOperationRefreshPlan:          "Moneyflow rejected its local refresh plan before writing financial data.",
+	InvalidOperationProviderWriteRequest: "Moneyflow rejected the provider write request before sending financial data.",
+	InvalidOperationProviderWritePlanner: "Moneyflow could not construct a provider write plan. No financial data changed.",
+	InvalidOperationProviderWritePlan:    "Moneyflow rejected its provider write plan before sending financial data.",
+	InvalidOperationProviderWriteBatch:   "A provider write batch is already active.",
+	InvalidOperationProviderRefreshLease: "A provider refresh is already active.",
 }
 
 // Error contains only allowlisted renderer detail while retaining an internal diagnostic cause.

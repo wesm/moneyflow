@@ -44,15 +44,26 @@ func (profile *profile) ApplyProviderRefresh(
 			refresh.Generation,
 		)
 	}
-	lease, err := loadRefreshLease(ctx, connection)
+	lease, err := loadProviderOperationLease(ctx, connection)
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
 	if lease == nil || lease.OwnerID != request.LeaseOwnerID ||
+		lease.Kind != store.ProviderOperationRefresh ||
 		!lease.ExpiresAt.After(request.ObservedAt) {
 		return store.RefreshCommit{}, store.NewError(
 			store.CodeRevisionConflict,
 			errors.New("refresh owner no longer holds the lease"),
+		)
+	}
+	writeBatch, err := loadWriteBatchStatus(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
+	if writeBatch != nil {
+		return store.RefreshCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationProviderWriteBatch,
+			errors.New("provider write batch blocks refresh fold"),
 		)
 	}
 	snapshot, err := loadSnapshot(ctx, connection)
@@ -134,7 +145,8 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, err
 	}
 	if _, err = connection.ExecContext(ctx, `
-		DELETE FROM provider_refresh_lease WHERE singleton = 1 AND owner_id = ?`,
+		DELETE FROM provider_operation_lease
+		WHERE singleton = 1 AND owner_id = ? AND operation_kind = 'refresh'`,
 		request.LeaseOwnerID,
 	); err != nil {
 		return store.RefreshCommit{}, mapDriverError(err, store.CodeStoreError)
@@ -607,6 +619,7 @@ func validateLabelAllocations(allocations []store.LabelAllocation) error {
 		}
 		if allocation.Namespace == "" || allocation.ExternalID == "" ||
 			allocation.BaseCollisionKey == "" || allocation.DisplayLabel == "" ||
+			allocation.ProviderLabel == "" ||
 			allocation.Unsuffixed == (allocation.SuffixToken != "") {
 			return errors.New("refresh label allocation is invalid")
 		}
@@ -968,16 +981,20 @@ func replaceLabelAllocations(
 	statement, err := connection.PrepareContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+			display_label, provider_label, suffix_token, unsuffixed
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
 	defer func() { _ = statement.Close() }()
 	for _, allocation := range allocations {
+		providerLabel := allocation.ProviderLabel
+		if providerLabel == "" {
+			providerLabel = allocation.DisplayLabel
+		}
 		if _, err = statement.ExecContext(
 			ctx, allocation.Kind, allocation.Namespace, allocation.ExternalID,
-			allocation.BaseCollisionKey, allocation.DisplayLabel, allocation.SuffixToken,
+			allocation.BaseCollisionKey, allocation.DisplayLabel, providerLabel, allocation.SuffixToken,
 			booleanInteger(allocation.Unsuffixed),
 		); err != nil {
 			return mapDriverError(err, store.CodeStoreError)
@@ -1088,6 +1105,11 @@ func cloneRefreshPlan(plan store.RefreshPlan) store.RefreshPlan {
 	plan.Journal = operations
 	plan.KnownDrills = append([]domain.DrillIdentity(nil), plan.KnownDrills...)
 	plan.Allocations = append([]store.LabelAllocation(nil), plan.Allocations...)
+	for index := range plan.Allocations {
+		if plan.Allocations[index].ProviderLabel == "" {
+			plan.Allocations[index].ProviderLabel = plan.Allocations[index].DisplayLabel
+		}
+	}
 	return plan
 }
 

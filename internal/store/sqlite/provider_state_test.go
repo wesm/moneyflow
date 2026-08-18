@@ -38,16 +38,17 @@ func TestProviderStateLoadsBindingRefreshLeaseAndStickyAllocations(t *testing.T)
 		lastAttempt.UnixMilli(), lastSuccess.UnixMilli(), nextEligible.UnixMilli())
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(ctx, `
-		INSERT INTO provider_refresh_lease(singleton, owner_id, renderer, expires_at_unix_ms)
-		VALUES (1, 'instance-a', 'web', ?)`, expiresAt.UnixMilli())
+		INSERT INTO provider_operation_lease(
+			singleton, owner_id, renderer, operation_kind, expires_at_unix_ms
+		) VALUES (1, 'instance-a', 'web', 'refresh', ?)`, expiresAt.UnixMilli())
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
+			display_label, provider_label, suffix_token, unsuffixed
 		) VALUES
-			('merchant', 'monarch/merchant', 'merchant-b', 'example', 'Example · b2', 'b2', 0),
-			('merchant', 'monarch/merchant', 'merchant-a', 'example', 'Example', '', 1)`)
+			('merchant', 'monarch/merchant', 'merchant-b', 'example', 'Example · b2', 'Example', 'b2', 0),
+			('merchant', 'monarch/merchant', 'merchant-a', 'example', 'Example', 'Example', '', 1)`)
 	require.NoError(t, err)
 
 	state, err := profile.ProviderState(ctx)
@@ -65,8 +66,9 @@ func TestProviderStateLoadsBindingRefreshLeaseAndStickyAllocations(t *testing.T)
 		ImportedTransactions: 42, RemovedTransactions: 3,
 	}, state.Refresh)
 	require.NotNil(t, state.Lease)
-	assert.Equal(t, store.RefreshLease{
-		OwnerID: "instance-a", Renderer: "web", ExpiresAt: expiresAt,
+	assert.Equal(t, store.ProviderOperationLease{
+		OwnerID: "instance-a", Renderer: "web", Kind: store.ProviderOperationRefresh,
+		ExpiresAt: expiresAt,
 	}, *state.Lease)
 	require.Len(t, state.Allocations, 2)
 	assert.Equal(t, "merchant-a", state.Allocations[0].ExternalID)
@@ -162,7 +164,10 @@ func TestRefreshLeaseExpiryRecoveryAndOperationalWritesPreserveVersions(t *testi
 	assert.Equal(t, recoveredAt, state.Refresh.LastAttempt)
 	assert.Equal(t, recoveredAt.Add(5*time.Minute), state.Refresh.NextEligible)
 	assert.NotNil(t, state.Lease)
-	assert.Equal(t, blocked, *state.Lease)
+	assert.Equal(t, blocked.OwnerID, state.Lease.OwnerID)
+	assert.Equal(t, blocked.Renderer, state.Lease.Renderer)
+	assert.Equal(t, store.ProviderOperationRefresh, state.Lease.Kind)
+	assert.Equal(t, blocked.ExpiresAt, state.Lease.ExpiresAt)
 	revision, err := profile.CurrentRevision(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, revision)
@@ -172,6 +177,29 @@ func TestRefreshLeaseExpiryRecoveryAndOperationalWritesPreserveVersions(t *testi
 	require.NoError(t, err)
 	assert.Nil(t, state.Lease)
 	assert.Zero(t, state.Refresh.Generation)
+}
+
+func TestProviderOperationLeaseRejectsUnknownKindOnRenewAndRelease(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	now := time.Date(2026, time.August, 15, 17, 0, 0, 0, time.UTC)
+
+	_, err = profile.RenewProviderOperationLease(
+		context.Background(), "instance-a", store.ProviderOperationKind("unknown"),
+		now.Add(time.Minute), now,
+	)
+	require.Error(t, err)
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+
+	err = profile.ReleaseProviderOperationLease(
+		context.Background(), "instance-a", store.ProviderOperationKind("unknown"),
+	)
+	require.Error(t, err)
+	assertStoreCode(t, err, store.CodeInvalidOperation)
 }
 
 func TestExpiredLeaseOwnerCannotOverwriteSuccessorStatus(t *testing.T) {

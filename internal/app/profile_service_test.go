@@ -494,6 +494,80 @@ func (profile *memoryProfile) ProviderState(context.Context) (store.ProviderStat
 	return store.ProviderState{}, nil
 }
 
+func (profile *memoryProfile) AcquireProviderOperationLease(
+	context.Context,
+	store.ProviderOperationLease,
+	time.Time,
+) (store.ProviderOperationLease, bool, error) {
+	return store.ProviderOperationLease{}, false, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) RenewProviderOperationLease(
+	context.Context,
+	string,
+	store.ProviderOperationKind,
+	time.Time,
+	time.Time,
+) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ReleaseProviderOperationLease(
+	context.Context,
+	string,
+	store.ProviderOperationKind,
+) error {
+	return errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ProviderWriteState(context.Context) (store.ProviderWriteState, error) {
+	return store.ProviderWriteState{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) PrepareProviderWrite(
+	context.Context,
+	store.PrepareProviderWriteRequest,
+	store.PrepareProviderWritePlanner,
+) (store.PrepareProviderWriteCommit, error) {
+	return store.PrepareProviderWriteCommit{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ClaimProviderWriteItems(
+	context.Context,
+	store.ClaimProviderWriteRequest,
+) ([]store.WriteItem, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) RecordProviderWriteResult(
+	context.Context,
+	store.RecordProviderWriteResultRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ParkProviderWrite(
+	context.Context,
+	store.ParkProviderWriteRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ResumeProviderWrite(
+	context.Context,
+	store.ResumeProviderWriteRequest,
+) (store.WriteBatch, error) {
+	return store.WriteBatch{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) FinalizeProviderWrite(
+	context.Context,
+	store.FinalizeProviderWriteRequest,
+	store.FinalizeProviderWritePlanner,
+) (store.FinalizeProviderWriteCommit, error) {
+	return store.FinalizeProviderWriteCommit{}, errors.New("not implemented")
+}
+
 func (profile *memoryProfile) AcquireRefreshLease(
 	context.Context,
 	store.RefreshLease,

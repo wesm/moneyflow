@@ -13,7 +13,7 @@ import (
 )
 
 // CurrentSchemaVersion is the only schema version this pre-stability binary opens.
-const CurrentSchemaVersion = 4
+const CurrentSchemaVersion = 5
 
 //go:embed schema/profile.sql
 var currentProfileSchema string
@@ -174,7 +174,7 @@ func currentSchemaObjectsPresent(ctx context.Context, queryer schemaQueryer) (bo
 	var definition string
 	err := queryer.QueryRowContext(ctx, `
 		SELECT sql FROM sqlite_schema
-		WHERE type = 'index' AND name = 'provider_label_allocations_unsuffixed_owner'`,
+		WHERE type = 'index' AND name = 'provider_write_items_batch_state_position'`,
 	).Scan(&definition)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -183,8 +183,8 @@ func currentSchemaObjectsPresent(ctx context.Context, queryer schemaQueryer) (bo
 		return false, err
 	}
 	normalized := strings.ToLower(strings.Join(strings.Fields(definition), ""))
-	const expected = "createuniqueindexprovider_label_allocations_unsuffixed_owner" +
-		"onprovider_label_allocations(entity_type,base_collision_key)whereunsuffixed=1"
+	const expected = "createindexprovider_write_items_batch_state_position" +
+		"onprovider_write_items(batch_id,item_state,position)"
 	return normalized == expected, nil
 }
 

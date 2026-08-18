@@ -148,8 +148,10 @@ func validateSchema(ctx context.Context, database *sql.DB) error {
 		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
 		"journal_operations", "operation_payloads", "operation_targets",
-		"provider_binding", "provider_refresh_state", "provider_refresh_lease",
-		"provider_label_allocations",
+		"provider_binding", "provider_refresh_state", "provider_operation_lease",
+		"provider_label_allocations", "provider_identity_lineage", "provider_write_batches",
+		"provider_write_batch_operations", "provider_write_items", "provider_write_results",
+		"provider_last_write_summary",
 	}
 	for _, table := range required {
 		var count int

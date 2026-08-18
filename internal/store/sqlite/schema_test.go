@@ -22,8 +22,10 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
 		"journal_operations", "operation_payloads", "operation_targets",
-		"provider_binding", "provider_refresh_state", "provider_refresh_lease",
-		"provider_label_allocations",
+		"provider_binding", "provider_refresh_state", "provider_operation_lease",
+		"provider_label_allocations", "provider_identity_lineage", "provider_write_batches",
+		"provider_write_batch_operations", "provider_write_items", "provider_write_results",
+		"provider_last_write_summary",
 	}
 	for _, table := range requiredTables {
 		var strict int
@@ -49,6 +51,43 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 	}
 }
 
+func TestSchemaInstallsProviderWriteObjects(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+
+	rows, err := profile.database.QueryContext(context.Background(), `
+		SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name`)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rows.Close()) })
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		names = append(names, name)
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Subset(t, names, []string{
+		"provider_operation_lease",
+		"provider_identity_lineage",
+		"provider_write_batches",
+		"provider_write_batch_operations",
+		"provider_write_items",
+		"provider_write_results",
+		"provider_last_write_summary",
+	})
+	assert.NotContains(t, names, "provider_refresh_lease")
+
+	var version int
+	require.NoError(t, profile.database.QueryRowContext(context.Background(),
+		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
+	assert.Equal(t, 5, version)
+}
+
 func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing.T) {
 	t.Parallel()
 
@@ -69,33 +108,34 @@ func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing
 		) VALUES (1, 'monarch', 'monarch', 'remote-a', 'usd', 2, 1)`)
 	assert.Error(t, err)
 	_, err = profile.database.ExecContext(ctx, `
-		INSERT INTO provider_refresh_lease(singleton, owner_id, renderer, expires_at_unix_ms)
-		VALUES (1, 'owner-a', 'background', 1)`)
+		INSERT INTO provider_operation_lease(
+			singleton, owner_id, renderer, operation_kind, expires_at_unix_ms
+		) VALUES (1, 'owner-a', 'background', 'refresh', 1)`)
 	assert.Error(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
+			display_label, provider_label, suffix_token, unsuffixed
 		) VALUES ('transaction', 'monarch/transaction', 'external-a', 'example',
-			'Example', 'a1b2', 0)`)
+			'Example', 'Example', 'a1b2', 0)`)
 	assert.Error(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
-		) VALUES ('merchant', 'shared', 'external-a', 'example', 'Example', '', 1)`)
+			display_label, provider_label, suffix_token, unsuffixed
+		) VALUES ('merchant', 'shared', 'external-a', 'example', 'Example', 'Example', '', 1)`)
 	require.NoError(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed)
-		VALUES ('merchant', 'other', 'external-b', 'example', 'Example', '', 1)`)
+			display_label, provider_label, suffix_token, unsuffixed)
+		VALUES ('merchant', 'other', 'external-b', 'example', 'Example', 'Example', '', 1)`)
 	assert.Error(t, err, "one collision key can have only one permanent unsuffixed owner")
 	_, err = profile.database.ExecContext(ctx, `
 		INSERT INTO provider_label_allocations(
 			entity_type, namespace, external_id, base_collision_key,
-			display_label, suffix_token, unsuffixed
-		) VALUES ('group', 'shared', 'external-a', 'group', 'Group', '', 1)`)
+			display_label, provider_label, suffix_token, unsuffixed
+		) VALUES ('group', 'shared', 'external-a', 'group', 'Group', 'Group', '', 1)`)
 	assert.Error(t, err)
 	_, err = profile.database.ExecContext(ctx, `
 		UPDATE provider_refresh_state SET generation = -1 WHERE singleton = 1`)

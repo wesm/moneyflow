@@ -32,7 +32,7 @@ func TestProviderRefreshLateWriteFailuresRollBackEveryLogicalTable(t *testing.T)
 		{"known drill extension", "INSERT", "known_drills"},
 		{"profile revision", "UPDATE", "profile_state"},
 		{"refresh generation", "UPDATE", "provider_refresh_state"},
-		{"lease release", "DELETE", "provider_refresh_lease"},
+		{"lease release", "DELETE", "provider_operation_lease"},
 	}
 	for _, failure := range failures {
 		failure := failure
@@ -70,10 +70,10 @@ func TestProviderRefreshLateWriteFailuresRollBackEveryLogicalTable(t *testing.T)
 			_, err = profile.database.ExecContext(ctx, `
 				INSERT INTO provider_label_allocations(
 					entity_type, namespace, external_id, base_collision_key,
-					display_label, suffix_token, unsuffixed
+					display_label, provider_label, suffix_token, unsuffixed
 				) VALUES (
 					'merchant', 'monarch/merchant', 'merchant-example',
-					'example merchant', 'Example Merchant', '', 1
+					'example merchant', 'Example Merchant', 'Example Merchant', '', 1
 				)`)
 			require.NoError(t, err)
 			_, err = profile.database.ExecContext(ctx, `
@@ -242,7 +242,7 @@ func installRefreshFailureTrigger(
 	allowed := map[string]map[string]bool{
 		"DELETE": {
 			"transactions": true, "journal_operations": true,
-			"provider_label_allocations": true, "provider_refresh_lease": true,
+			"provider_label_allocations": true, "provider_operation_lease": true,
 			"external_identities": true,
 		},
 		"INSERT": {
