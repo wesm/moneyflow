@@ -38,4 +38,38 @@ describe('ReviewDrawer', () => {
     expect(review.loadTargets).toHaveBeenLastCalledWith('operation-a', 100)
     expect(screen.getByText('Showing 101–200 of 201')).not.toBeNull()
   })
+
+  it('commits with Enter from the drawer and opens provider write status without extra ceremony', async () => {
+    const editing = testEditingController({
+      state: {
+        ...testEditingController().state,
+        providerWrite: {
+          version: '1',
+          revision: '2',
+          generation: '1',
+          batch_version: '1',
+          phase: 'writing',
+          total: 1,
+          completed: 0,
+          failed: 0,
+          remaining: 1,
+          overrides: 0,
+          actions: ['pause'],
+        },
+      },
+    })
+    const onwrite = vi.fn()
+    render(ReviewDrawer, {
+      editing,
+      review: testReviewController(),
+      onclose: vi.fn(),
+      onwrite,
+    })
+
+    screen.getByRole('dialog', { name: 'Review pending changes' }).focus()
+    await fireEvent.keyDown(window, { key: 'Enter' })
+
+    expect(editing.commit).toHaveBeenCalledTimes(1)
+    expect(onwrite).toHaveBeenCalledTimes(1)
+  })
 })

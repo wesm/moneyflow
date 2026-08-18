@@ -6,6 +6,37 @@ import type { ViewProjection } from './client'
 const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 describe('Moneyflow generated client adapter', () => {
+  it('loads credential-blind provider write status beneath the profile path', async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void input
+      void init
+      return Response.json({
+        version: '1',
+        revision: '3',
+        generation: '2',
+        batch_version: '4',
+        phase: 'writing',
+        total: 5,
+        completed: 2,
+        failed: 0,
+        remaining: 3,
+        overrides: 0,
+        actions: ['pause'],
+      })
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    await expect(client.providerWriteStatus()).resolves.toMatchObject({
+      batch_version: '4',
+      phase: 'writing',
+      remaining: 3,
+    })
+    const sent = upstream.mock.calls[0]?.[0]
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      '/moneyflow/api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/provider/write-status',
+    )
+  })
+
   it('loads counts-only provider status beneath the configured base path', async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void input

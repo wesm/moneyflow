@@ -8,10 +8,12 @@
     editing: EditingController
     review: ReviewController
     onclose: () => void
+    onwrite?: (() => void) | undefined
   }
-  let { editing, review, onclose }: Props = $props()
+  let { editing, review, onclose, onwrite }: Props = $props()
   let expanded = $state('')
   let targetOffset = $state(0)
+  let commitContainer: HTMLDivElement | undefined
   onMount(() => {
     void review.load()
   })
@@ -29,10 +31,30 @@
     if (revision === undefined) return
     if (await editing.commit(revision)) {
       review.clear()
-      onclose()
+      if (editing.state.providerWrite) onwrite?.()
+      else onclose()
     }
   }
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.repeat || event.altKey || event.ctrlKey || event.metaKey) {
+      return
+    }
+    const active = document.activeElement
+    const dialog = commitContainer?.closest('[role="dialog"]')
+    const commitButton = commitContainer?.querySelectorAll('button').item(1)
+    if (
+      active !== dialog &&
+      active !== commitButton &&
+      !(active instanceof HTMLElement && active.getAttribute('aria-label') === 'Close')
+    ) {
+      return
+    }
+    event.preventDefault()
+    void commit()
+  }
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 <DetailDrawer
   title="Review pending changes"
@@ -95,7 +117,7 @@
           </li>{/each}
       </ol>
     </section>{/if}
-  <div class="editing-actions">
+  <div class="editing-actions" bind:this={commitContainer}>
     <Button onclick={onclose}>Cancel</Button><Button
       tone="success"
       surface="solid"

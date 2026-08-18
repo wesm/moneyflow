@@ -158,6 +158,8 @@ func TestServerProtectsEveryPersistentEndpoint(t *testing.T) {
 		"/api/v1/review", "/api/v1/review/targets",
 		"/api/v1/editor-catalog",
 		"/api/v1/provider/refresh", "/api/v1/provider/refresh/confirm",
+		"/api/v1/provider/write/pause", "/api/v1/provider/write/resume",
+		"/api/v1/provider/write/reconcile", "/api/v1/provider/write/reconcile/confirm",
 	} {
 		t.Run(path, func(t *testing.T) {
 			response := requestServer(t, server, http.MethodPost, path, strings.NewReader(`{}`))

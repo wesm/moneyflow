@@ -11,6 +11,7 @@ import { applicationURL, normalizeBrowserBasePath } from './base-path'
 import { createEditingController, type EditingController } from './editing'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
 import { createProviderController, type ProviderController } from './provider'
+import { createProviderWriteController, type ProviderWriteController } from './provider-write'
 import { createReviewController, type ReviewController } from './review'
 import { preserveCursor, WindowCache } from './windows'
 
@@ -46,6 +47,7 @@ export interface ViewController {
   readonly editing: EditingController
   readonly review: ReviewController
   readonly provider: ProviderController
+  readonly providerWrite: ProviderWriteController
   hydrate(): Promise<void>
   recheck(selection?: SelectionValue): Promise<ViewProjection | undefined>
   moveCursor(delta: -1 | 1): Promise<void>
@@ -98,8 +100,20 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   let lastRevisionObservation = 0
   const prefetchRequests = new SvelteMap<string, AbortController>()
 
+  const providerWrite = createProviderWriteController({
+    transport: { mutations: options.client.mutations, status: options.client.providerWriteStatus },
+    host: {
+      current: () => projection,
+      accept: (next) => acceptProfileProjection(next, true),
+      reload: () => recheckInternal(undefined, true),
+    },
+  })
   const editing = createEditingController({
     transport: options.client.mutations,
+    onProviderWrite: (status) => {
+      providerWrite.install(status)
+      void providerWrite.poll()
+    },
     host: {
       current: () => projection,
       accept: acceptProfileProjection,
@@ -565,6 +579,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     editing,
     review,
     provider,
+    providerWrite,
     hydrate,
     recheck,
     moveCursor,

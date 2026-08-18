@@ -401,6 +401,17 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
     providerStatus: vi.fn(async () => {
       throw new Error('provider status not stubbed')
     }),
+    providerWriteStatus: vi.fn(async () => ({
+      version: '1',
+      revision: '0',
+      generation: '0',
+      total: 0,
+      completed: 0,
+      failed: 0,
+      remaining: 0,
+      overrides: 0,
+      actions: [],
+    })),
     view: vi.fn(async (body) => projection('v=1', body.window.offset, 3)),
     transition: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
     ...overrides,

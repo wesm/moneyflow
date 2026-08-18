@@ -254,12 +254,14 @@ func apiProviderTransactionID(index int) string {
 }
 
 type apiProviderSource struct {
-	mu           sync.Mutex
-	identity     provider.ProfileIdentity
-	snapshot     domain.ImportSnapshot
-	fingerprint  provider.SessionFingerprint
-	fetchStarted chan struct{}
-	fetchRelease chan struct{}
+	mu            sync.Mutex
+	identity      provider.ProfileIdentity
+	snapshot      domain.ImportSnapshot
+	fingerprint   provider.SessionFingerprint
+	fetchStarted  chan struct{}
+	fetchRelease  chan struct{}
+	writesEnabled bool
+	writes        int
 }
 
 func (source *apiProviderSource) Reader(
@@ -271,11 +273,28 @@ func (source *apiProviderSource) Reader(
 	return (*apiProviderReader)(source), source.fingerprint, nil
 }
 
-func (*apiProviderSource) Writer(
+func (source *apiProviderSource) Writer(
 	context.Context,
 	bool,
 ) (provider.Writer, provider.SessionFingerprint, error) {
-	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if !source.writesEnabled {
+		return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+	}
+	return apiProviderWriter{source: source}, source.fingerprint, nil
+}
+
+func (source *apiProviderSource) enableWrites() {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.writesEnabled = true
+}
+
+func (source *apiProviderSource) writeCount() int {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return source.writes
 }
 
 func (source *apiProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {

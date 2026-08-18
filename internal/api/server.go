@@ -51,6 +51,7 @@ type Server struct {
 	handler             http.Handler
 	api                 huma.API
 	security            *MutationSecurity
+	resolver            ProfileResolver
 	completedOnboarding sync.Map
 }
 
@@ -128,12 +129,15 @@ func New(config Config) (*Server, error) {
 	humaConfig.Transformers = nil
 	humaConfig.Servers = []*huma.Server{{URL: basePath}}
 	humaAPI := humago.New(mux, humaConfig)
-	server := &Server{basePath: basePath, api: humaAPI, security: config.Security}
+	server := &Server{
+		basePath: basePath, api: humaAPI, security: config.Security, resolver: config.Resolver,
+	}
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
 	server.registerEditorCatalogEndpoint(config)
 	server.registerProviderEndpoints(config)
+	server.registerProviderWriteEndpoints(config)
 	server.registerProfileCatalogEndpoints(config)
 	server.registerOnboardingEndpoints(config)
 	server.installProblemSchemas()
@@ -187,6 +191,8 @@ func profileMutationSecurity(
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {},
 		"review": {}, "review/targets": {}, "editor-catalog": {},
 		"provider/refresh": {}, "provider/refresh/confirm": {},
+		"provider/write/pause": {}, "provider/write/resume": {},
+		"provider/write/reconcile": {}, "provider/write/reconcile/confirm": {},
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost {
@@ -510,6 +516,13 @@ func problemFromError(err error) *Problem {
 			app.AppProviderRateLimited, app.AppProviderUnavailable:
 			status = http.StatusServiceUnavailable
 		case app.AppProviderDataInvalid:
+			status = http.StatusUnprocessableEntity
+		case app.AppProviderWriteInProgress, app.AppProviderWriteNotEligible:
+			status = http.StatusServiceUnavailable
+		case app.AppProviderWriteAttentionRequired, app.AppProviderWriteStale,
+			app.AppProviderWritePaused:
+			status = http.StatusConflict
+		case app.AppProviderWriteUnsupported:
 			status = http.StatusUnprocessableEntity
 		case app.AppSchemaNewer, app.AppSchemaIncompatible, app.AppStoreCorrupt:
 			code = CodeStoreError

@@ -463,6 +463,8 @@ components:
           $ref: "#/components/schemas/PendingSummary"
         projection:
           $ref: "#/components/schemas/Projection"
+        provider_write:
+          $ref: "#/components/schemas/ProviderWriteStatusResponse"
         revision:
           pattern: ^[0-9]+$
           type: string
@@ -710,6 +712,11 @@ components:
           type: string
         provider:
           $ref: "#/components/schemas/ProviderStatusResponse"
+        provider_write:
+          $ref: "#/components/schemas/ProviderWriteStatusResponse"
+        provider_write_confirmation_token:
+          maxLength: 4096
+          type: string
         selection:
           $ref: "#/components/schemas/SelectionDisposition"
         status:
@@ -1090,6 +1097,140 @@ components:
         - progress
         - summary
         - capability
+      type: object
+    ProviderWriteConfirmationBody:
+      additionalProperties: false
+      properties:
+        confirmation_token:
+          maxLength: 4096
+          minLength: 1
+          type: string
+        expected_batch_version:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        query:
+          maxLength: 65536
+          type: string
+        selection:
+          maxLength: 1468006
+          type: string
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - confirmation_token
+        - query
+        - window
+        - version
+        - expected_batch_version
+      type: object
+    ProviderWriteControlBody:
+      additionalProperties: false
+      properties:
+        expected_batch_version:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - expected_batch_version
+      type: object
+    ProviderWriteReconcileBody:
+      additionalProperties: false
+      properties:
+        expected_batch_version:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        query:
+          maxLength: 65536
+          type: string
+        selection:
+          maxLength: 1468006
+          type: string
+        version:
+          type: string
+        window:
+          $ref: "#/components/schemas/Window"
+      required:
+        - query
+        - window
+        - version
+        - expected_batch_version
+      type: object
+    ProviderWriteResponse:
+      additionalProperties: false
+      properties:
+        projection:
+          $ref: "#/components/schemas/Projection"
+        selection:
+          $ref: "#/components/schemas/SelectionDisposition"
+        status:
+          $ref: "#/components/schemas/ProviderWriteStatusResponse"
+      required:
+        - status
+      type: object
+    ProviderWriteStatusResponse:
+      additionalProperties: false
+      properties:
+        actions:
+          items:
+            type: string
+          type:
+            - array
+            - "null"
+        batch_version:
+          pattern: ^[0-9]+$
+          type: string
+        completed:
+          format: int64
+          type: integer
+        failed:
+          format: int64
+          type: integer
+        generation:
+          pattern: ^[0-9]+$
+          type: string
+        next_eligible:
+          format: date-time
+          type: string
+        overrides:
+          format: int64
+          type: integer
+        owner_instance_id:
+          maxLength: 128
+          type: string
+        owner_renderer:
+          type: string
+        phase:
+          type: string
+        reason:
+          type: string
+        remaining:
+          format: int64
+          type: integer
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        total:
+          format: int64
+          type: integer
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - generation
+        - total
+        - completed
+        - failed
+        - remaining
+        - overrides
+        - actions
       type: object
     RecoveryBody:
       additionalProperties: false
@@ -2394,6 +2535,301 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Report counts-only provider refresh status
+  /api/v1/profiles/{profile_id}/provider/write-status:
+    get:
+      operationId: providerWriteStatus
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderWriteStatusResponse"
+          description: OK
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Report counts-only provider write status
+  /api/v1/profiles/{profile_id}/provider/write/pause:
+    post:
+      operationId: pauseProviderWrite
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteControlBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderWriteResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Control one durable provider write batch
+  /api/v1/profiles/{profile_id}/provider/write/reconcile:
+    post:
+      operationId: reconcileProviderWrite
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteReconcileBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderWriteResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Reconcile one durable provider write batch
+  /api/v1/profiles/{profile_id}/provider/write/reconcile/confirm:
+    post:
+      operationId: confirmProviderWriteReconcile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteConfirmationBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderWriteResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Reconcile one durable provider write batch
+  /api/v1/profiles/{profile_id}/provider/write/resume:
+    post:
+      operationId: resumeProviderWrite
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProviderWriteControlBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderWriteResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Control one durable provider write batch
   /api/v1/profiles/{profile_id}/recovery:
     post:
       operationId: recoverProfile

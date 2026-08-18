@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { DetailDrawer, MEDIA, StatusBar, ThemeToggle, Toggle, TopBar } from '@kenn-io/kit-ui'
+  import {
+    Button,
+    DetailDrawer,
+    MEDIA,
+    StatusBar,
+    ThemeToggle,
+    Toggle,
+    TopBar,
+  } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
   import { onMount, tick, untrack } from 'svelte'
   import FiltersDialog from './FiltersDialog.svelte'
@@ -15,6 +23,7 @@
   import PendingStatus from './editing/PendingStatus.svelte'
   import ProviderStatus from './ProviderStatus.svelte'
   import ReviewDrawer from './editing/ReviewDrawer.svelte'
+  import WriteStatusDrawer from './editing/WriteStatusDrawer.svelte'
   import {
     createMoneyflowShortcuts,
     handleMoneyflowKeydown,
@@ -38,6 +47,7 @@
     | 'categories'
     | 'groups'
     | 'review'
+    | 'write'
   let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
@@ -154,6 +164,9 @@
     const popScope = shortcuts?.manager.pushScope('provider-confirmation')
     return () => popScope?.()
   })
+  $effect(() => {
+    if (controller.providerWrite.state.phase === 'confirmation') openOverlay('write')
+  })
   onMount(() => {
     if (!projection) return
     const keydown = (event: KeyboardEvent) =>
@@ -173,7 +186,15 @@
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}<ProviderStatus controller={controller.provider} {onreconnect} /><Toggle
+      {#snippet right()}<ProviderStatus
+          controller={controller.provider}
+          {onreconnect}
+        />{#if controller.providerWrite.state.status?.phase}<Button
+            size="sm"
+            onclick={() => openOverlay('write')}
+            >Write {controller.providerWrite.state.status.completed}/{controller.providerWrite.state
+              .status.total}</Button
+          >{/if}<Toggle
           checked={compact.current ? chartDrawer : charts}
           onchange={toggleCharts}
           label="Charts"
@@ -206,6 +227,7 @@
     <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.editing.state.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.provider.state.announcement}</p>
+    <p class="kit-sr-only" aria-live="polite">{controller.providerWrite.state.announcement}</p>
     <StatusBar
       >{#snippet left()}<span
           >{projection.total_rows} results · <PendingStatus
@@ -240,7 +262,14 @@
   {:else if overlay === 'groups'}
     <GroupManager controller={controller.editing} onclose={closeOverlay} />
   {:else if overlay === 'review'}
-    <ReviewDrawer editing={controller.editing} review={controller.review} onclose={closeOverlay} />
+    <ReviewDrawer
+      editing={controller.editing}
+      review={controller.review}
+      onclose={closeOverlay}
+      onwrite={() => openOverlay('write')}
+    />
+  {:else if overlay === 'write'}
+    <WriteStatusDrawer controller={controller.providerWrite} onclose={closeOverlay} {onreconnect} />
   {/if}
   {#if compact.current && chartDrawer}
     <DetailDrawer

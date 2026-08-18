@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App.svelte'
 import type { CatalogController } from './lib/controller/catalog.svelte'
 import type { ViewController } from './lib/controller/view-controller.svelte'
+import { testProviderWriteController } from './test/provider-write'
 
 describe('Moneyflow application scaffold', () => {
   afterEach(() => {
@@ -137,6 +138,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       confirm: vi.fn(async () => true),
       dismissConfirmation: vi.fn(),
     } as ViewController['provider'],
+    providerWrite: testProviderWriteController(),
     hydrate: vi.fn(async () => undefined),
     recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),

@@ -65,6 +65,9 @@ func resolveProfileRequests(
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
 		"review/targets": {}, "editor-catalog": {}, "provider/status": {},
 		"provider/refresh": {}, "provider/refresh/confirm": {},
+		"provider/write-status": {}, "provider/write/pause": {},
+		"provider/write/resume": {}, "provider/write/reconcile": {},
+		"provider/write/reconcile/confirm": {},
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.EscapedPath(), prefix) {
@@ -109,6 +112,9 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 		"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
 		"editor-catalog": {}, "provider/status": {}, "provider/refresh": {},
 		"provider/refresh/confirm": {},
+		"provider/write-status":    {}, "provider/write/pause": {},
+		"provider/write/resume": {}, "provider/write/reconcile": {},
+		"provider/write/reconcile/confirm": {},
 	}
 	prefix := basePath + "api/v1/"
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

@@ -24,6 +24,7 @@ type ProviderWriteStatus struct {
 	Phase            store.WriteBatchPhase
 	ResumeTarget     store.WriteResumeTarget
 	Version          uint64
+	Generation       uint64
 	AttentionClass   store.WriteAttentionClass
 	AttentionReason  store.WriteAttentionReason
 	Total            int
@@ -92,11 +93,11 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 
 func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus {
 	if state.Write == nil {
-		return ProviderWriteStatus{}
+		return ProviderWriteStatus{Generation: state.Refresh.Generation}
 	}
 	status := ProviderWriteStatus{
 		Phase: state.Write.Phase, ResumeTarget: state.Write.ResumeTarget,
-		Version:        state.Write.Version,
+		Version: state.Write.Version, Generation: state.Refresh.Generation,
 		AttentionClass: state.Write.AttentionClass, AttentionReason: state.Write.AttentionReason,
 		Total: state.Write.TotalItems, Completed: state.Write.CompletedItems,
 		Failed: state.Write.FailedItems, Overrides: state.Write.OverrideCount,
@@ -164,7 +165,8 @@ func (service *Service) prepareProviderWrite(
 		return ProviderWriteStatus{}, snapshot.Revision, err
 	}
 	return providerWriteStatusFromState(store.ProviderState{
-		Write: &prepared.Batch,
+		Refresh: state.Refresh,
+		Write:   &prepared.Batch,
 		Lease: &store.ProviderOperationLease{
 			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
 			Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),

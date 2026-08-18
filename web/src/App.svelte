@@ -152,6 +152,7 @@
     const pollProvider = () => {
       if (document.visibilityState === 'visible') {
         void controller.provider.poll().catch(() => undefined)
+        void controller.providerWrite.poll().catch(() => undefined)
       }
     }
     const recheck = () => {
@@ -165,12 +166,18 @@
     window.addEventListener('focus', recheck)
     document.addEventListener('visibilitychange', visible)
     const statusInterval = window.setInterval(pollProvider, 60_000)
+    const writeStatusInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void controller.providerWrite.poll().catch(() => undefined)
+      }
+    }, 1_000)
     void controller
       .hydrate()
       .then(pollProvider)
       .catch(() => undefined)
     return () => {
       window.clearInterval(statusInterval)
+      window.clearInterval(writeStatusInterval)
       window.removeEventListener('popstate', restore)
       window.removeEventListener('focus', recheck)
       document.removeEventListener('visibilitychange', visible)

@@ -25,6 +25,11 @@ export type ProviderStatus = components['schemas']['ProviderStatusResponse']
 export type ProviderRefreshBody = components['schemas']['ProviderRefreshBody']
 export type ProviderConfirmationBody = components['schemas']['ProviderConfirmationBody']
 export type ProviderRefreshResponse = components['schemas']['ProviderRefreshResponse']
+export type ProviderWriteStatus = components['schemas']['ProviderWriteStatusResponse']
+export type ProviderWriteControlBody = components['schemas']['ProviderWriteControlBody']
+export type ProviderWriteReconcileBody = components['schemas']['ProviderWriteReconcileBody']
+export type ProviderWriteConfirmationBody = components['schemas']['ProviderWriteConfirmationBody']
+export type ProviderWriteResponse = components['schemas']['ProviderWriteResponse']
 
 interface BootstrapResponse {
   mutation_token: string
@@ -39,6 +44,7 @@ export interface MoneyflowClient {
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
   providerStatus(signal?: AbortSignal): Promise<ProviderStatus>
+  providerWriteStatus(signal?: AbortSignal): Promise<ProviderWriteStatus>
 }
 
 export interface MutationFetch {
@@ -220,6 +226,17 @@ export function createMoneyflowClient(
       if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
       throw new Error('The Moneyflow provider status response is invalid.')
     },
+    async providerWriteStatus(signal) {
+      const result = await client.GET(
+        '/api/v1/profiles/{profile_id}/provider/write-status',
+        signal === undefined
+          ? { params: { path: { profile_id: profileID } } }
+          : { params: { path: { profile_id: profileID } }, signal },
+      )
+      if (isProviderWriteStatus(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow provider write status response is invalid.')
+    },
   }
 }
 
@@ -259,6 +276,19 @@ function isProviderStatus(value: unknown): value is ProviderStatus {
     isRecord(value.progress) &&
     isRecord(value.summary) &&
     isRecord(value.capability)
+  )
+}
+
+function isProviderWriteStatus(value: unknown): value is ProviderWriteStatus {
+  if (!isRecord(value)) return false
+  return (
+    value.version === '1' &&
+    typeof value.revision === 'string' &&
+    typeof value.generation === 'string' &&
+    typeof value.total === 'number' &&
+    typeof value.completed === 'number' &&
+    typeof value.remaining === 'number' &&
+    (Array.isArray(value.actions) || value.actions === null)
   )
 }
 

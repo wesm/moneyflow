@@ -27,6 +27,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await expect(review).toBeVisible()
     const operation = review.locator('.review-list button').first()
     await operation.focus()
+    await expect(operation).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(review.locator('.review-paging')).toContainText('Showing 1–1 of 1')
     await expect(review.getByRole('button', { name: 'Next' })).toBeDisabled()

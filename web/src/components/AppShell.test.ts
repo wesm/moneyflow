@@ -4,6 +4,7 @@ import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
+import { testProviderWriteController } from '../test/provider-write'
 
 describe('AppShell', () => {
   afterEach(cleanup)
@@ -232,6 +233,10 @@ function stubController(projection = testProjection()): ViewController {
       confirm: vi.fn(),
       dismissConfirmation: vi.fn(),
     },
+    providerWrite: testProviderWriteController({
+      state: { phase: 'idle', announcement: '' },
+      can: vi.fn(() => false),
+    }),
     hydrate: vi.fn(),
     recheck: vi.fn(),
     moveCursor: vi.fn(),

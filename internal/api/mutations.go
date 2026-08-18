@@ -72,12 +72,13 @@ type SelectionDisposition struct {
 
 // MutationResponse returns the effective view after one accepted profile mutation.
 type MutationResponse struct {
-	Version        string               `json:"version"`
-	Revision       string               `json:"revision" pattern:"^[0-9]+$"`
-	CanonicalQuery string               `json:"canonical_query"`
-	Projection     Projection           `json:"projection"`
-	Pending        PendingSummary       `json:"pending"`
-	Selection      SelectionDisposition `json:"selection"`
+	Version        string                       `json:"version"`
+	Revision       string                       `json:"revision" pattern:"^[0-9]+$"`
+	CanonicalQuery string                       `json:"canonical_query"`
+	Projection     Projection                   `json:"projection"`
+	Pending        PendingSummary               `json:"pending"`
+	Selection      SelectionDisposition         `json:"selection"`
+	ProviderWrite  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
 }
 
 type mutationInput struct {
@@ -175,7 +176,18 @@ func (server *Server) registerMutationEndpoints(_ Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		return mutationOutputFor(result, selection)
+		output, err := mutationOutputFor(result, selection)
+		if err != nil {
+			return nil, err
+		}
+		if result.ProviderWrite != nil {
+			wire := providerWriteStatusToWire(
+				result.Revision, result.ProviderWrite.Generation, *result.ProviderWrite,
+			)
+			output.Body.ProviderWrite = &wire
+			server.startProviderWrite(input.ProfileID)
+		}
+		return output, nil
 	})
 }
 

@@ -82,6 +82,18 @@ const (
 	CodeCredentialInputInvalid ErrorCode = "credential_input_invalid" // #nosec G101 -- stable protocol code
 	// CodeProviderConnectInProgress reports another provider-connect lock owner.
 	CodeProviderConnectInProgress ErrorCode = "provider_connect_in_progress"
+	// CodeProviderWriteInProgress reports a live outbound-write owner.
+	CodeProviderWriteInProgress ErrorCode = "provider_write_in_progress"
+	// CodeProviderWriteAttentionRequired reports a parked batch requiring user action.
+	CodeProviderWriteAttentionRequired ErrorCode = "provider_write_attention_required"
+	// CodeProviderWriteStale rejects a control for an older batch version.
+	CodeProviderWriteStale ErrorCode = "provider_write_stale"
+	// CodeProviderWritePaused reports a durably paused batch.
+	CodeProviderWritePaused ErrorCode = "provider_write_paused"
+	// CodeProviderWriteNotEligible reports a rate-limit deadline that has not arrived.
+	CodeProviderWriteNotEligible ErrorCode = "provider_write_not_eligible"
+	// CodeProviderWriteUnsupported rejects an unwritable reviewed prefix.
+	CodeProviderWriteUnsupported ErrorCode = "provider_write_unsupported"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.
@@ -107,14 +119,16 @@ func newSafeError(code ErrorCode, detail string, cause error) *SafeError {
 
 // Problem is the single safe RFC 9457-compatible API error envelope.
 type Problem struct {
-	Type            string                  `json:"type,omitempty" format:"uri" default:"about:blank"`
-	Title           string                  `json:"title"`
-	Status          int                     `json:"status"`
-	Detail          string                  `json:"detail"`
-	Code            string                  `json:"code"`
-	CurrentRevision string                  `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
-	Selection       *SelectionDisposition   `json:"selection,omitempty"`
-	Provider        *ProviderStatusResponse `json:"provider,omitempty"`
+	Type                           string                       `json:"type,omitempty" format:"uri" default:"about:blank"`
+	Title                          string                       `json:"title"`
+	Status                         int                          `json:"status"`
+	Detail                         string                       `json:"detail"`
+	Code                           string                       `json:"code"`
+	CurrentRevision                string                       `json:"current_revision,omitempty" pattern:"^[0-9]+$"`
+	Selection                      *SelectionDisposition        `json:"selection,omitempty"`
+	Provider                       *ProviderStatusResponse      `json:"provider,omitempty"`
+	ProviderWrite                  *ProviderWriteStatusResponse `json:"provider_write,omitempty"`
+	ProviderWriteConfirmationToken string                       `json:"provider_write_confirmation_token,omitempty" maxLength:"4096"`
 }
 
 var errUnsupportedProviderVersion = errors.New("unsupported provider request version")

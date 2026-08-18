@@ -236,6 +236,7 @@ type syntheticProfile struct {
 	credentials *monarch.StoredCredentials
 	vaultKey    string
 	expired     bool
+	hidden      map[string]bool
 }
 
 func newSyntheticRuntimes() *syntheticRuntimes {
@@ -392,11 +393,16 @@ func (source *syntheticSource) Reader(
 	return &syntheticReader{profile: source.profile}, "synthetic-session", nil
 }
 
-func (*syntheticSource) Writer(
-	context.Context,
-	bool,
+func (source *syntheticSource) Writer(
+	_ context.Context,
+	_ bool,
 ) (provider.Writer, provider.SessionFingerprint, error) {
-	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+	source.profile.mu.Lock()
+	defer source.profile.mu.Unlock()
+	if source.profile.expired {
+		return nil, "", provider.NewError(provider.CodeReconnectRequired)
+	}
+	return &syntheticWriter{profile: source.profile}, "synthetic-session", nil
 }
 
 func (source *syntheticSource) Changed(provider.SessionFingerprint) (bool, error) {
@@ -404,6 +410,44 @@ func (source *syntheticSource) Changed(provider.SessionFingerprint) (bool, error
 }
 
 type syntheticReader struct{ profile *syntheticProfile }
+
+type syntheticWriter struct{ profile *syntheticProfile }
+
+func (writer *syntheticWriter) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
+	writer.profile.mu.Lock()
+	defer writer.profile.mu.Unlock()
+	if writer.profile.expired {
+		return provider.ProfileIdentity{}, provider.NewError(provider.CodeReconnectRequired)
+	}
+	return syntheticIdentity(writer.profile), nil
+}
+
+func (writer *syntheticWriter) UpdateTransaction(
+	_ context.Context,
+	update provider.TransactionUpdate,
+) (provider.TransactionUpdateResult, error) {
+	writer.profile.mu.Lock()
+	defer writer.profile.mu.Unlock()
+	if writer.profile.expired {
+		return provider.TransactionUpdateResult{}, provider.NewError(provider.CodeReconnectRequired)
+	}
+	result := provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID}
+	if update.MerchantName.Present {
+		result.MerchantExternalID = provider.Some("merchant")
+		result.MerchantLabel = provider.Some(update.MerchantName.Value)
+	}
+	if update.CategoryExternalID.Present {
+		result.CategoryExternalID = provider.Some(update.CategoryExternalID.Value)
+	}
+	if update.Hidden.Present {
+		result.Hidden = provider.Some(update.Hidden.Value)
+		if writer.profile.hidden == nil {
+			writer.profile.hidden = make(map[string]bool)
+		}
+		writer.profile.hidden[update.TransactionExternalID] = update.Hidden.Value
+	}
+	return result, nil
+}
 
 func (reader *syntheticReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
 	reader.profile.mu.Lock()
@@ -421,6 +465,10 @@ func (reader *syntheticReader) FetchSnapshot(
 	reader.profile.mu.Lock()
 	expired := reader.profile.expired
 	root := reader.profile.root
+	hidden := make(map[string]bool, len(reader.profile.hidden))
+	for externalID, value := range reader.profile.hidden {
+		hidden[externalID] = value
+	}
 	reader.profile.mu.Unlock()
 	if expired {
 		return domain.ImportSnapshot{}, provider.NewError(provider.CodeReconnectRequired)
@@ -436,7 +484,7 @@ func (reader *syntheticReader) FetchSnapshot(
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: 4, Total: 4, Attempt: 1, Pass: 1})
 	}
-	return syntheticSnapshot(root)
+	return syntheticSnapshot(root, hidden)
 }
 
 func syntheticIdentity(profile *syntheticProfile) provider.ProfileIdentity {
@@ -445,7 +493,7 @@ func syntheticIdentity(profile *syntheticProfile) provider.ProfileIdentity {
 	}
 }
 
-func syntheticSnapshot(root string) (domain.ImportSnapshot, error) {
+func syntheticSnapshot(root string, hidden map[string]bool) (domain.ImportSnapshot, error) {
 	date, err := domain.ParseDate("2026-08-18")
 	if err != nil {
 		return domain.ImportSnapshot{}, err
@@ -468,11 +516,13 @@ func syntheticSnapshot(root string) (domain.ImportSnapshot, error) {
 		}},
 	}
 	for index := range 4 {
+		externalID := fmt.Sprintf("%s-transaction-%d", profileKey, index)
 		snapshot.Transactions = append(snapshot.Transactions, domain.ImportTransaction{
-			ExternalID:        fmt.Sprintf("%s-transaction-%d", profileKey, index),
+			ExternalID:        externalID,
 			AccountExternalID: "account", MerchantExternalID: "merchant",
 			CategoryExternalID: "category", Date: date,
 			Amount: domain.Money{Minor: int64(-1000 - index), Currency: "USD", Scale: 2},
+			Hidden: hidden[externalID],
 		})
 	}
 	return snapshot, snapshot.Validate()

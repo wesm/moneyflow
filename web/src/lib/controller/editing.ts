@@ -10,6 +10,7 @@ import {
   type MutationInput,
   type MutationResponse,
   type PendingSummary,
+  type ProviderWriteStatus,
   type RevisionBody,
   type SelectionValue,
   type ViewProjection,
@@ -22,6 +23,7 @@ export interface EditingState {
   phase: MutationPhase
   pending: PendingSummary
   announcement: string
+  providerWrite?: ProviderWriteStatus
 }
 
 export interface MutationIntent {
@@ -49,6 +51,7 @@ export interface EditingController {
 interface EditingControllerOptions {
   transport: MutationFetch
   host: EditingProjectionHost
+  onProviderWrite?: (status: ProviderWriteStatus) => void
 }
 
 const emptyPending: PendingSummary = {
@@ -178,7 +181,9 @@ export function createEditingController(options: EditingControllerOptions): Edit
         phase: 'idle',
         pending: response.pending,
         announcement: mutationAnnouncement(successMessage, response.selection.kind),
+        ...(response.provider_write ? { providerWrite: response.provider_write } : {}),
       })
+      if (response.provider_write) options.onProviderWrite?.(response.provider_write)
       return true
     } catch (error) {
       await handleFailure(error)
