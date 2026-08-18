@@ -55,18 +55,21 @@ func TestCredentialFailuresExposeOnlySanitizedState(t *testing.T) {
 }
 
 func TestProviderFailureCauseDoesNotEnterSnapshot(t *testing.T) {
-	forbidden := "credential-private-value /private/example/profile-root"
+	forbidden := []string{"credential-private-value", "/private/example/profile-root"}
 	coordinator, started := newFlowCoordinator(
 		t,
 		flowProfilePristine,
-		&fakeSessionStore{loadErr: errors.New(forbidden)},
+		&fakeSessionStore{loadErr: errors.New(strings.Join(forbidden, " "))},
 		&fakeCredentialVault{},
 		&fakeConnector{identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "remote"}},
 		&SettingsInput{Currency: "USD", Scale: 2},
 	)
 	failed := waitForStableState(t, coordinator, started)
+	require.NotNil(t, failed.Failure)
 	encoded, err := json.Marshal(failed)
 	require.NoError(t, err)
-	assert.NotContains(t, string(encoded), forbidden)
-	assert.NotContains(t, failed.Failure.Message, forbidden)
+	for _, value := range forbidden {
+		assert.NotContains(t, string(encoded), value)
+		assert.NotContains(t, failed.Failure.Message, value)
+	}
 }

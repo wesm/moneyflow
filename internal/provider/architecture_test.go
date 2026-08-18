@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -56,26 +57,40 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	providerDir := filepath.Dir(filename)
 	internalDir := filepath.Dir(providerDir)
 	repoDir := filepath.Dir(internalDir)
-	monarchImport := "github.com/wesm/moneyflow/internal/provider/monarch"
-
-	for _, directory := range []string{
-		filepath.Join(internalDir, "api"),
-		filepath.Join(internalDir, "profilecatalog"),
-		filepath.Join(internalDir, "store"),
-		filepath.Join(internalDir, "tui"),
-		filepath.Join(internalDir, "web"),
-	} {
-		assertNoInternalImport(t, directory, func(_ string, imported string) bool {
-			return imported != monarchImport
-		})
+	monarchDir := filepath.Join(providerDir, "monarch")
+	onboardingDir := filepath.Join(internalDir, "onboarding")
+	compositionFiles := map[string]bool{
+		filepath.Join(repoDir, "cmd", "moneyflow", "provider.go"):             true,
+		filepath.Join(repoDir, "cmd", "moneyflow", "onboarding_presenter.go"): true,
 	}
-	assertNoInternalImport(t, filepath.Join(repoDir, "cmd", "moneyflow"), func(path, imported string) bool {
-		if imported != monarchImport {
+	for path := range compositionFiles {
+		_, statErr := os.Stat(path)
+		require.NoError(t, statErr, "composition file must exist: %s", path)
+	}
+
+	allowed := func(path, imported string) bool {
+		if !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/provider/monarch") {
 			return true
 		}
-		name := filepath.Base(path)
-		return name == "provider.go" || name == "onboarding_presenter.go"
-	})
+		if isWithinDirectory(path, monarchDir) {
+			return true
+		}
+		return filepath.Dir(path) == onboardingDir || compositionFiles[path]
+	}
+	assertNoInternalImport(t, internalDir, allowed)
+	assertNoInternalImport(t, filepath.Join(repoDir, "cmd"), allowed)
+}
+
+func importsPackageTree(imported string, root string) bool {
+	return imported == root || strings.HasPrefix(imported, root+"/")
+}
+
+func isWithinDirectory(path string, directory string) bool {
+	relative, err := filepath.Rel(directory, path)
+	if err != nil {
+		return false
+	}
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func assertNoInternalImport(
