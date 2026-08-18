@@ -54,6 +54,38 @@ func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
 	require.ErrorContains(t, err, "unknown flag: --replace")
 }
 
+func TestProviderOutputIsCredentialBlindOnFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "catalog-private-root")
+	t.Setenv("MONEYFLOW_HOME", root)
+	catalog := newCommandTestCatalog(t, root)
+	_, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Sensitive Profile Label", ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+	forbidden := []string{
+		"private-user@example.invalid",
+		"provider-password-private",
+		"account-password-private",
+		"Sensitive Profile Label",
+		root,
+	}
+	prompts := &recordingPrompt{answers: []string{
+		forbidden[0], forbidden[1], "JBSWY3DPEHPK3PXP", forbidden[2], forbidden[2],
+	}}
+	stdout, stderr, runErr := executeProviderCommand(
+		t,
+		&fakeMonarchConnector{connectErr: errors.New(strings.Join(forbidden, " | "))},
+		&commandProviderSource{},
+		prompts.Prompt,
+		"provider", "connect", "monarch", "--profile", "Sensitive Profile Label",
+	)
+	require.Error(t, runErr)
+	visible := stdout + stderr + runErr.Error()
+	for _, value := range forbidden {
+		assert.NotContains(t, visible, value)
+	}
+}
+
 func TestProviderConnectPromptsToConfirmUSD2WhenConfigIsAbsent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)

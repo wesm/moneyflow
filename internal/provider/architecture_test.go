@@ -48,6 +48,36 @@ func TestProviderPackagesDoNotImportStore(t *testing.T) {
 	})
 }
 
+func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	providerDir := filepath.Dir(filename)
+	internalDir := filepath.Dir(providerDir)
+	repoDir := filepath.Dir(internalDir)
+	monarchImport := "github.com/wesm/moneyflow/internal/provider/monarch"
+
+	for _, directory := range []string{
+		filepath.Join(internalDir, "api"),
+		filepath.Join(internalDir, "profilecatalog"),
+		filepath.Join(internalDir, "store"),
+		filepath.Join(internalDir, "tui"),
+		filepath.Join(internalDir, "web"),
+	} {
+		assertNoInternalImport(t, directory, func(_ string, imported string) bool {
+			return imported != monarchImport
+		})
+	}
+	assertNoInternalImport(t, filepath.Join(repoDir, "cmd", "moneyflow"), func(path, imported string) bool {
+		if imported != monarchImport {
+			return true
+		}
+		name := filepath.Base(path)
+		return name == "provider.go" || name == "onboarding_presenter.go"
+	})
+}
+
 func assertNoInternalImport(
 	t *testing.T,
 	directory string,
