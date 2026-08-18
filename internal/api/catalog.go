@@ -38,20 +38,23 @@ type EditorCatalogResponse struct {
 	Groups     []EditorChoice `json:"groups"`
 }
 
-type editorCatalogInput struct{ Body EditorCatalogBody }
+type editorCatalogInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      EditorCatalogBody
+}
 type editorCatalogOutput struct{ Body EditorCatalogResponse }
 
-func (server *Server) registerEditorCatalogEndpoint(config Config) {
+func (server *Server) registerEditorCatalogEndpoint(_ Config) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "editorCatalog", Method: http.MethodPost,
-		Path: server.basePath + "api/v1/editor-catalog", Summary: "Load bounded active editor choices",
+		Path: server.profilePath("editor-catalog"), Summary: "Load bounded active editor choices",
 		Errors: []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *editorCatalogInput) (*editorCatalogOutput, error) {
 		expected, err := reviewRevision(input.Body.Version, input.Body.ExpectedRevision)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		catalog, err := config.Service.EditorCatalogAt(ctx, expected)
+		catalog, err := profileService(ctx).EditorCatalogAt(ctx, expected)
 		if err != nil {
 			return nil, problemFromError(err)
 		}

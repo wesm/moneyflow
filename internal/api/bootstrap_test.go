@@ -22,7 +22,8 @@ func TestBootstrapReturnsFreshNoStoreTokenAndStringRevision(t *testing.T) {
 	service, err := app.NewService(nil)
 	require.NoError(t, err)
 	server := newTestServerWithConfig(t, Config{
-		Service: service, BasePath: origin.BasePath, Version: "test",
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: origin.BasePath, Version: "test",
 		Origin: origin, Security: security,
 	})
 	response := requestServer(t, server, http.MethodGet, "/moneyflow/api/v1/bootstrap", nil)
@@ -49,7 +50,8 @@ func TestProfileBootstrapIssuesOnlyTheRequestedProfileScope(t *testing.T) {
 	service, err := app.NewService(nil)
 	require.NoError(t, err)
 	server := newTestServerWithConfig(t, Config{
-		Service: service, BasePath: origin.BasePath, Version: "test",
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: origin.BasePath, Version: "test",
 		Origin: origin, Security: security,
 	})
 	path, err := ProfileAPIPath(origin.BasePath, testProfileID, "bootstrap")

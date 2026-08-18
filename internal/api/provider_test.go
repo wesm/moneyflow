@@ -212,7 +212,8 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 	security, err := NewMutationSecurity(origin, nil, func() time.Time { return now })
 	require.NoError(t, err)
 	server, err := New(Config{
-		Service: service, BasePath: basePath, Version: "test", Origin: origin, Security: security,
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: basePath, Version: "test", Origin: origin, Security: security,
 	})
 	require.NoError(t, err)
 	return providerAPIFixture{server: server, service: service, source: source, now: now}

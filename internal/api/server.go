@@ -17,15 +17,17 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 // Config supplies immutable dependencies for a stateless API handler.
 type Config struct {
-	Service  *app.Service
-	BasePath string
-	Version  string
-	Origin   OriginConfig
-	Security *MutationSecurity
+	Resolver        ProfileResolver
+	LegacyProfileID string
+	BasePath        string
+	Version         string
+	Origin          OriginConfig
+	Security        *MutationSecurity
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -52,11 +54,13 @@ type healthOutput struct {
 }
 
 type viewInput struct {
-	Body ViewBody
+	ProfileID string `path:"profile_id"`
+	Body      ViewBody
 }
 
 type transitionInput struct {
-	Body TransitionBody
+	ProfileID string `path:"profile_id"`
+	Body      TransitionBody
 }
 
 type projectionOutput struct {
@@ -73,8 +77,11 @@ type profileBootstrapInput struct {
 
 // New builds the API without binding a listener or retaining request state.
 func New(config Config) (*Server, error) {
-	if config.Service == nil {
-		return nil, errors.New("new API server: service is required")
+	if config.Resolver == nil {
+		return nil, errors.New("new API server: profile resolver is required")
+	}
+	if config.LegacyProfileID != "" && !profilecatalog.ValidProfileID(config.LegacyProfileID) {
+		return nil, errors.New("new API server: legacy profile ID is invalid")
 	}
 	basePath, err := NormalizeBasePath(config.BasePath)
 	if err != nil {
@@ -118,8 +125,10 @@ func New(config Config) (*Server, error) {
 
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler)
-	handler = persistentMutationSecurity(handler, basePath, config.Security)
+	handler = resolveProfileRequests(handler, basePath, config.Resolver)
+	handler = profileMutationSecurity(handler, basePath, config.Security)
 	handler = strictProfileAPIPaths(handler, basePath)
+	handler = legacyProfileRoutes(handler, basePath, config.LegacyProfileID)
 	handler = safeProblemResponses(handler)
 	handler = recoverAPI(handler)
 	handler = noStore(handler)
@@ -143,28 +152,29 @@ func strictProfileAPIPaths(next http.Handler, basePath string) http.Handler {
 	})
 }
 
-func persistentMutationSecurity(
+func profileMutationSecurity(
 	next http.Handler,
 	basePath string,
 	security *MutationSecurity,
 ) http.Handler {
 	protected := map[string]struct{}{
-		basePath + "api/v1/mutations":                {},
-		basePath + "api/v1/undo":                     {},
-		basePath + "api/v1/redo":                     {},
-		basePath + "api/v1/commit":                   {},
-		basePath + "api/v1/review":                   {},
-		basePath + "api/v1/review/targets":           {},
-		basePath + "api/v1/editor-catalog":           {},
-		basePath + "api/v1/provider/refresh":         {},
-		basePath + "api/v1/provider/refresh/confirm": {},
+		"mutations": {}, "undo": {}, "redo": {}, "commit": {},
+		"review": {}, "review/targets": {}, "editor-catalog": {},
+		"provider/refresh": {}, "provider/refresh/confirm": {},
 	}
-	guarded := security.Protect(CatalogMutationScope, next)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		_, requiresProtection := protected[request.URL.Path]
-		if request.Method == http.MethodPost && requiresProtection {
-			guarded.ServeHTTP(response, request)
-			return
+		if request.Method == http.MethodPost {
+			profileID, endpoint, err := ParseProfileAPIPath(basePath, request.URL.EscapedPath())
+			if err == nil {
+				if _, requiresProtection := protected[endpoint]; requiresProtection {
+					scope := profileID
+					if legacyProfileRequest(request.Context()) {
+						scope = CatalogMutationScope
+					}
+					security.Protect(scope, next).ServeHTTP(response, request)
+					return
+				}
+			}
 		}
 		next.ServeHTTP(response, request)
 	})
@@ -199,21 +209,18 @@ func (server *Server) OpenAPIYAML() ([]byte, error) {
 }
 
 func (server *Server) register(config Config, mux *http.ServeMux) {
-	healthPath := server.basePath + "api/v1/health"
-	viewPath := server.basePath + "api/v1/view"
-	transitionPath := server.basePath + "api/v1/view/transition"
+	healthPath := server.profilePath("health")
+	viewPath := server.profilePath("view")
+	transitionPath := server.profilePath("view/transition")
 	bootstrapPath := server.basePath + "api/v1/bootstrap"
-	profileBootstrapPath := server.basePath + "api/v1/profiles/{profile_id}/bootstrap"
+	profileBootstrapPath := server.profilePath("bootstrap")
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
 		Summary: "Issue browser-memory mutation configuration", Errors: []int{500},
-	}, func(ctx context.Context, _ *struct{}) (*bootstrapOutput, error) {
-		if _, err := config.Service.Refresh(ctx); err != nil {
-			return nil, problemFromError(err)
-		}
+	}, func(_ context.Context, _ *struct{}) (*bootstrapOutput, error) {
 		body, err := newBootstrap(
-			config.Version, config.Origin, config.Service.Revision(), config.Security,
+			config.Version, config.Origin, 0, config.Security,
 			CatalogMutationScope,
 		)
 		if err != nil {
@@ -237,11 +244,12 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 				http.StatusNotFound, "not_found", "The requested profile route was not found.",
 			)
 		}
-		if _, refreshErr := config.Service.Refresh(ctx); refreshErr != nil {
+		service := profileService(ctx)
+		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
 			return nil, problemFromError(refreshErr)
 		}
 		body, bootstrapErr := newBootstrap(
-			config.Version, config.Origin, config.Service.Revision(), config.Security,
+			config.Version, config.Origin, service.Revision(), config.Security,
 			input.ProfileID,
 		)
 		if bootstrapErr != nil {
@@ -256,15 +264,16 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "health", Method: http.MethodGet, Path: healthPath,
 		Summary: "Report persistent profile service health",
-	}, func(ctx context.Context, _ *struct{}) (*healthOutput, error) {
-		if _, err := config.Service.Refresh(ctx); err != nil {
+	}, func(ctx context.Context, _ *profileBootstrapInput) (*healthOutput, error) {
+		service := profileService(ctx)
+		if _, err := service.Refresh(ctx); err != nil {
 			return nil, problemFromError(err)
 		}
 		return &healthOutput{Body: Health{
 			Version: config.Version, APISchemaVersion: APISchemaVersion,
 			ReadOnly: false, BasePath: server.basePath, DataStatus: "profile",
-			Revision: strconv.FormatUint(config.Service.Revision(), 10),
-			Pending:  pendingToWire(config.Service.Pending()),
+			Revision: strconv.FormatUint(service.Revision(), 10),
+			Pending:  pendingToWire(service.Pending()),
 		}}, nil
 	})
 
@@ -272,7 +281,8 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		OperationID: "projectView", Method: http.MethodPost, Path: viewPath,
 		Summary: "Project one stateless read-only view", Errors: []int{400, 413, 422, 500},
 	}, func(ctx context.Context, input *viewInput) (*projectionOutput, error) {
-		if _, err := config.Service.Refresh(ctx); err != nil {
+		service := profileService(ctx)
+		if _, err := service.Refresh(ctx); err != nil {
 			return nil, problemFromError(err)
 		}
 		state, canonical, err := DecodeViewQuery(input.Body.Query)
@@ -283,7 +293,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if selection == "" {
 			selection = app.EmptySelection()
 		}
-		projection, err := config.Service.ProjectView(
+		projection, err := service.ProjectView(
 			state,
 			selection,
 			app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
@@ -291,7 +301,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		warnings := []Warning(nil)
 		if isInvalidHydrationSelection(err) {
 			selection = app.EmptySelection()
-			projection, err = config.Service.ProjectView(
+			projection, err = service.ProjectView(
 				state,
 				selection,
 				app.WindowRequest{Offset: input.Body.Window.Offset, Limit: input.Body.Window.Limit},
@@ -312,7 +322,8 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		Summary: "Apply one stateless read-only view transition",
 		Errors:  []int{400, 409, 413, 422, 500},
 	}, func(ctx context.Context, input *transitionInput) (*projectionOutput, error) {
-		if _, err := config.Service.Refresh(ctx); err != nil {
+		service := profileService(ctx)
+		if _, err := service.Refresh(ctx); err != nil {
 			return nil, problemFromError(err)
 		}
 		state, _, err := DecodeViewQuery(input.Body.Query)
@@ -327,7 +338,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		nextState, _, projection, err := config.Service.TransitionView(
+		nextState, _, projection, err := service.TransitionView(
 			state,
 			selection,
 			transition,

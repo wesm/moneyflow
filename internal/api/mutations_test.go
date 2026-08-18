@@ -428,7 +428,8 @@ func newAPITestServerForServiceWithClock(
 	security, err := NewMutationSecurity(origin, nil, now)
 	require.NoError(t, err)
 	server, err := New(Config{
-		Service: service, BasePath: "/", Version: "test", Origin: origin, Security: security,
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: "/", Version: "test", Origin: origin, Security: security,
 	})
 	require.NoError(t, err)
 	return server

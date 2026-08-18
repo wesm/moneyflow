@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -54,7 +55,8 @@ func NewServer(config ServerConfig) (*Server, error) {
 		}
 	}
 	apiServer, err := api.New(api.Config{
-		Service: config.Service, BasePath: basePath, Version: config.Version,
+		Resolver:        fixedProfileResolver{id: fixedWebProfileID, service: config.Service},
+		LegacyProfileID: fixedWebProfileID, BasePath: basePath, Version: config.Version,
 		Origin: config.Origin, Security: config.Security,
 	})
 	if err != nil {
@@ -76,6 +78,27 @@ func NewServer(config ServerConfig) (*Server, error) {
 	})
 	return server, nil
 }
+
+const fixedWebProfileID = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+type fixedProfileResolver struct {
+	id      string
+	service *app.Service
+}
+
+func (resolver fixedProfileResolver) Acquire(_ context.Context, profileID string) (api.ProfileLease, error) {
+	if profileID != resolver.id {
+		return nil, errors.New("profile was not found")
+	}
+	return fixedProfileLease{service: resolver.service}, nil
+}
+
+type fixedProfileLease struct {
+	service *app.Service
+}
+
+func (lease fixedProfileLease) Service() *app.Service { return lease.service }
+func (fixedProfileLease) Release() error              { return nil }
 
 // Handler returns the composed transport-independent HTTP handler.
 func (server *Server) Handler() http.Handler {

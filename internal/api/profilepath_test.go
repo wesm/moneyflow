@@ -9,7 +9,7 @@ import (
 
 const (
 	testProfileID  = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-	otherProfileID = "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb"
+	otherProfileID = "profile_baaaaaaaaaaaaaaaaaaaaaaaaa"
 )
 
 func TestProfileAPIPathPreservesBasePathAndCanonicalID(t *testing.T) {

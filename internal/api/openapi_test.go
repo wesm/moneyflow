@@ -22,16 +22,14 @@ func TestOpenAPIDeterministicEditingContract(t *testing.T) {
 
 	yaml, err := server.OpenAPIYAML()
 	require.NoError(t, err)
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/health")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/view")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/view/transition")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/mutations")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/undo")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/redo")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/commit")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/review")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/review/targets")
-	assert.Contains(t, string(yaml), "/moneyflow/api/v1/editor-catalog")
+	profilePrefix := "/moneyflow/api/v1/profiles/{profile_id}/"
+	for _, endpoint := range []string{
+		"health", "view", "view/transition", "mutations", "undo", "redo", "commit",
+		"review", "review/targets", "editor-catalog",
+	} {
+		assert.Contains(t, string(yaml), profilePrefix+endpoint)
+	}
+	assert.Contains(t, string(yaml), "name: profile_id")
 	assert.Contains(t, string(yaml), "minor:")
 	assert.Contains(t, string(yaml), "type: string")
 	assert.NotContains(t, string(yaml), "Date: {}")

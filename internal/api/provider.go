@@ -80,34 +80,44 @@ type ProviderRefreshResponse struct {
 	Selection  SelectionDisposition   `json:"selection"`
 }
 
-type providerRefreshInput struct{ Body ProviderRefreshBody }
-type providerConfirmationInput struct{ Body ProviderConfirmationBody }
+type providerRefreshInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProviderRefreshBody
+}
+type providerConfirmationInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProviderConfirmationBody
+}
+type providerStatusInput struct {
+	ProfileID string `path:"profile_id"`
+}
 type providerStatusOutput struct{ Body ProviderStatusResponse }
 type providerRefreshOutput struct{ Body ProviderRefreshResponse }
 
-func (server *Server) registerProviderEndpoints(config Config) {
-	statusPath := server.basePath + "api/v1/provider/status"
-	refreshPath := server.basePath + "api/v1/provider/refresh"
-	confirmationPath := server.basePath + "api/v1/provider/refresh/confirm"
+func (server *Server) registerProviderEndpoints(_ Config) {
+	statusPath := server.profilePath("provider/status")
+	refreshPath := server.profilePath("provider/refresh")
+	confirmationPath := server.profilePath("provider/refresh/confirm")
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "providerStatus", Method: http.MethodGet, Path: statusPath,
 		Summary: "Report counts-only provider refresh status", Errors: []int{500, 503},
-	}, func(ctx context.Context, _ *struct{}) (*providerStatusOutput, error) {
-		if _, err := config.Service.Refresh(ctx); err != nil {
+	}, func(ctx context.Context, _ *providerStatusInput) (*providerStatusOutput, error) {
+		service := profileService(ctx)
+		if _, err := service.Refresh(ctx); err != nil {
 			return nil, problemFromError(err)
 		}
-		capability := providerRefreshCapability(config.Service)
+		capability := providerRefreshCapability(service)
 		if !capability.Available {
-			body := providerStatusToWire(config.Service.Revision(), app.ProviderStatus{})
+			body := providerStatusToWire(service.Revision(), app.ProviderStatus{})
 			body.Capability = capability
 			return &providerStatusOutput{Body: body}, nil
 		}
-		status, err := config.Service.ProviderStatus(ctx)
+		status, err := service.ProviderStatus(ctx)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		body := providerStatusToWire(config.Service.Revision(), status)
+		body := providerStatusToWire(service.Revision(), status)
 		body.Capability = capability
 		return &providerStatusOutput{Body: body}, nil
 	})
@@ -123,6 +133,7 @@ func (server *Server) registerProviderEndpoints(config Config) {
 				Summary: "Confirm one suspicious provider refresh candidate",
 				Errors:  []int{400, 403, 409, 413, 422, 500, 503},
 			}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
+				service := profileService(ctx)
 				ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
 				defer cancel()
 				body := input.Body
@@ -132,13 +143,13 @@ func (server *Server) registerProviderEndpoints(config Config) {
 				}
 				request.Manual = body.Manual
 				request.ConfirmationToken = body.ConfirmationToken
-				result, err := config.Service.ConfirmProviderRefresh(ctx, request)
+				result, err := service.ConfirmProviderRefresh(ctx, request)
 				if err != nil {
 					return nil, problemFromProviderError(
-						err, result, providerRefreshCapability(config.Service),
+						err, result, providerRefreshCapability(service),
 					)
 				}
-				return providerRefreshOutputFor(result, providerRefreshCapability(config.Service))
+				return providerRefreshOutputFor(result, providerRefreshCapability(service))
 			})
 			return
 		}
@@ -147,6 +158,7 @@ func (server *Server) registerProviderEndpoints(config Config) {
 			Summary: "Refresh one complete provider snapshot",
 			Errors:  []int{400, 403, 409, 413, 422, 500, 503},
 		}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
+			service := profileService(ctx)
 			ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
 			defer cancel()
 			request, err := providerRefreshRequest(input.Body)
@@ -154,13 +166,13 @@ func (server *Server) registerProviderEndpoints(config Config) {
 				return nil, problemFromError(err)
 			}
 			request.Manual = input.Body.Manual
-			result, err := config.Service.RefreshProvider(ctx, request)
+			result, err := service.RefreshProvider(ctx, request)
 			if err != nil {
 				return nil, problemFromProviderError(
-					err, result, providerRefreshCapability(config.Service),
+					err, result, providerRefreshCapability(service),
 				)
 			}
-			return providerRefreshOutputFor(result, providerRefreshCapability(config.Service))
+			return providerRefreshOutputFor(result, providerRefreshCapability(service))
 		})
 	}
 	registerRefresh("refreshProvider", refreshPath, false)

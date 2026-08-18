@@ -46,6 +46,22 @@ func TestComposedServerRoutesAPIBeforeSPA(t *testing.T) {
 	}
 }
 
+func TestComposedSingleProfileServerRejectsAnotherCanonicalProfileID(t *testing.T) {
+	t.Parallel()
+	application, err := NewServer(ServerConfig{
+		Service: serverTestService(t), BasePath: "/moneyflow/", Version: "test",
+	})
+	require.NoError(t, err)
+	path, err := api.ProfileAPIPath(
+		"/moneyflow/", "profile_baaaaaaaaaaaaaaaaaaaaaaaaa", "health",
+	)
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodGet, path, http.NoBody)
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	assert.Equal(t, http.StatusNotFound, response.Code)
+}
+
 func TestHTTPServerUsesBoundedTimeoutsAndNoRequestLogging(t *testing.T) {
 	t.Parallel()
 	application, err := NewServer(ServerConfig{Service: serverTestService(t), BasePath: "/"})

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
 )
@@ -166,7 +167,8 @@ func writeOpenAPI(format string) ([]byte, error) {
 		return nil, err
 	}
 	server, err := api.New(api.Config{
-		Service: opened.Service, BasePath: "/", Version: version.Version,
+		Resolver: contractProfileResolver{service: opened.Service},
+		BasePath: "/", Version: version.Version,
 	})
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("build API contract: %w", err), opened.Close())
@@ -179,6 +181,17 @@ func writeOpenAPI(format string) ([]byte, error) {
 	}
 	return data, errors.Join(err, opened.Close())
 }
+
+type contractProfileResolver struct {
+	service *app.Service
+}
+
+func (resolver contractProfileResolver) Acquire(context.Context, string) (api.ProfileLease, error) {
+	return resolver, nil
+}
+
+func (resolver contractProfileResolver) Service() *app.Service { return resolver.service }
+func (contractProfileResolver) Release() error                 { return nil }
 
 func previewOptions(theme string) (tui.Options, error) {
 	themeName := tui.ThemeName(theme)

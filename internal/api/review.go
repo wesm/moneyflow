@@ -59,21 +59,27 @@ type ReviewResponse struct {
 	Targets            []ReviewTarget    `json:"targets,omitempty"`
 }
 
-type reviewInput struct{ Body ReviewBody }
-type reviewTargetsInput struct{ Body ReviewTargetsBody }
+type reviewInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ReviewBody
+}
+type reviewTargetsInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ReviewTargetsBody
+}
 type reviewOutput struct{ Body ReviewResponse }
 
-func (server *Server) registerReviewEndpoints(config Config) {
+func (server *Server) registerReviewEndpoints(_ Config) {
 	huma.Register(server.api, huma.Operation{
 		OperationID: "reviewProfile", Method: http.MethodPost,
-		Path: server.basePath + "api/v1/review", Summary: "Review pending operation summaries",
+		Path: server.profilePath("review"), Summary: "Review pending operation summaries",
 		Errors: []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *reviewInput) (*reviewOutput, error) {
 		expected, err := reviewRevision(input.Body.Version, input.Body.ExpectedRevision)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		projection, err := config.Service.Review(ctx, expected, app.ReviewWindow{})
+		projection, err := profileService(ctx).Review(ctx, expected, app.ReviewWindow{})
 		if err != nil {
 			return nil, problemFromError(err)
 		}
@@ -82,7 +88,7 @@ func (server *Server) registerReviewEndpoints(config Config) {
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "reviewProfileTargets", Method: http.MethodPost,
-		Path:    server.basePath + "api/v1/review/targets",
+		Path:    server.profilePath("review/targets"),
 		Summary: "Review one bounded affected-target window",
 		Errors:  []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *reviewTargetsInput) (*reviewOutput, error) {
@@ -90,7 +96,7 @@ func (server *Server) registerReviewEndpoints(config Config) {
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		projection, err := config.Service.Review(ctx, expected, app.ReviewWindow{
+		projection, err := profileService(ctx).Review(ctx, expected, app.ReviewWindow{
 			OperationID: input.Body.OperationID,
 			Offset:      input.Body.Window.Offset, Limit: input.Body.Window.Limit,
 		})

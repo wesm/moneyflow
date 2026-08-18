@@ -251,5 +251,5 @@ func TestOpenAPICommandUsesEmbeddedFixtureOutsideRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, stderr)
 	assert.Contains(t, stdout, "openapi: 3.1.0")
-	assert.Contains(t, stdout, "/api/v1/view:")
+	assert.Contains(t, stdout, "/api/v1/profiles/{profile_id}/view:")
 }

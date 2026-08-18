@@ -224,9 +224,16 @@ func newTestServer(t testing.TB, basePath string) *Server {
 	t.Helper()
 	service, err := app.NewService([]domain.Transaction{apiTransaction(t)})
 	require.NoError(t, err)
-	server, err := New(Config{Service: service, BasePath: basePath, Version: "test"})
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: basePath, Version: "test",
+	})
 	require.NoError(t, err)
 	return server
+}
+
+func resolverForService(profileID string, service *app.Service) ProfileResolver {
+	return &testProfileResolver{services: map[string]*app.Service{profileID: service}}
 }
 
 func apiTransaction(t testing.TB) domain.Transaction {

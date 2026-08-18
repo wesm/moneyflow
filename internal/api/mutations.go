@@ -80,17 +80,26 @@ type MutationResponse struct {
 	Selection      SelectionDisposition `json:"selection"`
 }
 
-type mutationInput struct{ Body MutationBody }
-type revisionInput struct{ Body RevisionBody }
-type commitInput struct{ Body CommitBody }
+type mutationInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      MutationBody
+}
+type revisionInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      RevisionBody
+}
+type commitInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      CommitBody
+}
 type mutationOutput struct{ Body MutationResponse }
 
-func (server *Server) registerMutationEndpoints(config Config) {
+func (server *Server) registerMutationEndpoints(_ Config) {
 	register := func(
 		operationID string,
 		path string,
 		handler func(
-			context.Context, uint64, app.ViewState, app.SelectionValue, app.WindowRequest,
+			context.Context, *app.Service, uint64, app.ViewState, app.SelectionValue, app.WindowRequest,
 		) (app.MutationResult, error),
 	) {
 		huma.Register(server.api, huma.Operation{
@@ -105,7 +114,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 				return nil, problemFromError(err)
 			}
 			window := app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit}
-			result, err := handler(ctx, expected, state, selection, window)
+			result, err := handler(ctx, profileService(ctx), expected, state, selection, window)
 			if err != nil {
 				return nil, problemFromError(err)
 			}
@@ -115,36 +124,36 @@ func (server *Server) registerMutationEndpoints(config Config) {
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "mutateProfile", Method: http.MethodPost,
-		Path: server.basePath + "api/v1/mutations", Summary: "Apply one persistent profile action",
+		Path: server.profilePath("mutations"), Summary: "Apply one persistent profile action",
 		Errors: []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *mutationInput) (*mutationOutput, error) {
 		request, _, selection, err := mutationToApp(input.Body)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
-		result, err := config.Service.Mutate(ctx, request)
+		result, err := profileService(ctx).Mutate(ctx, request)
 		if err != nil {
 			return nil, problemFromError(err)
 		}
 		return mutationOutputFor(result, selection)
 	})
 
-	register("undoProfile", server.basePath+"api/v1/undo", func(
-		ctx context.Context, expected uint64, state app.ViewState,
+	register("undoProfile", server.profilePath("undo"), func(
+		ctx context.Context, service *app.Service, expected uint64, state app.ViewState,
 		selection app.SelectionValue, window app.WindowRequest,
 	) (app.MutationResult, error) {
-		return config.Service.UndoInteraction(ctx, expected, state, selection, window)
+		return service.UndoInteraction(ctx, expected, state, selection, window)
 	})
-	register("redoProfile", server.basePath+"api/v1/redo", func(
-		ctx context.Context, expected uint64, state app.ViewState,
+	register("redoProfile", server.profilePath("redo"), func(
+		ctx context.Context, service *app.Service, expected uint64, state app.ViewState,
 		selection app.SelectionValue, window app.WindowRequest,
 	) (app.MutationResult, error) {
-		return config.Service.RedoInteraction(ctx, expected, state, selection, window)
+		return service.RedoInteraction(ctx, expected, state, selection, window)
 	})
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "commitProfile", Method: http.MethodPost,
-		Path: server.basePath + "api/v1/commit", Summary: "Commit one reviewed active journal prefix",
+		Path: server.profilePath("commit"), Summary: "Commit one reviewed active journal prefix",
 		Errors: []int{400, 403, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *commitInput) (*mutationOutput, error) {
 		body := input.Body
@@ -158,7 +167,7 @@ func (server *Server) registerMutationEndpoints(config Config) {
 		if err != nil {
 			return nil, problemFromError(invalidMutationRequest(err))
 		}
-		result, err := config.Service.Commit(ctx, app.CommitRequest{
+		result, err := profileService(ctx).Commit(ctx, app.CommitRequest{
 			ExpectedRevision: expected, ReviewedRevision: reviewed,
 			State: state, Selection: selection,
 			Window: app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
