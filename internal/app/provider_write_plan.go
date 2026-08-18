@@ -117,11 +117,9 @@ func planAbsoluteWriteItems(
 			return nil, nil, provider.NewError(provider.CodeWriteUnsupported)
 		}
 		plan := providerWriteTransactionPlan{
-			transaction: transaction,
-			operationIDs: providerWriteFinalAttributions(
-				attributions[transaction.ID], operations, transaction.MerchantID,
-			),
-			externalID: externalID,
+			transaction:  transaction,
+			operationIDs: append([]string(nil), attributions[transaction.ID]...),
+			externalID:   externalID,
 		}
 		if merchantChanged {
 			if err = planProviderMerchantWrite(
@@ -186,51 +184,103 @@ func planAbsoluteWriteItems(
 	return items, groups, nil
 }
 
-func providerWriteFinalAttributions(
-	attributed []string,
-	operations []domain.Operation,
-	merchantID domain.EntityID,
-) []string {
-	seen := make(map[string]struct{}, len(attributed))
-	for _, operationID := range attributed {
-		seen[operationID] = struct{}{}
-	}
-	result := make([]string, 0, len(attributed)+1)
-	for _, operation := range operations {
-		_, included := seen[operation.ID]
-		if !included && operation.Type == domain.OperationMerchantLabel &&
-			operation.Label != nil && operation.Label.EntityID == merchantID {
-			included = true
-		}
-		if included {
-			result = append(result, operation.ID)
-		}
-	}
-	return result
-}
-
 func providerWriteAttributions(
 	committed domain.CommittedProfile,
 	operations []domain.Operation,
 ) (map[domain.EntityID][]string, error) {
 	attributions := make(map[domain.EntityID][]string)
-	current := committed.Clone()
-	for _, operation := range operations {
+	currentMerchant := make(map[domain.EntityID]domain.EntityID, len(committed.Transactions))
+	merchantMembers := make(map[domain.EntityID]map[domain.EntityID]struct{})
+	for _, transaction := range committed.Transactions {
+		currentMerchant[transaction.ID] = transaction.MerchantID
+		members := merchantMembers[transaction.MerchantID]
+		if members == nil {
+			members = make(map[domain.EntityID]struct{})
+			merchantMembers[transaction.MerchantID] = members
+		}
+		members[transaction.ID] = struct{}{}
+	}
+	merchantLabels := make(map[domain.EntityID][]string)
+	operationOrder := make(map[string]int, len(operations))
+	for index, operation := range operations {
 		if !supportedMonarchWriteOperation(operation.Type) {
 			return nil, provider.NewError(provider.CodeWriteUnsupported)
 		}
-		for _, transaction := range current.Transactions {
-			if providerWriteOperationAffects(operation, transaction) {
-				attributions[transaction.ID] = append(attributions[transaction.ID], operation.ID)
+		operationOrder[operation.ID] = index
+		switch operation.Type {
+		case domain.OperationMerchantLabel:
+			merchantID := operation.Label.EntityID
+			merchantLabels[merchantID] = append(merchantLabels[merchantID], operation.ID)
+			for transactionID := range merchantMembers[merchantID] {
+				attributions[transactionID] = append(attributions[transactionID], operation.ID)
+			}
+		case domain.OperationMerchantMerge:
+			source := operation.Merge.SourceID
+			destination := operation.Merge.DestinationID
+			for transactionID := range merchantMembers[source] {
+				attributions[transactionID] = append(attributions[transactionID], operation.ID)
+				moveProviderWriteMember(currentMerchant, merchantMembers, transactionID, destination)
+			}
+		case domain.OperationMerchantReassign:
+			for _, transactionID := range operation.Targets {
+				attributions[transactionID] = append(attributions[transactionID], operation.ID)
+				moveProviderWriteMember(
+					currentMerchant, merchantMembers, transactionID, operation.Reassign.DestinationID,
+				)
+			}
+		case domain.OperationCategoryAssign, domain.OperationTransactionHide:
+			for _, transactionID := range operation.Targets {
+				attributions[transactionID] = append(attributions[transactionID], operation.ID)
 			}
 		}
-		next, err := ApplyOperation(current, operation)
-		if err != nil {
-			return nil, err
+	}
+	for transactionID, merchantID := range currentMerchant {
+		labels := merchantLabels[merchantID]
+		if len(labels) == 0 {
+			continue
 		}
-		current = next
+		attributions[transactionID] = mergeProviderWriteAttributions(
+			attributions[transactionID], labels, operationOrder,
+		)
 	}
 	return attributions, nil
+}
+
+func moveProviderWriteMember(
+	current map[domain.EntityID]domain.EntityID,
+	members map[domain.EntityID]map[domain.EntityID]struct{},
+	transactionID domain.EntityID,
+	destination domain.EntityID,
+) {
+	source := current[transactionID]
+	delete(members[source], transactionID)
+	if members[destination] == nil {
+		members[destination] = make(map[domain.EntityID]struct{})
+	}
+	members[destination][transactionID] = struct{}{}
+	current[transactionID] = destination
+}
+
+func mergeProviderWriteAttributions(
+	left []string,
+	right []string,
+	operationOrder map[string]int,
+) []string {
+	seen := make(map[string]struct{}, len(left)+len(right))
+	merged := make([]string, 0, len(left)+len(right))
+	for _, values := range [][]string{left, right} {
+		for _, operationID := range values {
+			if _, exists := seen[operationID]; exists {
+				continue
+			}
+			seen[operationID] = struct{}{}
+			merged = append(merged, operationID)
+		}
+	}
+	slices.SortFunc(merged, func(first, second string) int {
+		return operationOrder[first] - operationOrder[second]
+	})
+	return merged
 }
 
 func supportedMonarchWriteOperation(kind domain.OperationType) bool {
@@ -239,20 +289,6 @@ func supportedMonarchWriteOperation(kind domain.OperationType) bool {
 		domain.OperationMerchantReassign, domain.OperationCategoryAssign,
 		domain.OperationTransactionHide:
 		return true
-	default:
-		return false
-	}
-}
-
-func providerWriteOperationAffects(operation domain.Operation, transaction domain.TransactionRecord) bool {
-	switch operation.Type {
-	case domain.OperationMerchantLabel:
-		return transaction.MerchantID == operation.Label.EntityID
-	case domain.OperationMerchantMerge:
-		return transaction.MerchantID == operation.Merge.SourceID
-	case domain.OperationMerchantReassign, domain.OperationCategoryAssign, domain.OperationTransactionHide:
-		_, affected := slices.BinarySearch(operation.Targets, transaction.ID)
-		return affected
 	default:
 		return false
 	}

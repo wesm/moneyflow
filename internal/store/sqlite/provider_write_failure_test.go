@@ -83,3 +83,43 @@ func TestProviderWritePreparationFailuresRollBackAllState(t *testing.T) {
 		})
 	}
 }
+
+func TestProviderWriteFinalizationFailurePreservesBatchJournalAndCommittedState(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile, prepared, now := preparedWriteProfile(t)
+	bindProviderForRefreshTest(t, profile, now)
+	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-a", Result: store.WriteResult{
+			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	beforeWrite, err := profile.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		CREATE TRIGGER provider_write_finalize_failure BEFORE UPDATE ON transactions BEGIN
+			SELECT RAISE(ABORT, 'synthetic provider write finalization failure');
+		END`)
+	require.NoError(t, err)
+
+	_, err = profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
+		BatchID: batch.ID, ExpectedVersion: batch.Version,
+		ExpectedRevision: prepared.Revision, ExpectedGeneration: 0,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now,
+	}, store.BuildProviderWriteFinalization)
+	assertStoreCode(t, err, store.CodeStoreError)
+
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	afterWrite, err := profile.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+	assert.Equal(t, beforeWrite, afterWrite)
+}

@@ -27,16 +27,182 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 	}
 	owned := snapshot.Clone()
 	effective := owned.Committed.Clone()
+	indexes := newReplayIndexes(effective)
 	for index := range owned.Cursor {
-		if err := applyOperation(&effective, owned.Journal[index]); err != nil {
+		if err := applyOperationForReplay(&effective, owned.Journal[index], indexes); err != nil {
 			return EffectiveSnapshot{}, fmt.Errorf("replay operation[%d]: %w", index, err)
 		}
+	}
+	sortCommittedProfile(&effective)
+	if err := effective.Validate(); err != nil {
+		return EffectiveSnapshot{}, fmt.Errorf("replay result: %w", err)
 	}
 	return EffectiveSnapshot{
 		Revision: snapshot.Revision, Cursor: snapshot.Cursor,
 		Committed: owned.Committed.Clone(), Effective: effective,
 		Journal: owned.Journal, KnownDrills: owned.KnownDrills,
 	}, nil
+}
+
+type replayIndexes struct {
+	transactions map[domain.EntityID]int
+}
+
+func newReplayIndexes(profile domain.CommittedProfile) replayIndexes {
+	transactions := make(map[domain.EntityID]int, len(profile.Transactions))
+	for index := range profile.Transactions {
+		transactions[profile.Transactions[index].ID] = index
+	}
+	return replayIndexes{transactions: transactions}
+}
+
+func applyOperationForReplay(
+	effective *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	if err := operation.ValidateStored(); err != nil {
+		return fmt.Errorf("apply operation: %w", err)
+	}
+	var err error
+	switch operation.Type {
+	case domain.OperationMerchantLabel:
+		err = applyMerchantLabel(effective, operation)
+	case domain.OperationMerchantMerge:
+		err = applyMerchantMerge(effective, operation)
+	case domain.OperationMerchantReassign:
+		err = applyMerchantReassignIndexed(effective, operation, indexes)
+	case domain.OperationCategoryAssign:
+		err = applyCategoryAssignIndexed(effective, operation, indexes)
+	case domain.OperationCategoryCreate:
+		err = applyCategoryCreateIndexed(effective, operation, indexes)
+	case domain.OperationCategoryLabel:
+		err = applyCategoryLabel(effective, operation)
+	case domain.OperationCategoryMove:
+		err = applyCategoryMove(effective, operation)
+	case domain.OperationCategoryMerge:
+		err = applyCategoryMerge(effective, operation)
+	case domain.OperationCategoryDelete:
+		err = applyCategoryDelete(effective, operation)
+	case domain.OperationGroupCreate:
+		err = applyGroupCreate(effective, operation)
+	case domain.OperationGroupLabel:
+		err = applyGroupLabel(effective, operation)
+	case domain.OperationGroupMerge:
+		err = applyGroupMerge(effective, operation)
+	case domain.OperationGroupDelete:
+		err = applyGroupDelete(effective, operation)
+	case domain.OperationTransactionHide:
+		err = applyHideToggleIndexed(effective, operation, indexes)
+	default:
+		err = fmt.Errorf("unsupported operation type %q", operation.Type)
+	}
+	if err != nil {
+		return fmt.Errorf("apply operation %s: %w", operation.Type, err)
+	}
+	return nil
+}
+
+func applyMerchantReassignIndexed(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	payload := operation.Reassign
+	if payload.CreatedMerchant != nil {
+		if _, found := merchantIndex(profile, payload.CreatedMerchant.ID); found {
+			return errors.New("created merchant already exists")
+		}
+		profile.Merchants = append(profile.Merchants, *payload.CreatedMerchant)
+	}
+	if _, err := activeMerchant(profile, payload.DestinationID); err != nil {
+		return err
+	}
+	positions, err := indexedTransactionPositions(indexes, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, position := range positions {
+		profile.Transactions[position].MerchantID = payload.DestinationID
+	}
+	return nil
+}
+
+func applyCategoryAssignIndexed(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	if _, err := activeCategory(profile, operation.Reassign.DestinationID); err != nil {
+		return err
+	}
+	positions, err := indexedTransactionPositions(indexes, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, position := range positions {
+		profile.Transactions[position].CategoryID = operation.Reassign.DestinationID
+	}
+	return nil
+}
+
+func applyCategoryCreateIndexed(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	payload := operation.Create
+	if _, found := categoryIndex(profile, payload.EntityID); found {
+		return errors.New("created category already exists")
+	}
+	if _, err := activeGroup(profile, payload.ParentID); err != nil {
+		return err
+	}
+	profile.Categories = append(profile.Categories, domain.Category{
+		ID: payload.EntityID, GroupID: payload.ParentID,
+		Label: payload.Label, CollisionKey: payload.CollisionKey,
+	})
+	if len(operation.Targets) == 1 && operation.Targets[0] == payload.EntityID {
+		return nil
+	}
+	positions, err := indexedTransactionPositions(indexes, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, position := range positions {
+		profile.Transactions[position].CategoryID = payload.EntityID
+	}
+	return nil
+}
+
+func applyHideToggleIndexed(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	positions, err := indexedTransactionPositions(indexes, operation.Targets)
+	if err != nil {
+		return err
+	}
+	for _, position := range positions {
+		profile.Transactions[position].Hidden = !profile.Transactions[position].Hidden
+	}
+	return nil
+}
+
+func indexedTransactionPositions(
+	indexes replayIndexes,
+	targets []domain.EntityID,
+) ([]int, error) {
+	positions := make([]int, len(targets))
+	for index, target := range targets {
+		position, ok := indexes.transactions[target]
+		if !ok {
+			return nil, errors.New("transaction target is missing")
+		}
+		positions[index] = position
+	}
+	return positions, nil
 }
 
 // ApplyOperation clones and applies one already-persisted deterministic forward operation.

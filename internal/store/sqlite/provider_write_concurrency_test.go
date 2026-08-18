@@ -2,13 +2,95 @@ package sqlite
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+func TestConcurrentProviderWritePreparationAllowsExactlyOneRenderer(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	paths := temporaryPaths(t)
+	firstStore, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	first := firstStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, first.Close()) })
+	_, err = first.CreateSeededProfile(ctx, fixtureProfile(t))
+	require.NoError(t, err)
+	loaded, err := first.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := first.Append(ctx, loaded.Revision,
+		draftHideOperation("operation-concurrent-prepare", loaded.Revision, target.ID))
+	require.NoError(t, err)
+	secondStore, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	second := secondStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, second.Close()) })
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	now := time.Date(2026, time.August, 18, 23, 30, 0, 0, time.UTC)
+	var waitGroup sync.WaitGroup
+	for index, handle := range []*profile{first, second} {
+		index, handle := index, handle
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			hidden := !target.Hidden
+			_, prepareErr := handle.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+				ExpectedRevision: revision, ReviewedRevision: revision, ExpectedGeneration: 0,
+				Lease: store.ProviderOperationLease{
+					OwnerID:  []string{"tui-owner", "web-owner"}[index],
+					Renderer: []string{"tui", "web"}[index], Kind: store.ProviderOperationWrite,
+					ExpiresAt: now.Add(time.Minute),
+				},
+				ProposedBatchID: []string{"batch-tui", "batch-web"}[index],
+				ProposedItemIDs: []string{[]string{"item-tui", "item-web"}[index]},
+				ObservedAt:      now,
+			}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
+				return store.PrepareProviderWritePlan{
+					FrozenOperationIDs: []string{"operation-concurrent-prepare"},
+					FrozenPrefixDigest: "digest-concurrent",
+					Items: []store.WriteItem{{
+						ID: []string{"item-tui", "item-web"}[index], Position: 0,
+						TransactionID: target.ID, TransactionExternalID: target.ProviderID,
+						RequestedHidden:         &hidden,
+						OriginatingOperationIDs: []string{"operation-concurrent-prepare"},
+						State:                   store.WriteItemPending,
+					}},
+				}, nil
+			})
+			results <- prepareErr
+		}()
+	}
+	close(start)
+	waitGroup.Wait()
+	close(results)
+
+	successes := 0
+	for result := range results {
+		if result == nil {
+			successes++
+		}
+	}
+	assert.Equal(t, 1, successes)
+	persisted, err := first.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, revision+1, persisted.Revision)
+	writeState, err := first.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+	assert.Equal(t, 1, writeState.Batch.TotalItems)
+	assert.Equal(t, target.ID, writeState.Items[0].TransactionID)
+}
 
 func TestRefreshFoldRefusesEveryUnfinishedWriteBatchPhase(t *testing.T) {
 	t.Parallel()

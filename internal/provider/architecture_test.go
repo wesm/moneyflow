@@ -80,6 +80,59 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	assertNoInternalImport(t, filepath.Join(repoDir, "cmd"), allowed)
 }
 
+func TestRenderersAndWritePlannerDoNotDependOnMonarchOrSQLite(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	providerDir := filepath.Dir(filename)
+	internalDir := filepath.Dir(providerDir)
+	for _, directory := range []string{"api", "tui", "web"} {
+		assertNoInternalImport(t, filepath.Join(internalDir, directory), func(_ string, imported string) bool {
+			return !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/provider/monarch")
+		})
+	}
+	appDir := filepath.Join(internalDir, "app")
+	for _, name := range []string{"provider_write.go", "provider_write_plan.go"} {
+		path := filepath.Join(appDir, name)
+		parsed, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		require.NoError(t, err)
+		for _, imported := range parsed.Imports {
+			value, unquoteErr := strconv.Unquote(imported.Path.Value)
+			require.NoError(t, unquoteErr)
+			assert.False(t, importsPackageTree(value, "github.com/wesm/moneyflow/internal/provider/monarch"))
+			assert.False(t, importsPackageTree(value, "github.com/wesm/moneyflow/internal/store/sqlite"))
+		}
+	}
+}
+
+func TestMonarchPortsNoFinancialMutationBeyondTransactionUpdate(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	monarchDir := filepath.Join(filepath.Dir(filename), "monarch")
+	for _, name := range []string{"queries.go", "write.go"} {
+		// The filenames are a closed test-owned allowlist beneath the repository package path.
+		//nolint:gosec
+		contents, err := os.ReadFile(filepath.Join(monarchDir, name))
+		require.NoError(t, err)
+		text := strings.ToLower(string(contents))
+		for _, forbidden := range []string{
+			"deletetransaction", "createtransaction", "createcategory", "updatecategory",
+			"deletecategory", "creategroup", "updategroup", "deletegroup",
+		} {
+			assert.NotContains(t, text, forbidden, "%s must remain outside the slice", forbidden)
+		}
+	}
+	// This is a fixed repository source file beneath the package containing this test.
+	//nolint:gosec
+	queries, err := os.ReadFile(filepath.Join(monarchDir, "queries.go"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(strings.ToLower(string(queries)), "mutation "))
+	assert.Contains(t, string(queries), "updateTransaction(input: $input)")
+}
+
 func importsPackageTree(imported string, root string) bool {
 	return imported == root || strings.HasPrefix(imported, root+"/")
 }

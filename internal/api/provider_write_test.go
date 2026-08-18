@@ -39,6 +39,21 @@ func TestProviderWriteRoutesAreProtectedAndCredentialBlind(t *testing.T) {
 	}
 }
 
+func TestProviderWriteProblemsNeverEchoControlInput(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderAPIFixture(t, "/", 3)
+	forbidden := "private-batch-version-do-not-echo"
+	response := requestProtectedJSON(t, fixture.server, "/api/v1/provider/write/pause",
+		ProviderWriteControlBody{
+			Version: ProviderWriteSchemaVersion, ExpectedBatchVersion: forbidden,
+		})
+	require.NotEqual(t, http.StatusOK, response.Code)
+	assert.NotContains(t, response.Body.String(), forbidden)
+	assert.NotContains(t, response.Body.String(), "Example Merchant")
+	assert.NotContains(t, response.Body.String(), "subscription-example")
+}
+
 func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 	t.Parallel()
 

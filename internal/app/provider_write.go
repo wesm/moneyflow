@@ -159,6 +159,12 @@ func (service *Service) prepareProviderWrite(
 		ProposedBatchID: batchID, ProposedItemIDs: itemIDs, ObservedAt: now,
 	}, BuildProviderWritePlan)
 	if err != nil {
+		if reason, ok := store.InvalidOperationReasonOf(err); ok &&
+			reason == store.InvalidOperationProviderRefreshLease {
+			return ProviderWriteStatus{}, snapshot.Revision, providerWriteAppError(
+				provider.NewError(provider.CodeRefreshInProgress), snapshot.Revision,
+			)
+		}
 		return ProviderWriteStatus{}, snapshot.Revision, service.refreshAfterFailure(ctx, err, snapshot.Revision)
 	}
 	if err = service.reloadExpected(ctx, prepared.Revision); err != nil {
