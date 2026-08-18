@@ -57,6 +57,7 @@ install-hooks:
 
 parity-python:
 	uv run python -m moneyflow.parity.semantic --check
+	uv run python -m moneyflow.parity.onboarding_semantic --check
 
 parity-go:
 	go test ./internal/tui -run 'Test(PythonSemanticFrameParity|VisualGoldens)' -count=1
@@ -65,6 +66,7 @@ parity: parity-python parity-go
 
 parity-update-python:
 	uv run python -m moneyflow.parity.semantic --update
+	uv run python -m moneyflow.parity.onboarding_semantic --update
 
 parity-update-go:
 	@printf '%s\n' 'WARNING: generated Go cell frames require explicit visual review.'

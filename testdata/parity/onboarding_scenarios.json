@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {"name":"account_selector","width":100,"height":30,"screen":"account_selector","keys":[]},
+    {"name":"provider_selector","width":100,"height":30,"screen":"provider_selector","keys":[]},
+    {"name":"credential_setup","width":100,"height":30,"screen":"credential_setup","keys":[]},
+    {"name":"credential_unlock","width":100,"height":30,"screen":"credential_unlock","keys":[]}
+  ]
+}
