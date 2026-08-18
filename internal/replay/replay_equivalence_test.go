@@ -69,3 +69,107 @@ func TestIndexedReplayMatchesSequentialValidatedApplication(t *testing.T) {
 		assert.Equal(t, sequential, indexed.Effective, "seed %d", seed)
 	}
 }
+
+func TestIndexedReplayMatchesSequentialStructuralApplication(t *testing.T) {
+	t.Parallel()
+
+	committed, err := fixture.CommittedProfile(fixture.Generate(20260818, 20))
+	require.NoError(t, err)
+	merchantSource, merchantDestination := committed.Merchants[0], committed.Merchants[1]
+	groupID := domain.EntityID("group-replay-equivalence")
+	categoryID := domain.EntityID("category-replay-equivalence")
+	groupLabel := "Replay Group"
+	groupKey, err := domain.CollisionKey(groupLabel)
+	require.NoError(t, err)
+	categoryLabel := "Replay Category"
+	categoryKey, err := domain.CollisionKey(categoryLabel)
+	require.NoError(t, err)
+	merchantLabel := "Replay Merchant"
+	merchantKey, err := domain.CollisionKey(merchantLabel)
+	require.NoError(t, err)
+
+	journal := []domain.Operation{
+		storedOperation(1, domain.OperationGroupCreate, groupID),
+		storedOperation(2, domain.OperationCategoryCreate, categoryID),
+		storedOperation(3, domain.OperationCategoryLabel, categoryID),
+		storedOperation(4, domain.OperationMerchantLabel, merchantSource.ID),
+		storedOperation(5, domain.OperationMerchantMerge, merchantSource.ID),
+		storedOperation(6, domain.OperationCategoryMerge, categoryID),
+		storedOperation(7, domain.OperationGroupMerge, groupID),
+	}
+	journal[0].Create = &domain.CreatePayload{
+		EntityType: string(domain.EntityKindGroup), EntityID: groupID,
+		Label: groupLabel, CollisionKey: groupKey,
+	}
+	journal[1].Create = &domain.CreatePayload{
+		EntityType: string(domain.EntityKindCategory), EntityID: categoryID, ParentID: groupID,
+		Label: categoryLabel, CollisionKey: categoryKey,
+	}
+	renamedCategory := "Replay Category Renamed"
+	renamedCategoryKey, err := domain.CollisionKey(renamedCategory)
+	require.NoError(t, err)
+	journal[2].Label = &domain.LabelPayload{
+		EntityID: categoryID, Label: renamedCategory, CollisionKey: renamedCategoryKey,
+	}
+	journal[3].Label = &domain.LabelPayload{
+		EntityID: merchantSource.ID, Label: merchantLabel, CollisionKey: merchantKey,
+	}
+	journal[4].Merge = &domain.MergePayload{
+		SourceID: merchantSource.ID, DestinationID: merchantDestination.ID,
+	}
+	journal[5].Merge = &domain.MergePayload{
+		SourceID: categoryID, DestinationID: domain.UncategorizedCategoryID,
+	}
+	journal[6].Merge = &domain.MergePayload{
+		SourceID: groupID, DestinationID: domain.UncategorizedGroupID,
+	}
+
+	sequential := committed.Clone()
+	for index, operation := range journal {
+		sequential, err = replay.ApplyOperation(sequential, operation)
+		require.NoError(t, err, "operation %d", index)
+	}
+	indexed, err := replay.Replay(domain.ProfileSnapshot{
+		Revision: 1, Cursor: len(journal), Committed: committed, Journal: journal,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, sequential, indexed.Effective)
+}
+
+func TestIndexedReplayRejectsInvalidIntermediateCollision(t *testing.T) {
+	t.Parallel()
+
+	committed, err := fixture.CommittedProfile(fixture.Generate(20260818, 20))
+	require.NoError(t, err)
+	merchantSource, merchantDestination := committed.Merchants[0], committed.Merchants[1]
+	repairedLabel := "Repaired Merchant"
+	repairedKey, err := domain.CollisionKey(repairedLabel)
+	require.NoError(t, err)
+	journal := []domain.Operation{
+		storedOperation(1, domain.OperationMerchantLabel, merchantSource.ID),
+		storedOperation(2, domain.OperationMerchantLabel, merchantDestination.ID),
+	}
+	journal[0].Label = &domain.LabelPayload{
+		EntityID: merchantSource.ID,
+		Label:    merchantDestination.Label, CollisionKey: merchantDestination.CollisionKey,
+	}
+	journal[1].Label = &domain.LabelPayload{
+		EntityID: merchantDestination.ID, Label: repairedLabel, CollisionKey: repairedKey,
+	}
+
+	_, err = replay.Replay(domain.ProfileSnapshot{
+		Revision: 1, Cursor: len(journal), Committed: committed, Journal: journal,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "replay operation[0]")
+	assert.Contains(t, err.Error(), "collision")
+}
+
+func storedOperation(sequence int64, operationType domain.OperationType, target domain.EntityID) domain.Operation {
+	return domain.Operation{
+		ID: fmt.Sprintf("structural-operation-%d", sequence), Sequence: sequence,
+		Type: operationType, PayloadVersion: 1, CreatedRevision: 1,
+		CreatedAt: time.Date(2026, time.August, 18, 13, 0, int(sequence), 0, time.UTC),
+		Targets:   []domain.EntityID{target},
+	}
+}

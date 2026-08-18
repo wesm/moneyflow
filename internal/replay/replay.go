@@ -45,7 +45,10 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 }
 
 type replayIndexes struct {
-	transactions map[domain.EntityID]int
+	transactions       map[domain.EntityID]int
+	merchantCollisions collisionIndex
+	categoryCollisions collisionIndex
+	groupCollisions    collisionIndex
 }
 
 func newReplayIndexes(profile domain.CommittedProfile) replayIndexes {
@@ -53,7 +56,58 @@ func newReplayIndexes(profile domain.CommittedProfile) replayIndexes {
 	for index := range profile.Transactions {
 		transactions[profile.Transactions[index].ID] = index
 	}
-	return replayIndexes{transactions: transactions}
+	merchantCollisions := newCollisionIndex(len(profile.Merchants))
+	for _, merchant := range profile.Merchants {
+		merchantCollisions.addKnown(merchant.ID, merchant.CollisionKey, !merchant.Retired)
+	}
+	categoryCollisions := newCollisionIndex(len(profile.Categories))
+	for _, category := range profile.Categories {
+		categoryCollisions.addKnown(category.ID, category.CollisionKey, !category.Retired)
+	}
+	groupCollisions := newCollisionIndex(len(profile.Groups))
+	for _, group := range profile.Groups {
+		groupCollisions.addKnown(group.ID, group.CollisionKey, !group.Retired)
+	}
+	return replayIndexes{
+		transactions: transactions, merchantCollisions: merchantCollisions,
+		categoryCollisions: categoryCollisions, groupCollisions: groupCollisions,
+	}
+}
+
+type collisionIndex struct {
+	byKey map[string]domain.EntityID
+	byID  map[domain.EntityID]string
+}
+
+func newCollisionIndex(capacity int) collisionIndex {
+	return collisionIndex{
+		byKey: make(map[string]domain.EntityID, capacity),
+		byID:  make(map[domain.EntityID]string, capacity),
+	}
+}
+
+func (index collisionIndex) addKnown(id domain.EntityID, key string, active bool) {
+	if !active {
+		return
+	}
+	index.byKey[key] = id
+	index.byID[id] = key
+}
+
+func (index collisionIndex) update(kind string, id domain.EntityID, key string, active bool) error {
+	if previous, exists := index.byID[id]; exists {
+		delete(index.byKey, previous)
+		delete(index.byID, id)
+	}
+	if !active {
+		return nil
+	}
+	if other, exists := index.byKey[key]; exists && other != id {
+		return fmt.Errorf("active %s collision key %q is duplicated", kind, key)
+	}
+	index.byKey[key] = id
+	index.byID[id] = key
+	return nil
 }
 
 func applyOperationForReplay(
@@ -100,7 +154,61 @@ func applyOperationForReplay(
 	if err != nil {
 		return fmt.Errorf("apply operation %s: %w", operation.Type, err)
 	}
+	if err = updateReplayCollisionIndexes(effective, operation, indexes); err != nil {
+		return fmt.Errorf("apply operation %s: result: %w", operation.Type, err)
+	}
 	return nil
+}
+
+func updateReplayCollisionIndexes(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	switch operation.Type {
+	case domain.OperationMerchantLabel:
+		merchant, _ := merchantIndex(profile, operation.Label.EntityID)
+		value := profile.Merchants[merchant]
+		return indexes.merchantCollisions.update("merchant", value.ID, value.CollisionKey, true)
+	case domain.OperationMerchantReassign:
+		if operation.Reassign.CreatedMerchant == nil {
+			return nil
+		}
+		value := operation.Reassign.CreatedMerchant
+		return indexes.merchantCollisions.update("merchant", value.ID, value.CollisionKey, true)
+	case domain.OperationMerchantMerge:
+		return indexes.merchantCollisions.update("merchant", operation.Merge.SourceID, "", false)
+	case domain.OperationCategoryCreate, domain.OperationCategoryLabel:
+		var id domain.EntityID
+		if operation.Type == domain.OperationCategoryCreate {
+			id = operation.Create.EntityID
+		} else {
+			id = operation.Label.EntityID
+		}
+		category, _ := categoryIndex(profile, id)
+		value := profile.Categories[category]
+		return indexes.categoryCollisions.update("category", value.ID, value.CollisionKey, true)
+	case domain.OperationCategoryMerge:
+		return indexes.categoryCollisions.update("category", operation.Merge.SourceID, "", false)
+	case domain.OperationCategoryDelete:
+		return indexes.categoryCollisions.update("category", operation.Delete.SourceID, "", false)
+	case domain.OperationGroupCreate, domain.OperationGroupLabel:
+		var id domain.EntityID
+		if operation.Type == domain.OperationGroupCreate {
+			id = operation.Create.EntityID
+		} else {
+			id = operation.Label.EntityID
+		}
+		group, _ := groupIndex(profile, id)
+		value := profile.Groups[group]
+		return indexes.groupCollisions.update("group", value.ID, value.CollisionKey, true)
+	case domain.OperationGroupMerge:
+		return indexes.groupCollisions.update("group", operation.Merge.SourceID, "", false)
+	case domain.OperationGroupDelete:
+		return indexes.groupCollisions.update("group", operation.Delete.SourceID, "", false)
+	default:
+		return nil
+	}
 }
 
 func applyMerchantReassignIndexed(

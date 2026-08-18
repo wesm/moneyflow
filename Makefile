@@ -35,7 +35,7 @@ test-provider: web-embed
 	go test ./internal/store/sqlite -run '^TestProviderRefresh100KPerformance$$' -count=1
 
 test-provider-write: web-embed
-	MONEYFLOW_SKIP_PERF=1 go test ./internal/app ./internal/store/sqlite ./internal/provider ./internal/api ./internal/replay -run 'Test(RefreshAndWrite|WriteLease|ConcurrentProvider|ProviderWrite|ResponseAdjusted|IndexedReplay|Architecture|MonarchPorts)' -count=1
+	MONEYFLOW_SKIP_PERF=1 go test ./internal/app ./internal/store/sqlite ./internal/provider/... ./internal/api ./internal/replay -run 'Test(RefreshAndWrite|WriteLease|ConcurrentProvider|ProviderWrite|ResponseAdjusted|IndexedReplay|RenderersAndWritePlanner|MonarchPorts|UpdateTransaction)' -count=1
 	go test ./internal/app -run '^TestProviderWrite(Planning|Finalization)Performance100K$$' -count=1
 
 monarch-live-test:
