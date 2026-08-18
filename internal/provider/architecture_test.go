@@ -57,7 +57,6 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	providerDir := filepath.Dir(filename)
 	internalDir := filepath.Dir(providerDir)
 	repoDir := filepath.Dir(internalDir)
-	monarchDir := filepath.Join(providerDir, "monarch")
 	onboardingDir := filepath.Join(internalDir, "onboarding")
 	compositionFiles := map[string]bool{
 		filepath.Join(repoDir, "cmd", "moneyflow", "provider.go"):             true,
@@ -72,9 +71,6 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 		if !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/provider/monarch") {
 			return true
 		}
-		if isWithinDirectory(path, monarchDir) {
-			return true
-		}
 		return filepath.Dir(path) == onboardingDir || compositionFiles[path]
 	}
 	assertNoInternalImport(t, internalDir, allowed)
@@ -83,14 +79,6 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 
 func importsPackageTree(imported string, root string) bool {
 	return imported == root || strings.HasPrefix(imported, root+"/")
-}
-
-func isWithinDirectory(path string, directory string) bool {
-	relative, err := filepath.Rel(directory, path)
-	if err != nil {
-		return false
-	}
-	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func assertNoInternalImport(
