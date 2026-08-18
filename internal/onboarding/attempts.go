@@ -162,6 +162,45 @@ func (coordinator *Coordinator) Submit(
 		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
+	if request.Action == ActionUnlock && current.state == StateUnlockRequired {
+		if len(request.Unlock.AccountPassword) == 0 {
+			coordinator.mu.Unlock()
+			return Snapshot{}, newError(CodeCredentialInputInvalid, errors.New("account password is empty"))
+		}
+		accountPassword := append([]byte(nil), request.Unlock.AccountPassword...)
+		coordinator.transitionLocked(current, StateAuthenticating, nil)
+		coordinator.startJobLocked(current, func(ctx context.Context, attemptID string) {
+			coordinator.authenticateFromVault(ctx, attemptID, accountPassword)
+		})
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
+	}
+	if request.Action == ActionSubmitCredentials && current.state == StateCredentialsRequired {
+		material, materialErr := newCredentialMaterial(request.Credentials)
+		if materialErr != nil {
+			coordinator.mu.Unlock()
+			return Snapshot{}, materialErr
+		}
+		coordinator.transitionLocked(current, StateAuthenticating, nil)
+		coordinator.startJobLocked(current, func(ctx context.Context, attemptID string) {
+			coordinator.authenticateNewCredentials(ctx, attemptID, material)
+		})
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
+	}
+	if request.Action == ActionReauthenticate && current.state == StateIdentityMismatch {
+		current.flow.retainedSession = nil
+		current.flow.identity = nil
+		coordinator.transitionLocked(current, StateInspect, nil)
+		coordinator.startJobLocked(current, func(context.Context, string) {
+			coordinator.routeToInput(current.id)
+		})
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
+	}
 	if request.Action == ActionConfirmSettings && current.state == StateSettingsRequired {
 		config := monarch.ImportConfig{
 			Currency: request.Settings.Currency,

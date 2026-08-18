@@ -293,7 +293,10 @@ type fakeSessionStore struct {
 	mu        sync.Mutex
 	session   monarch.Session
 	loadErr   error
+	saveErr   error
 	loadCalls int
+	saveCalls int
+	order     *[]string
 }
 
 func (store *fakeSessionStore) Load() (monarch.Session, provider.SessionFingerprint, error) {
@@ -306,8 +309,12 @@ func (store *fakeSessionStore) Load() (monarch.Session, provider.SessionFingerpr
 func (store *fakeSessionStore) Save(session monarch.Session) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.saveCalls++
+	if store.order != nil {
+		*store.order = append(*store.order, "session")
+	}
 	store.session = session
-	return nil
+	return store.saveErr
 }
 
 func (*fakeSessionStore) Delete() error { return nil }
@@ -317,6 +324,12 @@ type fakeCredentialVault struct {
 	exists      bool
 	existsErr   error
 	existsCalls int
+	credentials monarch.StoredCredentials
+	loadErr     error
+	saveErr     error
+	loadCalls   int
+	saveCalls   int
+	order       *[]string
 }
 
 func (vault *fakeCredentialVault) Exists() (bool, error) {
@@ -326,25 +339,60 @@ func (vault *fakeCredentialVault) Exists() (bool, error) {
 	return vault.exists, vault.existsErr
 }
 
-func (*fakeCredentialVault) Load([]byte) (monarch.StoredCredentials, error) {
-	return monarch.StoredCredentials{}, errors.New("not implemented")
+func (vault *fakeCredentialVault) Load([]byte) (monarch.StoredCredentials, error) {
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	vault.loadCalls++
+	return vault.credentials, vault.loadErr
 }
 
-func (*fakeCredentialVault) Save(monarch.StoredCredentials, []byte) error { return nil }
+func (vault *fakeCredentialVault) Save(
+	credentials monarch.StoredCredentials,
+	_ []byte,
+) error {
+	vault.mu.Lock()
+	defer vault.mu.Unlock()
+	vault.saveCalls++
+	if vault.order != nil {
+		*vault.order = append(*vault.order, "vault")
+	}
+	vault.credentials = credentials
+	return vault.saveErr
+}
 
 type fakeConnector struct {
-	mu            sync.Mutex
-	identity      provider.ProfileIdentity
-	validateErr   error
-	validateCalls int
+	mu             sync.Mutex
+	identity       provider.ProfileIdentity
+	validateErr    error
+	validateCalls  int
+	connectSession provider.Session
+	connectErr     error
+	connectCalls   int
+	credentials    provider.Credentials
+	challenge      *provider.Challenge
+	challengeReply string
 }
 
-func (*fakeConnector) Connect(
-	context.Context,
-	provider.Credentials,
-	provider.ChallengeResponder,
+func (connector *fakeConnector) Connect(
+	ctx context.Context,
+	credentials provider.Credentials,
+	respond provider.ChallengeResponder,
 ) (provider.Session, error) {
-	return nil, errors.New("not implemented")
+	connector.mu.Lock()
+	connector.connectCalls++
+	connector.credentials = credentials
+	challenge := connector.challenge
+	connector.mu.Unlock()
+	if challenge != nil {
+		reply, err := respond(ctx, *challenge)
+		if err != nil {
+			return nil, err
+		}
+		connector.mu.Lock()
+		connector.challengeReply = reply
+		connector.mu.Unlock()
+	}
+	return connector.connectSession, connector.connectErr
 }
 
 func (connector *fakeConnector) Validate(
