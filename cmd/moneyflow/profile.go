@@ -3,18 +3,22 @@ package main
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
+	"github.com/wesm/moneyflow/internal/version"
 	paritydata "github.com/wesm/moneyflow/testdata/parity"
 )
 
@@ -40,23 +44,52 @@ type ProfileOptions struct {
 	Demo         bool
 	ExplicitHome string
 	FixturePath  string
+	ProviderKind string
 }
 
 func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
 	if options.Demo || options.FixturePath != "" {
 		return openDemoProfile(ctx, options.FixturePath)
 	}
-	paths, err := resolvePersistentPaths(options.ExplicitHome)
+	catalog, entry, exists, err := resolvePersistentSelection(ctx, options.ExplicitHome)
+	if err != nil {
+		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
+	}
+	paths := entry.ProfilePaths()
+	if !exists {
+		if err = sqlite.InstallPristineProfile(ctx, paths, sqlite.DefaultOptions); err != nil {
+			return OpenedProfile{}, persistentProfileOpenError(paths, err)
+		}
+	}
+	if entry.Key == profilecatalog.LegacyKey {
+		providerKind := entry.ProviderKind
+		if options.ProviderKind != "" && entry.Status == profilecatalog.StatusSetupIncomplete {
+			providerKind = options.ProviderKind
+		}
+		if providerKind == "" {
+			providerKind = "local"
+		}
+		entry, err = catalog.FinalizeLegacyManifest(ctx, profilecatalog.LegacyManifestRequest{
+			DisplayName: "Moneyflow", ProviderKind: providerKind,
+		})
+		if err != nil {
+			return OpenedProfile{}, persistentProfileOpenError(paths, err)
+		}
+		paths = entry.ProfilePaths()
+	}
+	lifecycleLock, err := home.TryLock(paths.Root, home.LockProfile, home.LockShared)
 	if err != nil {
 		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
 	}
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 	if err != nil {
+		_ = lifecycleLock.Release()
 		return OpenedProfile{}, persistentProfileOpenError(paths, err)
 	}
 	service, err := app.NewProfileService(ctx, profile)
 	if err != nil {
 		_ = profile.Close()
+		_ = lifecycleLock.Release()
 		return OpenedProfile{}, persistentProfileOpenError(
 			paths,
 			fmt.Errorf("load service: %w", err),
@@ -64,9 +97,11 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	}
 	return OpenedProfile{
 		Service: service,
-		Close:   idempotentClose(profile.Close),
-		Path:    paths.Database,
-		Paths:   paths,
+		Close: idempotentClose(func() error {
+			return errors.Join(profile.Close(), lifecycleLock.Release())
+		}),
+		Path:  paths.Database,
+		Paths: paths,
 	}, nil
 }
 
@@ -85,16 +120,52 @@ func persistentProfileOpenError(paths home.Paths, err error) error {
 }
 
 func resolvePersistentPaths(explicitHome string) (home.Paths, error) {
+	_, entry, _, err := resolvePersistentSelection(context.Background(), explicitHome)
+	if err != nil {
+		return home.Paths{}, err
+	}
+	return entry.ProfilePaths(), nil
+}
+
+func resolvePersistentSelection(
+	ctx context.Context,
+	explicitHome string,
+) (*profilecatalog.Catalog, profilecatalog.Entry, bool, error) {
 	userHome := ""
 	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
 	if explicitHome == "" && (!configured || configuredHome == "") {
 		var err error
 		userHome, err = os.UserHomeDir()
 		if err != nil {
-			return home.Paths{}, fmt.Errorf("resolve user home: %w", err)
+			return nil, profilecatalog.Entry{}, false, fmt.Errorf("resolve user home: %w", err)
 		}
 	}
-	return home.ResolveRoot(explicitHome, os.LookupEnv, userHome)
+	paths, err := home.ResolveCatalogRoot(explicitHome, os.LookupEnv, userHome)
+	if err != nil {
+		return nil, profilecatalog.Entry{}, false, err
+	}
+	catalog, err := profilecatalog.New(profilecatalog.Config{
+		Paths: paths, Random: cryptorand.Reader, Now: time.Now, Version: version.Version,
+	})
+	if err != nil {
+		return nil, profilecatalog.Entry{}, false, err
+	}
+	entries, err := catalog.List(ctx)
+	if err != nil {
+		return nil, profilecatalog.Entry{}, false, err
+	}
+	switch len(entries) {
+	case 0:
+		return catalog, profilecatalog.Entry{
+			Key: profilecatalog.LegacyKey, DisplayName: "Moneyflow", ProviderKind: "monarch",
+			Root: paths.Root, Status: profilecatalog.StatusSetupIncomplete,
+		}, false, nil
+	case 1:
+		return catalog, entries[0], true, nil
+	default:
+		_, resolveErr := catalog.Resolve(ctx, "")
+		return nil, profilecatalog.Entry{}, false, resolveErr
+	}
 }
 
 func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {

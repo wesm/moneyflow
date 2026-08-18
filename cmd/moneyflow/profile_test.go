@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 	"github.com/wesm/moneyflow/internal/tui"
@@ -47,6 +49,80 @@ func TestOpenProfileCreatesAndReopensEmptyPersistentProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0), reopened.Service.Revision())
 	require.NoError(t, reopened.Close())
+}
+
+func TestOpenProfileFinalizesAndUsesExistingRootLevelProfile(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "profile")
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	require.NoError(t, sqlite.InstallPristineProfile(ctx, paths, sqlite.DefaultOptions))
+	assert.NoFileExists(t, filepath.Join(root, profilecatalog.ManifestFilename))
+
+	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	require.NoError(t, err)
+	assert.Equal(t, paths.Database, opened.Path)
+	require.NoError(t, opened.Close())
+	manifest, err := profilecatalog.ReadManifest(filepath.Join(root, profilecatalog.ManifestFilename))
+	require.NoError(t, err)
+	assert.Equal(t, "Moneyflow", manifest.DisplayName)
+}
+
+func TestOpenProfileUsesSolePersistentCatalogEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "catalog")
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(ctx, profilecatalog.CreateRequest{
+		DisplayName: "Primary", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+
+	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	require.NoError(t, err)
+	assert.Equal(t, entry.ProfilePaths().Database, opened.Path)
+	require.NoError(t, opened.Close())
+}
+
+func TestOpenProfileHoldsSharedLifecycleLockUntilClose(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "catalog")
+	opened, err := openProfile(context.Background(), ProfileOptions{ExplicitHome: root})
+	require.NoError(t, err)
+
+	_, err = home.TryLock(opened.Paths.Root, home.LockProfile, home.LockExclusive)
+	assert.ErrorIs(t, err, home.ErrLockBusy)
+	require.NoError(t, opened.Close())
+	exclusive, err := home.TryLock(opened.Paths.Root, home.LockProfile, home.LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, exclusive.Release())
+}
+
+func TestOpenProfileRejectsAmbiguousPersistentCatalog(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "catalog")
+	catalog := newCommandTestCatalog(t, root)
+	first, err := catalog.Create(ctx, profilecatalog.CreateRequest{
+		DisplayName: "First", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	second, err := catalog.Create(ctx, profilecatalog.CreateRequest{
+		DisplayName: "Second", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	firstBefore := commandProfileRevision(t, first.ProfilePaths())
+	secondBefore := commandProfileRevision(t, second.ProfilePaths())
+
+	opened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	assert.Nil(t, opened.Service)
+	require.Error(t, err)
+	assert.Equal(t, profilecatalog.CodeProfileAmbiguous, profilecatalog.CodeOf(err))
+	assert.NotContains(t, err.Error(), first.DisplayName)
+	assert.NotContains(t, err.Error(), second.DisplayName)
+	assert.Equal(t, firstBefore, commandProfileRevision(t, first.ProfilePaths()))
+	assert.Equal(t, secondBefore, commandProfileRevision(t, second.ProfilePaths()))
 }
 
 func TestOpenProfileExplainsHowToRecoverAnIncompatiblePreviewSchema(t *testing.T) {
@@ -346,3 +422,33 @@ func TestCommandClosesProfileWhenRunnerFails(t *testing.T) {
 }
 
 type profileContextKey struct{}
+
+func newCommandTestCatalog(t *testing.T, root string) *profilecatalog.Catalog {
+	t.Helper()
+	paths, err := home.ResolveCatalogRoot(root, nil, "")
+	require.NoError(t, err)
+	catalog, err := profilecatalog.New(profilecatalog.Config{
+		Paths: paths,
+		Random: bytes.NewReader(append(
+			bytes.Repeat([]byte{0x61}, 16), bytes.Repeat([]byte{0x62}, 16)...,
+		)),
+		Now: func() time.Time {
+			return time.Date(2026, 8, 17, 20, 0, 0, 0, time.UTC)
+		},
+		Version: "test",
+	})
+	require.NoError(t, err)
+	return catalog
+}
+
+func commandProfileRevision(t *testing.T, paths home.Paths) uint64 {
+	t.Helper()
+	database, err := sql.Open("sqlite", "file:"+filepath.ToSlash(paths.Database))
+	require.NoError(t, err)
+	var revision uint64
+	require.NoError(t, database.QueryRow(
+		"SELECT revision FROM profile_state WHERE singleton = 1",
+	).Scan(&revision))
+	require.NoError(t, database.Close())
+	return revision
+}

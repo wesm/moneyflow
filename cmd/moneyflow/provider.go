@@ -470,7 +470,7 @@ func openMonarchCommand(
 	if opener == nil {
 		opener = openProfile
 	}
-	opened, err := opener(ctx, ProfileOptions{})
+	opened, err := opener(ctx, ProfileOptions{ProviderKind: "monarch"})
 	if err != nil {
 		return OpenedProfile{}, MonarchCommandRuntime{}, err
 	}
