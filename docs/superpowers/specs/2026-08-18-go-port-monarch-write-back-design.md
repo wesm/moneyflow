@@ -1,7 +1,7 @@
 # Go Port Monarch Write-Back Design
 
 **Date:** 2026-08-18
-**Status:** Draft for review
+**Status:** Approved
 **Branch:** `go-port`
 
 ## Summary
@@ -298,6 +298,9 @@ writing -> reconciling -> complete
 The batch state and version are durable. Pause is durable. A new process honors it rather than
 resuming automatically.
 
+`writing` or `reconciling` with no live lease owner is resumed by any long-lived process on its
+status tick. `paused` and `attention_required` never resume automatically.
+
 `writing` and `reconciling` hold the provider-operation lease. `paused`, `reconnect_required`,
 `rate_limited`, and `attention_required` release it so either renderer can later act. Resume or
 reconcile must reacquire the correct lease kind before changing state. Completion releases it.
@@ -401,13 +404,21 @@ wedged batch:
   effective value;
 - renderers announce only `N fields overridden by provider`.
 
-Merchant identity remains stricter because a wrong identity changes stable drill ownership:
+Merchant responses for `existing` and `merge_destination` expectations follow the ordinary
+provider-override rule because an immediate full refresh remains the identity authority:
 
-- an `existing` expectation must return its expected active merchant ID;
-- a `merge_destination` expectation must return the explicit mapped destination ID;
-- a `new` group must return one consistent resulting ID and normalized provider label;
-- contradictory group IDs, unexpected active owners, or invalid identities enter reconcile-only
-  attention.
+- the expected merchant ID is folded without an override;
+- a different ID actively mapped to a local merchant folds that merchant for the transaction and
+  increments the provider-override count;
+- an unmapped, historical-alias, or retired ID folds the requested local merchant temporarily,
+  increments the provider-override count, and waits for the immediately due refresh to install the
+  provider truth;
+- an explicit merge still retires its source locally even when provider rules scatter some source
+  transactions; the refresh places those transactions according to the provider snapshot.
+
+A `new` group remains strict because its response establishes mapping ownership. It must return one
+consistent resulting ID and normalized provider label. Contradictory group IDs, unexpected active
+owners, or invalid identities enter reconcile-only attention.
 
 ### Active mapping rotation and lineage
 
@@ -493,7 +504,7 @@ Reconcile-only reasons are:
 
 - remote transaction or category not found
 - deterministic provider validation rejection
-- contradictory or unexpected merchant identity
+- contradictory or invalid new-group merchant identity
 - unexpected retired-identity resolution
 - invalid persisted expectation or batch invariant
 
@@ -513,7 +524,8 @@ expected batch version and reacquires the operation lease before changing durabl
 Stop and reconcile explicitly abandons failed and unsent intent. It does not attempt to shrink
 structural operations into transaction targets they never contained. Instead it:
 
-1. Retains the durable batch and successful item facts.
+1. Retains the durable batch and successful item facts only as audit/status input until the fold;
+   it derives no partial identity rotation from them.
 2. Acquires the reconcile-kind provider-operation lease.
 3. Probes household identity and fetches a complete snapshot through the existing reader contract.
 4. Applies the existing snapshot-integrity retries, pending exclusion, account-scope rule, and
@@ -714,6 +726,8 @@ or journal-payload migration is added.
 - Cover same-batch chains targeting one newly created effective merchant.
 - Treat same-entity and different-entity historical-alias results according to the rotation rules.
 - Refuse retired-label matches and contradictory merchant response groups.
+- Treat unexpected mapped merchant IDs for `existing` and `merge_destination` expectations as
+  overrides, and defer unmapped/alias/retired returned IDs to the full refresh.
 - Accept known provider rule overrides and count requested/unrequested changed fields.
 - Hold unknown echoed category identities for the following refresh while folding the requested or
   prior effective value temporarily.
@@ -748,7 +762,8 @@ or journal-payload migration is added.
 - An alias or retired source referenced by transactions promotes to a fresh local merchant without
   reactivating the old tombstone.
 - An explicit merge retains its retired source and active destination semantics.
-- A returned retired active mapping enters reconcile-only attention.
+- A new-group response that returns an invalid retired active mapping enters reconcile-only
+  attention.
 - Complete refresh after finalization preserves all validated write-back identity decisions.
 - Stop and reconcile removes the frozen prefix atomically with the authoritative provider fold.
 - Reconcile inherits identity probe, snapshot-integrity retries, deletion plausibility confirmation,
