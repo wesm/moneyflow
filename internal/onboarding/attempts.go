@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/profilecatalog"
+	"github.com/wesm/moneyflow/internal/provider/monarch"
 )
 
 const (
@@ -27,16 +28,20 @@ type Config struct {
 	Now         func() time.Time
 	InstanceID  string
 	IdleTimeout time.Duration
+	OpenProfile ProfileOpener
+	Runtime     RuntimeFactory
 }
 
 // Coordinator owns process-local, versioned onboarding attempts.
 type Coordinator struct {
-	mu          sync.Mutex
-	attempts    map[string]*attempt
-	random      io.Reader
-	now         func() time.Time
-	instanceID  string
-	idleTimeout time.Duration
+	mu             sync.Mutex
+	attempts       map[string]*attempt
+	random         io.Reader
+	now            func() time.Time
+	instanceID     string
+	idleTimeout    time.Duration
+	openProfile    ProfileOpener
+	runtimeFactory RuntimeFactory
 }
 
 type attempt struct {
@@ -50,8 +55,10 @@ type attempt struct {
 	failure      *Failure
 	lastActive   time.Time
 	running      bool
+	jobDone      chan struct{}
 	context      context.Context
 	cancel       context.CancelFunc
+	flow         *attemptFlow
 }
 
 // NewCoordinator constructs an empty process-local coordinator.
@@ -71,9 +78,13 @@ func NewCoordinator(config Config) (*Coordinator, error) {
 	if config.IdleTimeout < 0 {
 		return nil, errors.New("new onboarding coordinator: idle timeout is invalid")
 	}
+	if (config.OpenProfile == nil) != (config.Runtime == nil) {
+		return nil, errors.New("new onboarding coordinator: flow dependencies are incomplete")
+	}
 	return &Coordinator{
 		attempts: make(map[string]*attempt), random: config.Random, now: config.Now,
 		instanceID: config.InstanceID, idleTimeout: config.IdleTimeout,
+		openProfile: config.OpenProfile, runtimeFactory: config.Runtime,
 	}, nil
 }
 
@@ -98,10 +109,12 @@ func (coordinator *Coordinator) Start(
 	current := &attempt{
 		id: id, profileID: request.ProfileID, instanceID: coordinator.instanceID,
 		stateVersion: 1, state: StateInspect, lastActive: coordinator.now(),
-		context: attemptContext, cancel: cancel,
+		context: attemptContext, cancel: cancel, flow: &attemptFlow{},
 	}
 	coordinator.attempts[id] = current
-	return current.snapshot(), nil
+	started := current.snapshot()
+	coordinator.beginFlow(current, request)
+	return started, nil
 }
 
 // Status returns a credential-blind immutable copy of one attempt.
@@ -132,30 +145,53 @@ func (coordinator *Coordinator) Submit(
 		return Snapshot{}, err
 	}
 	coordinator.mu.Lock()
-	defer coordinator.mu.Unlock()
 	current, err := coordinator.lookup(request.ProfileID, request.AttemptID)
 	if err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
 	if current.state == StateCanceled {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeOnboardingCanceled, errors.New("attempt is canceled"))
 	}
 	if request.ExpectedStateVersion != current.stateVersion {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeOnboardingStale, errors.New("state version differs"))
 	}
 	if err = validateActionPayload(request); err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, err
+	}
+	if request.Action == ActionConfirmSettings && current.state == StateSettingsRequired {
+		config := monarch.ImportConfig{
+			Currency: request.Settings.Currency,
+			Scale:    request.Settings.Scale,
+		}
+		if config.Validate() != nil {
+			coordinator.mu.Unlock()
+			return Snapshot{}, newError(CodeCredentialInputInvalid, errors.New("settings are invalid"))
+		}
+		current.flow.selectedConfig = &config
+		current.settings = &Settings{Currency: config.Currency, Scale: config.Scale}
+		coordinator.transitionLocked(current, StateInspect, nil)
+		attemptID := current.id
+		coordinator.startJobLocked(current, func(context.Context, string) {
+			coordinator.routeToInput(attemptID)
+		})
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
 	}
 	if request.Action != ActionRetry || current.state != StateFailed ||
 		current.failure == nil || !current.failure.CanRetry {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeCredentialInputInvalid, errors.New("action is unavailable"))
 	}
-	current.state = StateInspect
-	current.failure = nil
+	coordinator.transitionLocked(current, StateInspect, nil)
 	current.progress = nil
-	current.stateVersion++
-	current.lastActive = coordinator.now()
-	return current.snapshot(), nil
+	snapshot := current.snapshot()
+	coordinator.mu.Unlock()
+	return snapshot, nil
 }
 
 // Cancel signals a running job and marks an attempt canceled. Repeating the same cancellation is safe.
@@ -167,25 +203,39 @@ func (coordinator *Coordinator) Cancel(
 		return Snapshot{}, err
 	}
 	coordinator.mu.Lock()
-	defer coordinator.mu.Unlock()
 	current, err := coordinator.lookup(request.ProfileID, request.AttemptID)
 	if err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
 	if current.state == StateCanceled {
 		current.lastActive = coordinator.now()
-		return current.snapshot(), nil
+		snapshot := current.snapshot()
+		coordinator.mu.Unlock()
+		return snapshot, nil
 	}
 	if request.ExpectedStateVersion != current.stateVersion {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeOnboardingStale, errors.New("state version differs"))
 	}
 	current.cancel()
-	current.state = StateCanceled
-	current.failure = nil
+	coordinator.transitionLocked(current, StateCanceled, nil)
 	current.progress = nil
-	current.stateVersion++
-	current.lastActive = coordinator.now()
-	return current.snapshot(), nil
+	done := current.jobDone
+	flow := current.flow
+	snapshot := current.snapshot()
+	coordinator.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return Snapshot{}, ctx.Err()
+		}
+	}
+	if flow != nil {
+		_ = flow.release()
+	}
+	return snapshot, nil
 }
 
 func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, error) {
@@ -196,6 +246,9 @@ func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, e
 	now := coordinator.now()
 	if !current.running && now.Sub(current.lastActive) > coordinator.idleTimeout {
 		current.cancel()
+		if current.flow != nil {
+			_ = current.flow.release()
+		}
 		delete(coordinator.attempts, attemptID)
 		return nil, newError(CodeOnboardingExpired, errors.New("attempt is idle"))
 	}
@@ -234,6 +287,41 @@ func (current *attempt) snapshot() Snapshot {
 		snapshot.Failure = &failure
 	}
 	return snapshot
+}
+
+func (coordinator *Coordinator) transitionLocked(
+	current *attempt,
+	state State,
+	failure *Failure,
+) {
+	current.state = state
+	current.failure = failure
+	current.stateVersion++
+	current.lastActive = coordinator.now()
+}
+
+func (coordinator *Coordinator) startJobLocked(
+	current *attempt,
+	job func(context.Context, string),
+) {
+	current.running = true
+	done := make(chan struct{})
+	current.jobDone = done
+	ctx := current.context
+	attemptID := current.id
+	go func() {
+		defer close(done)
+		defer func() {
+			coordinator.mu.Lock()
+			if latest, ok := coordinator.attempts[attemptID]; ok && latest.jobDone == done {
+				latest.running = false
+				latest.jobDone = nil
+				latest.lastActive = coordinator.now()
+			}
+			coordinator.mu.Unlock()
+		}()
+		job(ctx, attemptID)
+	}()
 }
 
 func validateActionPayload(request SubmitRequest) error {
