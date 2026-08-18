@@ -95,6 +95,10 @@ func keyMessage(key string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "home":
 		return tea.KeyPressMsg{Code: tea.KeyHome}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	default:

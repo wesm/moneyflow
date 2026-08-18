@@ -1,6 +1,11 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+
+	"github.com/wesm/moneyflow/internal/onboarding"
+)
 
 // renderSelectorPlaceholder provides the stable shell frame before selector rows are added.
 func (shell Shell) renderSelectorPlaceholder() RenderedScreen {
@@ -26,11 +31,89 @@ func (shell Shell) renderSelectorPlaceholder() RenderedScreen {
 		shell.renderProfileName(&frame, content)
 	case shellRecovery:
 		shell.renderProfileRecovery(&frame, content)
+	case shellOnboarding:
+		shell.renderOnboarding(&frame, content)
 	default:
 		frame.PutText(content.X+2, content.Y+3, Truncate(shell.status, content.Width-4), shell.palette.Warning)
 		frame.PutText(content.X+2, content.Y+content.Height-2, "Esc Back", shell.palette.Muted)
 	}
 	return RenderedScreen{Frame: frame}
+}
+
+func (shell Shell) renderOnboarding(frame *Frame, content Rect) {
+	if !shell.haveSnapshot {
+		message := shell.status
+		if message == "" {
+			message = "Checking saved Monarch session…"
+		}
+		frame.PutText(content.X+2, content.Y+3, message, shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y+content.Height-2, "Esc Cancel", shell.palette.Muted)
+		return
+	}
+	switch shell.snapshot.State {
+	case onboarding.StateSettingsRequired:
+		frame.PutText(content.X+2, content.Y+2, "Confirm how Moneyflow stores imported amounts.", shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y+5, "Import currency: "+shell.settings.currency.Value(), shell.palette.Heading)
+		frame.PutText(content.X+2, content.Y+7, "Minor-unit scale: "+shell.settings.scale.Value(), shell.palette.Heading)
+		frame.PutText(content.X+2, content.Y+10, shell.settings.status, shell.palette.Warning)
+	case onboarding.StateUnlockRequired:
+		frame.PutText(content.X+2, content.Y+2, "Unlock saved Monarch credentials.", shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y+5, "Moneyflow account password: "+maskedValue(shell.unlock.password.Value()), shell.palette.Heading)
+		frame.PutText(content.X+2, content.Y+8, shell.unlock.status, shell.palette.Warning)
+	case onboarding.StateCredentialsRequired:
+		shell.renderCredentialForm(frame, content)
+	default:
+		message := shell.status
+		if message == "" {
+			message = onboardingStateMessage(shell.snapshot.State)
+		}
+		frame.PutText(content.X+2, content.Y+3, message, shell.palette.Muted)
+	}
+	frame.PutText(content.X+2, content.Y+content.Height-2, "Tab/Shift+Tab Move  Enter Continue  Esc Cancel", shell.palette.Muted)
+}
+
+func (shell Shell) renderCredentialForm(frame *Frame, content Rect) {
+	frame.PutText(content.X+2, content.Y+2, "Connect Monarch Money", shell.palette.Heading)
+	rows := []string{
+		"Monarch email: " + shell.credentials.email.Value(),
+		"Monarch password: " + maskedValue(shell.credentials.password.Value()),
+		"Monarch TOTP secret: " + maskedValue(shell.credentials.totp.Value()),
+		"Moneyflow account password: " + maskedValue(shell.credentials.accountPassword.Value()),
+		"Confirm Moneyflow account password: " + maskedValue(shell.credentials.confirmation.Value()),
+	}
+	for index, row := range rows {
+		marker := "  "
+		if index == shell.credentials.focused {
+			marker = "› "
+		}
+		frame.PutText(content.X+2, content.Y+5+index*2, marker+row, shell.palette.Text)
+	}
+	frame.PutText(content.X+2, content.Y+16, shell.credentials.status, shell.palette.Warning)
+}
+
+func maskedValue(value string) string {
+	return strings.Repeat("•", utf8.RuneCountInString(value))
+}
+
+func onboardingStateMessage(state onboarding.State) string {
+	switch state {
+	case onboarding.StateInspect, onboarding.StateValidateSession:
+		return "Checking saved Monarch session…"
+	case onboarding.StateAuthenticating:
+		return "Authenticating with Monarch…"
+	case onboarding.StateImporting:
+		return "Importing Monarch data…"
+	case onboarding.StateComplete:
+		return "Monarch setup is complete."
+	case onboarding.StateIdentityMismatch:
+		return "This profile is bound to a different Monarch account."
+	case onboarding.StateLocalOnly:
+		return "This profile contains local data and cannot be connected."
+	case onboarding.StateCanceled:
+		return "Profile setup was canceled."
+	default:
+		return "Profile setup did not complete."
+	}
 }
 
 func (shell Shell) renderProfileName(frame *Frame, content Rect) {

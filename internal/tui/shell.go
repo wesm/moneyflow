@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
@@ -102,12 +103,27 @@ type Shell struct {
 	name         profileNameState
 	recovery     profileRecoveryState
 	createdID    string
+	snapshot     onboarding.Snapshot
+	haveSnapshot bool
+	settings     settingsForm
+	unlock       unlockForm
+	credentials  credentialForm
 	finance      *Model
 	opened       *shellOwnedProfile
 	width        int
 	height       int
 	status       string
 	err          error
+}
+
+// String keeps generic model diagnostics free of profile and credential values.
+func (shell Shell) String() string {
+	return fmt.Sprintf("Moneyflow TUI shell (screen=%d, size=%dx%d)", shell.screen, shell.width, shell.height)
+}
+
+// GoString keeps %#v diagnostics free of profile and credential values.
+func (shell Shell) GoString() string {
+	return fmt.Sprintf("tui.Shell{screen:%d, width:%d, height:%d}", shell.screen, shell.width, shell.height)
 }
 
 type switchProfileMsg struct{}
@@ -136,6 +152,11 @@ type shellProfileRecreatedMsg struct {
 	err    error
 }
 
+type shellOnboardingSnapshotMsg struct {
+	snapshot onboarding.Snapshot
+	err      error
+}
+
 // NewShell validates dependencies and starts either at selection or a preselected finance view.
 func NewShell(ctx context.Context, dependencies ShellDependencies, options Options) (Shell, error) {
 	if ctx == nil {
@@ -161,7 +182,7 @@ func NewShell(ctx context.Context, dependencies ShellDependencies, options Optio
 		}
 		return shell, nil
 	}
-	if dependencies.Catalog == nil || dependencies.Profiles == nil ||
+	if dependencies.Catalog == nil || dependencies.Profiles == nil || dependencies.Onboarding == nil ||
 		dependencies.OpenProfile == nil || dependencies.OpenDemo == nil {
 		return Shell{}, errors.New("new TUI shell: dependencies are incomplete")
 	}
@@ -210,7 +231,7 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		shell.createdID = entry.ID
 		shell.screen = shellOnboarding
 		shell.status = "Continue setting up " + entry.DisplayName + "."
-		return shell, nil
+		return shell, shell.beginOnboarding(entry)
 	case shellProfileCanceledMsg:
 		if message.err != nil {
 			shell.status = "The incomplete profile could not be removed."
@@ -239,10 +260,28 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if shell.selected != nil {
 			entry := *shell.selected
 			entry.Status = profilecatalog.StatusSetupIncomplete
+			if shell.recovery.plan != nil {
+				entry.ID = shell.recovery.plan.ProfileID
+			}
 			shell.selected = &entry
 		}
 		shell.status = "Profile recreated. The previous database is in the backup at " + message.result.BackupPath
 		shell.screen = shellOnboarding
+		if shell.selected == nil {
+			return shell, nil
+		}
+		return shell, shell.beginOnboarding(*shell.selected)
+	case shellOnboardingSnapshotMsg:
+		if message.err != nil {
+			shell.status = "Profile setup could not continue."
+			shell.err = message.err
+			return shell, nil
+		}
+		if message.snapshot.ProtocolVersion != onboarding.ProtocolVersion {
+			shell.status = "Profile setup requires another Moneyflow version."
+			return shell, nil
+		}
+		shell.applyOnboardingSnapshot(message.snapshot)
 		return shell, nil
 	case switchProfileMsg:
 		shell.leaveFinance()
@@ -316,6 +355,9 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return shellProfileCanceledMsg{err: err}
 			}
 		}
+		if shell.screen == shellOnboarding {
+			return shell.routeOnboardingKey(message)
+		}
 		if message.Keystroke() == "esc" && shell.screen != shellFinance {
 			shell.screen = shellSelector
 			shell.selected = nil
@@ -358,6 +400,7 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		shell.selected = &entry
 		shell.screen = shellOnboarding
 		shell.status = "Profile setup will continue here."
+		return shell, shell.beginOnboarding(entry)
 	case selectorLocalOnly:
 		entry := selection.entry
 		shell.selected = &entry
@@ -389,6 +432,99 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		}
 	}
 	return shell, nil
+}
+
+func (shell Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
+	profileID := entry.ID
+	return func() tea.Msg {
+		if profileID == "" {
+			return shellOnboardingSnapshotMsg{err: errors.New("profile setup ID is unavailable")}
+		}
+		snapshot, err := shell.dependencies.Onboarding.Start(shell.ctx, onboarding.StartRequest{
+			ProfileID: profileID, Renderer: "tui",
+		})
+		return shellOnboardingSnapshotMsg{snapshot: snapshot, err: err}
+	}
+}
+
+func (shell *Shell) applyOnboardingSnapshot(snapshot onboarding.Snapshot) {
+	shell.snapshot = snapshot
+	shell.haveSnapshot = true
+	shell.status = ""
+	switch snapshot.State {
+	case onboarding.StateSettingsRequired:
+		shell.settings, _ = newSettingsForm()
+		if snapshot.Failure != nil {
+			shell.settings.status = snapshot.Failure.Message
+		}
+	case onboarding.StateUnlockRequired:
+		shell.unlock, _ = newUnlockForm()
+		if snapshot.Failure != nil {
+			shell.unlock.status = snapshot.Failure.Message
+		}
+	case onboarding.StateCredentialsRequired:
+		shell.credentials, _ = newCredentialForm()
+		if snapshot.Failure != nil {
+			shell.credentials.status = snapshot.Failure.Message
+		}
+	default:
+		if snapshot.Failure != nil {
+			shell.status = snapshot.Failure.Message
+		}
+	}
+}
+
+func (shell Shell) routeOnboardingKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if !shell.haveSnapshot {
+		return shell, nil
+	}
+	switch shell.snapshot.State {
+	case onboarding.StateSettingsRequired:
+		var submit *onboarding.SubmitRequest
+		var command tea.Cmd
+		shell.settings, submit, command = shell.settings.update(message)
+		if submit == nil {
+			return shell, command
+		}
+		request, ok := shell.settings.submit(shell.snapshot)
+		if !ok {
+			return shell, nil
+		}
+		return shell, shell.submitOnboarding(request)
+	case onboarding.StateUnlockRequired:
+		var submit bool
+		var command tea.Cmd
+		shell.unlock, submit, command = shell.unlock.update(message)
+		if !submit {
+			return shell, command
+		}
+		request, ok := shell.unlock.submit(shell.snapshot)
+		if !ok {
+			return shell, nil
+		}
+		return shell, shell.submitOnboarding(request)
+	case onboarding.StateCredentialsRequired:
+		var submit bool
+		var command tea.Cmd
+		shell.credentials, submit, command = shell.credentials.update(message)
+		if !submit {
+			return shell, command
+		}
+		request, ok := shell.credentials.submit(shell.snapshot)
+		if !ok {
+			return shell, nil
+		}
+		return shell, shell.submitOnboarding(request)
+	default:
+		return shell, nil
+	}
+}
+
+func (shell Shell) submitOnboarding(request onboarding.SubmitRequest) tea.Cmd {
+	return func() tea.Msg {
+		snapshot, err := shell.dependencies.Onboarding.Submit(shell.ctx, request)
+		return shellOnboardingSnapshotMsg{snapshot: snapshot, err: err}
+	}
 }
 
 func (shell Shell) routeRecoveryKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
@@ -79,17 +80,21 @@ func TestShellValidatesDependenciesAndPropagatesCloseFailure(t *testing.T) {
 }
 
 type fakeShellState struct {
-	opens          int
-	closes         int
-	creates        int
-	cancelNewCalls int
-	recreates      int
-	closeErr       error
-	createErr      error
-	entries        []profilecatalog.Entry
-	created        profilecatalog.Entry
-	canceledID     string
-	openedSelector string
+	opens              int
+	closes             int
+	creates            int
+	cancelNewCalls     int
+	recreates          int
+	closeErr           error
+	createErr          error
+	entries            []profilecatalog.Entry
+	created            profilecatalog.Entry
+	canceledID         string
+	openedSelector     string
+	onboardingStarts   int
+	onboardingSubmits  int
+	onboardingSnapshot onboarding.Snapshot
+	lastSubmit         onboarding.SubmitRequest
 }
 
 type fakeCatalogView struct {
@@ -104,8 +109,9 @@ func fakeShellDependencies(t testing.TB) (ShellDependencies, *fakeShellState) {
 	t.Helper()
 	state := &fakeShellState{}
 	return ShellDependencies{
-		Catalog:  fakeCatalogView{},
-		Profiles: state,
+		Catalog:    fakeCatalogView{},
+		Profiles:   state,
+		Onboarding: state,
 		OpenProfile: func(_ context.Context, selector string) (ShellOpenedProfile, error) {
 			state.opens++
 			state.openedSelector = selector
@@ -116,6 +122,54 @@ func fakeShellDependencies(t testing.TB) (ShellDependencies, *fakeShellState) {
 			return fakeShellOpenedProfile(t, state), nil
 		},
 	}, state
+}
+
+func (state *fakeShellState) Start(
+	_ context.Context,
+	request onboarding.StartRequest,
+) (onboarding.Snapshot, error) {
+	state.onboardingStarts++
+	snapshot := state.onboardingSnapshot
+	if snapshot.ProtocolVersion == 0 {
+		snapshot = formSnapshot(onboarding.StateSettingsRequired)
+	}
+	snapshot.ProfileID = request.ProfileID
+	return snapshot, nil
+}
+
+func (state *fakeShellState) Status(
+	context.Context,
+	onboarding.StatusRequest,
+) (onboarding.Snapshot, error) {
+	return state.onboardingSnapshot, nil
+}
+
+func (state *fakeShellState) Submit(
+	_ context.Context,
+	request onboarding.SubmitRequest,
+) (onboarding.Snapshot, error) {
+	state.onboardingSubmits++
+	state.lastSubmit = request
+	return onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       request.ProfileID, AttemptID: request.AttemptID,
+		StateVersion: request.ExpectedStateVersion + 1, State: onboarding.StateAuthenticating,
+		ProviderKind: "monarch",
+	}, nil
+}
+
+func (state *fakeShellState) Cancel(
+	context.Context,
+	onboarding.CancelRequest,
+) (onboarding.Snapshot, error) {
+	return onboarding.Snapshot{}, nil
+}
+
+func (state *fakeShellState) TakeOpenedProfile(
+	context.Context,
+	onboarding.StatusRequest,
+) (onboarding.OpenedProfile, error) {
+	return onboarding.OpenedProfile{}, errors.New("not configured")
 }
 
 func (state *fakeShellState) Create(
