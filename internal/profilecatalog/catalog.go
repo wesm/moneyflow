@@ -28,6 +28,7 @@ type Config struct {
 	Now            func() time.Time
 	Version        string
 	InspectSession SessionPresence
+	RecoveryFault  func(RecoveryFaultPoint) error
 }
 
 // Catalog owns filesystem discovery and profile lifecycle operations.
@@ -37,6 +38,7 @@ type Catalog struct {
 	now            func() time.Time
 	version        string
 	inspectSession SessionPresence
+	recoveryFault  func(RecoveryFaultPoint) error
 }
 
 // New validates and constructs one profile catalog.
@@ -52,6 +54,7 @@ func New(config Config) (*Catalog, error) {
 	return &Catalog{
 		paths: config.Paths, random: config.Random, now: config.Now,
 		version: config.Version, inspectSession: config.InspectSession,
+		recoveryFault: config.RecoveryFault,
 	}, nil
 }
 

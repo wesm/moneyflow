@@ -105,6 +105,9 @@ func (catalog *Catalog) discoverLegacy(ctx context.Context) (Entry, bool, error)
 	paths := catalog.paths.LegacyProfile()
 	info, err := os.Lstat(paths.Database)
 	if errors.Is(err, os.ErrNotExist) {
+		if activeRecovery(paths.Root) {
+			return catalog.discoverProfile(ctx, paths.Root, true)
+		}
 		return Entry{}, false, nil
 	}
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
