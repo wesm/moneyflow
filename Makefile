@@ -10,19 +10,19 @@ ifeq ($(OS),Windows_NT)
 BINARY := bin/moneyflow.exe
 endif
 
-build:
+build: web-embed
 	mkdir -p bin
 	go build -ldflags="$(LDFLAGS)" -o $(BINARY) ./cmd/moneyflow
 
 help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
-test:
+test: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
 	go test ./internal/api -run '^TestProjectionPerformance100K$$' -count=1
 
-test-go-quick:
+test-go-quick: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
 
 test-store:
@@ -42,10 +42,10 @@ monarch-live-test:
 test-race:
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...
 
-vet:
+vet: web-embed
 	go vet ./...
 
-lint:
+lint: web-embed
 	GOLANGCI_LINT_CACHE="$(CURDIR)/.cache/golangci-lint" golangci-lint run --config .golangci.yml
 
 install-hooks:
@@ -126,11 +126,14 @@ web-build:
 web-assets-check:
 	bun run --cwd web scripts/validate-assets.ts dist
 
-web-embed: web-assets-check
+web-embed: web-build web-assets-check
 	bun run --cwd web scripts/embed-assets.ts
 
-web-embed-check: web-assets-check
-	bun run --cwd web scripts/embed-assets.ts --check
+web-embed-check: web-embed
+	@if test -n "$$(git ls-files internal/web/dist web/tests/screenshots)"; then \
+		printf '%s\n' 'generated web assets must not be tracked on this branch' >&2; \
+		exit 1; \
+	fi
 
 verify-web:
 	$(MAKE) web-install

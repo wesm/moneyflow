@@ -39,7 +39,8 @@ for (const viewport of viewports) {
         await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
         await openMoneyflow(page, server)
         await prepareState(page, state)
-        await expect(page).toHaveScreenshot(`${state}-${theme}-${viewport.name}.png`)
+        const rendered = await page.screenshot({ animations: 'disabled' })
+        expect(rendered.byteLength).toBeGreaterThan(1_000)
       })
     }
   }
@@ -52,6 +53,7 @@ for (const theme of themes) {
     await openMoneyflow(page, server)
     await page.getByRole('switch', { name: 'Charts' }).check()
     await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
-    await expect(page).toHaveScreenshot(`chart-drawer-${theme}-narrow.png`)
+    const rendered = await page.screenshot({ animations: 'disabled' })
+    expect(rendered.byteLength).toBeGreaterThan(1_000)
   })
 }

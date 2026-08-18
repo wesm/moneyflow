@@ -42,7 +42,7 @@ jobs:
           make web-test
           make web-audit
 
-      - name: Verify committed embedded distribution
+      - name: Generate ignored embedded distribution
         run: make web-embed-check
 
       - name: Install pinned Playwright browsers

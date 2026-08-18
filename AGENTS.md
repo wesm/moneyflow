@@ -634,8 +634,10 @@ make verify-web  # Run every frontend, asset, API, editing, security, and browse
 Ordinary tests never update parity artifacts. Use `make parity-update-python` or
 `make parity-update-go` only for a deliberate update, then review the full artifact diff and the
 generated Go frame previews before committing it. `make web-generate` and `make web-embed` are also
-deliberate write operations: ordinary verification uses generation and embed checks and never
-updates committed artifacts. Stable frontend targets are `web-install`, `web-generate`,
+deliberate write operations. Generated browser screenshots and `internal/web/dist` are ignored
+build outputs and must never be committed on this branch; durable visual assets belong on a
+separately managed orphan-assets branch, if retained at all. Stable frontend targets are
+`web-install`, `web-generate`,
 `web-check`, `web-test`, `web-audit`, `web-build`, `web-assets-check`, `web-embed`,
 `web-embed-check`, `web-e2e`, `test-editing-e2e`, `web-demo`, and `verify-web`.
 

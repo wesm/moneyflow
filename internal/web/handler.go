@@ -32,7 +32,7 @@ type handler struct {
 	warnNonCanonical bool
 }
 
-// NewHandler constructs the static application handler from the committed production assets.
+// NewHandler constructs the static application handler from the generated production assets.
 func NewHandler(basePath string) (http.Handler, error) {
 	origin, err := api.ResolveOrigin("127.0.0.1:8080", basePath, "")
 	if err != nil {

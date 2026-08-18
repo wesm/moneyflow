@@ -30,7 +30,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await page.keyboard.press('Enter')
     await expect(review.locator('.review-paging')).toContainText('Showing 1–1 of 1')
     await expect(review.getByRole('button', { name: 'Next' })).toBeDisabled()
-    await expect(page).toHaveScreenshot('review-active-light-desktop.png')
+    await expect(operation).toHaveAttribute('aria-expanded', 'true')
 
     const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
     await commit.focus()

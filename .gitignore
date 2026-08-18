@@ -75,9 +75,9 @@ result-*
 /web/test-results/
 /web/playwright-report/
 /web/.vite/
+/web/tests/screenshots/
 !/web/src/lib/
 !/web/src/lib/**
 
-# Committed production frontend embedded by Go
-!/internal/web/dist/
-!/internal/web/dist/**
+# Generated production frontend embedded by local builds
+/internal/web/dist/
