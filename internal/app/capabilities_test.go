@@ -48,7 +48,7 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	assert.True(t, afterUndo[app.ActionReviewChanges].Available)
 }
 
-func TestProviderCapabilitiesKeepEditingAndReviewButDisableCommit(t *testing.T) {
+func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -85,14 +85,17 @@ func TestProviderCapabilitiesKeepEditingAndReviewButDisableCommit(t *testing.T) 
 	assert.True(t, capabilities[app.ActionReviewChanges].Available)
 	assert.True(t, capabilities[app.ActionRefreshProvider].Available)
 
-	_, err = service.Commit(ctx, app.CommitRequest{
+	prepared, err := service.Commit(ctx, app.CommitRequest{
 		ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
 		State: state, Selection: app.EmptySelection(),
 	})
-	var failure *app.AppError
-	require.ErrorAs(t, err, &failure)
-	assert.Equal(t, app.AppInvalidOperation, failure.Code)
-	assert.Contains(t, failure.Detail, "safely stored")
+	require.NoError(t, err)
+	require.NotNil(t, prepared.ProviderWrite)
+	assert.Equal(t, store.WritePhaseWriting, prepared.ProviderWrite.Phase)
+	capabilities = capabilitiesByAction(prepared.Capabilities)
+	assert.False(t, capabilities[app.ActionToggleHidden].Available)
+	assert.False(t, capabilities[app.ActionRefreshProvider].Available)
+	assert.Contains(t, capabilities[app.ActionRefreshProvider].Reason, "provider write")
 }
 
 func TestMonarchCapabilitiesRejectOnTheFlyCategoryCreation(t *testing.T) {

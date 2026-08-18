@@ -221,6 +221,9 @@ func (profile *profile) RecordProviderWriteResult(
 	batch.Version++
 	batch.CompletedItems++
 	batch.OverrideCount += request.Result.OverrideCount
+	if batch.CompletedItems == batch.TotalItems {
+		batch.Phase = store.WritePhaseReconciling
+	}
 	batch.UpdatedAt = request.ObservedAt
 	if err = updateWriteBatchStatus(ctx, connection, batch); err != nil {
 		return store.WriteBatch{}, err
@@ -255,6 +258,9 @@ func (profile *profile) ParkProviderWrite(
 	batch.Version++
 	batch.AttentionClass = request.AttentionClass
 	batch.AttentionReason = request.AttentionReason
+	if request.Phase == store.WritePhaseAttentionRequired {
+		batch.FailedItems = 1
+	}
 	batch.NextEligible = request.NextEligible
 	batch.UpdatedAt = request.ObservedAt
 	if err = updateWriteBatchStatus(ctx, connection, batch); err != nil {
@@ -314,6 +320,7 @@ func (profile *profile) ResumeProviderWrite(
 	batch.Version++
 	batch.AttentionClass = ""
 	batch.AttentionReason = ""
+	batch.FailedItems = 0
 	batch.NextEligible = time.Time{}
 	batch.UpdatedAt = request.ObservedAt
 	if err = updateWriteBatchStatus(ctx, connection, batch); err != nil {
@@ -422,6 +429,12 @@ func (profile *profile) FinalizeProviderWrite(
 	}
 	if err = replaceLastWriteSummary(ctx, connection, plan.Summary); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
+	}
+	if _, err = connection.ExecContext(ctx, `
+		UPDATE provider_refresh_state
+		SET last_success_unix_ms = NULL, next_eligible_unix_ms = NULL, status_code = ''
+		WHERE singleton = 1`); err != nil {
+		return store.FinalizeProviderWriteCommit{}, mapDriverError(err, store.CodeStoreError)
 	}
 	if err = deleteOperationLease(ctx, connection, request.LeaseOwnerID, request.LeaseKind); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
@@ -647,7 +660,30 @@ func loadProviderWriteState(ctx context.Context, queryer interface {
 	if err != nil {
 		return store.ProviderWriteState{}, err
 	}
-	return store.ProviderWriteState{Batch: batch, Items: items, Results: results}, nil
+	return store.ProviderWriteState{
+		Batch: batch, Items: items, Groups: writeItemGroups(items), Results: results,
+	}, nil
+}
+
+func writeItemGroups(items []store.WriteItem) []store.WriteItemGroup {
+	indexes := make(map[string]int)
+	groups := make([]store.WriteItemGroup, 0)
+	for _, item := range items {
+		if item.Expectation != store.WriteExpectationNew || item.NewGroupKey == "" {
+			continue
+		}
+		index, exists := indexes[item.NewGroupKey]
+		if !exists {
+			index = len(groups)
+			indexes[item.NewGroupKey] = index
+			groups = append(groups, store.WriteItemGroup{Key: item.NewGroupKey})
+		}
+		if item.GroupLeader {
+			groups[index].LeaderItemID = item.ID
+		}
+		groups[index].ItemIDs = append(groups[index].ItemIDs, item.ID)
+	}
+	return groups
 }
 
 func loadWriteItems(
@@ -683,6 +719,13 @@ func loadClaimableWriteItems(
 			group_leader, item_state, attempt_count
 		FROM provider_write_items
 		WHERE batch_id = ? AND item_state = 'pending'
+			AND (expectation_kind IS NULL OR expectation_kind <> 'new' OR group_leader = 1
+				OR EXISTS (
+					SELECT 1 FROM provider_write_items AS leader
+					WHERE leader.batch_id = provider_write_items.batch_id
+						AND leader.new_group_key = provider_write_items.new_group_key
+						AND leader.group_leader = 1 AND leader.item_state = 'succeeded'
+				))
 		ORDER BY position LIMIT ?`, batchID, limit)
 	if err != nil {
 		return nil, mapDriverError(err, store.CodeStoreError)

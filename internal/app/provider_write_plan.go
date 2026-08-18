@@ -46,6 +46,28 @@ func BuildProviderWritePlan(inputs store.PrepareProviderWriteInputs) (store.Prep
 	}, nil
 }
 
+// CountProviderWriteItems validates the active prefix and returns the number of durable
+// transaction items needed to prepare it. It uses the same planner path as preparation.
+func CountProviderWriteItems(inputs store.PrepareProviderWriteInputs) (int, error) {
+	snapshot := inputs.Snapshot.Clone()
+	replayed, err := Replay(snapshot)
+	if err != nil {
+		return 0, err
+	}
+	if inputs.ProviderState.Binding == nil || inputs.ProviderState.Binding.Kind != "monarch" {
+		return 0, provider.NewError(provider.CodeWriteUnsupported)
+	}
+	items, _, err := planAbsoluteWriteItems(
+		replayed.Committed,
+		replayed.Effective,
+		replayed.Journal[:replayed.Cursor],
+		inputs.ProviderState,
+		"count-only",
+		nil,
+	)
+	return len(items), err
+}
+
 type providerWriteTransactionPlan struct {
 	transaction  domain.TransactionRecord
 	operationIDs []string
@@ -116,7 +138,7 @@ func planAbsoluteWriteItems(
 	slices.SortFunc(plans, func(left, right providerWriteTransactionPlan) int {
 		return strings.Compare(left.externalID, right.externalID)
 	})
-	if len(plans) != len(itemIDs) {
+	if itemIDs != nil && len(plans) != len(itemIDs) {
 		if len(plans) == 0 && len(itemIDs) == 0 {
 			return nil, nil, nil
 		}
@@ -125,8 +147,12 @@ func planAbsoluteWriteItems(
 	items := make([]store.WriteItem, len(plans))
 	for index, plan := range plans {
 		before := committedTransactions[plan.transaction.ID]
+		itemID := ""
+		if itemIDs != nil {
+			itemID = itemIDs[index]
+		}
 		item := store.WriteItem{
-			ID: itemIDs[index], BatchID: batchID, Position: index,
+			ID: itemID, BatchID: batchID, Position: index,
 			TransactionID: plan.transaction.ID, TransactionExternalID: plan.externalID,
 			OriginatingOperationIDs: append([]string(nil), plan.operationIDs...),
 			Expectation:             plan.expectation,

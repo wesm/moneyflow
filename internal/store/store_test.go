@@ -96,6 +96,13 @@ func (fakeProfile) FinalizeProviderWrite(
 ) (store.FinalizeProviderWriteCommit, error) {
 	return store.FinalizeProviderWriteCommit{}, nil
 }
+func (fakeProfile) ReconcileProviderWrite(
+	context.Context,
+	store.ReconcileProviderWriteRequest,
+	store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	return store.RefreshCommit{}, nil
+}
 func (fakeProfile) AcquireRefreshLease(
 	context.Context,
 	store.RefreshLease,

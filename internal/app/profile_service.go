@@ -26,6 +26,7 @@ type MutationResult struct {
 	Pending              PendingSummary
 	Capabilities         []Capability
 	Projection           WebProjection
+	ProviderWrite        *ProviderWriteStatus
 }
 
 // CommitRequest confirms one previously reviewed profile revision.
@@ -370,13 +371,27 @@ func (service *Service) Commit(
 		)
 	}
 	if service.isProviderBound() {
-		failure := newAppError(
-			AppInvalidOperation,
-			snapshot.Revision,
-			errors.New("provider write-back is not implemented"),
+		status, _, prepareErr := service.prepareProviderWrite(ctx, snapshot, request)
+		if prepareErr != nil {
+			return MutationResult{}, prepareErr
+		}
+		state := request.State
+		if err := state.Validate(); err != nil {
+			state = DefaultViewState()
+		}
+		selection := request.Selection
+		if selection == "" {
+			selection = EmptySelection()
+		}
+		result, resultErr := service.mutationResult(
+			state, selection, SelectionPreserved, request.Window,
 		)
-		failure.Detail = "Pending provider edits are safely stored until write-back is available."
-		return MutationResult{}, failure
+		if resultErr != nil {
+			return MutationResult{}, resultErr
+		}
+		result.ProviderWrite = &status
+		result.Projection.Status = "Writing pending changes to Monarch."
+		return result, nil
 	}
 	plan, err := BuildFoldPlan(snapshot, request.ReviewedRevision)
 	if err != nil {

@@ -30,6 +30,7 @@ type Profile interface {
 	ParkProviderWrite(context.Context, ParkProviderWriteRequest) (WriteBatch, error)
 	ResumeProviderWrite(context.Context, ResumeProviderWriteRequest) (WriteBatch, error)
 	FinalizeProviderWrite(context.Context, FinalizeProviderWriteRequest, FinalizeProviderWritePlanner) (FinalizeProviderWriteCommit, error)
+	ReconcileProviderWrite(context.Context, ReconcileProviderWriteRequest, RefreshPlanner) (RefreshCommit, error)
 	// Refresh-only wrappers remain during the port while callers move to the generalized lease.
 	AcquireRefreshLease(context.Context, RefreshLease, time.Time) (RefreshLease, bool, error)
 	RenewRefreshLease(context.Context, string, time.Time, time.Time) (bool, error)

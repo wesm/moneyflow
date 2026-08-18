@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -218,6 +219,144 @@ func TestProviderWriteMutationsRequireMatchingLeaseOwnerAndKind(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before, after)
 }
+
+func TestProviderWriteResultTransitionsCompletedBatchToReconciling(t *testing.T) {
+	t.Parallel()
+
+	profile, prepared, now := preparedWriteProfile(t)
+	result, err := profile.RecordProviderWriteResult(context.Background(),
+		store.RecordProviderWriteResultRequest{
+			BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+			ItemID: "item-a", Result: store.WriteResult{
+				ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+			}, ObservedAt: now,
+		})
+	require.NoError(t, err)
+	assert.Equal(t, store.WritePhaseReconciling, result.Phase)
+	assert.Equal(t, 1, result.CompletedItems)
+}
+
+func TestProviderWriteStateReconstructsNewMerchantGroups(t *testing.T) {
+	t.Parallel()
+
+	profile := openSeededProfile(t, DefaultOptions)
+	ctx := context.Background()
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profile.Append(ctx, loaded.Revision,
+		draftHideOperation("operation-write-a", loaded.Revision, target.ID))
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 17, 30, 0, 0, time.UTC)
+	hidden := !target.Hidden
+	_, err = profile.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision, ExpectedGeneration: 0,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "owner-a", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ProposedBatchID: "batch-a", ProposedItemIDs: []string{"item-a"}, ObservedAt: now,
+	}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
+		return store.PrepareProviderWritePlan{
+			FrozenOperationIDs: []string{"operation-write-a"}, FrozenPrefixDigest: "digest-a",
+			Items: []store.WriteItem{{
+				ID: "item-a", Position: 0, TransactionID: target.ID,
+				TransactionExternalID: target.ProviderID, RequestedHidden: &hidden,
+				RequestedMerchantLocalID: target.MerchantID,
+				RequestedMerchantName:    pointerTo("Example Merchant Updated"),
+				OriginatingOperationIDs:  []string{"operation-write-a"},
+				Expectation:              store.WriteExpectationNew, NewGroupKey: "merchant-group",
+				GroupLeader: true, State: store.WriteItemPending,
+			}},
+			Groups: []store.WriteItemGroup{{
+				Key: "merchant-group", LeaderItemID: "item-a", ItemIDs: []string{"item-a"},
+			}},
+		}, nil
+	})
+	require.NoError(t, err)
+
+	state, err := profile.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.Len(t, state.Groups, 1)
+	assert.Equal(t, "merchant-group", state.Groups[0].Key)
+	assert.Equal(t, []string{"item-a"}, state.Groups[0].ItemIDs)
+}
+
+func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
+	t.Parallel()
+
+	profile := openSeededProfile(t, DefaultOptions)
+	ctx := context.Background()
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(loaded.Committed.Transactions), 2)
+	targets := []domain.EntityID{
+		loaded.Committed.Transactions[0].ID,
+		loaded.Committed.Transactions[1].ID,
+	}
+	revision, err := profile.Append(ctx, loaded.Revision,
+		draftHideOperation("operation-write-a", loaded.Revision, targets...))
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 17, 45, 0, 0, time.UTC)
+	hidden := true
+	name := "Example Merchant Updated"
+	prepared, err := profile.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision, ExpectedGeneration: 0,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "owner-a", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ProposedBatchID: "batch-a", ProposedItemIDs: []string{"item-a", "item-b"},
+		ObservedAt: now,
+	}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
+		items := make([]store.WriteItem, 2)
+		for index, target := range loaded.Committed.Transactions[:2] {
+			items[index] = store.WriteItem{
+				ID: []string{"item-a", "item-b"}[index], Position: index,
+				TransactionID: target.ID, TransactionExternalID: target.ProviderID,
+				RequestedMerchantLocalID: target.MerchantID, RequestedMerchantName: &name,
+				RequestedHidden: &hidden, OriginatingOperationIDs: []string{"operation-write-a"},
+				Expectation: store.WriteExpectationNew, NewGroupKey: "merchant-group",
+				GroupLeader: index == 0, State: store.WriteItemPending,
+			}
+		}
+		return store.PrepareProviderWritePlan{
+			FrozenOperationIDs: []string{"operation-write-a"}, FrozenPrefixDigest: "digest-a",
+			Items: items,
+		}, nil
+	})
+	require.NoError(t, err)
+
+	claimed, err := profile.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 4,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "item-a", claimed[0].ID)
+	merchantID := "merchant-provider-new"
+	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-a", Result: store.WriteResult{
+			ItemID: "item-a", TransactionExternalID: claimed[0].TransactionExternalID,
+			MerchantExternalID: &merchantID, Hidden: &hidden, RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+	claimed, err = profile.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 4,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, "item-b", claimed[0].ID)
+}
+
+func pointerTo[T any](value T) *T { return &value }
 
 func preparedWriteProfile(t *testing.T) (*profile, store.PrepareProviderWriteCommit, time.Time) {
 	t.Helper()

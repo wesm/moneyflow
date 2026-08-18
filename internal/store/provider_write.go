@@ -340,6 +340,19 @@ type FinalizeProviderWriteCommit struct {
 	Summary  LastWriteSummary
 }
 
+// ReconcileProviderWriteRequest abandons the frozen intent into one authoritative snapshot.
+type ReconcileProviderWriteRequest struct {
+	BatchID            string
+	ExpectedVersion    uint64
+	ExpectedRevision   uint64
+	ExpectedGeneration uint64
+	LeaseOwnerID       string
+	Candidate          domain.ImportSnapshot
+	ProposedIDs        map[string]domain.EntityID
+	ProposedSuffixes   map[string]string
+	ObservedAt         time.Time
+}
+
 func clonePointer[T any](value *T) *T {
 	if value == nil {
 		return nil

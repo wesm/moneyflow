@@ -37,27 +37,30 @@ type ProviderRuntime struct {
 	LeaseDuration     time.Duration
 	HeartbeatInterval time.Duration
 	ConfirmationTTL   time.Duration
+	Sleep             func(context.Context, time.Duration) error
 }
 
 type providerRuntimeState struct {
-	mu                sync.Mutex
-	source            provider.Source
-	provider          string
-	currency          domain.Currency
-	scale             uint8
-	renderer          string
-	instanceID        string
-	now               func() time.Time
-	random            io.Reader
-	leaseDuration     time.Duration
-	heartbeatInterval time.Duration
-	confirmationTTL   time.Duration
-	progressObserver  provider.ProgressFunc
-	fingerprint       provider.SessionFingerprint
-	parkedReconnect   bool
-	forceReload       bool
-	progress          provider.Progress
-	confirmations     map[string]providerConfirmation
+	mu                 sync.Mutex
+	source             provider.Source
+	provider           string
+	currency           domain.Currency
+	scale              uint8
+	renderer           string
+	instanceID         string
+	now                func() time.Time
+	random             io.Reader
+	leaseDuration      time.Duration
+	heartbeatInterval  time.Duration
+	confirmationTTL    time.Duration
+	sleep              func(context.Context, time.Duration) error
+	progressObserver   provider.ProgressFunc
+	fingerprint        provider.SessionFingerprint
+	parkedReconnect    bool
+	forceReload        bool
+	progress           provider.Progress
+	confirmations      map[string]providerConfirmation
+	writeConfirmations map[string]providerWriteConfirmation
 }
 
 type providerConfirmation struct {
@@ -171,6 +174,9 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	if runtime.HeartbeatInterval == 0 {
 		runtime.HeartbeatInterval = runtime.LeaseDuration / 3
 	}
+	if runtime.Sleep == nil {
+		runtime.Sleep = sleepProviderContext
+	}
 	if runtime.LeaseDuration <= 0 || runtime.HeartbeatInterval <= 0 ||
 		runtime.HeartbeatInterval >= runtime.LeaseDuration || runtime.ConfirmationTTL <= 0 {
 		return errors.New("configure provider: durations must be positive")
@@ -182,9 +188,11 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 		currency: runtime.Currency, scale: runtime.Scale, renderer: runtime.Renderer,
 		instanceID: runtime.InstanceID, now: runtime.Now, random: runtime.Random,
 		leaseDuration: runtime.LeaseDuration, heartbeatInterval: runtime.HeartbeatInterval,
-		confirmationTTL:  runtime.ConfirmationTTL,
-		progressObserver: runtime.Progress,
-		confirmations:    make(map[string]providerConfirmation),
+		confirmationTTL:    runtime.ConfirmationTTL,
+		sleep:              runtime.Sleep,
+		progressObserver:   runtime.Progress,
+		confirmations:      make(map[string]providerConfirmation),
+		writeConfirmations: make(map[string]providerWriteConfirmation),
 	}
 	service.mu.Lock()
 	service.providerRuntime = configured

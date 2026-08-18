@@ -568,6 +568,14 @@ func (profile *memoryProfile) FinalizeProviderWrite(
 	return store.FinalizeProviderWriteCommit{}, errors.New("not implemented")
 }
 
+func (profile *memoryProfile) ReconcileProviderWrite(
+	context.Context,
+	store.ReconcileProviderWriteRequest,
+	store.RefreshPlanner,
+) (store.RefreshCommit, error) {
+	return store.RefreshCommit{}, errors.New("not implemented")
+}
+
 func (profile *memoryProfile) AcquireRefreshLease(
 	context.Context,
 	store.RefreshLease,
