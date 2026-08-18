@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
@@ -42,6 +43,56 @@ func TestShellPreselectedProfileStartsFinanceAndClosesExactlyOnce(t *testing.T) 
 	assert.Equal(t, 1, state.closes)
 	require.NoError(t, shell.Close())
 	assert.Equal(t, 1, state.closes)
+}
+
+func TestShellAppliesInitialDateRangeToFinanceSession(t *testing.T) {
+	t.Parallel()
+	start, err := domain.ParseDate("2026-01-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-08-18")
+	require.NoError(t, err)
+	initial := &domain.DateRange{Start: start, End: end}
+
+	dependencies, state := fakeShellDependencies(t)
+	opened := fakeShellOpenedProfile(t, state)
+	dependencies.Preselected = &opened
+	shell, err := NewShell(context.Background(), dependencies, Options{
+		ColorMode: ColorModeNone, InitialDateRange: initial,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, shell.finance)
+	require.NotNil(t, shell.finance.session.DateRange)
+	assert.Equal(t, "2026-01-01", shell.finance.session.DateRange.Start.String())
+	assert.Equal(t, "2026-08-18", shell.finance.session.DateRange.End.String())
+
+	initial.Start, err = domain.ParseDate("2025-01-01")
+	require.NoError(t, err)
+	assert.Equal(t, "2026-01-01", shell.finance.session.DateRange.Start.String())
+}
+
+func TestShellAppliesInitialDateRangeAfterProfileSelection(t *testing.T) {
+	t.Parallel()
+	start, err := domain.ParseDate("2026-01-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2026-08-18")
+	require.NoError(t, err)
+
+	dependencies, _ := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{
+		ColorMode:        ColorModeNone,
+		InitialDateRange: &domain.DateRange{Start: start, End: end},
+	})
+	require.NoError(t, err)
+
+	updated, command := shell.routeProfileSelection(profileSelection{action: selectorDemo})
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+	updated, _ = shell.Update(command())
+	shell = updated.(Shell)
+	require.NotNil(t, shell.finance)
+	require.NotNil(t, shell.finance.session.DateRange)
+	assert.Equal(t, "2026-01-01", shell.finance.session.DateRange.Start.String())
+	assert.Equal(t, "2026-08-18", shell.finance.session.DateRange.End.String())
 }
 
 func TestShellForwardsViewportAndFinanceMessages(t *testing.T) {

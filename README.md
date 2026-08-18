@@ -84,6 +84,11 @@ make web-demo
 # Advanced direct selection by exact profile name or ID
 ./bin/moneyflow tui --profile "Example Profile"
 
+# Open with an initial local date filter (Python-compatible precedence: mtd > since > year)
+./bin/moneyflow tui --year 2026
+./bin/moneyflow tui --since 2026-06-01
+./bin/moneyflow tui --mtd
+
 # Persistent web profile on loopback, with automatic browser launch
 ./bin/moneyflow web
 
@@ -98,6 +103,9 @@ Both persistent commands open the same profile catalog. The web selector lives a
 base path, and each selected profile uses its stable `/p/<profile-id>/` URL. You can add, connect,
 reconnect, or recover a profile without leaving either application. Use `--profile` with an exact
 profile name or ID only when you want to bypass the selector.
+
+The TUI date flags filter the opened SQLite profile through today. They do not narrow provider
+refreshes: Go v2 continues to reconcile the complete posted Monarch snapshot for correctness.
 
 Pending edits, undo history, and redo history survive process restarts. Press `u` to undo, `U` to
 redo, `C` to manage categories, `G` to manage category groups, and `w` to review and atomically

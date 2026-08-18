@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/tui"
 )
 
@@ -153,6 +155,85 @@ func TestTUIThemeValidationPrecedesProfileOpen(t *testing.T) {
 	err := command.Execute()
 	require.ErrorContains(t, err, "unknown theme")
 	assert.Zero(t, opens)
+}
+
+func TestTUICommandSeedsPythonCompatibleDateFilters(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.August, 18, 6, 30, 0, 0, time.Local)
+	for _, test := range []struct {
+		name  string
+		args  []string
+		start string
+	}{
+		{name: "year", args: []string{"--year", "2025"}, start: "2025-01-01"},
+		{name: "since", args: []string{"--since", "2026-02-03"}, start: "2026-02-03"},
+		{name: "month to date", args: []string{"--mtd"}, start: "2026-08-01"},
+		{
+			name:  "python precedence",
+			args:  []string{"--year", "2025", "--since", "2026-02-03", "--mtd"},
+			start: "2026-08-01",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var got *domain.DateRange
+			command := newRootCommand(IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				Now:         func() time.Time { return now },
+				OpenProfile: testProfileOpener(t),
+				RunTUI: func(
+					_ context.Context,
+					_ tui.ShellDependencies,
+					options tui.Options,
+					_ IOStreams,
+				) error {
+					got = options.InitialDateRange
+					return nil
+				},
+			})
+			command.SetArgs(append([]string{"tui", "--demo"}, test.args...))
+
+			require.NoError(t, command.Execute())
+			require.NotNil(t, got)
+			assert.Equal(t, test.start, got.Start.String())
+			assert.Equal(t, "2026-08-18", got.End.String())
+		})
+	}
+}
+
+func TestTUIDateFilterValidationPrecedesProfileOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		args      []string
+		wantError string
+	}{
+		{name: "zero year", args: []string{"--year", "0"}, wantError: "year must be between 1 and 9999"},
+		{name: "large year", args: []string{"--year", "10000"}, wantError: "year must be between 1 and 9999"},
+		{name: "invalid since", args: []string{"--since", "08/01/2026"}, wantError: "YYYY-MM-DD"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var opens int
+			command := newRootCommand(IOStreams{
+				In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+				Now: func() time.Time {
+					return time.Date(2026, time.August, 18, 6, 30, 0, 0, time.Local)
+				},
+				OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+					opens++
+					return OpenedProfile{}, errors.New("must not open")
+				},
+			})
+			command.SetArgs(append([]string{"tui", "--demo"}, test.args...))
+
+			err := command.Execute()
+			require.ErrorContains(t, err, test.wantError)
+			assert.Zero(t, opens)
+		})
+	}
 }
 
 func TestRemovedAndMisScopedCommandsAreRejected(t *testing.T) {

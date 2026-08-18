@@ -93,33 +93,34 @@ func (owned *shellOwnedProfile) close() error {
 
 // Shell owns profile-neutral navigation around the existing finance model.
 type Shell struct {
-	ctx          context.Context
-	dependencies ShellDependencies
-	options      Options
-	palette      Palette
-	screen       shellScreen
-	entries      []profilecatalog.Entry
-	selector     profileSelectorState
-	providers    providerSelectorState
-	selected     *profilecatalog.Entry
-	name         profileNameState
-	recovery     profileRecoveryState
-	createdID    string
-	snapshot     onboarding.Snapshot
-	haveSnapshot bool
-	settings     settingsForm
-	unlock       unlockForm
-	credentials  credentialForm
-	canceling    bool
-	cancelQueued bool
-	requestID    uint64
-	resume       *financeResumeState
-	finance      *Model
-	opened       *shellOwnedProfile
-	width        int
-	height       int
-	status       string
-	err          error
+	ctx            context.Context
+	dependencies   ShellDependencies
+	options        Options
+	initialSession app.Session
+	palette        Palette
+	screen         shellScreen
+	entries        []profilecatalog.Entry
+	selector       profileSelectorState
+	providers      providerSelectorState
+	selected       *profilecatalog.Entry
+	name           profileNameState
+	recovery       profileRecoveryState
+	createdID      string
+	snapshot       onboarding.Snapshot
+	haveSnapshot   bool
+	settings       settingsForm
+	unlock         unlockForm
+	credentials    credentialForm
+	canceling      bool
+	cancelQueued   bool
+	requestID      uint64
+	resume         *financeResumeState
+	finance        *Model
+	opened         *shellOwnedProfile
+	width          int
+	height         int
+	status         string
+	err            error
 }
 
 type financeResumeState struct {
@@ -224,12 +225,21 @@ func NewShell(ctx context.Context, dependencies ShellDependencies, options Optio
 	if err != nil {
 		return Shell{}, err
 	}
+	initialSession := app.NewSession()
+	if err = initialSession.SetFilters(app.Filters{
+		DateRange:     options.InitialDateRange,
+		ShowHidden:    initialSession.ShowHidden,
+		ShowTransfers: initialSession.ShowTransfers,
+	}); err != nil {
+		return Shell{}, fmt.Errorf("new TUI shell: initial filters: %w", err)
+	}
 	shell := Shell{
 		ctx: ctx, dependencies: dependencies, options: options, palette: palette,
-		screen: shellSelector, width: minimumWidth, height: minimumHeight,
+		initialSession: initialSession,
+		screen:         shellSelector, width: minimumWidth, height: minimumHeight,
 	}
 	if dependencies.Preselected != nil {
-		if err = shell.enterFinance(*dependencies.Preselected, app.NewSession()); err != nil {
+		if err = shell.enterFinance(*dependencies.Preselected, shell.initialSession.Clone()); err != nil {
 			return Shell{}, err
 		}
 		return shell, nil
@@ -269,7 +279,7 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			shell.selector.status = shell.status
 			return shell, nil
 		}
-		session := app.NewSession()
+		session := shell.initialSession.Clone()
 		if message.resume != nil {
 			session = message.resume.session
 		}
@@ -421,7 +431,7 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			shell.err = message.err
 			return shell, nil
 		}
-		session := app.NewSession()
+		session := shell.initialSession.Clone()
 		if shell.resume != nil {
 			session = shell.resume.session
 		}

@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
 )
@@ -40,6 +42,8 @@ type IOStreams struct {
 	SignalContext SignalContext
 	// OpenAPIWriter overrides deterministic schema generation in command tests.
 	OpenAPIWriter openAPIWriter
+	// Now supplies command-boundary calendar time for initial date filters.
+	Now func() time.Time
 }
 
 func newRootCommand(streams IOStreams) *cobra.Command {
@@ -87,12 +91,25 @@ func newTUICommand(streams IOStreams) *cobra.Command {
 	var fixturePath string
 	var profile string
 	var demo bool
+	var year int
+	var since string
+	var monthToDate bool
 	command := &cobra.Command{
 		Use:   "tui",
 		Short: "Open the terminal application",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			options, err := previewOptions(theme)
+			if err != nil {
+				return fmt.Errorf("start TUI: %w", err)
+			}
+			now := streams.Now
+			if now == nil {
+				now = time.Now
+			}
+			options.InitialDateRange, err = initialTUIDateRange(
+				year, command.Flags().Changed("year"), since, monthToDate, now(),
+			)
 			if err != nil {
 				return fmt.Errorf("start TUI: %w", err)
 			}
@@ -126,12 +143,58 @@ func newTUICommand(streams IOStreams) *cobra.Command {
 	)
 	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
 	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
+	command.Flags().IntVar(
+		&year, "year", 0, "show transactions from January 1 of YYYY through today",
+	)
+	command.Flags().StringVar(
+		&since, "since", "", "show transactions from YYYY-MM-DD through today",
+	)
+	command.Flags().BoolVar(
+		&monthToDate, "mtd", false, "show month-to-date transactions",
+	)
 	command.MarkFlagsMutuallyExclusive("profile", "demo")
 	command.MarkFlagsMutuallyExclusive("profile", "fixture")
 	if err := command.Flags().MarkHidden("fixture"); err != nil {
 		panic(err)
 	}
 	return command
+}
+
+func initialTUIDateRange(
+	year int,
+	yearSet bool,
+	since string,
+	monthToDate bool,
+	now time.Time,
+) (*domain.DateRange, error) {
+	end, err := domain.NewDate(now.Year(), now.Month(), now.Day())
+	if err != nil {
+		return nil, fmt.Errorf("resolve date filter: %w", err)
+	}
+	var start domain.Date
+	switch {
+	case monthToDate:
+		start, err = domain.NewDate(now.Year(), now.Month(), 1)
+	case since != "":
+		start, err = domain.ParseDate(since)
+		if err != nil {
+			return nil, fmt.Errorf("--since must use YYYY-MM-DD: %w", err)
+		}
+	case yearSet:
+		if year < 1 || year > 9999 {
+			return nil, errors.New("year must be between 1 and 9999")
+		}
+		start, err = domain.NewDate(year, time.January, 1)
+	default:
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve date filter: %w", err)
+	}
+	if start.Compare(end) > 0 {
+		return nil, errors.New("date filter starts after today")
+	}
+	return &domain.DateRange{Start: start, End: end}, nil
 }
 
 func newOpenAPICommand(streams IOStreams) *cobra.Command {

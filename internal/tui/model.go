@@ -17,10 +17,11 @@ const (
 	minimumHeight = 24
 )
 
-// Options contains presentation choices resolved at the process boundary.
+// Options contains presentation and initial-view choices resolved at the process boundary.
 type Options struct {
-	Theme     ThemeName
-	ColorMode ColorMode
+	Theme            ThemeName
+	ColorMode        ColorMode
+	InitialDateRange *domain.DateRange
 	// Now supplies renderer-local scheduling time. The application owns durable refresh time.
 	Now func() time.Time
 }
