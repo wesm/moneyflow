@@ -2,7 +2,8 @@ package tui
 
 import (
 	"strings"
-	"unicode/utf8"
+
+	"github.com/rivo/uniseg"
 
 	"github.com/wesm/moneyflow/internal/onboarding"
 )
@@ -101,7 +102,7 @@ func (shell Shell) renderCredentialForm(frame *Frame, content Rect) {
 }
 
 func maskedValue(value string) string {
-	return strings.Repeat("•", utf8.RuneCountInString(value))
+	return strings.Repeat("•", uniseg.StringWidth(value))
 }
 
 func onboardingStateMessage(state onboarding.State) string {
@@ -156,11 +157,15 @@ func (shell Shell) renderProfileSelector(frame *Frame, content Rect) {
 	frame.PutText(content.X+2, content.Y+2, "Choose an account to load, or add a new one.", shell.palette.Muted)
 	frame.PutText(content.X+2, content.Y+3, "↑/↓ or j/k Navigate  Enter Select  a Add  d Demo  Esc/q Exit", shell.palette.Muted)
 	rows := shell.selector.rows()
+	rowCapacity := max(content.Height-8, 1)
+	start := 0
+	if shell.selector.cursor >= rowCapacity {
+		start = shell.selector.cursor - rowCapacity + 1
+	}
+	end := min(start+rowCapacity, len(rows))
 	y := content.Y + 5
-	for index, row := range rows {
-		if y >= content.Y+content.Height-3 {
-			break
-		}
+	for index := start; index < end; index++ {
+		row := rows[index]
 		marker := "  "
 		style := shell.palette.Text
 		if index == shell.selector.cursor {

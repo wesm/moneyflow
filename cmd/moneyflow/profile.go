@@ -81,7 +81,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	}
 	if entry.Key == profilecatalog.LegacyKey {
 		providerKind := entry.ProviderKind
-		if options.ProviderKind != "" && !exists {
+		if options.ProviderKind != "" && (!exists || entry.Status == profilecatalog.StatusSetupIncomplete) {
 			providerKind = options.ProviderKind
 		}
 		if providerKind == "" {

@@ -69,6 +69,28 @@ func TestOpenProfileFinalizesAndUsesExistingRootLevelProfile(t *testing.T) {
 	assert.Equal(t, "Moneyflow", manifest.DisplayName)
 }
 
+func TestOpenProfileFinalizesPristineLegacyProfileForRequestedProvider(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "profile")
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	require.NoError(t, sqlite.InstallPristineProfile(ctx, paths, sqlite.DefaultOptions))
+
+	opened, err := openProfile(ctx, ProfileOptions{
+		ExplicitHome: root, ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	manifest, err := profilecatalog.ReadManifest(filepath.Join(root, profilecatalog.ManifestFilename))
+	require.NoError(t, err)
+	assert.Equal(t, "monarch", manifest.ProviderKind)
+
+	reopened, err := openProfile(ctx, ProfileOptions{ExplicitHome: root})
+	require.NoError(t, err)
+	require.NoError(t, reopened.Close())
+}
+
 func TestOpenProfileUsesSolePersistentCatalogEntry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

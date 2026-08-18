@@ -41,3 +41,9 @@ func TestSecretInputMasksBracketedPaste(t *testing.T) {
 	assert.NotContains(t, input.View(), "pasted-secret")
 	assert.Equal(t, len("pasted-secret"), strings.Count(input.View(), "•"))
 }
+
+func TestMaskedValueUsesTerminalCellWidth(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "••", maskedValue("界"))
+	assert.Equal(t, "•", maskedValue("e\u0301"))
+}

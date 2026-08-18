@@ -84,6 +84,28 @@ func TestShellNameConflictStaysOnFormWithSafeMessage(t *testing.T) {
 	assert.Contains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "profile name")
 }
 
+func TestShellStartFailureRollsBackNewProfileAndReturnsToSelector(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	state.startErr = errors.New("synthetic start failure")
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell = updateShell(t, shell, keyMessage("a"))
+	shell = updateShell(t, shell, keyMessage("m"))
+	shell = updateShell(t, shell, keyMessage("P"))
+	updated, createCommand := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	updated, startCommand := shell.Update(createCommand())
+	shell = updated.(Shell)
+	require.NotNil(t, startCommand)
+	updated, cleanupCommand := shell.Update(startCommand())
+	shell = updated.(Shell)
+	require.NotNil(t, cleanupCommand)
+	shell = updateShell(t, shell, cleanupCommand())
+	assert.Equal(t, shellSelector, shell.screen)
+	assert.Equal(t, 1, state.cancelNewCalls)
+}
+
 func updateShell(t testing.TB, shell Shell, message tea.Msg) Shell {
 	t.Helper()
 	updated, _ := shell.Update(message)

@@ -96,9 +96,8 @@ web-install:
 web-generate:
 	bun run --cwd web generate
 
-web-check:
+web-check: web-embed
 	bun run --cwd web check
-	$(MAKE) web-build
 	$(MAKE) web-budgets
 
 web-audit:
@@ -110,7 +109,7 @@ web-test:
 web-budgets:
 	bun run --cwd web budgets
 
-web-e2e: web-build
+web-e2e: web-embed
 	bun run --cwd web test:e2e -- --project=chromium
 	bun run --cwd web test:e2e -- --project=firefox --grep @smoke
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke
@@ -119,7 +118,7 @@ test-editing-e2e: web-embed
 	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly)' -count=1
 	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
 
-test-provider-e2e: web-build
+test-provider-e2e: web-embed
 	bun run --cwd web test:e2e -- provider.spec.ts --project=chromium
 
 web-build:

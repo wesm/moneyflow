@@ -119,6 +119,9 @@ func validateInspectionSidecars(paths home.Paths) error {
 		return store.NewError(store.CodeStoreCorrupt, errors.New("profile WAL is invalid"))
 	}
 	shm, err := os.Lstat(paths.Database + "-shm")
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if err != nil || shm.Mode()&os.ModeSymlink != 0 || !shm.Mode().IsRegular() {
 		return store.NewError(store.CodeStoreCorrupt, errors.New("profile WAL has no valid shared-memory file"))
 	}

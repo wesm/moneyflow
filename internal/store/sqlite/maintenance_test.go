@@ -227,15 +227,24 @@ func openMaintenanceTestDatabase(t *testing.T, databasePath string) *sql.DB {
 	return database
 }
 
-func TestInspectProfileRejectsWALWithoutSharedMemorySidecar(t *testing.T) {
+func TestInspectProfileReconstructsMissingSharedMemorySidecar(t *testing.T) {
 	t.Parallel()
 	paths := temporaryPaths(t)
 	require.NoError(t, InstallPristineProfile(context.Background(), paths, DefaultOptions))
-	require.NoError(t, os.WriteFile(paths.Database+"-wal", []byte("wal"), 0o600))
-	_ = os.Remove(paths.Database + "-shm")
+	database := openMaintenanceTestDatabase(t, paths.Database)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	_, err := database.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA wal_autocheckpoint=0;
+		INSERT INTO accounts(id, label, collision_key, retired)
+		VALUES ('account_wal', 'WAL Account', 'wal account', 0);
+	`)
+	require.NoError(t, err)
+	require.FileExists(t, paths.Database+"-wal")
+	require.NoError(t, os.Remove(paths.Database+"-shm"))
 
-	_, err := InspectProfile(context.Background(), paths, DefaultOptions)
-	var failure *store.Error
-	require.ErrorAs(t, err, &failure)
-	assert.Equal(t, store.CodeStoreCorrupt, failure.Code)
+	inspection, err := InspectProfile(context.Background(), paths, DefaultOptions)
+	require.NoError(t, err)
+	assert.Equal(t, SchemaCurrent, inspection.Schema)
+	assert.False(t, inspection.Pristine)
 }

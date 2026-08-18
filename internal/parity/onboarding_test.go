@@ -1,6 +1,7 @@
 package parity
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,8 +42,8 @@ func TestOnboardingCommittedArtifactsAreEmbeddedAndStrict(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, document.Scenarios, 4)
 	for _, scenario := range document.Scenarios {
-		path := filepath.Join("onboarding_semantic_frames", scenario.Name+".json")
-		data, readErr := paritydata.Onboarding.ReadFile(path)
+		resourcePath := path.Join("onboarding_semantic_frames", scenario.Name+".json")
+		data, readErr := paritydata.Onboarding.ReadFile(resourcePath)
 		require.NoError(t, readErr)
 		frame, decodeErr := DecodeOnboardingSemanticFrame(strings.NewReader(string(data)))
 		require.NoError(t, decodeErr)

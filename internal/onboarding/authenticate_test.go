@@ -33,7 +33,7 @@ func TestAuthenticateGeneratesTOTPAndAnswersOneMFAChallenge(t *testing.T) {
 	assert.NotContains(t, mustJSON(t, final), "287082")
 }
 
-func TestAuthenticateSavesSessionBeforeNewCredentialVault(t *testing.T) {
+func TestAuthenticateSavesNewCredentialVaultBeforeSession(t *testing.T) {
 	order := []string{}
 	vault := &fakeCredentialVault{order: &order}
 	coordinator, started, _, sessions := newAuthenticationCoordinator(t, flowProfilePristine, vault)
@@ -43,7 +43,7 @@ func TestAuthenticateSavesSessionBeforeNewCredentialVault(t *testing.T) {
 	next, err := coordinator.Submit(context.Background(), credentialSubmitRequest(started))
 	require.NoError(t, err)
 	assert.Equal(t, StateImporting, waitForState(t, coordinator, next, StateImporting).State)
-	assert.Equal(t, []string{"session", "vault"}, order)
+	assert.Equal(t, []string{"vault", "session"}, order)
 }
 
 func TestAuthenticationFailureReturnsToCredentialEntryWithSanitizedFailure(t *testing.T) {
@@ -224,6 +224,9 @@ func TestCredentialPersistenceFailuresReturnToReentry(t *testing.T) {
 			require.NotNil(t, failed.Failure)
 			assert.True(t, failed.Failure.CanReenter)
 			assert.False(t, failed.Failure.CanRetry)
+			if test.vaultErr != nil {
+				assert.Zero(t, sessions.saveCalls)
+			}
 		})
 	}
 }

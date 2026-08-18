@@ -295,6 +295,11 @@ input {
   background: var(--bg-surface);
   overflow: auto;
 }
+
+/* Live projection updates must not restart the drawer entrance outside the viewport. */
+.kit-detail-drawer {
+  animation: none !important;
+}
 .visualization-rail > h2,
 .chart-partition h3 {
   margin: 0 0 var(--space-4);
@@ -378,7 +383,8 @@ input {
 }
 @media (max-width: 640px) {
   .app-shell__main {
-    display: block;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
   .detail-summary {
     grid-template-columns: 1fr;

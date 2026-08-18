@@ -105,3 +105,53 @@ func TestLegacyLocalProfileOpensByCatalogKey(t *testing.T) {
 	assert.Equal(t, shellFinance, shell.screen)
 	assert.Equal(t, profilecatalog.LegacyKey, state.openedSelector)
 }
+
+func TestShellIgnoresRecoveryPlanAfterSelectingAnotherProfile(t *testing.T) {
+	t.Parallel()
+	dependencies, _ := fakeShellDependencies(t)
+	entries := []profilecatalog.Entry{
+		{Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "A", ProviderKind: "monarch", Status: profilecatalog.StatusNeedsRecovery},
+		{Key: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb", ID: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb", DisplayName: "B", ProviderKind: "monarch", Status: profilecatalog.StatusNeedsRecovery},
+	}
+	dependencies.Catalog = fakeCatalogView{entries: entries}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+
+	updated, planA := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	shell = updateShell(t, shell, keyMessage("esc"))
+	shell = updateShell(t, shell, keyMessage("down"))
+	updated, planB := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	require.NotNil(t, planA)
+	require.NotNil(t, planB)
+	shell = updateShell(t, shell, planA())
+	assert.Nil(t, shell.recovery.plan)
+	shell = updateShell(t, shell, planB())
+	require.NotNil(t, shell.recovery.plan)
+	assert.Equal(t, entries[1].ID, shell.recovery.plan.ProfileID)
+}
+
+func TestShellIgnoresRecreateResultAfterLeavingRecovery(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	entry := profilecatalog.Entry{
+		Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		DisplayName: "A", ProviderKind: "monarch", Status: profilecatalog.StatusNeedsRecovery,
+	}
+	dependencies.Catalog = fakeCatalogView{entries: []profilecatalog.Entry{entry}}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	updated, planCommand := shell.Update(keyMessage("enter"))
+	shell = updateShell(t, updated.(Shell), planCommand())
+	shell = updateShell(t, shell, keyMessage("enter"))
+	updated, recreateCommand := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	require.NotNil(t, recreateCommand)
+	shell = updateShell(t, shell, keyMessage("esc"))
+	assert.Equal(t, shellSelector, shell.screen)
+
+	shell = updateShell(t, shell, recreateCommand())
+	assert.Equal(t, shellSelector, shell.screen)
+	assert.Zero(t, state.onboardingStarts)
+}

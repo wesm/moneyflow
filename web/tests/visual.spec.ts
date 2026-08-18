@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 import { expect, openMoneyflow, test } from './fixtures'
 
@@ -65,6 +65,43 @@ async function expectLayoutContract(
   expect(metrics.mainBottom).toBeLessThanOrEqual(viewport.height + 1)
 }
 
+async function expectThemeContract(page: Page, theme: (typeof themes)[number]): Promise<void> {
+  const state = await page.locator('html').evaluate((element) => {
+    const body = getComputedStyle(document.body)
+    const match = body.backgroundColor.match(/\d+(?:\.\d+)?/g)
+    return {
+      dark: element.classList.contains('dark'),
+      backgroundChannels: (match ?? []).slice(0, 3).map(Number),
+    }
+  })
+  expect(state.dark).toBe(theme === 'dark')
+  expect(state.backgroundChannels).toHaveLength(3)
+  const brightness = state.backgroundChannels.reduce((sum, channel) => sum + channel, 0)
+  if (theme === 'dark') {
+    expect(brightness).toBeLessThan(384)
+  } else {
+    expect(brightness).toBeGreaterThan(384)
+  }
+}
+
+async function expectFullyWithinViewport(
+  locator: Locator,
+  viewport: (typeof viewports)[number],
+): Promise<void> {
+  await expect
+    .poll(async () => {
+      const box = await locator.boundingBox()
+      return (
+        box !== null &&
+        box.x >= 0 &&
+        box.y >= 0 &&
+        box.x + box.width <= viewport.width + 1 &&
+        box.y + box.height <= viewport.height + 1
+      )
+    })
+    .toBe(true)
+}
+
 for (const viewport of viewports) {
   for (const theme of themes) {
     for (const state of states) {
@@ -74,10 +111,14 @@ for (const viewport of viewports) {
         await openMoneyflow(page, server)
         await prepareState(page, state)
         await expectLayoutContract(page, viewport)
+        await expectThemeContract(page, theme)
         if (state === 'filters' || state === 'help') {
-          await expect(page.getByRole('dialog')).toBeInViewport()
+          await expectFullyWithinViewport(page.getByRole('dialog'), viewport)
         } else {
-          await expect(page.getByRole('grid', { name: 'Financial results' })).toBeInViewport()
+          await expectFullyWithinViewport(
+            page.getByRole('grid', { name: 'Financial results' }),
+            viewport,
+          )
         }
       })
     }
@@ -92,6 +133,10 @@ for (const theme of themes) {
     await page.getByRole('switch', { name: 'Charts' }).check()
     await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
     await expectLayoutContract(page, viewports[2])
-    await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeInViewport()
+    await expectThemeContract(page, theme)
+    await expectFullyWithinViewport(
+      page.getByRole('dialog', { name: 'Moneyflow visualizations' }),
+      viewports[2],
+    )
   })
 }

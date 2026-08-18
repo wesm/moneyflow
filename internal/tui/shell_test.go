@@ -98,6 +98,8 @@ type fakeShellState struct {
 	onboardingOpened   onboarding.OpenedProfile
 	lastSubmit         onboarding.SubmitRequest
 	lastCancel         onboarding.CancelRequest
+	startErr           error
+	cancelStaleOnce    bool
 }
 
 type fakeCatalogView struct {
@@ -132,6 +134,9 @@ func (state *fakeShellState) Start(
 	request onboarding.StartRequest,
 ) (onboarding.Snapshot, error) {
 	state.onboardingStarts++
+	if state.startErr != nil {
+		return onboarding.Snapshot{}, state.startErr
+	}
 	snapshot := state.onboardingSnapshot
 	if snapshot.ProtocolVersion == 0 {
 		snapshot = formSnapshot(onboarding.StateSettingsRequired)
@@ -201,6 +206,10 @@ func (state *fakeShellState) Cancel(
 	request onboarding.CancelRequest,
 ) (onboarding.Snapshot, error) {
 	state.lastCancel = request
+	if state.cancelStaleOnce {
+		state.cancelStaleOnce = false
+		return onboarding.Snapshot{}, onboarding.ErrorForCode(onboarding.CodeOnboardingStale)
+	}
 	state.onboardingSnapshot = onboarding.Snapshot{
 		ProtocolVersion: onboarding.ProtocolVersion,
 		ProfileID:       request.ProfileID, AttemptID: request.AttemptID,
@@ -208,6 +217,93 @@ func (state *fakeShellState) Cancel(
 		ProviderKind: "monarch",
 	}
 	return state.onboardingSnapshot, nil
+}
+
+func TestShellRejectsOpenedProfileAfterLeavingSelection(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	entry := profileEntryForOnboarding()
+	entry.Status = profilecatalog.StatusReady
+	dependencies.Catalog = fakeCatalogView{entries: []profilecatalog.Entry{entry}}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+
+	updated, openCommand := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	require.NotNil(t, openCommand)
+	shell = updateShell(t, shell, keyMessage("a"))
+	assert.Equal(t, shellProvider, shell.screen)
+
+	shell = updateShell(t, shell, openCommand())
+	assert.Equal(t, shellProvider, shell.screen)
+	assert.Nil(t, shell.finance)
+	assert.Equal(t, 1, state.closes)
+}
+
+func TestShellRetriesCancellationAfterStateVersionRace(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	state.cancelStaleOnce = true
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.screen = shellOnboarding
+	shell.haveSnapshot = true
+	shell.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "attempt-race", StateVersion: 5,
+		State: onboarding.StateImporting, ProviderKind: "monarch",
+	}
+	state.onboardingSnapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "attempt-race", StateVersion: 6,
+		State: onboarding.StateImporting, ProviderKind: "monarch",
+	}
+
+	updated, cancelCommand := shell.Update(keyMessage("esc"))
+	shell = updated.(Shell)
+	require.NotNil(t, cancelCommand)
+	updated, statusCommand := shell.Update(cancelCommand())
+	shell = updated.(Shell)
+	require.NotNil(t, statusCommand)
+	assert.False(t, shell.canceling)
+	assert.Equal(t, uint64(5), shell.snapshot.StateVersion)
+
+	updated, retryCommand := shell.Update(statusCommand())
+	shell = updated.(Shell)
+	require.NotNil(t, retryCommand)
+	assert.True(t, shell.canceling)
+	assert.Equal(t, uint64(6), shell.snapshot.StateVersion)
+	shell = updateShell(t, shell, retryCommand())
+	assert.Equal(t, shellSelector, shell.screen)
+	assert.Equal(t, uint64(6), state.lastCancel.ExpectedStateVersion)
+}
+
+func TestShellClosesCompletedProfileReturnedAfterCancellation(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.screen = shellOnboarding
+	shell.haveSnapshot = true
+	shell.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "attempt-complete", StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}
+	opened := fakeShellOpenedProfile(t, state)
+	state.onboardingOpened = onboarding.OpenedProfile{
+		ID: opened.ID, Service: opened.Service, Close: opened.Close,
+	}
+	_, takeCommand := shell.nextOnboardingStep()
+	require.NotNil(t, takeCommand)
+
+	updated, cancelCommand := shell.Update(keyMessage("esc"))
+	shell = updated.(Shell)
+	require.NotNil(t, cancelCommand)
+	shell = updateShell(t, shell, takeCommand())
+	assert.Equal(t, shellOnboarding, shell.screen)
+	assert.Nil(t, shell.finance)
+	assert.Equal(t, 1, state.closes)
 }
 
 func (state *fakeShellState) TakeOpenedProfile(

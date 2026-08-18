@@ -245,6 +245,7 @@
     <DetailDrawer
       title="Visualizations"
       ariaLabel="Moneyflow visualizations"
+      width="min(560px, calc(100vw - 1px))"
       onclose={() => setChartDrawer(false)}
     >
       <VisualizationRail

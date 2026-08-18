@@ -21,7 +21,11 @@ func RunShell(
 ) error {
 	shell, err := NewShell(ctx, dependencies, options)
 	if err != nil {
-		return fmt.Errorf("run TUI shell: %w", err)
+		var closeErr error
+		if dependencies.Preselected != nil && dependencies.Preselected.Close != nil {
+			closeErr = dependencies.Preselected.Close()
+		}
+		return fmt.Errorf("run TUI shell: %w", errors.Join(err, closeErr))
 	}
 	final, runErr := tea.NewProgram(
 		shell, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output),

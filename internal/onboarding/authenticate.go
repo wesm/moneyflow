@@ -100,12 +100,6 @@ func (coordinator *Coordinator) runAuthentication(
 		})
 		return
 	}
-	if err = runtime.Sessions.Save(session); err != nil {
-		coordinator.authenticationFailure(
-			attemptID, genericFailureCode, "The Monarch session could not be saved.", true,
-		)
-		return
-	}
 	if accountPassword != nil {
 		if err = runtime.Credentials.Save(credentials, accountPassword); err != nil {
 			coordinator.authenticationFailure(
@@ -113,6 +107,12 @@ func (coordinator *Coordinator) runAuthentication(
 			)
 			return
 		}
+	}
+	if err = runtime.Sessions.Save(session); err != nil {
+		coordinator.authenticationFailure(
+			attemptID, genericFailureCode, "The Monarch session could not be saved.", true,
+		)
+		return
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
 	coordinator.startImport(attemptID)

@@ -2,6 +2,8 @@ package tui
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -79,6 +81,27 @@ func TestShellSelectorRendersAtMinimumSizeAndDoesNotOpenProfiles(t *testing.T) {
 	assert.Contains(t, view, "Demo")
 	assert.Contains(t, view, "Add profile")
 	assert.Zero(t, state.opens)
+}
+
+func TestProfileSelectorKeepsFocusedRowVisible(t *testing.T) {
+	t.Parallel()
+	entries := make([]profilecatalog.Entry, 30)
+	for index := range entries {
+		entries[index] = profilecatalog.Entry{
+			ID:           "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+			DisplayName:  fmt.Sprintf("Profile %02d", index),
+			ProviderKind: "local", Status: profilecatalog.StatusLocalOnly,
+		}
+	}
+	dependencies, _ := fakeShellDependencies(t)
+	dependencies.Catalog = fakeCatalogView{entries: entries}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.width, shell.height = 80, 24
+	shell.selector.cursor = 29
+
+	rendered := strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "› Profile 29")
 }
 
 func pressProfileSelector(selector profileSelectorState, key string) profileSelection {
