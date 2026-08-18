@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -350,10 +351,10 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 		context.Background(), ProfileOptions{ExplicitHome: root}, IOStreams{},
 	)
 	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, dependencies.Close(context.Background())) })
 	require.NotNil(t, dependencies.Catalog)
 	require.NotNil(t, dependencies.Onboarding)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	address := make(chan string, 1)
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
@@ -369,6 +370,19 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 		},
 	}
 	result := make(chan error, 1)
+	var stopOnce sync.Once
+	stopServer := func() {
+		stopOnce.Do(func() {
+			cancel()
+			select {
+			case err := <-result:
+				assert.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Error("web server did not shut down after cancellation")
+			}
+		})
+	}
+	t.Cleanup(stopServer)
 	go func() {
 		result <- runWeb(ctx, dependencies, WebOptions{
 			Listen: "127.0.0.1:8080", BasePath: "/moneyflow/",
@@ -441,13 +455,7 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 	require.NoError(t, rejected.Body.Close())
 	assert.Equal(t, string(api.CodeInvalidOrigin), problem.Code)
 
-	cancel()
-	select {
-	case err = <-result:
-		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("web server did not shut down after cancellation")
-	}
+	stopServer()
 	require.NoError(t, dependencies.Close(context.Background()))
 }
 
