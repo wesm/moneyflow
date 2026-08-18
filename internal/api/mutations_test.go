@@ -247,7 +247,7 @@ func TestMutationSecurityRejectsExpiredTokenBeforeProfileEvaluation(t *testing.T
 	clock := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
 	server := newPersistentAPITestServerWithClock(t, func() time.Time { return clock })
 	initial := projectPersistentView(t, server)
-	issued, err := server.security.Issue()
+	issued, err := server.security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 	clock = clock.Add(time.Hour)
 	body := MutationBody{
@@ -281,7 +281,7 @@ func TestMutationRequestBodyLimitPreventsProfileEvaluation(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", server.security.origin.Origin())
 	request.Header.Set("Sec-Fetch-Site", "same-origin")
-	issued, err := server.security.Issue()
+	issued, err := server.security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 	request.Header.Set(MutationTokenHeader, issued.Value)
 	response := httptest.NewRecorder()
@@ -452,7 +452,7 @@ func requestProtectedJSON(
 	body any,
 ) *httptest.ResponseRecorder {
 	t.Helper()
-	issued, err := server.security.Issue()
+	issued, err := server.security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 	return requestSignedJSON(t, server, path, body, issued.Value)
 }

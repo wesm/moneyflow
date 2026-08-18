@@ -20,8 +20,9 @@ func newBootstrap(
 	origin OriginConfig,
 	revision uint64,
 	security *MutationSecurity,
+	scope string,
 ) (Bootstrap, error) {
-	issued, err := security.Issue()
+	issued, err := security.Issue(scope)
 	if err != nil {
 		return Bootstrap{}, err
 	}

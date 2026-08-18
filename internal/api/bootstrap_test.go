@@ -35,7 +35,49 @@ func TestBootstrapReturnsFreshNoStoreTokenAndStringRevision(t *testing.T) {
 	assert.Equal(t, "/moneyflow/", body.BasePath)
 	assert.Equal(t, "https://moneyflow.example/moneyflow/", body.CanonicalURL)
 	assert.Equal(t, now.Add(time.Hour).Format(time.RFC3339), body.TokenExpiresAt)
-	require.NoError(t, security.Verify(body.MutationToken))
+	require.NoError(t, security.Verify(body.MutationToken, CatalogMutationScope))
+}
+
+func TestProfileBootstrapIssuesOnlyTheRequestedProfileScope(t *testing.T) {
+	t.Parallel()
+	origin := mustOriginConfig(t, "https://moneyflow.example/moneyflow")
+	security, err := NewMutationSecurity(
+		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)),
+		func() time.Time { return time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC) },
+	)
+	require.NoError(t, err)
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server := newTestServerWithConfig(t, Config{
+		Service: service, BasePath: origin.BasePath, Version: "test",
+		Origin: origin, Security: security,
+	})
+	path, err := ProfileAPIPath(origin.BasePath, testProfileID, "bootstrap")
+	require.NoError(t, err)
+	response := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var body Bootstrap
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.NoError(t, security.Verify(body.MutationToken, testProfileID))
+	assert.ErrorIs(
+		t, security.Verify(body.MutationToken, otherProfileID), ErrInvalidMutationToken,
+	)
+	assert.ErrorIs(
+		t, security.Verify(body.MutationToken, CatalogMutationScope), ErrInvalidMutationToken,
+	)
+}
+
+func TestProfileBootstrapRejectsEncodedAndInvalidProfileRoutes(t *testing.T) {
+	t.Parallel()
+	server := newTestServer(t, "/moneyflow/")
+	for _, path := range []string{
+		"/moneyflow/api/v1/profiles/legacy/bootstrap",
+		"/moneyflow/api/v1/profiles/" + testProfileID + "%2fother/bootstrap",
+		"/moneyflow/api/v1/profiles/" + testProfileID + "/../bootstrap",
+	} {
+		response := requestServer(t, server, http.MethodGet, path, nil)
+		assert.Equal(t, http.StatusNotFound, response.Code, path)
+	}
 }
 
 func newTestServerWithConfig(t testing.TB, config Config) *Server {

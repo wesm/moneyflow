@@ -56,21 +56,21 @@ func TestMutationTokenRoundTripAndBinding(t *testing.T) {
 	origin := mustOriginConfig(t, "https://moneyflow.example/moneyflow")
 	security, err := NewMutationSecurity(origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return now })
 	require.NoError(t, err)
-	issued, err := security.Issue()
+	issued, err := security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 	assert.NotContains(t, issued.Value, "moneyflow.example")
 	assert.Equal(t, now.Add(time.Hour), issued.ExpiresAt)
-	require.NoError(t, security.Verify(issued.Value))
+	require.NoError(t, security.Verify(issued.Value, CatalogMutationScope))
 
 	otherOrigin := mustOriginConfig(t, "https://other.example/moneyflow")
 	other, err := NewMutationSecurity(otherOrigin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return now })
 	require.NoError(t, err)
-	assert.ErrorIs(t, other.Verify(issued.Value), ErrInvalidMutationToken)
+	assert.ErrorIs(t, other.Verify(issued.Value, CatalogMutationScope), ErrInvalidMutationToken)
 
 	otherPath := mustOriginConfig(t, "https://moneyflow.example/other")
 	other, err = NewMutationSecurity(otherPath, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return now })
 	require.NoError(t, err)
-	assert.ErrorIs(t, other.Verify(issued.Value), ErrInvalidMutationToken)
+	assert.ErrorIs(t, other.Verify(issued.Value, CatalogMutationScope), ErrInvalidMutationToken)
 
 	encoded, _, ok := strings.Cut(issued.Value, ".")
 	require.True(t, ok)
@@ -83,11 +83,27 @@ func TestMutationTokenRoundTripAndBinding(t *testing.T) {
 	require.NoError(t, err)
 	encoded = base64.RawURLEncoding.EncodeToString(payload)
 	wrongVersion := encoded + "." + base64.RawURLEncoding.EncodeToString(security.sign(encoded))
-	assert.ErrorIs(t, security.Verify(wrongVersion), ErrInvalidMutationToken)
+	assert.ErrorIs(t, security.Verify(wrongVersion, CatalogMutationScope), ErrInvalidMutationToken)
 
 	otherInstance, err := NewMutationSecurity(origin, bytes.NewReader(bytes.Repeat([]byte{0x24}, 32)), func() time.Time { return now })
 	require.NoError(t, err)
-	assert.ErrorIs(t, otherInstance.Verify(issued.Value), ErrTokenExpired)
+	assert.ErrorIs(t, otherInstance.Verify(issued.Value, CatalogMutationScope), ErrTokenExpired)
+}
+
+func TestMutationTokenCannotCrossProfilesOrCatalogScope(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	security, err := NewMutationSecurity(
+		mustOriginConfig(t, "https://moneyflow.example/moneyflow"),
+		bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return now },
+	)
+	require.NoError(t, err)
+
+	issued, err := security.Issue(testProfileID)
+	require.NoError(t, err)
+	require.NoError(t, security.Verify(issued.Value, testProfileID))
+	assert.ErrorIs(t, security.Verify(issued.Value, otherProfileID), ErrInvalidMutationToken)
+	assert.ErrorIs(t, security.Verify(issued.Value, CatalogMutationScope), ErrInvalidMutationToken)
 }
 
 func TestMutationTokenRejectsExpiryClockSkewAndMalformedValues(t *testing.T) {
@@ -99,19 +115,19 @@ func TestMutationTokenRejectsExpiryClockSkewAndMalformedValues(t *testing.T) {
 		bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return clock },
 	)
 	require.NoError(t, err)
-	issued, err := security.Issue()
+	issued, err := security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 
 	clock = now.Add(time.Hour)
-	err = security.Verify(issued.Value)
+	err = security.Verify(issued.Value, CatalogMutationScope)
 	assert.ErrorIs(t, err, ErrTokenExpired)
 	clock = now.Add(time.Hour + time.Nanosecond)
-	assert.ErrorIs(t, security.Verify(issued.Value), ErrTokenExpired)
+	assert.ErrorIs(t, security.Verify(issued.Value, CatalogMutationScope), ErrTokenExpired)
 	clock = now.Add(-5*time.Minute - time.Nanosecond)
-	assert.Error(t, security.Verify(issued.Value))
+	assert.Error(t, security.Verify(issued.Value, CatalogMutationScope))
 
 	for _, token := range []string{"", "missing-dot", ".", "bad.bad", strings.Repeat("x", MaxMutationTokenBytes+1)} {
-		assert.Error(t, security.Verify(token), token[:min(len(token), 20)])
+		assert.Error(t, security.Verify(token, CatalogMutationScope), token[:min(len(token), 20)])
 	}
 }
 
@@ -121,10 +137,10 @@ func TestMutationSecurityMiddlewareRejectsBeforeEvaluation(t *testing.T) {
 	origin := mustOriginConfig(t, "https://moneyflow.example/moneyflow")
 	security, err := NewMutationSecurity(origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), func() time.Time { return now })
 	require.NoError(t, err)
-	issued, err := security.Issue()
+	issued, err := security.Issue(CatalogMutationScope)
 	require.NoError(t, err)
 	evaluated := 0
-	handler := security.Protect(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+	handler := security.Protect(CatalogMutationScope, http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		evaluated++
 		response.WriteHeader(http.StatusNoContent)
 	}))

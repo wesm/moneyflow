@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 const (
@@ -154,6 +156,7 @@ type mutationTokenClaims struct {
 	Instance string `json:"i"`
 	Origin   string `json:"o"`
 	BasePath string `json:"p"`
+	Scope    string `json:"s"`
 	IssuedAt int64  `json:"iat"`
 	Expires  int64  `json:"exp"`
 }
@@ -194,13 +197,17 @@ func NewMutationSecurity(
 	return security, nil
 }
 
-// Issue creates one signed token with a fixed one-hour lifetime.
-func (security *MutationSecurity) Issue() (IssuedMutationToken, error) {
+// Issue creates one exactly scoped signed token with a fixed one-hour lifetime.
+func (security *MutationSecurity) Issue(scope string) (IssuedMutationToken, error) {
+	if !validMutationScope(scope) {
+		return IssuedMutationToken{}, errors.New("issue mutation token: scope is invalid")
+	}
 	issuedAt := security.now().UTC().Truncate(time.Second)
 	expiresAt := issuedAt.Add(mutationTokenLifetime)
 	claims := mutationTokenClaims{
 		Version: mutationTokenVersion, Instance: security.instance, Origin: security.origin.Origin(),
-		BasePath: security.origin.BasePath, IssuedAt: issuedAt.Unix(), Expires: expiresAt.Unix(),
+		BasePath: security.origin.BasePath, Scope: scope,
+		IssuedAt: issuedAt.Unix(), Expires: expiresAt.Unix(),
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -215,8 +222,11 @@ func (security *MutationSecurity) Issue() (IssuedMutationToken, error) {
 	return IssuedMutationToken{Value: value, ExpiresAt: expiresAt}, nil
 }
 
-// Verify checks signature, binding, lifetime, and the bounded future-clock allowance.
-func (security *MutationSecurity) Verify(value string) error {
+// Verify checks signature, exact scope, binding, lifetime, and future-clock allowance.
+func (security *MutationSecurity) Verify(value string, scope string) error {
+	if !validMutationScope(scope) {
+		return ErrInvalidMutationToken
+	}
 	if value == "" || len(value) > MaxMutationTokenBytes || strings.Count(value, ".") != 1 {
 		return ErrInvalidMutationToken
 	}
@@ -239,7 +249,8 @@ func (security *MutationSecurity) Verify(value string) error {
 		return ErrInvalidMutationToken
 	}
 	if claims.Version != mutationTokenVersion || claims.Origin != security.origin.Origin() ||
-		claims.BasePath != security.origin.BasePath || claims.Expires-claims.IssuedAt != int64(mutationTokenLifetime/time.Second) {
+		claims.BasePath != security.origin.BasePath || claims.Scope != scope ||
+		claims.Expires-claims.IssuedAt != int64(mutationTokenLifetime/time.Second) {
 		return ErrInvalidMutationToken
 	}
 	now := security.now().UTC()
@@ -254,6 +265,10 @@ func (security *MutationSecurity) Verify(value string) error {
 	return nil
 }
 
+func validMutationScope(scope string) bool {
+	return scope == CatalogMutationScope || profilecatalog.ValidProfileID(scope)
+}
+
 func (security *MutationSecurity) sign(encoded string) []byte {
 	digest := hmac.New(sha256.New, security.secret[:])
 	_, _ = digest.Write([]byte(encoded))
@@ -261,7 +276,7 @@ func (security *MutationSecurity) sign(encoded string) []byte {
 }
 
 // Protect enforces browser mutation preconditions before calling the application handler.
-func (security *MutationSecurity) Protect(next http.Handler) http.Handler {
+func (security *MutationSecurity) Protect(scope string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Origin") != security.origin.Origin() ||
 			request.Header.Get("Sec-Fetch-Site") != "same-origin" {
@@ -271,7 +286,7 @@ func (security *MutationSecurity) Protect(next http.Handler) http.Handler {
 			))
 			return
 		}
-		if err := security.Verify(request.Header.Get(MutationTokenHeader)); err != nil {
+		if err := security.Verify(request.Header.Get(MutationTokenHeader), scope); err != nil {
 			code := CodeInvalidToken
 			detail := "The mutation token is invalid."
 			if errors.Is(err, ErrTokenExpired) {

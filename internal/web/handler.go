@@ -110,7 +110,7 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 }
 
 func (handler *handler) serveIndex(response http.ResponseWriter, request *http.Request) {
-	issued, err := handler.security.Issue()
+	issued, err := handler.security.Issue(api.CatalogMutationScope)
 	if err != nil {
 		writeStatus(response, request, http.StatusInternalServerError)
 		return

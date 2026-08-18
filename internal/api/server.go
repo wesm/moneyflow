@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -66,6 +67,10 @@ type bootstrapOutput struct {
 	Body Bootstrap
 }
 
+type profileBootstrapInput struct {
+	ProfileID string `path:"profile_id"`
+}
+
 // New builds the API without binding a listener or retaining request state.
 func New(config Config) (*Server, error) {
 	if config.Service == nil {
@@ -114,11 +119,28 @@ func New(config Config) (*Server, error) {
 	var handler http.Handler = mux
 	handler = requestBodyLimit(handler)
 	handler = persistentMutationSecurity(handler, basePath, config.Security)
+	handler = strictProfileAPIPaths(handler, basePath)
 	handler = safeProblemResponses(handler)
 	handler = recoverAPI(handler)
 	handler = noStore(handler)
 	server.handler = handler
 	return server, nil
+}
+
+func strictProfileAPIPaths(next http.Handler, basePath string) http.Handler {
+	prefix := basePath + "api/v1/profiles/"
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		escapedPath := request.URL.EscapedPath()
+		if strings.HasPrefix(escapedPath, prefix) {
+			if _, _, err := ParseProfileAPIPath(basePath, escapedPath); err != nil {
+				writeProblem(response, newProblem(
+					http.StatusNotFound, "not_found", "The requested profile route was not found.",
+				))
+				return
+			}
+		}
+		next.ServeHTTP(response, request)
+	})
 }
 
 func persistentMutationSecurity(
@@ -137,7 +159,7 @@ func persistentMutationSecurity(
 		basePath + "api/v1/provider/refresh":         {},
 		basePath + "api/v1/provider/refresh/confirm": {},
 	}
-	guarded := security.Protect(next)
+	guarded := security.Protect(CatalogMutationScope, next)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		_, requiresProtection := protected[request.URL.Path]
 		if request.Method == http.MethodPost && requiresProtection {
@@ -181,6 +203,7 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 	viewPath := server.basePath + "api/v1/view"
 	transitionPath := server.basePath + "api/v1/view/transition"
 	bootstrapPath := server.basePath + "api/v1/bootstrap"
+	profileBootstrapPath := server.basePath + "api/v1/profiles/{profile_id}/bootstrap"
 
 	huma.Register(server.api, huma.Operation{
 		OperationID: "bootstrap", Method: http.MethodGet, Path: bootstrapPath,
@@ -191,8 +214,37 @@ func (server *Server) register(config Config, mux *http.ServeMux) {
 		}
 		body, err := newBootstrap(
 			config.Version, config.Origin, config.Service.Revision(), config.Security,
+			CatalogMutationScope,
 		)
 		if err != nil {
+			return nil, newProblem(
+				http.StatusInternalServerError, "internal_error",
+				"The bootstrap configuration could not be issued.",
+			)
+		}
+		return &bootstrapOutput{Body: body}, nil
+	})
+
+	huma.Register(server.api, huma.Operation{
+		OperationID: "profileBootstrap", Method: http.MethodGet, Path: profileBootstrapPath,
+		Summary: "Issue profile-scoped browser mutation configuration", Errors: []int{404, 500},
+	}, func(ctx context.Context, input *profileBootstrapInput) (*bootstrapOutput, error) {
+		if _, _, parseErr := ParseProfileAPIPath(
+			server.basePath,
+			server.basePath+"api/v1/profiles/"+input.ProfileID+"/bootstrap",
+		); parseErr != nil {
+			return nil, newProblem(
+				http.StatusNotFound, "not_found", "The requested profile route was not found.",
+			)
+		}
+		if _, refreshErr := config.Service.Refresh(ctx); refreshErr != nil {
+			return nil, problemFromError(refreshErr)
+		}
+		body, bootstrapErr := newBootstrap(
+			config.Version, config.Origin, config.Service.Revision(), config.Security,
+			input.ProfileID,
+		)
+		if bootstrapErr != nil {
 			return nil, newProblem(
 				http.StatusInternalServerError, "internal_error",
 				"The bootstrap configuration could not be issued.",

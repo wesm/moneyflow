@@ -91,7 +91,7 @@ func TestComposedServerSharesCanonicalMutationSecurityWithHTMLAndAPI(t *testing.
 	assert.Contains(t, response.Body.String(), "This listener is read-only")
 	match := mutationTokenMetaPattern.FindStringSubmatch(response.Body.String())
 	require.Len(t, match, 2)
-	require.NoError(t, security.Verify(match[1]))
+	require.NoError(t, security.Verify(match[1], api.CatalogMutationScope))
 
 	bootstrap := httptest.NewRequest(
 		http.MethodGet, "/moneyflow/api/v1/bootstrap", http.NoBody,
