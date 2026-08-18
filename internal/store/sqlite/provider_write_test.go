@@ -349,6 +349,93 @@ func TestFinalizeProviderWriteRejectsPlannerThatDropsTransaction(t *testing.T) {
 	assertStoreInvalidReason(t, err, store.InvalidOperationProviderWritePlan)
 }
 
+func TestFinalizeProviderWriteRejectsPlannerIdentityAndMetadataDrift(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*store.FinalizeProviderWritePlan)
+	}{
+		{
+			name: "external identity",
+			mutate: func(plan *store.FinalizeProviderWritePlan) {
+				plan.Effective.ExternalIdentities = append(plan.Effective.ExternalIdentities,
+					domain.ExternalIdentity{
+						EntityType: domain.EntityKindMerchant, EntityID: plan.Effective.Merchants[0].ID,
+						Namespace: "monarch/merchant", ExternalID: "unexpected-identity",
+					})
+			},
+		},
+		{
+			name: "label allocation",
+			mutate: func(plan *store.FinalizeProviderWritePlan) {
+				plan.Allocations = append(plan.Allocations, store.LabelAllocation{
+					Kind: domain.EntityKindMerchant, Namespace: "monarch/merchant",
+					ExternalID: "unexpected-allocation", BaseCollisionKey: "unexpected",
+					DisplayLabel: "Example Merchant", ProviderLabel: "Example Merchant",
+				})
+			},
+		},
+		{
+			name: "identity lineage",
+			mutate: func(plan *store.FinalizeProviderWritePlan) {
+				plan.Lineage = append(plan.Lineage, store.ProviderIdentityLineage{
+					Kind: domain.EntityKindMerchant, Namespace: "monarch/merchant",
+					ExternalID: "unexpected-lineage", PriorLocalID: plan.Effective.Merchants[0].ID,
+					CurrentLocalID: plan.Effective.Merchants[0].ID,
+					ProviderLabel:  "Example Merchant", Disposition: "alias", BatchVersion: 2,
+				})
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile, prepared, now := preparedWriteProfile(t)
+			batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+				BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+				LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+				ItemID: "item-a", Result: store.WriteResult{
+					ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+				}, ObservedAt: now,
+			})
+			require.NoError(t, err)
+
+			_, err = profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
+				BatchID: batch.ID, ExpectedVersion: batch.Version,
+				ExpectedRevision: prepared.Revision, ExpectedGeneration: 0,
+				LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+				ObservedAt: now,
+			}, func(inputs store.FinalizeProviderWriteInputs) (store.FinalizeProviderWritePlan, error) {
+				replayed, replayErr := profilereplay.Replay(inputs.Snapshot)
+				if replayErr != nil {
+					return store.FinalizeProviderWritePlan{}, replayErr
+				}
+				known, replayErr := profilereplay.KnownDrillsForFold(
+					inputs.Snapshot.KnownDrills, replayed.Effective,
+					inputs.Snapshot.Journal[:inputs.Snapshot.Cursor],
+				)
+				if replayErr != nil {
+					return store.FinalizeProviderWritePlan{}, replayErr
+				}
+				plan := store.FinalizeProviderWritePlan{
+					Effective: replayed.Effective, KnownDrills: known,
+					Allocations: append([]store.LabelAllocation(nil), inputs.ProviderState.Allocations...),
+					Lineage:     append([]store.ProviderIdentityLineage(nil), inputs.ProviderState.Lineage...),
+					Summary: store.LastWriteSummary{
+						OperationCount: batch.FrozenOperationCount,
+						ItemCount:      batch.TotalItems, OverrideCount: batch.OverrideCount,
+					},
+				}
+				test.mutate(&plan)
+				return plan, nil
+			})
+			assertStoreInvalidReason(t, err, store.InvalidOperationProviderWritePlan)
+		})
+	}
+}
+
 func TestProviderWriteStateReconstructsNewMerchantGroups(t *testing.T) {
 	t.Parallel()
 

@@ -178,6 +178,9 @@ func (service *Service) Mutate(
 			AppRevisionConflict, snapshot.Revision, errors.New("mutation revision is stale"),
 		)
 	}
+	if err = service.validateProviderWriteIdle(); err != nil {
+		return MutationResult{}, mapAppError(err, snapshot.Revision)
+	}
 	operationID, err := domain.NewOperationID(rand.Reader)
 	if err != nil {
 		return MutationResult{}, newAppError(AppStoreError, snapshot.Revision, err)

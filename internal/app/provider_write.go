@@ -210,6 +210,11 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			return service.writeStatus(ctx, mapAppError(resumeErr, service.Revision()))
 		}
 		batch = resumed
+		if _, attempted := firstAttemptedPendingWriteItem(state.Items); attempted {
+			return service.parkProviderWriteFailure(
+				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			)
+		}
 	}
 	if batch.Phase == store.WritePhaseReconciling &&
 		batch.ResumeTarget == store.WriteResumeWriting {
@@ -263,19 +268,13 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			return service.writeStatus(ctx, provider.NewError(provider.CodeWriteStale))
 		}
 		outcomes, callErr := service.runProviderWriteCallsWithHeartbeat(ctx, runtime, writer, items)
-		if callErr != nil {
-			return service.writeStatus(ctx, callErr)
-		}
 		slices.SortFunc(outcomes, func(left, right providerWriteOutcome) int {
 			return left.item.Position - right.item.Position
 		})
 		var firstFailure *providerWriteOutcome
 		for _, outcome := range outcomes {
 			if outcome.err != nil {
-				if firstFailure == nil {
-					failed := outcome
-					firstFailure = &failed
-				}
+				firstFailure = preferredProviderWriteFailure(firstFailure, outcome)
 				continue
 			}
 			currentState, stateErr := service.profile.ProviderWriteState(ctx)
@@ -290,11 +289,9 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 				outcome.item, outcome.result, currentState, now,
 			)
 			if normalizeErr != nil {
-				if firstFailure == nil {
-					failed := outcome
-					failed.err = normalizeErr
-					firstFailure = &failed
-				}
+				failed := outcome
+				failed.err = normalizeErr
+				firstFailure = preferredProviderWriteFailure(firstFailure, failed)
 				continue
 			}
 			batch, err = service.profile.RecordProviderWriteResult(
@@ -308,12 +305,28 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 				return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 			}
 		}
+		if callErr != nil && batch.Phase != store.WritePhaseReconciling {
+			failed := providerWriteOutcome{
+				item: items[0], err: provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			}
+			firstFailure = preferredProviderWriteFailure(firstFailure, failed)
+			batch, err = service.reacquireProviderWriteLease(ctx, runtime, batch)
+			if err != nil {
+				return service.writeStatus(ctx, err)
+			}
+		}
 		if firstFailure != nil {
 			return service.handleProviderWriteItemError(
 				ctx, runtime, batch, firstFailure.item, fingerprint, firstFailure.err,
 			)
 		}
 		if batch.Phase == store.WritePhaseReconciling {
+			if callErr != nil {
+				batch, err = service.reacquireProviderWriteLease(ctx, runtime, batch)
+				if err != nil {
+					return service.writeStatus(ctx, err)
+				}
+			}
 			return service.finalizeProviderWrite(ctx, runtime, batch)
 		}
 	}
@@ -394,10 +407,63 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
 	cancel(nil)
-	if heartbeatErr != nil {
-		return nil, heartbeatErr
+	return outcomes, heartbeatErr
+}
+
+func firstAttemptedPendingWriteItem(items []store.WriteItem) (store.WriteItem, bool) {
+	for _, item := range items {
+		if item.State == store.WriteItemPending && item.AttemptCount > 0 {
+			return item, true
+		}
 	}
-	return outcomes, nil
+	return store.WriteItem{}, false
+}
+
+func preferredProviderWriteFailure(
+	current *providerWriteOutcome,
+	candidate providerWriteOutcome,
+) *providerWriteOutcome {
+	if current == nil || providerWriteFailurePriority(candidate.err) > providerWriteFailurePriority(current.err) {
+		selected := candidate
+		return &selected
+	}
+	return current
+}
+
+func providerWriteFailurePriority(failure error) int {
+	reason, ok := provider.WriteFailureReasonOf(failure)
+	if ok {
+		if reason == provider.WriteUnavailableExhausted || reason == provider.WriteResponseIncomplete {
+			return 1
+		}
+		return 2
+	}
+	if code, found := provider.CodeOf(failure); found &&
+		code != provider.CodeUnavailable && code != provider.CodeRateLimited &&
+		code != provider.CodeReconnectRequired {
+		return 2
+	}
+	return 1
+}
+
+func (service *Service) reacquireProviderWriteLease(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	batch store.WriteBatch,
+) (store.WriteBatch, error) {
+	now := runtime.now().UTC().Truncate(time.Millisecond)
+	resumed, err := service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+		BatchID: batch.ID, ExpectedVersion: batch.Version,
+		Lease: store.ProviderOperationLease{
+			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
+			Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),
+		},
+		ObservedAt: now,
+	})
+	if err != nil {
+		return store.WriteBatch{}, mapAppError(err, service.Revision())
+	}
+	return resumed, nil
 }
 
 func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate {
@@ -761,7 +827,9 @@ func (service *Service) StopAndReconcileProviderWrite(
 	if state.Batch.Phase != store.WritePhaseAttentionRequired &&
 		state.Batch.Phase != store.WritePhasePaused &&
 		state.Batch.Phase != store.WritePhaseReconnectRequired &&
-		state.Batch.Phase != store.WritePhaseReconcileConfirmationRequired {
+		state.Batch.Phase != store.WritePhaseReconcileConfirmationRequired &&
+		(state.Batch.Phase != store.WritePhaseReconciling ||
+			state.Batch.ResumeTarget != store.WriteResumeReconciling) {
 		return ProviderWriteResult{}, providerWriteAppError(
 			provider.NewError(provider.CodeWriteAttentionRequired), service.Revision(),
 		)

@@ -95,6 +95,7 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 		{name: "graphql rejection", status: http.StatusOK, body: `{"errors":[{"message":"private-provider-message"}]}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "payload rejection", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[{"field":"name","messages":["private-provider-message"]}]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "missing transaction", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "missing requested merchant", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-request-id","merchant":null,"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
 		{name: "transaction mismatch", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-other-id","merchant":{"id":"merchant-a","name":"Example"},"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteIdentityConflict},
 	}
 	for _, test := range tests {

@@ -82,7 +82,7 @@ func (client *Client) UpdateTransaction(
 		(update.CategoryExternalID.Present && !result.CategoryExternalID.Present) ||
 		(update.Hidden.Present && !result.Hidden.Present) {
 		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
+			provider.WriteOutcomeUnknown,
 		)
 	}
 	return result, nil

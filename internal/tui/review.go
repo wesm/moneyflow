@@ -127,8 +127,7 @@ func (model *Model) loadReviewWindow(offset int, limit int, phase reviewPhase) b
 		OperationID: operation.OperationID, Offset: offset, Limit: limit,
 	})
 	if err != nil {
-		model.refreshReviewAfterFailure(err)
-		return false
+		return model.refreshReviewAfterFailure(err)
 	}
 	model.review.projection = projection
 	model.review.detailOffset = projection.Window.Offset
@@ -175,10 +174,11 @@ func (model *Model) commitReview() tea.Cmd {
 	return nil
 }
 
-func (model *Model) refreshReviewAfterFailure(err error) {
+func (model *Model) refreshReviewAfterFailure(err error) bool {
 	model.syncProfileMetadata()
 	current := model.service.Revision()
 	projection, refreshErr := model.service.Review(model.ctx, current, app.ReviewWindow{})
+	refreshed := refreshErr == nil
 	if refreshErr == nil {
 		model.review.projection = projection
 		model.review.reviewedRevision = projection.Revision
@@ -192,6 +192,7 @@ func (model *Model) refreshReviewAfterFailure(err error) {
 	} else {
 		model.review.err = safeInteractionMessage(err)
 	}
+	return refreshed
 }
 
 func (model *Model) installReviewPreview(summary app.ReviewProjection) {

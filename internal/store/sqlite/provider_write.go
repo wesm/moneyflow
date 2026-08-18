@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
-	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -400,10 +399,11 @@ func (profile *profile) FinalizeProviderWrite(
 	if err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
-	plan, err := planner(store.FinalizeProviderWriteInputs{
+	inputs := store.FinalizeProviderWriteInputs{
 		Snapshot: snapshot.Clone(), ProviderState: providerState,
 		WriteState: writeState.Clone(), ObservedAt: request.ObservedAt,
-	})
+	}
+	plan, err := planner(inputs)
 	if err != nil {
 		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWritePlanner, err,
@@ -414,7 +414,7 @@ func (profile *profile) FinalizeProviderWrite(
 			store.InvalidOperationProviderWritePlan, err,
 		)
 	}
-	if err = validateFinalizeProviderWritePlan(snapshot, writeState, plan); err != nil {
+	if err = validateFinalizeProviderWritePlan(inputs, plan); err != nil {
 		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWritePlan, err,
 		)
@@ -466,10 +466,10 @@ func (profile *profile) FinalizeProviderWrite(
 }
 
 func validateFinalizeProviderWritePlan(
-	snapshot domain.ProfileSnapshot,
-	writeState store.ProviderWriteState,
+	inputs store.FinalizeProviderWriteInputs,
 	plan store.FinalizeProviderWritePlan,
 ) error {
+	writeState := inputs.WriteState
 	if writeState.Batch == nil ||
 		writeState.Batch.CompletedItems != writeState.Batch.TotalItems ||
 		len(writeState.Items) != writeState.Batch.TotalItems ||
@@ -481,41 +481,12 @@ func validateFinalizeProviderWritePlan(
 		plan.Summary.OverrideCount != writeState.Batch.OverrideCount {
 		return errors.New("provider write finalization summary changed")
 	}
-	replayed, err := profilereplay.Replay(snapshot)
+	expectedPlan, err := store.BuildProviderWriteFinalization(inputs)
 	if err != nil {
 		return err
 	}
-	expected := replayed.Effective
-	if !reflect.DeepEqual(expected.Accounts, plan.Effective.Accounts) ||
-		!reflect.DeepEqual(expected.Merchants, plan.Effective.Merchants) ||
-		!reflect.DeepEqual(expected.Groups, plan.Effective.Groups) ||
-		!reflect.DeepEqual(expected.Categories, plan.Effective.Categories) {
-		return errors.New("provider write finalization changed non-response entities")
-	}
-	if len(expected.Transactions) != len(plan.Effective.Transactions) {
-		return errors.New("provider write finalization changed transaction set")
-	}
-	for index := range expected.Transactions {
-		before := expected.Transactions[index]
-		after := plan.Effective.Transactions[index]
-		if before.ID != after.ID {
-			return errors.New("provider write finalization changed transaction identity")
-		}
-		after.MerchantID = before.MerchantID
-		after.CategoryID = before.CategoryID
-		after.Hidden = before.Hidden
-		if !reflect.DeepEqual(before, after) {
-			return errors.New("provider write finalization changed immutable transaction data")
-		}
-	}
-	known, err := profilereplay.KnownDrillsForFold(
-		snapshot.KnownDrills, plan.Effective, snapshot.Journal[:snapshot.Cursor],
-	)
-	if err != nil {
-		return err
-	}
-	if !reflect.DeepEqual(known, plan.KnownDrills) {
-		return errors.New("provider write finalization changed known drill identities")
+	if !reflect.DeepEqual(expectedPlan, plan) {
+		return errors.New("provider write finalization differs from the canonical response-adjusted fold")
 	}
 	return nil
 }

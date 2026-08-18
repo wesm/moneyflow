@@ -159,6 +159,146 @@ func TestProviderWriteHeartbeatRenewsLeaseDuringSlowRequest(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	base := time.Date(2026, time.August, 18, 20, 20, 0, 0, time.UTC)
+	var clockMu sync.Mutex
+	clockValue := base
+	clock := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clockValue
+	}
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, base, 1), fingerprint: "session-a",
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			close(started)
+			<-release
+			return provider.TransactionUpdateResult{
+				TransactionExternalID: update.TransactionExternalID,
+				Hidden:                provider.Some(update.Hidden.Value),
+			}, nil
+		},
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: "instance-heartbeat-loss", Now: clock,
+		Random: &incrementingReader{}, LeaseDuration: 20 * time.Millisecond,
+		HeartbeatInterval: 5 * time.Millisecond,
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_heartbeat_loss", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: base,
+		Targets: []domain.EntityID{target.ID}, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, runErr := service.RunProviderWrite(ctx)
+		done <- runErr
+	}()
+	<-started
+	clockMu.Lock()
+	clockValue = base.Add(30 * time.Millisecond)
+	clockMu.Unlock()
+	time.Sleep(15 * time.Millisecond)
+	close(release)
+	require.NoError(t, <-done)
+	persisted, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, persisted.Committed.Transactions, 1)
+	assert.True(t, persisted.Committed.Transactions[0].Hidden)
+}
+
+func TestProviderWriteOwnerChangeParksClaimedItemAsUnknownBeforeResend(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 20, 25, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			return provider.TransactionUpdateResult{
+				TransactionExternalID: update.TransactionExternalID,
+				Hidden:                provider.Some(update.Hidden.Value),
+			}, nil
+		},
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-recovery")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_claimed_before_crash", Type: domain.OperationTransactionHide,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: []domain.EntityID{target.ID}, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	writeState, err := profileHandle.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+	claimed, err := profileHandle.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: writeState.Batch.ID, ExpectedVersion: writeState.Batch.Version,
+		LeaseOwnerID: "instance-recovery", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
+		ctx, "instance-recovery", store.ProviderOperationWrite,
+	))
+
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+	assert.Zero(t, writer.callCount(), "an item with an unknown prior outcome must not be resent")
+}
+
 func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 	t.Parallel()
 
@@ -276,6 +416,60 @@ func TestProviderWritePersistsConcurrentSuccessBeforeParkingFailure(t *testing.T
 	assert.Len(t, state.Results, 1)
 }
 
+func TestProviderWriteConcurrentReconcileOnlyFailureWinsOverRetryableFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 20, 45, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			if update.TransactionExternalID == "transaction-0000" {
+				return provider.TransactionUpdateResult{},
+					provider.NewWriteFailure(provider.WriteResponseIncomplete)
+			}
+			return provider.TransactionUpdateResult{},
+				provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		},
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-failure-priority")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	targets := []domain.EntityID{
+		loaded.Committed.Transactions[0].ID, loaded.Committed.Transactions[1].ID,
+	}
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_failure_priority", Type: domain.OperationTransactionHide,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: targets, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+}
+
 func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	t.Parallel()
 
@@ -357,6 +551,77 @@ func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	assert.Nil(t, providerState.Write)
 }
 
+func TestProviderWriteRestartsOwnerlessReconciliation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 21, 15, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			return provider.TransactionUpdateResult{},
+				provider.NewWriteFailure(provider.WriteTargetNotFound)
+		},
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-reconcile-restart")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_reconcile_restart", Type: domain.OperationTransactionHide,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: []domain.EntityID{target.ID}, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	require.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	writeState, err := profileHandle.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+
+	reconciling, err := profileHandle.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+		BatchID: writeState.Batch.ID, ExpectedVersion: status.Version,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "crashed-owner", Renderer: "web", Kind: store.ProviderOperationReconcile,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ObservedAt: now,
+	})
+	require.NoError(t, err)
+	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
+		ctx, "crashed-owner", store.ProviderOperationReconcile,
+	))
+
+	reconciled, err := service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedVersion: reconciling.Version, State: app.DefaultViewState(),
+		Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, reconciled.Status.Phase)
+	state, err := profileHandle.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Nil(t, state.Write)
+}
+
 func providerWriteConcurrencyForTest() int { return 4 }
 
 func TestProviderWriteCommitPreparesRunsAndFinalizesAbsoluteUpdate(t *testing.T) {
@@ -399,6 +664,13 @@ func TestProviderWriteCommitPreparesRunsAndFinalizesAbsoluteUpdate(t *testing.T)
 	require.NotNil(t, prepared.ProviderWrite)
 	assert.Equal(t, store.WritePhaseWriting, prepared.ProviderWrite.Phase)
 	assert.Equal(t, 1, prepared.ProviderWrite.Total)
+
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(target.ID)},
+	})
+	assertAppCode(t, err, app.AppProviderWriteInProgress)
 
 	status, err := service.RunProviderWrite(ctx)
 	require.NoError(t, err)

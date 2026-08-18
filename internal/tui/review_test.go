@@ -148,6 +148,30 @@ func TestReviewNavigationDoesNotPairNewHeadingWithStaleTargets(t *testing.T) {
 	assert.NotEmpty(t, model.review.err)
 }
 
+func TestReviewNavigationKeepsRefreshedSelectionAfterStaleReview(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('h'))
+	model = press(t, model, keyRune('j'))
+	model = press(t, model, keyRune('h'))
+	model = press(t, model, keyRune('w'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	require.Equal(t, 1, model.review.selected)
+
+	_, err := model.service.Commit(fixture.ctx, app.CommitRequest{
+		ExpectedRevision: model.service.Revision(),
+		ReviewedRevision: model.service.Revision(),
+		State:            app.DefaultViewState(),
+		Selection:        app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyUp})
+	assert.Empty(t, model.review.projection.Operations)
+	assert.Zero(t, model.review.selected)
+	assert.NotEmpty(t, model.review.err)
+}
+
 func TestReviewEnterWithOnlyRedoStaysOpen(t *testing.T) {
 	t.Parallel()
 	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('h'))

@@ -16,9 +16,6 @@ func (service *Service) validateProviderMutation(
 	if state.Binding == nil {
 		return nil
 	}
-	if state.Write != nil {
-		return provider.NewError(provider.CodeWriteInProgress)
-	}
 	if state.Binding.Kind != "monarch" || !supportedMonarchWriteOperation(operation.Type) {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
@@ -65,6 +62,16 @@ func (service *Service) validateProviderMutation(
 	case domain.OperationTransactionHide:
 	default:
 		return provider.NewError(provider.CodeWriteUnsupported)
+	}
+	return nil
+}
+
+func (service *Service) validateProviderWriteIdle() error {
+	service.mu.RLock()
+	state := cloneProviderState(service.providerState)
+	service.mu.RUnlock()
+	if state.Write != nil {
+		return provider.NewError(provider.CodeWriteInProgress)
 	}
 	return nil
 }
