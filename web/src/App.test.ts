@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App.svelte'
+import type { CatalogController } from './lib/controller/catalog.svelte'
 import type { ViewController } from './lib/controller/view-controller.svelte'
 
 describe('Moneyflow application scaffold', () => {
@@ -14,6 +15,18 @@ describe('Moneyflow application scaffold', () => {
     expect(screen.getByRole('heading', { name: 'Loading financial view…' })).not.toBeNull()
     expect(screen.getByRole('status').textContent).toBe('Loading profile data…')
     expect(screen.getByRole('button', { name: /change theme/i })).not.toBeNull()
+  })
+
+  it('renders the profile catalog at the base route without constructing a finance controller', () => {
+    const catalog = {
+      state: { profiles: [], loading: false, announcement: '', problem: undefined },
+      load: vi.fn(async () => undefined),
+    } as unknown as CatalogController
+
+    render(App, { basePath: '/moneyflow/', catalog })
+
+    expect(screen.getByRole('heading', { name: 'Choose a Moneyflow profile' })).not.toBeNull()
+    expect(catalog.load).toHaveBeenCalledTimes(1)
   })
 
   it('renders a safe invalid-link shell with a reset action', async () => {

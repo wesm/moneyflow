@@ -23,8 +23,9 @@
   import type { ViewController } from '../lib/controller/view-controller.svelte'
   interface Props {
     controller: ViewController
+    onreconnect?: (() => void) | undefined
   }
-  let { controller }: Props = $props()
+  let { controller, onreconnect }: Props = $props()
   let charts = $state(true)
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
@@ -172,7 +173,7 @@
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}<ProviderStatus controller={controller.provider} /><Toggle
+      {#snippet right()}<ProviderStatus controller={controller.provider} {onreconnect} /><Toggle
           checked={compact.current ? chartDrawer : charts}
           onchange={toggleCharts}
           label="Charts"

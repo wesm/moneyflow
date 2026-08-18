@@ -33,6 +33,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await expect(operation).toHaveAttribute('aria-expanded', 'true')
 
     const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
+    await expect(commit).toBeEnabled()
     await commit.focus()
     await page.keyboard.press('Enter')
     await expect(review).toBeHidden()

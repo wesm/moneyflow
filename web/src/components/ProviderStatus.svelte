@@ -5,9 +5,10 @@
 
   interface Props {
     controller: ProviderController
+    onreconnect?: (() => void) | undefined
   }
 
-  let { controller }: Props = $props()
+  let { controller, onreconnect }: Props = $props()
   const refreshing = $derived(controller.state.phase === 'refreshing')
   const available = $derived(controller.state.capability?.available === true)
   const progress = $derived(controller.state.status?.progress)
@@ -29,13 +30,17 @@
 <svelte:window onkeydown={confirmationKeydown} />
 
 <div class="provider-status">
-  <Button
-    size="sm"
-    disabled={!available || refreshing}
-    title={controller.state.capability?.reason}
-    onclick={() => void controller.refresh()}
-    >{refreshing ? 'Refreshing…' : 'Refresh provider data'}</Button
-  >
+  {#if controller.state.phase === 'reconnect' && onreconnect}
+    <Button size="sm" tone="info" surface="solid" onclick={onreconnect}>Reconnect provider</Button>
+  {:else}
+    <Button
+      size="sm"
+      disabled={!available || refreshing}
+      title={controller.state.capability?.reason}
+      onclick={() => void controller.refresh()}
+      >{refreshing ? 'Refreshing…' : 'Refresh provider data'}</Button
+    >
+  {/if}
   {#if !available && controller.state.capability?.reason}
     <span id="provider-refresh-reason" class="kit-sr-only">
       {controller.state.capability.reason}

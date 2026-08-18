@@ -47,6 +47,15 @@ describe('ProviderStatus', () => {
     await fireEvent.keyDown(dialog, { key: 'Enter' })
     expect(controller.confirm).toHaveBeenCalledTimes(1)
   })
+
+  it('offers in-place reconnect when the provider session expires', async () => {
+    const controller = stubProvider(false, { phase: 'reconnect' })
+    const onreconnect = vi.fn()
+    render(ProviderStatus, { controller, onreconnect })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Reconnect provider' }))
+    expect(onreconnect).toHaveBeenCalledTimes(1)
+  })
 })
 
 function stubProvider(

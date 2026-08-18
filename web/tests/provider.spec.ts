@@ -102,7 +102,7 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     capability: refreshCapability(),
   })
 
-  await page.route('**/api/v1/view', async (route) => {
+  await page.route('**/api/v1/profiles/*/view', async (route) => {
     const response = await route.fetch()
     const body = (await response.json()) as Record<string, unknown>
     const capabilities = body.capabilities as Array<Record<string, unknown>>
@@ -112,10 +112,10 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     projection = body
     await route.fulfill({ response, json: body })
   })
-  await page.route('**/api/v1/provider/status', async (route) => {
+  await page.route('**/api/v1/profiles/*/provider/status', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', json: status() })
   })
-  await page.route('**/api/v1/provider/refresh', async (route) => {
+  await page.route('**/api/v1/profiles/*/provider/refresh', async (route) => {
     refreshBodies.push((await route.request().postDataJSON()) as Record<string, unknown>)
     if (requireConfirmation) {
       const provider = {
@@ -140,7 +140,7 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     }
     await fulfillRefresh(route, projection, status())
   })
-  await page.route('**/api/v1/provider/refresh/confirm', async (route) => {
+  await page.route('**/api/v1/profiles/*/provider/refresh/confirm', async (route) => {
     confirmBodies.push((await route.request().postDataJSON()) as Record<string, unknown>)
     await fulfillRefresh(route, projection, status())
   })

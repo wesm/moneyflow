@@ -15,6 +15,5 @@ const route = parseApplicationRoute(basePath, location)
 if (route.kind === 'profile') {
   mount(App, { target, props: { basePath, profileID: route.profileID } })
 } else {
-  target.innerHTML =
-    '<main class="moneyflow-loading" aria-live="polite"><h1>Loading profiles…</h1></main>'
+  mount(App, { target, props: { basePath } })
 }

@@ -53,6 +53,72 @@ input {
   padding: var(--space-6);
 }
 
+.profile-main {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  place-items: start center;
+  padding: clamp(var(--space-4), 5vw, var(--space-8));
+}
+
+.profile-panel {
+  width: min(42rem, 100%);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.profile-panel > h1,
+.profile-panel > p {
+  margin: 0;
+}
+
+.profile-panel > p:not(.moneyflow-eyebrow) {
+  color: var(--text-secondary);
+}
+
+.profile-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.profile-list .kit-card {
+  width: 100%;
+}
+
+.profile-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.profile-form label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.onboarding-working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+
+.onboarding-working p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .moneyflow-loading,
 .moneyflow-loaded,
 .moneyflow-message {

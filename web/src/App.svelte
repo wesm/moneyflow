@@ -3,7 +3,16 @@
   import { onMount } from 'svelte'
 
   import { createMoneyflowClient } from './lib/api/client'
+  import { createCatalogClient } from './lib/api/catalog-client'
   import AppShell from './components/AppShell.svelte'
+  import OnboardingWizard from './components/profiles/OnboardingWizard.svelte'
+  import ProfileSelector from './components/profiles/ProfileSelector.svelte'
+  import { createCatalogController, type CatalogController } from './lib/controller/catalog.svelte'
+  import {
+    createOnboardingController,
+    createOnboardingTransport,
+    type OnboardingController,
+  } from './lib/controller/onboarding.svelte'
   import {
     createViewController,
     type ViewController,
@@ -14,21 +23,93 @@
     basePath: string
     profileID?: string
     controller?: ViewController
+    catalog?: CatalogController
+    onnavigate?: (profileID: string) => void
   }
 
-  let { basePath, profileID, controller: suppliedController }: Props = $props()
+  let {
+    basePath,
+    profileID,
+    controller: suppliedController,
+    catalog: suppliedCatalog,
+    onnavigate,
+  }: Props = $props()
   const controller = resolveController()
+  const catalog = resolveCatalog()
+  let onboarding = $state<OnboardingController | undefined>()
+  let onboardingProfileID = $state<string | undefined>()
 
-  function resolveController(): ViewController {
+  function resolveController(): ViewController | undefined {
     if (suppliedController) return suppliedController
-    if (!profileID) throw new Error('Moneyflow profile route is missing.')
+    if (!profileID) return undefined
     return createViewController({
       basePath: profileApplicationPath(basePath, profileID),
       client: createMoneyflowClient(basePath, profileID),
     })
   }
 
+  function resolveCatalog(): CatalogController | undefined {
+    if (suppliedCatalog) return suppliedCatalog
+    if (profileID || suppliedController) return undefined
+    return createCatalogController({ client: createCatalogClient(basePath) })
+  }
+
+  async function canonicalID(selector: string): Promise<string | undefined> {
+    if (!catalog) return selector
+    const profile = catalog.state.profiles.find(
+      (candidate) => candidate.id === selector || candidate.key === selector,
+    )
+    if (!profile) return undefined
+    try {
+      return await catalog.canonicalID(profile)
+    } catch {
+      catalog.announce('The selected profile could not be activated.')
+      return undefined
+    }
+  }
+
+  async function navigate(selector: string): Promise<void> {
+    const id = await canonicalID(selector)
+    if (!id) return
+    if (onnavigate) {
+      onnavigate(id)
+      return
+    }
+    globalThis.location.assign(
+      `${profileApplicationPath(basePath, id)}${globalThis.location.search}`,
+    )
+  }
+
+  async function setup(selector: string): Promise<void> {
+    const id = await canonicalID(selector)
+    if (!id) return
+    onboarding?.destroy()
+    onboardingProfileID = id
+    onboarding = createOnboardingController({
+      profileID: id,
+      transport: createOnboardingTransport(basePath, id),
+    })
+  }
+
+  function closeOnboarding(): void {
+    onboarding?.destroy()
+    onboarding = undefined
+    onboardingProfileID = undefined
+    if (catalog) void catalog.load()
+  }
+
+  async function recover(id: string, confirmed: boolean): Promise<void> {
+    if (!catalog) return
+    const response = await catalog.recovery(id, confirmed)
+    if (confirmed && response?.recreated) await setup(id)
+  }
+
   onMount(() => {
+    if (catalog) {
+      void catalog.load()
+      return () => onboarding?.destroy()
+    }
+    if (!controller) return
     const restore = (event: PopStateEvent) => void controller.restore(event)
     const pollProvider = () => {
       if (document.visibilityState === 'visible') {
@@ -59,8 +140,29 @@
   })
 </script>
 
-{#if controller.projection}
-  <AppShell {controller} />
+{#if onboarding && onboardingProfileID}
+  <OnboardingWizard
+    controller={onboarding}
+    oncomplete={() => void navigate(onboardingProfileID!)}
+    oncancel={closeOnboarding}
+    onoffline={() => void navigate(onboardingProfileID!)}
+  />
+{:else if catalog}
+  <ProfileSelector
+    profiles={catalog.state.profiles}
+    loading={catalog.state.loading}
+    announcement={catalog.state.announcement}
+    problem={catalog.state.problem}
+    recovery={catalog.state.recovery}
+    onopen={(id) => void navigate(id)}
+    onsetup={(id) => void setup(id)}
+    onrecover={recover}
+    oncreate={(name, provider) => catalog.create(name, provider)}
+    ondemo={() => catalog.announce('Start moneyflow web with --demo for a temporary profile.')}
+    onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
+  />
+{:else if controller?.projection}
+  <AppShell {controller} onreconnect={() => profileID && void setup(profileID)} />
 {:else}
   <div class="moneyflow-app">
     <TopBar ariaLabel="Moneyflow">
@@ -73,7 +175,7 @@
     </TopBar>
 
     <main class="moneyflow-main" aria-label="Moneyflow">
-      {#if controller.problem?.kind === 'invalid-view'}
+      {#if controller?.problem?.kind === 'invalid-view'}
         <section class="moneyflow-message" aria-labelledby="invalid-title">
           <p class="moneyflow-eyebrow">Invalid view</p>
           <h1 id="invalid-title">This Moneyflow link cannot be opened</h1>
@@ -85,7 +187,7 @@
             </Button>
           </div>
         </section>
-      {:else if controller.problem?.kind === 'request' && controller.projection === undefined}
+      {:else if controller?.problem?.kind === 'request' && controller.projection === undefined}
         <section class="moneyflow-message" aria-labelledby="error-title">
           <p class="moneyflow-eyebrow">Connection problem</p>
           <h1 id="error-title">The financial view did not load</h1>
@@ -99,15 +201,15 @@
           <p>Preparing the keyboard-first transaction workspace.</p>
         </section>
       {/if}
-      <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
+      <p class="kit-sr-only" aria-live="polite">{controller?.announcement}</p>
     </main>
 
     <StatusBar>
       {#snippet left()}
         <span role="status">
-          {controller.loading
+          {controller?.loading
             ? 'Loading profile data…'
-            : (controller.projection?.status ?? 'Ready')}
+            : (controller?.projection?.status ?? 'Ready')}
         </span>
       {/snippet}
       {#snippet right()}

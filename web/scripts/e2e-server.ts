@@ -7,6 +7,8 @@ import { join, resolve } from 'node:path'
 export interface E2EServer {
   basePath: string
   origin: string
+  profileAPI: string
+  profileID: string
   url: string
   stop(): Promise<void>
 }
@@ -39,19 +41,21 @@ function normalizedBasePath(basePath: string): string {
   return `/${basePath.replace(/^\/+|\/+$/g, '')}/`
 }
 
-async function waitForHealth(
+async function waitForApplication(
   child: ChildProcess,
-  healthURL: string,
+  applicationURL: string,
   stderr: () => string,
-): Promise<void> {
+): Promise<string> {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`Moneyflow E2E server exited before health check: ${stderr()}`)
     }
     try {
-      const response = await fetch(healthURL)
-      if (response.ok) return
+      const response = await fetch(applicationURL, { headers: { Accept: 'text/html' } })
+      if (response.ok && /\/p\/profile_[a-z2-7]{26}\/$/.test(new URL(response.url).pathname)) {
+        return response.url
+      }
     } catch {
       // The concrete loopback listener is still starting.
     }
@@ -134,6 +138,7 @@ export async function startE2EServer(
       const args = [
         'web',
         ...(options.profileHome ? [] : ['--demo']),
+        ...(options.profileHome ? ['--profile', 'Moneyflow'] : []),
         '--open=false',
         '--listen',
         `127.0.0.1:${port}`,
@@ -152,11 +157,15 @@ export async function startE2EServer(
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => (stderr += chunk))
       try {
-        await waitForHealth(child, `${origin}${normalized}api/v1/health`, () => stderr)
+        const url = await waitForApplication(child, `${origin}${normalized}`, () => stderr)
+        const profileID = /\/p\/(profile_[a-z2-7]{26})\/$/.exec(new URL(url).pathname)?.[1]
+        if (!profileID) throw new Error('Moneyflow E2E server returned an invalid profile route.')
         return {
           basePath: normalized,
           origin,
-          url: `${origin}${normalized}`,
+          profileAPI: `${origin}${normalized}api/v1/profiles/${profileID}/`,
+          profileID,
+          url,
           stop: async () => {
             await stopProcessGroup(child)
             await rm(binaryDirectory, { recursive: true, force: true })
