@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -28,6 +29,9 @@ type Config struct {
 	Version         string
 	Origin          OriginConfig
 	Security        *MutationSecurity
+	Catalog         ProfileCatalog
+	Evictor         ProfileEvictor
+	Onboarding      OnboardingCoordinator
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -43,10 +47,11 @@ type Health struct {
 
 // Server owns a self-contained mux and its generated Huma contract.
 type Server struct {
-	basePath string
-	handler  http.Handler
-	api      huma.API
-	security *MutationSecurity
+	basePath            string
+	handler             http.Handler
+	api                 huma.API
+	security            *MutationSecurity
+	completedOnboarding sync.Map
 }
 
 type healthOutput struct {
@@ -82,6 +87,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.LegacyProfileID != "" && !profilecatalog.ValidProfileID(config.LegacyProfileID) {
 		return nil, errors.New("new API server: legacy profile ID is invalid")
+	}
+	if (config.Catalog == nil) != (config.Evictor == nil) {
+		return nil, errors.New("new API server: catalog lifecycle dependencies are incomplete")
 	}
 	basePath, err := NormalizeBasePath(config.BasePath)
 	if err != nil {
@@ -121,6 +129,8 @@ func New(config Config) (*Server, error) {
 	server.registerReviewEndpoints(config)
 	server.registerEditorCatalogEndpoint(config)
 	server.registerProviderEndpoints(config)
+	server.registerProfileCatalogEndpoints(config)
+	server.registerOnboardingEndpoints(config)
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
@@ -164,10 +174,24 @@ func profileMutationSecurity(
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost {
+			if request.URL.Path == basePath+"api/v1/profiles" {
+				security.Protect(CatalogMutationScope, next).ServeHTTP(response, request)
+				return
+			}
 			profileID, endpoint, err := ParseProfileAPIPath(basePath, request.URL.EscapedPath())
 			if err == nil {
-				if _, requiresProtection := protected[endpoint]; requiresProtection {
-					scope := profileID
+				scope := profileID
+				_, requiresProtection := protected[endpoint]
+				if endpoint == "recovery" {
+					requiresProtection = true
+					scope = CatalogMutationScope
+				}
+				if endpoint == "onboarding/start" ||
+					(strings.HasPrefix(endpoint, "onboarding/") &&
+						(strings.HasSuffix(endpoint, "/submit") || strings.HasSuffix(endpoint, "/cancel"))) {
+					requiresProtection = true
+				}
+				if requiresProtection {
 					if legacyProfileRequest(request.Context()) {
 						scope = CatalogMutationScope
 					}

@@ -40,7 +40,7 @@ describe('Moneyflow generated client adapter', () => {
     await expect(client.providerStatus()).resolves.toMatchObject({ revision: '3' })
     const sent = upstream.mock.calls[0]?.[0]
     expect(sent instanceof Request ? sent.url : String(sent)).toContain(
-      '/moneyflow/api/v1/provider/status',
+      '/moneyflow/api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/provider/status',
     )
   })
 
@@ -66,7 +66,9 @@ describe('Moneyflow generated client adapter', () => {
     expect(result.detail_rows?.[0]?.amount.decimal).toBe('-92233720368547758.08')
     expect(upstream).toHaveBeenCalledTimes(1)
     const sent = upstream.mock.calls[0]?.[0]
-    expect(sent instanceof Request ? sent.url : String(sent)).toContain('/moneyflow/api/v1/view')
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      '/moneyflow/api/v1/profiles/profile_aaaaaaaaaaaaaaaaaaaaaaaaaa/view',
+    )
   })
 
   it('throws typed safe problems', async () => {

@@ -21,7 +21,42 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/commit': {
+  '/api/v1/profiles': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** List local profiles */
+    get: operations['listProfiles']
+    put?: never
+    /** Create a pristine local profile */
+    post: operations['createProfile']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/bootstrap': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Issue profile-scoped browser mutation configuration */
+    get: operations['profileBootstrap']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/commit': {
     parameters: {
       query?: never
       header?: never
@@ -38,7 +73,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/editor-catalog': {
+  '/api/v1/profiles/{profile_id}/editor-catalog': {
     parameters: {
       query?: never
       header?: never
@@ -55,7 +90,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/health': {
+  '/api/v1/profiles/{profile_id}/health': {
     parameters: {
       query?: never
       header?: never
@@ -72,7 +107,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/mutations': {
+  '/api/v1/profiles/{profile_id}/mutations': {
     parameters: {
       query?: never
       header?: never
@@ -89,7 +124,75 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/provider/refresh': {
+  '/api/v1/profiles/{profile_id}/onboarding/start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Start profile onboarding */
+    post: operations['startProfileOnboarding']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/onboarding/{attempt_id}/cancel': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Cancel profile onboarding */
+    post: operations['cancelProfileOnboarding']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/onboarding/{attempt_id}/status': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Read credential-blind onboarding status */
+    get: operations['profileOnboardingStatus']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/onboarding/{attempt_id}/submit': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Submit one onboarding transition */
+    post: operations['submitProfileOnboarding']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/provider/refresh': {
     parameters: {
       query?: never
       header?: never
@@ -106,7 +209,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/provider/refresh/confirm': {
+  '/api/v1/profiles/{profile_id}/provider/refresh/confirm': {
     parameters: {
       query?: never
       header?: never
@@ -123,7 +226,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/provider/status': {
+  '/api/v1/profiles/{profile_id}/provider/status': {
     parameters: {
       query?: never
       header?: never
@@ -140,7 +243,24 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/redo': {
+  '/api/v1/profiles/{profile_id}/recovery': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Preview or confirm profile recovery */
+    post: operations['recoverProfile']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/redo': {
     parameters: {
       query?: never
       header?: never
@@ -156,7 +276,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/review': {
+  '/api/v1/profiles/{profile_id}/review': {
     parameters: {
       query?: never
       header?: never
@@ -173,7 +293,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/review/targets': {
+  '/api/v1/profiles/{profile_id}/review/targets': {
     parameters: {
       query?: never
       header?: never
@@ -190,7 +310,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/undo': {
+  '/api/v1/profiles/{profile_id}/undo': {
     parameters: {
       query?: never
       header?: never
@@ -206,7 +326,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/view': {
+  '/api/v1/profiles/{profile_id}/view': {
     parameters: {
       query?: never
       header?: never
@@ -223,7 +343,7 @@ export interface paths {
     patch?: never
     trace?: never
   }
-  '/api/v1/view/transition': {
+  '/api/v1/profiles/{profile_id}/view/transition': {
     parameters: {
       query?: never
       header?: never
@@ -431,6 +551,76 @@ export interface components {
       selection: components['schemas']['SelectionDisposition']
       version: string
     }
+    OnboardingCancelBody: {
+      /** Format: int64 */
+      expected_state_version: number
+      /** Format: int32 */
+      protocol_version: number
+    }
+    OnboardingCredentialsInput: {
+      account_password: string
+      confirmation: string
+      email: string
+      password: string
+      totp_secret: string
+    }
+    OnboardingFailureResponse: {
+      can_reenter: boolean
+      can_retry: boolean
+      code: string
+      message: string
+    }
+    OnboardingProgressResponse: {
+      /** Format: int64 */
+      attempt: number
+      /** Format: int64 */
+      elapsed_ms: number
+      /** Format: int64 */
+      fetched: number
+      partition: string
+      /** Format: int64 */
+      pass: number
+      phase: string
+      /** Format: int64 */
+      total: number
+    }
+    OnboardingSettingsInput: {
+      currency: string
+      /** Format: int32 */
+      scale: number
+    }
+    OnboardingStartBody: {
+      month_to_date: boolean
+      /** Format: int32 */
+      protocol_version: number
+      settings?: components['schemas']['OnboardingSettingsInput']
+    }
+    OnboardingStatusResponse: {
+      attempt_id: string
+      failure?: components['schemas']['OnboardingFailureResponse']
+      profile_id: string
+      progress?: components['schemas']['OnboardingProgressResponse']
+      /** Format: int32 */
+      protocol_version: number
+      provider_kind: string
+      settings?: components['schemas']['OnboardingSettingsInput']
+      state: string
+      /** Format: int64 */
+      state_version: number
+    }
+    OnboardingSubmitBody: {
+      action: string
+      credentials?: components['schemas']['OnboardingCredentialsInput']
+      /** Format: int64 */
+      expected_state_version: number
+      /** Format: int32 */
+      protocol_version: number
+      settings?: components['schemas']['OnboardingSettingsInput']
+      unlock?: components['schemas']['OnboardingUnlockInput']
+    }
+    OnboardingUnlockInput: {
+      account_password: string
+    }
     PendingSummary: {
       /** Format: int64 */
       active_operations: number
@@ -462,6 +652,27 @@ export interface components {
        * @default about:blank
        */
       type: string
+    }
+    ProfileCatalogResponse: {
+      profiles: components['schemas']['ProfileSummary'][] | null
+      version: string
+    }
+    ProfileCreateBody: {
+      display_name: string
+      /** @enum {string} */
+      provider_kind: 'monarch' | 'local'
+      version: string
+    }
+    ProfileResponse: {
+      profile: components['schemas']['ProfileSummary']
+      version: string
+    }
+    ProfileSummary: {
+      display_name: string
+      id?: string
+      key: string
+      provider_kind: string
+      status: string
     }
     Projection: {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
@@ -554,6 +765,26 @@ export interface components {
       progress: components['schemas']['ProviderProgress']
       revision: string
       summary: components['schemas']['ProviderRefreshSummary']
+      version: string
+    }
+    RecoveryBody: {
+      confirmed: boolean
+      plan?: components['schemas']['RecoveryPlan']
+      version: string
+    }
+    RecoveryPlan: {
+      backup_path: string
+      in_progress: boolean
+      original_code: string
+      profile_id: string
+      profile_key: string
+      /** Format: date-time */
+      started_at: string
+    }
+    RecoveryResponse: {
+      backup_path?: string
+      plan: components['schemas']['RecoveryPlan']
+      recreated: boolean
       version: string
     }
     ReturnedWindow: {
@@ -712,11 +943,187 @@ export interface operations {
       }
     }
   }
-  commitProfile: {
+  listProfiles: {
     parameters: {
       query?: never
       header?: never
       path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ProfileCatalogResponse']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  createProfile: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProfileCreateBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ProfileResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  profileBootstrap: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['Bootstrap']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  commitProfile: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -803,7 +1210,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -890,7 +1299,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody?: never
@@ -919,7 +1330,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1002,11 +1415,350 @@ export interface operations {
       }
     }
   }
+  startProfileOnboarding: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OnboardingStartBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['OnboardingStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  cancelProfileOnboarding: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OnboardingCancelBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['OnboardingStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  profileOnboardingStatus: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['OnboardingStatusResponse']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  submitProfileOnboarding: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OnboardingSubmitBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['OnboardingStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
   refreshProvider: {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1093,7 +1845,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1180,7 +1934,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody?: never
@@ -1192,6 +1948,113 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['ProviderStatusResponse']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  recoverProfile: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RecoveryBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RecoveryResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
         }
       }
       /** @description Internal Server Error */
@@ -1218,7 +2081,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1305,7 +2170,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1392,7 +2259,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1479,7 +2348,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1566,7 +2437,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {
@@ -1626,7 +2499,9 @@ export interface operations {
     parameters: {
       query?: never
       header?: never
-      path?: never
+      path: {
+        profile_id: string
+      }
       cookie?: never
     }
     requestBody: {

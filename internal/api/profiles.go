@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 type resolvedProfileContextKey struct{}
@@ -27,19 +29,51 @@ type ProfileResolver interface {
 	Acquire(context.Context, string) (ProfileLease, error)
 }
 
+// ProfileCatalog is the exact local lifecycle surface exposed to the browser.
+type ProfileCatalog interface {
+	List(context.Context) ([]profilecatalog.Entry, error)
+	Create(context.Context, profilecatalog.CreateRequest) (profilecatalog.Entry, error)
+	RecoveryPlan(context.Context, string) (profilecatalog.RecoveryPlan, error)
+	Recreate(context.Context, profilecatalog.RecoveryRequest) (profilecatalog.RecoveryResult, error)
+}
+
+// ProfileEvictor closes the server-owned service before destructive recovery.
+type ProfileEvictor interface {
+	Evict(context.Context, string) error
+}
+
+// OnboardingCoordinator is the credential-blind renderer-neutral setup surface.
+type OnboardingCoordinator interface {
+	Start(context.Context, onboarding.StartRequest) (onboarding.Snapshot, error)
+	Status(context.Context, onboarding.StatusRequest) (onboarding.Snapshot, error)
+	Submit(context.Context, onboarding.SubmitRequest) (onboarding.Snapshot, error)
+	Cancel(context.Context, onboarding.CancelRequest) (onboarding.Snapshot, error)
+	TakeOpenedProfile(context.Context, onboarding.StatusRequest) (onboarding.OpenedProfile, error)
+}
+
 func resolveProfileRequests(
 	next http.Handler,
 	basePath string,
 	resolver ProfileResolver,
 ) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
+	resolvedEndpoints := map[string]struct{}{
+		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {},
+		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
+		"review/targets": {}, "editor-catalog": {}, "provider/status": {},
+		"provider/refresh": {}, "provider/refresh/confirm": {},
+	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.EscapedPath(), prefix) {
 			next.ServeHTTP(response, request)
 			return
 		}
-		profileID, _, err := ParseProfileAPIPath(basePath, request.URL.EscapedPath())
+		profileID, endpoint, err := ParseProfileAPIPath(basePath, request.URL.EscapedPath())
 		if err != nil {
+			next.ServeHTTP(response, request)
+			return
+		}
+		if _, ok := resolvedEndpoints[endpoint]; !ok {
 			next.ServeHTTP(response, request)
 			return
 		}

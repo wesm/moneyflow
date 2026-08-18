@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/onboarding"
 )
 
 func TestSafeErrorDoesNotExposeCause(t *testing.T) {
@@ -21,6 +22,28 @@ func TestSafeErrorDoesNotExposeCause(t *testing.T) {
 	var safe *SafeError
 	require.True(t, errors.As(err, &safe))
 	assert.Equal(t, CodeInvalidViewState, safe.Code)
+}
+
+func TestProblemMapsEveryOnboardingCodeToStableSafeEnvelope(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		code   onboarding.Code
+		status int
+	}{
+		{onboarding.CodeOnboardingStale, http.StatusConflict},
+		{onboarding.CodeOnboardingExpired, http.StatusNotFound},
+		{onboarding.CodeOnboardingCanceled, http.StatusConflict},
+		{onboarding.CodeOnboardingLocalOnly, http.StatusConflict},
+		{onboarding.CodeCredentialUnlockFailed, http.StatusUnprocessableEntity},
+		{onboarding.CodeCredentialInputInvalid, http.StatusUnprocessableEntity},
+		{onboarding.CodeProviderConnectInProgress, http.StatusServiceUnavailable},
+	}
+	for _, test := range tests {
+		problem := problemFromOnboardingError(onboarding.ErrorForCode(test.code))
+		assert.Equal(t, test.status, problem.Status)
+		assert.Equal(t, string(test.code), problem.Code)
+		assert.NotContains(t, problem.Detail, "credential contents")
+	}
 }
 
 func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {

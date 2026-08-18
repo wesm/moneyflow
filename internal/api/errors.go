@@ -52,6 +52,36 @@ const (
 	CodeProviderUnavailable ErrorCode = "provider_unavailable"
 	// CodeProviderDataInvalid rejects provider data that violates domain invariants.
 	CodeProviderDataInvalid ErrorCode = "provider_data_invalid"
+	// CodeProfileNotFound reports an absent local profile.
+	CodeProfileNotFound ErrorCode = "profile_not_found"
+	// CodeProfileAmbiguous reports a non-unique local profile selector.
+	CodeProfileAmbiguous ErrorCode = "profile_ambiguous"
+	// CodeProfileNameConflict reports a normalized display-name collision.
+	CodeProfileNameConflict ErrorCode = "profile_name_conflict"
+	// CodeProfileInvalid reports invalid local profile metadata.
+	CodeProfileInvalid ErrorCode = "profile_invalid"
+	// CodeProfileManifestUnsupported reports an unknown manifest version.
+	CodeProfileManifestUnsupported ErrorCode = "profile_manifest_unsupported"
+	// CodeProfileBusy reports a conflicting profile lifecycle owner.
+	CodeProfileBusy ErrorCode = "profile_busy"
+	// CodeProfileRecoveryIncomplete reports ambiguous crash-recovery state.
+	CodeProfileRecoveryIncomplete ErrorCode = "profile_recovery_incomplete"
+	// CodeProfileRecoveryUnavailable reports an explicitly non-recoverable profile.
+	CodeProfileRecoveryUnavailable ErrorCode = "profile_recovery_unavailable"
+	// CodeOnboardingStale reports a state-version conflict.
+	CodeOnboardingStale ErrorCode = "onboarding_stale"
+	// CodeOnboardingExpired reports an unavailable process-local attempt.
+	CodeOnboardingExpired ErrorCode = "onboarding_expired"
+	// CodeOnboardingCanceled reports a canceled process-local attempt.
+	CodeOnboardingCanceled ErrorCode = "onboarding_canceled"
+	// CodeOnboardingLocalOnly reports a profile that cannot be connected.
+	CodeOnboardingLocalOnly ErrorCode = "onboarding_local_only"
+	// CodeCredentialUnlockFailed reports a rejected local vault password.
+	CodeCredentialUnlockFailed ErrorCode = "credential_unlock_failed" // #nosec G101 -- stable protocol code
+	// CodeCredentialInputInvalid reports invalid transient setup input.
+	CodeCredentialInputInvalid ErrorCode = "credential_input_invalid" // #nosec G101 -- stable protocol code
+	// CodeProviderConnectInProgress reports another provider-connect lock owner.
+	CodeProviderConnectInProgress ErrorCode = "provider_connect_in_progress"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.

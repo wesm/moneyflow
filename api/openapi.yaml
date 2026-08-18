@@ -478,6 +478,191 @@ components:
         - pending
         - selection
       type: object
+    OnboardingCancelBody:
+      additionalProperties: false
+      properties:
+        expected_state_version:
+          format: int64
+          minimum: 0
+          type: integer
+        protocol_version:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - protocol_version
+        - expected_state_version
+      type: object
+    OnboardingCredentialsInput:
+      additionalProperties: false
+      properties:
+        account_password:
+          maxLength: 4096
+          type: string
+        confirmation:
+          maxLength: 4096
+          type: string
+        email:
+          maxLength: 4096
+          type: string
+        password:
+          maxLength: 4096
+          type: string
+        totp_secret:
+          maxLength: 4096
+          type: string
+      required:
+        - email
+        - password
+        - totp_secret
+        - account_password
+        - confirmation
+      type: object
+    OnboardingFailureResponse:
+      additionalProperties: false
+      properties:
+        can_reenter:
+          type: boolean
+        can_retry:
+          type: boolean
+        code:
+          type: string
+        message:
+          type: string
+      required:
+        - code
+        - message
+        - can_retry
+        - can_reenter
+      type: object
+    OnboardingProgressResponse:
+      additionalProperties: false
+      properties:
+        attempt:
+          format: int64
+          type: integer
+        elapsed_ms:
+          format: int64
+          type: integer
+        fetched:
+          format: int64
+          type: integer
+        partition:
+          type: string
+        pass:
+          format: int64
+          type: integer
+        phase:
+          type: string
+        total:
+          format: int64
+          type: integer
+      required:
+        - phase
+        - partition
+        - fetched
+        - total
+        - attempt
+        - pass
+        - elapsed_ms
+      type: object
+    OnboardingSettingsInput:
+      additionalProperties: false
+      properties:
+        currency:
+          maxLength: 3
+          minLength: 3
+          type: string
+        scale:
+          format: int32
+          maximum: 9
+          minimum: 0
+          type: integer
+      required:
+        - currency
+        - scale
+      type: object
+    OnboardingStartBody:
+      additionalProperties: false
+      properties:
+        month_to_date:
+          type: boolean
+        protocol_version:
+          format: int32
+          minimum: 0
+          type: integer
+        settings:
+          $ref: "#/components/schemas/OnboardingSettingsInput"
+      required:
+        - protocol_version
+        - month_to_date
+      type: object
+    OnboardingStatusResponse:
+      additionalProperties: false
+      properties:
+        attempt_id:
+          type: string
+        failure:
+          $ref: "#/components/schemas/OnboardingFailureResponse"
+        profile_id:
+          type: string
+        progress:
+          $ref: "#/components/schemas/OnboardingProgressResponse"
+        protocol_version:
+          format: int32
+          minimum: 0
+          type: integer
+        provider_kind:
+          type: string
+        settings:
+          $ref: "#/components/schemas/OnboardingSettingsInput"
+        state:
+          type: string
+        state_version:
+          format: int64
+          minimum: 0
+          type: integer
+      required:
+        - protocol_version
+        - attempt_id
+        - profile_id
+        - state_version
+        - state
+        - provider_kind
+      type: object
+    OnboardingSubmitBody:
+      additionalProperties: false
+      properties:
+        action:
+          type: string
+        credentials:
+          $ref: "#/components/schemas/OnboardingCredentialsInput"
+        expected_state_version:
+          format: int64
+          minimum: 0
+          type: integer
+        protocol_version:
+          format: int32
+          minimum: 0
+          type: integer
+        settings:
+          $ref: "#/components/schemas/OnboardingSettingsInput"
+        unlock:
+          $ref: "#/components/schemas/OnboardingUnlockInput"
+      required:
+        - protocol_version
+        - expected_state_version
+        - action
+      type: object
+    OnboardingUnlockInput:
+      additionalProperties: false
+      properties:
+        account_password:
+          maxLength: 4096
+          type: string
+      required:
+        - account_password
+      type: object
     PendingSummary:
       additionalProperties: false
       properties:
@@ -541,6 +726,70 @@ components:
         - status
         - detail
         - code
+      type: object
+    ProfileCatalogResponse:
+      additionalProperties: false
+      properties:
+        profiles:
+          items:
+            $ref: "#/components/schemas/ProfileSummary"
+          type:
+            - array
+            - "null"
+        version:
+          type: string
+      required:
+        - version
+        - profiles
+      type: object
+    ProfileCreateBody:
+      additionalProperties: false
+      properties:
+        display_name:
+          maxLength: 320
+          minLength: 1
+          type: string
+        provider_kind:
+          enum:
+            - monarch
+            - local
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - display_name
+        - provider_kind
+      type: object
+    ProfileResponse:
+      additionalProperties: false
+      properties:
+        profile:
+          $ref: "#/components/schemas/ProfileSummary"
+        version:
+          type: string
+      required:
+        - version
+        - profile
+      type: object
+    ProfileSummary:
+      additionalProperties: false
+      properties:
+        display_name:
+          type: string
+        id:
+          type: string
+        key:
+          type: string
+        provider_kind:
+          type: string
+        status:
+          type: string
+      required:
+        - key
+        - display_name
+        - provider_kind
+        - status
       type: object
     Projection:
       additionalProperties: false
@@ -804,6 +1053,59 @@ components:
         - progress
         - summary
         - capability
+      type: object
+    RecoveryBody:
+      additionalProperties: false
+      properties:
+        confirmed:
+          type: boolean
+        plan:
+          $ref: "#/components/schemas/RecoveryPlan"
+        version:
+          type: string
+      required:
+        - version
+        - confirmed
+      type: object
+    RecoveryPlan:
+      additionalProperties: false
+      properties:
+        backup_path:
+          type: string
+        in_progress:
+          type: boolean
+        original_code:
+          type: string
+        profile_id:
+          type: string
+        profile_key:
+          type: string
+        started_at:
+          format: date-time
+          type: string
+      required:
+        - profile_key
+        - profile_id
+        - backup_path
+        - started_at
+        - original_code
+        - in_progress
+      type: object
+    RecoveryResponse:
+      additionalProperties: false
+      properties:
+        backup_path:
+          type: string
+        plan:
+          $ref: "#/components/schemas/RecoveryPlan"
+        recreated:
+          type: boolean
+        version:
+          type: string
+      required:
+        - version
+        - plan
+        - recreated
       type: object
     ReturnedWindow:
       additionalProperties: false
@@ -1148,9 +1450,131 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
       summary: Issue browser-memory mutation configuration
-  /api/v1/commit:
+  /api/v1/profiles:
+    get:
+      operationId: listProfiles
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileCatalogResponse"
+          description: OK
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: List local profiles
+    post:
+      operationId: createProfile
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileCreateBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Create a pristine local profile
+  /api/v1/profiles/{profile_id}/bootstrap:
+    get:
+      operationId: profileBootstrap
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+          description: OK
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Issue profile-scoped browser mutation configuration
+  /api/v1/profiles/{profile_id}/commit:
     post:
       operationId: commitProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1207,9 +1631,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Commit one reviewed active journal prefix
-  /api/v1/editor-catalog:
+  /api/v1/profiles/{profile_id}/editor-catalog:
     post:
       operationId: editorCatalog
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1266,9 +1696,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Load bounded active editor choices
-  /api/v1/health:
+  /api/v1/profiles/{profile_id}/health:
     get:
       operationId: health
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           content:
@@ -1283,9 +1719,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Error
       summary: Report persistent profile service health
-  /api/v1/mutations:
+  /api/v1/profiles/{profile_id}/mutations:
     post:
       operationId: mutateProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1342,9 +1784,275 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Apply one persistent profile action
-  /api/v1/provider/refresh:
+  /api/v1/profiles/{profile_id}/onboarding/start:
+    post:
+      operationId: startProfileOnboarding
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingStartBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Start profile onboarding
+  /api/v1/profiles/{profile_id}/onboarding/{attempt_id}/cancel:
+    post:
+      operationId: cancelProfileOnboarding
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            maxLength: 128
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingCancelBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Cancel profile onboarding
+  /api/v1/profiles/{profile_id}/onboarding/{attempt_id}/status:
+    get:
+      operationId: profileOnboardingStatus
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            maxLength: 128
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatusResponse"
+          description: OK
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Read credential-blind onboarding status
+  /api/v1/profiles/{profile_id}/onboarding/{attempt_id}/submit:
+    post:
+      operationId: submitProfileOnboarding
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            maxLength: 128
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingSubmitBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnboardingStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Submit one onboarding transition
+  /api/v1/profiles/{profile_id}/provider/refresh:
     post:
       operationId: refreshProvider
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1401,9 +2109,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Refresh one complete provider snapshot
-  /api/v1/provider/refresh/confirm:
+  /api/v1/profiles/{profile_id}/provider/refresh/confirm:
     post:
       operationId: confirmProviderRefresh
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1460,9 +2174,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Confirm one suspicious provider refresh candidate
-  /api/v1/provider/status:
+  /api/v1/profiles/{profile_id}/provider/status:
     get:
       operationId: providerStatus
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           content:
@@ -1470,6 +2190,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProviderStatusResponse"
           description: OK
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
         "500":
           content:
             application/problem+json:
@@ -1483,9 +2209,86 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Report counts-only provider refresh status
-  /api/v1/redo:
+  /api/v1/profiles/{profile_id}/recovery:
+    post:
+      operationId: recoverProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Preview or confirm profile recovery
+  /api/v1/profiles/{profile_id}/redo:
     post:
       operationId: redoProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1541,9 +2344,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
-  /api/v1/review:
+  /api/v1/profiles/{profile_id}/review:
     post:
       operationId: reviewProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1600,9 +2409,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Review pending operation summaries
-  /api/v1/review/targets:
+  /api/v1/profiles/{profile_id}/review/targets:
     post:
       operationId: reviewProfileTargets
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1659,9 +2474,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Review one bounded affected-target window
-  /api/v1/undo:
+  /api/v1/profiles/{profile_id}/undo:
     post:
       operationId: undoProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1717,9 +2538,15 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
-  /api/v1/view:
+  /api/v1/profiles/{profile_id}/view:
     post:
       operationId: projectView
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -1758,9 +2585,15 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
       summary: Project one stateless read-only view
-  /api/v1/view/transition:
+  /api/v1/profiles/{profile_id}/view/transition:
     post:
       operationId: transitionView
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:

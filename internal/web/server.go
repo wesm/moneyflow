@@ -17,6 +17,9 @@ import (
 // ServerConfig supplies the immutable dependencies shared by the API and browser application.
 type ServerConfig struct {
 	Service          *app.Service
+	Catalog          api.ProfileCatalog
+	Evictor          api.ProfileEvictor
+	Onboarding       api.OnboardingCoordinator
 	BasePath         string
 	Version          string
 	Origin           api.OriginConfig
@@ -58,6 +61,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		Resolver:        fixedProfileResolver{id: fixedWebProfileID, service: config.Service},
 		LegacyProfileID: fixedWebProfileID, BasePath: basePath, Version: config.Version,
 		Origin: config.Origin, Security: config.Security,
+		Catalog: config.Catalog, Evictor: config.Evictor, Onboarding: config.Onboarding,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new web server API: %w", err)

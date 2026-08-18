@@ -33,6 +33,7 @@ interface BootstrapResponse {
 
 const mutationTokenHeader = 'X-Moneyflow-Mutation-Token'
 const proactiveRefreshMillis = 5 * 60 * 1000
+const temporaryProfileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 export interface MoneyflowClient {
   readonly mutations: MutationFetch
@@ -160,6 +161,7 @@ export class MoneyflowProblem extends Error {
 export function createMoneyflowClient(
   basePath: string,
   upstream: typeof fetch = fetch,
+  profileID: string = temporaryProfileID,
 ): MoneyflowClient {
   const origin = globalThis.location?.origin ?? 'http://localhost'
   const client = createClient<paths>({
@@ -174,17 +176,25 @@ export function createMoneyflowClient(
   return {
     mutations,
     async view(body, signal) {
-      const result = await client.POST('/api/v1/view', requestOptions(body, signal))
+      const result = await client.POST('/api/v1/profiles/{profile_id}/view', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
       return projectionOrThrow(result.data, result.error)
     },
     async transition(body, signal) {
-      const result = await client.POST('/api/v1/view/transition', requestOptions(body, signal))
+      const result = await client.POST('/api/v1/profiles/{profile_id}/view/transition', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
       return projectionOrThrow(result.data, result.error)
     },
     async providerStatus(signal) {
       const result = await client.GET(
-        '/api/v1/provider/status',
-        signal === undefined ? {} : { signal },
+        '/api/v1/profiles/{profile_id}/provider/status',
+        signal === undefined
+          ? { params: { path: { profile_id: profileID } } }
+          : { params: { path: { profile_id: profileID } }, signal },
       )
       if (isProviderStatus(result.data)) return result.data
       if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
