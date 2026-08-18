@@ -63,11 +63,20 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) {
 	case onboarding.StateCredentialsRequired:
 		shell.renderCredentialForm(frame, content)
 	default:
-		message := shell.status
-		if message == "" {
-			message = onboardingStateMessage(shell.snapshot.State)
+		state := progressState(shell.snapshot)
+		state.canceling = shell.canceling
+		lines := strings.Split(state.View(), "\n")
+		for index, line := range lines {
+			style := shell.palette.Muted
+			if shell.snapshot.Failure != nil && index == 0 {
+				style = shell.palette.Warning
+			}
+			frame.PutText(
+				content.X+2, content.Y+3+index*2,
+				Truncate(line, content.Width-4), style,
+			)
 		}
-		frame.PutText(content.X+2, content.Y+3, message, shell.palette.Muted)
+		return
 	}
 	frame.PutText(content.X+2, content.Y+content.Height-2, "Tab/Shift+Tab Move  Enter Continue  Esc Cancel", shell.palette.Muted)
 }

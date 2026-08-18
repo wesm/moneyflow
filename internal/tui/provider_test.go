@@ -15,6 +15,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
@@ -236,6 +237,84 @@ func TestProviderStatusHealsReconnectAndExplainsOtherConfirmationOwner(t *testin
 	model = updated.(Model)
 	assert.Contains(t, model.status, "confirm in the web interface")
 	assert.Contains(t, model.status, "press r")
+}
+
+func TestProviderReconnectRequestsShellOnRefreshAndStatus(t *testing.T) {
+	t.Parallel()
+
+	fixture := newProviderModel(t, 2)
+	model := fixture.model
+	fixture.source.setProbeError(provider.NewError(provider.CodeReconnectRequired))
+	message := model.providerRefreshCommand(true, "")().(providerRefreshMsg)
+	updated, _ := model.Update(message)
+	model = updated.(Model)
+	assert.True(t, model.provider.reconnectRequested)
+
+	model.provider.reconnectRequested = false
+	updated, _ = model.Update(providerStatusMsg{
+		status: app.ProviderStatus{Code: provider.CodeReconnectRequired},
+		at:     fixture.now, timerGeneration: model.provider.timerGeneration,
+	})
+	model = updated.(Model)
+	assert.True(t, model.provider.reconnectRequested)
+}
+
+func TestReconnectReturnsToPreservedFinanceSession(t *testing.T) {
+	t.Parallel()
+
+	dependencies, state := fakeShellDependencies(t)
+	fixture := newProviderModel(t, 30)
+	opened := ShellOpenedProfile{
+		ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", Service: fixture.model.service,
+		Close: func() error { state.closes++; return nil },
+	}
+	dependencies.Preselected = &opened
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	require.NotNil(t, shell.finance)
+	shell.finance.session.ShowAllDetail()
+	shell.finance.refresh()
+	require.Greater(t, shell.finance.rowCount(), shell.finance.visibleRows())
+	shell.finance.cursor = 20
+	shell.finance.scroll = 5
+	before := shell.finance.session
+
+	updated, command := shell.Update(providerRefreshMsg{err: &app.AppError{
+		Code: app.AppProviderReconnectRequired,
+	}})
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+	assert.Equal(t, shellOnboarding, shell.screen)
+	assert.Equal(t, 1, state.closes)
+
+	started := command().(shellOnboardingSnapshotMsg)
+	started.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       opened.ID, AttemptID: "attempt-reconnect", StateVersion: 4,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+		Progress: &onboarding.Progress{Phase: "complete", Imported: 83},
+	}
+	reconnected := ShellOpenedProfile{
+		ID: opened.ID, Service: fixture.model.service,
+		Close: func() error { state.closes++; return nil },
+	}
+	state.onboardingOpened = onboarding.OpenedProfile{
+		ID: reconnected.ID, Service: reconnected.Service, Close: reconnected.Close,
+	}
+	updated, command = shell.Update(started)
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+
+	updated, command = shell.Update(command())
+	shell = updated.(Shell)
+	assert.Equal(t, shellFinance, shell.screen)
+	require.NotNil(t, shell.finance)
+	assert.Equal(t, before, shell.finance.session)
+	assert.Equal(t, 20, shell.finance.cursor)
+	assert.Equal(t, 5, shell.finance.scroll)
+	_, refreshAvailable := shell.finance.capability(app.ActionRefreshProvider)
+	assert.True(t, refreshAvailable)
+	assert.NotNil(t, command)
 }
 
 func TestProviderRefreshKeepsStableLabelDrillAndEmptiesRetiredDrill(t *testing.T) {

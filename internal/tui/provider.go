@@ -26,6 +26,7 @@ type providerTUIState struct {
 	confirmationToken  string
 	interactionVersion uint64
 	timerGeneration    uint64
+	reconnectRequested bool
 }
 
 type providerRefreshMsg struct {
@@ -153,6 +154,9 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 			return model.nextProviderScheduleTick()
 		}
 		var failure *app.AppError
+		if errors.As(message.err, &failure) && failure.Code == app.AppProviderReconnectRequired {
+			model.provider.reconnectRequested = true
+		}
 		if errors.As(message.err, &failure) &&
 			failure.Code == app.AppProviderDeletionConfirmationRequired &&
 			message.result.Status.ConfirmationToken != "" {
@@ -212,6 +216,9 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	}
 	previousCode := model.provider.status.Code
 	model.provider.status = message.status
+	if message.status.Code == provider.CodeReconnectRequired {
+		model.provider.reconnectRequested = true
+	}
 	if model.provider.refreshing {
 		model.status = providerProgressMessage(message.status)
 		return providerProgressTickCommand(model.provider.timerGeneration)
@@ -288,7 +295,7 @@ func providerSuccessMessage(status app.ProviderStatus) string {
 func providerStatusMessage(status app.ProviderStatus) string {
 	switch status.Code {
 	case provider.CodeReconnectRequired:
-		return "Reconnect Monarch through the command line; this view will notice the replaced session."
+		return "Reconnect Monarch to continue refreshing this profile."
 	case provider.CodeDeletionConfirmationRequired:
 		if status.OwnerRenderer != "" {
 			return fmt.Sprintf(

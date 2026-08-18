@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -108,12 +109,22 @@ type Shell struct {
 	settings     settingsForm
 	unlock       unlockForm
 	credentials  credentialForm
+	canceling    bool
+	cancelQueued bool
+	resume       *financeResumeState
 	finance      *Model
 	opened       *shellOwnedProfile
 	width        int
 	height       int
 	status       string
 	err          error
+}
+
+type financeResumeState struct {
+	profileID string
+	session   app.Session
+	cursor    int
+	scroll    int
 }
 
 // String keeps generic model diagnostics free of profile and credential values.
@@ -130,6 +141,7 @@ type switchProfileMsg struct{}
 
 type shellProfileOpenedMsg struct {
 	profile ShellOpenedProfile
+	resume  *financeResumeState
 	err     error
 }
 
@@ -154,8 +166,25 @@ type shellProfileRecreatedMsg struct {
 
 type shellOnboardingSnapshotMsg struct {
 	snapshot onboarding.Snapshot
+	guard    *onboardingPollGuard
 	err      error
 }
+
+type onboardingPollGuard struct {
+	attemptID    string
+	stateVersion uint64
+}
+
+type shellOnboardingPollMsg struct {
+	guard onboardingPollGuard
+}
+
+type shellOnboardingOpenedMsg struct {
+	profile ShellOpenedProfile
+	err     error
+}
+
+const onboardingPollInterval = 100 * time.Millisecond
 
 // NewShell validates dependencies and starts either at selection or a preselected finance view.
 func NewShell(ctx context.Context, dependencies ShellDependencies, options Options) (Shell, error) {
@@ -211,10 +240,20 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			shell.selector.status = shell.status
 			return shell, nil
 		}
-		if err := shell.enterFinance(message.profile, app.NewSession()); err != nil {
+		session := app.NewSession()
+		if message.resume != nil {
+			session = message.resume.session
+		}
+		if err := shell.enterFinance(message.profile, session); err != nil {
 			shell.status = "The selected profile could not be opened."
 			shell.err = err
 			return shell, nil
+		}
+		if message.resume != nil {
+			shell.finance.cursor = message.resume.cursor
+			shell.finance.scroll = message.resume.scroll
+			shell.finance.clampCursor()
+			shell.resume = nil
 		}
 		updated, command := shell.finance.Update(tea.WindowSizeMsg{Width: shell.width, Height: shell.height})
 		finance := updated.(Model)
@@ -272,6 +311,9 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return shell, shell.beginOnboarding(*shell.selected)
 	case shellOnboardingSnapshotMsg:
+		if message.guard != nil && !shell.acceptsOnboardingGuard(*message.guard) {
+			return shell, nil
+		}
 		if message.err != nil {
 			shell.status = "Profile setup could not continue."
 			shell.err = message.err
@@ -282,7 +324,48 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return shell, nil
 		}
 		shell.applyOnboardingSnapshot(message.snapshot)
-		return shell, nil
+		return shell.nextOnboardingStep()
+	case shellOnboardingPollMsg:
+		if !shell.acceptsOnboardingGuard(message.guard) {
+			return shell, nil
+		}
+		guard := message.guard
+		return shell, func() tea.Msg {
+			snapshot, err := shell.dependencies.Onboarding.Status(shell.ctx, onboarding.StatusRequest{
+				ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
+			})
+			return shellOnboardingSnapshotMsg{snapshot: snapshot, guard: &guard, err: err}
+		}
+	case shellOnboardingOpenedMsg:
+		if message.err != nil {
+			shell.status = "The connected profile could not enter the finance view."
+			shell.err = message.err
+			return shell, nil
+		}
+		session := app.NewSession()
+		if shell.resume != nil {
+			session = shell.resume.session
+		}
+		if err := shell.enterFinance(message.profile, session); err != nil {
+			shell.status = "The connected profile could not enter the finance view."
+			shell.err = err
+			return shell, nil
+		}
+		if shell.resume != nil {
+			shell.finance.cursor = shell.resume.cursor
+			shell.finance.scroll = shell.resume.scroll
+			shell.finance.clampCursor()
+		}
+		shell.resume = nil
+		shell.createdID = ""
+		shell.selected = nil
+		shell.haveSnapshot = false
+		shell.canceling = false
+		shell.cancelQueued = false
+		updated, command := shell.finance.Update(tea.WindowSizeMsg{Width: shell.width, Height: shell.height})
+		finance := updated.(Model)
+		shell.finance = &finance
+		return shell, tea.Batch(command, shell.finance.Init())
 	case switchProfileMsg:
 		shell.leaveFinance()
 		return shell, nil
@@ -343,17 +426,7 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return shell.routeRecoveryKey(message)
 		}
 		if shell.screen == shellOnboarding && message.Keystroke() == "esc" {
-			if shell.createdID == "" {
-				shell.screen = shellSelector
-				shell.selected = nil
-				return shell, nil
-			}
-			profileID := shell.createdID
-			shell.status = "Canceling profile setup…"
-			return shell, func() tea.Msg {
-				_, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
-				return shellProfileCanceledMsg{err: err}
-			}
+			return shell.cancelOnboarding()
 		}
 		if shell.screen == shellOnboarding {
 			return shell.routeOnboardingKey(message)
@@ -368,6 +441,9 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		updated, command := shell.finance.Update(message)
 		finance := updated.(Model)
 		shell.finance = &finance
+		if shell.finance.provider.reconnectRequested {
+			return shell.startFinanceReconnect()
+		}
 		return shell, command
 	}
 	return shell, nil
@@ -447,6 +523,130 @@ func (shell Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 	}
 }
 
+func (shell Shell) acceptsOnboardingGuard(guard onboardingPollGuard) bool {
+	return shell.screen == shellOnboarding && shell.haveSnapshot &&
+		shell.snapshot.AttemptID == guard.attemptID &&
+		shell.snapshot.StateVersion == guard.stateVersion
+}
+
+func (shell Shell) nextOnboardingStep() (tea.Model, tea.Cmd) {
+	if shell.cancelQueued && !shell.canceling {
+		return shell.cancelOnboarding()
+	}
+	switch shell.snapshot.State {
+	case onboarding.StateInspect, onboarding.StateValidateSession,
+		onboarding.StateAuthenticating, onboarding.StateImporting:
+		guard := onboardingPollGuard{
+			attemptID: shell.snapshot.AttemptID, stateVersion: shell.snapshot.StateVersion,
+		}
+		return shell, tea.Tick(onboardingPollInterval, func(time.Time) tea.Msg {
+			return shellOnboardingPollMsg{guard: guard}
+		})
+	case onboarding.StateComplete:
+		request := onboarding.StatusRequest{
+			ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
+		}
+		return shell, func() tea.Msg {
+			opened, err := shell.dependencies.Onboarding.TakeOpenedProfile(shell.ctx, request)
+			return shellOnboardingOpenedMsg{
+				profile: ShellOpenedProfile{
+					ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
+				},
+				err: err,
+			}
+		}
+	case onboarding.StateCanceled:
+		return shell.finishCanceledOnboarding()
+	default:
+		return shell, nil
+	}
+}
+
+func (shell Shell) cancelOnboarding() (tea.Model, tea.Cmd) {
+	if shell.canceling {
+		return shell, nil
+	}
+	if !shell.haveSnapshot || shell.snapshot.AttemptID == "" {
+		shell.cancelQueued = true
+		shell.status = "Cancellation requested; waiting for profile setup to start…"
+		return shell, nil
+	}
+	shell.canceling = true
+	shell.cancelQueued = false
+	shell.status = "Cancellation requested; waiting for Monarch work to stop…"
+	request := onboarding.CancelRequest{
+		ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
+		ExpectedStateVersion: shell.snapshot.StateVersion,
+	}
+	guard := onboardingPollGuard{
+		attemptID: shell.snapshot.AttemptID, stateVersion: shell.snapshot.StateVersion,
+	}
+	return shell, func() tea.Msg {
+		snapshot, err := shell.dependencies.Onboarding.Cancel(shell.ctx, request)
+		return shellOnboardingSnapshotMsg{snapshot: snapshot, guard: &guard, err: err}
+	}
+}
+
+func (shell Shell) finishCanceledOnboarding() (tea.Model, tea.Cmd) {
+	shell.canceling = false
+	shell.cancelQueued = false
+	shell.haveSnapshot = false
+	if shell.createdID != "" {
+		profileID := shell.createdID
+		shell.status = "Removing incomplete profile…"
+		return shell, func() tea.Msg {
+			_, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
+			return shellProfileCanceledMsg{err: err}
+		}
+	}
+	if shell.resume != nil {
+		resume := *shell.resume
+		shell.status = "Returning to the profile without reconnecting…"
+		return shell, func() tea.Msg {
+			profile, err := shell.dependencies.OpenProfile(shell.ctx, resume.profileID)
+			return shellProfileOpenedMsg{profile: profile, resume: &resume, err: err}
+		}
+	}
+	shell.selected = nil
+	shell.screen = shellSelector
+	shell.refreshEntries()
+	return shell, nil
+}
+
+func (shell Shell) startFinanceReconnect() (tea.Model, tea.Cmd) {
+	if shell.finance == nil || shell.opened == nil || shell.opened.profile.ID == "" {
+		shell.status = "This profile cannot start reconnect from the current view."
+		return shell, nil
+	}
+	resume := &financeResumeState{
+		profileID: shell.opened.profile.ID,
+		session:   shell.finance.session, cursor: shell.finance.cursor, scroll: shell.finance.scroll,
+	}
+	entry := profilecatalog.Entry{
+		ID: resume.profileID, Key: resume.profileID,
+		DisplayName: "Moneyflow profile", ProviderKind: "monarch",
+	}
+	for _, candidate := range shell.entries {
+		if candidate.ID == resume.profileID || candidate.Key == resume.profileID {
+			entry = candidate
+			break
+		}
+	}
+	if err := shell.Close(); err != nil {
+		shell.status = "The profile could not be closed for reconnect."
+		shell.err = err
+		return shell, nil
+	}
+	shell.resume = resume
+	shell.selected = &entry
+	shell.screen = shellOnboarding
+	shell.haveSnapshot = false
+	shell.canceling = false
+	shell.cancelQueued = false
+	shell.status = "Reconnect Monarch to continue refreshing this profile."
+	return shell, shell.beginOnboarding(entry)
+}
+
 func (shell *Shell) applyOnboardingSnapshot(snapshot onboarding.Snapshot) {
 	shell.snapshot = snapshot
 	shell.haveSnapshot = true
@@ -515,15 +715,36 @@ func (shell Shell) routeOnboardingKey(message tea.KeyPressMsg) (tea.Model, tea.C
 			return shell, nil
 		}
 		return shell, shell.submitOnboarding(request)
+	case onboarding.StateFailed:
+		if shell.snapshot.Failure != nil && shell.snapshot.Failure.CanRetry &&
+			(message.Keystroke() == "enter" || message.Keystroke() == "r") {
+			return shell, shell.submitOnboarding(onboarding.SubmitRequest{
+				ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
+				ExpectedStateVersion: shell.snapshot.StateVersion, Action: onboarding.ActionRetry,
+			})
+		}
+	case onboarding.StateIdentityMismatch:
+		if shell.snapshot.Failure != nil && shell.snapshot.Failure.CanReenter &&
+			(message.Keystroke() == "enter" || message.Keystroke() == "r") {
+			return shell, shell.submitOnboarding(onboarding.SubmitRequest{
+				ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
+				ExpectedStateVersion: shell.snapshot.StateVersion,
+				Action:               onboarding.ActionReauthenticate,
+			})
+		}
 	default:
 		return shell, nil
 	}
+	return shell, nil
 }
 
 func (shell Shell) submitOnboarding(request onboarding.SubmitRequest) tea.Cmd {
+	guard := onboardingPollGuard{
+		attemptID: request.AttemptID, stateVersion: request.ExpectedStateVersion,
+	}
 	return func() tea.Msg {
 		snapshot, err := shell.dependencies.Onboarding.Submit(shell.ctx, request)
-		return shellOnboardingSnapshotMsg{snapshot: snapshot, err: err}
+		return shellOnboardingSnapshotMsg{snapshot: snapshot, guard: &guard, err: err}
 	}
 }
 

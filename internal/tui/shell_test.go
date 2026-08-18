@@ -92,9 +92,12 @@ type fakeShellState struct {
 	canceledID         string
 	openedSelector     string
 	onboardingStarts   int
+	onboardingStatuses int
 	onboardingSubmits  int
 	onboardingSnapshot onboarding.Snapshot
+	onboardingOpened   onboarding.OpenedProfile
 	lastSubmit         onboarding.SubmitRequest
+	lastCancel         onboarding.CancelRequest
 }
 
 type fakeCatalogView struct {
@@ -141,7 +144,42 @@ func (state *fakeShellState) Status(
 	context.Context,
 	onboarding.StatusRequest,
 ) (onboarding.Snapshot, error) {
+	state.onboardingStatuses++
 	return state.onboardingSnapshot, nil
+}
+
+func TestShellOnboardingCancelWaitsAndStalePollDoesNothing(t *testing.T) {
+	t.Parallel()
+
+	dependencies, state := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.screen = shellOnboarding
+	shell.haveSnapshot = true
+	shell.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", AttemptID: "attempt-a",
+		StateVersion: 5, State: onboarding.StateImporting, ProviderKind: "monarch",
+	}
+
+	updated, command := shell.Update(shellOnboardingPollMsg{guard: onboardingPollGuard{
+		attemptID: "attempt-a", stateVersion: 4,
+	}})
+	shell = updated.(Shell)
+	assert.Nil(t, command)
+	assert.Zero(t, state.onboardingStatuses)
+
+	updated, command = shell.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+	assert.True(t, shell.canceling)
+	assert.Contains(t, shell.View().Content, "waiting for Monarch work to stop")
+
+	updated, command = shell.Update(command())
+	shell = updated.(Shell)
+	assert.Nil(t, command)
+	assert.Equal(t, shellSelector, shell.screen)
+	assert.Equal(t, uint64(5), state.lastCancel.ExpectedStateVersion)
 }
 
 func (state *fakeShellState) Submit(
@@ -159,17 +197,29 @@ func (state *fakeShellState) Submit(
 }
 
 func (state *fakeShellState) Cancel(
-	context.Context,
-	onboarding.CancelRequest,
+	_ context.Context,
+	request onboarding.CancelRequest,
 ) (onboarding.Snapshot, error) {
-	return onboarding.Snapshot{}, nil
+	state.lastCancel = request
+	state.onboardingSnapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion,
+		ProfileID:       request.ProfileID, AttemptID: request.AttemptID,
+		StateVersion: request.ExpectedStateVersion + 1, State: onboarding.StateCanceled,
+		ProviderKind: "monarch",
+	}
+	return state.onboardingSnapshot, nil
 }
 
 func (state *fakeShellState) TakeOpenedProfile(
 	context.Context,
 	onboarding.StatusRequest,
 ) (onboarding.OpenedProfile, error) {
-	return onboarding.OpenedProfile{}, errors.New("not configured")
+	if state.onboardingOpened.Service == nil {
+		return onboarding.OpenedProfile{}, errors.New("not configured")
+	}
+	opened := state.onboardingOpened
+	state.onboardingOpened = onboarding.OpenedProfile{}
+	return opened, nil
 }
 
 func (state *fakeShellState) Create(
