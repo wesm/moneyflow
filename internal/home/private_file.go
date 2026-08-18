@@ -34,6 +34,14 @@ func EnsurePrivateDirectory(path string) error {
 	return nil
 }
 
+// SyncPrivateDirectory makes a catalog directory entry durable where the platform requires it.
+func SyncPrivateDirectory(path string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return errors.New("sync private directory: path must be absolute")
+	}
+	return syncPrivateDirectory(path)
+}
+
 // WritePrivateFile atomically replaces one owner-only regular file.
 func WritePrivateFile(path string, contents []byte) error {
 	if path == "" || !filepath.IsAbs(path) {

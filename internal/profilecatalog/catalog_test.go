@@ -186,6 +186,9 @@ func createTestManifestProfile(
 		ManifestVersion: ManifestVersion, ProfileID: id, DisplayName: name,
 		ProviderKind: providerKind, CreatedAt: catalog.now(), CreatedByVersion: catalog.version,
 	}))
+	profileLock, err := home.TryLock(root, home.LockProfile, home.LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, profileLock.Release())
 	return Entry{Key: id, ID: id, DisplayName: name, ProviderKind: providerKind, Root: root}
 }
 

@@ -19,7 +19,10 @@ func (catalog *Catalog) List(ctx context.Context) ([]Entry, error) {
 		return nil, catalogLockError(err)
 	}
 	defer func() { _ = lock.Release() }()
+	return catalog.listUnlocked(ctx)
+}
 
+func (catalog *Catalog) listUnlocked(ctx context.Context) ([]Entry, error) {
 	entries := make([]Entry, 0)
 	legacy, found, err := catalog.discoverLegacy(ctx)
 	if err != nil {
