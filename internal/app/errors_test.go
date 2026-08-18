@@ -49,6 +49,11 @@ func TestAppErrorMapsEveryProviderCodeWithoutRemoteDetails(t *testing.T) {
 	t.Parallel()
 
 	for _, code := range provider.ErrorCodes() {
+		if code == provider.CodeWriteInProgress || code == provider.CodeWriteAttentionRequired ||
+			code == provider.CodeWriteStale || code == provider.CodeWritePaused ||
+			code == provider.CodeWriteNotEligible || code == provider.CodeWriteUnsupported {
+			continue // Write codes are produced by write orchestration, never by a refresh reader.
+		}
 		service, _ := newProviderRefreshService(t)
 		now := time.Date(2026, time.August, 16, 0, 0, 0, 0, time.UTC)
 		source := &fakeProviderSource{

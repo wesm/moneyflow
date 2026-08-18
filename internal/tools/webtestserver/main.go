@@ -392,6 +392,13 @@ func (source *syntheticSource) Reader(
 	return &syntheticReader{profile: source.profile}, "synthetic-session", nil
 }
 
+func (*syntheticSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (source *syntheticSource) Changed(provider.SessionFingerprint) (bool, error) {
 	return false, nil
 }

@@ -271,6 +271,13 @@ func (source *apiProviderSource) Reader(
 	return (*apiProviderReader)(source), source.fingerprint, nil
 }
 
+func (*apiProviderSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (source *apiProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()

@@ -14,6 +14,9 @@ type ErrorCode string
 // DataInvalidReason is an allowlisted, value-free provider validation classification.
 type DataInvalidReason string
 
+// WriteFailureReason is an allowlisted, value-free provider write attention reason.
+type WriteFailureReason string
+
 // Safe provider validation reasons that may cross renderer boundaries.
 const (
 	DataInvalidEntity            DataInvalidReason = "entity"
@@ -24,7 +27,7 @@ const (
 	DataInvalidSnapshot          DataInvalidReason = "snapshot"
 )
 
-// Stable provider failure codes for the read/import/refresh slice.
+// Stable provider failure codes for read, refresh, and write orchestration.
 const (
 	CodeReconnectRequired            ErrorCode = "provider_reconnect_required"
 	CodeIdentityMismatch             ErrorCode = "provider_identity_mismatch"
@@ -36,6 +39,23 @@ const (
 	CodeRateLimited                  ErrorCode = "provider_rate_limited"
 	CodeUnavailable                  ErrorCode = "provider_unavailable"
 	CodeDataInvalid                  ErrorCode = "provider_data_invalid"
+	CodeWriteInProgress              ErrorCode = "provider_write_in_progress"
+	CodeWriteAttentionRequired       ErrorCode = "provider_write_attention_required"
+	CodeWriteStale                   ErrorCode = "provider_write_stale"
+	CodeWritePaused                  ErrorCode = "provider_write_paused"
+	CodeWriteNotEligible             ErrorCode = "provider_write_not_eligible"
+	CodeWriteUnsupported             ErrorCode = "provider_write_unsupported"
+)
+
+// Stable provider write attention reasons.
+const (
+	WriteUnavailableExhausted WriteFailureReason = "provider_write_unavailable_exhausted"
+	WriteResponseIncomplete   WriteFailureReason = "provider_write_response_incomplete"
+	WriteTargetNotFound       WriteFailureReason = "provider_write_target_not_found"
+	WriteRejected             WriteFailureReason = "provider_write_rejected"
+	WriteIdentityConflict     WriteFailureReason = "provider_write_identity_conflict"
+	WriteRetiredIdentity      WriteFailureReason = "provider_write_retired_identity"
+	WriteExpectationInvalid   WriteFailureReason = "provider_write_expectation_invalid"
 )
 
 var errorDetails = map[ErrorCode]string{
@@ -49,6 +69,22 @@ var errorDetails = map[ErrorCode]string{
 	CodeRateLimited:                  "the provider rate limit prevented refresh",
 	CodeUnavailable:                  "the provider is temporarily unavailable",
 	CodeDataInvalid:                  "the provider returned invalid data",
+	CodeWriteInProgress:              "another process is writing this profile",
+	CodeWriteAttentionRequired:       "the provider write requires attention",
+	CodeWriteStale:                   "the provider write state changed",
+	CodeWritePaused:                  "the provider write is paused",
+	CodeWriteNotEligible:             "the provider write is not eligible yet",
+	CodeWriteUnsupported:             "the requested change cannot be written to this provider",
+}
+
+var writeFailureReasons = []WriteFailureReason{
+	WriteUnavailableExhausted,
+	WriteResponseIncomplete,
+	WriteTargetNotFound,
+	WriteRejected,
+	WriteIdentityConflict,
+	WriteRetiredIdentity,
+	WriteExpectationInvalid,
 }
 
 var dataInvalidDetails = map[DataInvalidReason]string{
@@ -71,13 +107,29 @@ var errorCodes = []ErrorCode{
 	CodeRateLimited,
 	CodeUnavailable,
 	CodeDataInvalid,
+	CodeWriteInProgress,
+	CodeWriteAttentionRequired,
+	CodeWriteStale,
+	CodeWritePaused,
+	CodeWriteNotEligible,
+	CodeWriteUnsupported,
 }
 
 // Error is a redacted provider failure. Raw transport and response errors never enter this type.
 type Error struct {
-	code       ErrorCode
-	retryAfter time.Duration
-	reason     DataInvalidReason
+	code        ErrorCode
+	retryAfter  time.Duration
+	reason      DataInvalidReason
+	writeReason WriteFailureReason
+}
+
+// NewWriteFailure constructs a redacted provider write failure.
+func NewWriteFailure(reason WriteFailureReason) *Error {
+	failure := NewError(CodeWriteAttentionRequired)
+	if knownWriteFailureReason(reason) {
+		failure.writeReason = reason
+	}
+	return failure
 }
 
 // NewError constructs a provider failure from a stable code.
@@ -149,6 +201,21 @@ func DataInvalidReasonOf(err error) (DataInvalidReason, bool) {
 	return failure.reason, ok
 }
 
+// WriteFailureReasonOf extracts an allowlisted write reason through wrapping errors.
+func WriteFailureReasonOf(err error) (WriteFailureReason, bool) {
+	var failure *Error
+	if !errors.As(err, &failure) || failure.code != CodeWriteAttentionRequired ||
+		!knownWriteFailureReason(failure.writeReason) {
+		return "", false
+	}
+	return failure.writeReason, true
+}
+
+// WriteFailureReasons returns the complete stable write-reason set in declaration order.
+func WriteFailureReasons() []WriteFailureReason {
+	return append([]WriteFailureReason(nil), writeFailureReasons...)
+}
+
 // DataInvalidDetail returns fixed user-facing text for an allowlisted validation reason.
 func DataInvalidDetail(reason DataInvalidReason) string {
 	return dataInvalidDetails[reason]
@@ -162,4 +229,13 @@ func ErrorCodes() []ErrorCode {
 func knownErrorCode(code ErrorCode) bool {
 	_, ok := errorDetails[code]
 	return ok
+}
+
+func knownWriteFailureReason(reason WriteFailureReason) bool {
+	for _, candidate := range writeFailureReasons {
+		if reason == candidate {
+			return true
+		}
+	}
+	return false
 }

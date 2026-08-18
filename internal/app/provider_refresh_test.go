@@ -648,6 +648,13 @@ func (source *fakeProviderSource) Reader(
 	return (*fakeProviderReader)(source), source.fingerprint, nil
 }
 
+func (*fakeProviderSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (source *fakeProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()

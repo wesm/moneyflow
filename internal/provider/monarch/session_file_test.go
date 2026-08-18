@@ -1,6 +1,7 @@
 package monarch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,6 +144,22 @@ func TestSourceReloadsAtomicallyReplacedSessionOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "replacement-token", reloadedClient.authorization)
 	assert.NotEqual(t, firstFingerprint, secondFingerprint)
+}
+
+func TestSourceWriterUsesTheAuthenticatedSessionGeneration(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSessionStore(t)
+	require.NoError(t, store.Save(validSession()))
+	source, err := NewSource(testClientOptions(t, ""), store)
+	require.NoError(t, err)
+
+	reader, readerFingerprint, err := source.Reader(context.Background(), false)
+	require.NoError(t, err)
+	writer, writerFingerprint, err := source.Writer(context.Background(), false)
+	require.NoError(t, err)
+	assert.Same(t, reader, writer)
+	assert.Equal(t, readerFingerprint, writerFingerprint)
 }
 
 func TestSourceRejectsPersistedImportConfigurationDifferentFromExpected(t *testing.T) {

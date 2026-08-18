@@ -26,7 +26,10 @@ func ProviderErrorRetryClass(code provider.ErrorCode) ProviderRetryClass {
 		return ProviderBoundedRetry
 	case provider.CodeReconnectRequired, provider.CodeIdentityMismatch,
 		provider.CodeDeletionConfirmationRequired, provider.CodeConfirmationInvalid,
-		provider.CodeDataInvalid:
+		provider.CodeDataInvalid, provider.CodeWriteInProgress,
+		provider.CodeWriteAttentionRequired, provider.CodeWriteStale,
+		provider.CodeWritePaused, provider.CodeWriteNotEligible,
+		provider.CodeWriteUnsupported:
 		return ProviderManualActionRequired
 	case provider.CodeRefreshStale:
 		// Another process already folded a newer generation, so freshness is satisfied.

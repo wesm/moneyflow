@@ -207,6 +207,13 @@ func (source *importTestSource) Reader(
 	return (*importTestReader)(source), "import-session", nil
 }
 
+func (*importTestSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (*importTestSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
 
 func (source *importTestSource) fetchCallCount() int {

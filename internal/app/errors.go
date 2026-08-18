@@ -34,6 +34,12 @@ const (
 	AppProviderRateLimited                  AppErrorCode = "provider_rate_limited"
 	AppProviderUnavailable                  AppErrorCode = "provider_unavailable"
 	AppProviderDataInvalid                  AppErrorCode = "provider_data_invalid"
+	AppProviderWriteInProgress              AppErrorCode = "provider_write_in_progress"
+	AppProviderWriteAttentionRequired       AppErrorCode = "provider_write_attention_required"
+	AppProviderWriteStale                   AppErrorCode = "provider_write_stale"
+	AppProviderWritePaused                  AppErrorCode = "provider_write_paused"
+	AppProviderWriteNotEligible             AppErrorCode = "provider_write_not_eligible"
+	AppProviderWriteUnsupported             AppErrorCode = "provider_write_unsupported"
 )
 
 var appErrorDetails = map[AppErrorCode]string{
@@ -57,6 +63,12 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppProviderRateLimited:                  "The provider rate limit prevented refresh.",
 	AppProviderUnavailable:                  "The provider is temporarily unavailable.",
 	AppProviderDataInvalid:                  "The provider returned invalid data.",
+	AppProviderWriteInProgress:              "Another process is writing this profile.",
+	AppProviderWriteAttentionRequired:       "The provider write requires attention.",
+	AppProviderWriteStale:                   "The provider write changed and must be refreshed.",
+	AppProviderWritePaused:                  "The provider write is paused.",
+	AppProviderWriteNotEligible:             "The provider write is not eligible yet.",
+	AppProviderWriteUnsupported:             "The pending changes cannot be written to this provider.",
 }
 
 // AppError carries allowlisted recovery state without exposing diagnostics.

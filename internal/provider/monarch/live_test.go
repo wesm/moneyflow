@@ -53,7 +53,7 @@ func TestLiveCharacterization(t *testing.T) {
 	if err != nil {
 		t.Fatal("first subscription identity probe failed")
 	}
-	first, err := client.fetchRemoteSnapshot(ctx, 1, nil)
+	first, err := client.fetchRemoteSnapshot(ctx, 1, 1, nil)
 	if err != nil {
 		t.Fatal("first complete live snapshot failed")
 	}
@@ -66,7 +66,7 @@ func TestLiveCharacterization(t *testing.T) {
 		case <-timer.C:
 		}
 	}
-	second, err := client.fetchRemoteSnapshot(ctx, 1, nil)
+	second, err := client.fetchRemoteSnapshot(ctx, 1, 1, nil)
 	if err != nil {
 		t.Fatal("second complete live snapshot failed")
 	}
@@ -95,11 +95,71 @@ func TestLiveCharacterization(t *testing.T) {
 	if os.Getenv("MONEYFLOW_MONARCH_LIVE_REQUIRE_PENDING_TRANSITION") == "1" && transitions == 0 {
 		t.Fatal("no pending-to-posted transition was observed during the requested wait")
 	}
+	merchantIDInput, err := characterizeMerchantIDInput(ctx, client)
+	if err != nil {
+		t.Fatal("transaction update input characterization failed")
+	}
+	emptyMerchants := characterizeEmptyMerchants(second.merchants, second.transactions)
 	t.Logf(
-		"live characterization counts: accounts=%d restricted_accounts=%d represented_restricted_accounts=%d transactions=%d posted=%d pending=%d observed_pending_transitions=%d",
+		"live characterization counts: accounts=%d restricted_accounts=%d represented_restricted_accounts=%d transactions=%d posted=%d pending=%d observed_pending_transitions=%d empty_merchants=%d merchant_id_input=%t",
 		len(second.accounts), restrictedAccounts, representedRestricted, len(second.transactions),
-		posted, pending, transitions,
+		posted, pending, transitions, emptyMerchants, merchantIDInput,
 	)
+}
+
+type inputTypeCharacterization struct {
+	Type struct {
+		InputFields []struct {
+			Name string `json:"name"`
+			Type struct {
+				Kind   string `json:"kind"`
+				Name   string `json:"name"`
+				OfType *struct {
+					Kind string `json:"kind"`
+					Name string `json:"name"`
+				} `json:"ofType"`
+			} `json:"type"`
+		} `json:"inputFields"`
+	} `json:"__type"`
+}
+
+func characterizeMerchantIDInput(ctx context.Context, client *Client) (bool, error) {
+	data, err := graphQLCall[inputTypeCharacterization](ctx, client, "CharacterizeUpdateInput", `
+query CharacterizeUpdateInput {
+  __type(name: "UpdateTransactionMutationInput") {
+    inputFields { name type { kind name ofType { kind name } } }
+  }
+}`, nil)
+	if err != nil {
+		return false, err
+	}
+	for _, field := range data.Type.InputFields {
+		if field.Name != "merchantId" && field.Name != "merchantID" {
+			continue
+		}
+		name := field.Type.Name
+		if field.Type.OfType != nil {
+			name = field.Type.OfType.Name
+		}
+		if name == "ID" || name == "UUID" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func characterizeEmptyMerchants(merchants []Merchant, transactions []Transaction) int {
+	referenced := make(map[string]struct{}, len(transactions))
+	for _, transaction := range transactions {
+		referenced[transaction.Merchant.ID] = struct{}{}
+	}
+	empty := 0
+	for _, merchant := range merchants {
+		if _, exists := referenced[merchant.ID]; !exists {
+			empty++
+		}
+	}
+	return empty
 }
 
 func readLiveSession(path string) (Session, error) {

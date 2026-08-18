@@ -544,6 +544,13 @@ func (source *tuiProviderSource) Reader(
 	return (*tuiProviderReader)(source), source.fingerprint, nil
 }
 
+func (*tuiProviderSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (source *tuiProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()

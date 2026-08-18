@@ -476,6 +476,13 @@ func (source *testBoundSource) Reader(
 	return (*testBoundReader)(source), "binding-session", nil
 }
 
+func (*testBoundSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (*testBoundSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
 
 type testBoundReader testBoundSource
@@ -498,6 +505,13 @@ func (pendingProviderSource) Reader(
 	bool,
 ) (provider.Reader, provider.SessionFingerprint, error) {
 	return pendingProviderReader{}, "pending-session", nil
+}
+
+func (pendingProviderSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
 }
 
 func (pendingProviderSource) Changed(provider.SessionFingerprint) (bool, error) {

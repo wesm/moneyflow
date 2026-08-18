@@ -38,6 +38,12 @@ func TestProviderErrorCodesAreCompleteAndUnique(t *testing.T) {
 		provider.CodeRateLimited,
 		provider.CodeUnavailable,
 		provider.CodeDataInvalid,
+		provider.CodeWriteInProgress,
+		provider.CodeWriteAttentionRequired,
+		provider.CodeWriteStale,
+		provider.CodeWritePaused,
+		provider.CodeWriteNotEligible,
+		provider.CodeWriteUnsupported,
 	}
 	assert.Equal(t, want, provider.ErrorCodes())
 	seen := make(map[provider.ErrorCode]struct{}, len(want))
@@ -47,6 +53,34 @@ func TestProviderErrorCodesAreCompleteAndUnique(t *testing.T) {
 		seen[code] = struct{}{}
 		assert.NotEmpty(t, provider.NewError(code).Error())
 	}
+}
+
+func TestProviderWriteFailureReasonsAreAllowlistedAndValueFree(t *testing.T) {
+	t.Parallel()
+
+	want := []provider.WriteFailureReason{
+		provider.WriteUnavailableExhausted,
+		provider.WriteResponseIncomplete,
+		provider.WriteTargetNotFound,
+		provider.WriteRejected,
+		provider.WriteIdentityConflict,
+		provider.WriteRetiredIdentity,
+		provider.WriteExpectationInvalid,
+	}
+	assert.Equal(t, want, provider.WriteFailureReasons())
+	for _, reason := range want {
+		failure := provider.NewWriteFailure(reason)
+		actual, ok := provider.WriteFailureReasonOf(fmt.Errorf("write failed: %w", failure))
+		require.True(t, ok)
+		assert.Equal(t, reason, actual)
+		assert.Equal(t, provider.CodeWriteAttentionRequired, failure.Code())
+		assert.NotContains(t, failure.Error(), "Example Merchant")
+	}
+
+	unknown := provider.NewWriteFailure(provider.WriteFailureReason("private-provider-value"))
+	_, ok := provider.WriteFailureReasonOf(unknown)
+	assert.False(t, ok)
+	assert.NotContains(t, unknown.Error(), "private-provider-value")
 }
 
 func TestProviderCodeOfRejectsUnrelatedErrors(t *testing.T) {

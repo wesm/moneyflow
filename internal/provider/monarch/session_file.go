@@ -207,6 +207,14 @@ func (source *Source) Reader(
 	return source.OpenClient(forceReload)
 }
 
+// Writer returns the cached one-attempt writer or reloads an atomically replaced session.
+func (source *Source) Writer(
+	_ context.Context,
+	forceReload bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return source.OpenClient(forceReload)
+}
+
 // Changed delegates opaque replacement detection to the hardened session store.
 func (source *Source) Changed(previous provider.SessionFingerprint) (bool, error) {
 	return source.store.Changed(previous)

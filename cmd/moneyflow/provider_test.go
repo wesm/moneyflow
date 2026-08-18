@@ -900,6 +900,13 @@ func (source *commandProviderSource) Reader(
 	return (*commandProviderReader)(source), source.fingerprint, nil
 }
 
+func (*commandProviderSource) Writer(
+	context.Context,
+	bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+}
+
 func (source *commandProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {
 	source.mu.Lock()
 	defer source.mu.Unlock()

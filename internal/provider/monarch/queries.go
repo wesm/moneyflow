@@ -55,3 +55,20 @@ query GetTransactionsList(
     }
   }
 }`
+
+const updateTransactionQuery = `
+mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutationInput!) {
+  updateTransaction(input: $input) {
+    transaction {
+      id
+      merchant { id name }
+      category { id }
+      hideFromReports
+    }
+    errors {
+      fieldErrors { field messages }
+      message
+      code
+    }
+  }
+}`

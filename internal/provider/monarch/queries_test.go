@@ -48,3 +48,20 @@ func TestSubscriptionQueryRequestsOnlyStableIdentity(t *testing.T) {
 		assert.NotContains(t, getSubscriptionDetailsQuery, field)
 	}
 }
+
+func TestTransactionUpdateMutationPortsOnlyTheWritableSurface(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, updateTransactionQuery, "mutation Web_TransactionDrawerUpdateTransaction")
+	for _, field := range []string{
+		"id", "merchant { id name }", "category { id }", "hideFromReports", "fieldErrors",
+	} {
+		assert.Contains(t, updateTransactionQuery, field)
+	}
+	for _, field := range []string{
+		"\n      amount\n", "\n      date\n", "\n      notes\n", "\n      goal ",
+		"needsReview", "isRecurring", "attachments",
+	} {
+		assert.NotContains(t, updateTransactionQuery, field)
+	}
+}
