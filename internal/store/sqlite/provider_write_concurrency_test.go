@@ -20,6 +20,7 @@ func TestRefreshFoldRefusesEveryUnfinishedWriteBatchPhase(t *testing.T) {
 		store.WritePhaseReconnectRequired,
 		store.WritePhaseRateLimited,
 		store.WritePhaseAttentionRequired,
+		store.WritePhaseReconcileConfirmationRequired,
 	}
 	for _, phase := range phases {
 		phase := phase
@@ -60,14 +61,18 @@ func insertUnfinishedWriteBatch(
 		attentionClass = store.WriteAttentionRetryable
 		attentionReason = store.WriteAttentionUnavailableExhausted
 	}
+	resumeTarget := store.WriteResumeWriting
+	if phase == store.WritePhaseReconcileConfirmationRequired {
+		resumeTarget = store.WriteResumeReconciling
+	}
 	_, err := profile.database.ExecContext(context.Background(), `
 		INSERT INTO provider_write_batches(
-			profile_singleton, batch_id, phase, version, reviewed_revision, prepared_revision,
+			profile_singleton, batch_id, phase, resume_target, version, reviewed_revision, prepared_revision,
 			refresh_generation, frozen_cursor, frozen_prefix_digest, frozen_operation_count,
 			total_items, completed_items, failed_items, override_count,
 			attention_class, attention_reason, prepared_at_unix_ms, updated_at_unix_ms
-		) VALUES (1, 'batch-race', ?, 1, 0, 0, 0, 1, 'digest-race', 1,
-			1, 0, 0, 0, ?, ?, ?, ?)`, phase, attentionClass, attentionReason,
+		) VALUES (1, 'batch-race', ?, ?, 1, 0, 0, 0, 1, 'digest-race', 1,
+			1, 0, 0, 0, ?, ?, ?, ?)`, phase, resumeTarget, attentionClass, attentionReason,
 		now.UnixMilli(), now.UnixMilli())
 	require.NoError(t, err)
 }

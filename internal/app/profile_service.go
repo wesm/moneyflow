@@ -190,7 +190,10 @@ func (service *Service) Mutate(
 	if err != nil {
 		return MutationResult{}, mapAppError(err, snapshot.Revision)
 	}
-	if err = service.validateProviderMutation(snapshot, plan.Operation); err != nil {
+	if plan.Mode != MutationCancelHide {
+		err = service.validateProviderMutation(snapshot, plan.Operation)
+	}
+	if err != nil {
 		return MutationResult{}, mapAppError(err, snapshot.Revision)
 	}
 	var next uint64

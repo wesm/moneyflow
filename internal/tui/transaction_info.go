@@ -88,7 +88,7 @@ func transactionInfoLines(transaction domain.Transaction) []string {
 	lines := []string{
 		"Transaction",
 		transactionInfoField("Date", transaction.Date.String()),
-		transactionInfoField("Amount", FormatAmount(transaction.Amount)),
+		transactionInfoField("Amount", FormatAmount(transaction.Amount)+" "+string(transaction.Amount.Currency)),
 		transactionInfoField("Merchant", transaction.Merchant.Name),
 		transactionInfoField("Category", transaction.Category.Name),
 		transactionInfoField("Group", transaction.Category.Group),

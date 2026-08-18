@@ -98,9 +98,12 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 		wantStart bool
 	}{
 		{name: "ownerless writing", status: app.ProviderWriteStatus{Phase: store.WritePhaseWriting, Version: 1}, wantStart: true},
-		{name: "completed reconciling", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, Version: 1, Total: 2, Completed: 2}, wantStart: true},
+		{name: "completed reconciling", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeWriting, Version: 1, Total: 2, Completed: 2}, wantStart: true},
+		{name: "ownerless provider reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeReconciling, Version: 1}, wantStart: true},
 		{name: "eligible rate limit", status: app.ProviderWriteStatus{Phase: store.WritePhaseRateLimited, Version: 1, NextEligible: now}, wantStart: true},
-		{name: "healed reconnect", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, Version: 1, SessionChanged: true}, wantStart: true},
+		{name: "healed reconnect", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeWriting, Version: 1, SessionChanged: true}, wantStart: true},
+		{name: "healed reconnect during reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1, SessionChanged: true}, wantStart: true},
+		{name: "confirmation waits", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconcileConfirmationRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1}},
 		{name: "paused", status: app.ProviderWriteStatus{Phase: store.WritePhasePaused, Version: 1}},
 		{name: "attention", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, Version: 1, AttentionClass: store.WriteAttentionRetryable}},
 	}

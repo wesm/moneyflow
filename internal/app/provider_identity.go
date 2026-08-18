@@ -99,7 +99,7 @@ func prepareHistoricalProviderMerchants(
 				Kind: domain.EntityKindMerchant, Namespace: namespace,
 				ExternalID: identity.ExternalID, PriorLocalID: identity.EntityID,
 				CurrentLocalID: identity.EntityID, ProviderLabel: merchant.Label,
-				Disposition: "retired", BatchVersion: 1,
+				Disposition: "alias", BatchVersion: 1,
 			})
 		}
 	}

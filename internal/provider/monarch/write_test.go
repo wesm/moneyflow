@@ -29,7 +29,7 @@ func TestUpdateTransactionSendsOneAuthenticatedRequestWithPresentFields(t *testi
 		assert.Contains(t, envelope.Query, "updateTransaction")
 		input := envelope.Variables["input"].(map[string]any)
 		assert.Equal(t, map[string]any{
-			"id": "txn-example-1", "name": "Example Merchant", "hideFromReports": false,
+			"id": "txn-example-1", "merchantName": "Example Merchant", "hideFromReports": false,
 		}, input)
 		_, _ = writer.Write([]byte(`{"data":{"updateTransaction":{"transaction":{"id":"txn-example-1","merchant":{"id":"merchant-example-9","name":"  Example   Merchant  "},"category":{"id":"category-example-1"},"hideFromReports":false},"errors":[]}}}`))
 	}))
@@ -58,7 +58,7 @@ func TestUpdateTransactionIncludesEveryRequestedField(t *testing.T) {
 		require.NoError(t, json.NewDecoder(request.Body).Decode(&envelope))
 		input := envelope.Variables["input"].(map[string]any)
 		assert.Equal(t, map[string]any{
-			"id": "txn-example-1", "name": "Example Merchant",
+			"id": "txn-example-1", "merchantName": "Example Merchant",
 			"category": "category-example-1", "hideFromReports": true,
 		}, input)
 		_, _ = writer.Write([]byte(`{"data":{"updateTransaction":{"transaction":{"id":"txn-example-1","merchant":{"id":"merchant-example-9","name":"Example Merchant"},"category":{"id":"category-example-1"},"hideFromReports":true},"errors":[]}}}`))
@@ -90,11 +90,11 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 		{name: "not found", status: http.StatusNotFound, code: provider.CodeWriteAttentionRequired, reason: provider.WriteTargetNotFound},
 		{name: "rejected", status: http.StatusBadRequest, body: `private-provider-rejection`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "rate limited", status: http.StatusTooManyRequests, retryAfter: "172800", code: provider.CodeRateLimited},
-		{name: "unavailable", status: http.StatusBadGateway, code: provider.CodeUnavailable},
-		{name: "malformed", status: http.StatusOK, body: `{private-provider-payload`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteResponseIncomplete},
+		{name: "unknown server outcome", status: http.StatusBadGateway, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "malformed", status: http.StatusOK, body: `{private-provider-payload`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
 		{name: "graphql rejection", status: http.StatusOK, body: `{"errors":[{"message":"private-provider-message"}]}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "payload rejection", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[{"field":"name","messages":["private-provider-message"]}]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
-		{name: "missing transaction", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteResponseIncomplete},
+		{name: "missing transaction", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
 		{name: "transaction mismatch", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-other-id","merchant":{"id":"merchant-a","name":"Example"},"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteIdentityConflict},
 	}
 	for _, test := range tests {
@@ -134,7 +134,7 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 	}
 }
 
-func TestUpdateTransactionTimeoutIsUnavailableAndNotRetried(t *testing.T) {
+func TestUpdateTransactionTimeoutIsUnknownOutcomeAndNotRetried(t *testing.T) {
 	t.Parallel()
 
 	var requests atomic.Int32
@@ -147,7 +147,10 @@ func TestUpdateTransactionTimeoutIsUnavailableAndNotRetried(t *testing.T) {
 	_, err := client.UpdateTransaction(context.Background(), provider.TransactionUpdate{
 		TransactionExternalID: "private-request-id", Hidden: provider.Some(true),
 	})
-	assertProviderCode(t, err, provider.CodeUnavailable)
+	assertProviderCode(t, err, provider.CodeWriteAttentionRequired)
+	reason, ok := provider.WriteFailureReasonOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.WriteOutcomeUnknown, reason)
 	assert.Equal(t, int32(1), requests.Load())
 	assert.NotContains(t, err.Error(), "private")
 }

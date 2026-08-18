@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 5);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 6);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -245,8 +245,9 @@ CREATE TABLE provider_write_batches (
     batch_id TEXT NOT NULL UNIQUE CHECK(batch_id <> ''),
     phase TEXT NOT NULL CHECK(phase IN (
         'writing', 'reconciling', 'paused', 'reconnect_required',
-        'rate_limited', 'attention_required'
-    )),
+		'rate_limited', 'attention_required', 'reconcile_confirmation_required'
+	)),
+	resume_target TEXT NOT NULL CHECK(resume_target IN ('writing', 'reconciling')),
     version INTEGER NOT NULL CHECK(typeof(version) = 'integer' AND version > 0),
     reviewed_revision INTEGER NOT NULL CHECK(
         typeof(reviewed_revision) = 'integer' AND reviewed_revision >= 0
@@ -275,7 +276,8 @@ CREATE TABLE provider_write_batches (
     ),
     attention_reason TEXT CHECK(
         attention_reason IS NULL OR attention_reason IN (
-            'provider_write_unavailable_exhausted', 'provider_write_response_incomplete',
+			'provider_write_unavailable_exhausted', 'provider_write_response_incomplete',
+			'provider_write_outcome_unknown',
             'provider_write_target_not_found', 'provider_write_rejected',
             'provider_write_identity_conflict', 'provider_write_retired_identity',
             'provider_write_expectation_invalid'

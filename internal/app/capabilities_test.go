@@ -98,6 +98,37 @@ func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testin
 	assert.Contains(t, capabilities[app.ActionRefreshProvider].Reason, "provider write")
 }
 
+func TestProviderDoubleHideCancelsPendingToggle(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 21, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	state := detailViewState()
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	request := app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
+		State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity},
+	}
+	first, err := service.Mutate(ctx, request)
+	require.NoError(t, err)
+	request.ExpectedRevision = first.Revision
+	second, err := service.Mutate(ctx, request)
+	require.NoError(t, err)
+	assert.Zero(t, second.Pending.ActiveOperations)
+}
+
 func TestMonarchCapabilitiesRejectOnTheFlyCategoryCreation(t *testing.T) {
 	t.Parallel()
 

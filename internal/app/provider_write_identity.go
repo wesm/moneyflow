@@ -55,7 +55,12 @@ func (service *Service) validateProviderMutation(
 				return provider.NewError(provider.CodeWriteUnsupported)
 			}
 		} else if identities.external(domain.EntityKindMerchant, destination) == "" {
-			return provider.NewError(provider.CodeWriteUnsupported)
+			merchant, ok := merchantWithID(snapshot.Effective, destination)
+			if !ok || validateNewProviderMerchantLabel(
+				merchant.ID, merchant, allocations, identities,
+			) != nil || providerLineageLabelCollision(merchant.Label, merchant.ID, state.Lineage) {
+				return provider.NewError(provider.CodeWriteUnsupported)
+			}
 		}
 	case domain.OperationTransactionHide:
 	default:

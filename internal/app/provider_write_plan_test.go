@@ -118,6 +118,54 @@ func TestProviderWritePlanUsesProviderLabelsForExistingDestinations(t *testing.T
 	}
 }
 
+func TestProviderWritePlanUsesFinalRenamedDestinationForEarlierLabel(t *testing.T) {
+	t.Parallel()
+
+	for _, operationType := range []domain.OperationType{
+		domain.OperationMerchantReassign,
+		domain.OperationMerchantMerge,
+	} {
+		operationType := operationType
+		t.Run(string(operationType), func(t *testing.T) {
+			t.Parallel()
+			profile := providerWriteProfile(t)
+			label := providerWriteOperation("operation-label", 1, domain.OperationMerchantLabel,
+				[]domain.EntityID{"merchant_b"}, &domain.LabelPayload{
+					EntityID: "merchant_b", Label: "New Destination", CollisionKey: "new destination",
+				}, nil, nil, nil)
+			var destination domain.Operation
+			if operationType == domain.OperationMerchantMerge {
+				destination = providerWriteOperation("operation-destination", 2, operationType,
+					[]domain.EntityID{"merchant_a"}, nil,
+					&domain.MergePayload{SourceID: "merchant_a", DestinationID: "merchant_b"}, nil, nil)
+			} else {
+				destination = providerWriteOperation("operation-destination", 2, operationType,
+					[]domain.EntityID{"transaction_a"}, nil, nil,
+					&domain.ReassignPayload{DestinationID: "merchant_b"}, nil)
+			}
+			profile.Journal = []domain.Operation{label, destination}
+			profile.Cursor = 2
+			itemIDs := []string{"item-a"}
+			if operationType == domain.OperationMerchantMerge {
+				itemIDs = []string{"item-a", "item-b"}
+			}
+
+			plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+				Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
+				ProposedItemIDs: itemIDs, ObservedAt: providerWriteTime(),
+			})
+			require.NoError(t, err)
+			require.NotEmpty(t, plan.Items)
+			for _, item := range plan.Items {
+				require.NotNil(t, item.RequestedMerchantName)
+				assert.Equal(t, "New Destination", *item.RequestedMerchantName)
+				assert.Equal(t, store.WriteExpectationNew, item.Expectation)
+				assert.Contains(t, item.OriginatingOperationIDs, "operation-label")
+			}
+		})
+	}
+}
+
 func TestProviderWritePlanReturnsNoItemsForNetNoop(t *testing.T) {
 	t.Parallel()
 

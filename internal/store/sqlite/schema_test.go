@@ -85,7 +85,7 @@ func TestSchemaInstallsProviderWriteObjects(t *testing.T) {
 	var version int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
-	assert.Equal(t, 5, version)
+	assert.Equal(t, CurrentSchemaVersion, version)
 }
 
 func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing.T) {

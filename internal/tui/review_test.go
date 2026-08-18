@@ -129,6 +129,25 @@ func TestReviewDashboardNavigationRefreshesBoundedPreview(t *testing.T) {
 	assert.LessOrEqual(t, len(model.review.projection.Targets), model.reviewPreviewLimit())
 }
 
+func TestReviewNavigationDoesNotPairNewHeadingWithStaleTargets(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('h'))
+	model = press(t, model, keyRune('j'))
+	model = press(t, model, keyRune('h'))
+	model = press(t, model, keyRune('w'))
+	require.Len(t, model.review.projection.Operations, 2)
+	oldSelected := model.review.selected
+	oldTargets := append([]app.ReviewTarget(nil), model.review.projection.Targets...)
+	require.NoError(t, fixture.profile.Close())
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+
+	assert.Equal(t, oldSelected, model.review.selected)
+	assert.Equal(t, oldTargets, model.review.projection.Targets)
+	assert.NotEmpty(t, model.review.err)
+}
+
 func TestReviewEnterWithOnlyRedoStaysOpen(t *testing.T) {
 	t.Parallel()
 	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('h'))

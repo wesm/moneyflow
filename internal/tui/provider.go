@@ -240,6 +240,9 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		case store.WritePhaseWriting:
 			return model.startProviderWrite()
 		case store.WritePhaseReconciling:
+			if message.writeStatus.ResumeTarget == store.WriteResumeReconciling {
+				return model.providerWriteReconcileCommand("")
+			}
 			if message.writeStatus.Completed == message.writeStatus.Total {
 				return model.startProviderWrite()
 			}
@@ -249,6 +252,9 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 			}
 		case store.WritePhaseReconnectRequired:
 			if message.writeStatus.SessionChanged {
+				if message.writeStatus.ResumeTarget == store.WriteResumeReconciling {
+					return model.providerWriteReconcileCommand("")
+				}
 				return model.providerWriteResumeCommand()
 			}
 		}

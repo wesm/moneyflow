@@ -163,14 +163,16 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 }
 
 func providerWriteCanResume(status app.ProviderWriteStatus) bool {
-	return status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseRateLimited ||
-		(status.Phase == store.WritePhaseAttentionRequired &&
-			status.AttentionClass == store.WriteAttentionRetryable)
+	return status.ResumeTarget != store.WriteResumeReconciling &&
+		(status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseRateLimited ||
+			(status.Phase == store.WritePhaseAttentionRequired &&
+				status.AttentionClass == store.WriteAttentionRetryable))
 }
 
 func providerWriteCanReconcile(status app.ProviderWriteStatus) bool {
 	return status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseReconnectRequired ||
-		status.Phase == store.WritePhaseAttentionRequired
+		status.Phase == store.WritePhaseAttentionRequired ||
+		status.Phase == store.WritePhaseReconcileConfirmationRequired
 }
 
 func (model Model) renderProviderWrite(screen *RenderedScreen) {
@@ -215,6 +217,7 @@ func providerWritePhaseLabel(phase store.WriteBatchPhase) string {
 		store.WritePhaseWriting: "Writing", store.WritePhaseReconciling: "Reconciling",
 		store.WritePhasePaused: "Paused", store.WritePhaseReconnectRequired: "Reconnect required",
 		store.WritePhaseRateLimited: "Rate limited", store.WritePhaseAttentionRequired: "Attention required",
+		store.WritePhaseReconcileConfirmationRequired: "Reconcile confirmation required",
 	}
 	if label := labels[phase]; label != "" {
 		return label
@@ -235,6 +238,8 @@ func providerWriteGuidance(status app.ProviderWriteStatus) string {
 		return "The provider result cannot be retried safely; reconcile provider truth."
 	case store.WritePhasePaused:
 		return "The batch is durable. Resume it or reconcile provider truth."
+	case store.WritePhaseReconcileConfirmationRequired:
+		return "Review and confirm the provider reconciliation, or fetch a new candidate."
 	}
 	return ""
 }
@@ -257,6 +262,8 @@ func providerWriteActions(status app.ProviderWriteStatus, confirming bool) strin
 			return "r=Retry | s=Stop and reconcile | Esc=Close"
 		}
 		return "s=Stop and reconcile | Esc=Close"
+	case store.WritePhaseReconcileConfirmationRequired:
+		return "s=Fetch reconcile candidate | Esc=Close"
 	default:
 		return "Esc=Close"
 	}

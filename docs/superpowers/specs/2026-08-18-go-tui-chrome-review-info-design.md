@@ -26,8 +26,9 @@ The left side shows:
 moneyflow v0.11.1
 ```
 
-The command boundary supplies the application version through TUI options so tests and embedded
-runners can provide deterministic values. Empty versions fall back to `dev`.
+The command boundary supplies an already-formatted application version through TUI options so tests
+and embedded runners can provide deterministic values. The renderer emits `moneyflow <version>`
+without adding a prefix; empty versions fall back to `dev`.
 
 The right side shows the provider's last successful update and the current local time:
 
@@ -59,7 +60,7 @@ Its header summarizes:
 
 - active operation count;
 - inactive redo operation count; and
-- distinct affected transaction count.
+- distinct transaction count affected by active operations.
 
 Operations remain in journal order and are divided into visibly labeled `ACTIVE` and `REDO`
 sections. Each row shows a friendly change label, affected count, and concise before/after value.

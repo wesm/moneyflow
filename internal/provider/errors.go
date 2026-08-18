@@ -51,6 +51,7 @@ const (
 const (
 	WriteUnavailableExhausted WriteFailureReason = "provider_write_unavailable_exhausted"
 	WriteResponseIncomplete   WriteFailureReason = "provider_write_response_incomplete"
+	WriteOutcomeUnknown       WriteFailureReason = "provider_write_outcome_unknown"
 	WriteTargetNotFound       WriteFailureReason = "provider_write_target_not_found"
 	WriteRejected             WriteFailureReason = "provider_write_rejected"
 	WriteIdentityConflict     WriteFailureReason = "provider_write_identity_conflict"
@@ -80,6 +81,7 @@ var errorDetails = map[ErrorCode]string{
 var writeFailureReasons = []WriteFailureReason{
 	WriteUnavailableExhausted,
 	WriteResponseIncomplete,
+	WriteOutcomeUnknown,
 	WriteTargetNotFound,
 	WriteRejected,
 	WriteIdentityConflict,

@@ -297,7 +297,7 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		updated, command := shell.finance.Update(tea.WindowSizeMsg{Width: shell.width, Height: shell.height})
 		finance := updated.(Model)
 		shell.finance = &finance
-		return shell, command
+		return shell, tea.Batch(command, shell.finance.Init())
 	case shellProfileCreatedMsg:
 		if !shell.acceptsShellRequest(message.guard) {
 			return shell, nil

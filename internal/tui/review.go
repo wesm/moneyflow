@@ -79,13 +79,17 @@ func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 		previous := model.review.selected
 		model.review.selected = max(0, model.review.selected-1)
 		if model.review.selected != previous {
-			model.loadReviewPreview()
+			if !model.loadReviewPreview() {
+				model.review.selected = previous
+			}
 		}
 	case "down", "j":
 		previous := model.review.selected
 		model.review.selected = min(max(0, len(model.review.projection.Operations)-1), model.review.selected+1)
 		if model.review.selected != previous {
-			model.loadReviewPreview()
+			if !model.loadReviewPreview() {
+				model.review.selected = previous
+			}
 		}
 	case "i":
 		model.loadReviewDetails(0)
@@ -103,8 +107,8 @@ func (model *Model) tryCommitReview() tea.Cmd {
 	return model.commitReview()
 }
 
-func (model *Model) loadReviewPreview() {
-	model.loadReviewWindow(0, model.reviewPreviewLimit(), reviewPhaseSummary)
+func (model *Model) loadReviewPreview() bool {
+	return model.loadReviewWindow(0, model.reviewPreviewLimit(), reviewPhaseSummary)
 }
 
 func (model *Model) loadReviewDetails(offset int) {
@@ -113,10 +117,10 @@ func (model *Model) loadReviewDetails(offset int) {
 	model.loadReviewWindow(offset, limit, reviewPhaseDetails)
 }
 
-func (model *Model) loadReviewWindow(offset int, limit int, phase reviewPhase) {
+func (model *Model) loadReviewWindow(offset int, limit int, phase reviewPhase) bool {
 	if len(model.review.projection.Operations) == 0 {
 		model.review.err = "There are no operations to inspect."
-		return
+		return false
 	}
 	operation := model.review.projection.Operations[model.review.selected]
 	projection, err := model.service.Review(model.ctx, model.review.reviewedRevision, app.ReviewWindow{
@@ -124,13 +128,14 @@ func (model *Model) loadReviewWindow(offset int, limit int, phase reviewPhase) {
 	})
 	if err != nil {
 		model.refreshReviewAfterFailure(err)
-		return
+		return false
 	}
 	model.review.projection = projection
 	model.review.detailOffset = projection.Window.Offset
 	model.review.detailLimit = limit
 	model.review.phase = phase
 	model.review.err = ""
+	return true
 }
 
 func (model Model) reviewHasNextDetailPage() bool {
@@ -226,7 +231,7 @@ func (model Model) renderReview(screen *RenderedScreen) {
 
 func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int, width int) {
 	projection := model.review.projection
-	summary := fmt.Sprintf("Active: %d | Redo: %d | Affected transactions: %d",
+	summary := fmt.Sprintf("Active: %d | Redo: %d | Active affected transactions: %d",
 		projection.Pending.ActiveOperations, projection.Pending.InactiveOperations,
 		projection.Pending.AffectedTransactions)
 	screen.Frame.PutText(x, rect.Y+2, Truncate(summary, width), model.palette.Text)

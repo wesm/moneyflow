@@ -78,7 +78,8 @@ func TestClockTickUpdatesOnlyRendererTimeAndReschedules(t *testing.T) {
 
 Add a table-driven chrome test to `internal/tui/layout_test.go` that sets `Version`, `clockAt`, and
 `provider.status.LastSuccess`, renders `150x50` and `80x24`, and asserts that row zero contains
-`moneyflow v9.8.7`, `Last update 9:05 AM`, and `9:41 AM`. Add a local-only case that asserts
+`moneyflow v9.8.7`, `Last update 9:05 AM`, and `9:41 AM`. The supplied version is already
+formatted and must not gain another `v` prefix. Add a local-only case that asserts
 `Last update —`.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
@@ -125,6 +126,9 @@ func (model Model) Init() tea.Cmd {
     return tea.Batch(clock, model.providerStatusCommand(model.now()))
 }
 ```
+
+When the selector opens a profile after `Shell.Init`, batch `shell.finance.Init()` with the initial
+resize command so both the clock and provider scheduler start on that path too.
 
 Create `internal/tui/clock.go`:
 
@@ -432,7 +436,7 @@ dashboard selection movement, request the new operation at offset zero while pre
 
 Render the dashboard as:
 
-1. summary counts;
+1. summary counts, labeling the distinct count as transactions affected by active operations;
 2. `ACTIVE` operation rows;
 3. `REDO` operation rows;
 4. the selected operation's bounded transaction preview; and

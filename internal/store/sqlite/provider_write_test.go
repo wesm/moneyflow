@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -133,6 +134,7 @@ func TestPrepareProviderWriteFreezesReviewedPrefixAtomically(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, revision+1, prepared.Revision)
 	assert.Equal(t, store.WritePhaseWriting, prepared.Batch.Phase)
+	assert.Equal(t, store.WriteResumeWriting, prepared.Batch.ResumeTarget)
 	assert.Equal(t, 2, prepared.Batch.FrozenOperationCount)
 	assert.Equal(t, 2, prepared.Batch.TotalItems)
 
@@ -234,7 +236,117 @@ func TestProviderWriteResultTransitionsCompletedBatchToReconciling(t *testing.T)
 		})
 	require.NoError(t, err)
 	assert.Equal(t, store.WritePhaseReconciling, result.Phase)
+	assert.Equal(t, store.WriteResumeWriting, result.ResumeTarget)
 	assert.Equal(t, 1, result.CompletedItems)
+}
+
+func TestProviderWriteResumePreservesFinalizationAndReconcilePurpose(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Date(2026, time.August, 18, 17, 15, 0, 0, time.UTC)
+
+	t.Run("completed write resumes finalization with write lease", func(t *testing.T) {
+		profile, prepared, preparedAt := preparedWriteProfile(t)
+		batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+			BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+			ItemID: "item-a", Result: store.WriteResult{
+				ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: preparedAt,
+			}, ObservedAt: preparedAt,
+		})
+		require.NoError(t, err)
+		parked, err := profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
+			BatchID: batch.ID, ExpectedVersion: batch.Version,
+			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+			Phase: store.WritePhasePaused, ObservedAt: preparedAt,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, store.WriteResumeWriting, parked.ResumeTarget)
+
+		resumed, err := profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+			BatchID: parked.ID, ExpectedVersion: parked.Version,
+			Lease: store.ProviderOperationLease{
+				OwnerID: "owner-b", Renderer: "web", Kind: store.ProviderOperationWrite,
+				ExpiresAt: now.Add(time.Minute),
+			}, ObservedAt: now,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, store.WritePhaseReconciling, resumed.Phase)
+	})
+
+	t.Run("reconcile failure cannot resume as transaction writes", func(t *testing.T) {
+		profile, prepared, preparedAt := preparedWriteProfile(t)
+		batch, err := profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
+			BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+			Phase:           store.WritePhaseAttentionRequired,
+			AttentionClass:  store.WriteAttentionReconcileOnly,
+			AttentionReason: store.WriteAttentionTargetNotFound, ObservedAt: preparedAt,
+		})
+		require.NoError(t, err)
+		reconciling, err := profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+			BatchID: batch.ID, ExpectedVersion: batch.Version,
+			Lease: store.ProviderOperationLease{
+				OwnerID: "owner-b", Renderer: "web", Kind: store.ProviderOperationReconcile,
+				ExpiresAt: now.Add(time.Minute),
+			}, ObservedAt: now,
+		})
+		require.NoError(t, err)
+		parked, err := profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
+			BatchID: reconciling.ID, ExpectedVersion: reconciling.Version,
+			LeaseOwnerID: "owner-b", LeaseKind: store.ProviderOperationReconcile,
+			Phase: store.WritePhaseReconnectRequired, ObservedAt: now,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, store.WriteResumeReconciling, parked.ResumeTarget)
+
+		_, err = profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+			BatchID: parked.ID, ExpectedVersion: parked.Version,
+			Lease: store.ProviderOperationLease{
+				OwnerID: "owner-c", Renderer: "tui", Kind: store.ProviderOperationWrite,
+				ExpiresAt: now.Add(time.Minute),
+			}, ObservedAt: now,
+		})
+		assertStoreInvalidReason(t, err, store.InvalidOperationProviderWriteRequest)
+	})
+}
+
+func TestFinalizeProviderWriteRejectsPlannerThatDropsTransaction(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile, prepared, now := preparedWriteProfile(t)
+	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-a", Result: store.WriteResult{
+			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+
+	_, err = profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
+		BatchID: batch.ID, ExpectedVersion: batch.Version,
+		ExpectedRevision: prepared.Revision, ExpectedGeneration: 0,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now,
+	}, func(inputs store.FinalizeProviderWriteInputs) (store.FinalizeProviderWritePlan, error) {
+		replayed, replayErr := profilereplay.Replay(inputs.Snapshot)
+		if replayErr != nil {
+			return store.FinalizeProviderWritePlan{}, replayErr
+		}
+		replayed.Effective.Transactions = replayed.Effective.Transactions[1:]
+		return store.FinalizeProviderWritePlan{
+			Effective: replayed.Effective,
+			Summary: store.LastWriteSummary{
+				OperationCount: batch.FrozenOperationCount,
+				ItemCount:      batch.TotalItems,
+				OverrideCount:  batch.OverrideCount,
+			},
+		}, nil
+	})
+	assertStoreInvalidReason(t, err, store.InvalidOperationProviderWritePlan)
 }
 
 func TestProviderWriteStateReconstructsNewMerchantGroups(t *testing.T) {

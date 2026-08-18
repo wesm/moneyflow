@@ -243,6 +243,11 @@ func (service *Service) RefreshProvider(
 	if err != nil {
 		return ProviderRefreshResult{}, mapAppError(err, service.Revision())
 	}
+	if providerState.Write != nil {
+		return ProviderRefreshResult{}, providerWriteAppError(
+			provider.NewError(provider.CodeWriteInProgress), service.Revision(),
+		)
+	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState)
 	if !request.Manual && !runtime.hasForceReload() && !ProviderRefreshDue(status, now) {
@@ -473,6 +478,17 @@ func (service *Service) fetchProviderCandidateWithHeartbeat(
 	ctx context.Context,
 	runtime *providerRuntimeState,
 ) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
+	return service.fetchProviderCandidateWithOperationHeartbeat(
+		ctx, runtime, store.ProviderOperationRefresh, provider.CodeRefreshStale,
+	)
+}
+
+func (service *Service) fetchProviderCandidateWithOperationHeartbeat(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	kind store.ProviderOperationKind,
+	staleCode provider.ErrorCode,
+) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
 	fetchContext, cancel := context.WithCancelCause(ctx)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
@@ -489,9 +505,10 @@ func (service *Service) fetchProviderCandidateWithHeartbeat(
 				return
 			case <-ticker.C:
 				observedAt := runtime.now().UTC().Truncate(time.Millisecond)
-				renewed, err := service.profile.RenewRefreshLease(
+				renewed, err := service.profile.RenewProviderOperationLease(
 					fetchContext,
 					runtime.instanceID,
+					kind,
 					observedAt.Add(runtime.leaseDuration),
 					observedAt,
 				)
@@ -505,7 +522,7 @@ func (service *Service) fetchProviderCandidateWithHeartbeat(
 					return
 				}
 				if !renewed {
-					failure := provider.NewError(provider.CodeRefreshStale)
+					failure := provider.NewError(staleCode)
 					cancel(failure)
 					heartbeatDone <- failure
 					return

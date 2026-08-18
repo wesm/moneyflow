@@ -61,6 +61,7 @@ func TestProviderWriteFailureReasonsAreAllowlistedAndValueFree(t *testing.T) {
 	want := []provider.WriteFailureReason{
 		provider.WriteUnavailableExhausted,
 		provider.WriteResponseIncomplete,
+		provider.WriteOutcomeUnknown,
 		provider.WriteTargetNotFound,
 		provider.WriteRejected,
 		provider.WriteIdentityConflict,

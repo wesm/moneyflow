@@ -35,6 +35,7 @@ func TestTransactionInfoUsesFocusedRowAndRendersSortedMetadata(t *testing.T) {
 	assert.Contains(t, lines, "Transaction details")
 	assert.Contains(t, lines, "Amount")
 	assert.Contains(t, lines, FormatAmount(focused.Amount))
+	assert.Contains(t, lines, string(focused.Amount.Currency))
 	assert.Contains(t, lines, "Local transaction ID")
 	semantic := strings.Join(screen.Overlay, "\n")
 	assert.Less(t, strings.Index(semantic, "alpha"), strings.Index(semantic, "zeta"))

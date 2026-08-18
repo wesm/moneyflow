@@ -117,7 +117,11 @@ func planAbsoluteWriteItems(
 			return nil, nil, provider.NewError(provider.CodeWriteUnsupported)
 		}
 		plan := providerWriteTransactionPlan{
-			transaction: transaction, operationIDs: attributions[transaction.ID], externalID: externalID,
+			transaction: transaction,
+			operationIDs: providerWriteFinalAttributions(
+				attributions[transaction.ID], operations, transaction.MerchantID,
+			),
+			externalID: externalID,
 		}
 		if merchantChanged {
 			if err = planProviderMerchantWrite(
@@ -180,6 +184,29 @@ func planAbsoluteWriteItems(
 	}
 	groups := providerWriteGroups(items)
 	return items, groups, nil
+}
+
+func providerWriteFinalAttributions(
+	attributed []string,
+	operations []domain.Operation,
+	merchantID domain.EntityID,
+) []string {
+	seen := make(map[string]struct{}, len(attributed))
+	for _, operationID := range attributed {
+		seen[operationID] = struct{}{}
+	}
+	result := make([]string, 0, len(attributed)+1)
+	for _, operation := range operations {
+		_, included := seen[operation.ID]
+		if !included && operation.Type == domain.OperationMerchantLabel &&
+			operation.Label != nil && operation.Label.EntityID == merchantID {
+			included = true
+		}
+		if included {
+			result = append(result, operation.ID)
+		}
+	}
+	return result
 }
 
 func providerWriteAttributions(
@@ -256,7 +283,8 @@ func planProviderMerchantWrite(
 				plan.groupKey = "merchant\x00" + string(transaction.MerchantID) + "\x00" + merchant.CollisionKey
 			}
 		case domain.OperationMerchantMerge:
-			if operation.Merge.DestinationID == transaction.MerchantID {
+			if operation.Merge.DestinationID == transaction.MerchantID &&
+				plan.expectation != store.WriteExpectationNew {
 				plan.expectation = store.WriteExpectationMergeDestination
 			}
 		case domain.OperationMerchantReassign:

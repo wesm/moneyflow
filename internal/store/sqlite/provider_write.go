@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -110,7 +112,8 @@ func (profile *profile) PrepareProviderWrite(
 		return store.PrepareProviderWriteCommit{}, err
 	}
 	batch := store.WriteBatch{
-		ID: request.ProposedBatchID, Phase: store.WritePhaseWriting, Version: 1,
+		ID: request.ProposedBatchID, Phase: store.WritePhaseWriting,
+		ResumeTarget: store.WriteResumeWriting, Version: 1,
 		ReviewedRevision: request.ReviewedRevision, PreparedRevision: nextRevision,
 		RefreshGeneration: refresh.Generation, FrozenCursor: snapshot.Cursor,
 		FrozenPrefixDigest:   plan.FrozenPrefixDigest,
@@ -254,6 +257,12 @@ func (profile *profile) ParkProviderWrite(
 			store.InvalidOperationProviderWriteRequest, errors.New("write parked phase is invalid"),
 		)
 	}
+	switch request.LeaseKind {
+	case store.ProviderOperationWrite:
+		batch.ResumeTarget = store.WriteResumeWriting
+	case store.ProviderOperationReconcile:
+		batch.ResumeTarget = store.WriteResumeReconciling
+	}
 	batch.Phase = request.Phase
 	batch.Version++
 	batch.AttentionClass = request.AttentionClass
@@ -307,11 +316,17 @@ func (profile *profile) ResumeProviderWrite(
 	if err = acquireLeaseInTransaction(ctx, connection, request.Lease, request.ObservedAt); err != nil {
 		return store.WriteBatch{}, err
 	}
-	switch request.Lease.Kind {
-	case store.ProviderOperationReconcile:
+	switch {
+	case request.Lease.Kind == store.ProviderOperationReconcile:
 		batch.Phase = store.WritePhaseReconciling
-	case store.ProviderOperationWrite:
-		batch.Phase = store.WritePhaseWriting
+		batch.ResumeTarget = store.WriteResumeReconciling
+	case request.Lease.Kind == store.ProviderOperationWrite &&
+		batch.ResumeTarget == store.WriteResumeWriting:
+		if batch.CompletedItems == batch.TotalItems {
+			batch.Phase = store.WritePhaseReconciling
+		} else {
+			batch.Phase = store.WritePhaseWriting
+		}
 	default:
 		return store.WriteBatch{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWriteRequest, errors.New("resume lease kind is invalid"),
@@ -399,6 +414,11 @@ func (profile *profile) FinalizeProviderWrite(
 			store.InvalidOperationProviderWritePlan, err,
 		)
 	}
+	if err = validateFinalizeProviderWritePlan(snapshot, writeState, plan); err != nil {
+		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationProviderWritePlan, err,
+		)
+	}
 	nextRevision, err := incrementRevision(snapshot.Revision)
 	if err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
@@ -443,6 +463,61 @@ func (profile *profile) FinalizeProviderWrite(
 		return store.FinalizeProviderWriteCommit{}, err
 	}
 	return store.FinalizeProviderWriteCommit{Revision: nextRevision, Summary: plan.Summary}, nil
+}
+
+func validateFinalizeProviderWritePlan(
+	snapshot domain.ProfileSnapshot,
+	writeState store.ProviderWriteState,
+	plan store.FinalizeProviderWritePlan,
+) error {
+	if writeState.Batch == nil ||
+		writeState.Batch.CompletedItems != writeState.Batch.TotalItems ||
+		len(writeState.Items) != writeState.Batch.TotalItems ||
+		len(writeState.Results) != writeState.Batch.TotalItems {
+		return errors.New("provider write finalization is incomplete")
+	}
+	if plan.Summary.OperationCount != writeState.Batch.FrozenOperationCount ||
+		plan.Summary.ItemCount != writeState.Batch.TotalItems ||
+		plan.Summary.OverrideCount != writeState.Batch.OverrideCount {
+		return errors.New("provider write finalization summary changed")
+	}
+	replayed, err := profilereplay.Replay(snapshot)
+	if err != nil {
+		return err
+	}
+	expected := replayed.Effective
+	if !reflect.DeepEqual(expected.Accounts, plan.Effective.Accounts) ||
+		!reflect.DeepEqual(expected.Merchants, plan.Effective.Merchants) ||
+		!reflect.DeepEqual(expected.Groups, plan.Effective.Groups) ||
+		!reflect.DeepEqual(expected.Categories, plan.Effective.Categories) {
+		return errors.New("provider write finalization changed non-response entities")
+	}
+	if len(expected.Transactions) != len(plan.Effective.Transactions) {
+		return errors.New("provider write finalization changed transaction set")
+	}
+	for index := range expected.Transactions {
+		before := expected.Transactions[index]
+		after := plan.Effective.Transactions[index]
+		if before.ID != after.ID {
+			return errors.New("provider write finalization changed transaction identity")
+		}
+		after.MerchantID = before.MerchantID
+		after.CategoryID = before.CategoryID
+		after.Hidden = before.Hidden
+		if !reflect.DeepEqual(before, after) {
+			return errors.New("provider write finalization changed immutable transaction data")
+		}
+	}
+	known, err := profilereplay.KnownDrillsForFold(
+		snapshot.KnownDrills, plan.Effective, snapshot.Journal[:snapshot.Cursor],
+	)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(known, plan.KnownDrills) {
+		return errors.New("provider write finalization changed known drill identities")
+	}
+	return nil
 }
 
 func validatePrepareProviderWriteRequest(
@@ -538,12 +613,12 @@ func insertWriteBatch(
 ) error {
 	if _, err := connection.ExecContext(ctx, `
 		INSERT INTO provider_write_batches(
-			profile_singleton, batch_id, phase, version, reviewed_revision, prepared_revision,
+			profile_singleton, batch_id, phase, resume_target, version, reviewed_revision, prepared_revision,
 			refresh_generation, frozen_cursor, frozen_prefix_digest, frozen_operation_count,
 			total_items, completed_items, failed_items, override_count,
 			prepared_at_unix_ms, updated_at_unix_ms
-		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)`,
-		batch.ID, batch.Phase, batch.Version, batch.ReviewedRevision, batch.PreparedRevision,
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)`,
+		batch.ID, batch.Phase, batch.ResumeTarget, batch.Version, batch.ReviewedRevision, batch.PreparedRevision,
 		batch.RefreshGeneration, batch.FrozenCursor, batch.FrozenPrefixDigest,
 		batch.FrozenOperationCount, batch.TotalItems,
 		batch.PreparedAt.UnixMilli(), batch.UpdatedAt.UnixMilli()); err != nil {
@@ -595,13 +670,13 @@ func loadWriteBatchStatus(ctx context.Context, queryer providerRowQueryer) (*sto
 	var preparedAt, updatedAt int64
 	var nextEligible sql.NullInt64
 	err := queryer.QueryRowContext(ctx, `
-		SELECT batch_id, phase, version, reviewed_revision, prepared_revision,
+		SELECT batch_id, phase, resume_target, version, reviewed_revision, prepared_revision,
 			refresh_generation, frozen_cursor, frozen_prefix_digest, frozen_operation_count,
 			total_items, completed_items, failed_items, override_count,
 			attention_class, attention_reason, prepared_at_unix_ms, updated_at_unix_ms,
 			next_eligible_unix_ms
 		FROM provider_write_batches WHERE profile_singleton = 1`).Scan(
-		&batch.ID, &batch.Phase, &version, &reviewed, &prepared, &generation,
+		&batch.ID, &batch.Phase, &batch.ResumeTarget, &version, &reviewed, &prepared, &generation,
 		&batch.FrozenCursor, &batch.FrozenPrefixDigest, &batch.FrozenOperationCount,
 		&batch.TotalItems, &batch.CompletedItems, &batch.FailedItems, &batch.OverrideCount,
 		&attentionClass, &attentionReason, &preparedAt, &updatedAt, &nextEligible,
@@ -824,10 +899,10 @@ func insertWriteResult(ctx context.Context, connection *sql.Conn, result store.W
 
 func updateWriteBatchStatus(ctx context.Context, connection *sql.Conn, batch store.WriteBatch) error {
 	result, err := connection.ExecContext(ctx, `
-		UPDATE provider_write_batches SET phase = ?, version = ?, completed_items = ?,
+		UPDATE provider_write_batches SET phase = ?, resume_target = ?, version = ?, completed_items = ?,
 			failed_items = ?, override_count = ?, attention_class = ?, attention_reason = ?,
 			updated_at_unix_ms = ?, next_eligible_unix_ms = ?
-		WHERE batch_id = ?`, batch.Phase, batch.Version, batch.CompletedItems,
+		WHERE batch_id = ?`, batch.Phase, batch.ResumeTarget, batch.Version, batch.CompletedItems,
 		batch.FailedItems, batch.OverrideCount, nullableText(string(batch.AttentionClass)),
 		nullableText(string(batch.AttentionReason)), batch.UpdatedAt.UnixMilli(),
 		nullableTimeMilliseconds(batch.NextEligible), batch.ID)
@@ -1041,7 +1116,8 @@ func replaceLastWriteSummary(
 
 func validParkedPhase(phase store.WriteBatchPhase) bool {
 	return phase == store.WritePhasePaused || phase == store.WritePhaseReconnectRequired ||
-		phase == store.WritePhaseRateLimited || phase == store.WritePhaseAttentionRequired
+		phase == store.WritePhaseRateLimited || phase == store.WritePhaseAttentionRequired ||
+		phase == store.WritePhaseReconcileConfirmationRequired
 }
 
 func nullableText(value string) any {

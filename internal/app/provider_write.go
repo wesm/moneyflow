@@ -22,6 +22,7 @@ const (
 // ProviderWriteStatus is the credential-blind, counts-only write projection shared by renderers.
 type ProviderWriteStatus struct {
 	Phase            store.WriteBatchPhase
+	ResumeTarget     store.WriteResumeTarget
 	Version          uint64
 	AttentionClass   store.WriteAttentionClass
 	AttentionReason  store.WriteAttentionReason
@@ -94,7 +95,8 @@ func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus
 		return ProviderWriteStatus{}
 	}
 	status := ProviderWriteStatus{
-		Phase: state.Write.Phase, Version: state.Write.Version,
+		Phase: state.Write.Phase, ResumeTarget: state.Write.ResumeTarget,
+		Version:        state.Write.Version,
 		AttentionClass: state.Write.AttentionClass, AttentionReason: state.Write.AttentionReason,
 		Total: state.Write.TotalItems, Completed: state.Write.CompletedItems,
 		Failed: state.Write.FailedItems, Overrides: state.Write.OverrideCount,
@@ -191,8 +193,9 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	leaseOwned := providerState.Lease != nil && providerState.Lease.OwnerID == runtime.instanceID &&
 		providerState.Lease.ExpiresAt.After(now)
-	if !leaseOwned && (batch.Phase == store.WritePhaseWriting ||
-		(batch.Phase == store.WritePhaseReconciling && batch.CompletedItems == batch.TotalItems)) {
+	if !leaseOwned && batch.ResumeTarget == store.WriteResumeWriting &&
+		(batch.Phase == store.WritePhaseWriting ||
+			(batch.Phase == store.WritePhaseReconciling && batch.CompletedItems == batch.TotalItems)) {
 		resumed, resumeErr := service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
 			BatchID: batch.ID, ExpectedVersion: batch.Version,
 			Lease: store.ProviderOperationLease{
@@ -206,7 +209,8 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		}
 		batch = resumed
 	}
-	if batch.Phase == store.WritePhaseReconciling {
+	if batch.Phase == store.WritePhaseReconciling &&
+		batch.ResumeTarget == store.WriteResumeWriting {
 		return service.finalizeProviderWrite(ctx, runtime, batch)
 	}
 	if batch.Phase != store.WritePhaseWriting {
@@ -256,15 +260,21 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		if len(items) == 0 {
 			return service.writeStatus(ctx, provider.NewError(provider.CodeWriteStale))
 		}
-		outcomes := runProviderWriteCalls(ctx, writer, items)
+		outcomes, callErr := service.runProviderWriteCallsWithHeartbeat(ctx, runtime, writer, items)
+		if callErr != nil {
+			return service.writeStatus(ctx, callErr)
+		}
 		slices.SortFunc(outcomes, func(left, right providerWriteOutcome) int {
 			return left.item.Position - right.item.Position
 		})
+		var firstFailure *providerWriteOutcome
 		for _, outcome := range outcomes {
 			if outcome.err != nil {
-				return service.handleProviderWriteItemError(
-					ctx, runtime, batch, outcome.item, fingerprint, outcome.err,
-				)
+				if firstFailure == nil {
+					failed := outcome
+					firstFailure = &failed
+				}
+				continue
 			}
 			currentState, stateErr := service.profile.ProviderWriteState(ctx)
 			if stateErr != nil || currentState.Batch == nil {
@@ -278,7 +288,12 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 				outcome.item, outcome.result, currentState, now,
 			)
 			if normalizeErr != nil {
-				return service.parkProviderWriteFailure(ctx, runtime, batch, fingerprint, normalizeErr)
+				if firstFailure == nil {
+					failed := outcome
+					failed.err = normalizeErr
+					firstFailure = &failed
+				}
+				continue
 			}
 			batch, err = service.profile.RecordProviderWriteResult(
 				ctx, store.RecordProviderWriteResultRequest{
@@ -290,9 +305,14 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			if err != nil {
 				return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 			}
-			if batch.Phase == store.WritePhaseReconciling {
-				return service.finalizeProviderWrite(ctx, runtime, batch)
-			}
+		}
+		if firstFailure != nil {
+			return service.handleProviderWriteItemError(
+				ctx, runtime, batch, firstFailure.item, fingerprint, firstFailure.err,
+			)
+		}
+		if batch.Phase == store.WritePhaseReconciling {
+			return service.finalizeProviderWrite(ctx, runtime, batch)
 		}
 	}
 	return service.writeStatus(ctx, nil)
@@ -322,6 +342,60 @@ func runProviderWriteCalls(
 		outcomes = append(outcomes, <-results)
 	}
 	return outcomes
+}
+
+func (service *Service) runProviderWriteCallsWithHeartbeat(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	writer provider.Writer,
+	items []store.WriteItem,
+) ([]providerWriteOutcome, error) {
+	writeContext, cancel := context.WithCancelCause(ctx)
+	heartbeatDone := make(chan error, 1)
+	stopHeartbeat := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(runtime.heartbeatInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				heartbeatDone <- nil
+				return
+			case <-writeContext.Done():
+				heartbeatDone <- nil
+				return
+			case <-ticker.C:
+				observedAt := runtime.now().UTC().Truncate(time.Millisecond)
+				renewed, err := service.profile.RenewProviderOperationLease(
+					writeContext, runtime.instanceID, store.ProviderOperationWrite,
+					observedAt.Add(runtime.leaseDuration), observedAt,
+				)
+				if err != nil {
+					if writeContext.Err() != nil {
+						heartbeatDone <- nil
+						return
+					}
+					cancel(err)
+					heartbeatDone <- err
+					return
+				}
+				if !renewed {
+					failure := provider.NewError(provider.CodeWriteStale)
+					cancel(failure)
+					heartbeatDone <- failure
+					return
+				}
+			}
+		}
+	}()
+	outcomes := runProviderWriteCalls(writeContext, writer, items)
+	close(stopHeartbeat)
+	heartbeatErr := <-heartbeatDone
+	cancel(nil)
+	if heartbeatErr != nil {
+		return nil, heartbeatErr
+	}
+	return outcomes, nil
 }
 
 func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate {
@@ -541,6 +615,8 @@ func providerErrorForWritePhase(phase store.WriteBatchPhase) error {
 		return provider.NewError(provider.CodeReconnectRequired)
 	case store.WritePhaseAttentionRequired:
 		return provider.NewError(provider.CodeWriteAttentionRequired)
+	case store.WritePhaseReconcileConfirmationRequired:
+		return provider.NewError(provider.CodeDeletionConfirmationRequired)
 	default:
 		return provider.NewError(provider.CodeWriteStale)
 	}
@@ -647,6 +723,9 @@ func (service *Service) ResumeProviderWrite(
 		state.Batch.AttentionClass != store.WriteAttentionRetryable {
 		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteAttentionRequired))
 	}
+	if state.Batch.ResumeTarget != store.WriteResumeWriting {
+		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteAttentionRequired))
+	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	_, err = service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
 		BatchID: state.Batch.ID, ExpectedVersion: expectedVersion,
@@ -679,7 +758,8 @@ func (service *Service) StopAndReconcileProviderWrite(
 	}
 	if state.Batch.Phase != store.WritePhaseAttentionRequired &&
 		state.Batch.Phase != store.WritePhasePaused &&
-		state.Batch.Phase != store.WritePhaseReconnectRequired {
+		state.Batch.Phase != store.WritePhaseReconnectRequired &&
+		state.Batch.Phase != store.WritePhaseReconcileConfirmationRequired {
 		return ProviderWriteResult{}, providerWriteAppError(
 			provider.NewError(provider.CodeWriteAttentionRequired), service.Revision(),
 		)
@@ -700,7 +780,9 @@ func (service *Service) StopAndReconcileProviderWrite(
 	if err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
 	}
-	candidate, identity, fingerprint, err := service.fetchProviderCandidate(ctx, runtime)
+	candidate, identity, fingerprint, err := service.fetchProviderCandidateWithOperationHeartbeat(
+		ctx, runtime, store.ProviderOperationReconcile, provider.CodeWriteStale,
+	)
 	if err != nil {
 		return service.parkProviderWriteReconcile(ctx, runtime, batch, fingerprint, err)
 	}
@@ -720,21 +802,30 @@ func (service *Service) StopAndReconcileProviderWrite(
 	if ProviderDeletionConfirmationRequired(existing, removed) {
 		token, tokenErr := runtime.parkWriteConfirmation(providerWriteConfirmation{
 			owner: runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
-			batchID: batch.ID, batchVersion: batch.Version,
+			batchID: batch.ID, batchVersion: batch.Version + 1,
 			generation:      providerState.Refresh.Generation,
 			remoteProfileID: identity.RemoteID, candidate: candidate.Clone(),
 			proposedIDs:      cloneProviderIDs(proposedIDs),
 			proposedSuffixes: cloneProviderStrings(proposedSuffixes),
 		}, runtime.random, now)
-		_ = service.profile.ReleaseProviderOperationLease(
-			ctx, runtime.instanceID, store.ProviderOperationReconcile,
-		)
 		if tokenErr != nil {
+			_ = service.profile.ReleaseProviderOperationLease(
+				ctx, runtime.instanceID, store.ProviderOperationReconcile,
+			)
 			return ProviderWriteResult{}, newAppError(AppStoreError, service.Revision(), tokenErr)
+		}
+		parked, parkErr := service.profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
+			BatchID: batch.ID, ExpectedVersion: batch.Version,
+			LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationReconcile,
+			Phase: store.WritePhaseReconcileConfirmationRequired, ObservedAt: now,
+		})
+		if parkErr != nil {
+			_, _ = runtime.takeWriteConfirmation(token, now)
+			return ProviderWriteResult{}, mapAppError(parkErr, service.Revision())
 		}
 		return ProviderWriteResult{
 			Revision: service.Revision(), Status: providerWriteStatusFromState(store.ProviderState{
-				Write: &batch,
+				Write: &parked,
 			}), ConfirmationToken: token,
 		}, providerAppError(provider.CodeDeletionConfirmationRequired, service.Revision())
 	}

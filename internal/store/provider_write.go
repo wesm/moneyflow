@@ -11,6 +11,9 @@ import (
 // WriteBatchPhase is the durable provider-write lifecycle state.
 type WriteBatchPhase string
 
+// WriteResumeTarget records which operation kind must be resumed after a parked phase.
+type WriteResumeTarget string
+
 const (
 	// WritePhaseWriting sends eligible absolute transaction items.
 	WritePhaseWriting WriteBatchPhase = "writing"
@@ -24,6 +27,13 @@ const (
 	WritePhaseRateLimited WriteBatchPhase = "rate_limited"
 	// WritePhaseAttentionRequired requires retry or reconciliation choice.
 	WritePhaseAttentionRequired WriteBatchPhase = "attention_required"
+	// WritePhaseReconcileConfirmationRequired waits for an explicit deletion confirmation.
+	WritePhaseReconcileConfirmationRequired WriteBatchPhase = "reconcile_confirmation_required"
+
+	// WriteResumeWriting returns a parked batch to transaction writes or finalization.
+	WriteResumeWriting WriteResumeTarget = "writing"
+	// WriteResumeReconciling returns a parked batch to authoritative provider reconciliation.
+	WriteResumeReconciling WriteResumeTarget = "reconciling"
 )
 
 // WriteExpectationKind describes how a merchant response is interpreted.
@@ -68,6 +78,8 @@ const (
 	WriteAttentionUnavailableExhausted WriteAttentionReason = "provider_write_unavailable_exhausted"
 	// WriteAttentionResponseIncomplete means the provider outcome could not be normalized.
 	WriteAttentionResponseIncomplete WriteAttentionReason = "provider_write_response_incomplete"
+	// WriteAttentionOutcomeUnknown means the request may have been applied and must be reconciled.
+	WriteAttentionOutcomeUnknown WriteAttentionReason = "provider_write_outcome_unknown"
 	// WriteAttentionTargetNotFound means a remote transaction or category disappeared.
 	WriteAttentionTargetNotFound WriteAttentionReason = "provider_write_target_not_found"
 	// WriteAttentionRejected means the provider deterministically rejected the desired value.
@@ -96,6 +108,7 @@ type ProviderIdentityLineage struct {
 type WriteBatch struct {
 	ID                   string
 	Phase                WriteBatchPhase
+	ResumeTarget         WriteResumeTarget
 	Version              uint64
 	ReviewedRevision     uint64
 	PreparedRevision     uint64

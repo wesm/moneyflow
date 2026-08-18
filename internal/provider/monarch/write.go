@@ -66,9 +66,7 @@ func (client *Client) UpdateTransaction(
 		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
 	}
 	if payload.Transaction == nil {
-		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
-		)
+		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	transaction := payload.Transaction
 	if transaction.ID != update.TransactionExternalID {
@@ -101,7 +99,7 @@ func transactionUpdateInput(update provider.TransactionUpdate) (map[string]any, 
 		if _, err := domain.NormalizeDisplayLabel(update.MerchantName.Value); err != nil {
 			return nil, errors.New("transaction merchant name is invalid")
 		}
-		input["name"] = update.MerchantName.Value
+		input["merchantName"] = update.MerchantName.Value
 	}
 	if update.CategoryExternalID.Present {
 		if !validProviderText(update.CategoryExternalID.Value) {
@@ -139,7 +137,7 @@ func (client *Client) updateTransactionOnce(
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return updateTransactionPayload{}, ctxErr
 		}
-		return updateTransactionPayload{}, providerErrorForTransport(err)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -147,33 +145,25 @@ func (client *Client) updateTransactionOnce(
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, client.options.MaxBodyBytes+1))
 	if err != nil {
-		return updateTransactionPayload{}, provider.NewError(provider.CodeUnavailable)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	if int64(len(body)) > client.options.MaxBodyBytes {
-		return updateTransactionPayload{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
-		)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	var envelope graphQLResponse
 	if err = json.Unmarshal(body, &envelope); err != nil {
-		return updateTransactionPayload{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
-		)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	if len(envelope.Errors) > 0 {
 		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteRejected)
 	}
 	data := bytes.TrimSpace(envelope.Data)
 	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		return updateTransactionPayload{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
-		)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	var decoded updateTransactionData
 	if err = json.Unmarshal(data, &decoded); err != nil || decoded.UpdateTransaction == nil {
-		return updateTransactionPayload{}, provider.NewWriteFailure(
-			provider.WriteResponseIncomplete,
-		)
+		return updateTransactionPayload{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	return *decoded.UpdateTransaction, nil
 }
@@ -188,7 +178,7 @@ func writeErrorForResponse(response *http.Response, now time.Time) error {
 		return providerErrorForResponse(response, now)
 	default:
 		if response.StatusCode >= http.StatusInternalServerError {
-			return provider.NewError(provider.CodeUnavailable)
+			return provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 		}
 		return provider.NewWriteFailure(provider.WriteRejected)
 	}
