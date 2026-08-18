@@ -41,26 +41,30 @@ type ProviderRuntime struct {
 }
 
 type providerRuntimeState struct {
-	mu                 sync.Mutex
-	source             provider.Source
-	provider           string
-	currency           domain.Currency
-	scale              uint8
-	renderer           string
-	instanceID         string
-	now                func() time.Time
-	random             io.Reader
-	leaseDuration      time.Duration
-	heartbeatInterval  time.Duration
-	confirmationTTL    time.Duration
-	sleep              func(context.Context, time.Duration) error
-	progressObserver   provider.ProgressFunc
-	fingerprint        provider.SessionFingerprint
-	parkedReconnect    bool
-	forceReload        bool
-	progress           provider.Progress
-	confirmations      map[string]providerConfirmation
-	writeConfirmations map[string]providerWriteConfirmation
+	mu                  sync.Mutex
+	source              provider.Source
+	provider            string
+	currency            domain.Currency
+	scale               uint8
+	renderer            string
+	instanceID          string
+	now                 func() time.Time
+	random              io.Reader
+	leaseDuration       time.Duration
+	heartbeatInterval   time.Duration
+	confirmationTTL     time.Duration
+	sleep               func(context.Context, time.Duration) error
+	progressObserver    provider.ProgressFunc
+	fingerprint         provider.SessionFingerprint
+	parkedReconnect     bool
+	forceReload         bool
+	progress            provider.Progress
+	confirmations       map[string]providerConfirmation
+	writeConfirmations  map[string]providerWriteConfirmation
+	writeControlMu      sync.Mutex
+	writeRuns           int
+	writePauseRequested bool
+	writeIdle           chan struct{}
 }
 
 type providerConfirmation struct {

@@ -128,10 +128,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     transport: { mutations: options.client.mutations, status: options.client.providerStatus },
     host: {
       current: () => projection,
-      accept: (next) => {
-        acceptProfileProjection(next, true)
-        editing.sync(next)
-      },
+      accept: (next) => acceptProfileProjection(next, true),
     },
   })
 
@@ -180,9 +177,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
         if (next.revision === current.revision && next.selection === current.selection) {
           return projection
         }
-        acceptProfileProjection(next)
-        editing.sync(next)
-        return next
+        return acceptProfileProjection(next) ? next : projection
       })
     if (selection !== undefined) return await request
     recheckRequest = request.finally(() => {
@@ -436,8 +431,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     schedulePrefetch(next)
   }
 
-  function acceptProfileProjection(next: ViewProjection, replaceHistory = false): void {
-    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return
+  function acceptProfileProjection(next: ViewProjection, replaceHistory = false): boolean {
+    if (projection && BigInt(next.revision) < BigInt(projection.revision)) return false
     generation += 1
     activeRequest?.abort()
     activeRequest = undefined
@@ -446,6 +441,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     cache.retainAdjacent(next.canonical_query, next.selection, next.revision, next.window.offset)
     projection = next
     lastRevisionObservation = Date.now()
+    editing.sync(next)
     provider.sync(next)
     const cursor = preserveCursor(next, cursorIdentity, cursorIndex)
     cursorIdentity = cursor.identity
@@ -454,6 +450,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     problem = undefined
     if (replaceHistory) replaceOwnedHistory()
     schedulePrefetch(next)
+    return true
   }
 
   function setProjectionWindow(next: ViewProjection, requestedIndex: number): void {

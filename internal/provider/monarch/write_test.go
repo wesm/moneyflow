@@ -85,6 +85,7 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 		retryAfter string
 		code       provider.ErrorCode
 		reason     provider.WriteFailureReason
+		category   bool
 	}{
 		{name: "unauthorized", status: http.StatusUnauthorized, code: provider.CodeReconnectRequired},
 		{name: "not found", status: http.StatusNotFound, code: provider.CodeWriteAttentionRequired, reason: provider.WriteTargetNotFound},
@@ -96,6 +97,9 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 		{name: "payload rejection", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[{"field":"name","messages":["private-provider-message"]}]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "missing transaction", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":null,"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
 		{name: "missing requested merchant", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-request-id","merchant":null,"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "malformed merchant id", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-request-id","merchant":{"id":" ","name":"Example"},"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "malformed merchant label", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-request-id","merchant":{"id":"merchant-a","name":"   "},"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "malformed requested category", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-request-id","merchant":{"id":"merchant-a","name":"Example"},"category":{"id":" "},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown, category: true},
 		{name: "transaction mismatch", status: http.StatusOK, body: `{"data":{"updateTransaction":{"transaction":{"id":"private-other-id","merchant":{"id":"merchant-a","name":"Example"},"category":{"id":"category-a"},"hideFromReports":false},"errors":[]}}}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteIdentityConflict},
 	}
 	for _, test := range tests {
@@ -112,10 +116,14 @@ func TestUpdateTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 			t.Cleanup(server.Close)
 			client := newLoopbackClient(t, server.URL, defaultMaxBodyBytes)
 
-			_, err := client.UpdateTransaction(context.Background(), provider.TransactionUpdate{
+			update := provider.TransactionUpdate{
 				TransactionExternalID: "private-request-id",
 				MerchantName:          provider.Some("private-request-merchant"),
-			})
+			}
+			if test.category {
+				update.CategoryExternalID = provider.Some("private-request-category")
+			}
+			_, err := client.UpdateTransaction(context.Background(), update)
 			require.Error(t, err)
 			assert.Equal(t, int32(1), requests.Load())
 			assertProviderCode(t, err, test.code)

@@ -381,6 +381,49 @@ describe('browser view controller', () => {
     expect(history.state.selection).toBe(next.selection)
     expect(history.state.cursorIndex).toBe(controller.cursorIndex)
   })
+
+  it('synchronizes editing state after an authoritative write reconciliation', async () => {
+    const next = projection('v=1', 0, 3, '2')
+    const client = clientWith({
+      mutations: {
+        request: vi.fn(async () =>
+          Response.json({
+            status: {
+              version: '1',
+              revision: '2',
+              generation: '1',
+              total: 0,
+              completed: 0,
+              failed: 0,
+              remaining: 0,
+              overrides: 0,
+              actions: [],
+            },
+            projection: next,
+            selection: { kind: 'cleared', value: next.selection },
+          }),
+        ),
+      },
+    })
+    const controller = controllerFor(client)
+    await controller.hydrate()
+    controller.providerWrite.install({
+      version: '1',
+      revision: '1',
+      generation: '1',
+      batch_version: '4',
+      phase: 'paused',
+      total: 1,
+      completed: 0,
+      failed: 0,
+      remaining: 1,
+      overrides: 0,
+      actions: ['reconcile'],
+    })
+
+    await expect(controller.providerWrite.reconcile()).resolves.toBe(true)
+    expect(controller.editing.state.revision).toBe(2n)
+  })
 })
 
 function controllerFor(client: MoneyflowClient, prefetch = true) {

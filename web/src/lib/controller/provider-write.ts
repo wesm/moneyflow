@@ -79,7 +79,12 @@ export function createProviderWriteController(
   }
 
   function install(status: ProviderWriteStatus): void {
-    confirmationToken = ''
+    const retainConfirmation =
+      confirmationToken !== '' &&
+      state.status?.phase === 'reconcile_confirmation_required' &&
+      status.phase === 'reconcile_confirmation_required' &&
+      state.status.batch_version === status.batch_version
+    if (!retainConfirmation) confirmationToken = ''
     setState({
       status,
       phase: phaseFor(status),
@@ -88,6 +93,10 @@ export function createProviderWriteController(
   }
 
   function can(action: string): boolean {
+    if (state.status?.phase === 'reconcile_confirmation_required') {
+      if (action === 'confirm') return confirmationToken !== ''
+      if (action === 'reconcile') return confirmationToken === ''
+    }
     return (state.status?.actions ?? []).includes(action)
   }
 

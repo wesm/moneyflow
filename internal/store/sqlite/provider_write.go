@@ -403,7 +403,13 @@ func (profile *profile) FinalizeProviderWrite(
 		Snapshot: snapshot.Clone(), ProviderState: providerState,
 		WriteState: writeState.Clone(), ObservedAt: request.ObservedAt,
 	}
-	plan, err := planner(inputs)
+	expectedPlan, err := store.BuildProviderWriteFinalization(inputs)
+	if err != nil {
+		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationProviderWritePlan, err,
+		)
+	}
+	plan, err := planner(inputs.Clone())
 	if err != nil {
 		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWritePlanner, err,
@@ -414,7 +420,7 @@ func (profile *profile) FinalizeProviderWrite(
 			store.InvalidOperationProviderWritePlan, err,
 		)
 	}
-	if err = validateFinalizeProviderWritePlan(inputs, plan); err != nil {
+	if err = validateFinalizeProviderWritePlan(inputs, expectedPlan, plan); err != nil {
 		return store.FinalizeProviderWriteCommit{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWritePlan, err,
 		)
@@ -467,6 +473,7 @@ func (profile *profile) FinalizeProviderWrite(
 
 func validateFinalizeProviderWritePlan(
 	inputs store.FinalizeProviderWriteInputs,
+	expectedPlan store.FinalizeProviderWritePlan,
 	plan store.FinalizeProviderWritePlan,
 ) error {
 	writeState := inputs.WriteState
@@ -480,10 +487,6 @@ func validateFinalizeProviderWritePlan(
 		plan.Summary.ItemCount != writeState.Batch.TotalItems ||
 		plan.Summary.OverrideCount != writeState.Batch.OverrideCount {
 		return errors.New("provider write finalization summary changed")
-	}
-	expectedPlan, err := store.BuildProviderWriteFinalization(inputs)
-	if err != nil {
-		return err
 	}
 	if !reflect.DeepEqual(expectedPlan, plan) {
 		return errors.New("provider write finalization differs from the canonical response-adjusted fold")

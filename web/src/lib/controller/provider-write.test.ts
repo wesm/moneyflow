@@ -111,6 +111,8 @@ describe('provider write controller', () => {
 
     await expect(controller.reconcile()).resolves.toBe(false)
     expect(controller.state.phase).toBe('confirmation')
+    await controller.poll()
+    expect(controller.can('confirm')).toBe(true)
 
     vi.mocked(transport.mutations.request).mockResolvedValueOnce(
       problemResponse('provider_confirmation_invalid', pending),
@@ -118,6 +120,28 @@ describe('provider write controller', () => {
     await expect(controller.confirm()).resolves.toBe(false)
     expect(transport.mutations.request).toHaveBeenCalledTimes(2)
     expect(controller.state.phase).toBe('failed')
+  })
+
+  it('refetches a confirmation candidate after a browser restart loses its token', async () => {
+    const pending = writeStatus({
+      phase: 'reconcile_confirmation_required',
+      batch_version: '10',
+      actions: ['confirm'],
+    })
+    const transport = transportStub({
+      mutationResponse: problemResponse(
+        'provider_deletion_confirmation_required',
+        pending,
+        'new-confirmation',
+      ),
+    })
+    const controller = createProviderWriteController({ transport, host: hostStub() })
+    controller.install(pending)
+
+    expect(controller.can('confirm')).toBe(false)
+    expect(controller.can('reconcile')).toBe(true)
+    await expect(controller.reconcile()).resolves.toBe(false)
+    expect(controller.can('confirm')).toBe(true)
   })
 })
 

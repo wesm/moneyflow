@@ -317,6 +317,7 @@ func TestFinalizeProviderWriteRejectsPlannerThatDropsTransaction(t *testing.T) {
 
 	ctx := context.Background()
 	profile, prepared, now := preparedWriteProfile(t)
+	bindProviderForRefreshTest(t, profile, now)
 	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
@@ -434,6 +435,33 @@ func TestFinalizeProviderWriteRejectsPlannerIdentityAndMetadataDrift(t *testing.
 			assertStoreInvalidReason(t, err, store.InvalidOperationProviderWritePlan)
 		})
 	}
+}
+
+func TestFinalizeProviderWriteRejectsPlannerInputAliasing(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile, prepared, now := preparedWriteProfile(t)
+	bindProviderForRefreshTest(t, profile, now)
+	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-a", Result: store.WriteResult{
+			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+
+	_, err = profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
+		BatchID: batch.ID, ExpectedVersion: batch.Version,
+		ExpectedRevision: prepared.Revision, ExpectedGeneration: 0,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now,
+	}, func(inputs store.FinalizeProviderWriteInputs) (store.FinalizeProviderWritePlan, error) {
+		inputs.Snapshot.Committed.Transactions[0].Amount.Minor = -999_999
+		return store.BuildProviderWriteFinalization(inputs)
+	})
+	assertStoreInvalidReason(t, err, store.InvalidOperationProviderWritePlan)
 }
 
 func TestProviderWriteStateReconstructsNewMerchantGroups(t *testing.T) {

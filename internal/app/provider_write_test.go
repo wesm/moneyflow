@@ -235,6 +235,207 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 	assert.True(t, persisted.Committed.Transactions[0].Hidden)
 }
 
+func TestProviderWriteHeartbeatErrorWithLiveLeaseNeverResendsAttemptedItem(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, profileHandle := newProviderRefreshService(t)
+	wrapped := &heartbeatErrorProfile{
+		Profile: profileHandle, failAt: 2, failed: make(chan struct{}),
+	}
+	service, err := app.NewProfileService(ctx, wrapped)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 20, 25, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		updateContext: func(ctx context.Context, _ provider.TransactionUpdate) (
+			provider.TransactionUpdateResult, error,
+		) {
+			if startedClosed := func() bool {
+				select {
+				case <-started:
+					return true
+				default:
+					return false
+				}
+			}(); startedClosed {
+				return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
+			}
+			startedOnce.Do(func() { close(started) })
+			<-ctx.Done()
+			return provider.TransactionUpdateResult{}, ctx.Err()
+		},
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-live-lease", Now: func() time.Time { return now },
+		Random: &incrementingReader{}, LeaseDuration: time.Minute,
+		HeartbeatInterval: time.Millisecond,
+	}))
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-live-lease", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{target.ID},
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	<-started
+	<-wrapped.failed
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+	assert.Equal(t, 1, writer.callCount())
+	_, err = service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, 1, writer.callCount())
+}
+
+func TestPauseWaitsForInflightProviderResultsBeforeReleasingLease(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 20, 30, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 8), fingerprint: "session-a",
+	}
+	started := make(chan struct{}, providerWriteConcurrencyForTest())
+	release := make(chan struct{})
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			started <- struct{}{}
+			<-release
+			return provider.TransactionUpdateResult{
+				TransactionExternalID: update.TransactionExternalID,
+				Hidden:                provider.Some(update.Hidden.Value),
+			}, nil
+		},
+	}
+	configureProviderRefreshService(
+		t, service, &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		now, "instance-pause",
+	)
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	targets := make([]domain.EntityID, len(loaded.Committed.Transactions))
+	for index := range loaded.Committed.Transactions {
+		targets[index] = loaded.Committed.Transactions[index].ID
+	}
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-pause", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: targets,
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	prepared, err := service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, prepared.ProviderWrite)
+
+	runDone := make(chan error, 1)
+	go func() {
+		_, runErr := service.RunProviderWrite(ctx)
+		runDone <- runErr
+	}()
+	for range providerWriteConcurrencyForTest() {
+		<-started
+	}
+	pauseDone := make(chan app.ProviderWriteStatus, 1)
+	go func() {
+		status, _ := service.PauseProviderWrite(ctx, prepared.ProviderWrite.Version)
+		pauseDone <- status
+	}()
+	select {
+	case <-pauseDone:
+		t.Fatal("pause returned before in-flight provider calls completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-runDone)
+	paused := <-pauseDone
+	assert.Equal(t, store.WritePhasePaused, paused.Phase)
+	assert.Equal(t, providerWriteConcurrencyForTest(), paused.Completed)
+	assert.Equal(t, providerWriteConcurrencyForTest(), writer.callCount())
+}
+
+func TestProviderWriteStatusTreatsExpiredLeaseAsOwnerless(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 20, 35, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	clock := now
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-expired", Now: func() time.Time { return clock },
+		Random: &incrementingReader{}, LeaseDuration: time.Minute,
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-expired-owner", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{target.ID},
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	clock = now.Add(2 * time.Minute)
+
+	status, err := service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, status.OwnerInstanceID)
+	assert.Empty(t, status.OwnerRenderer)
+}
+
 func TestProviderWriteOwnerChangeParksClaimedItemAsUnknownBeforeResend(t *testing.T) {
 	t.Parallel()
 
@@ -742,12 +943,15 @@ func (source *writeProviderSource) Writer(
 }
 
 type scriptedProviderWriter struct {
-	mu       sync.Mutex
-	identity provider.ProfileIdentity
-	calls    []provider.TransactionUpdate
-	active   int
-	maximum  int
-	update   func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error)
+	mu            sync.Mutex
+	identity      provider.ProfileIdentity
+	calls         []provider.TransactionUpdate
+	active        int
+	maximum       int
+	update        func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error)
+	updateContext func(context.Context, provider.TransactionUpdate) (
+		provider.TransactionUpdateResult, error,
+	)
 }
 
 func (writer *scriptedProviderWriter) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
@@ -755,7 +959,7 @@ func (writer *scriptedProviderWriter) ProbeIdentity(context.Context) (provider.P
 }
 
 func (writer *scriptedProviderWriter) UpdateTransaction(
-	_ context.Context,
+	ctx context.Context,
 	update provider.TransactionUpdate,
 ) (provider.TransactionUpdateResult, error) {
 	writer.mu.Lock()
@@ -763,12 +967,16 @@ func (writer *scriptedProviderWriter) UpdateTransaction(
 	writer.active++
 	writer.maximum = max(writer.maximum, writer.active)
 	callback := writer.update
+	contextCallback := writer.updateContext
 	writer.mu.Unlock()
 	defer func() {
 		writer.mu.Lock()
 		writer.active--
 		writer.mu.Unlock()
 	}()
+	if contextCallback != nil {
+		return contextCallback(ctx, update)
+	}
 	if callback != nil {
 		return callback(update)
 	}
@@ -784,6 +992,32 @@ func (writer *scriptedProviderWriter) UpdateTransaction(
 		result.Hidden = provider.Some(update.Hidden.Value)
 	}
 	return result, nil
+}
+
+type heartbeatErrorProfile struct {
+	store.Profile
+	mu     sync.Mutex
+	calls  int
+	failAt int
+	failed chan struct{}
+}
+
+func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
+	ctx context.Context,
+	owner string,
+	kind store.ProviderOperationKind,
+	expiresAt time.Time,
+	observedAt time.Time,
+) (bool, error) {
+	profile.mu.Lock()
+	profile.calls++
+	call := profile.calls
+	profile.mu.Unlock()
+	if call == profile.failAt {
+		close(profile.failed)
+		return false, errors.New("synthetic heartbeat storage failure")
+	}
+	return profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
 }
 
 func (writer *scriptedProviderWriter) callCount() int {

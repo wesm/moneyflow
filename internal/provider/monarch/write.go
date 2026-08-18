@@ -191,13 +191,13 @@ func normalizeTransactionUpdateResult(
 	if transaction.Merchant != nil {
 		if !validProviderText(transaction.Merchant.ID) {
 			return provider.TransactionUpdateResult{}, provider.NewWriteFailure(
-				provider.WriteResponseIncomplete,
+				provider.WriteOutcomeUnknown,
 			)
 		}
 		label, err := normalizeProviderLabel(transaction.Merchant.Name)
 		if err != nil {
 			return provider.TransactionUpdateResult{}, provider.NewWriteFailure(
-				provider.WriteResponseIncomplete,
+				provider.WriteOutcomeUnknown,
 			)
 		}
 		result.MerchantExternalID = provider.Some(transaction.Merchant.ID)
@@ -206,7 +206,7 @@ func normalizeTransactionUpdateResult(
 	if transaction.Category != nil {
 		if !validProviderText(transaction.Category.ID) {
 			return provider.TransactionUpdateResult{}, provider.NewWriteFailure(
-				provider.WriteResponseIncomplete,
+				provider.WriteOutcomeUnknown,
 			)
 		}
 		result.CategoryExternalID = provider.Some(transaction.Category.ID)

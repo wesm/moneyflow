@@ -111,6 +111,25 @@ type ProviderState struct {
 	Pristine    bool
 }
 
+// Clone returns independently owned provider state for a pure callback boundary.
+func (state ProviderState) Clone() ProviderState {
+	if state.Binding != nil {
+		binding := *state.Binding
+		state.Binding = &binding
+	}
+	if state.Lease != nil {
+		lease := *state.Lease
+		state.Lease = &lease
+	}
+	state.Allocations = append([]LabelAllocation(nil), state.Allocations...)
+	state.Lineage = append([]ProviderIdentityLineage(nil), state.Lineage...)
+	if state.Write != nil {
+		write := state.Write.Clone()
+		state.Write = &write
+	}
+	return state
+}
+
 // RefreshFailure records allowlisted operational failure bookkeeping.
 type RefreshFailure struct {
 	OwnerID      string

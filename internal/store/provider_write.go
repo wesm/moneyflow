@@ -324,6 +324,14 @@ type FinalizeProviderWriteInputs struct {
 	ObservedAt    time.Time
 }
 
+// Clone returns independently owned finalization inputs for a pure callback boundary.
+func (inputs FinalizeProviderWriteInputs) Clone() FinalizeProviderWriteInputs {
+	inputs.Snapshot = inputs.Snapshot.Clone()
+	inputs.ProviderState = inputs.ProviderState.Clone()
+	inputs.WriteState = inputs.WriteState.Clone()
+	return inputs
+}
+
 // FinalizeProviderWritePlan contains the complete response-adjusted committed state.
 type FinalizeProviderWritePlan struct {
 	Effective   domain.CommittedProfile

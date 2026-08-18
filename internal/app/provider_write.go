@@ -83,6 +83,9 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
 	status := providerWriteStatusFromState(state)
+	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
+		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
+	}
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 			status.SessionChanged, _ = runtime.source.Changed(runtime.currentFingerprint())
@@ -109,6 +112,17 @@ func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus
 		status.OwnerInstanceID = state.Lease.OwnerID
 	}
 	return status
+}
+
+func clearExpiredProviderWriteOwner(
+	status *ProviderWriteStatus,
+	state store.ProviderState,
+	now time.Time,
+) {
+	if state.Lease != nil && !state.Lease.ExpiresAt.After(now) {
+		status.OwnerRenderer = ""
+		status.OwnerInstanceID = ""
+	}
 }
 
 func (service *Service) prepareProviderWrite(
@@ -186,6 +200,10 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 	if err != nil {
 		return ProviderWriteStatus{}, err
 	}
+	if !runtime.beginProviderWriteRun() {
+		return service.writeStatus(ctx, nil)
+	}
+	defer runtime.endProviderWriteRun()
 	state, err := service.profile.ProviderWriteState(ctx)
 	if err != nil {
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
@@ -251,6 +269,9 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 	runtime.setFingerprint(fingerprint, false)
 
 	for batch.Phase == store.WritePhaseWriting {
+		if runtime.providerWritePausePending() {
+			return service.writeStatus(ctx, nil)
+		}
 		now := runtime.now().UTC().Truncate(time.Millisecond)
 		renewed, renewErr := service.profile.RenewProviderOperationLease(
 			ctx, runtime.instanceID, store.ProviderOperationWrite,
@@ -316,7 +337,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 				item: items[0], err: provider.NewWriteFailure(provider.WriteOutcomeUnknown),
 			}
 			firstFailure = preferredProviderWriteFailure(firstFailure, failed)
-			batch, err = service.reacquireProviderWriteLease(ctx, runtime, batch)
+			batch, err = service.ensureProviderWriteLeaseAfterHeartbeat(ctx, runtime, batch)
 			if err != nil {
 				return service.writeStatus(ctx, err)
 			}
@@ -328,7 +349,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		}
 		if batch.Phase == store.WritePhaseReconciling {
 			if callErr != nil {
-				batch, err = service.reacquireProviderWriteLease(ctx, runtime, batch)
+				batch, err = service.ensureProviderWriteLeaseAfterHeartbeat(ctx, runtime, batch)
 				if err != nil {
 					return service.writeStatus(ctx, err)
 				}
@@ -337,6 +358,48 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		}
 	}
 	return service.writeStatus(ctx, nil)
+}
+
+func (runtime *providerRuntimeState) beginProviderWriteRun() bool {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	if runtime.writePauseRequested {
+		return false
+	}
+	if runtime.writeRuns == 0 {
+		runtime.writeIdle = make(chan struct{})
+	}
+	runtime.writeRuns++
+	return true
+}
+
+func (runtime *providerRuntimeState) endProviderWriteRun() {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	runtime.writeRuns--
+	if runtime.writeRuns == 0 && runtime.writeIdle != nil {
+		close(runtime.writeIdle)
+		runtime.writeIdle = nil
+	}
+}
+
+func (runtime *providerRuntimeState) requestProviderWritePause() (<-chan struct{}, bool) {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	runtime.writePauseRequested = true
+	return runtime.writeIdle, runtime.writeRuns > 0
+}
+
+func (runtime *providerRuntimeState) clearProviderWritePause() {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	runtime.writePauseRequested = false
+}
+
+func (runtime *providerRuntimeState) providerWritePausePending() bool {
+	runtime.writeControlMu.Lock()
+	defer runtime.writeControlMu.Unlock()
+	return runtime.writePauseRequested
 }
 
 type providerWriteOutcome struct {
@@ -470,6 +533,24 @@ func (service *Service) reacquireProviderWriteLease(
 		return store.WriteBatch{}, mapAppError(err, service.Revision())
 	}
 	return resumed, nil
+}
+
+func (service *Service) ensureProviderWriteLeaseAfterHeartbeat(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+	batch store.WriteBatch,
+) (store.WriteBatch, error) {
+	state, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return store.WriteBatch{}, mapAppError(err, service.Revision())
+	}
+	now := runtime.now().UTC().Truncate(time.Millisecond)
+	if state.Write != nil && state.Write.ID == batch.ID && state.Lease != nil &&
+		state.Lease.OwnerID == runtime.instanceID &&
+		state.Lease.Kind == store.ProviderOperationWrite && state.Lease.ExpiresAt.After(now) {
+		return state.Write.Clone(), nil
+	}
+	return service.reacquireProviderWriteLease(ctx, runtime, batch)
 }
 
 func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate {
@@ -705,6 +786,9 @@ func (service *Service) writeStatus(
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
 	status := providerWriteStatusFromState(state)
+	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
+		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
+	}
 	if failure != nil {
 		return status, providerWriteAppError(failure, service.Revision())
 	}
@@ -768,9 +852,28 @@ func (service *Service) PauseProviderWrite(
 	if err != nil || state.Batch == nil {
 		return service.writeStatus(ctx, err)
 	}
+	if state.Batch.Version != expectedVersion {
+		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteStale))
+	}
+	idle, running := runtime.requestProviderWritePause()
+	defer runtime.clearProviderWritePause()
+	if running {
+		select {
+		case <-ctx.Done():
+			return service.writeStatus(ctx, ctx.Err())
+		case <-idle:
+		}
+	}
+	state, err = service.profile.ProviderWriteState(ctx)
+	if err != nil || state.Batch == nil {
+		return service.writeStatus(ctx, err)
+	}
+	if state.Batch.Phase != store.WritePhaseWriting {
+		return service.writeStatus(ctx, nil)
+	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	batch, err := service.profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
-		BatchID: state.Batch.ID, ExpectedVersion: expectedVersion,
+		BatchID: state.Batch.ID, ExpectedVersion: state.Batch.Version,
 		LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationWrite,
 		Phase: store.WritePhasePaused, ObservedAt: now,
 	})
