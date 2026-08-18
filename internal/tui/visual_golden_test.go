@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,10 @@ func TestVisualGoldens(t *testing.T) {
 				session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
 				require.NoError(t, sessionErr)
 				model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
-					Theme: visual.theme, ColorMode: visual.colorMode,
+					Theme: visual.theme, ColorMode: visual.colorMode, Version: "v2-test",
+					Now: func() time.Time {
+						return time.Date(2026, time.August, 18, 9, 41, 0, 0, time.UTC)
+					},
 				})
 				require.NoError(t, modelErr)
 				model = updateModel(t, model, tea.WindowSizeMsg{

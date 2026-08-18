@@ -17,7 +17,7 @@ func TestModelConstructionAndInitialView(t *testing.T) {
 	t.Parallel()
 
 	model := newTestModel(t, app.NewSession())
-	assert.Nil(t, model.Init())
+	assert.NotNil(t, model.Init())
 	view := model.View()
 	assert.True(t, view.AltScreen)
 	assert.NotEmpty(t, view.Content)

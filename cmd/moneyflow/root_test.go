@@ -14,6 +14,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/tui"
+	"github.com/wesm/moneyflow/internal/version"
 )
 
 func executeCommand(t *testing.T, args ...string) (string, string, error) {
@@ -97,6 +98,7 @@ func TestTUICommandStartsPersistentAndTemporaryProfiles(t *testing.T) {
 				) error {
 					runs++
 					assert.Equal(t, tui.ThemeDefault, options.Theme)
+					assert.Equal(t, version.Version, options.Version)
 					if test.name == "persistent" {
 						assert.Nil(t, dependencies.Preselected)
 					} else {

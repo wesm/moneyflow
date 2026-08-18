@@ -282,5 +282,6 @@ func previewOptions(theme string) (tui.Options, error) {
 	return tui.Options{
 		Theme:     themeName,
 		ColorMode: tui.ResolveColorMode(tui.ColorModeAuto, environment, profile),
+		Version:   version.Version,
 	}, nil
 }

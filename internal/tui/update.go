@@ -10,6 +10,9 @@ import (
 // Update routes synchronous profile interactions through the application session.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case clockTickMsg:
+		model.clockAt = message.at
+		return model, clockTickCommand()
 	case providerRefreshMsg:
 		return model, model.handleProviderRefresh(message)
 	case providerStatusMsg:

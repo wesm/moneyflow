@@ -19,6 +19,8 @@ func (model Model) RenderScreen() RenderedScreen {
 	}
 
 	contentWidth := model.width - 2
+	chromeRect := Rect{X: 1, Y: 0, Width: contentWidth, Height: 1}
+	model.renderChrome(&frame, chromeRect)
 	statsText := FormatStatistics(model.result.Statistics)
 	statsWidth := min(contentWidth, lipgloss.Width(statsText))
 	breadcrumbWidth := contentWidth - statsWidth
@@ -84,6 +86,7 @@ func (model Model) RenderScreen() RenderedScreen {
 	)
 
 	regions := []NamedRegion{
+		{Name: "chrome", Rect: chromeRect},
 		{Name: "breadcrumb", Rect: breadcrumbRect},
 		{Name: "stats", Rect: statsRect},
 	}
@@ -113,9 +116,26 @@ func (model Model) RenderScreen() RenderedScreen {
 	}
 	if model.overlay != overlayNone {
 		screen.Frame = NewFrame(model.width, model.height, cellFromStyle(" ", model.palette.Background))
+		model.renderChrome(&screen.Frame, chromeRect)
 	}
 	model.renderOverlay(&screen)
 	return screen
+}
+
+func (model Model) renderChrome(frame *Frame, rect Rect) {
+	if rect.Width <= 0 {
+		return
+	}
+	brand := "moneyflow " + model.options.Version
+	current := formatClock(model.clockAt)
+	lastUpdate := "Last update " + formatClock(model.provider.status.LastSuccess)
+	right := lastUpdate + "  |  " + current
+	if lipgloss.Width(brand)+1+lipgloss.Width(right) > rect.Width {
+		right = current
+	}
+	brandWidth := max(0, rect.Width-lipgloss.Width(right)-1)
+	frame.PutText(rect.X, rect.Y, Truncate(brand, brandWidth), model.palette.Heading)
+	putRight(frame, rect, right, model.palette.Muted)
 }
 
 func (model Model) visibleTableRows(rows []TableRow) []TableRow {

@@ -21,6 +21,7 @@ const (
 type Options struct {
 	Theme            ThemeName
 	ColorMode        ColorMode
+	Version          string
 	InitialDateRange *domain.DateRange
 	// Now supplies renderer-local scheduling time. The application owns durable refresh time.
 	Now func() time.Time
@@ -80,6 +81,7 @@ type Model struct {
 	selection       app.SelectionValue
 	provider        providerTUIState
 	now             func() time.Time
+	clockAt         time.Time
 }
 
 // NewModel validates presentation options and evaluates the initial session.
@@ -95,6 +97,9 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 	}
 	if options.ColorMode == "" {
 		options.ColorMode = ColorModeNone
+	}
+	if options.Version == "" {
+		options.Version = "dev"
 	}
 	if options.Now == nil {
 		options.Now = time.Now
@@ -122,17 +127,18 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 		height:    minimumHeight,
 		selection: app.EmptySelection(),
 		now:       options.Now,
+		clockAt:   options.Now(),
 	}
 	model.syncProfileMetadata()
 	return model, nil
 }
 
-// Init starts only the bounded provider status/scheduling loop when refresh is available.
+// Init starts the renderer clock and the bounded provider loop when refresh is available.
 func (model Model) Init() tea.Cmd {
 	if _, available := model.capability(app.ActionRefreshProvider); !available {
-		return nil
+		return clockTickCommand()
 	}
-	return model.providerStatusCommand(model.now())
+	return tea.Batch(clockTickCommand(), model.providerStatusCommand(model.now()))
 }
 
 // View renders the owned cell frame into Bubble Tea's alternate screen.
