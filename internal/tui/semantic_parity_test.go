@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,6 +39,7 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 				model = updateModel(t, model, semanticKey(keyName))
 			}
 			got := parity.ProjectSemantic(scenario.Name, model.RenderScreen())
+			got = withoutNamedGoTransactionInfoHint(got)
 			if scenario.Name == "help" {
 				got.Overlay = withoutNamedGoHelpDivergences(t, got.Overlay)
 			}
@@ -50,6 +52,20 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func withoutNamedGoTransactionInfoHint(frame parity.SemanticFrame) parity.SemanticFrame {
+	const hint = " | i=Info"
+	frame.Hints = strings.Replace(frame.Hints, hint, "", 1)
+	for index := range frame.Regions {
+		if frame.Regions[index].Name != "hints" {
+			continue
+		}
+		for line := range frame.Regions[index].Lines {
+			frame.Regions[index].Lines[line] = strings.Replace(frame.Regions[index].Lines[line], hint, "", 1)
+		}
+	}
+	return frame
 }
 
 func withoutNamedGoHelpDivergences(t testing.TB, overlay []string) []string {

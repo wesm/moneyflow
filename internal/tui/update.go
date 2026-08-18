@@ -37,6 +37,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.overlay == overlayHelp {
 			model.help.scroll = min(model.help.scroll, model.helpMaxScroll())
 		}
+		if model.overlay == overlayTransactionInfo {
+			model.transactionInfo.scroll = min(model.transactionInfo.scroll, model.transactionInfoMaxScroll())
+		}
 		return model, nil
 	case tea.KeyPressMsg:
 		matched := matchAction(message, model.bindings)
@@ -82,6 +85,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		case "down", "j":
 			model.help.scroll = min(model.helpMaxScroll(), model.help.scroll+1)
 		}
+	case overlayTransactionInfo:
+		return model.routeTransactionInfo(message)
 	case overlayMerchantEditor:
 		return model.routeMerchantEditor(message)
 	case overlayCategoryEditor:
@@ -164,6 +169,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionOpenHelp:
 		model.help = helpState{}
 		model.overlay = overlayHelp
+	case app.ActionShowInfo:
+		return model.openTransactionInfo()
 	case app.ActionEditMerchant:
 		return model.openMerchantEditor()
 	case app.ActionEditCategory:

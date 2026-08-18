@@ -350,7 +350,7 @@
         ]
       },
       {
-        "glyph": "4",
+        "glyph": "9",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#8b98a5",
@@ -5537,6 +5537,96 @@
         ]
       },
       {
+        "glyph": "i",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "=",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "I",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "n",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "f",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "o",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": "|",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
+        "glyph": " ",
+        "display_width": 1,
+        "repeat": 1,
+        "foreground": "#8b98a5",
+        "background": "#121826",
+        "attributes": [
+          "dim"
+        ]
+      },
+      {
         "glyph": "m",
         "display_width": 1,
         "repeat": 1,
@@ -6339,7 +6429,7 @@
       {
         "glyph": " ",
         "display_width": 1,
-        "repeat": 53,
+        "repeat": 44,
         "foreground": "#e6edf3",
         "background": "#121826"
       }

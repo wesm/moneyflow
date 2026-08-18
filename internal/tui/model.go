@@ -34,6 +34,7 @@ const (
 	overlaySearch
 	overlayFilters
 	overlayHelp
+	overlayTransactionInfo
 	overlayMerchantEditor
 	overlayCategoryEditor
 	overlayCategoryManager
@@ -70,6 +71,7 @@ type Model struct {
 	search          searchState
 	filters         filterState
 	help            helpState
+	transactionInfo transactionInfoState
 	merchant        merchantEditorState
 	category        categoryEditorState
 	categoryManager taxonomyManagerState

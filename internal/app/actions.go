@@ -122,7 +122,7 @@ var readOnlyActions = []ActionDefinition{
 	{ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", ScopeAnalytical, true, true},
 	{ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", ScopeAnalytical, true, true},
 	{ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", ScopeAnalytical, true, true},
-	{ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", ScopeOverlay, false, true},
+	{ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", ScopeOverlay, true, false},
 	{ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", ScopeAnalytical, false, true},
 	{ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", ScopeAnalytical, false, true},
 	{ActionManageCategories, []string{"C"}, "C", "Manage categories (create, rename, move, merge, delete)", "Actions", ScopeOverlay, false, true},

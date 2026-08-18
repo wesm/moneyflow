@@ -178,7 +178,7 @@ func (model Model) actionHints() string {
 		if len(model.session.Drilldowns) > 0 || model.session.SubGrouping != nil {
 			back = "Back"
 		}
-		return "Esc/g=" + back + " | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+		return "Esc/g=" + back + " | i=Info | m=✏️ Merchant | c=✏️ Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
 	}
 	return "Enter=Drill | Space=Select | m=✏️ Merchant (bulk) | c=✏️ Category (bulk) | s=Sort(" + sortName + ") | g=Group"
 }
@@ -191,6 +191,8 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderFilterOverlay(screen)
 	case overlayHelp:
 		model.renderHelpOverlay(screen)
+	case overlayTransactionInfo:
+		model.renderTransactionInfo(screen)
 	case overlayMerchantEditor:
 		model.renderMerchantEditor(screen)
 	case overlayCategoryEditor:

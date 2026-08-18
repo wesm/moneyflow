@@ -37,7 +37,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionNextPeriod, []string{"right"}, "→", "Next time period (when drilled into time)", "Time", app.ScopeAnalytical, true, true},
 		{app.ActionCycleSort, []string{"s"}, "s", "Toggle sort field (count/amount/date)", "Sorting", app.ScopeAnalytical, true, true},
 		{app.ActionReverseSort, []string{"v"}, "v", "Reverse sort direction", "Sorting", app.ScopeAnalytical, true, true},
-		{app.ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", app.ScopeOverlay, false, true},
+		{app.ActionShowInfo, []string{"i"}, "i", "Show transaction info/details", "Actions", app.ScopeOverlay, true, false},
 		{app.ActionEditMerchant, []string{"m"}, "m", "Edit merchant name (or bulk rename)", "Actions", app.ScopeAnalytical, false, true},
 		{app.ActionEditCategory, []string{"c"}, "c", "Change category (or bulk change)", "Actions", app.ScopeAnalytical, false, true},
 		{app.ActionManageCategories, []string{"C"}, "C", "Manage categories (create, rename, move, merge, delete)", "Actions", app.ScopeOverlay, false, true},
@@ -111,7 +111,7 @@ func TestActionRegistryIsUniqueAndDefensivelyCopied(t *testing.T) {
 			seenKeys[definition.Scope][keyName] = definition.ID
 		}
 		if !definition.Web {
-			assert.Equal(t, app.ScopeLifecycle, definition.Scope)
+			assert.Contains(t, []app.ActionScope{app.ScopeOverlay, app.ScopeLifecycle}, definition.Scope)
 		}
 	}
 

@@ -68,7 +68,7 @@ func TestVisualGoldens(t *testing.T) {
 				model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
 					Theme: visual.theme, ColorMode: visual.colorMode, Version: "v2-test",
 					Now: func() time.Time {
-						return time.Date(2026, time.August, 18, 9, 41, 0, 0, time.UTC)
+						return time.Date(2026, time.August, 18, 9, 41, 0, 0, time.Local)
 					},
 				})
 				require.NoError(t, modelErr)
@@ -167,6 +167,8 @@ func goOnlyEditingScenarios(initial parity.FrameScenario) []visualScenario {
 	}{
 		{"category_manager", []string{"C"}},
 		{"group_manager", []string{"G"}},
+		{"transaction_info", []string{"d", "i"}},
+		{"transaction_info_aggregate", []string{"i"}},
 		{"redo_pending", []string{"h", "u"}},
 		{"active_inactive_review", []string{"h", "down", "h", "u", "w"}},
 		{"commit_redo_warning", []string{"h", "down", "h", "u", "w", "c"}},
