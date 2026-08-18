@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -18,6 +18,19 @@ export interface E2EServerOptions {
   externalURL?: string
   profileHome?: string
   seedProfile?: boolean
+}
+
+export interface OnboardingE2EServer {
+  basePath: string
+  origin: string
+  url: string
+  expire(profileID: string): Promise<void>
+  logs(): Promise<string>
+  stop(): Promise<void>
+}
+
+export interface OnboardingE2EServerOptions {
+  recoveryProfile?: boolean
 }
 
 async function availablePort(): Promise<number> {
@@ -182,4 +195,102 @@ export async function startE2EServer(
     await rm(binaryDirectory, { recursive: true, force: true })
     throw error
   }
+}
+
+export async function startOnboardingE2EServer(
+  requestedBasePath = '/',
+  options: OnboardingE2EServerOptions = {},
+): Promise<OnboardingE2EServer> {
+  const normalized = normalizedBasePath(requestedBasePath)
+  const repository = resolve(process.cwd(), '..')
+  const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-onboarding-e2e-'))
+  const profileHome = join(binaryDirectory, 'profiles')
+  await mkdir(profileHome, { mode: 0o700 })
+  const binary = join(
+    binaryDirectory,
+    process.platform === 'win32' ? 'webtestserver.exe' : 'webtestserver',
+  )
+  const build = spawnSync('go', ['build', '-o', binary, './internal/tools/webtestserver'], {
+    cwd: repository,
+    encoding: 'utf8',
+  })
+  if (build.status !== 0) {
+    await rm(binaryDirectory, { recursive: true, force: true })
+    throw new Error(`Could not build Moneyflow onboarding E2E server: ${build.stderr}`)
+  }
+  let lastError: unknown
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const port = await availablePort()
+      const origin = `http://127.0.0.1:${port}`
+      let stderr = ''
+      const child = spawn(
+        binary,
+        [
+          '--home',
+          profileHome,
+          '--listen',
+          `127.0.0.1:${port}`,
+          '--base-path',
+          normalized,
+          ...(options.recoveryProfile ? ['--recovery-profile'] : []),
+        ],
+        { cwd: repository, detached: true, stdio: ['ignore', 'ignore', 'pipe'] },
+      )
+      child.stderr?.setEncoding('utf8')
+      child.stderr?.on('data', (chunk: string) => (stderr += chunk))
+      try {
+        const url = `${origin}${normalized}`
+        await waitForCatalog(child, url, () => stderr)
+        return {
+          basePath: normalized,
+          origin,
+          url,
+          async expire(profileID) {
+            const response = await fetch(
+              `${origin}/__moneyflow_test/profiles/${encodeURIComponent(profileID)}/expire`,
+              { method: 'POST' },
+            )
+            if (!response.ok) throw new Error('Could not expire the synthetic provider session.')
+          },
+          async logs() {
+            return stderr
+          },
+          stop: async () => {
+            await stopProcessGroup(child)
+            await rm(binaryDirectory, { recursive: true, force: true })
+          },
+        }
+      } catch (error) {
+        lastError = error
+        await stopProcessGroup(child)
+        if (!stderr.toLowerCase().includes('address already in use')) break
+      }
+    }
+    throw lastError
+  } catch (error) {
+    await rm(binaryDirectory, { recursive: true, force: true })
+    throw error
+  }
+}
+
+async function waitForCatalog(
+  child: ChildProcess,
+  url: string,
+  stderr: () => string,
+): Promise<void> {
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) {
+      throw new Error(`Moneyflow onboarding E2E server exited before health check: ${stderr()}`)
+    }
+    try {
+      const response = await fetch(url, { headers: { Accept: 'text/html' } })
+      if (response.ok && new URL(response.url).pathname === new URL(url).pathname) return
+    } catch {
+      // The concrete loopback listener is still starting.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50))
+  }
+  throw new Error(`Moneyflow onboarding E2E server did not become healthy: ${stderr()}`)
 }

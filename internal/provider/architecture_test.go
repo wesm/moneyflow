@@ -61,6 +61,9 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	compositionFiles := map[string]bool{
 		filepath.Join(repoDir, "cmd", "moneyflow", "provider.go"):             true,
 		filepath.Join(repoDir, "cmd", "moneyflow", "onboarding_presenter.go"): true,
+		// The browser integration binary is a non-production composition root that
+		// supplies the same typed runtime with an in-memory provider implementation.
+		filepath.Join(internalDir, "tools", "webtestserver", "main.go"): true,
 	}
 	for path := range compositionFiles {
 		_, statErr := os.Stat(path)

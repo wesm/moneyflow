@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button, StatusBar, ThemeToggle, TopBar } from '@kenn-io/kit-ui'
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
 
   import { createMoneyflowClient } from './lib/api/client'
   import { createCatalogClient } from './lib/api/catalog-client'
@@ -96,6 +96,15 @@
     onboarding = undefined
     onboardingProfileID = undefined
     if (catalog) void catalog.load()
+    else if (controller) {
+      void tick().then(() => {
+        requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLElement>('[role="grid"][aria-label="Financial results"]')
+            ?.focus({ preventScroll: true })
+        })
+      })
+    }
   }
 
   async function recover(id: string, confirmed: boolean): Promise<void> {
