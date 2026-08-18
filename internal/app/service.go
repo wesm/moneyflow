@@ -33,6 +33,7 @@ type Service struct {
 	snapshot              *EffectiveSnapshot
 	providerRuntime       *providerRuntimeState
 	providerBound         bool
+	providerState         store.ProviderState
 }
 
 // NewService validates and defensively copies the normalized transaction set.

@@ -728,7 +728,7 @@ func buildProviderRefreshPlan(
 	identities, err := PlanProviderIdentities(IdentityPlanningInput{
 		Provider: providerName, Import: inputs.Candidate,
 		Committed: inputs.Snapshot.Committed, Effective: oldEffective.Effective,
-		Allocations: inputs.Allocations, ProposedIDs: inputs.ProposedIDs,
+		Allocations: inputs.Allocations, Lineage: inputs.Lineage, ProposedIDs: inputs.ProposedIDs,
 		ProposedSuffixes: inputs.ProposedSuffixes,
 	})
 	if err != nil {
@@ -766,7 +766,7 @@ func buildProviderRefreshPlan(
 	return store.RefreshPlan{
 		Committed: identities.Committed, Effective: replayed.Effective,
 		Journal: rebased.Journal, Cursor: rebased.Cursor, KnownDrills: known,
-		Allocations: identities.Allocations,
+		Allocations: identities.Allocations, Lineage: identities.Lineage,
 		Summary: store.RefreshSummary{
 			ImportedAccounts:        len(inputs.Candidate.Accounts),
 			ImportedMerchants:       len(inputs.Candidate.Merchants),

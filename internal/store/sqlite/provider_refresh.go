@@ -85,9 +85,14 @@ func (profile *profile) ApplyProviderRefresh(
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
+	lineage, err := loadProviderIdentityLineage(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
 	inputs := store.RefreshInputs{
 		Snapshot: snapshot.Clone(), Binding: cloneProviderBinding(binding), Refresh: refresh,
 		Allocations: append([]store.LabelAllocation(nil), allocations...),
+		Lineage:     append([]store.ProviderIdentityLineage(nil), lineage...),
 		Candidate:   request.Candidate.Clone(), ProposedIDs: cloneEntityIDMap(request.ProposedIDs),
 		ProposedSuffixes: cloneStringMap(request.ProposedSuffixes), ObservedAt: request.ObservedAt,
 	}
@@ -118,6 +123,9 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, err
 	}
 	if err = replaceLabelAllocations(ctx, connection, allocations, plan.Allocations); err != nil {
+		return store.RefreshCommit{}, err
+	}
+	if err = replaceProviderIdentityLineage(ctx, connection, plan.Lineage); err != nil {
 		return store.RefreshCommit{}, err
 	}
 	if err = persistRefreshBinding(ctx, connection, binding); err != nil {
@@ -278,6 +286,7 @@ func validateRefreshPlan(
 	identityIndex, err := externalIdentitySupersetIndex(
 		snapshot.Committed.ExternalIdentities,
 		plan.Committed.ExternalIdentities,
+		plan.Lineage,
 	)
 	if err != nil {
 		return err
@@ -299,6 +308,7 @@ func validateRefreshPlan(
 		plan.Committed,
 		plan.Allocations,
 		identityIndex,
+		plan.Lineage,
 	); err != nil {
 		return err
 	}
@@ -341,6 +351,7 @@ type externalIdentityIndexKey struct{ namespace, externalID string }
 func externalIdentitySupersetIndex(
 	before,
 	after []domain.ExternalIdentity,
+	lineage []store.ProviderIdentityLineage,
 ) (map[externalIdentityIndexKey]domain.ExternalIdentity, error) {
 	retained := make(map[externalIdentityIndexKey]domain.ExternalIdentity, len(after))
 	for _, identity := range after {
@@ -348,11 +359,27 @@ func externalIdentitySupersetIndex(
 	}
 	for _, identity := range before {
 		lookup := externalIdentityIndexKey{identity.Namespace, identity.ExternalID}
-		if next, exists := retained[lookup]; !exists || next != identity {
+		if next, exists := retained[lookup]; exists && next == identity {
+			continue
+		}
+		if !lineageContainsProviderIdentity(lineage, identity.Namespace, identity.ExternalID) {
 			return nil, errors.New("refresh cannot remove or remap a durable external identity")
 		}
 	}
 	return retained, nil
+}
+
+func lineageContainsProviderIdentity(
+	lineage []store.ProviderIdentityLineage,
+	namespace string,
+	externalID string,
+) bool {
+	for _, value := range lineage {
+		if value.Namespace == namespace && value.ExternalID == externalID {
+			return true
+		}
+	}
+	return false
 }
 
 func requireAllocationSuperset(before, after []store.LabelAllocation) error {
@@ -396,10 +423,10 @@ func validateProposedExternalIdentities(
 	after []domain.ExternalIdentity,
 	proposed map[string]domain.EntityID,
 ) error {
-	existing := make(map[externalIdentityIndexKey]struct{}, len(before.ExternalIdentities))
+	existing := make(map[externalIdentityIndexKey]domain.ExternalIdentity, len(before.ExternalIdentities))
 	reserved := make(map[domain.EntityID]struct{})
 	for _, identity := range before.ExternalIdentities {
-		existing[externalIdentityIndexKey{identity.Namespace, identity.ExternalID}] = struct{}{}
+		existing[externalIdentityIndexKey{identity.Namespace, identity.ExternalID}] = identity
 	}
 	for _, batch := range [][]domain.EntityID{
 		entityIDs(before.Accounts, func(value domain.Account) domain.EntityID { return value.ID }),
@@ -415,8 +442,13 @@ func validateProposedExternalIdentities(
 	used := make(map[domain.EntityID]struct{})
 	for _, identity := range after {
 		lookup := externalIdentityIndexKey{identity.Namespace, identity.ExternalID}
-		if _, existed := existing[lookup]; existed {
-			continue
+		if previous, existed := existing[lookup]; existed {
+			if previous == identity {
+				continue
+			}
+			if proposed[identity.Namespace+"\x00"+identity.ExternalID] != identity.EntityID {
+				return errors.New("refresh remapped identity does not use proposed local ID")
+			}
 		}
 		providerName, kindText, separator := strings.Cut(identity.Namespace, "/")
 		if !separator || providerName == "" || kindText != string(identity.EntityType) {
@@ -451,6 +483,7 @@ func validateCandidateMaterialization(
 	committed domain.CommittedProfile,
 	allocations []store.LabelAllocation,
 	identities map[externalIdentityIndexKey]domain.ExternalIdentity,
+	lineage []store.ProviderIdentityLineage,
 ) error {
 	if binding == nil {
 		return errors.New("refresh candidate has no provider binding")
@@ -492,6 +525,12 @@ func validateCandidateMaterialization(
 		{domain.EntityKindGroup, candidate.Groups, groups},
 	} {
 		for _, imported := range batch.entities {
+			if batch.kind == domain.EntityKindMerchant &&
+				lineageContainsProviderIdentity(
+					lineage, binding.Kind+"/merchant", imported.ExternalID,
+				) && !candidateMerchantReferenced(candidate, imported.ExternalID) {
+				continue
+			}
 			if allocationKeys[binding.Kind+"/"+string(batch.kind)+"\x00"+imported.ExternalID] != batch.kind {
 				return errors.New("refresh candidate label allocation is not materialized")
 			}
@@ -566,6 +605,15 @@ func validateCandidateMaterialization(
 		return errors.New("refresh candidate transaction is not materialized")
 	}
 	return nil
+}
+
+func candidateMerchantReferenced(candidate domain.ImportSnapshot, externalID string) bool {
+	for _, transaction := range candidate.Transactions {
+		if transaction.MerchantExternalID == externalID {
+			return true
+		}
+	}
+	return false
 }
 
 func entityPresence[T any](values []T, fields func(T) (domain.EntityID, bool)) map[domain.EntityID]bool {
@@ -1105,6 +1153,7 @@ func cloneRefreshPlan(plan store.RefreshPlan) store.RefreshPlan {
 	plan.Journal = operations
 	plan.KnownDrills = append([]domain.DrillIdentity(nil), plan.KnownDrills...)
 	plan.Allocations = append([]store.LabelAllocation(nil), plan.Allocations...)
+	plan.Lineage = append([]store.ProviderIdentityLineage(nil), plan.Lineage...)
 	for index := range plan.Allocations {
 		if plan.Allocations[index].ProviderLabel == "" {
 			plan.Allocations[index].ProviderLabel = plan.Allocations[index].DisplayLabel
@@ -1138,6 +1187,12 @@ func CanonicalRefreshPlan(plan store.RefreshPlan) ([]byte, error) {
 		return strings.Compare(a.ExternalID, b.ExternalID)
 	})
 	slices.SortFunc(plan.Allocations, func(a, b store.LabelAllocation) int {
+		if order := strings.Compare(a.Namespace, b.Namespace); order != 0 {
+			return order
+		}
+		return strings.Compare(a.ExternalID, b.ExternalID)
+	})
+	slices.SortFunc(plan.Lineage, func(a, b store.ProviderIdentityLineage) int {
 		if order := strings.Compare(a.Namespace, b.Namespace); order != 0 {
 			return order
 		}

@@ -114,8 +114,27 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	service.committedTransactions = committedTransactions
 	service.localPending = localPending
 	service.providerBound = providerState.Binding != nil
+	service.providerState = cloneProviderState(providerState)
 	service.mu.Unlock()
 	return nil
+}
+
+func cloneProviderState(state store.ProviderState) store.ProviderState {
+	if state.Binding != nil {
+		binding := *state.Binding
+		state.Binding = &binding
+	}
+	if state.Lease != nil {
+		lease := *state.Lease
+		state.Lease = &lease
+	}
+	if state.Write != nil {
+		batch := *state.Write
+		state.Write = &batch
+	}
+	state.Allocations = append([]store.LabelAllocation(nil), state.Allocations...)
+	state.Lineage = append([]store.ProviderIdentityLineage(nil), state.Lineage...)
+	return state
 }
 
 func cloneEffectiveSnapshot(snapshot EffectiveSnapshot) *EffectiveSnapshot {
@@ -168,6 +187,9 @@ func (service *Service) Mutate(
 	}
 	plan, err := buildMutationPlan(snapshot, request, metadata)
 	if err != nil {
+		return MutationResult{}, mapAppError(err, snapshot.Revision)
+	}
+	if err = service.validateProviderMutation(snapshot, plan.Operation); err != nil {
 		return MutationResult{}, mapAppError(err, snapshot.Revision)
 	}
 	var next uint64
@@ -265,6 +287,11 @@ func (service *Service) moveCursor(
 	if expected != current {
 		return MutationResult{}, newAppError(
 			AppRevisionConflict, current, errors.New("cursor revision is stale"),
+		)
+	}
+	if service.providerWriteActive() {
+		return MutationResult{}, newAppError(
+			AppProviderWriteInProgress, current, errors.New("provider write batch is unfinished"),
 		)
 	}
 	if _, err := service.projectViewLocked(state, selection, window); err != nil {

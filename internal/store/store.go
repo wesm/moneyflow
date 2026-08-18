@@ -124,6 +124,7 @@ type RefreshInputs struct {
 	Binding          *ProviderBinding
 	Refresh          RefreshState
 	Allocations      []LabelAllocation
+	Lineage          []ProviderIdentityLineage
 	Candidate        domain.ImportSnapshot
 	ProposedIDs      map[string]domain.EntityID
 	ProposedSuffixes map[string]string
@@ -138,6 +139,7 @@ type RefreshPlan struct {
 	Cursor      int
 	KnownDrills []domain.DrillIdentity
 	Allocations []LabelAllocation
+	Lineage     []ProviderIdentityLineage
 	Summary     RefreshSummary
 }
 

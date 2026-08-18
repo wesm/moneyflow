@@ -27,6 +27,9 @@ func TestProviderLabelAllocatesFirstObservedColliderWithoutSuffix(t *testing.T) 
 
 	plan, err := app.PlanProviderIdentities(input)
 	require.NoError(t, err)
+	for _, allocation := range plan.Allocations {
+		assert.NotEmpty(t, allocation.ProviderLabel)
+	}
 	assert.Equal(t, "example merchant", merchantByProviderID(t, plan.Committed, "merchant_a").Label)
 	assert.Equal(t, "Example Merchant · abcd", merchantByProviderID(t, plan.Committed, "merchant_z").Label)
 

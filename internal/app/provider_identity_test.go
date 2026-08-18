@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestProviderIdentityReusesKindScopedStableIDs(t *testing.T) {
@@ -189,6 +190,96 @@ func TestProviderIdentityRejectsProposedIDUsedByPendingEntity(t *testing.T) {
 
 	_, err := app.PlanProviderIdentities(input)
 	require.ErrorContains(t, err, "already reserved")
+}
+
+func TestProviderWriteIdentityIgnoresUnreferencedHistoricalAlias(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	rotateProviderMerchantIdentity(t, &first, "merchant_a", "merchant_current")
+	input.Committed = first.Committed
+	input.Effective = first.Committed
+	input.Allocations = first.Allocations
+	input.Lineage = first.Lineage
+	input.Import.Merchants = []domain.ImportEntity{
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_a", Label: "Old Label"},
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_current", Label: "Current Label"},
+	}
+	input.Import.Transactions = nil
+	input.ProposedIDs[app.ProviderIdentityKey(
+		"monarch", domain.EntityKindMerchant, "merchant_a",
+	)] = "merchant_fresh"
+
+	plan, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, domain.EntityID("merchant_local"), merchantByProviderID(
+		t, plan.Committed, "merchant_current",
+	).ID)
+	for _, identity := range plan.Committed.ExternalIdentities {
+		assert.False(t, identity.Namespace == "monarch/merchant" && identity.ExternalID == "merchant_a")
+	}
+}
+
+func TestProviderWriteIdentityPromotesReferencedAliasToFreshMerchant(t *testing.T) {
+	t.Parallel()
+
+	input := providerIdentityInput(t)
+	first, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	rotateProviderMerchantIdentity(t, &first, "merchant_a", "merchant_current")
+	input.Committed = first.Committed
+	input.Effective = first.Committed
+	input.Allocations = first.Allocations
+	input.Lineage = first.Lineage
+	input.Import.Merchants = []domain.ImportEntity{
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_a", Label: "Old Label"},
+		{Kind: domain.EntityKindMerchant, ExternalID: "merchant_current", Label: "Current Label"},
+	}
+	input.Import.Transactions[0].MerchantExternalID = "merchant_a"
+	input.ProposedIDs[app.ProviderIdentityKey(
+		"monarch", domain.EntityKindMerchant, "merchant_a",
+	)] = "merchant_fresh"
+
+	plan, err := app.PlanProviderIdentities(input)
+	require.NoError(t, err)
+	assert.Equal(t, domain.EntityID("merchant_fresh"), merchantByProviderID(
+		t, plan.Committed, "merchant_a",
+	).ID)
+	assert.Equal(t, domain.EntityID("merchant_fresh"), plan.Committed.Transactions[0].MerchantID)
+	require.Len(t, plan.Lineage, 1)
+	assert.Equal(t, domain.EntityID("merchant_fresh"), plan.Lineage[0].CurrentLocalID)
+}
+
+func rotateProviderMerchantIdentity(
+	t *testing.T,
+	plan *app.IdentityPlan,
+	oldExternalID string,
+	newExternalID string,
+) {
+	t.Helper()
+	for index := range plan.Committed.ExternalIdentities {
+		identity := &plan.Committed.ExternalIdentities[index]
+		if identity.Namespace == "monarch/merchant" && identity.ExternalID == oldExternalID {
+			identity.ExternalID = newExternalID
+		}
+	}
+	for index := range plan.Allocations {
+		allocation := &plan.Allocations[index]
+		if allocation.Namespace == "monarch/merchant" && allocation.ExternalID == oldExternalID {
+			allocation.ExternalID = newExternalID
+			allocation.ProviderLabel = "Current Label"
+			allocation.DisplayLabel = "Current Label"
+			allocation.BaseCollisionKey = "current label"
+		}
+	}
+	plan.Lineage = []store.ProviderIdentityLineage{{
+		Kind: domain.EntityKindMerchant, Namespace: "monarch/merchant",
+		ExternalID: oldExternalID, PriorLocalID: "merchant_local",
+		CurrentLocalID: "merchant_local", ProviderLabel: "Old Label",
+		Disposition: "alias", BatchVersion: 1,
+	}}
 }
 
 func providerIdentityInput(t *testing.T) app.IdentityPlanningInput {

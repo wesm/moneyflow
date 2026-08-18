@@ -291,7 +291,7 @@ func (planner *providerLabelPlanner) storePlanned(
 		allocation: store.LabelAllocation{
 			Kind: candidate.kind, Namespace: namespace, ExternalID: candidate.externalID,
 			BaseCollisionKey: candidate.baseKey, DisplayLabel: label,
-			SuffixToken: suffix, Unsuffixed: unsuffixed,
+			ProviderLabel: candidate.label, SuffixToken: suffix, Unsuffixed: unsuffixed,
 		},
 	}
 	return nil

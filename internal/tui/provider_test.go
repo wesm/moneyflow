@@ -420,7 +420,7 @@ func TestProviderConfirmationAndReviewKeepCommitDisabled(t *testing.T) {
 func TestCategoryOverlayConsumesRenameBeforeGlobalRefresh(t *testing.T) {
 	t.Parallel()
 
-	fixture := newProviderModel(t, 3)
+	fixture := newPersistentModel(t, app.NewSession())
 	model := press(t, fixture.model, keyRune('C'))
 	model.categoryManager.searchFocused = false
 	for index, choice := range model.categoryManager.filtered {

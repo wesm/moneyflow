@@ -17,6 +17,7 @@ type IdentityPlanningInput struct {
 	Committed        domain.CommittedProfile
 	Effective        domain.CommittedProfile
 	Allocations      []store.LabelAllocation
+	Lineage          []store.ProviderIdentityLineage
 	ProposedIDs      map[string]domain.EntityID
 	ProposedSuffixes map[string]string
 }
@@ -25,6 +26,7 @@ type IdentityPlanningInput struct {
 type IdentityPlan struct {
 	Committed   domain.CommittedProfile
 	Allocations []store.LabelAllocation
+	Lineage     []store.ProviderIdentityLineage
 }
 
 // ProviderIdentityKey returns the canonical lookup key used for proposed local material.
@@ -41,8 +43,12 @@ func PlanProviderIdentities(input IdentityPlanningInput) (IdentityPlan, error) {
 	if err := validateIdentityPlanningInput(input); err != nil {
 		return IdentityPlan{}, err
 	}
+	prepared, lineage, err := prepareHistoricalProviderMerchants(input)
+	if err != nil {
+		return IdentityPlan{}, err
+	}
 
-	planner, err := newIdentityPlanner(input)
+	planner, err := newIdentityPlanner(prepared)
 	if err != nil {
 		return IdentityPlan{}, err
 	}
@@ -55,10 +61,99 @@ func PlanProviderIdentities(input IdentityPlanningInput) (IdentityPlan, error) {
 	planner.retireMissingEntities()
 	planner.repairRetiredCategoryParents()
 	plan := planner.finish()
+	plan.Lineage = lineage
 	if err = plan.Committed.Validate(); err != nil {
 		return IdentityPlan{}, fmt.Errorf("plan provider identities: result: %w", err)
 	}
 	return plan, nil
+}
+
+func prepareHistoricalProviderMerchants(
+	input IdentityPlanningInput,
+) (IdentityPlanningInput, []store.ProviderIdentityLineage, error) {
+	prepared := input
+	prepared.Import = input.Import.Clone()
+	prepared.Committed = input.Committed.Clone()
+	prepared.Effective = input.Effective.Clone()
+	prepared.Allocations = append([]store.LabelAllocation(nil), input.Allocations...)
+	lineage := append([]store.ProviderIdentityLineage(nil), input.Lineage...)
+	namespace := providerNamespace(input.Provider, domain.EntityKindMerchant)
+	historical := make(map[string]int)
+	for index, value := range lineage {
+		if value.Kind == domain.EntityKindMerchant && value.Namespace == namespace {
+			historical[value.ExternalID] = index
+		}
+	}
+	merchantByID := merchantIndexByID(prepared.Committed.Merchants)
+	for _, identity := range prepared.Committed.ExternalIdentities {
+		if identity.EntityType != domain.EntityKindMerchant || identity.Namespace != namespace {
+			continue
+		}
+		merchant, exists := merchantByID[identity.EntityID]
+		if !exists || !merchant.Retired || merchant.MergeDestination == nil {
+			continue
+		}
+		if _, exists = historical[identity.ExternalID]; !exists {
+			historical[identity.ExternalID] = len(lineage)
+			lineage = append(lineage, store.ProviderIdentityLineage{
+				Kind: domain.EntityKindMerchant, Namespace: namespace,
+				ExternalID: identity.ExternalID, PriorLocalID: identity.EntityID,
+				CurrentLocalID: identity.EntityID, ProviderLabel: merchant.Label,
+				Disposition: "retired", BatchVersion: 1,
+			})
+		}
+	}
+	references := make(map[string]int)
+	for _, transaction := range prepared.Import.Transactions {
+		references[transaction.MerchantExternalID]++
+	}
+	merchants := make([]domain.ImportEntity, 0, len(prepared.Import.Merchants))
+	for _, merchant := range prepared.Import.Merchants {
+		lineageIndex, isHistorical := historical[merchant.ExternalID]
+		if !isHistorical {
+			merchants = append(merchants, merchant)
+			continue
+		}
+		if references[merchant.ExternalID] == 0 {
+			continue
+		}
+		proposed := prepared.ProposedIDs[ProviderIdentityKey(
+			input.Provider, domain.EntityKindMerchant, merchant.ExternalID,
+		)]
+		if proposed == "" {
+			return IdentityPlanningInput{}, nil,
+				errors.New("plan provider identities: historical merchant needs a fresh local ID")
+		}
+		prepared.Committed.ExternalIdentities = removeProviderIdentity(
+			prepared.Committed.ExternalIdentities, namespace, merchant.ExternalID,
+		)
+		lineage[lineageIndex].CurrentLocalID = proposed
+		lineage[lineageIndex].Disposition = "reactivated"
+		merchants = append(merchants, merchant)
+	}
+	prepared.Import.Merchants = merchants
+	slices.SortFunc(lineage, func(left, right store.ProviderIdentityLineage) int {
+		if comparison := strings.Compare(left.Namespace, right.Namespace); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.ExternalID, right.ExternalID)
+	})
+	return prepared, lineage, nil
+}
+
+func removeProviderIdentity(
+	values []domain.ExternalIdentity,
+	namespace string,
+	externalID string,
+) []domain.ExternalIdentity {
+	result := make([]domain.ExternalIdentity, 0, len(values))
+	for _, value := range values {
+		if value.Namespace == namespace && value.ExternalID == externalID {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
 }
 
 type identityPlanner struct {

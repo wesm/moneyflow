@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
@@ -65,6 +66,9 @@ func TestProviderCapabilitiesKeepEditingAndReviewButDisableCommit(t *testing.T) 
 	capabilities := capabilitiesByAction(service.Capabilities())
 	assert.True(t, capabilities[app.ActionRefreshProvider].Available)
 	assert.True(t, capabilities[app.ActionEditMerchant].Available)
+	assert.False(t, capabilities[app.ActionManageCategories].Available)
+	assert.False(t, capabilities[app.ActionManageGroups].Available)
+	assert.Contains(t, capabilities[app.ActionManageCategories].Reason, "Monarch")
 
 	state := detailViewState()
 	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
@@ -89,6 +93,102 @@ func TestProviderCapabilitiesKeepEditingAndReviewButDisableCommit(t *testing.T) 
 	require.ErrorAs(t, err, &failure)
 	assert.Equal(t, app.AppInvalidOperation, failure.Code)
 	assert.Contains(t, failure.Detail, "safely stored")
+}
+
+func TestMonarchCapabilitiesRejectOnTheFlyCategoryCreation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profile := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 23, 50, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	state := detailViewState()
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+
+	_, err = service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: projection.Revision,
+		State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity},
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "category_new",
+			GroupID: loaded.Committed.Categories[0].GroupID, Label: "New Category",
+		},
+	})
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppProviderWriteUnsupported, failure.Code)
+}
+
+func TestMonarchCapabilitiesLockMutationsDuringUnfinishedWriteBatch(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profile := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 23, 55, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	state := detailViewState()
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	mutated, err := service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: projection.Revision,
+		State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity,
+		},
+	})
+	require.NoError(t, err)
+	providerState, err := profile.ProviderState(ctx)
+	require.NoError(t, err)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	_, err = app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+		Snapshot: loaded, ProviderState: providerState, ProposedBatchID: "batch-a",
+		ProposedItemIDs: []string{"item-a"}, ObservedAt: now.Add(time.Second),
+	})
+	require.NoError(t, err)
+	_, err = profile.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+		ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
+		ExpectedGeneration: providerState.Refresh.Generation,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "write-owner", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ProposedBatchID: "batch-a", ProposedItemIDs: []string{"item-a"},
+		ObservedAt: now.Add(time.Second),
+	}, app.BuildProviderWritePlan)
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+
+	capabilities := capabilitiesByAction(service.Capabilities())
+	for _, action := range []app.ActionID{
+		app.ActionEditMerchant, app.ActionEditCategory, app.ActionManageCategories,
+		app.ActionManageGroups, app.ActionToggleHidden, app.ActionUndo,
+		app.ActionRedo, app.ActionRefreshProvider,
+	} {
+		assert.False(t, capabilities[action].Available, action)
+		assert.Contains(t, capabilities[action].Reason, "provider write", action)
+	}
+	assert.True(t, capabilities[app.ActionReviewChanges].Available)
 }
 
 func capabilitiesByAction(values []app.Capability) map[app.ActionID]app.Capability {
