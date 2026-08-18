@@ -15,18 +15,24 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, clockTickCommand()
 	case providerRefreshMsg:
 		return model, model.handleProviderRefresh(message)
+	case providerWriteMsg:
+		return model, model.handleProviderWrite(message)
+	case providerWriteReconcileMsg:
+		return model, model.handleProviderWriteReconcile(message)
 	case providerStatusMsg:
 		return model, model.handleProviderStatus(message)
 	case providerScheduleTickMsg:
 		if message.timerGeneration != model.provider.timerGeneration {
 			return model, nil
 		}
-		if _, available := model.capability(app.ActionRefreshProvider); !available {
+		if _, available := model.capability(app.ActionRefreshProvider); !available &&
+			model.providerWrite.status.Phase == "" {
 			return model, nil
 		}
 		return model, model.providerStatusCommand(message.at)
 	case providerProgressTickMsg:
-		if message.timerGeneration != model.provider.timerGeneration || !model.provider.refreshing {
+		if message.timerGeneration != model.provider.timerGeneration ||
+			(!model.provider.refreshing && !model.providerWrite.running) {
 			return model, nil
 		}
 		return model, model.providerProgressStatusCommand(message.at)
@@ -99,6 +105,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeReview(message)
 	case overlayProviderConfirmation:
 		return model.routeProviderConfirmation(message)
+	case overlayProviderWrite:
+		return model.routeProviderWrite(message)
 	case overlayQuit:
 		return model.routeQuit(message)
 	}
@@ -180,6 +188,11 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionManageGroups:
 		return model.openGroupManager()
 	case app.ActionReviewChanges:
+		if model.providerWrite.status.Phase != "" {
+			model.overlay = overlayProviderWrite
+			model.status = ""
+			return nil
+		}
 		return model.openReview()
 	case app.ActionToggleHidden:
 		if capability, available := model.capability(app.ActionToggleHidden); available {

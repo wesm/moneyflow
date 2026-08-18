@@ -17,6 +17,7 @@ import (
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -402,19 +403,22 @@ func TestProviderDeletionCandidateOpensOwnedConfirmation(t *testing.T) {
 	assert.Empty(t, model.provider.confirmationToken)
 }
 
-func TestProviderConfirmationAndReviewKeepCommitDisabled(t *testing.T) {
+func TestProviderReviewPreparesWriteBack(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderModel(t, 4)
+	fixture.source.writer = tuiProviderWriter{identity: fixture.source.identity}
 	model := press(t, fixture.model, keyRune('d'))
 	model = press(t, model, keyRune('h'))
 	require.Equal(t, 1, model.pending.ActiveOperations)
 	model = press(t, model, keyRune('w'))
 	require.Equal(t, overlayReview, model.overlay)
-	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Equal(t, reviewPhaseSummary, model.review.phase)
-	assert.Contains(t, model.review.err, "write-back")
-	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "stored until write-back")
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+	assert.Equal(t, overlayProviderWrite, model.overlay)
+	assert.Equal(t, store.WritePhaseWriting, model.providerWrite.status.Phase)
+	assert.NotContains(t, model.RenderScreen().Frame.RenderANSI(), "stored until write-back")
 }
 
 func TestCategoryOverlayConsumesRenameBeforeGlobalRefresh(t *testing.T) {
@@ -533,6 +537,7 @@ type tuiProviderSource struct {
 	fingerprint provider.SessionFingerprint
 	probeErr    error
 	fetch       func(context.Context, provider.ProgressFunc) (domain.ImportSnapshot, error)
+	writer      provider.Writer
 }
 
 func (source *tuiProviderSource) Reader(
@@ -544,11 +549,16 @@ func (source *tuiProviderSource) Reader(
 	return (*tuiProviderReader)(source), source.fingerprint, nil
 }
 
-func (*tuiProviderSource) Writer(
+func (source *tuiProviderSource) Writer(
 	context.Context,
 	bool,
 ) (provider.Writer, provider.SessionFingerprint, error) {
-	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.writer == nil {
+		return nil, source.fingerprint, provider.NewError(provider.CodeWriteUnsupported)
+	}
+	return source.writer, source.fingerprint, nil
 }
 
 func (source *tuiProviderSource) Changed(previous provider.SessionFingerprint) (bool, error) {

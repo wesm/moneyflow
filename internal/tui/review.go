@@ -62,7 +62,7 @@ func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 			model.review.phase = reviewPhaseSummary
 			model.loadReviewPreview()
 		case "enter":
-			model.tryCommitReview()
+			return model.tryCommitReview()
 		case "left", "pgup", "pageup":
 			model.loadReviewDetails(max(0, model.review.detailOffset-model.review.detailLimit))
 		case "right", "pgdown", "pagedown":
@@ -90,21 +90,17 @@ func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 	case "i":
 		model.loadReviewDetails(0)
 	case "enter":
-		model.tryCommitReview()
+		return model.tryCommitReview()
 	}
 	return nil
 }
 
-func (model *Model) tryCommitReview() {
-	if model.provider.bound {
-		model.review.err = "Pending provider edits are safely stored until write-back is available."
-		return
-	}
+func (model *Model) tryCommitReview() tea.Cmd {
 	if model.review.projection.Pending.ActiveOperations == 0 {
 		model.review.err = "There are no active operations to commit."
-		return
+		return nil
 	}
-	model.commitReview()
+	return model.commitReview()
 }
 
 func (model *Model) loadReviewPreview() {
@@ -145,14 +141,14 @@ func (model Model) reviewHasNextDetailPage() bool {
 	return model.review.detailOffset+model.review.projection.Window.Count < operation.AffectedCount
 }
 
-func (model *Model) commitReview() {
+func (model *Model) commitReview() tea.Cmd {
 	activeCount := model.review.projection.Pending.ActiveOperations
 	result, err := model.service.Commit(model.ctx, app.CommitRequest{
 		ExpectedRevision: model.service.Revision(), ReviewedRevision: model.review.reviewedRevision,
 	})
 	if err != nil {
 		model.refreshReviewAfterFailure(err)
-		return
+		return nil
 	}
 	model.pending = result.Pending
 	model.installCapabilities(result.Capabilities)
@@ -164,7 +160,14 @@ func (model *Model) commitReview() {
 	if activeCount == 1 {
 		operationWord = "operation"
 	}
+	if result.ProviderWrite != nil {
+		model.providerWrite.status = *result.ProviderWrite
+		model.overlay = overlayProviderWrite
+		model.status = fmt.Sprintf("Prepared %d %s for Monarch.", activeCount, operationWord)
+		return model.startProviderWrite()
+	}
 	model.status = fmt.Sprintf("Committed %d %s.", activeCount, operationWord)
+	return nil
 }
 
 func (model *Model) refreshReviewAfterFailure(err error) {
@@ -257,9 +260,6 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 	previewY := rect.Y + 4 + end - start + 1
 	model.renderReviewPreview(screen, Rect{X: x, Y: previewY, Width: width, Height: previewRows + 1})
 	actions := "↑/↓=Choose | i=Details | Enter=Commit | Esc=Cancel"
-	if model.provider.bound {
-		actions = "↑/↓=Choose | i=Details | Commit unavailable until provider write-back | Esc=Cancel"
-	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 }
 

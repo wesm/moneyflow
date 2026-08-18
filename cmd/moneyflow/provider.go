@@ -17,6 +17,7 @@ import (
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 // MonarchSessionStore is the provider-owned session surface used by the CLI.
@@ -216,6 +217,24 @@ func runMonarchDisconnect(command *cobra.Command, streams IOStreams, profile str
 		return fmt.Errorf("disconnect Monarch: %w", err)
 	}
 	defer func() { _ = connectLock.Release() }()
+	inspection, inspectErr := sqlite.InspectProfile(command.Context(), paths, sqlite.DefaultOptions)
+	if inspectErr == nil && inspection.Schema == sqlite.SchemaCurrent {
+		profileHandle, openErr := sqlite.Open(command.Context(), paths, sqlite.DefaultOptions)
+		if openErr != nil {
+			return fmt.Errorf("disconnect Monarch: inspect provider write: %w", openErr)
+		}
+		state, stateErr := profileHandle.ProviderState(command.Context())
+		closeErr := profileHandle.Close()
+		if stateErr != nil {
+			return fmt.Errorf("disconnect Monarch: inspect provider write: %w", stateErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("disconnect Monarch: close profile: %w", closeErr)
+		}
+		if state.Write != nil {
+			return errors.New("disconnect Monarch: unfinished provider write; finish or reconcile it before disconnecting")
+		}
+	}
 	factory := streams.OpenMonarch
 	if factory == nil {
 		factory = defaultMonarchCommandFactory

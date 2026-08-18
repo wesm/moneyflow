@@ -575,6 +575,50 @@ func TestProviderDisconnectRemovesOnlySessionAndPreservesSQLiteState(t *testing.
 	assert.Len(t, loaded.Committed.Transactions, 1)
 }
 
+func TestProviderDisconnectRefusesUnfinishedWriteBatch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 18, 20, 0, 0, 0, time.UTC)
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	profileHandle, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	service, err := newProviderBoundServiceForCommand(t, profileHandle, now)
+	require.NoError(t, err)
+	_, err = service.RefreshProvider(context.Background(), providerRefreshRequest())
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(context.Background())
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 1)
+	revision, err := profileHandle.Append(context.Background(), loaded.Revision, domain.Operation{
+		ID: "operation_disconnect_guard", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets:    []domain.EntityID{loaded.Committed.Transactions[0].ID},
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(context.Background())
+	require.NoError(t, err)
+	_, err = service.Commit(context.Background(), app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	require.NoError(t, profileHandle.Close())
+	saveCommandSession(t, root, testMonarchSession(now, "subscription-example"))
+
+	_, _, err = executeProviderCommand(
+		t, &fakeMonarchConnector{}, &commandProviderSource{}, nil,
+		"provider", "disconnect", "monarch",
+	)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "unfinished provider write")
+	sessions, sessionErr := monarch.NewSessionStore(paths)
+	require.NoError(t, sessionErr)
+	_, _, sessionErr = sessions.Load()
+	require.NoError(t, sessionErr)
+}
+
 func TestProviderDisconnectDoesNotOpenOrCreateSQLite(t *testing.T) {
 	for _, test := range []struct {
 		name       string

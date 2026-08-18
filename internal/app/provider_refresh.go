@@ -996,6 +996,12 @@ func (runtime *providerRuntimeState) setFingerprint(
 	runtime.parkedReconnect = parked
 }
 
+func (runtime *providerRuntimeState) currentFingerprint() provider.SessionFingerprint {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.fingerprint
+}
+
 func (runtime *providerRuntimeState) takeForceReload() bool {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()

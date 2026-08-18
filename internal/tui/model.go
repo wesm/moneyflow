@@ -41,6 +41,7 @@ const (
 	overlayGroupManager
 	overlayReview
 	overlayProviderConfirmation
+	overlayProviderWrite
 	overlayQuit
 )
 
@@ -82,6 +83,7 @@ type Model struct {
 	caps            map[app.ActionID]app.Capability
 	selection       app.SelectionValue
 	provider        providerTUIState
+	providerWrite   providerWriteTUIState
 	now             func() time.Time
 	clockAt         time.Time
 }
@@ -137,7 +139,8 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 
 // Init starts the renderer clock and the bounded provider loop when refresh is available.
 func (model Model) Init() tea.Cmd {
-	if _, available := model.capability(app.ActionRefreshProvider); !available {
+	if _, available := model.capability(app.ActionRefreshProvider); !available &&
+		model.providerWrite.status.Phase == "" {
 		return clockTickCommand()
 	}
 	return tea.Batch(clockTickCommand(), model.providerStatusCommand(model.now()))
@@ -175,6 +178,9 @@ func (model *Model) syncProfileMetadata() {
 	model.pending = model.service.Pending()
 	connection, err := model.service.ProviderConnection(model.ctx)
 	model.provider.bound = err == nil && connection.Bound
+	if status, statusErr := model.service.ProviderWriteStatus(model.ctx); statusErr == nil {
+		model.providerWrite.status = status
+	}
 	if _, available := model.capability(app.ActionRefreshProvider); available {
 		if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {
 			model.provider.status = status

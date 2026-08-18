@@ -34,6 +34,11 @@ func (model Model) renderQuit(screen *RenderedScreen) {
 		screen.Frame.PutText(x, rect.Y+4, Truncate(message, width), model.palette.Text)
 		overlay = append(overlay, message)
 	}
+	if model.providerWrite.status.Phase != "" {
+		message = "The provider write is durable and another running Moneyflow process can resume it."
+		screen.Frame.PutText(x, rect.Y+5, Truncate(message, width), model.palette.Text)
+		overlay = append(overlay, message)
+	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "Enter/y=Quit | Esc/n=Cancel", model.palette.Muted)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "quit_overlay", Rect: rect})
 	screen.Overlay = overlay

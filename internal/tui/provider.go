@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/provider"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 const (
@@ -36,9 +37,10 @@ type providerRefreshMsg struct {
 }
 
 type providerStatusMsg struct {
-	status app.ProviderStatus
-	at     time.Time
-	err    error
+	status      app.ProviderStatus
+	writeStatus app.ProviderWriteStatus
+	at          time.Time
+	err         error
 	// progress distinguishes a polling response from a standing-schedule response.
 	progress        bool
 	timerGeneration uint64
@@ -115,8 +117,12 @@ func (model Model) providerStatusCommandFor(at time.Time, progress bool) tea.Cmd
 	ctx := model.ctx
 	return func() tea.Msg {
 		status, err := service.ProviderStatus(ctx)
+		writeStatus, writeErr := service.ProviderWriteStatus(ctx)
+		if err == nil {
+			err = writeErr
+		}
 		return providerStatusMsg{
-			status: status, at: at, err: err, progress: progress,
+			status: status, writeStatus: writeStatus, at: at, err: err, progress: progress,
 			timerGeneration: model.provider.timerGeneration,
 		}
 	}
@@ -207,7 +213,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	if message.timerGeneration != model.provider.timerGeneration {
 		return nil
 	}
-	if message.progress && !model.provider.refreshing {
+	if message.progress && !model.provider.refreshing && !model.providerWrite.running {
 		return model.nextProviderScheduleTick()
 	}
 	if message.err != nil {
@@ -215,13 +221,44 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		return model.nextProviderScheduleTick()
 	}
 	previousCode := model.provider.status.Code
+	previousWritePhase := model.providerWrite.status.Phase
 	model.provider.status = message.status
+	model.providerWrite.status = message.writeStatus
 	if message.status.Code == provider.CodeReconnectRequired {
 		model.provider.reconnectRequested = true
 	}
 	if model.provider.refreshing {
 		model.status = providerProgressMessage(message.status)
 		return providerProgressTickCommand(model.provider.timerGeneration)
+	}
+	if message.writeStatus.Phase != "" {
+		model.status = providerWriteProgressLine(message.writeStatus)
+		if model.providerWrite.running {
+			return providerProgressTickCommand(model.provider.timerGeneration)
+		}
+		switch message.writeStatus.Phase {
+		case store.WritePhaseWriting:
+			return model.startProviderWrite()
+		case store.WritePhaseReconciling:
+			if message.writeStatus.Completed == message.writeStatus.Total {
+				return model.startProviderWrite()
+			}
+		case store.WritePhaseRateLimited:
+			if !message.writeStatus.NextEligible.After(message.at) {
+				return model.providerWriteResumeCommand()
+			}
+		case store.WritePhaseReconnectRequired:
+			if message.writeStatus.SessionChanged {
+				return model.providerWriteResumeCommand()
+			}
+		}
+		return model.nextProviderScheduleTick()
+	}
+	if previousWritePhase != "" {
+		identity := model.rowIdentity(model.cursor)
+		model.refreshPreserving(identity)
+		model.refreshDrillLabels()
+		model.status = "Provider write complete; provider refresh is due."
 	}
 	if message.status.Code != "" {
 		model.status = providerStatusMessage(message.status)

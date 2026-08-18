@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
@@ -174,4 +175,18 @@ func TestQuitAlwaysConfirmsAndExplainsDurablePending(t *testing.T) {
 	require.NotNil(t, command)
 	_, quitting := command().(tea.QuitMsg)
 	assert.True(t, quitting)
+}
+
+func TestQuitExplainsDurableProviderWrite(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model.providerWrite.status = app.ProviderWriteStatus{
+		Phase: store.WritePhaseWriting, Version: 2, Total: 10, Completed: 3, Remaining: 7,
+	}
+	model = press(t, model, keyRune('q'))
+
+	overlay := strings.Join(model.RenderScreen().Overlay, "\n")
+	assert.Contains(t, overlay, "provider write is durable")
+	assert.Contains(t, overlay, "resume")
 }

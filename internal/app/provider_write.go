@@ -34,6 +34,7 @@ type ProviderWriteStatus struct {
 	OwnerRenderer    string
 	OwnerInstanceID  string
 	PreparedRevision uint64
+	SessionChanged   bool
 }
 
 // ProviderWriteReconcileRequest preserves renderer state while abandoning a failed batch.
@@ -79,7 +80,13 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 	if err != nil {
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
-	return providerWriteStatusFromState(state), nil
+	status := providerWriteStatusFromState(state)
+	if status.Phase == store.WritePhaseReconnectRequired {
+		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
+			status.SessionChanged, _ = runtime.source.Changed(runtime.currentFingerprint())
+		}
+	}
+	return status, nil
 }
 
 func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus {
@@ -177,6 +184,28 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		return ProviderWriteStatus{}, nil
 	}
 	batch := *state.Batch
+	providerState, stateErr := service.profile.ProviderState(ctx)
+	if stateErr != nil {
+		return ProviderWriteStatus{}, mapAppError(stateErr, service.Revision())
+	}
+	now := runtime.now().UTC().Truncate(time.Millisecond)
+	leaseOwned := providerState.Lease != nil && providerState.Lease.OwnerID == runtime.instanceID &&
+		providerState.Lease.ExpiresAt.After(now)
+	if !leaseOwned && (batch.Phase == store.WritePhaseWriting ||
+		(batch.Phase == store.WritePhaseReconciling && batch.CompletedItems == batch.TotalItems)) {
+		resumed, resumeErr := service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
+			BatchID: batch.ID, ExpectedVersion: batch.Version,
+			Lease: store.ProviderOperationLease{
+				OwnerID: runtime.instanceID, Renderer: runtime.renderer,
+				Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),
+			},
+			ObservedAt: now,
+		})
+		if resumeErr != nil {
+			return service.writeStatus(ctx, mapAppError(resumeErr, service.Revision()))
+		}
+		batch = resumed
+	}
 	if batch.Phase == store.WritePhaseReconciling {
 		return service.finalizeProviderWrite(ctx, runtime, batch)
 	}
@@ -195,7 +224,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			return service.parkProviderWriteFailure(ctx, runtime, batch, fingerprint, err)
 		}
 	}
-	providerState, err := service.profile.ProviderState(ctx)
+	providerState, err = service.profile.ProviderState(ctx)
 	if err != nil {
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
