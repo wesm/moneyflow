@@ -60,6 +60,8 @@ type registryEntry struct {
 	ready    chan struct{}
 	opening  bool
 	evicting bool
+	evicted  chan struct{}
+	evictErr error
 	refs     int
 	lastUsed time.Time
 }
@@ -197,11 +199,11 @@ func (lease *profileLease) Release() error {
 }
 
 // Evict waits for active requests, closes the cached service, and permits a fresh open.
+// Concurrent evictions of one profile share the owner's terminal close result.
 func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) error {
 	if !profilecatalog.ValidProfileID(profileID) {
 		return errors.New("evict profile: profile ID is invalid")
 	}
-	var owned *registryEntry
 	for {
 		registry.mutex.Lock()
 		entry, ok := registry.entries[profileID]
@@ -209,28 +211,54 @@ func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) er
 			registry.mutex.Unlock()
 			return nil
 		}
-		if entry.evicting && owned != entry {
-			changed := registry.changed
-			registry.mutex.Unlock()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-changed:
-				continue
-			}
-		}
 		if !entry.evicting {
 			entry.evicting = true
-			owned = entry
+			entry.evicted = make(chan struct{})
 			registry.signalLocked()
+			registry.mutex.Unlock()
+			return registry.finishEviction(ctx, profileID, entry)
+		}
+		evicted := entry.evicted
+		registry.mutex.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-evicted:
+		}
+		registry.mutex.Lock()
+		if registry.entries[profileID] == entry {
+			registry.mutex.Unlock()
+			continue
+		}
+		err := entry.evictErr
+		registry.mutex.Unlock()
+		return err
+	}
+}
+
+// finishEviction is run by the evictor that owns an entry. It publishes the terminal close
+// result to waiters, or wakes them to take over when the owner's context ends first.
+func (registry *ProfileRegistry) finishEviction(
+	ctx context.Context,
+	profileID string,
+	entry *registryEntry,
+) error {
+	for {
+		registry.mutex.Lock()
+		if registry.entries[profileID] != entry {
+			close(entry.evicted)
+			registry.mutex.Unlock()
+			return nil
 		}
 		if !entry.opening && entry.refs == 0 {
 			registry.mutex.Unlock()
 			err := entry.profile.Close()
 			registry.mutex.Lock()
+			entry.evictErr = err
 			if registry.entries[profileID] == entry {
 				delete(registry.entries, profileID)
 			}
+			close(entry.evicted)
 			registry.signalLocked()
 			registry.mutex.Unlock()
 			return err
@@ -240,10 +268,11 @@ func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) er
 		select {
 		case <-ctx.Done():
 			registry.mutex.Lock()
-			if owned != nil && registry.entries[profileID] == owned && !registry.closed {
-				owned.evicting = false
-				registry.signalLocked()
+			if registry.entries[profileID] == entry && !registry.closed {
+				entry.evicting = false
 			}
+			close(entry.evicted)
+			registry.signalLocked()
 			registry.mutex.Unlock()
 			return ctx.Err()
 		case <-changed:

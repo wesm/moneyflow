@@ -188,8 +188,8 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 				"The profile request version is unsupported.",
 			)
 		}
-		if err := config.Evictor.Evict(ctx, input.ProfileID); err != nil {
-			return nil, problemFromCatalogError(err)
+		if err := releaseProfileForRollback(ctx, config, input.ProfileID); err != nil {
+			return nil, err
 		}
 		removed, err := config.Catalog.CancelNewProfile(ctx, input.ProfileID)
 		if err != nil {
@@ -236,8 +236,8 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 				"The recovery plan no longer matches this profile.",
 			)
 		}
-		if err = config.Evictor.Evict(ctx, input.ProfileID); err != nil {
-			return nil, problemFromCatalogError(err)
+		if err = releaseProfileForRollback(ctx, config, input.ProfileID); err != nil {
+			return nil, err
 		}
 		result, err := config.Catalog.Recreate(ctx, profilecatalog.RecoveryRequest{
 			Plan: plan, Confirmed: true,
@@ -250,6 +250,20 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 			Recreated: true, BackupPath: result.BackupPath,
 		}}, nil
 	})
+}
+
+// releaseProfileForRollback cancels every onboarding attempt for a profile, including attempts
+// whose IDs the browser lost, and then evicts the cached service before destructive catalog work.
+func releaseProfileForRollback(ctx context.Context, config Config, profileID string) error {
+	if config.Onboarding != nil {
+		if err := config.Onboarding.CancelProfile(ctx, profileID); err != nil {
+			return problemFromOnboardingError(err)
+		}
+	}
+	if err := config.Evictor.Evict(ctx, profileID); err != nil {
+		return problemFromCatalogError(err)
+	}
+	return nil
 }
 
 func profileCatalogUnavailable() *Problem {

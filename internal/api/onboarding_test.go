@@ -181,14 +181,18 @@ func newOnboardingAPIServer(t testing.TB, coordinator OnboardingCoordinator) *Se
 }
 
 type apiOnboardingFake struct {
-	snapshot      onboarding.Snapshot
-	statusErr     error
-	closeErr      error
-	closeStarted  chan struct{}
-	continueClose chan struct{}
-	starts        atomic.Int32
-	takes         atomic.Int32
-	closes        atomic.Int32
+	snapshot         onboarding.Snapshot
+	statusErr        error
+	closeErr         error
+	closeStarted     chan struct{}
+	continueClose    chan struct{}
+	honorTakeContext bool
+	calls            *[]string
+	starts           atomic.Int32
+	takes            atomic.Int32
+	takeFailures     atomic.Int32
+	closes           atomic.Int32
+	profileCancels   atomic.Int32
 }
 
 func (coordinator *apiOnboardingFake) Start(
@@ -232,11 +236,28 @@ func (coordinator *apiOnboardingFake) Cancel(
 	return coordinator.snapshot, nil
 }
 
+func (coordinator *apiOnboardingFake) CancelProfile(context.Context, string) error {
+	coordinator.profileCancels.Add(1)
+	if coordinator.calls != nil {
+		*coordinator.calls = append(*coordinator.calls, "cancel_onboarding")
+	}
+	return nil
+}
+
 func (coordinator *apiOnboardingFake) TakeOpenedProfile(
-	context.Context,
-	onboarding.StatusRequest,
+	ctx context.Context,
+	_ onboarding.StatusRequest,
 ) (onboarding.OpenedProfile, error) {
+	if coordinator.honorTakeContext {
+		if err := ctx.Err(); err != nil {
+			return onboarding.OpenedProfile{}, err
+		}
+	}
 	coordinator.takes.Add(1)
+	if coordinator.takeFailures.Load() > 0 {
+		coordinator.takeFailures.Add(-1)
+		return onboarding.OpenedProfile{}, onboarding.ErrorForCode(onboarding.CodeOnboardingStale)
+	}
 	return onboarding.OpenedProfile{Close: func() error {
 		coordinator.closes.Add(1)
 		if coordinator.closeStarted != nil {
@@ -247,4 +268,50 @@ func (coordinator *apiOnboardingFake) TakeOpenedProfile(
 		}
 		return coordinator.closeErr
 	}}, nil
+}
+
+func TestCompletedOnboardingTransfersOwnershipDespiteCanceledRequest(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{snapshot: onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: testProfileID, StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}, honorTakeContext: true}
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodGet, path, http.NoBody).WithContext(canceled)
+	first := httptest.NewRecorder()
+	server.Handler().ServeHTTP(first, request)
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+
+	response := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}
+
+func TestCompletedOnboardingRetriesTakeAfterFailureBeforeOwnershipTransfer(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{snapshot: onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: testProfileID, StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}}
+	coordinator.takeFailures.Store(1)
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+
+	first := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusConflict, first.Code, first.Body.String())
+	assert.Contains(t, first.Body.String(), string(onboarding.CodeOnboardingStale))
+	second := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	third := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, third.Code, third.Body.String())
+	assert.Equal(t, int32(2), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
 }

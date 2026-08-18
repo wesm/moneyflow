@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -297,4 +298,84 @@ func (clock *registryClock) Advance(delta time.Duration) {
 	clock.mutex.Lock()
 	defer clock.mutex.Unlock()
 	clock.now = clock.now.Add(delta)
+}
+
+func TestProfileRegistryConcurrentEvictionWaitersObserveCloseFailure(t *testing.T) {
+	t.Parallel()
+	continueClose := make(chan struct{})
+	closeErr := errors.New("synthetic close failure")
+	var closes atomic.Int32
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error {
+					closes.Add(1)
+					<-continueClose
+					return closeErr
+				},
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	lease, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	require.NoError(t, lease.Release())
+
+	results := make(chan error, 2)
+	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
+	require.Eventually(t, func() bool { return closes.Load() == 1 }, time.Second, time.Millisecond)
+	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
+	time.Sleep(25 * time.Millisecond)
+	close(continueClose)
+	assert.ErrorIs(t, <-results, closeErr)
+	assert.ErrorIs(t, <-results, closeErr)
+	assert.Equal(t, int32(1), closes.Load())
+}
+
+func TestProfileRegistryEvictionWaiterTakesOverAfterOwnerCancels(t *testing.T) {
+	t.Parallel()
+	var closes atomic.Int32
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error {
+					closes.Add(1)
+					return nil
+				},
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	lease, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() { ownerResult <- registry.Evict(ownerContext, registryTestProfileID) }()
+	require.Eventually(t, func() bool {
+		registry.mutex.Lock()
+		defer registry.mutex.Unlock()
+		return registry.entries[registryTestProfileID].evicting
+	}, time.Second, time.Millisecond)
+	waiterResult := make(chan error, 1)
+	go func() { waiterResult <- registry.Evict(context.Background(), registryTestProfileID) }()
+	time.Sleep(25 * time.Millisecond)
+	cancelOwner()
+	assert.ErrorIs(t, <-ownerResult, context.Canceled)
+	select {
+	case result := <-waiterResult:
+		t.Fatalf("waiter returned %v before the lease was released", result)
+	case <-time.After(25 * time.Millisecond):
+	}
+	require.NoError(t, lease.Release())
+	require.NoError(t, <-waiterResult)
+	assert.Equal(t, int32(1), closes.Load())
+	second, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	require.NoError(t, second.Release())
+	require.NoError(t, registry.Close(context.Background()))
 }

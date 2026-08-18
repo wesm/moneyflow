@@ -247,3 +247,54 @@ func (evictor *apiEvictorFake) Evict(context.Context, string) error {
 	}
 	return nil
 }
+
+func TestProfileCancelAndRecoveryCancelOnboardingBeforeEviction(t *testing.T) {
+	t.Parallel()
+	plan := profilecatalog.RecoveryPlan{
+		ProfileKey: testProfileID, ProfileID: testProfileID,
+		BackupPath: "/synthetic/recovery", StartedAt: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC),
+		OriginalCode: store.CodeSchemaIncompatible,
+	}
+	tests := []struct {
+		name     string
+		endpoint string
+		body     any
+		calls    []string
+	}{
+		{
+			name: "cancel", endpoint: "cancel",
+			body:  ProfileCancelBody{Version: ProfileCatalogSchemaVersion},
+			calls: []string{"cancel_onboarding", "evict"},
+		},
+		{
+			name: "recovery", endpoint: "recovery",
+			body: RecoveryBody{
+				Version: ProfileCatalogSchemaVersion, Confirmed: true,
+				Plan: func() *RecoveryPlan { wire := recoveryPlanToWire(plan); return &wire }(),
+			},
+			calls: []string{"cancel_onboarding", "evict", "recreate"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := make([]string, 0, 3)
+			catalog := &apiCatalogFake{plan: plan, calls: &calls, cancelRemoved: true}
+			coordinator := &apiOnboardingFake{calls: &calls}
+			service, err := app.NewService(nil)
+			require.NoError(t, err)
+			server, err := New(Config{
+				Resolver: resolverForService(testProfileID, service),
+				Catalog:  catalog, Evictor: &apiEvictorFake{calls: &calls}, Onboarding: coordinator,
+				BasePath: "/", Version: "test",
+			})
+			require.NoError(t, err)
+			path, err := ProfileAPIPath("/", testProfileID, test.endpoint)
+			require.NoError(t, err)
+
+			response := requestScopedMutation(t, server, CatalogMutationScope, path, test.body)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			assert.Equal(t, test.calls, calls)
+		})
+	}
+}

@@ -108,6 +108,73 @@ describe('onboarding controller', () => {
     expect(controller.state.problem).toBeUndefined()
   })
 
+  it('ignores a stale expired poll that races a successful restart', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = stubTransport(status('importing'))
+      const expired = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Onboarding expired',
+        status: 404,
+        detail: 'The onboarding attempt expired.',
+        code: 'onboarding_expired',
+      })
+      const controller = createOnboardingController({ profileID, transport, pollIntervalMS: 10 })
+      await controller.start()
+
+      let rejectStalePoll: (reason: unknown) => void = () => undefined
+      transport.status.mockImplementationOnce(
+        () => new Promise<OnboardingStatus>((_resolve, reject) => (rejectStalePoll = reject)),
+      )
+      await vi.advanceTimersByTimeAsync(10)
+      expect(transport.status).toHaveBeenCalledTimes(1)
+      transport.set(status('settings_required', { attempt_id: 'attempt_second' }))
+      await controller.restart()
+      expect(controller.state.snapshot?.attempt_id).toBe('attempt_second')
+
+      rejectStalePoll(expired)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(controller.state.snapshot?.attempt_id).toBe('attempt_second')
+      expect(controller.state.problem).toBeUndefined()
+      controller.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not keep polling an expired attempt and clears the problem on restart', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = stubTransport(status('importing'))
+      const expired = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Onboarding expired',
+        status: 404,
+        detail: 'The onboarding attempt expired.',
+        code: 'onboarding_expired',
+      })
+      const controller = createOnboardingController({ profileID, transport, pollIntervalMS: 10 })
+      await controller.start()
+      transport.status.mockRejectedValue(expired)
+
+      await vi.advanceTimersByTimeAsync(10)
+      expect(controller.state.problem?.kind).toBe('expired')
+      expect(transport.status).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(50)
+      expect(transport.status).toHaveBeenCalledTimes(1)
+
+      transport.set(status('settings_required', { attempt_id: 'attempt_second' }))
+      await controller.restart()
+      expect(controller.state.problem).toBeUndefined()
+      expect(controller.state.snapshot?.attempt_id).toBe('attempt_second')
+      await vi.advanceTimersByTimeAsync(50)
+      expect(transport.status).toHaveBeenCalledTimes(1)
+      controller.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('resumes polling when a hidden tab becomes visible', async () => {
     vi.useFakeTimers()
     const importing = status('importing')

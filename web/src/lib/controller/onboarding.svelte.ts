@@ -106,6 +106,7 @@ export function createOnboardingController(options: {
   let notify = (): void => undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let destroyed = false
+  let generation = 0
   const pollInterval = options.pollIntervalMS ?? 750
   const subscribe = createSubscriber((update) => {
     notify = update
@@ -121,12 +122,13 @@ export function createOnboardingController(options: {
   function schedule(): void {
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
-    if (destroyed || !isRunning(state.snapshot?.state)) return
+    if (destroyed || state.problem || !isRunning(state.snapshot?.state)) return
     timer = setTimeout(() => void poll(), pollInterval)
   }
 
   async function apply(operation: () => Promise<OnboardingStatus>, pending: string): Promise<void> {
     if (state.busy) return
+    generation += 1
     const activeSnapshot = state.snapshot
     setState({
       busy: true,
@@ -200,15 +202,22 @@ export function createOnboardingController(options: {
 
   async function poll(): Promise<void> {
     const snapshot = state.snapshot
-    if (!snapshot || !isRunning(snapshot.state)) return
+    if (!snapshot || state.problem || !isRunning(snapshot.state)) return
     if (!pageVisible()) {
       schedule()
       return
     }
+    const expectedGeneration = generation
+    const stale = (): boolean =>
+      destroyed ||
+      generation !== expectedGeneration ||
+      state.snapshot?.attempt_id !== snapshot.attempt_id
     try {
       const next = await options.transport.status(options.profileID, snapshot.attempt_id)
+      if (stale()) return
       setState({ snapshot: next, busy: false, announcement: announcementFor(next) })
     } catch (error) {
+      if (stale()) return
       if (error instanceof MoneyflowProblem && error.problem.code === 'onboarding_expired') {
         setState({
           ...state,

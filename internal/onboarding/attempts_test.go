@@ -225,3 +225,45 @@ func TestStartingAttemptProactivelyReapsOtherExpiredAttempts(t *testing.T) {
 	})
 	assert.Equal(t, CodeOnboardingExpired, CodeOf(err))
 }
+
+func TestCancelProfileCancelsEveryAttemptForOneProfileAndReleasesLeases(t *testing.T) {
+	t.Parallel()
+	coordinator, first, _ := newTestCoordinator(t)
+	coordinator.random = strings.NewReader(strings.Repeat("b", 64))
+	second, err := coordinator.Start(context.Background(), StartRequest{ProfileID: testProfileID})
+	require.NoError(t, err)
+	otherProfileID := "profile_ijbeeqscijbeeqscijbeeqscia"
+	coordinator.random = strings.NewReader(strings.Repeat("c", 64))
+	other, err := coordinator.Start(context.Background(), StartRequest{ProfileID: otherProfileID})
+	require.NoError(t, err)
+
+	var closes atomic.Int32
+	coordinator.mu.Lock()
+	for _, id := range []string{first.AttemptID, second.AttemptID} {
+		current := coordinator.attempts[id]
+		current.flow.opened = &OpenedProfile{Close: func() error {
+			closes.Add(1)
+			return nil
+		}}
+	}
+	running := coordinator.attempts[first.AttemptID]
+	coordinator.startJobLocked(running, func(ctx context.Context, _ string) { <-ctx.Done() })
+	coordinator.mu.Unlock()
+
+	require.NoError(t, coordinator.CancelProfile(context.Background(), testProfileID))
+	require.NoError(t, coordinator.CancelProfile(context.Background(), testProfileID))
+	assert.Equal(t, int32(2), closes.Load())
+	for _, id := range []string{first.AttemptID, second.AttemptID} {
+		snapshot, statusErr := coordinator.Status(context.Background(), StatusRequest{
+			ProfileID: testProfileID, AttemptID: id,
+		})
+		require.NoError(t, statusErr)
+		assert.Equal(t, StateCanceled, snapshot.State)
+	}
+	untouched, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: otherProfileID, AttemptID: other.AttemptID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateInspect, untouched.State)
+	assert.Equal(t, CodeOnboardingExpired, CodeOf(coordinator.CancelProfile(context.Background(), "nope")))
+}

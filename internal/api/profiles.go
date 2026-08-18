@@ -50,6 +50,7 @@ type OnboardingCoordinator interface {
 	Status(context.Context, onboarding.StatusRequest) (onboarding.Snapshot, error)
 	Submit(context.Context, onboarding.SubmitRequest) (onboarding.Snapshot, error)
 	Cancel(context.Context, onboarding.CancelRequest) (onboarding.Snapshot, error)
+	CancelProfile(context.Context, string) error
 	TakeOpenedProfile(context.Context, onboarding.StatusRequest) (onboarding.OpenedProfile, error)
 }
 

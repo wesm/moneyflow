@@ -304,14 +304,36 @@ func (coordinator *Coordinator) Cancel(
 	return snapshot, nil
 }
 
+// CancelProfile cancels every attempt bound to one profile, waits for their jobs, and releases
+// their profile leases and provider locks. Callers that lost an attempt ID use it before eviction.
+func (coordinator *Coordinator) CancelProfile(ctx context.Context, profileID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !profilecatalog.ValidProfileID(profileID) {
+		return newError(CodeOnboardingExpired, errors.New("profile ID is invalid"))
+	}
+	coordinator.mu.Lock()
+	pending := make([]pendingRelease, 0, len(coordinator.attempts))
+	for _, current := range coordinator.attempts {
+		if current.profileID != profileID {
+			continue
+		}
+		if current.state != StateCanceled {
+			current.cancel()
+			coordinator.transitionLocked(current, StateCanceled, nil)
+			current.progress = nil
+		}
+		pending = append(pending, pendingRelease{done: current.jobDone, flow: current.flow})
+	}
+	coordinator.mu.Unlock()
+	return releasePending(ctx, pending)
+}
+
 // Close cancels every process-local attempt, waits for running jobs, and releases their profiles.
 func (coordinator *Coordinator) Close(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	type pendingRelease struct {
-		done chan struct{}
-		flow *attemptFlow
 	}
 	coordinator.mu.Lock()
 	pending := make([]pendingRelease, 0, len(coordinator.attempts))
@@ -321,21 +343,29 @@ func (coordinator *Coordinator) Close(ctx context.Context) error {
 		delete(coordinator.attempts, id)
 	}
 	coordinator.mu.Unlock()
+	return releasePending(ctx, pending)
+}
 
-	var closeErr error
+type pendingRelease struct {
+	done chan struct{}
+	flow *attemptFlow
+}
+
+func releasePending(ctx context.Context, pending []pendingRelease) error {
+	var releaseErr error
 	for _, release := range pending {
 		if release.done != nil {
 			select {
 			case <-release.done:
 			case <-ctx.Done():
-				return errors.Join(closeErr, ctx.Err())
+				return errors.Join(releaseErr, ctx.Err())
 			}
 		}
 		if release.flow != nil {
-			closeErr = errors.Join(closeErr, release.flow.release())
+			releaseErr = errors.Join(releaseErr, release.flow.release())
 		}
 	}
-	return closeErr
+	return releaseErr
 }
 
 func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, error) {

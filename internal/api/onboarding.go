@@ -245,40 +245,53 @@ func (server *Server) onboardingOutput(
 	snapshot onboarding.Snapshot,
 ) (*onboardingOutput, error) {
 	if snapshot.State == onboarding.StateComplete {
-		key := snapshot.ProfileID + "\x00" + snapshot.AttemptID
-		completion := &onboardingCompletion{done: make(chan struct{})}
-		actual, loaded := server.completedOnboarding.LoadOrStore(key, completion)
-		if loaded {
-			completion = actual.(*onboardingCompletion)
-		} else {
-			opened, err := coordinator.TakeOpenedProfile(ctx, onboarding.StatusRequest{
-				ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
-			})
-			if err != nil {
-				completion.problem = problemFromOnboardingError(err)
-			} else if opened.Close != nil {
-				if err = opened.Close(); err != nil {
-					completion.problem = newProblem(
-						http.StatusInternalServerError, "internal_error",
-						"The completed profile could not be released.",
-					)
-				}
-			}
-			close(completion.done)
+		if problem := server.releaseCompletedOnboarding(ctx, coordinator, snapshot); problem != nil {
+			return nil, problem
 		}
+	}
+	return &onboardingOutput{Body: onboardingSnapshotToWire(snapshot)}, nil
+}
+
+// releaseCompletedOnboarding takes the completed profile lease exactly once per attempt and
+// releases it back to the registry. Ownership transfer runs under a request-independent context
+// because a canceled browser request must not strand the lease or the provider lock; a take that
+// fails before ownership moved is not cached, so a later request can retry it.
+func (server *Server) releaseCompletedOnboarding(
+	ctx context.Context,
+	coordinator OnboardingCoordinator,
+	snapshot onboarding.Snapshot,
+) *Problem {
+	key := snapshot.ProfileID + "\x00" + snapshot.AttemptID
+	completion := &onboardingCompletion{done: make(chan struct{})}
+	actual, loaded := server.completedOnboarding.LoadOrStore(key, completion)
+	if loaded {
+		completion = actual.(*onboardingCompletion)
 		select {
 		case <-completion.done:
-			if completion.problem != nil {
-				return nil, completion.problem
-			}
 		case <-ctx.Done():
-			return nil, newProblem(
+			return newProblem(
+				http.StatusInternalServerError, "internal_error",
+				"The completed profile could not be released.",
+			)
+		}
+		return completion.problem
+	}
+	opened, err := coordinator.TakeOpenedProfile(context.WithoutCancel(ctx), onboarding.StatusRequest{
+		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+	})
+	if err != nil {
+		completion.problem = problemFromOnboardingError(err)
+		server.completedOnboarding.Delete(key)
+	} else if opened.Close != nil {
+		if err = opened.Close(); err != nil {
+			completion.problem = newProblem(
 				http.StatusInternalServerError, "internal_error",
 				"The completed profile could not be released.",
 			)
 		}
 	}
-	return &onboardingOutput{Body: onboardingSnapshotToWire(snapshot)}, nil
+	close(completion.done)
+	return completion.problem
 }
 
 func onboardingSnapshotToWire(snapshot onboarding.Snapshot) OnboardingStatusResponse {

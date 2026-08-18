@@ -35,6 +35,7 @@ import (
 const (
 	syntheticRemotePrefix      = "synthetic-subscription-"
 	isolatedRootMarkerFilename = ".moneyflow-webtest-root"
+	isolatedRootMarkerLimit    = 4096
 )
 
 func main() {
@@ -144,17 +145,19 @@ func requireIsolatedRoot(root string, token string) error {
 		return errors.New("resolve isolated profile root")
 	}
 	info, err := os.Lstat(absolute)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
-		return errors.New("isolated profile root must be an owner-only real directory")
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("isolated profile root must be a real directory")
 	}
-	markerPath := filepath.Join(absolute, isolatedRootMarkerFilename)
-	markerInfo, err := os.Lstat(markerPath)
-	if err != nil || !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 ||
-		markerInfo.Mode().Perm() != 0o600 {
+	if err = home.EnsurePrivateDirectory(absolute); err != nil {
+		return errors.New("isolated profile root must be an owner-only directory")
+	}
+	marker, err := home.ReadPrivateFile(
+		filepath.Join(absolute, isolatedRootMarkerFilename), isolatedRootMarkerLimit,
+	)
+	if err != nil {
 		return errors.New("isolated profile root marker is invalid")
 	}
-	marker, err := os.ReadFile(markerPath) //nolint:gosec // markerPath is under the validated test root.
-	if err != nil || subtle.ConstantTimeCompare(marker, []byte(token)) != 1 {
+	if subtle.ConstantTimeCompare(marker, []byte(token)) != 1 {
 		return errors.New("isolated profile root marker does not match")
 	}
 	return nil
