@@ -135,9 +135,14 @@ func (coordinator *Coordinator) completeImport(
 		elapsed = 0
 	}
 	current.flow.imported = imported
-	current.progress = &Progress{
-		Phase: "complete", Fetched: imported, Total: imported, Elapsed: elapsed,
+	completed := Progress{Phase: "complete", Fetched: imported, Total: imported}
+	if current.progress != nil {
+		completed = *current.progress
+		completed.Phase = "complete"
 	}
+	completed.Imported = imported
+	completed.Elapsed = elapsed
+	current.progress = &completed
 	coordinator.transitionLocked(current, StateComplete, nil)
 }
 

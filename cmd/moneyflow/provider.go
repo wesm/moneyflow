@@ -3,12 +3,10 @@ package main
 import (
 	"context"
 	cryptorand "crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,6 +14,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 )
@@ -47,10 +46,6 @@ type MonarchCommandRuntime struct {
 // MonarchCommandFactory constructs provider dependencies for the selected private profile root.
 type MonarchCommandFactory func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error)
 
-type monarchTransactionRanger interface {
-	SetTransactionRange(startDate string, endDate string) error
-}
-
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
 		Use:   "provider",
@@ -65,15 +60,21 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 	var importCurrency string
 	var importScale uint8
 	var monthToDate bool
+	var connectProfile string
 	connectMonarch := &cobra.Command{
 		Use:   "monarch",
 		Short: "Connect and import one Monarch profile",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			configured := command.Flags().Changed("currency") && command.Flags().Changed("scale")
+			currencySet := command.Flags().Changed("currency")
+			scaleSet := command.Flags().Changed("scale")
+			if currencySet != scaleSet {
+				return errors.New("connect Monarch: --currency and --scale must be provided together")
+			}
+			configured := currencySet && scaleSet
 			return runMonarchConnect(command, streams, monarch.ImportConfig{
 				Currency: domain.Currency(importCurrency), Scale: importScale,
-			}, configured, monthToDate)
+			}, configured, monthToDate, connectProfile)
 		},
 	}
 	connectMonarch.Flags().StringVar(&importCurrency, "currency", "", "three-letter import currency")
@@ -81,22 +82,79 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 	connectMonarch.Flags().BoolVar(
 		&monthToDate, "mtd", false, "load month-to-date transactions (from 1st of current month)",
 	)
+	connectMonarch.Flags().StringVar(
+		&connectProfile, "profile", "", "profile name or ID",
+	)
 	connect.AddCommand(connectMonarch)
 	disconnect := &cobra.Command{
 		Use:   "disconnect",
 		Short: "Disconnect a financial provider",
 		Args:  cobra.NoArgs,
 	}
-	disconnect.AddCommand(&cobra.Command{
+	var disconnectProfile string
+	disconnectMonarch := &cobra.Command{
 		Use:   "monarch",
 		Short: "Remove the local Monarch session",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return runMonarchDisconnect(command, streams)
+			return runMonarchDisconnect(command, streams, disconnectProfile)
 		},
-	})
+	}
+	disconnectMonarch.Flags().StringVar(
+		&disconnectProfile, "profile", "", "profile name or ID",
+	)
+	disconnect.AddCommand(disconnectMonarch)
 	providerCommand.AddCommand(connect, disconnect)
 	return providerCommand
+}
+
+func commandOnboardingRuntime(
+	paths home.Paths,
+	streams IOStreams,
+	initial monarch.ImportConfig,
+) (onboarding.Runtime, error) {
+	factory := streams.OpenMonarch
+	if factory == nil {
+		factory = defaultMonarchCommandFactory
+	}
+	if initial.Validate() != nil {
+		initial = monarch.ImportConfig{Currency: "USD", Scale: 2}
+	}
+	bootstrap, err := factory(paths, initial)
+	if err != nil {
+		return onboarding.Runtime{}, err
+	}
+	if bootstrap.Sessions == nil || bootstrap.Credentials == nil || bootstrap.InstanceID == "" {
+		return onboarding.Runtime{}, errors.New("monarch command dependencies are incomplete")
+	}
+	now := bootstrap.Now
+	if now == nil {
+		now = time.Now
+	}
+	return onboarding.Runtime{
+		Sessions: bootstrap.Sessions, Credentials: bootstrap.Credentials,
+		InstanceID: bootstrap.InstanceID, Now: now,
+		NewConnector: func(config monarch.ImportConfig) (provider.Connector, error) {
+			runtime, runtimeErr := factory(paths, config)
+			if runtimeErr != nil {
+				return nil, runtimeErr
+			}
+			if runtime.Connector == nil {
+				return nil, errors.New("monarch connector is unavailable")
+			}
+			return runtime.Connector, nil
+		},
+		NewSource: func(config monarch.ImportConfig) (provider.Source, error) {
+			runtime, runtimeErr := factory(paths, config)
+			if runtimeErr != nil {
+				return nil, runtimeErr
+			}
+			if runtime.Source == nil {
+				return nil, errors.New("monarch source is unavailable")
+			}
+			return runtime.Source, nil
+		},
+	}, nil
 }
 
 func runMonarchConnect(
@@ -105,345 +163,35 @@ func runMonarchConnect(
 	importConfig monarch.ImportConfig,
 	importConfigured bool,
 	monthToDate bool,
+	profile string,
 ) error {
-	opened, runtime, err := openMonarchCommand(command.Context(), streams, importConfig)
+	opener := streams.OpenProfile
+	if opener == nil {
+		opener = openProfile
+	}
+	opened, err := opener(command.Context(), ProfileOptions{
+		ProviderKind: "monarch", Profile: profile,
+	})
 	if err != nil {
 		return fmt.Errorf("connect Monarch: %w", err)
 	}
-	connectLock, err := home.TryLock(
-		opened.Paths.Root, home.LockProviderConnect, home.LockExclusive,
-	)
-	if err != nil {
-		return fmt.Errorf("connect Monarch: %w", closeOpenedProfile(opened, err))
+	if opened.ID == "" {
+		return fmt.Errorf(
+			"connect Monarch: %w",
+			closeOpenedProfile(opened, errors.New("opened profile has no identity")),
+		)
 	}
-	runErr := connectMonarchProfile(
-		command, streams, opened, runtime, importConfig, importConfigured, monthToDate,
+	runErr := runCLIOnboarding(
+		command, streams, opened, importConfig, importConfigured, monthToDate,
 	)
-	runErr = errors.Join(runErr, connectLock.Release(), opened.Close())
 	if runErr != nil {
 		return fmt.Errorf("connect Monarch: %w", runErr)
 	}
 	return nil
 }
 
-func connectMonarchProfile(
-	command *cobra.Command,
-	streams IOStreams,
-	opened OpenedProfile,
-	runtime MonarchCommandRuntime,
-	importConfig monarch.ImportConfig,
-	importConfigured bool,
-	monthToDate bool,
-) error {
-	connection, err := opened.Service.ProviderConnection(command.Context())
-	if err != nil {
-		return err
-	}
-	if monthToDate && !connection.Pristine {
-		return errors.New("month-to-date import requires a pristine profile; run without --mtd to refresh the complete profile")
-	}
-	if !connection.Bound && !connection.Pristine {
-		return fmt.Errorf(
-			"profile %s contains local state; stop moneyflow and move or remove that file outside the application before connecting",
-			opened.Path,
-		)
-	}
-	if connection.Bound {
-		boundConfig := monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
-		if importConfigured && importConfig != boundConfig {
-			return errors.New("monarch currency and scale do not match the bound profile")
-		}
-		importConfig = boundConfig
-		importConfigured = true
-	}
-	if monthToDate {
-		now := runtime.Now
-		if now == nil {
-			now = time.Now
-		}
-		today := now()
-		first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
-		ranger, ok := runtime.Source.(monarchTransactionRanger)
-		if !ok {
-			return errors.New("monarch source does not support scoped transaction loading")
-		}
-		if err = ranger.SetTransactionRange(
-			first.Format(time.DateOnly), today.Format(time.DateOnly),
-		); err != nil {
-			return err
-		}
-	}
-
-	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Checking saved Monarch session..."); err != nil {
-		return err
-	}
-	identity, storedSession, retained, err := validateRetainedMonarchSession(
-		command.Context(), runtime,
-	)
-	if err != nil {
-		return err
-	}
-	if storedSession.Version != 0 {
-		if importConfigured && importConfig != storedSession.Import {
-			return errors.New("monarch currency and scale do not match the saved session")
-		}
-		importConfig = storedSession.Import
-		importConfigured = true
-	}
-	credentialsExist, err := runtime.Credentials.Exists()
-	if err != nil {
-		return err
-	}
-	if retained && credentialsExist {
-		if err = validateMonarchBinding(connection, identity); err != nil {
-			return err
-		}
-		if _, err = fmt.Fprintln(command.ErrOrStderr(), "Connected with saved Monarch session."); err != nil {
-			return err
-		}
-	} else {
-		if !importConfigured || importConfig.Validate() != nil {
-			return errors.New("monarch credential setup requires explicit --currency and --scale")
-		}
-		var session monarch.Session
-		identity, session, err = authenticateMonarch(command, streams, runtime, connection)
-		if err != nil {
-			return err
-		}
-		if err = validateMonarchBinding(connection, identity); err != nil {
-			return err
-		}
-		if err = runtime.Sessions.Save(session); err != nil {
-			return err
-		}
-	}
-
-	progress := newCLIProviderProgress(command.ErrOrStderr())
-	if err = opened.Service.ConfigureProvider(app.ProviderRuntime{
-		Source: runtime.Source, Provider: "monarch",
-		Currency: importConfig.Currency, Scale: importConfig.Scale, Renderer: "cli",
-		InstanceID: runtime.InstanceID, Progress: progress.Observe,
-	}); err != nil {
-		return err
-	}
-	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Importing Monarch data..."); err != nil {
-		return err
-	}
-	result, err := opened.Service.RefreshProvider(command.Context(), app.ProviderRefreshRequest{
-		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
-	})
-	if err != nil {
-		return err
-	}
-	if err = progress.Err(); err != nil {
-		return err
-	}
-	count := result.Status.Summary.ImportedTransactions
-	noun := "transactions"
-	if count == 1 {
-		noun = "transaction"
-	}
-	scope := ""
-	if monthToDate {
-		scope = "month-to-date "
-	}
-	if _, err = fmt.Fprintf(
-		command.OutOrStdout(), "Imported %d posted %s%s.\n", count, scope, noun,
-	); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(
-		command.ErrOrStderr(), "Run moneyflow tui or moneyflow web to continue.",
-	)
-	return err
-}
-
-func validateRetainedMonarchSession(
-	ctx context.Context,
-	runtime MonarchCommandRuntime,
-) (provider.ProfileIdentity, monarch.Session, bool, error) {
-	session, _, err := runtime.Sessions.Load()
-	if err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, false, nil
-	}
-	identity, err := runtime.Connector.Validate(ctx, session)
-	if err != nil {
-		if code, ok := provider.CodeOf(err); ok && code == provider.CodeReconnectRequired {
-			return provider.ProfileIdentity{}, session, false, nil
-		}
-		return provider.ProfileIdentity{}, session, false, err
-	}
-	return identity, session, true, nil
-}
-
-func authenticateMonarch(
-	command *cobra.Command,
-	streams IOStreams,
-	runtime MonarchCommandRuntime,
-	connection app.ProviderConnectionState,
-) (provider.ProfileIdentity, monarch.Session, error) {
-	prompt := streams.Prompt
-	if prompt == nil {
-		prompt = terminalPrompt(command)
-	}
-	credentials, accountPassword, saveCredentials, err := monarchLoginCredentials(
-		command,
-		prompt,
-		runtime.Credentials,
-	)
-	if err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	defer clear(accountPassword)
-	now := runtime.Now
-	if now == nil {
-		now = time.Now
-	}
-	oneTimeCode, err := monarch.GenerateTOTPCode(credentials.TOTPSecret, now().UTC())
-	if err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Authenticating with Monarch..."); err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	sessionValue, err := runtime.Connector.Connect(
-		command.Context(),
-		provider.Credentials{
-			Login: credentials.Email, Password: credentials.Password, OneTimeCode: oneTimeCode,
-		},
-		func(_ context.Context, challenge provider.Challenge) (string, error) {
-			if challenge.Kind != "mfa" {
-				return "", provider.NewError(provider.CodeReconnectRequired)
-			}
-			return monarch.GenerateTOTPCode(credentials.TOTPSecret, now().UTC())
-		},
-	)
-	if err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	session, err := monarchSessionValue(sessionValue)
-	if err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	identity := provider.ProfileIdentity{Kind: "monarch", RemoteID: session.RemoteProfileID}
-	if err = validateMonarchBinding(connection, identity); err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	if saveCredentials {
-		if err = runtime.Credentials.Save(credentials, accountPassword); err != nil {
-			return provider.ProfileIdentity{}, monarch.Session{}, err
-		}
-	}
-	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Authenticated with Monarch."); err != nil {
-		return provider.ProfileIdentity{}, monarch.Session{}, err
-	}
-	return identity, session, nil
-}
-
-func monarchLoginCredentials(
-	command *cobra.Command,
-	prompt PromptFunc,
-	vault MonarchCredentialVault,
-) (monarch.StoredCredentials, []byte, bool, error) {
-	exists, err := vault.Exists()
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	if exists {
-		accountPassword, promptErr := prompt(
-			command.Context(), "Moneyflow account password", true,
-		)
-		if promptErr != nil {
-			return monarch.StoredCredentials{}, nil, false, promptErr
-		}
-		passwordBytes := []byte(accountPassword)
-		credentials, loadErr := vault.Load(passwordBytes)
-		clear(passwordBytes)
-		if loadErr != nil {
-			return monarch.StoredCredentials{}, nil, false, loadErr
-		}
-		return credentials, nil, false, nil
-	}
-	if _, err = fmt.Fprintln(
-		command.ErrOrStderr(),
-		"No saved Monarch credentials found. Creating a password-protected credential vault.",
-	); err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	email, err := prompt(command.Context(), "Monarch email", false)
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	password, err := prompt(command.Context(), "Monarch password", true)
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	if _, err = fmt.Fprintln(
-		command.ErrOrStderr(),
-		"Enter the Base32 TOTP secret from Monarch Settings > Security; "+
-			"Moneyflow will generate verification codes automatically.",
-	); err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	totpSecret, err := prompt(command.Context(), "Monarch TOTP secret", true)
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	credentials := monarch.StoredCredentials{
-		Email: strings.TrimSpace(email), Password: password,
-		TOTPSecret: monarch.NormalizeTOTPSecret(totpSecret),
-	}
-	if err = credentials.Validate(); err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	accountPassword, err := prompt(command.Context(), "Moneyflow account password", true)
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	confirmation, err := prompt(command.Context(), "Confirm Moneyflow account password", true)
-	if err != nil {
-		return monarch.StoredCredentials{}, nil, false, err
-	}
-	accountPasswordBytes := []byte(accountPassword)
-	confirmationBytes := []byte(confirmation)
-	defer clear(confirmationBytes)
-	if len(accountPasswordBytes) == 0 || len(accountPasswordBytes) != len(confirmationBytes) ||
-		subtle.ConstantTimeCompare(accountPasswordBytes, confirmationBytes) != 1 {
-		clear(accountPasswordBytes)
-		return monarch.StoredCredentials{}, nil, false,
-			errors.New("moneyflow account passwords do not match")
-	}
-	return credentials, accountPasswordBytes, true, nil
-}
-
-func validateMonarchBinding(
-	connection app.ProviderConnectionState,
-	identity provider.ProfileIdentity,
-) error {
-	if identity.Kind != "monarch" || strings.TrimSpace(identity.RemoteID) == "" {
-		return provider.NewError(provider.CodeIdentityMismatch)
-	}
-	if connection.Bound && (connection.Kind != identity.Kind ||
-		connection.RemoteProfileID != identity.RemoteID) {
-		return provider.NewError(provider.CodeIdentityMismatch)
-	}
-	return nil
-}
-
-func monarchSessionValue(session provider.Session) (monarch.Session, error) {
-	switch typed := session.(type) {
-	case monarch.Session:
-		return typed, nil
-	case *monarch.Session:
-		if typed != nil {
-			return *typed, nil
-		}
-	}
-	return monarch.Session{}, provider.NewError(provider.CodeReconnectRequired)
-}
-
-func runMonarchDisconnect(command *cobra.Command, streams IOStreams) error {
-	paths, err := resolvePersistentPaths("")
+func runMonarchDisconnect(command *cobra.Command, streams IOStreams, profile string) error {
+	paths, err := resolvePersistentPaths("", profile)
 	if err != nil {
 		return fmt.Errorf("disconnect Monarch: %w", err)
 	}

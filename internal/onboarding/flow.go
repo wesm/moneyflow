@@ -96,6 +96,14 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 		_ = opened.Close()
 		return
 	}
+	if coordinator.monthToDate(attemptID) && !connection.Pristine {
+		coordinator.setStableState(attemptID, StateLocalOnly, &Failure{
+			Code: string(CodeOnboardingLocalOnly),
+			Message: "month-to-date import requires a pristine profile; " +
+				"run without --mtd to refresh the complete profile.",
+		})
+		return
+	}
 	if !connection.Bound && !connection.Pristine {
 		coordinator.setStableState(attemptID, StateLocalOnly, &Failure{
 			Code:    string(CodeOnboardingLocalOnly),
@@ -199,6 +207,13 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
 	coordinator.startImport(attemptID)
+}
+
+func (coordinator *Coordinator) monthToDate(attemptID string) bool {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	current, ok := coordinator.attempts[attemptID]
+	return ok && current.flow.monthToDate
 }
 
 func selectImportConfig(

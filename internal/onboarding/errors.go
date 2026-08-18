@@ -61,3 +61,11 @@ func CodeOf(err error) Code {
 	}
 	return ""
 }
+
+// ErrorForCode reconstructs one fixed, renderer-safe onboarding error without a raw cause.
+func ErrorForCode(code Code) error {
+	if _, ok := safeErrorDetails[code]; !ok {
+		return nil
+	}
+	return newError(code, nil)
+}

@@ -29,6 +29,7 @@ const (
 
 // OpenedProfile owns one command-scoped profile service and its exact cleanup.
 type OpenedProfile struct {
+	ID      string
 	Service *app.Service
 	Close   func() error
 	Path    string
@@ -45,13 +46,16 @@ type ProfileOptions struct {
 	ExplicitHome string
 	FixturePath  string
 	ProviderKind string
+	Profile      string
 }
 
 func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
 	if options.Demo || options.FixturePath != "" {
 		return openDemoProfile(ctx, options.FixturePath)
 	}
-	catalog, entry, exists, err := resolvePersistentSelection(ctx, options.ExplicitHome)
+	catalog, entry, exists, err := resolvePersistentSelection(
+		ctx, options.ExplicitHome, options.Profile,
+	)
 	if err != nil {
 		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
 	}
@@ -96,7 +100,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		)
 	}
 	return OpenedProfile{
-		Service: service,
+		ID: entry.ID, Service: service,
 		Close: idempotentClose(func() error {
 			return errors.Join(profile.Close(), lifecycleLock.Release())
 		}),
@@ -119,8 +123,8 @@ func persistentProfileOpenError(paths home.Paths, err error) error {
 	return fmt.Errorf("open profile: %w", err)
 }
 
-func resolvePersistentPaths(explicitHome string) (home.Paths, error) {
-	_, entry, _, err := resolvePersistentSelection(context.Background(), explicitHome)
+func resolvePersistentPaths(explicitHome string, profile string) (home.Paths, error) {
+	_, entry, _, err := resolvePersistentSelection(context.Background(), explicitHome, profile)
 	if err != nil {
 		return home.Paths{}, err
 	}
@@ -130,6 +134,7 @@ func resolvePersistentPaths(explicitHome string) (home.Paths, error) {
 func resolvePersistentSelection(
 	ctx context.Context,
 	explicitHome string,
+	profile string,
 ) (*profilecatalog.Catalog, profilecatalog.Entry, bool, error) {
 	userHome := ""
 	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
@@ -154,18 +159,17 @@ func resolvePersistentSelection(
 	if err != nil {
 		return nil, profilecatalog.Entry{}, false, err
 	}
-	switch len(entries) {
-	case 0:
+	if len(entries) == 0 && profile == "" {
 		return catalog, profilecatalog.Entry{
 			Key: profilecatalog.LegacyKey, DisplayName: "Moneyflow", ProviderKind: "monarch",
 			Root: paths.Root, Status: profilecatalog.StatusSetupIncomplete,
 		}, false, nil
-	case 1:
-		return catalog, entries[0], true, nil
-	default:
-		_, resolveErr := catalog.Resolve(ctx, "")
-		return nil, profilecatalog.Entry{}, false, resolveErr
 	}
+	entry, err := catalog.Resolve(ctx, profile)
+	if err != nil {
+		return nil, profilecatalog.Entry{}, false, err
+	}
+	return catalog, entry, true, nil
 }
 
 func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {
@@ -208,7 +212,7 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 		return fail(fmt.Errorf("open demo profile: load service: %w", err))
 	}
 	return OpenedProfile{
-		Service: service,
+		ID: "profile_demo", Service: service,
 		Close: idempotentClose(func() error {
 			return errors.Join(
 				profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),

@@ -19,6 +19,8 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/store"
@@ -52,18 +54,55 @@ func TestProviderConnectHasNoReplaceFlag(t *testing.T) {
 	require.ErrorContains(t, err, "unknown flag: --replace")
 }
 
-func TestProviderConnectRequiresExplicitMoneyConfiguration(t *testing.T) {
+func TestProviderConnectPromptsToConfirmUSD2WhenConfigIsAbsent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
 	now := time.Date(2026, time.August, 15, 21, 59, 0, 0, time.UTC)
-	_, _, err := executeProviderCommandRaw(
+	prompts := &recordingPrompt{answers: append([]string{"", ""}, commandCredentialSetupAnswers()...)}
+	stdout, stderr, err := executeProviderCommandRaw(
 		t,
 		&fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")},
-		&commandProviderSource{},
-		(&recordingPrompt{answers: []string{"user@example.com", "not-a-real-password"}}).Prompt,
+		&commandProviderSource{
+			identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+			snapshot: commandProviderSnapshot(t, now),
+		},
+		prompts.Prompt,
 		"provider", "connect", "monarch",
 	)
-	require.ErrorContains(t, err, "requires explicit --currency and --scale")
+	require.NoError(t, err)
+	assert.Contains(t, stderr, "Import currency [USD]")
+	assert.Contains(t, stderr, "Minor-unit scale [2]")
+	assert.Equal(t, "Imported 1 posted transaction.\n", stdout)
+}
+
+func TestProviderCommandsResolveSameNameOrID(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "catalog")
+	t.Setenv("MONEYFLOW_HOME", root)
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Primary", ProviderKind: "monarch",
+	})
+	require.NoError(t, err)
+	now := commandCredentialTime
+	source := &commandProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: commandProviderSnapshot(t, now),
+	}
+	_, _, err = executeProviderCommand(
+		t, &fakeMonarchConnector{session: testMonarchSession(now, "subscription-example")},
+		source, (&recordingPrompt{answers: commandCredentialSetupAnswers()}).Prompt,
+		"provider", "connect", "monarch", "--profile", "Primary",
+	)
+	require.NoError(t, err)
+	_, _, err = executeProviderCommand(
+		t, &fakeMonarchConnector{}, source, nil,
+		"provider", "disconnect", "monarch", "--profile", entry.ID,
+	)
+	require.NoError(t, err)
+	sessions, err := monarch.NewSessionStore(entry.ProfilePaths())
+	require.NoError(t, err)
+	_, _, err = sessions.Load()
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestProviderConnectCreatesCurrentSchemaAndBindsPristineProfile(t *testing.T) {
@@ -164,8 +203,8 @@ func TestProviderConnectRefusesJournalOnlyAndPopulatedProfiles(t *testing.T) {
 				"provider", "connect", "monarch",
 			)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), paths.Database)
-			assert.Contains(t, err.Error(), "move or remove")
+			assert.NotContains(t, err.Error(), paths.Database)
+			assert.Contains(t, err.Error(), "contains local data")
 			assert.Zero(t, connector.connectCalls)
 			assert.Empty(t, prompts.calls)
 		})
@@ -304,7 +343,7 @@ func TestProviderConnectRejectsWrongAccountPasswordBeforeProviderLogin(t *testin
 		t, connector, &commandProviderSource{}, prompts.Prompt,
 		"provider", "connect", "monarch",
 	)
-	assert.ErrorIs(t, err, monarch.ErrCredentialUnlock)
+	assertOnboardingCommandCode(t, err, onboarding.CodeCredentialUnlockFailed)
 	assert.Zero(t, connector.connectCalls)
 }
 
@@ -323,7 +362,7 @@ func TestProviderConnectRejectsCredentialPasswordMismatchBeforeSaving(t *testing
 		t, connector, &commandProviderSource{}, prompts.Prompt,
 		"provider", "connect", "monarch",
 	)
-	require.ErrorContains(t, err, "account passwords do not match")
+	assertOnboardingCommandCode(t, err, onboarding.CodeCredentialInputInvalid)
 	assert.Zero(t, connector.connectCalls)
 	paths, pathErr := home.ResolveRoot(root, nil, "")
 	require.NoError(t, pathErr)
@@ -672,7 +711,7 @@ func TestProviderReconnectRejectsDifferentMoneyInterpretationAfterDisconnect(t *
 		t, reconnect, source, (&recordingPrompt{answers: []string{"account-password"}}).Prompt,
 		"provider", "connect", "monarch", "--currency", "JPY", "--scale", "0",
 	)
-	require.ErrorContains(t, err, "currency and scale do not match the bound profile")
+	require.ErrorContains(t, err, "currency and scale conflict with saved profile state")
 	assert.Zero(t, reconnect.connectCalls)
 
 	paths, pathErr := home.ResolveRoot(root, nil, "")
@@ -722,10 +761,19 @@ func executeProviderCommandRaw(
 			if err != nil {
 				return MonarchCommandRuntime{}, err
 			}
+			now := commandCredentialTime
+			if commandSource, ok := source.(*commandProviderSource); ok {
+				commandSource.mu.Lock()
+				observedAt := commandSource.snapshot.ObservedAt
+				commandSource.mu.Unlock()
+				if observedAt.After(now) {
+					now = observedAt
+				}
+			}
 			return MonarchCommandRuntime{
 				Connector: connector, Sessions: sessions, Credentials: credentials,
 				Source: source, InstanceID: "cli-test", Now: func() time.Time {
-					return commandCredentialTime
+					return now
 				},
 			}, nil
 		},
@@ -1051,6 +1099,12 @@ func assertProviderCommandCode(t testing.TB, err error, code provider.ErrorCode)
 		return
 	}
 	assert.Equal(t, code, providerCode)
+}
+
+func assertOnboardingCommandCode(t testing.TB, err error, code onboarding.Code) {
+	t.Helper()
+	require.Error(t, err)
+	assert.Equal(t, code, onboarding.CodeOf(err))
 }
 
 var _ io.Reader = (*commandRandomReader)(nil)

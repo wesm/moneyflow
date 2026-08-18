@@ -52,6 +52,7 @@ type Progress struct {
 	Partition string        `json:"partition"`
 	Fetched   int           `json:"fetched"`
 	Total     int           `json:"total"`
+	Imported  int           `json:"imported"`
 	Attempt   int           `json:"attempt"`
 	Pass      int           `json:"pass"`
 	Elapsed   time.Duration `json:"elapsed"`
