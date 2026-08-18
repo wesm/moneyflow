@@ -33,6 +33,7 @@ type CatalogView interface {
 
 // ProfileLifecycle supplies durable create, rollback, and recovery operations.
 type ProfileLifecycle interface {
+	ActivateForProvider(context.Context, string, string) (profilecatalog.Entry, error)
 	Create(context.Context, profilecatalog.CreateRequest) (profilecatalog.Entry, error)
 	CancelNewProfile(context.Context, string) (bool, error)
 	RecoveryPlan(context.Context, string) (profilecatalog.RecoveryPlan, error)
@@ -173,6 +174,7 @@ type shellProfileRecreatedMsg struct {
 
 type shellOnboardingSnapshotMsg struct {
 	snapshot onboarding.Snapshot
+	entry    *profilecatalog.Entry
 	guard    *onboardingPollGuard
 	start    *shellRequestGuard
 	err      error
@@ -368,6 +370,10 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			shell.status = "Profile setup could not continue."
 			shell.err = message.err
 			return shell, nil
+		}
+		if message.entry != nil {
+			entry := *message.entry
+			shell.selected = &entry
 		}
 		if message.snapshot.ProtocolVersion != onboarding.ProtocolVersion {
 			shell.status = "Profile setup requires another Moneyflow version."
@@ -598,9 +604,19 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 }
 
 func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
-	profileID := entry.ID
-	guard := shell.beginShellRequest(shellOnboarding, profileID)
+	selector := entrySelector(entry)
+	guard := shell.beginShellRequest(shellOnboarding, selector)
 	return func() tea.Msg {
+		if entry.ID == "" {
+			activated, err := shell.dependencies.Profiles.ActivateForProvider(
+				shell.ctx, selector, "monarch",
+			)
+			if err != nil {
+				return shellOnboardingSnapshotMsg{start: &guard, err: err}
+			}
+			entry = activated
+		}
+		profileID := entry.ID
 		if profileID == "" {
 			return shellOnboardingSnapshotMsg{
 				start: &guard, err: errors.New("profile setup ID is unavailable"),
@@ -609,7 +625,7 @@ func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 		snapshot, err := shell.dependencies.Onboarding.Start(shell.ctx, onboarding.StartRequest{
 			ProfileID: profileID, Renderer: "tui",
 		})
-		return shellOnboardingSnapshotMsg{snapshot: snapshot, start: &guard, err: err}
+		return shellOnboardingSnapshotMsg{snapshot: snapshot, entry: &entry, start: &guard, err: err}
 	}
 }
 

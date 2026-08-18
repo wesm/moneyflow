@@ -62,6 +62,17 @@ describe('profile selector', () => {
     ).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Recreate profile' })).toBeNull()
   })
+
+  it('focuses the first loaded profile after an asynchronous catalog load', async () => {
+    const props = syntheticCatalogProps()
+    const rendered = render(ProfileSelector, { props: { ...props, profiles: [], loading: true } })
+
+    await rendered.rerender({ ...props, loading: false })
+
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: /Alpha/ })),
+    )
+  })
 })
 
 function syntheticCatalogProps() {

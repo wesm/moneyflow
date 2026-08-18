@@ -734,11 +734,35 @@ components:
           maxLength: 128
           minLength: 1
           type: string
+        provider_kind:
+          enum:
+            - monarch
+            - local
+          type: string
         version:
           type: string
       required:
         - version
         - key
+      type: object
+    ProfileCancelBody:
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+      required:
+        - version
+      type: object
+    ProfileCancelResponse:
+      additionalProperties: false
+      properties:
+        removed:
+          type: boolean
+        version:
+          type: string
+      required:
+        - version
+        - removed
       type: object
     ProfileCatalogResponse:
       additionalProperties: false
@@ -1644,6 +1668,77 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Internal Server Error
       summary: Issue profile-scoped browser mutation configuration
+  /api/v1/profiles/{profile_id}/cancel:
+    post:
+      operationId: cancelNewProfile
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileCancelBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileCancelResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "403":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Cancel one newly created pristine profile
   /api/v1/profiles/{profile_id}/commit:
     post:
       operationId: commitProfile
@@ -1967,6 +2062,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
         "409":
           content:
             application/problem+json:
@@ -2091,6 +2192,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/Problem"
           description: Forbidden
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
         "409":
           content:
             application/problem+json:

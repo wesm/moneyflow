@@ -36,3 +36,22 @@ test('keyboard onboarding creates, connects, imports, and opens one profile', as
     await server.stop()
   }
 })
+
+test('canceling a newly added profile leaves no orphan in the catalog', async ({ page }) => {
+  const server = await startOnboardingE2EServer('/moneyflow/')
+  try {
+    await page.goto(server.url)
+    await page.getByRole('button', { name: /Add profile/ }).click()
+    await page.getByRole('button', { name: /Monarch Money/ }).click()
+    await page.getByLabel('Profile name').fill('Canceled Setup')
+    await page.getByRole('button', { name: 'Create profile' }).click()
+    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Cancel' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Choose a Moneyflow profile' })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Canceled Setup/ })).toHaveCount(0)
+  } finally {
+    await server.stop()
+  }
+})

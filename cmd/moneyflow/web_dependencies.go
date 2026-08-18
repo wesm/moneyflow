@@ -19,6 +19,8 @@ type WebDependencies struct {
 	Registry             *webserver.ProfileRegistry
 	Onboarding           *onboarding.Coordinator
 	PreselectedProfileID string
+	CloseIdle            func(context.Context) error
+	IdleSweepInterval    time.Duration
 	close                func(context.Context) error
 }
 
@@ -109,7 +111,12 @@ func buildWebDependencies(
 	}
 	return WebDependencies{
 		Catalog: catalog, Registry: registry, Onboarding: coordinator,
-		PreselectedProfileID: preselectedID, close: registry.Close,
+		PreselectedProfileID: preselectedID,
+		CloseIdle:            registry.CloseIdle,
+		IdleSweepInterval:    time.Minute,
+		close: func(closeContext context.Context) error {
+			return errors.Join(coordinator.Close(closeContext), registry.Close(closeContext))
+		},
 	}, nil
 }
 

@@ -6,7 +6,10 @@ import type { CatalogController } from './lib/controller/catalog.svelte'
 import type { ViewController } from './lib/controller/view-controller.svelte'
 
 describe('Moneyflow application scaffold', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
   it('mounts the shared chrome around a profile loading state', () => {
     render(App, { basePath: '/moneyflow/', controller: stubController() })
@@ -72,6 +75,47 @@ describe('Moneyflow application scaffold', () => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
       vi.useRealTimers()
     }
+  })
+
+  it('rolls back a newly added profile when onboarding cannot start and the user goes back', async () => {
+    const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const catalogState: CatalogController['state'] = {
+      profiles: [],
+      loading: false,
+      announcement: '',
+      problem: undefined,
+    }
+    const catalog = {
+      state: catalogState,
+      load: vi.fn(async () => undefined),
+      create: vi.fn(async (displayName: string) => {
+        const created = {
+          key: profileID,
+          id: profileID,
+          display_name: displayName,
+          provider_kind: 'monarch',
+          status: 'setup_incomplete',
+        }
+        catalogState.profiles = [created]
+        return created
+      }),
+      canonicalID: vi.fn(async () => profileID),
+      cancelNew: vi.fn(async () => true),
+    } as unknown as CatalogController
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')))
+    render(App, { basePath: '/moneyflow/', catalog })
+
+    await fireEvent.click(screen.getByRole('button', { name: /Add profile/ }))
+    await fireEvent.click(screen.getByRole('button', { name: /Monarch Money/ }))
+    await fireEvent.input(screen.getByLabelText('Profile name'), {
+      target: { value: 'New Profile' },
+    })
+    await fireEvent.submit(screen.getByRole('button', { name: 'Create profile' }).closest('form')!)
+    await vi.waitFor(() => expect(catalog.create).toHaveBeenCalledWith('New Profile', 'monarch'))
+    await screen.findByRole('heading', { name: 'Profile setup was interrupted' })
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to profiles' }))
+
+    expect(catalog.cancelNew).toHaveBeenCalledWith(profileID)
   })
 })
 

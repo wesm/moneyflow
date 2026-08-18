@@ -136,7 +136,7 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 		OperationID: "submitProfileOnboarding", Method: http.MethodPost,
 		Path:    server.profilePath("onboarding/{attempt_id}/submit"),
 		Summary: "Submit one onboarding transition",
-		Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+		Errors:  []int{400, 403, 404, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *onboardingSubmitInput) (*onboardingOutput, error) {
 		if config.Onboarding == nil {
 			return nil, onboardingUnavailable()
@@ -179,7 +179,7 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 		OperationID: "cancelProfileOnboarding", Method: http.MethodPost,
 		Path:    server.profilePath("onboarding/{attempt_id}/cancel"),
 		Summary: "Cancel profile onboarding",
-		Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+		Errors:  []int{400, 403, 404, 409, 413, 422, 500, 503},
 	}, func(ctx context.Context, input *onboardingCancelInput) (*onboardingOutput, error) {
 		if config.Onboarding == nil {
 			return nil, onboardingUnavailable()
@@ -246,22 +246,36 @@ func (server *Server) onboardingOutput(
 ) (*onboardingOutput, error) {
 	if snapshot.State == onboarding.StateComplete {
 		key := snapshot.ProfileID + "\x00" + snapshot.AttemptID
-		if _, loaded := server.completedOnboarding.LoadOrStore(key, struct{}{}); !loaded {
+		completion := &onboardingCompletion{done: make(chan struct{})}
+		actual, loaded := server.completedOnboarding.LoadOrStore(key, completion)
+		if loaded {
+			completion = actual.(*onboardingCompletion)
+		} else {
 			opened, err := coordinator.TakeOpenedProfile(ctx, onboarding.StatusRequest{
 				ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 			})
 			if err != nil {
-				server.completedOnboarding.Delete(key)
-				return nil, problemFromOnboardingError(err)
-			}
-			if opened.Close != nil {
+				completion.problem = problemFromOnboardingError(err)
+			} else if opened.Close != nil {
 				if err = opened.Close(); err != nil {
-					return nil, newProblem(
+					completion.problem = newProblem(
 						http.StatusInternalServerError, "internal_error",
 						"The completed profile could not be released.",
 					)
 				}
 			}
+			close(completion.done)
+		}
+		select {
+		case <-completion.done:
+			if completion.problem != nil {
+				return nil, completion.problem
+			}
+		case <-ctx.Done():
+			return nil, newProblem(
+				http.StatusInternalServerError, "internal_error",
+				"The completed profile could not be released.",
+			)
 		}
 	}
 	return &onboardingOutput{Body: onboardingSnapshotToWire(snapshot)}, nil

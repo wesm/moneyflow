@@ -47,7 +47,7 @@ describe('catalog controller', () => {
     await expect(controller.canonicalID(profile)).resolves.toBe(
       'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa',
     )
-    expect(client.activate).toHaveBeenCalledWith('legacy')
+    expect(client.activate).toHaveBeenCalledWith('legacy', undefined)
   })
 
   it('announces sanitized failures and supports recovery preview then apply', async () => {
@@ -58,6 +58,16 @@ describe('catalog controller', () => {
     expect(controller.state.recovery?.plan.backup_path).toBe('/synthetic/backup')
     await controller.recovery('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa', true)
     expect(controller.state.announcement).toContain('ready for setup')
+  })
+
+  it('rolls back a newly created artifact-free profile', async () => {
+    const client = stubCatalog()
+    const controller = createCatalogController({ client })
+
+    await expect(controller.cancelNew('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa')).resolves.toBe(true)
+
+    expect(client.cancelNew).toHaveBeenCalledWith('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa')
+    expect(controller.state.announcement).toContain('canceled')
   })
 })
 
@@ -73,6 +83,7 @@ function stubCatalog(): CatalogClient {
       status: 'setup_incomplete',
     })),
     activate: vi.fn(async () => profiles[1]!),
+    cancelNew: vi.fn(async () => true),
     recovery: vi.fn(async (_profileID, body) => ({
       version: '1',
       plan: {

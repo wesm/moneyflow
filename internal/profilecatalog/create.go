@@ -29,6 +29,16 @@ type LegacyManifestRequest struct {
 
 // Activate resolves a selector and gives a manifest-less legacy profile its durable identity.
 func (catalog *Catalog) Activate(ctx context.Context, selector string) (Entry, error) {
+	return catalog.ActivateForProvider(ctx, selector, "")
+}
+
+// ActivateForProvider resolves a selector and applies an explicit provider only while finalizing
+// a pristine manifest-less legacy profile.
+func (catalog *Catalog) ActivateForProvider(
+	ctx context.Context,
+	selector string,
+	requestedProvider string,
+) (Entry, error) {
 	entry, err := catalog.Resolve(ctx, selector)
 	if err != nil {
 		return Entry{}, err
@@ -40,6 +50,9 @@ func (catalog *Catalog) Activate(ctx context.Context, selector string) (Entry, e
 		return Entry{}, newError(CodeProfileInvalid, errors.New("profile identity is missing"))
 	}
 	providerKind := entry.ProviderKind
+	if providerKind == "" {
+		providerKind = requestedProvider
+	}
 	if providerKind == "" {
 		providerKind = "local"
 	}

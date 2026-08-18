@@ -54,6 +54,11 @@ type Server struct {
 	completedOnboarding sync.Map
 }
 
+type onboardingCompletion struct {
+	done    chan struct{}
+	problem *Problem
+}
+
 type healthOutput struct {
 	Body Health
 }
@@ -148,19 +153,26 @@ func New(config Config) (*Server, error) {
 
 func strictProfileAPIPaths(next http.Handler, basePath string) http.Handler {
 	prefix := basePath + "api/v1/profiles/"
+	catalogPath := strings.TrimSuffix(prefix, "/")
+	activatePath := catalogPath + "/activate"
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		escapedPath := request.URL.EscapedPath()
-		if escapedPath == basePath+"api/v1/profiles/activate" {
-			next.ServeHTTP(response, request)
-			return
-		}
-		if strings.HasPrefix(escapedPath, prefix) {
-			if _, _, err := ParseProfileAPIPath(basePath, escapedPath); err != nil {
-				writeProblem(response, newProblem(
-					http.StatusNotFound, "not_found", "The requested profile route was not found.",
-				))
-				return
+		decodedPath := request.URL.Path
+		valid := true
+		switch decodedPath {
+		case catalogPath, activatePath:
+			valid = escapedPath == decodedPath
+		default:
+			if strings.HasPrefix(decodedPath, prefix) {
+				_, _, err := ParseProfileAPIPath(basePath, escapedPath)
+				valid = err == nil
 			}
+		}
+		if !valid {
+			writeProblem(response, newProblem(
+				http.StatusNotFound, "not_found", "The requested profile route was not found.",
+			))
+			return
 		}
 		next.ServeHTTP(response, request)
 	})
@@ -187,7 +199,7 @@ func profileMutationSecurity(
 			if err == nil {
 				scope := profileID
 				_, requiresProtection := protected[endpoint]
-				if endpoint == "recovery" {
+				if endpoint == "recovery" || endpoint == "cancel" {
 					requiresProtection = true
 					scope = CatalogMutationScope
 				}

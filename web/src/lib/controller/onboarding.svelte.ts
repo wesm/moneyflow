@@ -30,6 +30,7 @@ export interface OnboardingState {
   snapshot?: OnboardingStatus
   busy: boolean
   announcement: string
+  problem?: { kind: 'start' | 'expired'; message: string }
 }
 
 export interface OnboardingController {
@@ -39,6 +40,7 @@ export interface OnboardingController {
   unlock(accountPassword: string): Promise<void>
   submitCredentials(credentials: OnboardingCredentials): Promise<void>
   retry(): Promise<void>
+  restart(): Promise<void>
   reauthenticate(): Promise<void>
   cancel(): Promise<void>
   poll(): Promise<void>
@@ -126,7 +128,11 @@ export function createOnboardingController(options: {
   async function apply(operation: () => Promise<OnboardingStatus>, pending: string): Promise<void> {
     if (state.busy) return
     const activeSnapshot = state.snapshot
-    setState({ ...state, busy: true, announcement: pending })
+    setState({
+      busy: true,
+      announcement: pending,
+      ...(activeSnapshot ? { snapshot: activeSnapshot } : {}),
+    })
     try {
       const snapshot = await operation()
       setState({ snapshot, busy: false, announcement: announcementFor(snapshot) })
@@ -149,7 +155,16 @@ export function createOnboardingController(options: {
         error instanceof MoneyflowProblem
           ? error.problem.detail
           : 'The onboarding request could not be completed.'
-      setState({ ...state, busy: false, announcement: message })
+      const expired =
+        error instanceof MoneyflowProblem && error.problem.code === 'onboarding_expired'
+      setState({
+        ...state,
+        busy: false,
+        announcement: message,
+        ...(!activeSnapshot || expired
+          ? { problem: { kind: expired ? ('expired' as const) : ('start' as const), message } }
+          : {}),
+      })
     }
   }
 
@@ -185,11 +200,24 @@ export function createOnboardingController(options: {
 
   async function poll(): Promise<void> {
     const snapshot = state.snapshot
-    if (!snapshot || !isRunning(snapshot.state) || !pageVisible()) return
+    if (!snapshot || !isRunning(snapshot.state)) return
+    if (!pageVisible()) {
+      schedule()
+      return
+    }
     try {
       const next = await options.transport.status(options.profileID, snapshot.attempt_id)
       setState({ snapshot: next, busy: false, announcement: announcementFor(next) })
-    } catch {
+    } catch (error) {
+      if (error instanceof MoneyflowProblem && error.problem.code === 'onboarding_expired') {
+        setState({
+          ...state,
+          busy: false,
+          announcement: error.problem.detail,
+          problem: { kind: 'expired', message: error.problem.detail },
+        })
+        return
+      }
       setState({ ...state, announcement: 'Waiting for provider setup status…' })
     }
   }
@@ -219,6 +247,7 @@ export function createOnboardingController(options: {
       submit('unlock', { unlock: { account_password: accountPassword } }),
     submitCredentials: (credentials) => submit('submit_credentials', { credentials }),
     retry: () => submit('retry'),
+    restart: () => start(state.snapshot?.settings),
     reauthenticate: () => submit('reauthenticate'),
     cancel,
     poll,

@@ -100,6 +100,7 @@ type fakeShellState struct {
 	lastCancel         onboarding.CancelRequest
 	startErr           error
 	cancelStaleOnce    bool
+	activated          profilecatalog.Entry
 }
 
 type fakeCatalogView struct {
@@ -129,6 +130,23 @@ func fakeShellDependencies(t testing.TB) (ShellDependencies, *fakeShellState) {
 	}, state
 }
 
+func (state *fakeShellState) ActivateForProvider(
+	_ context.Context,
+	selector string,
+	providerKind string,
+) (profilecatalog.Entry, error) {
+	state.activated = profilecatalog.Entry{
+		Key:         "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ID:          "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+		DisplayName: "Moneyflow", ProviderKind: providerKind,
+		Status: profilecatalog.StatusSetupIncomplete,
+	}
+	if selector != profilecatalog.LegacyKey {
+		return profilecatalog.Entry{}, errors.New("unexpected activation selector")
+	}
+	return state.activated, nil
+}
+
 func (state *fakeShellState) Start(
 	_ context.Context,
 	request onboarding.StartRequest,
@@ -143,6 +161,30 @@ func (state *fakeShellState) Start(
 	}
 	snapshot.ProfileID = request.ProfileID
 	return snapshot, nil
+}
+
+func TestShellOnboardingActivatesManifestlessLegacyAsMonarch(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	legacy := profilecatalog.Entry{
+		Key:         profilecatalog.LegacyKey,
+		DisplayName: "Moneyflow",
+		Status:      profilecatalog.StatusSetupIncomplete,
+	}
+	shell.selected = &legacy
+	shell.screen = shellOnboarding
+
+	command := shell.beginOnboarding(legacy)
+	require.NotNil(t, command)
+	updated, _ := shell.Update(command())
+	shell = updated.(Shell)
+
+	assert.Equal(t, "monarch", state.activated.ProviderKind)
+	assert.Equal(t, 1, state.onboardingStarts)
+	require.NotNil(t, shell.selected)
+	assert.Equal(t, state.activated.ID, shell.selected.ID)
 }
 
 func (state *fakeShellState) Status(

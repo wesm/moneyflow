@@ -19,6 +19,12 @@ func RunShell(
 	input io.Reader,
 	output io.Writer,
 ) error {
+	if dependencies.Preselected != nil {
+		owned := &shellOwnedProfile{profile: *dependencies.Preselected}
+		protected := owned.profile
+		protected.Close = owned.close
+		dependencies.Preselected = &protected
+	}
 	shell, err := NewShell(ctx, dependencies, options)
 	if err != nil {
 		var closeErr error

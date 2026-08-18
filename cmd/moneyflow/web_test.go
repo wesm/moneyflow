@@ -253,6 +253,41 @@ func TestRunWebStartsServingBeforeOpeningBrowser(t *testing.T) {
 	assert.True(t, openedHealthy)
 }
 
+func TestRunWebSweepsIdleProfilesUntilShutdown(t *testing.T) {
+	t.Parallel()
+	dependencies := testWebDependencies(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	swept := make(chan struct{}, 1)
+	dependencies.CloseIdle = func(context.Context) error {
+		select {
+		case swept <- struct{}{}:
+		default:
+		}
+		cancel()
+		return nil
+	}
+	dependencies.IdleSweepInterval = time.Millisecond
+	streams := IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		Listen: func(ctx context.Context, network, _ string) (net.Listener, error) {
+			return (&net.ListenConfig{}).Listen(ctx, network, "127.0.0.1:0")
+		},
+		SignalContext: func(parent context.Context) (context.Context, context.CancelFunc) {
+			return context.WithCancel(parent)
+		},
+	}
+
+	require.NoError(t, runWeb(ctx, dependencies, WebOptions{
+		Listen: "127.0.0.1:8080", BasePath: "/", Open: false,
+	}, streams))
+	select {
+	case <-swept:
+	default:
+		t.Fatal("idle profile sweep did not run")
+	}
+}
+
 func TestRunWebServesRootAndNestedPathsThenShutsDown(t *testing.T) {
 	for _, basePath := range []string{"/", "/moneyflow"} {
 		t.Run(basePath, func(t *testing.T) {

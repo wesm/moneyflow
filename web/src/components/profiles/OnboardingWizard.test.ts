@@ -77,6 +77,20 @@ describe('onboarding wizard', () => {
     expect(controller.cancel).toHaveBeenCalledTimes(1)
     expect(oncancel).not.toHaveBeenCalled()
   })
+
+  it('offers restart and back when setup cannot start', async () => {
+    const oncancel = vi.fn()
+    const controller = stubController('settings_required')
+    delete controller.state.snapshot
+    controller.state.problem = { kind: 'start', message: 'Setup could not start.' }
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel })
+
+    expect(screen.getByRole('heading', { name: 'Profile setup was interrupted' })).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry setup' }))
+    expect(controller.restart).toHaveBeenCalledTimes(1)
+    await fireEvent.click(screen.getByRole('button', { name: 'Back to profiles' }))
+    expect(oncancel).toHaveBeenCalledTimes(1)
+  })
 })
 
 function snapshot(state: string) {
@@ -110,6 +124,7 @@ function stubController(
     reauthenticate: vi.fn(async () => undefined),
     cancel: vi.fn(async () => undefined),
     poll: vi.fn(async () => undefined),
+    restart: vi.fn(async () => undefined),
     destroy: vi.fn(),
     ...overrides,
   } as OnboardingController

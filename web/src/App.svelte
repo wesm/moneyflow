@@ -3,7 +3,7 @@
   import { onMount, tick } from 'svelte'
 
   import { createMoneyflowClient } from './lib/api/client'
-  import { createCatalogClient } from './lib/api/catalog-client'
+  import { createCatalogClient, type ProfileSummary } from './lib/api/catalog-client'
   import AppShell from './components/AppShell.svelte'
   import OnboardingWizard from './components/profiles/OnboardingWizard.svelte'
   import ProfileSelector from './components/profiles/ProfileSelector.svelte'
@@ -38,6 +38,8 @@
   const catalog = resolveCatalog()
   let onboarding = $state<OnboardingController | undefined>()
   let onboardingProfileID = $state<string | undefined>()
+  let createdOnboardingProfileID = $state<string | undefined>()
+  let closingOnboarding = $state(false)
 
   function resolveController(): ViewController | undefined {
     if (suppliedController) return suppliedController
@@ -54,14 +56,17 @@
     return createCatalogController({ client: createCatalogClient(basePath) })
   }
 
-  async function canonicalID(selector: string): Promise<string | undefined> {
+  async function canonicalID(
+    selector: string,
+    providerKind?: 'monarch' | 'local',
+  ): Promise<string | undefined> {
     if (!catalog) return selector
     const profile = catalog.state.profiles.find(
       (candidate) => candidate.id === selector || candidate.key === selector,
     )
     if (!profile) return undefined
     try {
-      return await catalog.canonicalID(profile)
+      return await catalog.canonicalID(profile, providerKind)
     } catch {
       catalog.announce('The selected profile could not be activated.')
       return undefined
@@ -81,9 +86,10 @@
   }
 
   async function setup(selector: string): Promise<void> {
-    const id = await canonicalID(selector)
+    const id = await canonicalID(selector, 'monarch')
     if (!id) return
     onboarding?.destroy()
+    if (createdOnboardingProfileID !== id) createdOnboardingProfileID = undefined
     onboardingProfileID = id
     onboarding = createOnboardingController({
       profileID: id,
@@ -91,12 +97,19 @@
     })
   }
 
-  function closeOnboarding(): void {
+  async function closeOnboarding(): Promise<void> {
+    if (closingOnboarding) return
+    closingOnboarding = true
     onboarding?.destroy()
+    const createdProfileID = createdOnboardingProfileID
+    createdOnboardingProfileID = undefined
+    if (catalog && createdProfileID) await catalog.cancelNew(createdProfileID)
+    else if (catalog) await catalog.load()
     onboarding = undefined
     onboardingProfileID = undefined
-    if (catalog) void catalog.load()
-    else if (controller) {
+    closingOnboarding = false
+    if (catalog) return
+    if (controller) {
       void tick().then(() => {
         requestAnimationFrame(() => {
           document
@@ -105,6 +118,22 @@
         })
       })
     }
+  }
+
+  async function createProfile(
+    name: string,
+    provider: 'monarch' | 'local',
+  ): Promise<ProfileSummary | undefined> {
+    if (!catalog) return undefined
+    const created = await catalog.create(name, provider)
+    if (provider === 'monarch' && created?.id) createdOnboardingProfileID = created.id
+    return created
+  }
+
+  function completeOnboarding(): void {
+    const id = onboardingProfileID
+    createdOnboardingProfileID = undefined
+    if (id) void navigate(id)
   }
 
   async function recover(id: string, confirmed: boolean): Promise<void> {
@@ -152,8 +181,8 @@
 {#if onboarding && onboardingProfileID}
   <OnboardingWizard
     controller={onboarding}
-    oncomplete={() => void navigate(onboardingProfileID!)}
-    oncancel={closeOnboarding}
+    oncomplete={completeOnboarding}
+    oncancel={() => void closeOnboarding()}
     onoffline={() => void navigate(onboardingProfileID!)}
   />
 {:else if catalog}
@@ -166,7 +195,7 @@
     onopen={(id) => void navigate(id)}
     onsetup={(id) => void setup(id)}
     onrecover={recover}
-    oncreate={(name, provider) => catalog.create(name, provider)}
+    oncreate={createProfile}
     ondemo={() => catalog.announce('Start moneyflow web with --demo for a temporary profile.')}
     onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
   />

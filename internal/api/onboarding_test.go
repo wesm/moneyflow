@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,6 +72,21 @@ func TestOnboardingMutationRejectsAnotherProfileToken(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, response.Code)
 }
 
+func TestOnboardingMutationRejectsEncodedProfileNamespaceBeforeDispatch(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	server := newOnboardingAPIServer(t, coordinator)
+	response := requestServer(
+		t,
+		server,
+		http.MethodPost,
+		"/api/v1/%70rofiles/"+testProfileID+"/onboarding/start",
+		strings.NewReader(`{"protocol_version":1,"month_to_date":false}`),
+	)
+	assert.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	assert.Zero(t, coordinator.starts.Load())
+}
+
 func TestOnboardingStatusMapsStaleAndExpiredAttemptsWithoutRawErrors(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -106,8 +125,47 @@ func TestCompletedOnboardingProfileLeaseIsTakenAndReleasedOnce(t *testing.T) {
 		response := requestServer(t, server, http.MethodGet, path, nil)
 		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	}
-	assert.Equal(t, 1, coordinator.takes)
-	assert.Equal(t, 1, coordinator.closes)
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}
+
+func TestCompletedOnboardingWaitsForOneReleaseAndPreservesReleaseFailure(t *testing.T) {
+	t.Parallel()
+	closeStarted := make(chan struct{})
+	continueClose := make(chan struct{})
+	coordinator := &apiOnboardingFake{
+		snapshot: onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+			ProfileID: testProfileID, StateVersion: 7,
+			State: onboarding.StateComplete, ProviderKind: "monarch",
+		},
+		closeStarted:  closeStarted,
+		continueClose: continueClose,
+		closeErr:      errors.New("synthetic release failure"),
+	}
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("completed onboarding did not start releasing its lease")
+	}
+	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
+	select {
+	case <-responses:
+		t.Fatal("concurrent completion returned before the profile lease was released")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(continueClose)
+	for range 2 {
+		response := <-responses
+		assert.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+	}
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
 }
 
 func newOnboardingAPIServer(t testing.TB, coordinator OnboardingCoordinator) *Server {
@@ -123,16 +181,21 @@ func newOnboardingAPIServer(t testing.TB, coordinator OnboardingCoordinator) *Se
 }
 
 type apiOnboardingFake struct {
-	snapshot  onboarding.Snapshot
-	statusErr error
-	takes     int
-	closes    int
+	snapshot      onboarding.Snapshot
+	statusErr     error
+	closeErr      error
+	closeStarted  chan struct{}
+	continueClose chan struct{}
+	starts        atomic.Int32
+	takes         atomic.Int32
+	closes        atomic.Int32
 }
 
 func (coordinator *apiOnboardingFake) Start(
 	_ context.Context,
 	request onboarding.StartRequest,
 ) (onboarding.Snapshot, error) {
+	coordinator.starts.Add(1)
 	coordinator.snapshot = onboarding.Snapshot{
 		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
 		ProfileID: request.ProfileID, StateVersion: 1,
@@ -173,9 +236,15 @@ func (coordinator *apiOnboardingFake) TakeOpenedProfile(
 	context.Context,
 	onboarding.StatusRequest,
 ) (onboarding.OpenedProfile, error) {
-	coordinator.takes++
+	coordinator.takes.Add(1)
 	return onboarding.OpenedProfile{Close: func() error {
-		coordinator.closes++
-		return nil
+		coordinator.closes.Add(1)
+		if coordinator.closeStarted != nil {
+			close(coordinator.closeStarted)
+		}
+		if coordinator.continueClose != nil {
+			<-coordinator.continueClose
+		}
+		return coordinator.closeErr
 	}}, nil
 }

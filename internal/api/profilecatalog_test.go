@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,17 +56,37 @@ func TestProfileCatalogActivationUsesCatalogAuthorityAndReturnsCanonicalIdentity
 	server := newCatalogAPIServer(t, catalog, &apiEvictorFake{})
 
 	response := requestScopedMutation(t, server, CatalogMutationScope, "/api/v1/profiles/activate", ProfileActivateBody{
-		Version: ProfileCatalogSchemaVersion, Key: profilecatalog.LegacyKey,
+		Version: ProfileCatalogSchemaVersion, Key: profilecatalog.LegacyKey, ProviderKind: "monarch",
 	})
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var body ProfileResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	assert.Equal(t, profileID, body.Profile.ID)
 	assert.Equal(t, profilecatalog.LegacyKey, catalog.activatedKey)
+	assert.Equal(t, "monarch", catalog.activatedProvider)
 
 	wrongScope := requestScopedMutation(t, server, profileID, "/api/v1/profiles/activate", ProfileActivateBody{
 		Version: ProfileCatalogSchemaVersion, Key: profilecatalog.LegacyKey,
 	})
+	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
+}
+
+func TestProfileCatalogCancelRemovesOnlyNewProfileWithCatalogAuthority(t *testing.T) {
+	t.Parallel()
+	catalog := &apiCatalogFake{cancelRemoved: true}
+	server := newCatalogAPIServer(t, catalog, &apiEvictorFake{})
+	path, err := ProfileAPIPath("/", testProfileID, "cancel")
+	require.NoError(t, err)
+
+	response := requestScopedMutation(t, server, CatalogMutationScope, path, struct {
+		Version string `json:"version"`
+	}{Version: ProfileCatalogSchemaVersion})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, testProfileID, catalog.canceledID)
+
+	wrongScope := requestScopedMutation(t, server, testProfileID, path, struct {
+		Version string `json:"version"`
+	}{Version: ProfileCatalogSchemaVersion})
 	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
 }
 
@@ -114,6 +135,25 @@ func TestRecoveryPreviewDoesNotEvictOrRecreate(t *testing.T) {
 	assert.Empty(t, calls)
 }
 
+func TestRecoveryRejectsEncodedProfileNamespaceBeforeDispatch(t *testing.T) {
+	t.Parallel()
+	calls := make([]string, 0, 2)
+	server := newCatalogAPIServer(
+		t,
+		&apiCatalogFake{calls: &calls},
+		&apiEvictorFake{calls: &calls},
+	)
+	response := requestServer(
+		t,
+		server,
+		http.MethodPost,
+		"/api/v1/%70rofiles/"+testProfileID+"/recovery",
+		strings.NewReader(`{"version":"1","confirmed":true}`),
+	)
+	assert.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	assert.Empty(t, calls)
+}
+
 func newCatalogAPIServer(
 	t testing.TB,
 	catalog ProfileCatalog,
@@ -144,16 +184,29 @@ func requestScopedMutation(
 }
 
 type apiCatalogFake struct {
-	entries      []profilecatalog.Entry
-	activate     profilecatalog.Entry
-	activatedKey string
-	plan         profilecatalog.RecoveryPlan
-	calls        *[]string
-	creates      int
+	entries           []profilecatalog.Entry
+	activate          profilecatalog.Entry
+	activatedKey      string
+	activatedProvider string
+	plan              profilecatalog.RecoveryPlan
+	calls             *[]string
+	creates           int
+	canceledID        string
+	cancelRemoved     bool
 }
 
-func (catalog *apiCatalogFake) Activate(_ context.Context, key string) (profilecatalog.Entry, error) {
+func (catalog *apiCatalogFake) CancelNewProfile(_ context.Context, profileID string) (bool, error) {
+	catalog.canceledID = profileID
+	return catalog.cancelRemoved, nil
+}
+
+func (catalog *apiCatalogFake) ActivateForProvider(
+	_ context.Context,
+	key string,
+	providerKind string,
+) (profilecatalog.Entry, error) {
 	catalog.activatedKey = key
+	catalog.activatedProvider = providerKind
 	return catalog.activate, nil
 }
 

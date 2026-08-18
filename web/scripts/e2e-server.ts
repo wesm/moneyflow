@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -203,9 +204,10 @@ export async function startOnboardingE2EServer(
 ): Promise<OnboardingE2EServer> {
   const normalized = normalizedBasePath(requestedBasePath)
   const repository = resolve(process.cwd(), '..')
-  const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-onboarding-e2e-'))
-  const profileHome = join(binaryDirectory, 'profiles')
-  await mkdir(profileHome, { mode: 0o700 })
+  const isolatedBase = join(repository, '.cache', 'web-e2e')
+  await mkdir(isolatedBase, { recursive: true, mode: 0o700 })
+  await chmod(isolatedBase, 0o700)
+  const binaryDirectory = await mkdtemp(join(isolatedBase, 'moneyflow-onboarding-e2e-'))
   const binary = join(
     binaryDirectory,
     process.platform === 'win32' ? 'webtestserver.exe' : 'webtestserver',
@@ -223,12 +225,18 @@ export async function startOnboardingE2EServer(
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const port = await availablePort()
       const origin = `http://127.0.0.1:${port}`
+      const profileHome = join(binaryDirectory, `profiles-${attempt}`)
+      const rootToken = randomUUID()
+      await mkdir(profileHome, { mode: 0o700 })
+      await writeFile(join(profileHome, '.moneyflow-webtest-root'), rootToken, { mode: 0o600 })
       let stderr = ''
       const child = spawn(
         binary,
         [
           '--home',
           profileHome,
+          '--root-token',
+          rootToken,
           '--listen',
           `127.0.0.1:${port}`,
           '--base-path',

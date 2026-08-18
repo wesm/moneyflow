@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -105,6 +106,28 @@ func TestAttemptCancelIsIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StateCanceled, canceled.State)
 	assert.Equal(t, canceled, again)
+}
+
+func TestCoordinatorCloseCancelsRunningAttemptsAndReleasesProfiles(t *testing.T) {
+	t.Parallel()
+	coordinator, started, _ := newTestCoordinator(t)
+	var closes atomic.Int32
+	coordinator.mu.Lock()
+	current := coordinator.attempts[started.AttemptID]
+	current.flow.opened = &OpenedProfile{Close: func() error {
+		closes.Add(1)
+		return nil
+	}}
+	coordinator.startJobLocked(current, func(ctx context.Context, _ string) { <-ctx.Done() })
+	coordinator.mu.Unlock()
+
+	require.NoError(t, coordinator.Close(context.Background()))
+	require.NoError(t, coordinator.Close(context.Background()))
+	assert.Equal(t, int32(1), closes.Load())
+	_, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+	})
+	assert.Equal(t, CodeOnboardingExpired, CodeOf(err))
 }
 
 func TestSubmitClearsCallerOwnedSecretBuffers(t *testing.T) {

@@ -66,6 +66,7 @@
   let selected = $state<ProfileSummary | undefined>()
   let provider = $state<'monarch' | 'local'>('monarch')
   let profileList = $state<HTMLElement | undefined>()
+  let wasLoading = $state(false)
   const entries = $derived([
     ...profiles.map((profile) => ({ kind: 'profile' as const, profile })),
     { kind: 'demo' as const },
@@ -158,7 +159,19 @@
     profileList?.querySelectorAll<HTMLButtonElement>('button').item(active).focus()
   }
 
-  onMount(() => void focusActive())
+  $effect(() => {
+    const count = entries.length
+    if (active >= count) active = Math.max(0, count - 1)
+    if (wasLoading && !loading) {
+      active = 0
+      void focusActive()
+    }
+    wasLoading = loading
+  })
+
+  onMount(() => {
+    if (!loading) void focusActive()
+  })
 </script>
 
 <svelte:window onkeydown={keydown} />

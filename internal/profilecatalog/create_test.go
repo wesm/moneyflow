@@ -267,3 +267,16 @@ func TestActivateFinalizesManifestlessLegacyAndLeavesCanonicalProfilesUnchanged(
 	require.NoError(t, err)
 	assert.Equal(t, activated, again)
 }
+
+func TestActivateForProviderUsesMonarchForPristineManifestlessLegacy(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+	entry, err := catalog.ActivateForProvider(context.Background(), LegacyKey, "monarch")
+	require.NoError(t, err)
+	assert.True(t, ValidProfileID(entry.ID))
+	assert.Equal(t, "monarch", entry.ProviderKind)
+	manifest, err := ReadManifest(filepath.Join(entry.Root, ManifestFilename))
+	require.NoError(t, err)
+	assert.Equal(t, "monarch", manifest.ProviderKind)
+}

@@ -40,6 +40,8 @@ func (input *secretInput) Focus() tea.Cmd { return input.input.Focus() }
 
 func (input *secretInput) Blur() { input.input.Blur() }
 
+func (input secretInput) Focused() bool { return input.input.Focused() }
+
 func (input secretInput) String() string { return input.label + ": <redacted>" }
 
 func (input secretInput) GoString() string {

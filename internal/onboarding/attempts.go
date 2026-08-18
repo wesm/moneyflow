@@ -304,6 +304,40 @@ func (coordinator *Coordinator) Cancel(
 	return snapshot, nil
 }
 
+// Close cancels every process-local attempt, waits for running jobs, and releases their profiles.
+func (coordinator *Coordinator) Close(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	type pendingRelease struct {
+		done chan struct{}
+		flow *attemptFlow
+	}
+	coordinator.mu.Lock()
+	pending := make([]pendingRelease, 0, len(coordinator.attempts))
+	for id, current := range coordinator.attempts {
+		current.cancel()
+		pending = append(pending, pendingRelease{done: current.jobDone, flow: current.flow})
+		delete(coordinator.attempts, id)
+	}
+	coordinator.mu.Unlock()
+
+	var closeErr error
+	for _, release := range pending {
+		if release.done != nil {
+			select {
+			case <-release.done:
+			case <-ctx.Done():
+				return errors.Join(closeErr, ctx.Err())
+			}
+		}
+		if release.flow != nil {
+			closeErr = errors.Join(closeErr, release.flow.release())
+		}
+	}
+	return closeErr
+}
+
 func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, error) {
 	current, ok := coordinator.attempts[attemptID]
 	if !ok || current.profileID != profileID || current.instanceID != coordinator.instanceID {

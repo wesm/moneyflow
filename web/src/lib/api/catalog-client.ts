@@ -7,6 +7,7 @@ export type ProfileCatalogResponse = components['schemas']['ProfileCatalogRespon
 export type ProfileSummary = components['schemas']['ProfileSummary']
 export type ProfileCreateBody = components['schemas']['ProfileCreateBody']
 export type ProfileResponse = components['schemas']['ProfileResponse']
+export type ProfileCancelResponse = components['schemas']['ProfileCancelResponse']
 export type RecoveryBody = components['schemas']['RecoveryBody']
 export type RecoveryResponse = components['schemas']['RecoveryResponse']
 
@@ -14,7 +15,8 @@ export interface CatalogClient {
   readonly mutations: MutationFetch
   list(signal?: AbortSignal): Promise<ProfileCatalogResponse>
   create(displayName: string, providerKind: 'monarch' | 'local'): Promise<ProfileSummary>
-  activate(key: string): Promise<ProfileSummary>
+  activate(key: string, providerKind?: 'monarch' | 'local'): Promise<ProfileSummary>
+  cancelNew(profileID: string): Promise<boolean>
   recovery(profileID: string, body: RecoveryBody): Promise<RecoveryResponse>
 }
 
@@ -47,14 +49,29 @@ export function createCatalogClient(
       if (!validProfileResponse(response)) invalidCatalogResponse()
       return response.profile
     },
-    async activate(key) {
+    async activate(key, providerKind) {
       const response = await requestCatalogJSON<ProfileResponse>(
         mutations,
         'api/v1/profiles/activate',
-        { version: '1', key },
+        { version: '1', key, ...(providerKind ? { provider_kind: providerKind } : {}) },
       )
       if (!validProfileResponse(response)) invalidCatalogResponse()
       return response.profile
+    },
+    async cancelNew(profileID) {
+      const response = await requestCatalogJSON<ProfileCancelResponse>(
+        mutations,
+        `api/v1/profiles/${profileID}/cancel`,
+        { version: '1' },
+      )
+      if (
+        !isRecord(response) ||
+        response.version !== '1' ||
+        typeof response.removed !== 'boolean'
+      ) {
+        invalidCatalogResponse()
+      }
+      return response.removed
     },
     async recovery(profileID, body) {
       const response = await requestCatalogJSON<RecoveryResponse>(

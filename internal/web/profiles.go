@@ -134,7 +134,8 @@ func (registry *ProfileRegistry) Acquire(
 		registry.mutex.Unlock()
 
 		profile, err := registry.open(ctx, profileID)
-		if err == nil {
+		opened := err == nil
+		if opened {
 			err = validateRegistryProfile(profile, profileID)
 		}
 		registry.mutex.Lock()
@@ -151,7 +152,7 @@ func (registry *ProfileRegistry) Acquire(
 			delete(registry.entries, profileID)
 			registry.signalLocked()
 			registry.mutex.Unlock()
-			if err == nil && profile.Close != nil {
+			if opened && profile.Close != nil {
 				terminalErr = errors.Join(terminalErr, profile.Close())
 			}
 			return nil, terminalErr
@@ -207,6 +208,16 @@ func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) er
 		if !ok {
 			registry.mutex.Unlock()
 			return nil
+		}
+		if entry.evicting && owned != entry {
+			changed := registry.changed
+			registry.mutex.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-changed:
+				continue
+			}
 		}
 		if !entry.evicting {
 			entry.evicting = true

@@ -94,6 +94,40 @@ describe('onboarding controller', () => {
     expect(transport.status).toHaveBeenCalledWith(profileID, 'attempt_synthetic')
     expect(controller.state.snapshot).toEqual(current)
   })
+
+  it('surfaces an initial start failure with an explicit restart path', async () => {
+    const transport = stubTransport(status('settings_required'))
+    transport.start.mockRejectedValueOnce(new Error('synthetic failure'))
+    const controller = createOnboardingController({ profileID, transport })
+
+    await controller.start()
+
+    expect(controller.state.problem?.kind).toBe('start')
+    await controller.restart()
+    expect(transport.start).toHaveBeenCalledTimes(2)
+    expect(controller.state.problem).toBeUndefined()
+  })
+
+  it('resumes polling when a hidden tab becomes visible', async () => {
+    vi.useFakeTimers()
+    const importing = status('importing')
+    const transport = stubTransport(importing)
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+    const controller = createOnboardingController({ profileID, transport, pollIntervalMS: 10 })
+    try {
+      await controller.start()
+      transport.status.mockClear()
+      await vi.advanceTimersByTimeAsync(10)
+      expect(transport.status).not.toHaveBeenCalled()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(transport.status).toHaveBeenCalledTimes(1)
+    } finally {
+      controller.destroy()
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+      vi.useRealTimers()
+    }
+  })
 })
 
 function status(state: string, overrides: Partial<OnboardingStatus> = {}): OnboardingStatus {

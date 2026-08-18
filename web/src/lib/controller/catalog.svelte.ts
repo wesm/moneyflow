@@ -13,11 +13,12 @@ export interface CatalogState {
 export interface CatalogController {
   readonly state: CatalogState
   load(): Promise<void>
-  canonicalID(profile: ProfileSummary): Promise<string>
+  canonicalID(profile: ProfileSummary, providerKind?: 'monarch' | 'local'): Promise<string>
   create(
     displayName: string,
     providerKind: 'monarch' | 'local',
   ): Promise<ProfileSummary | undefined>
+  cancelNew(profileID: string): Promise<boolean>
   recovery(profileID: string, confirmed: boolean): Promise<RecoveryResponse | undefined>
   announce(message: string): void
 }
@@ -53,9 +54,12 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
     }
   }
 
-  async function canonicalID(profile: ProfileSummary): Promise<string> {
+  async function canonicalID(
+    profile: ProfileSummary,
+    providerKind?: 'monarch' | 'local',
+  ): Promise<string> {
     if (profile.id) return profile.id
-    const activated = await options.client.activate(profile.key)
+    const activated = await options.client.activate(profile.key, providerKind)
     await load()
     if (!activated.id) throw new Error('The activated profile identity is invalid.')
     return activated.id
@@ -121,6 +125,25 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
     }
   }
 
+  async function cancelNew(profileID: string): Promise<boolean> {
+    try {
+      const removed = await options.client.cancelNew(profileID)
+      await load()
+      setState({
+        ...state,
+        announcement: removed ? 'Profile setup canceled.' : 'Profile setup state was retained.',
+      })
+      return removed
+    } catch {
+      setState({
+        ...state,
+        problem: 'The incomplete profile could not be removed safely.',
+        announcement: 'Profile setup state was retained.',
+      })
+      return false
+    }
+  }
+
   return {
     get state() {
       subscribe()
@@ -129,6 +152,7 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
     load,
     canonicalID,
     create,
+    cancelNew,
     recovery,
     announce(message) {
       setState({ ...state, announcement: message })

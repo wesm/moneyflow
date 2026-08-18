@@ -67,6 +67,7 @@ result-*
 /bin/
 /coverage.out
 /.cache/golangci-lint/
+/.cache/web-e2e/
 
 # Web build and test outputs
 /web/node_modules/

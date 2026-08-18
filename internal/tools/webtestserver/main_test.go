@@ -13,10 +13,9 @@ func TestRequireTemporaryRootAcceptsOwnedChildAndRejectsOutsideDirectory(t *test
 	t.Parallel()
 
 	root := t.TempDir()
-	require.NoError(t, requireTemporaryRoot(root))
-
-	temporary, err := filepath.EvalSymlinks(os.TempDir())
-	require.NoError(t, err)
-	outside := filepath.Dir(temporary)
-	assert.ErrorContains(t, requireTemporaryRoot(outside), "OS temporary directory")
+	marker := filepath.Join(root, isolatedRootMarkerFilename)
+	require.NoError(t, os.WriteFile(marker, []byte("test-token"), 0o600))
+	require.NoError(t, requireIsolatedRoot(root, "test-token"))
+	assert.ErrorContains(t, requireIsolatedRoot(root, "wrong-token"), "marker")
+	assert.ErrorContains(t, requireIsolatedRoot(t.TempDir(), "test-token"), "marker")
 }

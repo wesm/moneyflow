@@ -1,11 +1,11 @@
 // Command webtestserver composes the production browser handlers with a synthetic provider.
-// It exists only for browser integration tests and refuses any profile root outside the OS
-// temporary directory.
+// It exists only for browser integration tests and requires a per-run marker capability.
 package main
 
 import (
 	"context"
 	cryptorand "crypto/rand"
+	"crypto/subtle"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,7 +32,10 @@ import (
 	webserver "github.com/wesm/moneyflow/internal/web"
 )
 
-const syntheticRemotePrefix = "synthetic-subscription-"
+const (
+	syntheticRemotePrefix      = "synthetic-subscription-"
+	isolatedRootMarkerFilename = ".moneyflow-webtest-root"
+)
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
@@ -44,16 +47,17 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("webtestserver", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var root, listen, basePath string
+	var root, rootToken, listen, basePath string
 	var recoveryProfile bool
 	flags.StringVar(&root, "home", "", "temporary profile catalog root")
+	flags.StringVar(&rootToken, "root-token", "", "per-run isolated root capability")
 	flags.StringVar(&listen, "listen", "127.0.0.1:0", "loopback listen address")
 	flags.StringVar(&basePath, "base-path", "/", "browser base path")
 	flags.BoolVar(&recoveryProfile, "recovery-profile", false, "install a corrupt recovery fixture")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("parse arguments")
 	}
-	if err := requireTemporaryRoot(root); err != nil {
+	if err := requireIsolatedRoot(root, rootToken); err != nil {
 		return err
 	}
 	if !strings.HasPrefix(listen, "127.0.0.1:") && !strings.HasPrefix(listen, "[::1]:") {
@@ -86,7 +90,6 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create profile registry: %w", err)
 	}
-	defer func() { _ = registry.Close(context.Background()) }()
 	coordinator, err := onboarding.NewCoordinator(onboarding.Config{
 		Random: cryptorand.Reader, Now: time.Now, InstanceID: "webtestserver",
 		OpenProfile: registry.OnboardingOpener(), Runtime: runtimes.runtime,
@@ -113,43 +116,46 @@ func run(ctx context.Context, args []string) error {
 
 	stopContext, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	var runErr error
 	select {
 	case <-stopContext.Done():
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return httpServer.Shutdown(shutdownContext)
-	case serveErr := <-serveErrors:
-		if errors.Is(serveErr, http.ErrServerClosed) {
-			return nil
+		runErr = httpServer.Shutdown(shutdownContext)
+		cancel()
+		if serveErr := <-serveErrors; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			runErr = errors.Join(runErr, serveErr)
 		}
-		return serveErr
+	case serveErr := <-serveErrors:
+		if !errors.Is(serveErr, http.ErrServerClosed) {
+			runErr = serveErr
+		}
 	}
+	cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelCleanup()
+	return errors.Join(runErr, coordinator.Close(cleanupContext), registry.Close(cleanupContext))
 }
 
-func requireTemporaryRoot(root string) error {
-	if root == "" {
-		return errors.New("temporary profile root is required")
+func requireIsolatedRoot(root string, token string) error {
+	if root == "" || token == "" {
+		return errors.New("isolated profile root and marker token are required")
 	}
 	absolute, err := filepath.Abs(root)
 	if err != nil {
-		return errors.New("resolve temporary profile root")
-	}
-	temporary, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		return errors.New("resolve OS temporary directory")
-	}
-	parent, err := filepath.EvalSymlinks(filepath.Dir(absolute))
-	if err != nil {
-		return errors.New("resolve profile root parent")
-	}
-	canonical := filepath.Join(parent, filepath.Base(absolute))
-	relative, err := filepath.Rel(temporary, canonical)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
-		return errors.New("profile root must be a child of the OS temporary directory")
+		return errors.New("resolve isolated profile root")
 	}
 	info, err := os.Lstat(absolute)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("temporary profile root must be an existing real directory")
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
+		return errors.New("isolated profile root must be an owner-only real directory")
+	}
+	markerPath := filepath.Join(absolute, isolatedRootMarkerFilename)
+	markerInfo, err := os.Lstat(markerPath)
+	if err != nil || !markerInfo.Mode().IsRegular() || markerInfo.Mode()&os.ModeSymlink != 0 ||
+		markerInfo.Mode().Perm() != 0o600 {
+		return errors.New("isolated profile root marker is invalid")
+	}
+	marker, err := os.ReadFile(markerPath) //nolint:gosec // markerPath is under the validated test root.
+	if err != nil || subtle.ConstantTimeCompare(marker, []byte(token)) != 1 {
+		return errors.New("isolated profile root marker does not match")
 	}
 	return nil
 }

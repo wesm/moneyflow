@@ -150,20 +150,11 @@ func onboardingPreviewSemantics(shell Shell) OnboardingPreviewSemantics {
 	case shellOnboarding:
 		switch shell.snapshot.State {
 		case onboarding.StateCredentialsRequired:
-			fields := []string{
-				"email-input", "password-input", "mfa-input",
-				"encrypt-pass-input", "confirm-pass-input",
-			}
-			if shell.credentials.focused < 0 || shell.credentials.focused >= len(fields) {
-				return OnboardingPreviewSemantics{Fields: fields}
-			}
-			return OnboardingPreviewSemantics{
-				Focus: fields[shell.credentials.focused], Fields: fields,
-			}
+			fields, focus := shell.credentials.semanticFields()
+			return OnboardingPreviewSemantics{Focus: focus, Fields: fields}
 		case onboarding.StateUnlockRequired:
-			return OnboardingPreviewSemantics{
-				Focus: "unlock-input", Fields: []string{"unlock-input"},
-			}
+			fields, focus := shell.unlock.semanticFields()
+			return OnboardingPreviewSemantics{Focus: focus, Fields: fields}
 		}
 	}
 	return OnboardingPreviewSemantics{}

@@ -39,14 +39,26 @@ type ProfileCreateBody struct {
 
 // ProfileActivateBody turns a catalog-only key into a durable canonical profile identity.
 type ProfileActivateBody struct {
-	Version string `json:"version"`
-	Key     string `json:"key" minLength:"1" maxLength:"128"`
+	Version      string `json:"version"`
+	Key          string `json:"key" minLength:"1" maxLength:"128"`
+	ProviderKind string `json:"provider_kind,omitempty" enum:"monarch,local"`
 }
 
 // ProfileResponse returns one selector-safe profile.
 type ProfileResponse struct {
 	Version string         `json:"version"`
 	Profile ProfileSummary `json:"profile"`
+}
+
+// ProfileCancelBody requests rollback of one newly created artifact-free profile.
+type ProfileCancelBody struct {
+	Version string `json:"version"`
+}
+
+// ProfileCancelResponse reports whether the pristine profile was removed.
+type ProfileCancelResponse struct {
+	Version string `json:"version"`
+	Removed bool   `json:"removed"`
 }
 
 // RecoveryPlan is the exact destructive action previewed before confirmation.
@@ -78,6 +90,11 @@ type profileCatalogOutput struct{ Body ProfileCatalogResponse }
 type profileCreateInput struct{ Body ProfileCreateBody }
 type profileActivateInput struct{ Body ProfileActivateBody }
 type profileOutput struct{ Body ProfileResponse }
+type profileCancelInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProfileCancelBody
+}
+type profileCancelOutput struct{ Body ProfileCancelResponse }
 type recoveryInput struct {
 	ProfileID string `path:"profile_id"`
 	Body      RecoveryBody
@@ -121,7 +138,9 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 				"The profile request version is unsupported.",
 			)
 		}
-		entry, err := config.Catalog.Activate(ctx, input.Body.Key)
+		entry, err := config.Catalog.ActivateForProvider(
+			ctx, input.Body.Key, input.Body.ProviderKind,
+		)
 		if err != nil {
 			return nil, problemFromCatalogError(err)
 		}
@@ -152,6 +171,32 @@ func (server *Server) registerProfileCatalogEndpoints(config Config) {
 		}
 		return &profileOutput{Body: ProfileResponse{
 			Version: ProfileCatalogSchemaVersion, Profile: profileSummaryToWire(entry),
+		}}, nil
+	})
+
+	huma.Register(server.api, huma.Operation{
+		OperationID: "cancelNewProfile", Method: http.MethodPost,
+		Path: server.profilePath("cancel"), Summary: "Cancel one newly created pristine profile",
+		Errors: []int{400, 403, 404, 409, 413, 422, 500, 503},
+	}, func(ctx context.Context, input *profileCancelInput) (*profileCancelOutput, error) {
+		if config.Catalog == nil || config.Evictor == nil {
+			return nil, profileCatalogUnavailable()
+		}
+		if input.Body.Version != ProfileCatalogSchemaVersion {
+			return nil, newProblem(
+				http.StatusUnprocessableEntity, string(CodeProfileInvalid),
+				"The profile request version is unsupported.",
+			)
+		}
+		if err := config.Evictor.Evict(ctx, input.ProfileID); err != nil {
+			return nil, problemFromCatalogError(err)
+		}
+		removed, err := config.Catalog.CancelNewProfile(ctx, input.ProfileID)
+		if err != nil {
+			return nil, problemFromCatalogError(err)
+		}
+		return &profileCancelOutput{Body: ProfileCancelResponse{
+			Version: ProfileCatalogSchemaVersion, Removed: removed,
 		}}, nil
 	})
 

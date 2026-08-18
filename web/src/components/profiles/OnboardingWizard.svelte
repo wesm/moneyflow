@@ -43,6 +43,7 @@
   let confirmation = $state('')
   let validation = $state('')
   const snapshot = $derived(controller.state.snapshot)
+  const problem = $derived(controller.state.problem)
   const progress = $derived(snapshot?.progress)
 
   $effect(() => {
@@ -130,7 +131,20 @@
   <main class="profile-main" aria-label="Profile onboarding">
     <section class="profile-panel" aria-labelledby="onboarding-title">
       <p class="moneyflow-eyebrow">Monarch Money</p>
-      {#if !snapshot || ['inspect', 'validate_session'].includes(snapshot.state)}
+      {#if problem}
+        <h1 id="onboarding-title">Profile setup was interrupted</h1>
+        <Card
+          level="inset"
+          title={problem.kind === 'expired' ? 'Setup expired' : 'Setup did not start'}
+          ><p>{problem.message}</p></Card
+        >
+        <div class="profile-actions">
+          <Button onclick={oncancel}>Back to profiles</Button>
+          <Button tone="info" surface="solid" onclick={() => void controller.restart()}>
+            Retry setup
+          </Button>
+        </div>
+      {:else if !snapshot || ['inspect', 'validate_session'].includes(snapshot.state)}
         <h1 id="onboarding-title">Checking saved session</h1>
         <div class="onboarding-working">
           <Spinner label="Checking saved Monarch session" />

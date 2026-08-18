@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -166,6 +167,8 @@ func runWeb(
 	}
 	ctx, stop := signalContext(parent)
 	defer stop()
+	stopIdleSweeper := startIdleProfileSweeper(ctx, dependencies, streams.Err)
+	defer stopIdleSweeper()
 
 	listen := streams.Listen
 	if listen == nil {
@@ -244,6 +247,37 @@ func runWeb(
 			return fmt.Errorf("serve web: %w", err)
 		}
 		return nil
+	}
+}
+
+func startIdleProfileSweeper(
+	parent context.Context,
+	dependencies WebDependencies,
+	stderr io.Writer,
+) func() {
+	if dependencies.CloseIdle == nil || dependencies.IdleSweepInterval <= 0 {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(dependencies.IdleSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := dependencies.CloseIdle(ctx); err != nil && ctx.Err() == nil {
+					_, _ = fmt.Fprintln(stderr, "Warning: idle profile cleanup failed.")
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
 	}
 }
 

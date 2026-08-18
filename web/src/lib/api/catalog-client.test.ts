@@ -58,10 +58,27 @@ describe('profile catalog client', () => {
       )
     const client = createCatalogClient('/moneyflow/', upstream, undefined)
 
-    await expect(client.activate('legacy')).resolves.toMatchObject({ id: profileID })
+    await expect(client.activate('legacy', 'monarch')).resolves.toMatchObject({ id: profileID })
     expect(String(upstream.mock.calls[0]?.[0])).toContain('/moneyflow/api/v1/bootstrap')
     const request = upstream.mock.calls[1]?.[1]
     expect(request?.headers).toMatchObject({ 'X-Moneyflow-Mutation-Token': 'catalog-token' })
-    expect(request?.body).toBe('{"version":"1","key":"legacy"}')
+    expect(request?.body).toBe('{"version":"1","key":"legacy","provider_kind":"monarch"}')
+  })
+
+  it('cancels a newly created profile with catalog authority', async () => {
+    const upstream = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          mutation_token: 'catalog-token',
+          token_expires_at: '2099-01-01T00:00:00Z',
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ version: '1', removed: true }))
+    const client = createCatalogClient('/moneyflow/', upstream, undefined)
+
+    await expect(client.cancelNew(profileID)).resolves.toBe(true)
+
+    expect(String(upstream.mock.calls[1]?.[0])).toContain(`/profiles/${profileID}/cancel`)
   })
 })

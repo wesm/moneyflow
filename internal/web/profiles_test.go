@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -75,6 +76,58 @@ func TestProfileRegistryEvictWaitsForActiveLeaseAndBlocksNewAcquire(t *testing.T
 	assert.Equal(t, 0, closes)
 	require.NoError(t, lease.Release())
 	require.NoError(t, <-evicted)
+	assert.Equal(t, 1, closes)
+}
+
+func TestProfileRegistryConcurrentEvictionClosesExactlyOnce(t *testing.T) {
+	t.Parallel()
+	continueClose := make(chan struct{})
+	var closes atomic.Int32
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error {
+					closes.Add(1)
+					<-continueClose
+					return nil
+				},
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	lease, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	require.NoError(t, lease.Release())
+
+	results := make(chan error, 2)
+	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
+	require.Eventually(t, func() bool { return closes.Load() == 1 }, time.Second, time.Millisecond)
+	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
+	time.Sleep(25 * time.Millisecond)
+	assert.Equal(t, int32(1), closes.Load())
+	close(continueClose)
+	require.NoError(t, <-results)
+	require.NoError(t, <-results)
+	assert.Equal(t, int32(1), closes.Load())
+}
+
+func TestProfileRegistryClosesProfileRejectedAfterSuccessfulOpen(t *testing.T) {
+	t.Parallel()
+	var closes int
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: "profile_baaaaaaaaaaaaaaaaaaaaaaaaa", Service: service,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error { closes++; return nil },
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	_, err = registry.Acquire(context.Background(), registryTestProfileID)
+	assert.ErrorContains(t, err, "opened profile is incomplete")
 	assert.Equal(t, 1, closes)
 }
 
