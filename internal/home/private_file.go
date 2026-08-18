@@ -63,11 +63,13 @@ func MovePrivatePath(source, destination string) error {
 	if err = movePrivatePath(source, destination); err != nil {
 		return fmt.Errorf("move private path: %w", err)
 	}
-	if err = SyncPrivateDirectory(filepath.Dir(source)); err != nil {
+	// Make the destination entry durable before the source-directory removal. A
+	// crash may otherwise lose both names after a cross-directory rename.
+	if err = SyncPrivateDirectory(filepath.Dir(destination)); err != nil {
 		return err
 	}
 	if filepath.Dir(source) != filepath.Dir(destination) {
-		if err = SyncPrivateDirectory(filepath.Dir(destination)); err != nil {
+		if err = SyncPrivateDirectory(filepath.Dir(source)); err != nil {
 			return err
 		}
 	}

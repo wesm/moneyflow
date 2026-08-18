@@ -99,6 +99,8 @@ func TestProgressCopiesCountsWithoutProviderValues(t *testing.T) {
 	assert.Equal(t, "visible", current.Progress.Partition)
 	assert.Equal(t, 25, current.Progress.Fetched)
 	assert.Equal(t, 100, current.Progress.Total)
+	assert.Contains(t, mustJSON(t, current), `"elapsed_ms":`)
+	assert.NotContains(t, mustJSON(t, current), `"elapsed":`)
 	assert.NotContains(t, mustJSON(t, current), "Example Merchant")
 	close(source.block)
 	assert.Equal(t, StateComplete, waitForState(t, coordinator, current, StateComplete).State)

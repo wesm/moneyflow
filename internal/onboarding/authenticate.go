@@ -101,16 +101,15 @@ func (coordinator *Coordinator) runAuthentication(
 		return
 	}
 	if err = runtime.Sessions.Save(session); err != nil {
-		coordinator.fail(
-			attemptID, genericFailureCode, "The Monarch session could not be saved.", true, false,
+		coordinator.authenticationFailure(
+			attemptID, genericFailureCode, "The Monarch session could not be saved.", true,
 		)
 		return
 	}
 	if accountPassword != nil {
 		if err = runtime.Credentials.Save(credentials, accountPassword); err != nil {
-			coordinator.fail(
-				attemptID, genericFailureCode,
-				"The credential vault could not be saved.", true, true,
+			coordinator.authenticationFailure(
+				attemptID, genericFailureCode, "The credential vault could not be saved.", true,
 			)
 			return
 		}

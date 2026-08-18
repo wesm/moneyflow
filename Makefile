@@ -29,7 +29,7 @@ test-store:
 	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|ProviderRefresh100KPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
 	go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
-test-provider:
+test-provider: web-embed
 	go test ./internal/provider/... -count=1
 	MONEYFLOW_SKIP_PERF=1 go test ./internal/app ./internal/store/sqlite ./cmd/moneyflow ./internal/tui ./internal/api -run 'Test.*(Provider|Monarch)' -count=1
 	go test ./internal/store/sqlite -run '^TestProviderRefresh100KPerformance$$' -count=1
@@ -39,7 +39,7 @@ monarch-live-test:
 	@if [ -z "$$MONEYFLOW_MONARCH_LIVE_SESSION_FILE" ]; then printf '%s\n' 'Set MONEYFLOW_MONARCH_LIVE_SESSION_FILE to a current session file.' >&2; exit 2; fi
 	@live_root=$$(mktemp -d); test -n "$$live_root"; trap 'rm -rf "$$live_root"' EXIT INT TERM; MONEYFLOW_HOME="$$live_root" go test -tags=monarchlive ./internal/provider/monarch -run '^TestLiveCharacterization$$' -count=1 -v
 
-test-race:
+test-race: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test -race $(GOFLAGS_TEST) ./...
 
 vet: web-embed
@@ -113,7 +113,7 @@ web-e2e: web-build
 	bun run --cwd web test:e2e -- --project=firefox --grep @smoke
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke
 
-test-editing-e2e: web-build
+test-editing-e2e: web-embed
 	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly)' -count=1
 	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
 
@@ -123,10 +123,10 @@ test-provider-e2e: web-build
 web-build:
 	bun run --cwd web build
 
-web-assets-check:
+web-assets-check: web-build
 	bun run --cwd web scripts/validate-assets.ts dist
 
-web-embed: web-build web-assets-check
+web-embed: web-assets-check
 	bun run --cwd web scripts/embed-assets.ts
 
 web-embed-check: web-embed

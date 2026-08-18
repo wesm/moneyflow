@@ -226,3 +226,16 @@ func openMaintenanceTestDatabase(t *testing.T, databasePath string) *sql.DB {
 	require.NoError(t, database.Ping())
 	return database
 }
+
+func TestInspectProfileRejectsWALWithoutSharedMemorySidecar(t *testing.T) {
+	t.Parallel()
+	paths := temporaryPaths(t)
+	require.NoError(t, InstallPristineProfile(context.Background(), paths, DefaultOptions))
+	require.NoError(t, os.WriteFile(paths.Database+"-wal", []byte("wal"), 0o600))
+	_ = os.Remove(paths.Database + "-shm")
+
+	_, err := InspectProfile(context.Background(), paths, DefaultOptions)
+	var failure *store.Error
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, store.CodeStoreCorrupt, failure.Code)
+}

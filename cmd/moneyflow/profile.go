@@ -59,6 +59,20 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	if err != nil {
 		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
 	}
+	if exists {
+		switch entry.Status {
+		case profilecatalog.StatusNeedsRecovery, profilecatalog.StatusRequiresNewer,
+			profilecatalog.StatusManifestUnsupported:
+			return OpenedProfile{}, persistentProfileOpenError(
+				entry.ProfilePaths(), profilecatalogStatusError(entry.Status),
+			)
+		}
+		providerMismatch := options.ProviderKind != "" && entry.ProviderKind != "" &&
+			entry.ProviderKind != options.ProviderKind
+		if providerMismatch && entry.Status != profilecatalog.StatusLocalOnly {
+			return OpenedProfile{}, fmt.Errorf("open profile: provider kind differs")
+		}
+	}
 	paths := entry.ProfilePaths()
 	if !exists {
 		if err = sqlite.InstallPristineProfile(ctx, paths, sqlite.DefaultOptions); err != nil {
@@ -67,7 +81,7 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 	}
 	if entry.Key == profilecatalog.LegacyKey {
 		providerKind := entry.ProviderKind
-		if options.ProviderKind != "" && entry.Status == profilecatalog.StatusSetupIncomplete {
+		if options.ProviderKind != "" && !exists {
 			providerKind = options.ProviderKind
 		}
 		if providerKind == "" {
@@ -81,8 +95,12 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		}
 		paths = entry.ProfilePaths()
 	}
-	lifecycleLock, err := home.TryLock(paths.Root, home.LockProfile, home.LockShared)
+	lifecycleLock, err := home.TryLockExisting(paths.Root, home.LockProfile, home.LockShared)
 	if err != nil {
+		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
+	}
+	if err = catalog.ValidateEntry(entry); err != nil {
+		_ = lifecycleLock.Release()
 		return OpenedProfile{}, fmt.Errorf("open profile: %w", err)
 	}
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
@@ -107,6 +125,19 @@ func openProfile(ctx context.Context, options ProfileOptions) (OpenedProfile, er
 		Path:  paths.Database,
 		Paths: paths,
 	}, nil
+}
+
+func profilecatalogStatusError(status profilecatalog.Status) error {
+	switch status {
+	case profilecatalog.StatusNeedsRecovery:
+		return store.NewError(store.CodeSchemaIncompatible, errors.New("profile needs recovery"))
+	case profilecatalog.StatusRequiresNewer:
+		return store.NewError(store.CodeSchemaNewer, errors.New("profile requires a newer Moneyflow"))
+	case profilecatalog.StatusManifestUnsupported:
+		return errors.New("profile manifest is unsupported")
+	default:
+		return errors.New("profile cannot be opened")
+	}
 }
 
 func persistentProfileOpenError(paths home.Paths, err error) error {
@@ -165,7 +196,7 @@ func resolvePersistentSelection(
 			Root: paths.Root, Status: profilecatalog.StatusSetupIncomplete,
 		}, false, nil
 	}
-	entry, err := catalog.Resolve(ctx, profile)
+	entry, err := profilecatalog.ResolveEntries(entries, profile)
 	if err != nil {
 		return nil, profilecatalog.Entry{}, false, err
 	}

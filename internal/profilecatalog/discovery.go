@@ -62,6 +62,11 @@ func (catalog *Catalog) Resolve(ctx context.Context, selector string) (Entry, er
 	if err != nil {
 		return Entry{}, err
 	}
+	return ResolveEntries(entries, selector)
+}
+
+// ResolveEntries selects from one already-inspected catalog snapshot.
+func ResolveEntries(entries []Entry, selector string) (Entry, error) {
 	if selector == "" {
 		switch len(entries) {
 		case 0:
@@ -104,7 +109,11 @@ func (catalog *Catalog) discoverLegacy(ctx context.Context) (Entry, bool, error)
 	paths := catalog.paths.LegacyProfile()
 	info, err := os.Lstat(paths.Database)
 	if errors.Is(err, os.ErrNotExist) {
-		if activeRecovery(paths.Root) {
+		_, active, recoveryErr := scanActiveRecovery(paths.Root, LegacyKey)
+		if recoveryErr != nil {
+			return Entry{}, false, recoveryErr
+		}
+		if active {
 			return catalog.discoverProfile(ctx, paths.Root, true)
 		}
 		return Entry{}, false, nil
@@ -201,7 +210,11 @@ func (catalog *Catalog) discoverProfile(
 		entry.DisplayName = manifest.DisplayName
 		entry.ProviderKind = manifest.ProviderKind
 	}
-	if activeRecovery(root) {
+	_, active, recoveryErr := scanActiveRecovery(root, entry.Key)
+	if recoveryErr != nil {
+		return Entry{}, false, recoveryErr
+	}
+	if active {
 		entry.Status = StatusNeedsRecovery
 		return entry, true, nil
 	}
@@ -226,6 +239,26 @@ func (catalog *Catalog) discoverProfile(
 	}
 	entry.Status = status
 	return entry, true, nil
+}
+
+// ValidateEntry verifies that a catalog entry still names the same manifest
+// after its lifecycle lock has been acquired.
+func (catalog *Catalog) ValidateEntry(entry Entry) error {
+	expectedRoot := filepath.Join(catalog.paths.Profiles, entry.ID)
+	if filepath.Clean(entry.Root) == filepath.Clean(catalog.paths.Root) {
+		expectedRoot = catalog.paths.Root
+	}
+	if filepath.Clean(entry.Root) != filepath.Clean(expectedRoot) {
+		return newError(CodeProfileInvalid, errors.New("profile root changed"))
+	}
+	manifest, err := ReadManifest(filepath.Join(entry.Root, ManifestFilename))
+	if err != nil {
+		return err
+	}
+	if manifest.ProfileID != entry.ID || manifest.ProviderKind != entry.ProviderKind {
+		return newError(CodeProfileInvalid, errors.New("profile manifest changed"))
+	}
+	return nil
 }
 
 func (catalog *Catalog) localStatus(

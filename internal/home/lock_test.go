@@ -147,3 +147,12 @@ func lockHelperCommand(t *testing.T, root string, action string) *exec.Cmd {
 	}
 	return command
 }
+
+func TestTryLockExistingNeverRecreatesMissingRoot(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "removed-profile")
+
+	_, err := TryLockExisting(root, LockProfile, LockShared)
+	require.Error(t, err)
+	assert.NoDirExists(t, root)
+}

@@ -123,6 +123,9 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 		if readErr != nil {
 			return Entry{}, readErr
 		}
+		if request.ProfileID != "" && request.ProfileID != manifest.ProfileID {
+			return Entry{}, newError(CodeProfileInvalid, errors.New("legacy profile ID is inconsistent"))
+		}
 		return catalog.entryForCurrentManifest(ctx, catalog.paths.Root, manifest)
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return Entry{}, newError(CodeProfileInvalid, statErr)

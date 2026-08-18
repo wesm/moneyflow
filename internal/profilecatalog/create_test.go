@@ -219,3 +219,22 @@ func snapshotTestTree(t *testing.T, root string) map[string]int64 {
 	}))
 	return snapshot
 }
+
+func TestFinalizeLegacyManifestRejectsDifferentRequestedExistingIdentity(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+	first, err := catalog.FinalizeLegacyManifest(context.Background(), LegacyManifestRequest{
+		DisplayName: "Moneyflow", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+
+	_, err = catalog.FinalizeLegacyManifest(context.Background(), LegacyManifestRequest{
+		DisplayName: "Moneyflow", ProviderKind: "local",
+		ProfileID: deterministicProfileID(t, 0xee),
+	})
+	assert.Equal(t, CodeProfileInvalid, CodeOf(err))
+	manifest, readErr := ReadManifest(filepath.Join(catalog.paths.Root, ManifestFilename))
+	require.NoError(t, readErr)
+	assert.Equal(t, first.ID, manifest.ProfileID)
+}

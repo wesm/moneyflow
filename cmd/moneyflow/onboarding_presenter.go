@@ -92,14 +92,10 @@ func runCLIOnboarding(
 		}
 		cancelContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		latest, statusErr := coordinator.Status(cancelContext, onboarding.StatusRequest{
+		if cleanupErr := cancelCLIOnboarding(cancelContext, coordinator, onboarding.StatusRequest{
 			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
-		})
-		if statusErr == nil {
-			_, _ = coordinator.Cancel(cancelContext, onboarding.CancelRequest{
-				ProfileID: latest.ProfileID, AttemptID: latest.AttemptID,
-				ExpectedStateVersion: latest.StateVersion,
-			})
+		}); cleanupErr != nil {
+			runErr = errors.Join(runErr, cleanupErr)
 		}
 	}()
 
@@ -197,6 +193,36 @@ func runCLIOnboarding(
 			return err
 		}
 	}
+}
+
+func cancelCLIOnboarding(
+	ctx context.Context,
+	coordinator cliOnboardingCanceler,
+	request onboarding.StatusRequest,
+) error {
+	for {
+		latest, err := coordinator.Status(ctx, request)
+		if err != nil {
+			if code := onboarding.CodeOf(err); code == onboarding.CodeOnboardingExpired ||
+				code == onboarding.CodeOnboardingCanceled {
+				return nil
+			}
+			return err
+		}
+		_, err = coordinator.Cancel(ctx, onboarding.CancelRequest{
+			ProfileID: latest.ProfileID, AttemptID: latest.AttemptID,
+			ExpectedStateVersion: latest.StateVersion,
+		})
+		if onboarding.CodeOf(err) == onboarding.CodeOnboardingStale {
+			continue
+		}
+		return err
+	}
+}
+
+type cliOnboardingCanceler interface {
+	Status(context.Context, onboarding.StatusRequest) (onboarding.Snapshot, error)
+	Cancel(context.Context, onboarding.CancelRequest) (onboarding.Snapshot, error)
 }
 
 func submitCLISettings(

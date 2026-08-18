@@ -2,7 +2,7 @@ import type { Page } from '@playwright/test'
 
 import { expect, openMoneyflow, test } from './fixtures'
 
-test.skip(({ browserName }) => browserName !== 'chromium', 'Visual goldens are Chromium-only.')
+test.skip(({ browserName }) => browserName !== 'chromium', 'Layout contracts are Chromium-only.')
 
 const viewports = [
   { name: 'desktop', width: 1440, height: 900 },
@@ -31,6 +31,40 @@ async function prepareState(page: Page, state: (typeof states)[number]): Promise
   await expect(page.getByRole('dialog')).toBeVisible()
 }
 
+async function expectLayoutContract(
+  page: Page,
+  viewport: (typeof viewports)[number],
+): Promise<void> {
+  const body = page.locator('body')
+  const main = page.locator('main').last()
+  await expect(main).toBeVisible()
+  const metrics = await body.evaluate((element) => {
+    const style = getComputedStyle(element)
+    const mainElements = document.querySelectorAll('main')
+    const mainElement = mainElements.item(mainElements.length - 1)
+    const mainBox = mainElement?.getBoundingClientRect()
+    return {
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      background: style.backgroundColor,
+      color: style.color,
+      fontFamily: style.fontFamily,
+      mainLeft: mainBox?.left ?? -1,
+      mainRight: mainBox?.right ?? Number.MAX_SAFE_INTEGER,
+      mainTop: mainBox?.top ?? -1,
+      mainBottom: mainBox?.bottom ?? Number.MAX_SAFE_INTEGER,
+    }
+  })
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth)
+  expect(metrics.background).not.toBe('rgba(0, 0, 0, 0)')
+  expect(metrics.color).not.toBe('rgba(0, 0, 0, 0)')
+  expect(metrics.fontFamily).not.toBe('')
+  expect(metrics.mainLeft).toBeGreaterThanOrEqual(0)
+  expect(metrics.mainRight).toBeLessThanOrEqual(viewport.width)
+  expect(metrics.mainTop).toBeGreaterThanOrEqual(0)
+  expect(metrics.mainBottom).toBeLessThanOrEqual(viewport.height + 1)
+}
+
 for (const viewport of viewports) {
   for (const theme of themes) {
     for (const state of states) {
@@ -39,8 +73,12 @@ for (const viewport of viewports) {
         await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), theme)
         await openMoneyflow(page, server)
         await prepareState(page, state)
-        const rendered = await page.screenshot({ animations: 'disabled' })
-        expect(rendered.byteLength).toBeGreaterThan(1_000)
+        await expectLayoutContract(page, viewport)
+        if (state === 'filters' || state === 'help') {
+          await expect(page.getByRole('dialog')).toBeInViewport()
+        } else {
+          await expect(page.getByRole('grid', { name: 'Financial results' })).toBeInViewport()
+        }
       })
     }
   }
@@ -53,7 +91,7 @@ for (const theme of themes) {
     await openMoneyflow(page, server)
     await page.getByRole('switch', { name: 'Charts' }).check()
     await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeVisible()
-    const rendered = await page.screenshot({ animations: 'disabled' })
-    expect(rendered.byteLength).toBeGreaterThan(1_000)
+    await expectLayoutContract(page, viewports[2])
+    await expect(page.getByRole('dialog', { name: 'Moneyflow visualizations' })).toBeInViewport()
   })
 }

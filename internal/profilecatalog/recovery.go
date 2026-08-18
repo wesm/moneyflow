@@ -455,7 +455,7 @@ func inspectRecoveryOriginal(
 
 func recoveryAction(state recoveryState) recoveryActionKind {
 	if !state.backupMain {
-		if state.originalMain {
+		if state.originalMain && state.original != recoveryOriginalNewer {
 			return recoveryActionMoveOld
 		}
 		return recoveryActionRefuse
@@ -572,7 +572,11 @@ func writeRecoveryMarker(path string, marker recoveryMarker) error {
 	if err != nil {
 		return newError(CodeRecoveryIncomplete, err)
 	}
-	if err = home.WritePrivateFile(path, append(contents, '\n')); err != nil {
+	contents = append(contents, '\n')
+	if int64(len(contents)) > ManifestMaximumBytes {
+		return newError(CodeRecoveryIncomplete, errors.New("recovery marker exceeds maximum size"))
+	}
+	if err = home.WritePrivateFile(path, contents); err != nil {
 		return newError(CodeRecoveryIncomplete, err)
 	}
 	return nil

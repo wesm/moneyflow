@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -175,4 +176,54 @@ func mustJSON(t *testing.T, value any) string {
 	encoded, err := json.Marshal(value)
 	require.NoError(t, err)
 	return string(encoded)
+}
+
+func TestIdentityMismatchReauthenticateGoesDirectlyToCredentialEntry(t *testing.T) {
+	vault := &fakeCredentialVault{exists: true, credentials: monarch.StoredCredentials{ //nolint:gosec // synthetic test credentials.
+		Email: "user@example.invalid", Password: "provider-password",
+		TOTPSecret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+	}}
+	coordinator, started, connector, _ := newAuthenticationCoordinator(t, flowProfileBound, vault)
+	connector.connectSession = validTestSession("subscription-other", "USD", 2)
+	started = waitForState(t, coordinator, started, StateUnlockRequired)
+	next, err := coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: testProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion, Action: ActionUnlock,
+		Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+	})
+	require.NoError(t, err)
+	mismatch := waitForState(t, coordinator, next, StateIdentityMismatch)
+
+	next, err = coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: testProfileID, AttemptID: mismatch.AttemptID,
+		ExpectedStateVersion: mismatch.StateVersion, Action: ActionReauthenticate,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateCredentialsRequired, next.State)
+}
+
+func TestCredentialPersistenceFailuresReturnToReentry(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		sessionErr error
+		vaultErr   error
+	}{
+		{name: "session", sessionErr: errors.New("session write failed")},
+		{name: "vault", vaultErr: errors.New("vault write failed")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			vault := &fakeCredentialVault{saveErr: test.vaultErr}
+			coordinator, started, _, sessions := newAuthenticationCoordinator(
+				t, flowProfilePristine, vault,
+			)
+			sessions.saveErr = test.sessionErr
+			started = waitForState(t, coordinator, started, StateCredentialsRequired)
+			next, err := coordinator.Submit(context.Background(), credentialSubmitRequest(started))
+			require.NoError(t, err)
+			failed := waitForState(t, coordinator, next, StateCredentialsRequired)
+			require.NotNil(t, failed.Failure)
+			assert.True(t, failed.Failure.CanReenter)
+			assert.False(t, failed.Failure.CanRetry)
+		})
+	}
 }

@@ -44,7 +44,9 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	if opened.ID != profileID || opened.Service == nil || opened.Close == nil ||
 		opened.Paths.Root == "" {
-		_ = opened.Close()
+		if opened.Close != nil {
+			_ = opened.Close()
+		}
 		coordinator.fail(attemptID, genericFailureCode, "The profile could not be opened.", false, false)
 		return
 	}
@@ -207,6 +209,26 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
 	coordinator.startImport(attemptID)
+}
+
+func (coordinator *Coordinator) restartInspect(ctx context.Context, attemptID string) {
+	if coordinator.openProfile == nil || coordinator.runtimeFactory == nil {
+		return
+	}
+	coordinator.mu.Lock()
+	current, ok := coordinator.attempts[attemptID]
+	if !ok || current.state == StateCanceled {
+		coordinator.mu.Unlock()
+		return
+	}
+	previous := current.flow
+	current.flow = &attemptFlow{
+		explicitConfig: previous.explicitConfig,
+		renderer:       previous.renderer, monthToDate: previous.monthToDate,
+	}
+	coordinator.mu.Unlock()
+	_ = previous.release()
+	coordinator.inspectAndValidate(ctx, attemptID)
 }
 
 func (coordinator *Coordinator) monthToDate(attemptID string) bool {

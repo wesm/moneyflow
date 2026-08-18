@@ -1,10 +1,6 @@
 package onboarding
 
-import (
-	"time"
-
-	"github.com/wesm/moneyflow/internal/domain"
-)
+import "github.com/wesm/moneyflow/internal/domain"
 
 // ProtocolVersion is the renderer-facing onboarding state-machine version.
 const ProtocolVersion = uint16(1)
@@ -48,14 +44,14 @@ type Settings struct {
 
 // Progress is a credential-blind copy of provider progress.
 type Progress struct {
-	Phase     string        `json:"phase"`
-	Partition string        `json:"partition"`
-	Fetched   int           `json:"fetched"`
-	Total     int           `json:"total"`
-	Imported  int           `json:"imported"`
-	Attempt   int           `json:"attempt"`
-	Pass      int           `json:"pass"`
-	Elapsed   time.Duration `json:"elapsed"`
+	Phase     string `json:"phase"`
+	Partition string `json:"partition"`
+	Fetched   int    `json:"fetched"`
+	Total     int    `json:"total"`
+	Imported  int    `json:"imported"`
+	Attempt   int    `json:"attempt"`
+	Pass      int    `json:"pass"`
+	ElapsedMS int64  `json:"elapsed_ms"`
 }
 
 // Failure is one sanitized presenter outcome.

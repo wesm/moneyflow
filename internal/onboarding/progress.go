@@ -22,7 +22,7 @@ func (coordinator *Coordinator) observeProgress(
 	progress := &Progress{
 		Phase: phase, Partition: update.Partition,
 		Fetched: update.Fetched, Total: update.Total,
-		Attempt: update.Attempt, Pass: update.Pass, Elapsed: elapsed,
+		Attempt: update.Attempt, Pass: update.Pass, ElapsedMS: elapsed.Milliseconds(),
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()

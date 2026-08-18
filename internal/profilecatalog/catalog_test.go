@@ -14,6 +14,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -113,8 +114,13 @@ func TestListClassifiesOlderNewerCorruptRecoveryAndUnknownManifest(t *testing.T)
 	recovery := createTestManifestProfile(t, catalog, 0x74, "Recovery", "local")
 	markerDirectory := filepath.Join(recovery.Root, RecoveryDirectoryName, "20260817T191234.123456789Z")
 	require.NoError(t, os.MkdirAll(markerDirectory, 0o700))
-	require.NoError(t, home.WritePrivateFile(
-		filepath.Join(markerDirectory, RecoveryMarkerFilename), []byte("{}"),
+	startedAt, err := time.Parse(recoveryTimestamp, filepath.Base(markerDirectory))
+	require.NoError(t, err)
+	require.NoError(t, writeRecoveryMarker(
+		filepath.Join(markerDirectory, RecoveryMarkerFilename), recoveryMarker{
+			MarkerVersion: RecoveryMarkerVersion, ProfileID: recovery.ID, StartedAt: startedAt,
+			CreatedByVersion: catalog.version, OriginalCode: store.CodeSchemaIncompatible,
+		},
 	))
 	unsupportedID := deterministicProfileID(t, 0x75)
 	unsupportedRoot := filepath.Join(catalog.paths.Profiles, unsupportedID)
@@ -131,6 +137,22 @@ func TestListClassifiesOlderNewerCorruptRecoveryAndUnknownManifest(t *testing.T)
 	assert.Equal(t, StatusNeedsRecovery, byKey[recovery.ID].Status)
 	assert.Equal(t, StatusManifestUnsupported, byKey[unsupportedID].Status)
 	assert.Equal(t, unsupportedID, byKey[unsupportedID].DisplayName)
+}
+
+func TestListRejectsMalformedRecoveryMarker(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry := createTestManifestProfile(t, catalog, 0x76, "Recovery", "local")
+	directory := filepath.Join(entry.Root, RecoveryDirectoryName, "20260817T191234.123456789Z")
+	require.NoError(t, os.MkdirAll(directory, 0o700))
+	require.NoError(t, home.WritePrivateFile(
+		filepath.Join(directory, RecoveryMarkerFilename), []byte("{}"),
+	))
+
+	entries, err := catalog.List(context.Background())
+	require.Error(t, err)
+	assert.Equal(t, CodeRecoveryIncomplete, CodeOf(err))
+	assert.Nil(t, entries)
 }
 
 func TestListRejectsRedirectedAndMalformedNestedProfiles(t *testing.T) {

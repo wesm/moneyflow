@@ -181,3 +181,24 @@ func setProfileSchemaVersion(t *testing.T, paths home.Paths, version int) {
 	require.NoError(t, err)
 	require.NoError(t, database.Close())
 }
+
+func TestActiveRecoveryNeverMovesANewerOriginalSchema(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry := createTestManifestProfile(t, catalog, 0x46, "Newer active", "local")
+	setProfileSchemaVersion(t, entry.ProfilePaths(), sqlite.CurrentSchemaVersion+1)
+	startedAt := catalog.now()
+	backup := filepath.Join(entry.Root, RecoveryDirectoryName, startedAt.Format(recoveryTimestamp))
+	require.NoError(t, os.MkdirAll(backup, 0o700))
+	require.NoError(t, writeRecoveryMarker(filepath.Join(backup, RecoveryMarkerFilename), recoveryMarker{
+		MarkerVersion: RecoveryMarkerVersion, ProfileID: entry.ID, StartedAt: startedAt,
+		CreatedByVersion: catalog.version, OriginalCode: store.CodeSchemaIncompatible,
+	}))
+
+	plan, err := catalog.RecoveryPlan(context.Background(), entry.ID)
+	require.NoError(t, err)
+	_, err = catalog.Recreate(context.Background(), RecoveryRequest{Plan: plan, Confirmed: true})
+	assert.Equal(t, CodeRecoveryIncomplete, CodeOf(err))
+	assert.FileExists(t, entry.ProfilePaths().Database)
+	assert.NoFileExists(t, filepath.Join(backup, "moneyflow.db"))
+}

@@ -141,7 +141,7 @@ func (coordinator *Coordinator) completeImport(
 		completed.Phase = "complete"
 	}
 	completed.Imported = imported
-	completed.Elapsed = elapsed
+	completed.ElapsedMS = elapsed.Milliseconds()
 	current.progress = &completed
 	coordinator.transitionLocked(current, StateComplete, nil)
 }
@@ -160,6 +160,7 @@ func (coordinator *Coordinator) importFailure(attemptID string, err error) {
 		canRetry := appFailure.Code == app.AppProviderUnavailable ||
 			appFailure.Code == app.AppProviderRateLimited ||
 			appFailure.Code == app.AppProviderSnapshotUnstable ||
+			appFailure.Code == app.AppProviderRefreshInProgress ||
 			appFailure.Code == app.AppStoreBusy
 		coordinator.fail(attemptID, code, appFailure.Detail, canRetry, false)
 		return

@@ -44,6 +44,17 @@ type Lock struct {
 
 // TryLock opens one fixed private lock file and attempts a nonblocking lock.
 func TryLock(rootPath string, name LockName, mode LockMode) (*Lock, error) {
+	return tryLock(rootPath, name, mode, true)
+}
+
+// TryLockExisting acquires a lock only when the canonical root already exists.
+// It is used after catalog resolution so a stale path can never recreate a
+// removed or quarantined profile.
+func TryLockExisting(rootPath string, name LockName, mode LockMode) (*Lock, error) {
+	return tryLock(rootPath, name, mode, false)
+}
+
+func tryLock(rootPath string, name LockName, mode LockMode, createRoot bool) (*Lock, error) {
 	filename, err := lockFilename(name)
 	if err != nil {
 		return nil, err
@@ -55,7 +66,12 @@ func TryLock(rootPath string, name LockName, mode LockMode) (*Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("acquire home lock: %w", err)
 	}
-	if err = PreparePrivateRoot(rootPath); err != nil {
+	if createRoot {
+		err = PreparePrivateRoot(rootPath)
+	} else {
+		err = prepareExistingPrivateRoot(rootPath)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("acquire home lock: %w", err)
 	}
 
@@ -107,6 +123,20 @@ func TryLock(rootPath string, name LockName, mode LockMode) (*Lock, error) {
 	}
 	failed = false
 	return &Lock{file: file}, nil
+}
+
+func prepareExistingPrivateRoot(rootPath string) error {
+	info, err := os.Lstat(rootPath)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("private root is redirected or not a directory")
+	}
+	if err = validateTrustedRootAncestors(rootPath, rootPath); err != nil {
+		return err
+	}
+	return enforcePrivateDirectory(rootPath)
 }
 
 // Release unlocks and closes the coordination file.

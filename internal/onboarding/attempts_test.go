@@ -189,3 +189,16 @@ func coordinatorWithRunningJob(
 	}
 	return coordinator, started, clock, finish
 }
+
+func TestStartingAttemptProactivelyReapsOtherExpiredAttempts(t *testing.T) {
+	coordinator, first, clock := newTestCoordinator(t)
+	clock.Advance(31 * time.Minute)
+	coordinator.random = strings.NewReader(strings.Repeat("b", 64))
+	_, err := coordinator.Start(context.Background(), StartRequest{ProfileID: testProfileID})
+	require.NoError(t, err)
+
+	_, err = coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: testProfileID, AttemptID: first.AttemptID,
+	})
+	assert.Equal(t, CodeOnboardingExpired, CodeOf(err))
+}

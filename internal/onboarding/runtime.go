@@ -2,6 +2,8 @@ package onboarding
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/app"
@@ -62,24 +64,26 @@ type attemptFlow struct {
 	retryState      State
 	imported        int
 	taken           bool
+	releaseOnce     sync.Once
+	releaseErr      error
 }
 
 func (flow *attemptFlow) release() error {
 	if flow == nil {
 		return nil
 	}
-	var lockErr error
-	if flow.providerLock != nil {
-		lockErr = flow.providerLock.Release()
-		flow.providerLock = nil
-	}
-	var closeErr error
-	if flow.opened != nil && flow.opened.Close != nil {
-		closeErr = flow.opened.Close()
-		flow.opened = nil
-	}
-	if lockErr != nil {
-		return lockErr
-	}
-	return closeErr
+	flow.releaseOnce.Do(func() {
+		var lockErr error
+		if flow.providerLock != nil {
+			lockErr = flow.providerLock.Release()
+			flow.providerLock = nil
+		}
+		var closeErr error
+		if flow.opened != nil && flow.opened.Close != nil {
+			closeErr = flow.opened.Close()
+			flow.opened = nil
+		}
+		flow.releaseErr = errors.Join(lockErr, closeErr)
+	})
+	return flow.releaseErr
 }

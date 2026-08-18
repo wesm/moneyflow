@@ -107,6 +107,7 @@ func (coordinator *Coordinator) Start(
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
+	coordinator.reapExpiredLocked("")
 	id, err := coordinator.newAttemptID()
 	if err != nil {
 		return Snapshot{}, err
@@ -133,6 +134,7 @@ func (coordinator *Coordinator) Status(
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
+	coordinator.reapExpiredLocked(request.AttemptID)
 	current, err := coordinator.lookup(request.ProfileID, request.AttemptID)
 	if err != nil {
 		return Snapshot{}, err
@@ -151,6 +153,7 @@ func (coordinator *Coordinator) Submit(
 		return Snapshot{}, err
 	}
 	coordinator.mu.Lock()
+	coordinator.reapExpiredLocked(request.AttemptID)
 	current, err := coordinator.lookup(request.ProfileID, request.AttemptID)
 	if err != nil {
 		coordinator.mu.Unlock()
@@ -199,10 +202,7 @@ func (coordinator *Coordinator) Submit(
 	if request.Action == ActionReauthenticate && current.state == StateIdentityMismatch {
 		current.flow.retainedSession = nil
 		current.flow.identity = nil
-		coordinator.transitionLocked(current, StateInspect, nil)
-		coordinator.startJobLocked(current, func(context.Context, string) {
-			coordinator.routeToInput(current.id)
-		})
+		coordinator.transitionLocked(current, StateCredentialsRequired, nil)
 		snapshot := current.snapshot()
 		coordinator.mu.Unlock()
 		return snapshot, nil
@@ -241,6 +241,7 @@ func (coordinator *Coordinator) Submit(
 	}
 	coordinator.transitionLocked(current, StateInspect, nil)
 	current.progress = nil
+	coordinator.startJobLocked(current, coordinator.restartInspect)
 	snapshot := current.snapshot()
 	coordinator.mu.Unlock()
 	return snapshot, nil
@@ -255,6 +256,7 @@ func (coordinator *Coordinator) Cancel(
 		return Snapshot{}, err
 	}
 	coordinator.mu.Lock()
+	coordinator.reapExpiredLocked(request.AttemptID)
 	current, err := coordinator.lookup(request.ProfileID, request.AttemptID)
 	if err != nil {
 		coordinator.mu.Unlock()
@@ -263,7 +265,19 @@ func (coordinator *Coordinator) Cancel(
 	if current.state == StateCanceled {
 		current.lastActive = coordinator.now()
 		snapshot := current.snapshot()
+		done := current.jobDone
+		flow := current.flow
 		coordinator.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return Snapshot{}, ctx.Err()
+			}
+		}
+		if flow != nil {
+			_ = flow.release()
+		}
 		return snapshot, nil
 	}
 	if request.ExpectedStateVersion != current.stateVersion {
@@ -305,6 +319,20 @@ func (coordinator *Coordinator) lookup(profileID, attemptID string) (*attempt, e
 		return nil, newError(CodeOnboardingExpired, errors.New("attempt is idle"))
 	}
 	return current, nil
+}
+
+func (coordinator *Coordinator) reapExpiredLocked(exceptAttemptID string) {
+	now := coordinator.now()
+	for id, current := range coordinator.attempts {
+		if id == exceptAttemptID || current.running || now.Sub(current.lastActive) <= coordinator.idleTimeout {
+			continue
+		}
+		current.cancel()
+		if current.flow != nil {
+			_ = current.flow.release()
+		}
+		delete(coordinator.attempts, id)
+	}
 }
 
 func (coordinator *Coordinator) newAttemptID() (string, error) {
@@ -364,13 +392,20 @@ func (coordinator *Coordinator) startJobLocked(
 	go func() {
 		defer close(done)
 		defer func() {
+			var release *attemptFlow
 			coordinator.mu.Lock()
 			if latest, ok := coordinator.attempts[attemptID]; ok && latest.jobDone == done {
 				latest.running = false
 				latest.jobDone = nil
 				latest.lastActive = coordinator.now()
+				if latest.state == StateCanceled {
+					release = latest.flow
+				}
 			}
 			coordinator.mu.Unlock()
+			if release != nil {
+				_ = release.release()
+			}
 		}()
 		job(ctx, attemptID)
 	}()
