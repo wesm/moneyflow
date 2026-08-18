@@ -175,6 +175,52 @@ describe('onboarding controller', () => {
     }
   })
 
+  it('does not poll the expired attempt while a restart is still in flight', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = stubTransport(status('importing'))
+      const expired = new MoneyflowProblem({
+        type: 'about:blank',
+        title: 'Onboarding expired',
+        status: 404,
+        detail: 'The onboarding attempt expired.',
+        code: 'onboarding_expired',
+      })
+      const controller = createOnboardingController({ profileID, transport, pollIntervalMS: 10 })
+      await controller.start()
+      transport.status.mockRejectedValueOnce(expired)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(controller.state.problem?.kind).toBe('expired')
+      expect(transport.status).toHaveBeenCalledTimes(1)
+
+      let resolveStart: (snapshot: OnboardingStatus) => void = () => undefined
+      transport.start.mockImplementationOnce(
+        () => new Promise<OnboardingStatus>((resolve) => (resolveStart = resolve)),
+      )
+      const restart = controller.restart()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(controller.state.busy).toBe(true)
+      await vi.advanceTimersByTimeAsync(30)
+      expect(transport.status).toHaveBeenCalledTimes(1)
+      expect(controller.state.busy).toBe(true)
+      await controller.restart()
+      expect(transport.start).toHaveBeenCalledTimes(2)
+
+      const second = status('importing', { attempt_id: 'attempt_second' })
+      transport.set(second)
+      resolveStart(second)
+      await restart
+      expect(controller.state.busy).toBe(false)
+      expect(controller.state.snapshot?.attempt_id).toBe('attempt_second')
+      await vi.advanceTimersByTimeAsync(10)
+      expect(transport.status).toHaveBeenCalledTimes(2)
+      expect(transport.status).toHaveBeenLastCalledWith(profileID, 'attempt_second')
+      controller.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('resumes polling when a hidden tab becomes visible', async () => {
     vi.useFakeTimers()
     const importing = status('importing')

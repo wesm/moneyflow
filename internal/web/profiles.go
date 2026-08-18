@@ -62,8 +62,10 @@ type registryEntry struct {
 	evicting bool
 	evicted  chan struct{}
 	evictErr error
-	refs     int
-	lastUsed time.Time
+	// evictWaiters counts Evict calls blocked on the current owner's terminal result.
+	evictWaiters int
+	refs         int
+	lastUsed     time.Time
 }
 
 type profileLease struct {
@@ -219,13 +221,18 @@ func (registry *ProfileRegistry) Evict(ctx context.Context, profileID string) er
 			return registry.finishEviction(ctx, profileID, entry)
 		}
 		evicted := entry.evicted
+		entry.evictWaiters++
 		registry.mutex.Unlock()
 		select {
 		case <-ctx.Done():
+			registry.mutex.Lock()
+			entry.evictWaiters--
+			registry.mutex.Unlock()
 			return ctx.Err()
 		case <-evicted:
 		}
 		registry.mutex.Lock()
+		entry.evictWaiters--
 		if registry.entries[profileID] == entry {
 			registry.mutex.Unlock()
 			continue
@@ -268,7 +275,7 @@ func (registry *ProfileRegistry) finishEviction(
 		select {
 		case <-ctx.Done():
 			registry.mutex.Lock()
-			if registry.entries[profileID] == entry && !registry.closed {
+			if registry.entries[profileID] == entry {
 				entry.evicting = false
 			}
 			close(entry.evicted)

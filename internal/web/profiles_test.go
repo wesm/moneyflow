@@ -327,7 +327,7 @@ func TestProfileRegistryConcurrentEvictionWaitersObserveCloseFailure(t *testing.
 	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
 	require.Eventually(t, func() bool { return closes.Load() == 1 }, time.Second, time.Millisecond)
 	go func() { results <- registry.Evict(context.Background(), registryTestProfileID) }()
-	time.Sleep(25 * time.Millisecond)
+	waitForEvictWaiters(t, registry, 1)
 	close(continueClose)
 	assert.ErrorIs(t, <-results, closeErr)
 	assert.ErrorIs(t, <-results, closeErr)
@@ -378,4 +378,64 @@ func TestProfileRegistryEvictionWaiterTakesOverAfterOwnerCancels(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, second.Release())
 	require.NoError(t, registry.Close(context.Background()))
+}
+
+func TestProfileRegistryShutdownWaiterTakesOverAfterOwnerCancels(t *testing.T) {
+	t.Parallel()
+	var closes atomic.Int32
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error {
+					closes.Add(1)
+					return nil
+				},
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	lease, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+
+	ownerContext, cancelOwner := context.WithCancel(context.Background())
+	ownerResult := make(chan error, 1)
+	go func() { ownerResult <- registry.Evict(ownerContext, registryTestProfileID) }()
+	require.Eventually(t, func() bool {
+		registry.mutex.Lock()
+		defer registry.mutex.Unlock()
+		return registry.entries[registryTestProfileID].evicting
+	}, time.Second, time.Millisecond)
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- registry.Close(context.Background()) }()
+	waitForEvictWaiters(t, registry, 1)
+	cancelOwner()
+	assert.ErrorIs(t, <-ownerResult, context.Canceled)
+	select {
+	case result := <-closeResult:
+		t.Fatalf("shutdown returned %v before the lease was released", result)
+	case <-time.After(25 * time.Millisecond):
+	}
+	require.NoError(t, lease.Release())
+	select {
+	case result := <-closeResult:
+		require.NoError(t, result)
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown did not finish after the eviction owner canceled")
+	}
+	assert.Equal(t, int32(1), closes.Load())
+	registry.mutex.Lock()
+	defer registry.mutex.Unlock()
+	assert.Empty(t, registry.entries)
+}
+
+func waitForEvictWaiters(t *testing.T, registry *ProfileRegistry, want int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		registry.mutex.Lock()
+		defer registry.mutex.Unlock()
+		entry, ok := registry.entries[registryTestProfileID]
+		return ok && entry.evictWaiters == want
+	}, time.Second, time.Millisecond)
 }

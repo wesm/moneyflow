@@ -122,7 +122,7 @@ export function createOnboardingController(options: {
   function schedule(): void {
     if (timer !== undefined) clearTimeout(timer)
     timer = undefined
-    if (destroyed || state.problem || !isRunning(state.snapshot?.state)) return
+    if (destroyed || state.busy || state.problem || !isRunning(state.snapshot?.state)) return
     timer = setTimeout(() => void poll(), pollInterval)
   }
 
@@ -202,7 +202,7 @@ export function createOnboardingController(options: {
 
   async function poll(): Promise<void> {
     const snapshot = state.snapshot
-    if (!snapshot || state.problem || !isRunning(snapshot.state)) return
+    if (!snapshot || state.busy || state.problem || !isRunning(snapshot.state)) return
     if (!pageVisible()) {
       schedule()
       return
