@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/store"
@@ -46,6 +49,9 @@ func InspectProfile(
 	if err := validateMaintenancePaths(paths); err != nil {
 		return Inspection{}, err
 	}
+	if err := home.PreparePrivateRoot(paths.Root); err != nil {
+		return Inspection{}, store.NewError(store.CodeStoreError, err)
+	}
 	info, err := os.Lstat(paths.Database)
 	if errors.Is(err, os.ErrNotExist) {
 		return Inspection{Schema: SchemaEmpty, Pristine: true}, nil
@@ -62,11 +68,13 @@ func InspectProfile(
 		return Inspection{Schema: SchemaEmpty, Pristine: true}, nil
 	}
 
-	database, err := openMaintenanceDatabase(ctx, paths, options, store.CodeStoreCorrupt)
+	database, pinned, err := openMaintenanceDatabase(
+		ctx, paths, options, store.CodeStoreCorrupt, true,
+	)
 	if err != nil {
 		return Inspection{}, err
 	}
-	defer func() { _ = database.Close() }()
+	defer func() { _ = errors.Join(database.Close(), pinned.Close()) }()
 	state, err := inspectSchema(ctx, database)
 	if err != nil {
 		return Inspection{}, mapDriverError(err, store.CodeStoreCorrupt)
@@ -76,9 +84,6 @@ func InspectProfile(
 		return inspection, nil
 	}
 	if err = validateSchema(ctx, database); err != nil {
-		return Inspection{}, err
-	}
-	if err = quickCheck(ctx, database); err != nil {
 		return Inspection{}, err
 	}
 	populated, err := profilePopulated(ctx, database)
@@ -106,6 +111,9 @@ func CheckpointProfile(ctx context.Context, paths home.Paths, options Options) e
 	if err := validateMaintenancePaths(paths); err != nil {
 		return err
 	}
+	if err := home.PreparePrivateRoot(paths.Root); err != nil {
+		return store.NewError(store.CodeStoreError, err)
+	}
 	info, err := os.Lstat(paths.Database)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -119,14 +127,16 @@ func CheckpointProfile(ctx context.Context, paths home.Paths, options Options) e
 	if info.Size() == 0 {
 		return nil
 	}
-	database, err := openMaintenanceDatabase(ctx, paths, options, store.CodeStoreCorrupt)
+	database, pinned, err := openMaintenanceDatabase(
+		ctx, paths, options, store.CodeStoreCorrupt, false,
+	)
 	if err != nil {
 		return err
 	}
 	if _, err = database.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		err = mapDriverError(err, store.CodeStoreError)
 	}
-	return errors.Join(err, database.Close())
+	return errors.Join(err, database.Close(), pinned.Close())
 }
 
 // InstallPristineProfile installs the exact current schema only into a missing or empty database.
@@ -169,21 +179,61 @@ func openMaintenanceDatabase(
 	paths home.Paths,
 	options Options,
 	fallback store.ErrorCode,
-) (*sql.DB, error) {
+	readOnly bool,
+) (*sql.DB, *os.File, error) {
 	if err := validateOptions(options); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	database, err := sql.Open(driverName, dataSourceName(paths.Database, options))
+	pinned, err := home.OpenPrivateFile(paths.Database)
 	if err != nil {
-		return nil, mapDriverError(err, fallback)
+		return nil, nil, store.NewError(fallback, err)
+	}
+	dsn := dataSourceName(paths.Database, options)
+	if readOnly {
+		dsn = inspectionDataSourceName(paths.Database, options)
+	}
+	database, err := sql.Open(driverName, dsn)
+	if err != nil {
+		_ = pinned.Close()
+		return nil, nil, mapDriverError(err, fallback)
 	}
 	database.SetMaxOpenConns(1)
 	database.SetMaxIdleConns(1)
 	if err = database.PingContext(ctx); err != nil {
 		_ = database.Close()
-		return nil, mapDriverError(err, fallback)
+		_ = pinned.Close()
+		return nil, nil, mapDriverError(err, fallback)
 	}
-	return database, nil
+	openedInfo, err := pinned.Stat()
+	if err != nil {
+		_ = database.Close()
+		_ = pinned.Close()
+		return nil, nil, store.NewError(fallback, err)
+	}
+	pathInfo, err := os.Stat(paths.Database)
+	if err != nil || !os.SameFile(openedInfo, pathInfo) {
+		_ = database.Close()
+		_ = pinned.Close()
+		return nil, nil, store.NewError(fallback, errors.New("profile database changed while opening"))
+	}
+	return database, pinned, nil
+}
+
+func inspectionDataSourceName(databasePath string, options Options) string {
+	path := filepath.ToSlash(databasePath)
+	if volume := filepath.VolumeName(databasePath); volume != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	query := url.Values{}
+	query.Set("mode", "ro")
+	if _, err := os.Lstat(databasePath + "-wal"); errors.Is(err, os.ErrNotExist) {
+		query.Set("immutable", "1")
+	}
+	query.Add("_pragma", "query_only(1)")
+	query.Add("_pragma", "busy_timeout("+strconv.FormatInt(
+		options.MutationBusyTimeout.Milliseconds(), 10,
+	)+")")
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
 func validateMaintenancePaths(paths home.Paths) error {

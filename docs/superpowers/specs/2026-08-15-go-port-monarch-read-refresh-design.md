@@ -873,7 +873,7 @@ messages.
 
 ### Store and concurrency tests
 
-- install exact schema version 3 and reject older/newer schemas without migration
+- install exact schema version 4 and reject older/newer schemas without migration
 - cover pristine binding, journal-only refusal, populated refusal, same-identity reconnect, and
   different-identity refusal
 - validate `subscription.id` on every synthetic refresh and prove mismatch cannot fold

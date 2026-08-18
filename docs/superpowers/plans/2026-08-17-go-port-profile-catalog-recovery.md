@@ -228,7 +228,8 @@ type Inspection struct {
 }
 ```
 
-`InspectProfile` opens a bounded internal driver connection, calls the existing schema inspector,
+`InspectProfile` first hardens and pins the existing database, then opens a bounded read-only,
+query-only driver connection that cannot create sidecars. It calls the existing schema inspector,
 and queries only revision, committed-row existence, journal existence, and provider binding for a
 current schema. Map corrupt/invalid driver results through existing store errors. Do not load
 transactions.
@@ -625,14 +626,17 @@ Expected: FAIL because recovery is absent.
 
 - [ ] **Step 3: Implement explicit confirmation and idempotent roll-forward**
 
-Strictly encode marker version one with profile ID, UTC start time, application version, and the
+Strictly encode marker version one with a canonical profile ID, UTC start time, application version, and the
 original allowlisted store code. Under exclusive lifecycle lock:
+
+For a manifestless legacy profile, generate that canonical ID before marker creation, persist it in
+the marker, and adopt it unchanged when the recovered profile receives its manifest.
 
 1. call `sqlite.CheckpointProfile` when safe;
 2. create and fsync `recovery/<UTC nanosecond timestamp>/` and its marker;
-3. rename WAL and SHM before main;
+3. rename WAL and SHM before main, syncing source and destination after every rename;
 4. call `sqlite.InstallPristineProfile` only after backup main exists;
-5. verify current/pristine inspection; and
+5. durably install and verify current/pristine inspection; and
 6. remove and fsync the marker.
 
 Treat backup-main presence as the sole old/new disambiguator. Refuse multiple/invalid markers,

@@ -586,6 +586,29 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 	}
 }
 
+func TestOpenMonarchCommandBuildsRuntimeWithBoundMoneyInterpretation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "profile")
+	t.Setenv("MONEYFLOW_HOME", root)
+	now := time.Date(2026, time.August, 15, 23, 40, 0, 0, time.UTC)
+	bindCommandProfile(t, root, now)
+	var got monarch.ImportConfig
+	streams := IOStreams{OpenMonarch: func(paths home.Paths, config monarch.ImportConfig) (MonarchCommandRuntime, error) {
+		got = config
+		sessions, err := monarch.NewSessionStore(paths)
+		require.NoError(t, err)
+		vault, err := monarch.NewCredentialVault(paths)
+		require.NoError(t, err)
+		return MonarchCommandRuntime{
+			Connector: &fakeMonarchConnector{}, Sessions: sessions, Credentials: vault,
+			Source: &commandProviderSource{}, InstanceID: "cli-test", Now: func() time.Time { return now },
+		}, nil
+	}}
+	opened, _, err := openMonarchCommand(context.Background(), streams, monarch.ImportConfig{})
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	assert.Equal(t, monarch.ImportConfig{Currency: "USD", Scale: 2}, got)
+}
+
 func TestProviderConnectImportReopenAndBrowseOffline(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)

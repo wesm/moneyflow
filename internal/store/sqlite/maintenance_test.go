@@ -121,6 +121,46 @@ func TestInspectProfileMapsMalformedDatabaseToCorrupt(t *testing.T) {
 	assert.Equal(t, store.CodeStoreCorrupt, failure.Code)
 }
 
+func TestInspectProfileIsReadOnlyAndRehardensDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	paths := temporaryPaths(t)
+	handle, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	require.NoError(t, handle.Close())
+	database := openMaintenanceTestDatabase(t, paths.Database)
+	_, err = database.Exec("PRAGMA journal_mode=DELETE")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+	require.NoError(t, os.Chmod(paths.Database, 0o644)) //nolint:gosec // Deliberately lax fixture.
+	before, err := os.ReadDir(paths.Root)
+	require.NoError(t, err)
+
+	inspection, err := InspectProfile(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	assert.Equal(t, SchemaCurrent, inspection.Schema)
+	after, err := os.ReadDir(paths.Root)
+	require.NoError(t, err)
+	assert.Equal(t, directoryEntryNames(before), directoryEntryNames(after))
+	info, err := os.Stat(paths.Database)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	database, err = sql.Open(driverName, inspectionDataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, database.Close()) }()
+	var journalMode string
+	require.NoError(t, database.QueryRow("PRAGMA journal_mode").Scan(&journalMode))
+	assert.Equal(t, "delete", journalMode)
+}
+
+func directoryEntryNames(entries []os.DirEntry) []string {
+	names := make([]string, len(entries))
+	for index := range entries {
+		names[index] = entries[index].Name()
+	}
+	return names
+}
+
 func TestCheckpointProfileWorksForOlderSchema(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

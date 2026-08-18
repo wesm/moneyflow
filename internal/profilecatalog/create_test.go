@@ -110,6 +110,18 @@ func TestFinalizeLegacyManifestRejectsConflictWithNestedProfile(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(catalog.paths.Root, ManifestFilename))
 }
 
+func TestFinalizeLegacyManifestRejectsProviderBindingMismatch(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+	bindTestProfile(t, catalog.paths.LegacyProfile(), "monarch")
+	_, err := catalog.FinalizeLegacyManifest(context.Background(), LegacyManifestRequest{
+		DisplayName: "Moneyflow", ProviderKind: "local",
+	})
+	assert.Equal(t, CodeProfileInvalid, CodeOf(err))
+	assert.NoFileExists(t, filepath.Join(catalog.paths.Root, ManifestFilename))
+}
+
 func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	t.Parallel()
 	catalog := newTestCatalog(t, nil)
@@ -119,6 +131,7 @@ func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, removed)
 	assert.NoDirExists(t, entry.Root)
+	assert.NoDirExists(t, filepath.Join(catalog.paths.Root, ".canceled-profiles", entry.ID))
 	assert.DirExists(t, catalog.paths.Root)
 }
 

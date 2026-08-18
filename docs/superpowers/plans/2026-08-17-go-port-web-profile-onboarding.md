@@ -373,6 +373,10 @@ profile. `--profile` resolves name/ID before listening and redirects base to its
 `--demo` registers one process-local canonical-format random ID, never writes it to the catalog,
 and uses the same route shape.
 
+Selecting a manifestless legacy row first invokes the catalog activation operation that performs a
+successful open and writes its canonical manifest. Navigation begins only after that operation
+returns the durable profile ID; the synthetic legacy key is never placed in a URL.
+
 - [ ] **Step 4: Run TypeScript, Go, and asset checks and verify GREEN**
 
 ```bash

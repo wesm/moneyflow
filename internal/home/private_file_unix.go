@@ -16,3 +16,7 @@ func syncPrivateDirectory(path string) error {
 func replacePrivateFile(source string, destination string) error {
 	return os.Rename(source, destination)
 }
+
+func movePrivatePath(source string, destination string) error {
+	return os.Rename(source, destination)
+}

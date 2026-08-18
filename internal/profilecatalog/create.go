@@ -24,6 +24,7 @@ type CreateRequest struct {
 type LegacyManifestRequest struct {
 	DisplayName  string
 	ProviderKind string
+	ProfileID    string
 }
 
 // Create installs one current pristine profile under a new opaque ID.
@@ -49,6 +50,9 @@ func (catalog *Catalog) Create(ctx context.Context, request CreateRequest) (Entr
 	}
 	profiles, err := home.EnsurePrivateSubdirectory(catalog.paths.Root, "profiles")
 	if err != nil {
+		return Entry{}, newError(CodeProfileInvalid, err)
+	}
+	if err = home.SyncPrivateDirectory(catalog.paths.Root); err != nil {
 		return Entry{}, newError(CodeProfileInvalid, err)
 	}
 	id, root, err := catalog.reserveProfileRoot(profiles)
@@ -115,7 +119,7 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 
 	manifestPath := filepath.Join(catalog.paths.Root, ManifestFilename)
 	if _, statErr := os.Lstat(manifestPath); statErr == nil {
-		manifest, readErr := ReadManifest(manifestPath)
+		manifest, readErr := readLegacyManifest(manifestPath)
 		if readErr != nil {
 			return Entry{}, readErr
 		}
@@ -131,12 +135,21 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 	if err = handle.Close(); err != nil {
 		return Entry{}, err
 	}
+	inspection, err := sqlite.InspectProfile(
+		ctx, catalog.paths.LegacyProfile(), sqlite.DefaultOptions,
+	)
+	if err != nil {
+		return Entry{}, err
+	}
 	name, key, err := NormalizeDisplayName(request.DisplayName)
 	if err != nil {
 		return Entry{}, newError(CodeProfileInvalid, err)
 	}
 	if request.ProviderKind != "monarch" && request.ProviderKind != "local" {
 		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is unsupported"))
+	}
+	if inspection.Bound && request.ProviderKind != inspection.ProviderKind {
+		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is inconsistent"))
 	}
 	nested, err := catalog.discoverNested(ctx)
 	if err != nil {
@@ -145,16 +158,21 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 	if displayNameConflict(nested, key, catalog.paths.Root) {
 		return Entry{}, newError(CodeProfileNameConflict, errors.New("display name collides"))
 	}
-	id, err := NewProfileID(catalog.random)
-	if err != nil {
-		return Entry{}, newError(CodeProfileInvalid, err)
+	id := request.ProfileID
+	if id == "" {
+		id, err = NewProfileID(catalog.random)
+		if err != nil {
+			return Entry{}, newError(CodeProfileInvalid, err)
+		}
+	} else if !ValidProfileID(id) {
+		return Entry{}, newError(CodeProfileInvalid, errors.New("profile ID is invalid"))
 	}
 	manifest := Manifest{
 		ManifestVersion: ManifestVersion, ProfileID: id, DisplayName: name,
 		ProviderKind: request.ProviderKind, CreatedAt: catalog.now().UTC(),
 		CreatedByVersion: catalog.version,
 	}
-	if err = writeManifest(manifestPath, manifest); err != nil {
+	if err = writeLegacyManifest(manifestPath, manifest); err != nil {
 		return Entry{}, err
 	}
 	return catalog.entryForCurrentManifest(ctx, catalog.paths.Root, manifest)
@@ -182,19 +200,35 @@ func (catalog *Catalog) CancelNewProfile(ctx context.Context, id string) (bool, 
 	if err != nil {
 		return false, catalogLockError(err)
 	}
+	released := false
+	defer func() {
+		if !released {
+			_ = profileLock.Release()
+		}
+	}()
 	eligible, err := cancelEligible(ctx, root, id)
 	if err != nil {
-		_ = profileLock.Release()
 		return false, err
 	}
 	if !eligible {
-		_ = profileLock.Release()
 		return false, nil
+	}
+	quarantine, err := home.EnsurePrivateSubdirectory(catalog.paths.Root, ".canceled-profiles")
+	if err != nil {
+		return false, newError(CodeProfileInvalid, err)
+	}
+	detached := filepath.Join(quarantine, id)
+	if _, err = os.Lstat(detached); !errors.Is(err, os.ErrNotExist) {
+		return false, newError(CodeProfileInvalid, errors.New("canceled profile quarantine is occupied"))
+	}
+	if err = home.MovePrivatePath(root, detached); err != nil {
+		return false, newError(CodeProfileInvalid, err)
 	}
 	if err = profileLock.Release(); err != nil {
 		return false, newError(CodeProfileInvalid, err)
 	}
-	if err = removeOwnedProfileRoot(catalog.paths.Profiles, id); err != nil {
+	released = true
+	if err = removeOwnedDirectory(quarantine, id); err != nil {
 		return false, newError(CodeProfileInvalid, err)
 	}
 	return true, nil
@@ -232,6 +266,9 @@ func (catalog *Catalog) entryForCurrentManifest(
 	inspection, err := sqlite.InspectProfile(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
 	if err != nil {
 		return Entry{}, err
+	}
+	if inspection.Bound && entry.ProviderKind != inspection.ProviderKind {
+		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is inconsistent"))
 	}
 	entry.Status, err = catalog.localStatus(entry, inspection)
 	return entry, err
@@ -287,16 +324,20 @@ func removeOwnedProfileRoot(profiles string, id string) error {
 	if !ValidProfileID(id) || filepath.Base(profiles) != "profiles" {
 		return errors.New("remove profile root: target is not catalog-owned")
 	}
-	root, err := os.OpenRoot(profiles)
+	return removeOwnedDirectory(profiles, id)
+}
+
+func removeOwnedDirectory(parent string, name string) error {
+	root, err := os.OpenRoot(parent)
 	if err != nil {
 		return fmt.Errorf("remove profile root: open profiles directory: %w", err)
 	}
-	if err = root.RemoveAll(id); err != nil {
+	if err = root.RemoveAll(name); err != nil {
 		_ = root.Close()
 		return fmt.Errorf("remove profile root: %w", err)
 	}
 	if err = root.Close(); err != nil {
 		return fmt.Errorf("remove profile root: close profiles directory: %w", err)
 	}
-	return home.SyncPrivateDirectory(profiles)
+	return home.SyncPrivateDirectory(parent)
 }

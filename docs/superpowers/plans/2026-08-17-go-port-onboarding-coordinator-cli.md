@@ -592,6 +592,8 @@ Delete `connectMonarchProfile`, `validateRetainedMonarchSession`, `authenticateM
 `monarchLoginCredentials` after their tests pass through the coordinator. Keep factory wiring in
 `cmd/moneyflow`, as allowed by the architecture contract. Add identical `--profile` resolution to
 disconnect. Omitted profile selects exactly one persistent profile and errors on zero/multiple.
+Disconnect holds the same exclusive per-profile provider-connect lock as connect, after the shared
+lifecycle lock, so the two operations cannot replace or remove the session concurrently.
 
 - [ ] **Step 4: Run all command and onboarding tests and verify GREEN**
 

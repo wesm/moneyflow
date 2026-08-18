@@ -61,6 +61,16 @@ func TestResolveReportsMissingAndAmbiguousSelections(t *testing.T) {
 	assert.Equal(t, CodeProfileNotFound, CodeOf(err))
 }
 
+func TestResolveFallsBackToIDShapedDisplayName(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	name := deterministicProfileID(t, 0x5f)
+	entry := createTestManifestProfile(t, catalog, 0x60, name, "local")
+	resolved, err := catalog.Resolve(context.Background(), name)
+	require.NoError(t, err)
+	assert.Equal(t, entry.ID, resolved.ID)
+}
+
 func TestListDerivesStatusOnlyFromLocalProfileState(t *testing.T) {
 	t.Parallel()
 	sessions := map[string]bool{}

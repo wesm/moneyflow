@@ -75,6 +75,14 @@ func ProbeManifestVersion(path string) (uint16, error) {
 
 // ReadManifest validates and returns one exact version-one manifest.
 func ReadManifest(path string) (Manifest, error) {
+	return readManifest(path, filepath.Base(filepath.Dir(path)))
+}
+
+func readLegacyManifest(path string) (Manifest, error) {
+	return readManifest(path, "")
+}
+
+func readManifest(path string, expectedDirectoryID string) (Manifest, error) {
 	fields, err := readManifestObject(path)
 	if err != nil {
 		return Manifest{}, err
@@ -123,7 +131,7 @@ func ReadManifest(path string) (Manifest, error) {
 		CreatedAt:        createdAt,
 		CreatedByVersion: document.CreatedByVersion,
 	}
-	if err = validateManifest(manifest, filepath.Base(filepath.Dir(path))); err != nil {
+	if err = validateManifest(manifest, expectedDirectoryID); err != nil {
 		return Manifest{}, err
 	}
 	return manifest, nil
@@ -149,12 +157,23 @@ func NormalizeDisplayName(value string) (string, string, error) {
 }
 
 func writeManifest(path string, manifest Manifest) error {
-	if err := validateManifest(manifest, filepath.Base(filepath.Dir(path))); err != nil {
+	return writeManifestForDirectory(path, manifest, filepath.Base(filepath.Dir(path)))
+}
+
+func writeLegacyManifest(path string, manifest Manifest) error {
+	return writeManifestForDirectory(path, manifest, "")
+}
+
+func writeManifestForDirectory(path string, manifest Manifest, expectedDirectoryID string) error {
+	if err := validateManifest(manifest, expectedDirectoryID); err != nil {
 		return err
 	}
 	contents, err := marshalManifest(manifest)
 	if err != nil {
 		return err
+	}
+	if len(contents) > ManifestMaximumBytes {
+		return newError(CodeProfileInvalid, errors.New("manifest exceeds maximum size"))
 	}
 	if err = home.WritePrivateFile(path, contents); err != nil {
 		return newError(CodeProfileInvalid, err)

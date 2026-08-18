@@ -42,6 +42,38 @@ func SyncPrivateDirectory(path string) error {
 	return syncPrivateDirectory(path)
 }
 
+// MovePrivatePath moves one non-redirected file or directory without replacing a target.
+func MovePrivatePath(source, destination string) error {
+	if source == "" || destination == "" || !filepath.IsAbs(source) || !filepath.IsAbs(destination) {
+		return errors.New("move private path: paths must be absolute")
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("move private path: inspect source: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("move private path: source is redirected")
+	}
+	if _, err = os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			return errors.New("move private path: destination exists")
+		}
+		return fmt.Errorf("move private path: inspect destination: %w", err)
+	}
+	if err = movePrivatePath(source, destination); err != nil {
+		return fmt.Errorf("move private path: %w", err)
+	}
+	if err = SyncPrivateDirectory(filepath.Dir(source)); err != nil {
+		return err
+	}
+	if filepath.Dir(source) != filepath.Dir(destination) {
+		if err = SyncPrivateDirectory(filepath.Dir(destination)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // WritePrivateFile atomically replaces one owner-only regular file.
 func WritePrivateFile(path string, contents []byte) error {
 	if path == "" || !filepath.IsAbs(path) {
@@ -96,6 +128,38 @@ func WritePrivateFile(path string, contents []byte) error {
 func ReadPrivateFile(path string, maximumBytes int64) ([]byte, error) {
 	contents, _, err := ReadPrivateFileWithFingerprint(path, maximumBytes)
 	return contents, err
+}
+
+// OpenPrivateFile opens and validates one owner-only regular file without following redirection.
+// The caller must close the returned handle.
+func OpenPrivateFile(path string) (*os.File, error) {
+	info, err := inspectRegularTarget(path, "open private file")
+	if err != nil {
+		return nil, err
+	}
+	file, err := openPrivateFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("open private file: open: %w", err)
+	}
+	openedInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("open private file: inspect: %w", err)
+	}
+	if !os.SameFile(info, openedInfo) {
+		_ = file.Close()
+		return nil, errors.New("open private file: target changed while opening")
+	}
+	openedInfo, err = secureOpenedPrivateFile(file, openedInfo)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, errors.New("open private file: target is not regular")
+	}
+	return file, nil
 }
 
 // ReadPrivateFileWithFingerprint reads bytes and derives their replacement fingerprint together.

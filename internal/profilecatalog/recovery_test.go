@@ -77,6 +77,26 @@ func TestRecoveryPlanAndRecreatePreserveOldDatabaseAndProviderFiles(t *testing.T
 	assert.NoFileExists(t, filepath.Join(result.BackupPath, RecoveryMarkerFilename))
 }
 
+func TestLegacyRecoveryPersistsCanonicalMarkerIdentityIntoManifest(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	installTestLegacyProfile(t, catalog)
+	makeProfileSchemaOlder(t, catalog.paths.LegacyProfile())
+	plan, err := catalog.RecoveryPlan(context.Background(), LegacyKey)
+	require.NoError(t, err)
+	assert.Equal(t, LegacyKey, plan.ProfileKey)
+	assert.True(t, ValidProfileID(plan.ProfileID))
+	_, err = catalog.Recreate(context.Background(), RecoveryRequest{Plan: plan, Confirmed: true})
+	require.NoError(t, err)
+	manifest, err := readLegacyManifest(filepath.Join(catalog.paths.Root, ManifestFilename))
+	require.NoError(t, err)
+	assert.Equal(t, plan.ProfileID, manifest.ProfileID)
+	entries, err := catalog.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, plan.ProfileID, entries[0].ID)
+}
+
 func TestRecoveryRefusesNewerSchemaAndUnknownManifest(t *testing.T) {
 	t.Parallel()
 	t.Run("newer schema", func(t *testing.T) {

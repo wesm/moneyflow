@@ -73,7 +73,7 @@ func TryLock(rootPath string, name LockName, mode LockMode) (*Lock, error) {
 		return nil, fmt.Errorf("acquire home lock: inspect target: %w", beforeErr)
 	}
 
-	file, err := root.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0o600)
+	file, err := openLockFile(root, rootPath, filename)
 	if err != nil {
 		return nil, fmt.Errorf("acquire home lock: open target: %w", err)
 	}

@@ -154,6 +154,8 @@ Profile IDs are never reused. The catalog rejects directories and manifests whos
 canonical form or whose manifest ID does not equal the directory name. The legacy profile receives
 a generated ID in its manifest; until that manifest can be written, discovery exposes one
 process-stable synthetic legacy key that is never accepted as a persisted profile ID or bookmark.
+If recovery starts before that manifest exists, Moneyflow generates the canonical ID first,
+persists it in the recovery marker, and adopts that same ID when recovery writes the manifest.
 
 ### Profile Manifest
 
@@ -246,8 +248,8 @@ lifetime of its service. Recovery takes only an exclusive `profile.lock`. If a m
 written afterward, recovery first releases that lock; a separate operation then acquires
 `catalog.lock` followed by `profile.lock` and revalidates the profile before writing.
 
-The provider-connect lock is exclusive per profile for the duration of one connection attempt. A
-second process reports `provider_connect_in_progress`. Existing SQLite refresh leases still
+The provider-connect lock is exclusive per profile for the duration of every connect or disconnect
+operation. A second process reports `provider_connect_in_progress`. Existing SQLite refresh leases still
 coordinate remote snapshot fetch/fold behavior; neither advisory lock replaces revision or refresh
 generation checks.
 
@@ -294,7 +296,8 @@ the injected current UTC time formatted as `20060102T150405.000000000Z`. An exis
 directory is a refusal rather than an overwrite.
 
 Before moving any database file, Moneyflow creates the backup directory and atomically writes
-`recovery-in-progress.json` inside it. Marker version one contains exactly the profile ID, UTC start
+`recovery-in-progress.json` inside it. Marker version one contains exactly the canonical profile
+ID, UTC start
 time, application version, and the original storage error code. It contains no display name or
 financial data.
 
@@ -308,9 +311,10 @@ Under the exclusive lifecycle lock, recovery:
 
 1. opens a bounded raw SQLite connection and attempts `wal_checkpoint(TRUNCATE)` before closing it;
 2. creates and fsyncs the backup directory and in-progress marker;
-3. moves `moneyflow.db-wal` and `moneyflow.db-shm`, when present, into the backup;
-4. moves `moneyflow.db` into the backup;
-5. creates and validates the exact current empty schema at the original database path; and
+3. moves `moneyflow.db-wal` and `moneyflow.db-shm`, when present, into the backup and syncs both
+   source and destination directories after each move;
+4. moves `moneyflow.db` into the backup and syncs both directories;
+5. durably creates and validates the exact current empty schema at the original database path; and
 6. removes the in-progress marker only after the new database is verified current and pristine.
 
 If the old database is corrupt enough that checkpointing cannot succeed, explicit corrupt-store

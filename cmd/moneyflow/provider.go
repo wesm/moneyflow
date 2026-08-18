@@ -110,12 +110,16 @@ func runMonarchConnect(
 	if err != nil {
 		return fmt.Errorf("connect Monarch: %w", err)
 	}
+	connectLock, err := home.TryLock(
+		opened.Paths.Root, home.LockProviderConnect, home.LockExclusive,
+	)
+	if err != nil {
+		return fmt.Errorf("connect Monarch: %w", closeOpenedProfile(opened, err))
+	}
 	runErr := connectMonarchProfile(
 		command, streams, opened, runtime, importConfig, importConfigured, monthToDate,
 	)
-	if closeErr := opened.Close(); closeErr != nil {
-		runErr = errors.Join(runErr, closeErr)
-	}
+	runErr = errors.Join(runErr, connectLock.Release(), opened.Close())
 	if runErr != nil {
 		return fmt.Errorf("connect Monarch: %w", runErr)
 	}
@@ -443,6 +447,16 @@ func runMonarchDisconnect(command *cobra.Command, streams IOStreams) error {
 	if err != nil {
 		return fmt.Errorf("disconnect Monarch: %w", err)
 	}
+	profileLock, err := home.TryLock(paths.Root, home.LockProfile, home.LockShared)
+	if err != nil {
+		return fmt.Errorf("disconnect Monarch: %w", err)
+	}
+	defer func() { _ = profileLock.Release() }()
+	connectLock, err := home.TryLock(paths.Root, home.LockProviderConnect, home.LockExclusive)
+	if err != nil {
+		return fmt.Errorf("disconnect Monarch: %w", err)
+	}
+	defer func() { _ = connectLock.Release() }()
 	factory := streams.OpenMonarch
 	if factory == nil {
 		factory = defaultMonarchCommandFactory
@@ -474,10 +488,19 @@ func openMonarchCommand(
 	if err != nil {
 		return OpenedProfile{}, MonarchCommandRuntime{}, err
 	}
+	connection, err := opened.Service.ProviderConnection(ctx)
+	if err != nil {
+		_ = opened.Close()
+		return OpenedProfile{}, MonarchCommandRuntime{}, err
+	}
+	if connection.Bound {
+		importConfig = monarch.ImportConfig{Currency: connection.Currency, Scale: connection.Scale}
+	}
 	paths := opened.Paths
 	if paths.Root == "" {
 		paths = home.Paths{Root: filepath.Dir(opened.Path), Database: opened.Path}
 	}
+	opened.Paths = paths
 	factory := streams.OpenMonarch
 	if factory == nil {
 		factory = defaultMonarchCommandFactory

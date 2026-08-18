@@ -78,7 +78,6 @@ func (catalog *Catalog) Resolve(ctx context.Context, selector string) (Entry, er
 				return entry, nil
 			}
 		}
-		return Entry{}, newError(CodeProfileNotFound, errors.New("profile ID is absent"))
 	}
 	_, key, normalizeErr := NormalizeDisplayName(selector)
 	if normalizeErr != nil {
@@ -117,10 +116,15 @@ func (catalog *Catalog) discoverLegacy(ctx context.Context) (Entry, bool, error)
 }
 
 func (catalog *Catalog) discoverNested(ctx context.Context) ([]Entry, error) {
-	directory, err := os.Open(catalog.paths.Profiles) //nolint:gosec // Canonical catalog-owned path.
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(catalog.paths.Profiles); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
+	} else if err != nil {
+		return nil, newError(CodeProfileInvalid, err)
 	}
+	if err := home.PreparePrivateRoot(catalog.paths.Profiles); err != nil {
+		return nil, newError(CodeProfileInvalid, err)
+	}
+	directory, err := os.Open(catalog.paths.Profiles) //nolint:gosec // Canonical catalog-owned path.
 	if err != nil {
 		return nil, newError(CodeProfileInvalid, err)
 	}
@@ -182,7 +186,13 @@ func (catalog *Catalog) discoverProfile(
 	}
 	entry := Entry{Key: LegacyKey, DisplayName: "Moneyflow", Root: root}
 	if !manifestMissing {
-		manifest, readErr := ReadManifest(manifestPath)
+		var manifest Manifest
+		var readErr error
+		if legacy {
+			manifest, readErr = readLegacyManifest(manifestPath)
+		} else {
+			manifest, readErr = ReadManifest(manifestPath)
+		}
 		if readErr != nil {
 			return Entry{}, false, readErr
 		}
@@ -253,11 +263,21 @@ func (catalog *Catalog) localStatus(
 
 func activeRecovery(root string) bool {
 	directory := filepath.Join(root, RecoveryDirectoryName)
-	children, err := os.ReadDir(directory)
-	if err != nil {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, os.ErrNotExist) {
 		return false
 	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return true
+	}
+	children, err := os.ReadDir(directory)
+	if err != nil {
+		return true
+	}
 	for _, child := range children {
+		if child.Type()&os.ModeSymlink != 0 {
+			return true
+		}
 		if child.IsDir() {
 			if _, statErr := os.Lstat(filepath.Join(directory, child.Name(), RecoveryMarkerFilename)); statErr == nil {
 				return true

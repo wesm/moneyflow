@@ -112,6 +112,26 @@ func TestAuthenticatorRetriesRESTMFAChallengeAfterInitialOneTimeCode(t *testing.
 	assert.Equal(t, int32(2), loginCalls.Load())
 }
 
+func TestAuthenticatorClassifiesRejectedMFARetryAsReconnectRequired(t *testing.T) {
+	t.Parallel()
+	server := newAuthServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/auth/login/" {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		http.NotFound(writer, request)
+	})
+	authenticator := newTestAuthenticator(t, server.URL)
+	_, err := authenticator.Connect(context.Background(), provider.Credentials{
+		Login: "user@example.com", Password: "transient-password", OneTimeCode: "287082",
+	}, func(context.Context, provider.Challenge) (string, error) {
+		return "123456", nil
+	})
+	code, ok := provider.CodeOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeReconnectRequired, code)
+}
+
 func TestAuthenticatorRetriesGraphQLMFAChallengeAfterInitialOneTimeCode(t *testing.T) {
 	t.Parallel()
 

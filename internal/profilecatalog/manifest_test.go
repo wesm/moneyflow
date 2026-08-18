@@ -125,6 +125,32 @@ func TestReadManifestRejectsDirectoryIDMismatch(t *testing.T) {
 	assert.Equal(t, CodeProfileInvalid, CodeOf(err))
 }
 
+func TestLegacyManifestDoesNotInferIdentityFromCatalogBasename(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), exampleProfileID)
+	require.NoError(t, os.Mkdir(root, 0o700))
+	manifest := validManifest()
+	other, err := NewProfileID(bytes.NewReader(bytes.Repeat([]byte{0x25}, 16)))
+	require.NoError(t, err)
+	manifest.ProfileID = other
+	path := filepath.Join(root, ManifestFilename)
+	require.NoError(t, writeLegacyManifest(path, manifest))
+	got, err := readLegacyManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, other, got.ProfileID)
+}
+
+func TestWriteManifestNeverExceedsReadableLimit(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), exampleProfileID)
+	require.NoError(t, os.Mkdir(root, 0o700))
+	manifest := validManifest()
+	manifest.CreatedByVersion = strings.Repeat("v", ManifestMaximumBytes)
+	err := writeManifest(filepath.Join(root, ManifestFilename), manifest)
+	assert.Equal(t, CodeProfileInvalid, CodeOf(err))
+	assert.NoFileExists(t, filepath.Join(root, ManifestFilename))
+}
+
 func TestNormalizeDisplayNamePinsLimitsAndCollisionKey(t *testing.T) {
 	t.Parallel()
 	name, key, err := NormalizeDisplayName("  ＭｏｎｅｙＦｌｏｗ\u2003 HOME  ")

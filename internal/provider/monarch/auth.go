@@ -75,6 +75,9 @@ func (authenticator *Authenticator) Connect(
 		}
 		token, err = authenticator.login(ctx, credentials, deviceUUID, code)
 	}
+	if errors.Is(err, errMFARequired) {
+		return nil, provider.NewError(provider.CodeReconnectRequired)
+	}
 	if err != nil {
 		return nil, err
 	}

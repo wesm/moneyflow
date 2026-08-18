@@ -38,6 +38,7 @@ const (
 
 // RecoveryPlan is the exact destructive action shown for confirmation.
 type RecoveryPlan struct {
+	ProfileKey   string
 	ProfileID    string
 	BackupPath   string
 	StartedAt    time.Time
@@ -128,6 +129,13 @@ func (catalog *Catalog) RecoveryPlan(ctx context.Context, selector string) (Reco
 		return RecoveryPlan{}, err
 	}
 	startedAt := catalog.now().UTC()
+	profileID := entry.ID
+	if profileID == "" {
+		profileID, err = NewProfileID(catalog.random)
+		if err != nil {
+			return RecoveryPlan{}, newError(CodeRecoveryUnavailable, err)
+		}
+	}
 	backupPath := filepath.Join(
 		entry.Root, RecoveryDirectoryName, startedAt.Format(recoveryTimestamp),
 	)
@@ -137,7 +145,7 @@ func (catalog *Catalog) RecoveryPlan(ctx context.Context, selector string) (Reco
 		return RecoveryPlan{}, newError(CodeRecoveryIncomplete, statErr)
 	}
 	return RecoveryPlan{
-		ProfileID: entry.Key, BackupPath: backupPath, StartedAt: startedAt,
+		ProfileKey: entry.Key, ProfileID: profileID, BackupPath: backupPath, StartedAt: startedAt,
 		OriginalCode: code,
 	}, nil
 }
@@ -147,7 +155,11 @@ func (catalog *Catalog) Recreate(ctx context.Context, request RecoveryRequest) (
 	if !request.Confirmed {
 		return RecoveryResult{}, newError(CodeRecoveryUnavailable, errors.New("recovery was not confirmed"))
 	}
-	entry, err := catalog.recoveryEntry(ctx, request.Plan.ProfileID)
+	selector := request.Plan.ProfileKey
+	if selector == "" {
+		selector = request.Plan.ProfileID
+	}
+	entry, err := catalog.recoveryEntry(ctx, selector)
 	if err != nil {
 		return RecoveryResult{}, err
 	}
@@ -181,8 +193,31 @@ func (catalog *Catalog) Recreate(ctx context.Context, request RecoveryRequest) (
 		return RecoveryResult{}, newError(CodeRecoveryIncomplete, errors.New("active recovery plan changed"))
 	}
 
-	if err = catalog.rollForwardRecovery(ctx, entry, plan); err != nil {
+	keepMarker := entry.Key == LegacyKey
+	if err = catalog.rollForwardRecovery(ctx, entry, plan, keepMarker); err != nil {
 		return RecoveryResult{}, err
+	}
+	if keepMarker {
+		if err = profileLock.Release(); err != nil {
+			return RecoveryResult{}, newError(CodeRecoveryIncomplete, err)
+		}
+		profileLock = nil
+		providerKind := entry.ProviderKind
+		if providerKind == "" {
+			providerKind = "local"
+		}
+		if _, err = catalog.FinalizeLegacyManifest(ctx, LegacyManifestRequest{
+			DisplayName: "Moneyflow", ProviderKind: providerKind, ProfileID: plan.ProfileID,
+		}); err != nil {
+			return RecoveryResult{}, err
+		}
+		profileLock, err = home.TryLock(entry.Root, home.LockProfile, home.LockExclusive)
+		if err != nil {
+			return RecoveryResult{}, catalogLockError(err)
+		}
+		if err = catalog.finishRecovery(plan); err != nil {
+			return RecoveryResult{}, err
+		}
 	}
 	return RecoveryResult{BackupPath: plan.BackupPath}, nil
 }
@@ -213,7 +248,7 @@ func (catalog *Catalog) beginRecovery(
 		return newError(CodeRecoveryIncomplete, err)
 	}
 	marker := recoveryMarker{
-		MarkerVersion: RecoveryMarkerVersion, ProfileID: entry.Key,
+		MarkerVersion: RecoveryMarkerVersion, ProfileID: plan.ProfileID,
 		StartedAt: plan.StartedAt, CreatedByVersion: catalog.version,
 		OriginalCode: plan.OriginalCode,
 	}
@@ -230,6 +265,7 @@ func (catalog *Catalog) rollForwardRecovery(
 	ctx context.Context,
 	entry Entry,
 	plan RecoveryPlan,
+	keepMarker bool,
 ) error {
 	state, err := inspectRecoveryState(ctx, entry.ProfilePaths(), plan.BackupPath)
 	if err != nil {
@@ -252,10 +288,13 @@ func (catalog *Catalog) rollForwardRecovery(
 				return err
 			}
 		}
-		return catalog.installRecoveredProfile(ctx, entry, plan)
+		return catalog.installRecoveredProfile(ctx, entry, plan, keepMarker)
 	case recoveryActionInstall:
-		return catalog.installRecoveredProfile(ctx, entry, plan)
+		return catalog.installRecoveredProfile(ctx, entry, plan, keepMarker)
 	case recoveryActionFinish:
+		if keepMarker {
+			return nil
+		}
 		return catalog.finishRecovery(plan)
 	default:
 		return newError(CodeRecoveryIncomplete, errors.New("recovery file state is ambiguous"))
@@ -266,6 +305,7 @@ func (catalog *Catalog) installRecoveredProfile(
 	ctx context.Context,
 	entry Entry,
 	plan RecoveryPlan,
+	keepMarker bool,
 ) error {
 	info, err := os.Lstat(entry.ProfilePaths().Database)
 	switch {
@@ -293,6 +333,9 @@ func (catalog *Catalog) installRecoveredProfile(
 	}
 	if err = catalog.recoveryFaultAt(RecoveryAfterVerification); err != nil {
 		return err
+	}
+	if keepMarker {
+		return nil
 	}
 	return catalog.finishRecovery(plan)
 }
@@ -329,7 +372,9 @@ func (catalog *Catalog) recoveryEntry(ctx context.Context, selector string) (Ent
 }
 
 func validateRecoveryRequest(entry Entry, plan RecoveryPlan, code store.ErrorCode) error {
-	if plan.ProfileID != entry.Key || plan.InProgress || plan.OriginalCode != code ||
+	if plan.ProfileKey != entry.Key || !ValidProfileID(plan.ProfileID) ||
+		(entry.ID != "" && plan.ProfileID != entry.ID) ||
+		plan.InProgress || plan.OriginalCode != code ||
 		plan.StartedAt.IsZero() || plan.StartedAt.Location() != time.UTC ||
 		plan.StartedAt.Format(recoveryTimestamp) != filepath.Base(plan.BackupPath) ||
 		filepath.Dir(plan.BackupPath) != filepath.Join(entry.Root, RecoveryDirectoryName) {
@@ -439,13 +484,7 @@ func moveRecoveryFile(sourceRoot, backupRoot, name string, required bool) error 
 		return newError(CodeRecoveryIncomplete, errors.New("recovery file exists at both paths"))
 	}
 	if sourceExists {
-		if err = os.Rename(source, destination); err != nil {
-			return newError(CodeRecoveryIncomplete, err)
-		}
-		if err = home.SyncPrivateDirectory(sourceRoot); err != nil {
-			return newError(CodeRecoveryIncomplete, err)
-		}
-		if err = home.SyncPrivateDirectory(backupRoot); err != nil {
+		if err = home.MovePrivatePath(source, destination); err != nil {
 			return newError(CodeRecoveryIncomplete, err)
 		}
 		return nil
@@ -501,12 +540,13 @@ func scanActiveRecovery(root, profileID string) (RecoveryPlan, bool, error) {
 			return RecoveryPlan{}, false, newError(CodeRecoveryIncomplete, errors.New("recovery marker is redirected"))
 		}
 		marker, readErr := readRecoveryMarker(markerPath)
-		if readErr != nil || marker.ProfileID != profileID ||
+		if readErr != nil || (profileID != LegacyKey && marker.ProfileID != profileID) ||
 			marker.StartedAt.Format(recoveryTimestamp) != child.Name() {
 			return RecoveryPlan{}, false, newError(CodeRecoveryIncomplete, errors.New("recovery marker is invalid"))
 		}
 		plans = append(plans, RecoveryPlan{
-			ProfileID: marker.ProfileID, BackupPath: backupPath, StartedAt: marker.StartedAt,
+			ProfileKey: profileID, ProfileID: marker.ProfileID,
+			BackupPath: backupPath, StartedAt: marker.StartedAt,
 			OriginalCode: marker.OriginalCode, InProgress: true,
 		})
 	}
@@ -580,7 +620,7 @@ func readRecoveryMarker(path string) (recoveryMarker, error) {
 
 func validateRecoveryMarker(path string, marker recoveryMarker) error {
 	if marker.MarkerVersion != RecoveryMarkerVersion ||
-		(!ValidProfileID(marker.ProfileID) && marker.ProfileID != LegacyKey) ||
+		!ValidProfileID(marker.ProfileID) ||
 		marker.StartedAt.IsZero() || marker.StartedAt.Location() != time.UTC ||
 		marker.StartedAt.Format(recoveryTimestamp) != filepath.Base(filepath.Dir(path)) ||
 		validateVersionString(marker.CreatedByVersion) != nil ||
