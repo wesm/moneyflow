@@ -167,22 +167,7 @@ func resolvePersistentSelection(
 	explicitHome string,
 	profile string,
 ) (*profilecatalog.Catalog, profilecatalog.Entry, bool, error) {
-	userHome := ""
-	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
-	if explicitHome == "" && (!configured || configuredHome == "") {
-		var err error
-		userHome, err = os.UserHomeDir()
-		if err != nil {
-			return nil, profilecatalog.Entry{}, false, fmt.Errorf("resolve user home: %w", err)
-		}
-	}
-	paths, err := home.ResolveCatalogRoot(explicitHome, os.LookupEnv, userHome)
-	if err != nil {
-		return nil, profilecatalog.Entry{}, false, err
-	}
-	catalog, err := profilecatalog.New(profilecatalog.Config{
-		Paths: paths, Random: cryptorand.Reader, Now: time.Now, Version: version.Version,
-	})
+	catalog, err := openProfileCatalog(explicitHome)
 	if err != nil {
 		return nil, profilecatalog.Entry{}, false, err
 	}
@@ -193,7 +178,7 @@ func resolvePersistentSelection(
 	if len(entries) == 0 && profile == "" {
 		return catalog, profilecatalog.Entry{
 			Key: profilecatalog.LegacyKey, DisplayName: "Moneyflow", ProviderKind: "monarch",
-			Root: paths.Root, Status: profilecatalog.StatusSetupIncomplete,
+			Root: catalog.Paths().Root, Status: profilecatalog.StatusSetupIncomplete,
 		}, false, nil
 	}
 	entry, err := profilecatalog.ResolveEntries(entries, profile)
@@ -201,6 +186,29 @@ func resolvePersistentSelection(
 		return nil, profilecatalog.Entry{}, false, err
 	}
 	return catalog, entry, true, nil
+}
+
+func openProfileCatalog(explicitHome string) (*profilecatalog.Catalog, error) {
+	userHome := ""
+	configuredHome, configured := os.LookupEnv("MONEYFLOW_HOME")
+	if explicitHome == "" && (!configured || configuredHome == "") {
+		var err error
+		userHome, err = os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve user home: %w", err)
+		}
+	}
+	paths, err := home.ResolveCatalogRoot(explicitHome, os.LookupEnv, userHome)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := profilecatalog.New(profilecatalog.Config{
+		Paths: paths, Random: cryptorand.Reader, Now: time.Now, Version: version.Version,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return catalog, nil
 }
 
 func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, error) {

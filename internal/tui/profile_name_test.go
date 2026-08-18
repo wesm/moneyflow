@@ -62,6 +62,7 @@ func TestShellCancelAfterCreateRollsBackOnlyThatPristineProfile(t *testing.T) {
 	assert.Equal(t, state.created.ID, state.lastCancel.ProfileID)
 	shell = updateShell(t, shell, command())
 	assert.Equal(t, shellSelector, shell.screen)
+	assert.Equal(t, "Incomplete profile removed.", shell.status)
 	assert.Equal(t, 1, state.cancelNewCalls)
 	assert.Equal(t, state.created.ID, state.canceledID)
 }

@@ -157,6 +157,17 @@ func commandOnboardingRuntime(
 	}, nil
 }
 
+func defaultCommandOnboardingRuntime(
+	paths home.Paths,
+	streams IOStreams,
+) (onboarding.Runtime, error) {
+	return commandOnboardingRuntime(
+		paths,
+		streams,
+		monarch.ImportConfig{Currency: "USD", Scale: 2},
+	)
+}
+
 func runMonarchConnect(
 	command *cobra.Command,
 	streams IOStreams,

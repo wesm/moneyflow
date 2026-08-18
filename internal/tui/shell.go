@@ -151,7 +151,8 @@ type shellProfileCreatedMsg struct {
 }
 
 type shellProfileCanceledMsg struct {
-	err error
+	removed bool
+	err     error
 }
 
 type shellRecoveryPlanMsg struct {
@@ -272,9 +273,14 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		shell.status = "Continue setting up " + entry.DisplayName + "."
 		return shell, shell.beginOnboarding(entry)
 	case shellProfileCanceledMsg:
+		shell.selector.status = ""
 		if message.err != nil {
 			shell.status = "The incomplete profile could not be removed."
 			shell.err = message.err
+		} else if message.removed {
+			shell.status = "Incomplete profile removed."
+		} else {
+			shell.status = "Profile kept because setup created durable state."
 		}
 		shell.createdID = ""
 		shell.selected = nil
@@ -595,8 +601,8 @@ func (shell Shell) finishCanceledOnboarding() (tea.Model, tea.Cmd) {
 		profileID := shell.createdID
 		shell.status = "Removing incomplete profile…"
 		return shell, func() tea.Msg {
-			_, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
-			return shellProfileCanceledMsg{err: err}
+			removed, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
+			return shellProfileCanceledMsg{removed: removed, err: err}
 		}
 	}
 	if shell.resume != nil {

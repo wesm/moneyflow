@@ -76,6 +76,7 @@ func TestTUICommandStartsPersistentAndTemporaryProfiles(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("MONEYFLOW_HOME", t.TempDir())
 			var got ProfileOptions
 			var runs int
 			command := newRootCommand(IOStreams{
@@ -88,24 +89,53 @@ func TestTUICommandStartsPersistentAndTemporaryProfiles(t *testing.T) {
 				},
 				RunTUI: func(
 					_ context.Context,
-					service *app.Service,
-					session app.Session,
+					dependencies tui.ShellDependencies,
 					options tui.Options,
 					_ IOStreams,
 				) error {
 					runs++
-					assert.NotNil(t, service)
-					assert.Equal(t, app.NewSession().QuerySpec(), session.QuerySpec())
 					assert.Equal(t, tui.ThemeDefault, options.Theme)
+					if test.name == "persistent" {
+						assert.Nil(t, dependencies.Preselected)
+					} else {
+						require.NotNil(t, dependencies.Preselected)
+						assert.NotNil(t, dependencies.Preselected.Service)
+					}
 					return nil
 				},
 			})
 			command.SetArgs(test.args)
 
 			require.NoError(t, command.Execute())
-			assert.Equal(t, test.want, got)
+			if test.name == "persistent" {
+				assert.Equal(t, ProfileOptions{}, got)
+			} else {
+				assert.Equal(t, test.want, got)
+			}
 			assert.Equal(t, 1, runs)
 		})
+	}
+}
+
+func TestTUICommandRejectsConflictingProfileSelectionFlags(t *testing.T) {
+	t.Setenv("MONEYFLOW_HOME", t.TempDir())
+	for _, args := range [][]string{
+		{"tui", "--profile", "Primary", "--demo"},
+		{"tui", "--profile", "Primary", "--fixture", "fixture.json"},
+	} {
+		var opens int
+		command := newRootCommand(IOStreams{
+			In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+			OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
+				opens++
+				return OpenedProfile{}, errors.New("must not open")
+			},
+		})
+		command.SetArgs(args)
+
+		err := command.Execute()
+		require.ErrorContains(t, err, "if any flags in the group")
+		assert.Zero(t, opens)
 	}
 }
 

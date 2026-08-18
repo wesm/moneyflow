@@ -20,11 +20,13 @@ import (
 )
 
 type visualScenario struct {
-	name      string
-	scenario  parity.FrameScenario
-	theme     tui.ThemeName
-	colorMode tui.ColorMode
-	durable   bool
+	name             string
+	scenario         parity.FrameScenario
+	theme            tui.ThemeName
+	colorMode        tui.ColorMode
+	durable          bool
+	onboardingScreen string
+	allStatuses      bool
 }
 
 func TestVisualGoldens(t *testing.T) {
@@ -48,25 +50,37 @@ func TestVisualGoldens(t *testing.T) {
 
 	for _, visual := range scenarios {
 		t.Run(visual.name, func(t *testing.T) {
-			service := visualGoldenService(t, transactions, visual.durable)
-			session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
-			require.NoError(t, sessionErr)
-			model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
-				Theme: visual.theme, ColorMode: visual.colorMode,
-			})
-			require.NoError(t, modelErr)
-			model = updateModel(t, model, tea.WindowSizeMsg{
-				Width: visual.scenario.Width, Height: visual.scenario.Height,
-			})
-			for _, keyName := range visual.scenario.Keys {
-				if keyName == "external_undo" {
-					_, mutationErr := service.Undo(context.Background(), service.Revision())
-					require.NoError(t, mutationErr)
-					continue
+			var frame tui.Frame
+			if visual.onboardingScreen != "" {
+				screen, renderErr := tui.RenderOnboardingPreviewForTest(
+					visual.onboardingScreen,
+					visual.scenario.Width,
+					visual.scenario.Height,
+					visual.allStatuses,
+				)
+				require.NoError(t, renderErr)
+				frame = screen.Frame
+			} else {
+				service := visualGoldenService(t, transactions, visual.durable)
+				session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
+				require.NoError(t, sessionErr)
+				model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
+					Theme: visual.theme, ColorMode: visual.colorMode,
+				})
+				require.NoError(t, modelErr)
+				model = updateModel(t, model, tea.WindowSizeMsg{
+					Width: visual.scenario.Width, Height: visual.scenario.Height,
+				})
+				for _, keyName := range visual.scenario.Keys {
+					if keyName == "external_undo" {
+						_, mutationErr := service.Undo(context.Background(), service.Revision())
+						require.NoError(t, mutationErr)
+						continue
+					}
+					model = updateModel(t, model, semanticKey(keyName))
 				}
-				model = updateModel(t, model, semanticKey(keyName))
+				frame = model.RenderScreen().Frame
 			}
-			frame := model.RenderScreen().Frame
 			artifact, encodeErr := parity.EncodeVisual(visual.name, frame)
 			require.NoError(t, encodeErr)
 			path := filepath.Join(artifactDirectory, visual.name+".json")
@@ -87,7 +101,7 @@ func TestVisualGoldens(t *testing.T) {
 }
 
 func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenario {
-	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+8)
+	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+14)
 	var merchant parity.FrameScenario
 	for _, scenario := range document.Scenarios {
 		result = append(result, visualScenario{
@@ -112,6 +126,33 @@ func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenar
 		theme: tui.ThemeDefault, colorMode: tui.ColorModeNone,
 	})
 	result = append(result, goOnlyEditingScenarios(merchant)...)
+	result = append(result, onboardingVisualScenarios()...)
+	return result
+}
+
+func onboardingVisualScenarios() []visualScenario {
+	result := make([]visualScenario, 0, 6)
+	for _, screen := range []string{
+		"account_selector", "provider_selector", "credential_setup", "credential_unlock",
+	} {
+		result = append(result, visualScenario{
+			name:             screen,
+			scenario:         parity.FrameScenario{Width: 100, Height: 30},
+			onboardingScreen: screen,
+		})
+	}
+	result = append(result,
+		visualScenario{
+			name:             "account_selector_minimum",
+			scenario:         parity.FrameScenario{Width: 80, Height: 24},
+			onboardingScreen: "account_selector",
+		},
+		visualScenario{
+			name:             "account_selector_statuses",
+			scenario:         parity.FrameScenario{Width: 100, Height: 30},
+			onboardingScreen: "account_selector", allStatuses: true,
+		},
+	)
 	return result
 }
 

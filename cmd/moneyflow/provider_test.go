@@ -637,9 +637,10 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 				}
 			}
 			streams.RunTUI = func(
-				_ context.Context, service *app.Service, _ app.Session, _ tui.Options, _ IOStreams,
+				_ context.Context, dependencies tui.ShellDependencies, _ tui.Options, _ IOStreams,
 			) error {
-				assertConfigured(service)
+				require.NotNil(t, dependencies.Preselected)
+				assertConfigured(dependencies.Preselected.Service)
 				return nil
 			}
 			streams.RunWeb = func(
@@ -650,7 +651,11 @@ func TestBoundProfileConfiguresProviderForProductionTUIAndWebCommands(t *testing
 			}
 
 			command := newRootCommand(streams)
-			command.SetArgs(test.args)
+			args := test.args
+			if test.name == "tui" {
+				args = []string{"tui", "--profile", "Moneyflow"}
+			}
+			command.SetArgs(args)
 			require.NoError(t, command.Execute())
 			assert.True(t, configured)
 		})

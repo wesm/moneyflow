@@ -315,12 +315,34 @@ func cancelEligible(ctx context.Context, root string, id string) (bool, error) {
 		"profile.lock", "provider-connect.lock",
 	}
 	for _, child := range children {
+		if child.Name() == "providers" {
+			if !emptyMonarchRuntimeDirectory(root, child) {
+				return false, nil
+			}
+			continue
+		}
 		if !slices.Contains(allowed, child.Name()) || child.IsDir() ||
 			child.Type()&os.ModeSymlink != 0 {
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+func emptyMonarchRuntimeDirectory(root string, providers os.DirEntry) bool {
+	if providers.Type()&os.ModeSymlink != 0 || !providers.IsDir() {
+		return false
+	}
+	providerEntries, err := os.ReadDir(filepath.Join(root, providers.Name()))
+	if err != nil || len(providerEntries) != 1 {
+		return false
+	}
+	monarch := providerEntries[0]
+	if monarch.Name() != "monarch" || monarch.Type()&os.ModeSymlink != 0 || !monarch.IsDir() {
+		return false
+	}
+	monarchEntries, err := os.ReadDir(filepath.Join(root, providers.Name(), monarch.Name()))
+	return err == nil && len(monarchEntries) == 0
 }
 
 func removeOwnedProfileRoot(profiles string, id string) error {

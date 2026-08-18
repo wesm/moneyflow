@@ -68,8 +68,8 @@ budgets, you'll be prompted to select one. See the [YNAB setup guide](https://mo
 
 The `go-port` branch contains the in-progress full Go replacement. Both its TUI and embedded web
 application use the same pure-Go SQLite profile and preserve the keyboard-driven refinement and
-editing workflow. The default profile is `~/.moneyflow/v2/moneyflow.db`; set `MONEYFLOW_HOME` to
-choose a different v2 profile root.
+editing workflow. Moneyflow discovers persistent profiles beneath `~/.moneyflow/v2`; set
+`MONEYFLOW_HOME` to choose a different v2 catalog root.
 
 ```bash
 make build
@@ -78,8 +78,11 @@ make build
 make tui-demo
 make web-demo
 
-# Persistent TUI profile
+# Select, add, reconnect, or recover a persistent TUI profile
 ./bin/moneyflow tui
+
+# Advanced direct selection by exact profile name or ID
+./bin/moneyflow tui --profile "Example Profile"
 
 # Persistent web profile on loopback, with automatic browser launch
 ./bin/moneyflow web
@@ -99,7 +102,8 @@ mutations instead of silently overwriting another process.
 ### Monarch read and refresh preview
 
 The Go v2 preview can bind one pristine profile to one Monarch household and import posted
-transactions. Connection is deliberately interactive and CLI-only:
+transactions. Choose **Add profile** in `moneyflow tui` for the keyboard-driven setup wizard. The
+provider command remains available as an advanced terminal workflow:
 
 ```bash
 ./bin/moneyflow provider connect monarch --currency USD --scale 2
@@ -109,23 +113,24 @@ transactions. Connection is deliberately interactive and CLI-only:
 ./bin/moneyflow provider disconnect monarch
 ```
 
-The first connection requires an explicit three-letter currency and its decimal scale; those exact
-money settings are stored with the hardened Monarch session and reused by later refreshes. For
-example, USD uses scale 2 and JPY commonly uses scale 0. First-time setup also asks for the Monarch
-email, password, Base32 TOTP secret, and a Moneyflow account password. Secret entry displays masked
-feedback. Credentials are stored only in a password-encrypted vault, and Moneyflow generates Monarch
-verification codes automatically. A reconnect reuses the stored money settings and asks only for
-the Moneyflow account password when the saved Monarch session has expired.
+The wizard defaults to USD with scale 2 and lets you confirm another three-letter currency and
+decimal scale. Those exact money settings are stored with the hardened Monarch session and reused
+by later refreshes. First-time setup also asks for the Monarch email, password, Base32 TOTP secret,
+and a Moneyflow account password. Secret entry displays masked feedback. Credentials are stored only
+in a password-encrypted vault, and Moneyflow generates Monarch verification codes automatically. A
+reconnect reuses the stored money settings and asks only for the Moneyflow account password when the
+saved Monarch session has expired.
 
-There is no `--replace` option. If the default profile already contains local state, stop every
-moneyflow process and move or remove the v2 profile outside the application before connecting.
-Profile management will provide a safer in-application path in a later slice.
+There is no destructive `--replace` option. Add a separate profile from the TUI when an existing
+profile contains local state. The selector can recreate an incompatible preview schema only after
+an explicit two-step confirmation and preserves the old database in a dated recovery directory.
 
 Press `r` in the TUI or web UI to run a complete refresh. A long-lived TUI or web server also
 checks every six hours and lets one process fetch at a time. If the session expires, browsing and
-pending edits remain available offline; run `moneyflow provider connect monarch` again to
-reconnect. The CLI reports authentication and import stages plus bounded transaction counts, and a
-retained valid session after a failed import skips credential prompts entirely.
+pending edits remain available offline; the TUI enters its reconnect wizard without losing the
+current view, cursor, or scroll position. The CLI reports authentication and import stages plus
+bounded transaction counts, and a retained valid session after a failed import skips credential
+prompts entirely.
 
 This slice is read/import/refresh only. Edits are durable local intent, survive refresh and
 restart, and may be reviewed or undone, but `w` cannot commit them until the separate Monarch
@@ -160,14 +165,13 @@ the canonical origin.
 The v2 database is not application-encrypted. Use full-disk encryption and protect backups as you
 would other financial files. Moneyflow creates the profile with private platform permissions and
 uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic writes. Monarch
-session material is stored separately at `~/.moneyflow/v2/providers/monarch/session.json` with
-owner-only platform permissions. Monarch credentials live in a separate owner-only
-`credentials.enc` vault protected by an account password using Argon2id and AES-256-GCM; generated
-verification codes are never persisted. The current preview intentionally has no provider
-write-back, built-in web authentication, profile manager, export/backup workflow, Python-state
-import, or schema migrations. If the install-only schema is incompatible, stop moneyflow, move the
-complete v2 profile directory aside, and reconnect or recreate it; automatic migration begins only
-after the v2 format stabilizes.
+session material is stored separately inside each profile directory with owner-only platform
+permissions. Monarch credentials live in that profile's separate owner-only `credentials.enc`
+vault protected by an account password using Argon2id and AES-256-GCM; generated verification codes
+are never persisted. The current preview intentionally has no provider write-back, built-in web
+authentication, export workflow, Python-state import, or schema migrations. If the install-only
+schema is incompatible, use the TUI recovery flow or move the complete profile directory aside;
+automatic migration begins only after the v2 format stabilizes.
 
 ---
 

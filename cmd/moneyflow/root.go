@@ -10,12 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
-	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/tui"
 	"github.com/wesm/moneyflow/internal/version"
 )
 
-type tuiRunner func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error
+type tuiRunner func(context.Context, tui.ShellDependencies, tui.Options, IOStreams) error
 type openAPIWriter func(format string) ([]byte, error)
 
 // PromptFunc reads one local prompt value. Secret prompts must disable terminal echo.
@@ -84,6 +83,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 func newTUICommand(streams IOStreams) *cobra.Command {
 	var theme string
 	var fixturePath string
+	var profile string
 	var demo bool
 	command := &cobra.Command{
 		Use:   "tui",
@@ -94,35 +94,25 @@ func newTUICommand(streams IOStreams) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("start TUI: %w", err)
 			}
-			opener := streams.OpenProfile
-			if opener == nil {
-				opener = openProfile
-			}
-			opened, err := opener(command.Context(), ProfileOptions{
-				Demo: demo || fixturePath != "", FixturePath: fixturePath,
+			dependencies, err := buildTUIShellDependencies(command.Context(), streams, ProfileOptions{
+				Demo: demo || fixturePath != "", FixturePath: fixturePath, Profile: profile,
 			})
 			if err != nil {
 				return fmt.Errorf("start TUI: %w", err)
-			}
-			if err = configureOpenedMonarchProvider(
-				command.Context(), opened, streams, "tui",
-			); err != nil {
-				return fmt.Errorf("start TUI: %w", closeOpenedProfile(opened, err))
 			}
 			runner := streams.RunTUI
 			if runner == nil {
 				runner = func(
 					ctx context.Context,
-					service *app.Service,
-					session app.Session,
+					dependencies tui.ShellDependencies,
 					options tui.Options,
 					streams IOStreams,
 				) error {
-					return tui.Run(ctx, service, session, options, streams.In, streams.Out)
+					return tui.RunShell(ctx, dependencies, options, streams.In, streams.Out)
 				}
 			}
-			runErr := runner(command.Context(), opened.Service, app.NewSession(), options, streams)
-			if err = closeOpenedProfile(opened, runErr); err != nil {
+			runErr := runner(command.Context(), dependencies, options, streams)
+			if err = closePreselectedShellProfile(dependencies, runErr); err != nil {
 				return fmt.Errorf("start TUI: %w", err)
 			}
 			return nil
@@ -133,6 +123,9 @@ func newTUICommand(streams IOStreams) *cobra.Command {
 		&demo, "demo", false, "open a temporary profile seeded with synthetic data",
 	)
 	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
+	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
+	command.MarkFlagsMutuallyExclusive("profile", "demo")
+	command.MarkFlagsMutuallyExclusive("profile", "fixture")
 	if err := command.Flags().MarkHidden("fixture"); err != nil {
 		panic(err)
 	}

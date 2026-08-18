@@ -135,6 +135,19 @@ func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	assert.DirExists(t, catalog.paths.Root)
 }
 
+func TestCancelNewProfileAllowsEmptyMonarchRuntimeDirectories(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry := createTestManifestProfile(t, catalog, 0x26, "Canceled", "monarch")
+	_, err := home.EnsurePrivateSubdirectory(entry.Root, "providers", "monarch")
+	require.NoError(t, err)
+
+	removed, err := catalog.CancelNewProfile(context.Background(), entry.ID)
+	require.NoError(t, err)
+	assert.True(t, removed)
+	assert.NoDirExists(t, entry.Root)
+}
+
 func TestCancelNewProfileRefusesSessionVaultJournalCommittedOrUnexpectedState(t *testing.T) {
 	t.Parallel()
 	testCases := map[string]struct {

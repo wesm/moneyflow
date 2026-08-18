@@ -285,11 +285,12 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 		RunTUI: func(
 			commandContext context.Context,
-			service *app.Service,
-			_ app.Session,
+			dependencies tui.ShellDependencies,
 			_ tui.Options,
 			_ IOStreams,
 		) error {
+			require.NotNil(t, dependencies.Preselected)
+			service := dependencies.Preselected.Service
 			mutation, mutationErr := service.Mutate(commandContext, app.MutationRequest{
 				Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
 				State: state, Selection: app.EmptySelection(),
@@ -302,18 +303,19 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
-	first.SetArgs([]string{"tui"})
+	first.SetArgs([]string{"tui", "--profile", "Moneyflow"})
 	require.NoError(t, first.Execute())
 
 	second := newRootCommand(IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 		RunTUI: func(
 			commandContext context.Context,
-			service *app.Service,
-			_ app.Session,
+			dependencies tui.ShellDependencies,
 			_ tui.Options,
 			_ IOStreams,
 		) error {
+			require.NotNil(t, dependencies.Preselected)
+			service := dependencies.Preselected.Service
 			review, reviewErr := service.Review(
 				commandContext, service.Revision(), app.ReviewWindow{Limit: 20},
 			)
@@ -323,31 +325,32 @@ func TestOpenProfilePersistsPendingJournalAcrossRestart(t *testing.T) {
 			return nil
 		},
 	})
-	second.SetArgs([]string{"tui"})
+	second.SetArgs([]string{"tui", "--profile", "Moneyflow"})
 	require.NoError(t, second.Execute())
 }
 
 func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
-	t.Parallel()
 	fixturePath := filepath.Join("..", "..", "testdata", "parity", "transactions.json")
 	for _, test := range []struct {
-		name string
-		args []string
-		want ProfileOptions
+		name     string
+		args     []string
+		want     ProfileOptions
+		wantOpen bool
 	}{
 		{name: "tui", args: []string{"tui"}, want: ProfileOptions{}},
-		{name: "tui demo", args: []string{"tui", "--demo"}, want: ProfileOptions{Demo: true}},
+		{name: "tui demo", args: []string{"tui", "--demo"}, want: ProfileOptions{Demo: true}, wantOpen: true},
 		{
 			name: "tui fixture", args: []string{"tui", "--fixture", fixturePath},
-			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath}, wantOpen: true,
 		},
-		{name: "web demo", args: []string{"web", "--demo", "--open=false"}, want: ProfileOptions{Demo: true}},
+		{name: "web demo", args: []string{"web", "--demo", "--open=false"}, want: ProfileOptions{Demo: true}, wantOpen: true},
 		{
 			name: "web fixture", args: []string{"web", "--fixture", fixturePath, "--open=false"},
-			want: ProfileOptions{Demo: true, FixturePath: fixturePath},
+			want: ProfileOptions{Demo: true, FixturePath: fixturePath}, wantOpen: true,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("MONEYFLOW_HOME", t.TempDir())
 			ctx := context.WithValue(context.Background(), profileContextKey{}, test.name)
 			service, err := app.NewService(nil)
 			require.NoError(t, err)
@@ -360,7 +363,14 @@ func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
 					got = options
 					return OpenedProfile{Service: service, Close: func() error { closes++; return nil }}, nil
 				},
-				RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error { return nil },
+				RunTUI: func(_ context.Context, dependencies tui.ShellDependencies, _ tui.Options, _ IOStreams) error {
+					if test.wantOpen && strings.HasPrefix(test.name, "tui") {
+						require.NotNil(t, dependencies.Preselected)
+					} else if test.name == "tui" {
+						assert.Nil(t, dependencies.Preselected)
+					}
+					return nil
+				},
 				RunWeb: func(context.Context, *app.Service, WebOptions, IOStreams) error { return nil },
 			}
 			command := newRootCommand(streams)
@@ -368,36 +378,59 @@ func TestCommandsOpenExpectedProfileAndAlwaysCloseIt(t *testing.T) {
 			command.SetArgs(test.args)
 			require.NoError(t, command.Execute())
 			assert.Equal(t, test.want, got)
-			assert.Equal(t, 1, closes)
+			if test.wantOpen {
+				assert.Equal(t, 1, closes)
+			} else {
+				assert.Zero(t, closes)
+			}
 		})
 	}
 }
 
-func TestTUICommandUsesEmptySQLiteProfileFromEnvironment(t *testing.T) {
+func TestTUICommandStartsSelectorWithoutCreatingDefaultProfile(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "profile")
 	t.Setenv("MONEYFLOW_HOME", root)
-	var rows int
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
 		RunTUI: func(
 			_ context.Context,
-			service *app.Service,
-			_ app.Session,
+			dependencies tui.ShellDependencies,
 			_ tui.Options,
 			_ IOStreams,
 		) error {
-			result, err := service.Query(app.NewSession())
-			require.NoError(t, err)
-			rows = len(result.AggregateRows)
+			assert.Nil(t, dependencies.Preselected)
+			assert.NotNil(t, dependencies.Catalog)
 			return nil
 		},
 	}
 	command := newRootCommand(streams)
 	command.SetArgs([]string{"tui"})
 	require.NoError(t, command.Execute())
-	assert.Zero(t, rows)
 	_, err := os.Stat(filepath.Join(root, "moneyflow.db"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestTUICommandProfileFlagPreselectsByDisplayName(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", root)
+	catalog := newCommandTestCatalog(t, root)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Primary", ProviderKind: "monarch",
+	})
 	require.NoError(t, err)
+	command := newRootCommand(IOStreams{
+		In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{},
+		RunTUI: func(_ context.Context, dependencies tui.ShellDependencies, _ tui.Options, _ IOStreams) error {
+			require.NotNil(t, dependencies.Preselected)
+			assert.Equal(t, entry.ID, dependencies.Preselected.ID)
+			return nil
+		},
+	})
+	command.SetArgs([]string{"tui", "--profile", "Primary"})
+	require.NoError(t, command.Execute())
+	exclusive, err := home.TryLock(entry.ProfilePaths().Root, home.LockProfile, home.LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, exclusive.Release())
 }
 
 func TestCommandClosesProfileWhenRunnerFails(t *testing.T) {
@@ -411,11 +444,11 @@ func TestCommandClosesProfileWhenRunnerFails(t *testing.T) {
 		OpenProfile: func(context.Context, ProfileOptions) (OpenedProfile, error) {
 			return OpenedProfile{Service: service, Close: func() error { closes++; return nil }}, nil
 		},
-		RunTUI: func(context.Context, *app.Service, app.Session, tui.Options, IOStreams) error {
+		RunTUI: func(context.Context, tui.ShellDependencies, tui.Options, IOStreams) error {
 			return runnerFailure
 		},
 	})
-	command.SetArgs([]string{"tui"})
+	command.SetArgs([]string{"tui", "--demo"})
 	err = command.Execute()
 	assert.ErrorIs(t, err, runnerFailure)
 	assert.Equal(t, 1, closes)
