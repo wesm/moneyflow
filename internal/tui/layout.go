@@ -207,6 +207,10 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderProviderConfirmation(screen)
 	case overlayProviderWrite:
 		model.renderProviderWrite(screen)
+	case overlayDuplicates:
+		model.renderDuplicates(screen)
+	case overlayDeleteConfirmation:
+		model.renderDeleteConfirmation(screen)
 	case overlayQuit:
 		model.renderQuit(screen)
 	}

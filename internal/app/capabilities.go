@@ -14,7 +14,6 @@ const unavailableNoPending = "No pending changes are available."
 const (
 	unavailableMonarchTaxonomy = "Manage Monarch categories and groups in Monarch."
 	unavailableProviderWrite   = "Finish the provider write before editing or refreshing."
-	unavailableRendererRoute   = "This action is not available in the current interface yet."
 )
 
 // Capabilities returns the current provider-neutral local editing availability.
@@ -46,13 +45,13 @@ func (service *Service) Pending() PendingSummary {
 
 func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 	result := []Capability{
-		{Action: ActionFindDuplicates, Reason: unavailableRendererRoute},
+		{Action: ActionFindDuplicates, Available: true},
 		{Action: ActionEditMerchant, Available: true},
 		{Action: ActionEditCategory, Available: true},
 		{Action: ActionManageCategories, Available: true},
 		{Action: ActionManageGroups, Available: true},
 		{Action: ActionToggleHidden, Available: true},
-		{Action: ActionDeleteTransaction, Reason: unavailableRendererRoute},
+		{Action: ActionDeleteTransaction, Available: true},
 		{Action: ActionUndo, Available: snapshot.Cursor > 0},
 		{Action: ActionRedo, Available: snapshot.Cursor < len(snapshot.Journal)},
 		{Action: ActionReviewChanges, Available: len(snapshot.Journal) > 0},

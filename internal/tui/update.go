@@ -107,6 +107,10 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeProviderConfirmation(message)
 	case overlayProviderWrite:
 		return model.routeProviderWrite(message)
+	case overlayDuplicates:
+		return model.routeDuplicates(message)
+	case overlayDeleteConfirmation:
+		return model.routeDeleteConfirmation(message)
 	case overlayQuit:
 		return model.routeQuit(message)
 	}
@@ -129,6 +133,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionShowDetail:
 		model.session.ShowAllDetail()
 		model.resetAndRefresh()
+	case app.ActionFindDuplicates:
+		return model.openDuplicates()
 	case app.ActionSwitchAccounts:
 		model.session.SwitchAccounts()
 		model.resetAndRefresh()
@@ -200,6 +206,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		} else {
 			model.status = capabilityMessage(capability)
 		}
+	case app.ActionDeleteTransaction:
+		return model.openDeleteConfirmation()
 	case app.ActionUndo:
 		if capability, available := model.capability(app.ActionUndo); available {
 			model.executeCursorMutation(app.ActionUndo)

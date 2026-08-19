@@ -38,19 +38,29 @@ func friendlyReviewOperationLabel(operationType domain.OperationType) string {
 		return "Delete group"
 	case domain.OperationTransactionHide:
 		return "Toggle report visibility"
+	case domain.OperationTransactionDelete:
+		return "Delete transaction"
 	default:
 		return "Unknown change"
 	}
 }
 
 func reviewOperationLine(operation app.ReviewOperation) string {
+	label := friendlyReviewOperationLabel(operation.Type)
+	if operation.Type == domain.OperationTransactionDelete && operation.AffectedCount != 1 {
+		label = "Delete transactions"
+	}
 	targetWord := "transactions"
 	if operation.AffectedCount == 1 {
 		targetWord = "transaction"
 	}
+	affected := fmt.Sprintf("%d %s", operation.AffectedCount, targetWord)
+	if operation.AffectedCount == 0 {
+		affected = "affects 0 transactions"
+	}
 	parts := []string{
-		fmt.Sprintf("%d  %s", operation.Sequence, friendlyReviewOperationLabel(operation.Type)),
-		fmt.Sprintf("%d %s", operation.AffectedCount, targetWord),
+		fmt.Sprintf("%d  %s", operation.Sequence, label),
+		affected,
 	}
 	before, after := strings.TrimSpace(operation.Before), strings.TrimSpace(operation.After)
 	if before != "" || after != "" {

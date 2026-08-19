@@ -21,8 +21,7 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
 	initial := capabilitiesByAction(service.Capabilities())
-	assert.False(t, initial[app.ActionFindDuplicates].Available)
-	assert.NotEmpty(t, initial[app.ActionFindDuplicates].Reason)
+	assert.True(t, initial[app.ActionFindDuplicates].Available)
 	assert.True(t, initial[app.ActionEditMerchant].Available)
 	assert.False(t, initial[app.ActionUndo].Available)
 	assert.False(t, initial[app.ActionRedo].Available)
@@ -59,8 +58,7 @@ func TestDeleteCapabilityRequiresDetailState(t *testing.T) {
 	assert.False(t, aggregate[app.ActionDeleteTransaction].Available)
 	assert.NotEmpty(t, aggregate[app.ActionDeleteTransaction].Reason)
 	detail := capabilitiesByAction(service.CapabilitiesForState(detailViewState()))
-	assert.False(t, detail[app.ActionDeleteTransaction].Available)
-	assert.NotEmpty(t, detail[app.ActionDeleteTransaction].Reason)
+	assert.True(t, detail[app.ActionDeleteTransaction].Available)
 }
 
 func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testing.T) {

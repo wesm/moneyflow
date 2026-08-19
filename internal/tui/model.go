@@ -42,6 +42,8 @@ const (
 	overlayReview
 	overlayProviderConfirmation
 	overlayProviderWrite
+	overlayDuplicates
+	overlayDeleteConfirmation
 	overlayQuit
 )
 
@@ -55,37 +57,39 @@ type searchState struct {
 
 // Model owns terminal-only state around a renderer-neutral application session.
 type Model struct {
-	ctx             context.Context
-	service         *app.Service
-	session         app.Session
-	options         Options
-	palette         Palette
-	bindings        []binding
-	result          domain.QueryResult
-	width           int
-	height          int
-	cursor          int
-	scroll          int
-	status          string
-	err             error
-	overlay         overlayKind
-	search          searchState
-	filters         filterState
-	help            helpState
-	transactionInfo transactionInfoState
-	merchant        merchantEditorState
-	category        categoryEditorState
-	categoryManager taxonomyManagerState
-	groupManager    taxonomyManagerState
-	review          reviewState
-	quit            quitState
-	pending         app.PendingSummary
-	caps            map[app.ActionID]app.Capability
-	selection       app.SelectionValue
-	provider        providerTUIState
-	providerWrite   providerWriteTUIState
-	now             func() time.Time
-	clockAt         time.Time
+	ctx                context.Context
+	service            *app.Service
+	session            app.Session
+	options            Options
+	palette            Palette
+	bindings           []binding
+	result             domain.QueryResult
+	width              int
+	height             int
+	cursor             int
+	scroll             int
+	status             string
+	err                error
+	overlay            overlayKind
+	search             searchState
+	filters            filterState
+	help               helpState
+	transactionInfo    transactionInfoState
+	merchant           merchantEditorState
+	category           categoryEditorState
+	categoryManager    taxonomyManagerState
+	groupManager       taxonomyManagerState
+	review             reviewState
+	quit               quitState
+	pending            app.PendingSummary
+	caps               map[app.ActionID]app.Capability
+	selection          app.SelectionValue
+	provider           providerTUIState
+	providerWrite      providerWriteTUIState
+	duplicates         duplicateState
+	deleteConfirmation deleteConfirmationState
+	now                func() time.Time
+	clockAt            time.Time
 }
 
 // NewModel validates presentation options and evaluates the initial session.

@@ -12,6 +12,7 @@ import (
 type transactionInfoState struct {
 	transaction domain.Transaction
 	scroll      int
+	previous    overlayKind
 }
 
 func (model *Model) openTransactionInfo() tea.Cmd {
@@ -19,18 +20,20 @@ func (model *Model) openTransactionInfo() tea.Cmd {
 		model.status = "Transaction information is available from a transaction row."
 		return nil
 	}
-	model.transactionInfo = transactionInfoState{
-		transaction: model.result.DetailRows[model.cursor].Transaction.Clone(),
-	}
+	model.openTransactionInfoFor(model.result.DetailRows[model.cursor].Transaction, overlayNone)
+	return nil
+}
+
+func (model *Model) openTransactionInfoFor(transaction domain.Transaction, previous overlayKind) {
+	model.transactionInfo = transactionInfoState{transaction: transaction.Clone(), previous: previous}
 	model.status = ""
 	model.overlay = overlayTransactionInfo
-	return nil
 }
 
 func (model *Model) routeTransactionInfo(message tea.KeyPressMsg) tea.Cmd {
 	switch message.Keystroke() {
 	case "esc", "enter", "i":
-		model.overlay = overlayNone
+		model.overlay = model.transactionInfo.previous
 		model.transactionInfo = transactionInfoState{}
 	case "up", "k":
 		model.transactionInfo.scroll = max(0, model.transactionInfo.scroll-1)
