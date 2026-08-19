@@ -101,6 +101,7 @@ func providerWritePerformanceFinalizationInput(tb testing.TB) store.FinalizeProv
 	results := make([]store.WriteResult, len(plan.Items))
 	for index, item := range plan.Items {
 		result := store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
 			RecordedAt: providerWriteTime(),
 		}

@@ -60,7 +60,7 @@ func TestConcurrentProviderWritePreparationAllowsExactlyOneRenderer(t *testing.T
 					FrozenOperationIDs: []string{"operation-concurrent-prepare"},
 					FrozenPrefixDigest: "digest-concurrent",
 					Items: []store.WriteItem{{
-						ID: []string{"item-tui", "item-web"}[index], Position: 0,
+						ID: []string{"item-tui", "item-web"}[index], Position: 0, Kind: store.WriteItemUpdate,
 						TransactionID: target.ID, TransactionExternalID: target.ProviderID,
 						RequestedHidden:         &hidden,
 						OriginatingOperationIDs: []string{"operation-concurrent-prepare"},

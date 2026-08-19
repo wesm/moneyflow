@@ -155,6 +155,7 @@ func planAbsoluteWriteItems(
 		}
 		item := store.WriteItem{
 			ID: itemID, BatchID: batchID, Position: index,
+			Kind:          store.WriteItemUpdate,
 			TransactionID: plan.transaction.ID, TransactionExternalID: plan.externalID,
 			OriginatingOperationIDs: append([]string(nil), plan.operationIDs...),
 			Expectation:             plan.expectation,

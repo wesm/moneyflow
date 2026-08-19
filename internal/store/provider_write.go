@@ -51,7 +51,15 @@ const (
 // WriteItemState is one durable outbound item's state.
 type WriteItemState string
 
+// WriteItemKind distinguishes absolute field updates from transaction deletion.
+type WriteItemKind string
+
 const (
+	// WriteItemUpdate applies one or more absolute transaction field values.
+	WriteItemUpdate WriteItemKind = "update"
+	// WriteItemDelete removes one transaction from the provider.
+	WriteItemDelete WriteItemKind = "delete"
+
 	// WriteItemPending remains eligible for a provider attempt.
 	WriteItemPending WriteItemState = "pending"
 	// WriteItemSucceeded has a normalized durable response.
@@ -138,6 +146,7 @@ type WriteItem struct {
 	ID                          string
 	BatchID                     string
 	Position                    int
+	Kind                        WriteItemKind
 	TransactionID               domain.EntityID
 	TransactionExternalID       string
 	RequestedMerchantLocalID    domain.EntityID
@@ -178,12 +187,14 @@ func (group WriteItemGroup) Clone() WriteItemGroup {
 // WriteResult stores only normalized response fields, never a raw provider payload.
 type WriteResult struct {
 	ItemID                string
+	Kind                  WriteItemKind
 	TransactionExternalID string
 	MerchantExternalID    *string
 	MerchantLabel         *string
 	CategoryExternalID    *string
 	Hidden                *bool
 	OverrideCount         int
+	AlreadyAbsent         bool
 	RecordedAt            time.Time
 }
 
@@ -194,6 +205,27 @@ func (result WriteResult) Clone() WriteResult {
 	result.CategoryExternalID = clonePointer(result.CategoryExternalID)
 	result.Hidden = clonePointer(result.Hidden)
 	return result
+}
+
+// Validate checks the normalized result union before it reaches persistence.
+func (result WriteResult) Validate() error {
+	if result.ItemID == "" || result.TransactionExternalID == "" {
+		return errors.New("provider write result identity is incomplete")
+	}
+	switch result.Kind {
+	case WriteItemUpdate:
+		if result.AlreadyAbsent {
+			return errors.New("provider update result cannot be already absent")
+		}
+	case WriteItemDelete:
+		if result.MerchantExternalID != nil || result.MerchantLabel != nil ||
+			result.CategoryExternalID != nil || result.Hidden != nil || result.OverrideCount != 0 {
+			return errors.New("provider delete result contains update fields")
+		}
+	default:
+		return errors.New("provider write result kind is invalid")
+	}
+	return nil
 }
 
 // LastWriteSummary is the counts-only record retained after batch detail is removed.
@@ -421,10 +453,55 @@ func (plan PrepareProviderWritePlan) Validate(inputs PrepareProviderWriteInputs)
 			item.State != WriteItemPending || item.AttemptCount != 0 {
 			return fmt.Errorf("provider write plan item %d is invalid", index)
 		}
+		if err := item.Validate(); err != nil {
+			return fmt.Errorf("provider write plan item %d: %w", index, err)
+		}
 		if _, exists := seenTransactions[item.TransactionID]; exists {
 			return errors.New("provider write plan has duplicate transaction")
 		}
 		seenTransactions[item.TransactionID] = struct{}{}
+	}
+	return nil
+}
+
+// Validate checks the durable item union independently of transport or persistence.
+func (item WriteItem) Validate() error {
+	hasUpdate := item.RequestedMerchantName != nil || item.RequestedCategoryExternalID != nil ||
+		item.RequestedHidden != nil
+	switch item.Kind {
+	case WriteItemDelete:
+		if hasUpdate || item.RequestedMerchantLocalID != "" || item.Expectation != "" ||
+			item.ExpectedMerchantExternalID != "" || item.NewGroupKey != "" || item.GroupLeader {
+			return errors.New("delete item contains update fields")
+		}
+	case WriteItemUpdate:
+		if !hasUpdate {
+			return errors.New("update item has no requested field")
+		}
+		if item.RequestedMerchantName == nil {
+			if item.RequestedMerchantLocalID != "" || item.Expectation != "" ||
+				item.ExpectedMerchantExternalID != "" || item.NewGroupKey != "" || item.GroupLeader {
+				return errors.New("update item merchant expectation is inconsistent")
+			}
+			break
+		}
+		if item.RequestedMerchantLocalID == "" {
+			return errors.New("update item merchant local ID is empty")
+		}
+		switch item.Expectation {
+		case WriteExpectationExisting, WriteExpectationMergeDestination:
+			if item.ExpectedMerchantExternalID == "" || item.NewGroupKey != "" || item.GroupLeader {
+				return errors.New("update item existing merchant expectation is incomplete")
+			}
+		case WriteExpectationNew:
+			if item.ExpectedMerchantExternalID != "" || item.NewGroupKey == "" {
+				return errors.New("update item new merchant expectation is incomplete")
+			}
+		default:
+			return errors.New("update item merchant expectation is invalid")
+		}
+	default:
+		return errors.New("write item kind is invalid")
 	}
 	return nil
 }

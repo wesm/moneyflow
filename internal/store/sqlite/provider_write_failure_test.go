@@ -63,7 +63,7 @@ func TestProviderWritePreparationFailuresRollBackAllState(t *testing.T) {
 				return store.PrepareProviderWritePlan{
 					FrozenOperationIDs: []string{"operation-active"}, FrozenPrefixDigest: "digest-a",
 					Items: []store.WriteItem{{
-						ID: "item-a", Position: 0, TransactionID: target.ID,
+						ID: "item-a", Position: 0, Kind: store.WriteItemUpdate, TransactionID: target.ID,
 						TransactionExternalID: target.ProviderID, RequestedHidden: &hidden,
 						OriginatingOperationIDs: []string{"operation-active"}, State: store.WriteItemPending,
 					}},
@@ -94,6 +94,7 @@ func TestProviderWriteFinalizationFailurePreservesBatchJournalAndCommittedState(
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 		ItemID: "item-a", Result: store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 		}, ObservedAt: now,
 	})

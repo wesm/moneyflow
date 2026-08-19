@@ -77,6 +77,20 @@ func TestOperationCodecRejectsInvalidRepresentations(t *testing.T) {
 	}
 }
 
+func TestTransactionDeletePayloadIsStrictCanonicalEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	operations := codecOperations(t)
+	operation := operations[len(operations)-1]
+	require.Equal(t, domain.OperationTransactionDelete, operation.Type)
+	encoded, err := encodeOperationPayload(operation)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(encoded))
+
+	_, err = decodeOperationPayload(operationWithoutPayload(operation), []byte(`{"extra":true}`))
+	assert.ErrorContains(t, err, "unknown field")
+}
+
 func TestPayloadVersionRefusalDoesNotRewriteStoredEntry(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +174,8 @@ func codecOperations(t *testing.T) []domain.Operation {
 	}
 	hide := base(1, domain.OperationTransactionHide, "transaction_a", "transaction_b")
 	hide.HideToggle = &domain.HideTogglePayload{}
+	transactionDelete := base(1, domain.OperationTransactionDelete, "transaction_a", "transaction_b")
+	transactionDelete.TransactionDelete = &domain.TransactionDeletePayload{}
 
 	operations := []domain.Operation{
 		label(domain.OperationMerchantLabel, "merchant_a", "Merchant A"),
@@ -176,6 +192,7 @@ func codecOperations(t *testing.T) []domain.Operation {
 		merge(domain.OperationGroupMerge, "group_a", "group_b"),
 		groupDelete,
 		hide,
+		transactionDelete,
 	}
 	var sequence int64
 	for index := range operations {
@@ -194,5 +211,6 @@ func operationWithoutPayload(operation domain.Operation) domain.Operation {
 	operation.Reassign = nil
 	operation.Delete = nil
 	operation.HideToggle = nil
+	operation.TransactionDelete = nil
 	return operation
 }

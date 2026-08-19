@@ -59,6 +59,25 @@ func TestOpenRejectsVersionTwoWithoutUpgrading(t *testing.T) {
 	assert.Equal(t, 2, version)
 }
 
+func TestOpenRejectsVersionSixBeforeUsingVersionSevenShape(t *testing.T) {
+	t.Parallel()
+
+	paths := temporaryPaths(t)
+	profileStore, err := Open(context.Background(), paths, DefaultOptions)
+	require.NoError(t, err)
+	require.NoError(t, profileStore.Close())
+	database, err := sql.Open(driverName, dataSourceName(paths.Database, DefaultOptions))
+	require.NoError(t, err)
+	_, err = database.ExecContext(context.Background(),
+		"UPDATE schema_metadata SET schema_version = 6 WHERE singleton = 1")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+
+	opened, err := Open(context.Background(), paths, DefaultOptions)
+	assert.Nil(t, opened)
+	assertStoreCode(t, err, store.CodeSchemaIncompatible)
+}
+
 func TestOpenRejectsCurrentVersionMissingRequiredSchemaObject(t *testing.T) {
 	t.Parallel()
 

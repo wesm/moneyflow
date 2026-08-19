@@ -607,6 +607,7 @@ func normalizeProviderWriteResult(
 		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
 	}
 	result := store.WriteResult{
+		Kind:   item.Kind,
 		ItemID: item.ID, TransactionExternalID: response.TransactionExternalID,
 		RecordedAt: recordedAt,
 	}

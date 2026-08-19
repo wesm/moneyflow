@@ -122,10 +122,10 @@ func TestPrepareProviderWriteFreezesReviewedPrefixAtomically(t *testing.T) {
 			FrozenOperationIDs: []string{"operation-write-a", "operation-write-b"},
 			FrozenPrefixDigest: "digest-a",
 			Items: []store.WriteItem{
-				{ID: "item-a", Position: 0, TransactionID: firstID,
+				{ID: "item-a", Position: 0, Kind: store.WriteItemUpdate, TransactionID: firstID,
 					TransactionExternalID: "provider-a", RequestedHidden: &hidden,
 					State: store.WriteItemPending},
-				{ID: "item-b", Position: 1, TransactionID: secondID,
+				{ID: "item-b", Position: 1, Kind: store.WriteItemUpdate, TransactionID: secondID,
 					TransactionExternalID: "provider-b", RequestedHidden: &hidden,
 					State: store.WriteItemPending},
 			},
@@ -195,6 +195,7 @@ func TestProviderWriteMutationsRequireMatchingLeaseOwnerAndKind(t *testing.T) {
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationRefresh,
 		ItemID: "item-a", Result: store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 		}, ObservedAt: now,
 	})
@@ -231,6 +232,7 @@ func TestProviderWriteResultTransitionsCompletedBatchToReconciling(t *testing.T)
 			BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 			ItemID: "item-a", Result: store.WriteResult{
+				Kind:   store.WriteItemUpdate,
 				ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 			}, ObservedAt: now,
 		})
@@ -238,6 +240,66 @@ func TestProviderWriteResultTransitionsCompletedBatchToReconciling(t *testing.T)
 	assert.Equal(t, store.WritePhaseReconciling, result.Phase)
 	assert.Equal(t, store.WriteResumeWriting, result.ResumeTarget)
 	assert.Equal(t, 1, result.CompletedItems)
+}
+
+func TestProviderWriteDeleteItemAndAlreadyAbsentResultRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	profile := openSeededProfile(t, DefaultOptions)
+	ctx := context.Background()
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profile.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-delete-a", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt: time.Date(2026, time.August, 18, 17, 15, 0, 0, time.UTC),
+		Targets:   []domain.EntityID{target.ID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 17, 16, 0, 0, time.UTC)
+	prepared, err := profile.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision, ExpectedGeneration: 0,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "owner-delete", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ProposedBatchID: "batch-delete", ProposedItemIDs: []string{"item-delete"}, ObservedAt: now,
+	}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
+		return store.PrepareProviderWritePlan{
+			FrozenOperationIDs: []string{"operation-delete-a"}, FrozenPrefixDigest: "digest-delete",
+			Items: []store.WriteItem{{
+				ID: "item-delete", Position: 0, Kind: store.WriteItemDelete,
+				TransactionID: target.ID, TransactionExternalID: target.ProviderID,
+				OriginatingOperationIDs: []string{"operation-delete-a"}, State: store.WriteItemPending,
+			}},
+		}, nil
+	})
+	require.NoError(t, err)
+	claimed, err := profile.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-delete", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, store.WriteItemDelete, claimed[0].Kind)
+
+	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-delete", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-delete", Result: store.WriteResult{
+			Kind: store.WriteItemDelete, ItemID: "item-delete",
+			TransactionExternalID: target.ProviderID, AlreadyAbsent: true, RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, store.WritePhaseReconciling, batch.Phase)
+	state, err := profile.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.Len(t, state.Results, 1)
+	assert.Equal(t, store.WriteItemDelete, state.Results[0].Kind)
+	assert.True(t, state.Results[0].AlreadyAbsent)
 }
 
 func TestProviderWriteResumePreservesFinalizationAndReconcilePurpose(t *testing.T) {
@@ -252,6 +314,7 @@ func TestProviderWriteResumePreservesFinalizationAndReconcilePurpose(t *testing.
 			BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 			LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 			ItemID: "item-a", Result: store.WriteResult{
+				Kind:   store.WriteItemUpdate,
 				ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: preparedAt,
 			}, ObservedAt: preparedAt,
 		})
@@ -322,6 +385,7 @@ func TestFinalizeProviderWriteRejectsPlannerThatDropsTransaction(t *testing.T) {
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 		ItemID: "item-a", Result: store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 		}, ObservedAt: now,
 	})
@@ -398,6 +462,7 @@ func TestFinalizeProviderWriteRejectsPlannerIdentityAndMetadataDrift(t *testing.
 				BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 				LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 				ItemID: "item-a", Result: store.WriteResult{
+					Kind:   store.WriteItemUpdate,
 					ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 				}, ObservedAt: now,
 			})
@@ -447,6 +512,7 @@ func TestFinalizeProviderWriteRejectsPlannerInputAliasing(t *testing.T) {
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 		ItemID: "item-a", Result: store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
 		}, ObservedAt: now,
 	})
@@ -488,7 +554,7 @@ func TestProviderWriteStateReconstructsNewMerchantGroups(t *testing.T) {
 		return store.PrepareProviderWritePlan{
 			FrozenOperationIDs: []string{"operation-write-a"}, FrozenPrefixDigest: "digest-a",
 			Items: []store.WriteItem{{
-				ID: "item-a", Position: 0, TransactionID: target.ID,
+				ID: "item-a", Position: 0, Kind: store.WriteItemUpdate, TransactionID: target.ID,
 				TransactionExternalID: target.ProviderID, RequestedHidden: &hidden,
 				RequestedMerchantLocalID: target.MerchantID,
 				RequestedMerchantName:    pointerTo("Example Merchant Updated"),
@@ -540,7 +606,7 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 		items := make([]store.WriteItem, 2)
 		for index, target := range loaded.Committed.Transactions[:2] {
 			items[index] = store.WriteItem{
-				ID: []string{"item-a", "item-b"}[index], Position: index,
+				ID: []string{"item-a", "item-b"}[index], Position: index, Kind: store.WriteItemUpdate,
 				TransactionID: target.ID, TransactionExternalID: target.ProviderID,
 				RequestedMerchantLocalID: target.MerchantID, RequestedMerchantName: &name,
 				RequestedHidden: &hidden, OriginatingOperationIDs: []string{"operation-write-a"},
@@ -568,6 +634,7 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 		ItemID: "item-a", Result: store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: claimed[0].TransactionExternalID,
 			MerchantExternalID: &merchantID, Hidden: &hidden, RecordedAt: now,
 		}, ObservedAt: now,
@@ -608,7 +675,7 @@ func preparedWriteProfile(t *testing.T) (*profile, store.PrepareProviderWriteCom
 		return store.PrepareProviderWritePlan{
 			FrozenOperationIDs: []string{"operation-write-a"}, FrozenPrefixDigest: "digest-a",
 			Items: []store.WriteItem{{
-				ID: "item-a", Position: 0, TransactionID: target.ID,
+				ID: "item-a", Position: 0, Kind: store.WriteItemUpdate, TransactionID: target.ID,
 				TransactionExternalID: target.ProviderID, RequestedHidden: &hidden,
 				OriginatingOperationIDs: []string{"operation-write-a"}, State: store.WriteItemPending,
 			}},

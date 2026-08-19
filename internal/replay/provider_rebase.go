@@ -104,7 +104,7 @@ func RebaseProviderJournal(
 func providerTransactionScoped(operation domain.Operation) bool {
 	switch operation.Type {
 	case domain.OperationMerchantReassign, domain.OperationCategoryAssign,
-		domain.OperationTransactionHide:
+		domain.OperationTransactionHide, domain.OperationTransactionDelete:
 		return true
 	case domain.OperationCategoryCreate:
 		return len(operation.Targets) != 1 || operation.Create == nil ||
@@ -197,7 +197,7 @@ func providerOperationDependenciesExist(
 	case domain.OperationGroupDelete:
 		return providerActiveGroupExists(profile, operation.Delete.SourceID) &&
 			providerActiveGroupExists(profile, operation.Delete.ReplacementID)
-	case domain.OperationTransactionHide:
+	case domain.OperationTransactionHide, domain.OperationTransactionDelete:
 		return true
 	default:
 		return false

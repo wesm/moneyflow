@@ -993,7 +993,7 @@ func TestProviderWriteFinalizationUsesProviderOverridesAsTruth(t *testing.T) {
 			},
 			Items: plan.Items,
 			Results: []store.WriteResult{{
-				ItemID: "item-a", TransactionExternalID: "2",
+				Kind: store.WriteItemUpdate, ItemID: "item-a", TransactionExternalID: "2",
 				CategoryExternalID: &category, Hidden: &hidden, OverrideCount: 2,
 				RecordedAt: providerWriteTime(),
 			}},

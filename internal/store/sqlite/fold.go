@@ -115,7 +115,7 @@ func validateFoldShape(snapshot domain.ProfileSnapshot, plan store.FoldPlan) err
 	if err := requireExistingEntityIDs(snapshot.Committed.Categories, plan.Effective.Categories); err != nil {
 		return err
 	}
-	if err := requireExactTransactionIDs(
+	if err := requireTransactionSubset(
 		snapshot.Committed.Transactions,
 		plan.Effective.Transactions,
 	); err != nil {
@@ -165,13 +165,14 @@ func foldEntityID[T foldEntity](value T) domain.EntityID {
 	}
 }
 
-func requireExactTransactionIDs(before, after []domain.TransactionRecord) error {
-	if len(before) != len(after) {
-		return errors.New("fold cannot add or remove transactions")
+func requireTransactionSubset(before, after []domain.TransactionRecord) error {
+	existing := make(map[domain.EntityID]struct{}, len(before))
+	for _, transaction := range before {
+		existing[transaction.ID] = struct{}{}
 	}
-	for index := range before {
-		if before[index].ID != after[index].ID {
-			return errors.New("fold cannot change transaction identities")
+	for _, transaction := range after {
+		if _, found := existing[transaction.ID]; !found {
+			return errors.New("fold cannot add transaction identities")
 		}
 	}
 	return nil
@@ -267,6 +268,7 @@ type foldStatements struct {
 	insertCategory    *sql.Stmt
 	updateCategory    *sql.Stmt
 	updateTransaction *sql.Stmt
+	deleteTransaction *sql.Stmt
 }
 
 func prepareFoldStatements(ctx context.Context, connection *sql.Conn) (*foldStatements, error) {
@@ -306,6 +308,7 @@ func prepareFoldStatements(ctx context.Context, connection *sql.Conn) (*foldStat
 				transaction_date = ?, amount_minor = ?, currency = ?, scale = ?, notes = ?,
 				hidden = ?, pending = ?, metadata_json = ?
 			WHERE id = ?`},
+		{&statements.deleteTransaction, `DELETE FROM transactions WHERE id = ?`},
 	}
 	for _, candidate := range queries {
 		prepared, err := connection.PrepareContext(ctx, candidate.query)
@@ -327,6 +330,7 @@ func (statements *foldStatements) close() {
 		statements.insertCategory,
 		statements.updateCategory,
 		statements.updateTransaction,
+		statements.deleteTransaction,
 	} {
 		if statement != nil {
 			_ = statement.Close()
@@ -448,8 +452,24 @@ func foldTransactions(
 	statements *foldStatements,
 	before, after []domain.TransactionRecord,
 ) error {
-	for index, value := range after {
-		if reflect.DeepEqual(before[index], value) {
+	beforeByID := make(map[domain.EntityID]domain.TransactionRecord, len(before))
+	afterIDs := make(map[domain.EntityID]struct{}, len(after))
+	for _, value := range before {
+		beforeByID[value.ID] = value
+	}
+	for _, value := range after {
+		afterIDs[value.ID] = struct{}{}
+	}
+	for _, value := range before {
+		if _, exists := afterIDs[value.ID]; exists {
+			continue
+		}
+		if _, err := statements.deleteTransaction.ExecContext(ctx, value.ID); err != nil {
+			return mapDriverError(err, store.CodeStoreError)
+		}
+	}
+	for _, value := range after {
+		if reflect.DeepEqual(beforeByID[value.ID], value) {
 			continue
 		}
 		metadata, err := json.Marshal(value.Metadata)

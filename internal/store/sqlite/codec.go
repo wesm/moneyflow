@@ -53,6 +53,8 @@ type deletePayloadV1 struct {
 
 type hideTogglePayloadV1 struct{}
 
+type transactionDeletePayloadV1 struct{}
+
 func encodeOperationPayload(operation domain.Operation) ([]byte, error) {
 	if err := validateOperationForCodec(operation); err != nil {
 		return nil, fmt.Errorf("encode operation payload: %w", err)
@@ -146,6 +148,8 @@ func payloadToWire(operation domain.Operation) (any, error) {
 		}, nil
 	case domain.OperationTransactionHide:
 		return &hideTogglePayloadV1{}, nil
+	case domain.OperationTransactionDelete:
+		return &transactionDeletePayloadV1{}, nil
 	default:
 		return nil, fmt.Errorf("encode operation payload: %w: type=%q", errUnsupportedPayload, operation.Type)
 	}
@@ -167,6 +171,8 @@ func newWirePayload(kind domain.OperationType) any {
 		return &deletePayloadV1{}
 	case domain.OperationTransactionHide:
 		return &hideTogglePayloadV1{}
+	case domain.OperationTransactionDelete:
+		return &transactionDeletePayloadV1{}
 	default:
 		panic("new wire payload called for unsupported operation")
 	}
@@ -205,6 +211,8 @@ func attachWirePayload(operation *domain.Operation, payload any) {
 		}
 	case *hideTogglePayloadV1:
 		operation.HideToggle = &domain.HideTogglePayload{}
+	case *transactionDeletePayloadV1:
+		operation.TransactionDelete = &domain.TransactionDeletePayload{}
 	default:
 		panic("attach wire payload called with unsupported payload")
 	}
@@ -218,7 +226,8 @@ func supportedOperationType(kind domain.OperationType) bool {
 		domain.OperationCategoryMove, domain.OperationCategoryMerge,
 		domain.OperationCategoryDelete, domain.OperationGroupCreate,
 		domain.OperationGroupLabel, domain.OperationGroupMerge,
-		domain.OperationGroupDelete, domain.OperationTransactionHide:
+		domain.OperationGroupDelete, domain.OperationTransactionHide,
+		domain.OperationTransactionDelete:
 		return true
 	default:
 		return false
@@ -228,5 +237,5 @@ func supportedOperationType(kind domain.OperationType) bool {
 func hasOperationPayload(operation domain.Operation) bool {
 	return operation.Label != nil || operation.Create != nil || operation.Move != nil ||
 		operation.Merge != nil || operation.Reassign != nil || operation.Delete != nil ||
-		operation.HideToggle != nil
+		operation.HideToggle != nil || operation.TransactionDelete != nil
 }

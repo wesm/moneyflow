@@ -13,7 +13,7 @@ import (
 )
 
 // CurrentSchemaVersion is the only schema version this pre-stability binary opens.
-const CurrentSchemaVersion = 6
+const CurrentSchemaVersion = 7
 
 //go:embed schema/profile.sql
 var currentProfileSchema string

@@ -76,6 +76,7 @@ func TestResponseAdjustedCommitEquivalence(t *testing.T) {
 		rotatedMerchantID := fmt.Sprintf("merchant-rotated-%d", seed)
 		for index, item := range plan.Items {
 			result := store.WriteResult{
+				Kind:   store.WriteItemUpdate,
 				ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
 				RecordedAt: providerWriteTime(),
 			}

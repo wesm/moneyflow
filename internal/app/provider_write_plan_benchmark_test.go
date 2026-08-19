@@ -86,6 +86,7 @@ func BenchmarkProviderWriteFinalize100K(b *testing.B) {
 	results := make([]store.WriteResult, len(plan.Items))
 	for index, item := range plan.Items {
 		results[index] = store.WriteResult{
+			Kind:   store.WriteItemUpdate,
 			ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
 			Hidden: &hidden, RecordedAt: providerWriteTime(),
 		}

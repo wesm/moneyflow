@@ -136,6 +136,46 @@ func TestIndexedReplayMatchesSequentialStructuralApplication(t *testing.T) {
 	assert.Equal(t, sequential, indexed.Effective)
 }
 
+func TestIndexedReplayMatchesSequentialTransactionDeletion(t *testing.T) {
+	t.Parallel()
+
+	for seed := int64(0); seed < 25; seed++ {
+		committed, err := fixture.CommittedProfile(fixture.Generate(20260818, 80))
+		require.NoError(t, err)
+		random := rand.New(rand.NewSource(seed)) //nolint:gosec // Deterministic property schedule.
+		live := make([]domain.EntityID, len(committed.Transactions))
+		for index, transaction := range committed.Transactions {
+			live[index] = transaction.ID
+		}
+		journal := make([]domain.Operation, 0, 30)
+		sequential := committed.Clone()
+		for index := range 30 {
+			targetIndex := random.Intn(len(live))
+			target := live[targetIndex]
+			operation := storedOperation(int64(index+1), domain.OperationTransactionHide, target)
+			operation.ID = fmt.Sprintf("delete-property-%d-%d", seed, index)
+			if random.Intn(3) == 0 {
+				operation.Type = domain.OperationTransactionDelete
+				operation.TransactionDelete = &domain.TransactionDeletePayload{}
+				live = append(live[:targetIndex], live[targetIndex+1:]...)
+			} else {
+				operation.HideToggle = &domain.HideTogglePayload{}
+			}
+			journal = append(journal, operation)
+			sequential, err = replay.ApplyOperation(sequential, operation)
+			require.NoError(t, err, "seed %d operation %d", seed, index)
+			if len(live) == 0 {
+				break
+			}
+		}
+		indexed, err := replay.Replay(domain.ProfileSnapshot{
+			Revision: 1, Cursor: len(journal), Committed: committed, Journal: journal,
+		})
+		require.NoError(t, err, "seed %d", seed)
+		assert.Equal(t, sequential, indexed.Effective, "seed %d", seed)
+	}
+}
+
 func TestIndexedReplayRejectsInvalidIntermediateCollision(t *testing.T) {
 	t.Parallel()
 

@@ -87,7 +87,7 @@ func operationIdentities(operation domain.Operation) []exposedIdentity {
 		return identities(domain.DimensionGroup, operation.Merge.SourceID, operation.Merge.DestinationID)
 	case domain.OperationGroupDelete:
 		return identities(domain.DimensionGroup, operation.Delete.SourceID, operation.Delete.ReplacementID)
-	case domain.OperationTransactionHide:
+	case domain.OperationTransactionHide, domain.OperationTransactionDelete:
 		return nil
 	default:
 		return nil

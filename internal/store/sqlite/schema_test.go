@@ -86,6 +86,36 @@ func TestSchemaInstallsProviderWriteObjects(t *testing.T) {
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
 	assert.Equal(t, CurrentSchemaVersion, version)
+	assert.Equal(t, 7, version)
+	assertColumnType(t, profile.database, "provider_write_items", "item_kind", "TEXT")
+	assertColumnType(t, profile.database, "provider_write_results", "already_absent", "INTEGER")
+}
+
+func TestProviderWriteItemSchemaEnforcesUpdateDeleteUnion(t *testing.T) {
+	t.Parallel()
+
+	profile, prepared, _ := preparedWriteProfile(t)
+	ctx := context.Background()
+	_, err := profile.database.ExecContext(ctx,
+		"DELETE FROM provider_write_items WHERE batch_id = ?", prepared.Batch.ID)
+	require.NoError(t, err)
+
+	insert := func(kind string, hidden any, expectation any, leader int) error {
+		_, insertErr := profile.database.ExecContext(ctx, `
+			INSERT INTO provider_write_items(
+				item_id, batch_id, position, item_kind, transaction_id, transaction_external_id,
+				requested_hidden, originating_operation_ids_json, expectation_kind,
+				group_leader, item_state, attempt_count
+			) VALUES ('union-item', ?, 0, ?, 'transaction-a', 'provider-a', ?, '["operation-a"]', ?, ?, 'pending', 0)`,
+			prepared.Batch.ID, kind, hidden, expectation, leader)
+		return insertErr
+	}
+
+	assert.Error(t, insert("delete", 1, nil, 0))
+	assert.Error(t, insert("delete", nil, "new", 0))
+	assert.Error(t, insert("delete", nil, nil, 1))
+	assert.Error(t, insert("update", nil, nil, 0))
+	require.NoError(t, insert("delete", nil, nil, 0))
 }
 
 func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing.T) {

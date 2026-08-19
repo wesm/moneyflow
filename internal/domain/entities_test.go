@@ -103,6 +103,17 @@ func TestCommittedProfileAllowsExternalTransactionTombstone(t *testing.T) {
 	require.NoError(t, profile.Validate())
 }
 
+func TestCommittedProfileAllowsDeletedTransactionExternalIdentityTombstone(t *testing.T) {
+	t.Parallel()
+
+	profile := validCommittedProfile(t)
+	deletedID := profile.Transactions[0].ID
+	profile.Transactions = profile.Transactions[1:]
+
+	require.NoError(t, profile.Validate())
+	require.Equal(t, deletedID, profile.ExternalIdentities[0].EntityID)
+}
+
 func TestCommittedProfileRejectsEmptyExternalTransactionTombstoneID(t *testing.T) {
 	t.Parallel()
 

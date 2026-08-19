@@ -101,6 +101,56 @@ func TestFoldPersistsMerchantAndTaxonomyMergesMovesAndCreation(t *testing.T) {
 	).GroupID)
 }
 
+func TestFoldTransactionDeleteMatchesEffectiveAndRetainsExternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	operation := domain.Operation{
+		ID: "operation-transaction-delete", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt: time.Date(2026, time.August, 18, 14, 30, 0, 0, time.UTC),
+		Targets:   []domain.EntityID{target.ID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	}
+	revision, err := profile.Append(ctx, loaded.Revision, operation)
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, effective.Effective, after.Committed)
+	assert.Empty(t, after.Journal)
+	assert.NotContains(t, transactionRecordIDs(after.Committed.Transactions), target.ID)
+	assert.True(t, hasExternalIdentityForLocalID(after.Committed.ExternalIdentities, target.ID))
+}
+
+func transactionRecordIDs(values []domain.TransactionRecord) []domain.EntityID {
+	result := make([]domain.EntityID, len(values))
+	for index, value := range values {
+		result[index] = value.ID
+	}
+	return result
+}
+
+func hasExternalIdentityForLocalID(values []domain.ExternalIdentity, id domain.EntityID) bool {
+	for _, value := range values {
+		if value.EntityID == id {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFoldPersistsCreatedThenRetiredTaxonomyAndKnownIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -287,6 +337,42 @@ func TestFoldConstraintFailureRollsBackCommittedRowsJournalCursorAndRevision(t *
 		BEFORE UPDATE ON transactions
 		BEGIN
 			SELECT RAISE(ABORT, 'injected fold failure');
+		END`)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeStoreError)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestFoldDeleteFailureRollsBackTransactionJournalCursorAndRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profile.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-delete-failure", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt: time.Date(2026, time.August, 18, 14, 45, 0, 0, time.UTC),
+		Targets:   []domain.EntityID{target.ID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		CREATE TRIGGER fail_fold_transaction_delete
+		BEFORE DELETE ON transactions
+		BEGIN
+			SELECT RAISE(ABORT, 'injected fold delete failure');
 		END`)
 	require.NoError(t, err)
 

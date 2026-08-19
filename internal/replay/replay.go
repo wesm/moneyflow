@@ -148,6 +148,8 @@ func applyOperationForReplay(
 		err = applyGroupDelete(effective, operation)
 	case domain.OperationTransactionHide:
 		err = applyHideToggleIndexed(effective, operation, indexes)
+	case domain.OperationTransactionDelete:
+		err = applyTransactionDeleteIndexed(effective, operation, indexes)
 	default:
 		err = fmt.Errorf("unsupported operation type %q", operation.Type)
 	}
@@ -298,6 +300,22 @@ func applyHideToggleIndexed(
 	return nil
 }
 
+func applyTransactionDeleteIndexed(
+	profile *domain.CommittedProfile,
+	operation domain.Operation,
+	indexes replayIndexes,
+) error {
+	if _, err := indexedTransactionPositions(indexes, operation.Targets); err != nil {
+		return err
+	}
+	deleteTransactionRecords(profile, operation.Targets)
+	clear(indexes.transactions)
+	for index := range profile.Transactions {
+		indexes.transactions[profile.Transactions[index].ID] = index
+	}
+	return nil
+}
+
 func indexedTransactionPositions(
 	indexes replayIndexes,
 	targets []domain.EntityID,
@@ -362,6 +380,8 @@ func applyOperation(effective *domain.CommittedProfile, operation domain.Operati
 		err = applyGroupDelete(effective, operation)
 	case domain.OperationTransactionHide:
 		err = applyHideToggle(effective, operation)
+	case domain.OperationTransactionDelete:
+		err = applyTransactionDelete(effective, operation)
 	default:
 		err = fmt.Errorf("unsupported operation type %q", operation.Type)
 	}
@@ -652,6 +672,28 @@ func applyHideToggle(profile *domain.CommittedProfile, operation domain.Operatio
 		profile.Transactions[index].Hidden = !profile.Transactions[index].Hidden
 	}
 	return nil
+}
+
+func applyTransactionDelete(profile *domain.CommittedProfile, operation domain.Operation) error {
+	if _, err := targetTransactionIndexes(profile, operation.Targets); err != nil {
+		return err
+	}
+	deleteTransactionRecords(profile, operation.Targets)
+	return nil
+}
+
+func deleteTransactionRecords(profile *domain.CommittedProfile, targets []domain.EntityID) {
+	deleting := make(map[domain.EntityID]struct{}, len(targets))
+	for _, target := range targets {
+		deleting[target] = struct{}{}
+	}
+	kept := make([]domain.TransactionRecord, 0, len(profile.Transactions)-len(targets))
+	for _, transaction := range profile.Transactions {
+		if _, deleted := deleting[transaction.ID]; !deleted {
+			kept = append(kept, transaction)
+		}
+	}
+	profile.Transactions = kept
 }
 
 func requireOnlyTarget(operation domain.Operation, expected domain.EntityID) error {

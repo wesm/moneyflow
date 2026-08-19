@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 6);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 7);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -133,7 +133,7 @@ CREATE TABLE journal_operations (
         'merchant.label', 'merchant.merge', 'merchant.reassign',
         'category.assign', 'category.create', 'category.label', 'category.move',
         'category.merge', 'category.delete', 'group.create', 'group.label',
-        'group.merge', 'group.delete', 'transaction.hide-toggle'
+        'group.merge', 'group.delete', 'transaction.hide-toggle', 'transaction.delete'
     )),
     payload_version INTEGER NOT NULL CHECK(typeof(payload_version) = 'integer' AND payload_version > 0),
     creation_revision INTEGER NOT NULL CHECK(typeof(creation_revision) = 'integer' AND creation_revision >= 0),
@@ -309,6 +309,7 @@ CREATE TABLE provider_write_items (
     item_id TEXT PRIMARY KEY CHECK(item_id <> ''),
     batch_id TEXT NOT NULL REFERENCES provider_write_batches(batch_id) ON DELETE CASCADE,
     position INTEGER NOT NULL CHECK(typeof(position) = 'integer' AND position >= 0),
+    item_kind TEXT NOT NULL CHECK(item_kind IN ('update', 'delete')),
     transaction_id TEXT NOT NULL CHECK(transaction_id <> ''),
     transaction_external_id TEXT NOT NULL CHECK(transaction_external_id <> ''),
     requested_merchant_local_id TEXT,
@@ -332,8 +333,22 @@ CREATE TABLE provider_write_items (
     CHECK(expectation_kind NOT IN ('existing', 'merge_destination') OR
         (expected_merchant_external_id IS NOT NULL AND expected_merchant_external_id <> '')),
     CHECK(expectation_kind IN ('existing', 'merge_destination') OR expected_merchant_external_id IS NULL),
-    CHECK(requested_merchant_name IS NOT NULL OR requested_category_external_id IS NOT NULL OR
-        requested_hidden IS NOT NULL),
+    CHECK(
+        (item_kind = 'delete'
+            AND requested_merchant_local_id IS NULL
+            AND requested_merchant_name IS NULL
+            AND requested_category_external_id IS NULL
+            AND requested_hidden IS NULL
+            AND expectation_kind IS NULL
+            AND expected_merchant_external_id IS NULL
+            AND new_group_key IS NULL
+            AND group_leader = 0)
+        OR
+        (item_kind = 'update'
+            AND (requested_merchant_name IS NOT NULL
+                OR requested_category_external_id IS NOT NULL
+                OR requested_hidden IS NOT NULL))
+    ),
     UNIQUE(batch_id, position),
     UNIQUE(batch_id, transaction_id)
 ) STRICT;
@@ -349,6 +364,7 @@ CREATE TABLE provider_write_results (
     category_external_id TEXT,
     hidden INTEGER CHECK(hidden IS NULL OR hidden IN (0, 1)),
     override_count INTEGER NOT NULL CHECK(typeof(override_count) = 'integer' AND override_count >= 0),
+    already_absent INTEGER NOT NULL CHECK(already_absent IN (0, 1)),
     recorded_at_unix_ms INTEGER NOT NULL CHECK(
         typeof(recorded_at_unix_ms) = 'integer' AND recorded_at_unix_ms >= 0
     ),
