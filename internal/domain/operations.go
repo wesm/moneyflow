@@ -12,38 +12,40 @@ type OperationType string
 // Supported version-one journal operation types.
 const (
 	// OperationMerchantLabel changes one merchant's display label without changing its identity.
-	OperationMerchantLabel    OperationType = "merchant.label"
-	OperationMerchantMerge    OperationType = "merchant.merge"
-	OperationMerchantReassign OperationType = "merchant.reassign"
-	OperationCategoryAssign   OperationType = "category.assign"
-	OperationCategoryCreate   OperationType = "category.create"
-	OperationCategoryLabel    OperationType = "category.label"
-	OperationCategoryMove     OperationType = "category.move"
-	OperationCategoryMerge    OperationType = "category.merge"
-	OperationCategoryDelete   OperationType = "category.delete"
-	OperationGroupCreate      OperationType = "group.create"
-	OperationGroupLabel       OperationType = "group.label"
-	OperationGroupMerge       OperationType = "group.merge"
-	OperationGroupDelete      OperationType = "group.delete"
-	OperationTransactionHide  OperationType = "transaction.hide-toggle"
+	OperationMerchantLabel     OperationType = "merchant.label"
+	OperationMerchantMerge     OperationType = "merchant.merge"
+	OperationMerchantReassign  OperationType = "merchant.reassign"
+	OperationCategoryAssign    OperationType = "category.assign"
+	OperationCategoryCreate    OperationType = "category.create"
+	OperationCategoryLabel     OperationType = "category.label"
+	OperationCategoryMove      OperationType = "category.move"
+	OperationCategoryMerge     OperationType = "category.merge"
+	OperationCategoryDelete    OperationType = "category.delete"
+	OperationGroupCreate       OperationType = "group.create"
+	OperationGroupLabel        OperationType = "group.label"
+	OperationGroupMerge        OperationType = "group.merge"
+	OperationGroupDelete       OperationType = "group.delete"
+	OperationTransactionHide   OperationType = "transaction.hide-toggle"
+	OperationTransactionDelete OperationType = "transaction.delete"
 )
 
 // Operation contains exactly one typed, versioned forward payload and resolved stable targets.
 type Operation struct {
-	ID              string
-	Sequence        int64
-	Type            OperationType
-	PayloadVersion  uint16
-	CreatedRevision uint64
-	CreatedAt       time.Time
-	Targets         []EntityID
-	Label           *LabelPayload
-	Create          *CreatePayload
-	Move            *MovePayload
-	Merge           *MergePayload
-	Reassign        *ReassignPayload
-	Delete          *DeletePayload
-	HideToggle      *HideTogglePayload
+	ID                string
+	Sequence          int64
+	Type              OperationType
+	PayloadVersion    uint16
+	CreatedRevision   uint64
+	CreatedAt         time.Time
+	Targets           []EntityID
+	Label             *LabelPayload
+	Create            *CreatePayload
+	Move              *MovePayload
+	Merge             *MergePayload
+	Reassign          *ReassignPayload
+	Delete            *DeletePayload
+	HideToggle        *HideTogglePayload
+	TransactionDelete *TransactionDeletePayload
 }
 
 // LabelPayload contains the complete forward value for an entity label update.
@@ -78,6 +80,9 @@ type DeletePayload struct{ SourceID, ReplacementID EntityID }
 // HideTogglePayload marks the target list as a hide-toggle operation.
 type HideTogglePayload struct{}
 
+// TransactionDeletePayload marks resolved transaction targets for deletion.
+type TransactionDeletePayload struct{}
+
 // Clone returns an operation whose targets and nested pointers are independently owned.
 func (operation Operation) Clone() Operation {
 	operation.Targets = append([]EntityID(nil), operation.Targets...)
@@ -92,6 +97,7 @@ func (operation Operation) Clone() Operation {
 	}
 	operation.Delete = clonePointer(operation.Delete)
 	operation.HideToggle = clonePointer(operation.HideToggle)
+	operation.TransactionDelete = clonePointer(operation.TransactionDelete)
 	return operation
 }
 
@@ -204,6 +210,10 @@ func (operation Operation) validate() error {
 		if operation.HideToggle == nil {
 			return errors.New("validate operation: hide operation has wrong payload")
 		}
+	case OperationTransactionDelete:
+		if operation.TransactionDelete == nil {
+			return errors.New("validate operation: transaction delete operation has wrong payload")
+		}
 	default:
 		return fmt.Errorf("validate operation: unknown type %q", operation.Type)
 	}
@@ -220,7 +230,7 @@ func validateOnlyTarget(targets []EntityID, expected EntityID) error {
 func countPayloads(operation Operation) int {
 	return boolInt(operation.Label != nil) + boolInt(operation.Create != nil) + boolInt(operation.Move != nil) +
 		boolInt(operation.Merge != nil) + boolInt(operation.Reassign != nil) + boolInt(operation.Delete != nil) +
-		boolInt(operation.HideToggle != nil)
+		boolInt(operation.HideToggle != nil) + boolInt(operation.TransactionDelete != nil)
 }
 
 func validateLabelPayload(payload LabelPayload) error {

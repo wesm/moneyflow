@@ -83,6 +83,20 @@ func TestOperationCloneOwnsTargetsAndNestedPayload(t *testing.T) {
 	assert.Equal(t, "New Merchant", operation.Reassign.CreatedMerchant.Label)
 }
 
+func TestTransactionDeleteRequiresItsTypedEmptyPayload(t *testing.T) {
+	t.Parallel()
+
+	operation := validOperations()["transaction delete"]
+	require.NoError(t, operation.ValidateDraft())
+
+	operation.TransactionDelete = nil
+	assert.ErrorContains(t, operation.ValidateDraft(), "payload")
+
+	operation = validOperations()["transaction delete"]
+	operation.Targets = []EntityID{"transaction_b", "transaction_a"}
+	assert.ErrorContains(t, operation.ValidateDraft(), "sorted")
+}
+
 func validOperations() map[string]Operation {
 	created := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	base := func(kind OperationType, targets ...EntityID) Operation {
@@ -135,5 +149,8 @@ func validOperations() map[string]Operation {
 	operation = base(OperationTransactionHide, "transaction_a", "transaction_b")
 	operation.HideToggle = &HideTogglePayload{}
 	operations["transaction hide"] = operation
+	operation = base(OperationTransactionDelete, "transaction_a", "transaction_b")
+	operation.TransactionDelete = &TransactionDeletePayload{}
+	operations["transaction delete"] = operation
 	return operations
 }
