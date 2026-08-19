@@ -185,13 +185,155 @@ func TestConcurrentEditingRevisionCASAllowsExactlyOneWriter(t *testing.T) {
 	assert.Equal(t, 1, conflicts)
 }
 
+func TestDeletionCrossRendererUndoRedoRestartAndCommit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	paths := seedEditingProfile(ctx, t, filepath.Join(t.TempDir(), "profile"))
+	firstProfile, server := openEditingServer(ctx, t, paths)
+	secondProfile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	second, err := app.NewProfileService(ctx, secondProfile)
+	require.NoError(t, err)
+
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	state.Current.ShowTransfers = true
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	initial := projectQuery(t, server, query)
+	require.NotEmpty(t, initial.DetailRows)
+	deleted := mutateHTTP(t, server, MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+		Query: query, Selection: initial.Selection, Action: app.ActionDeleteTransaction,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: initial.DetailRows[0].Identity},
+		Window: Window{Limit: 200},
+	})
+	assert.Equal(t, initial.TotalRows-1, deleted.Projection.TotalRows)
+
+	_, err = second.Refresh(ctx)
+	require.NoError(t, err)
+	observed, err := second.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, deleted.Projection.TotalRows, observed.TotalRows)
+
+	undone := requestRevisionAction(t, server, "/api/v1/undo", RevisionBody{
+		Version: MutationSchemaVersion, ExpectedRevision: deleted.Revision,
+		Query: query, Selection: deleted.Projection.Selection, Window: Window{Limit: 200},
+	})
+	assert.Equal(t, initial.TotalRows, undone.Projection.TotalRows)
+	redone := requestRevisionAction(t, server, "/api/v1/redo", RevisionBody{
+		Version: MutationSchemaVersion, ExpectedRevision: undone.Revision,
+		Query: query, Selection: undone.Projection.Selection, Window: Window{Limit: 200},
+	})
+	assert.Equal(t, initial.TotalRows-1, redone.Projection.TotalRows)
+	require.NoError(t, secondProfile.Close())
+	require.NoError(t, firstProfile.Close())
+
+	firstProfile, server = openEditingServer(ctx, t, paths)
+	restarted := projectQuery(t, server, query)
+	assert.Equal(t, initial.TotalRows-1, restarted.TotalRows)
+	committed := commitHTTP(t, server, redone)
+	assert.Equal(t, initial.TotalRows-1, committed.Projection.TotalRows)
+	require.NoError(t, firstProfile.Close())
+
+	firstProfile, server = openEditingServer(ctx, t, paths)
+	t.Cleanup(func() { require.NoError(t, firstProfile.Close()) })
+	afterCommit := projectQuery(t, server, query)
+	assert.Equal(t, initial.TotalRows-1, afterCommit.TotalRows)
+}
+
+func TestDeletingLastKnownDrillRowRendersEmptyWhileUnknownIdentityIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	transactions := fixture.Generate(20260818, 1)
+	paths := seedEditingTransactions(ctx, t, filepath.Join(t.TempDir(), "profile"), transactions)
+	profile, server := openEditingServer(ctx, t, paths)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	state.Current.ShowTransfers = true
+	state.Current.Drilldowns = []domain.Drilldown{{
+		Dimension: domain.DimensionMerchant, Key: transactions[0].Merchant.ID,
+		Currency: transactions[0].Amount.Currency, Scale: transactions[0].Amount.Scale,
+	}}
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	initial := projectQuery(t, server, query)
+	require.Len(t, initial.DetailRows, 1)
+	deleted := mutateHTTP(t, server, MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+		Query: query, Selection: initial.Selection, Action: app.ActionDeleteTransaction,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: initial.DetailRows[0].Identity},
+		Window: Window{Limit: 200},
+	})
+	committed := commitHTTP(t, server, deleted)
+	assert.Zero(t, committed.Projection.TotalRows)
+	assert.Equal(t, query, committed.CanonicalQuery)
+
+	unknown := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query:  identityQuery(t, domain.DimensionMerchant, "merchant-never-known"),
+		Window: Window{Limit: 200},
+	})
+	assert.Equal(t, http.StatusConflict, unknown.Code, unknown.Body.String())
+}
+
+func TestDuplicateAndDeleteFailuresDoNotEchoFinancialCanaries(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	paths := seedEditingTransactions(
+		ctx, t, filepath.Join(t.TempDir(), "profile"), fixture.Generate(20260818, 10),
+	)
+	profile, server := openEditingServer(ctx, t, paths)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	session := app.NewSession()
+	session.Mode = domain.ResultModeDetail
+	session.SetSearch("Canary Merchant|2042-12-31|-987654.32|canary-transaction-id")
+	state := session.ViewState()
+	query, err := EncodeViewQuery(state)
+	require.NoError(t, err)
+	duplicateFailure := requestJSON(t, server, "/api/v1/duplicates", DuplicateBody{
+		Version: DuplicateSchemaVersion, ExpectedRevision: "999", Query: query,
+		GroupWindow: Window{Limit: 10}, RowWindow: Window{Limit: 10},
+	})
+	assert.Equal(t, http.StatusConflict, duplicateFailure.Code)
+
+	initial := projectPersistentView(t, server)
+	deleteFailure := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: initial.Revision,
+		Query: query, Selection: initial.Selection, Action: app.ActionDeleteTransaction,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: "canary-transaction-id"},
+		Window: Window{Limit: 10},
+	})
+	assert.Equal(t, http.StatusConflict, deleteFailure.Code)
+
+	for _, canary := range []string{
+		"Canary Merchant", "2042-12-31", "-987654.32", "canary-transaction-id",
+	} {
+		assert.NotContains(t, duplicateFailure.Body.String(), canary)
+		assert.NotContains(t, deleteFailure.Body.String(), canary)
+	}
+}
+
 func seedEditingProfile(ctx context.Context, t testing.TB, root string) home.Paths {
+	t.Helper()
+	transactions, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
+	require.NoError(t, err)
+	return seedEditingTransactions(ctx, t, root, transactions)
+}
+
+func seedEditingTransactions(
+	ctx context.Context,
+	t testing.TB,
+	root string,
+	transactions []domain.Transaction,
+) home.Paths {
 	t.Helper()
 	paths, err := home.ResolveRoot(root, nil, "")
 	require.NoError(t, err)
 	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
-	require.NoError(t, err)
-	transactions, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
 	require.NoError(t, err)
 	committed, err := fixture.CommittedProfile(transactions)
 	require.NoError(t, err)

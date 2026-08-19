@@ -30,6 +30,7 @@ type FrameScenario struct {
 	Width   int          `json:"width"`
 	Height  int          `json:"height"`
 	Theme   string       `json:"theme"`
+	Fixture string       `json:"fixture,omitempty"`
 	Initial FrameInitial `json:"initial"`
 	Keys    []string     `json:"keys"`
 }

@@ -112,6 +112,12 @@ redo, `C` to manage categories, `G` to manage category groups, and `w` to review
 commit local changes. A TUI and web process may share one profile; revision checks reject stale
 mutations instead of silently overwriting another process.
 
+Press `D` in either interface to review likely duplicate transactions from the complete filtered
+result. Moneyflow matches exact dates, amounts, accounts, and Unicode-lowercased merchant labels;
+it does not use fuzzy dates or choose a winner automatically. Use Space to select rows and `x` to
+stage deletion. A deletion remains undoable with `u`/`U` until `w`, then Enter commits it. Provider
+refresh may restore a deleted transaction when the provider still reports it.
+
 ### Monarch read and refresh preview
 
 The Go v2 preview can bind one pristine profile to one Monarch household and import posted

@@ -28,6 +28,7 @@ type visualScenario struct {
 	durable          bool
 	onboardingScreen string
 	allStatuses      bool
+	fixturePath      string
 }
 
 func TestVisualGoldens(t *testing.T) {
@@ -62,7 +63,13 @@ func TestVisualGoldens(t *testing.T) {
 				require.NoError(t, renderErr)
 				frame = screen.Frame
 			} else {
-				service := visualGoldenService(t, transactions, visual.durable)
+				visualTransactions := transactions
+				if visual.fixturePath != "" {
+					loaded, loadErr := fixture.Load(filepath.Join(root, visual.fixturePath))
+					require.NoError(t, loadErr)
+					visualTransactions = loaded
+				}
+				service := visualGoldenService(t, visualTransactions, visual.durable)
 				session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
 				require.NoError(t, sessionErr)
 				model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
@@ -105,15 +112,20 @@ func TestVisualGoldens(t *testing.T) {
 }
 
 func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenario {
-	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+14)
+	result := make([]visualScenario, 0, len(document.Scenarios)+len(tui.ThemeNames())+16)
 	var merchant parity.FrameScenario
+	var duplicates parity.FrameScenario
 	for _, scenario := range document.Scenarios {
 		result = append(result, visualScenario{
 			name: scenario.Name, scenario: scenario,
 			theme: tui.ThemeName(scenario.Theme), colorMode: tui.ColorModeTrueColor,
+			fixturePath: scenario.Fixture, durable: scenario.Fixture != "",
 		})
 		if scenario.Name == "merchant" {
 			merchant = scenario
+		}
+		if scenario.Name == "duplicates" {
+			duplicates = scenario
 		}
 	}
 	for _, theme := range tui.ThemeNames() {
@@ -130,7 +142,29 @@ func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenar
 		theme: tui.ThemeDefault, colorMode: tui.ColorModeNone,
 	})
 	result = append(result, goOnlyEditingScenarios(merchant)...)
+	result = append(result, goOnlyDuplicateScenarios(duplicates)...)
 	result = append(result, onboardingVisualScenarios()...)
+	return result
+}
+
+func goOnlyDuplicateScenarios(initial parity.FrameScenario) []visualScenario {
+	definitions := []struct {
+		name string
+		keys []string
+	}{
+		{"duplicate_delete_staged", []string{"D", "x", "enter"}},
+		{"duplicate_delete_review", []string{"D", "x", "enter", "escape", "w"}},
+	}
+	result := make([]visualScenario, 0, len(definitions))
+	for _, definition := range definitions {
+		scenario := initial
+		scenario.Name = definition.name
+		scenario.Keys = append([]string(nil), definition.keys...)
+		result = append(result, visualScenario{
+			name: definition.name, scenario: scenario, theme: tui.ThemeDefault,
+			colorMode: tui.ColorModeTrueColor, durable: true, fixturePath: initial.Fixture,
+		})
+	}
 	return result
 }
 

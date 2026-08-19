@@ -25,6 +25,10 @@ moneyflow is designed to be used entirely with the keyboard. Here's your complet
 | ++d++ | Detail view (all transactions) |
 | ++shift+d++ | Find duplicates |
 
+Duplicate review scans the complete filtered result, not only the visible rows. It matches exact
+dates, amounts, accounts, and Unicode-lowercased merchant labels. It does not use fuzzy matching or
+choose which row should be deleted.
+
 ### Direct View Access
 
 | Key | View |
@@ -70,7 +74,7 @@ The granularity matches your drill-down level (year-to-year, month-to-month, or 
 | ++m++ | Edit merchant name |
 | ++c++ | Edit category |
 | ++h++ | Hide/unhide from reports |
-| ++x++ | Delete transaction (with confirmation) |
+| ++x++ | Stage transaction deletion (with confirmation) |
 | ++i++ | View full transaction details |
 
 ### Multi-Select
@@ -81,7 +85,7 @@ The granularity matches your drill-down level (year-to-year, month-to-month, or 
 | ++m++ | Edit merchant for all selected |
 | ++c++ | Edit category for all selected |
 | ++h++ | Hide/unhide all selected |
-| ++x++ | Delete all selected (with confirmation) |
+| ++x++ | Stage deletion for all selected (with confirmation) |
 
 !!! example "Bulk Workflow"
     1. Press ++space++ on multiple transactions (shows ✓)
@@ -95,9 +99,14 @@ The granularity matches your drill-down level (year-to-year, month-to-month, or 
 | Key | Action |
 |-----|--------|
 | ++u++ | Undo most recent pending edit |
+| ++shift+u++ | Redo most recent undone edit |
 
 Removes the most recent edit from the pending changes queue. Press multiple times to undo edits in reverse order.
 Shows notification with field type and remaining edit count.
+
+Deletion is not sent to a provider immediately. Press ++w++, review the staged operations, and
+press ++enter++ to commit. A later provider refresh can restore a transaction if provider truth
+still contains it.
 
 ---
 
@@ -260,7 +269,7 @@ Print this for reference:
 ```text
 Views:       g (cycle: Merchant/Category/Group/Account/Time)  d (detail)  D (duplicates)
 Time:        t (toggle granularity: Year→Month→Day)  a (clear drill-down)  ←/→ (navigate periods)
-Edit:        m (merchant)  c (category)  h (hide)  x (delete)  u (undo)
+Edit:        m (merchant)  c (category)  h (hide)  x (stage delete)  u/U (undo/redo)
 Select:      Space (multi-select)  Ctrl+A (select all)
 Sort:        s (toggle field)  v (reverse)
 Navigate:    Enter (drill down)  Escape (go back)

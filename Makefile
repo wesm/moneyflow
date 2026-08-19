@@ -20,7 +20,7 @@ help:
 test: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1
-	go test ./internal/api -run '^TestProjectionPerformance100K$$' -count=1
+	go test ./internal/api -run '^Test(Projection|DuplicateProjection)Performance100K$$' -count=1
 
 test-go-quick: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
@@ -150,7 +150,7 @@ verify-web:
 	$(MAKE) test-editing-e2e
 	$(MAKE) test-provider-e2e
 	$(MAKE) web-e2e
-	go test ./internal/api -run TestProjectionPerformance100K -count=1
+	go test ./internal/api -run 'Test(Projection|DuplicateProjection)Performance100K' -count=1
 
 web-dev:
 	bun run --cwd web dev

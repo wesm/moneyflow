@@ -93,3 +93,92 @@ func TestProviderLifecycleSurvivesConcurrentEditAndProcessRestart(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, persisted.Revision, projection.Revision)
 }
+
+func TestProviderRefreshRebasesPendingDeleteAndRestoresStableTransactionIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 10, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "integration-process")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 1)
+	originalID := loaded.Committed.Transactions[0].ID
+
+	_, err = profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_pending_delete", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: []domain.EntityID{originalID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+
+	source.setSnapshot(providerSnapshot(t, now.Add(10*time.Second), 1))
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	effective, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Zero(t, effective.TotalRows, "remote presence must not undo retained local deletion intent")
+
+	source.setSnapshot(providerSnapshot(t, now.Add(20*time.Second), 0))
+	blocked, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: state, Selection: app.EmptySelection(),
+	})
+	assertProviderAppCode(t, err, provider.CodeDeletionConfirmationRequired)
+	_, err = service.ConfirmProviderRefresh(ctx, app.ProviderRefreshRequest{
+		Manual: true, ConfirmationToken: blocked.Status.ConfirmationToken,
+		State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	removed, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, removed.Journal)
+	assert.Empty(t, removed.Committed.Transactions)
+
+	source.setSnapshot(providerSnapshot(t, now.Add(30*time.Second), 1))
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	restored, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, restored.Committed.Transactions, 1)
+	assert.Equal(t, originalID, restored.Committed.Transactions[0].ID)
+
+	source.setSnapshot(providerSnapshot(t, now.Add(40*time.Second), 0))
+	blocked, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: state, Selection: app.EmptySelection(),
+	})
+	assertProviderAppCode(t, err, provider.CodeDeletionConfirmationRequired)
+	_, err = service.ConfirmProviderRefresh(ctx, app.ProviderRefreshRequest{
+		Manual: true, ConfirmationToken: blocked.Status.ConfirmationToken,
+		State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	replacement := providerSnapshot(t, now.Add(50*time.Second), 1)
+	replacement.Transactions[0].ExternalID = "transaction-replacement"
+	source.setSnapshot(replacement)
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	replaced, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, replaced.Committed.Transactions, 1)
+	assert.NotEqual(t, originalID, replaced.Committed.Transactions[0].ID)
+}

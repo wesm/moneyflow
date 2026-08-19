@@ -331,6 +331,10 @@ func compactDeletedTransactions(
 		}
 	}
 	clear(profile.Transactions[len(kept):])
+	if len(kept) == 0 {
+		profile.Transactions = nil
+		return
+	}
 	profile.Transactions = kept
 }
 

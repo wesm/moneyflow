@@ -1,0 +1,93 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    37,
+    60,
+    84,
+    100
+  ],
+  "flags": [
+    "",
+    "",
+    ""
+  ],
+  "height": 30,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "duplicates_closed",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "All Transactions"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 52
+    },
+    {
+      "height": 1,
+      "lines": [
+        "3 txns | In: +0.00 | Out: -32.57 | Net: -32.57"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 53,
+        "y": 1
+      },
+      "width": 46
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Date \u2193        Merchant              Category               Account                     Amount ("
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 96
+    },
+    {
+      "height": 3,
+      "lines": [
+        " 2026-01-16    Other Merchant        Other Category         Example Account                  -7.",
+        " 2026-01-15    Example Merchant      Example Category       Example Account                 -12.",
+        " 2026-01-15    Example Merchant      Other Category         Example Account                 -12."
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 96
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 28
+      },
+      "width": 98
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "3 txns | In: +0.00 | Out: -32.57 | Net: -32.57",
+  "visible_row_ids": [
+    "ordinary-001",
+    "duplicate-001",
+    "duplicate-002"
+  ],
+  "width": 100
+}

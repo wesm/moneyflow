@@ -1,0 +1,74 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    37,
+    60,
+    84,
+    100
+  ],
+  "flags": [
+    "",
+    "",
+    ""
+  ],
+  "height": 30,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "duplicates_info",
+  "overlay": [
+    "Transaction Details"
+  ],
+  "regions": [
+    {
+      "height": 30,
+      "lines": [
+        "",
+        "",
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
+        "\u2502                                                                    \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 ID:                                                                \u2502",
+        "\u2502   duplicate-001                                                    \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Date:                                                              \u2502",
+        "\u2502   2026-01-15                                                       \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Amount:                                                            \u2502",
+        "\u2502   -12.34                                                           \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Merchant:                                                          \u2502",
+        "\u2502   Example Merchant                                                 \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Merchant ID:                                                       \u2502",
+        "\u2502   merchant-example                                                 \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Category:                                                          \u2502",
+        "\u2502   Example Category                                                 \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Category ID:                                                       \u2502",
+        "\u2502   category-example                                                 \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Group:                                                             \u2502",
+        "\u2502   Example Group                                                    \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Account:                                                           \u2502"
+      ],
+      "name": "overlay",
+      "origin": {
+        "x": 14,
+        "y": 0
+      },
+      "width": 70
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "3 txns | In: +0.00 | Out: -32.57 | Net: -32.57",
+  "visible_row_ids": [
+    "ordinary-001",
+    "duplicate-001",
+    "duplicate-002"
+  ],
+  "width": 100
+}

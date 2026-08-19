@@ -275,6 +275,22 @@ func validateRefreshPlan(
 		return err
 	}
 	if !reflect.DeepEqual(plan.Effective, replayed.Effective) {
+		components := []struct {
+			name  string
+			equal bool
+		}{
+			{"accounts", reflect.DeepEqual(plan.Effective.Accounts, replayed.Effective.Accounts)},
+			{"merchants", reflect.DeepEqual(plan.Effective.Merchants, replayed.Effective.Merchants)},
+			{"groups", reflect.DeepEqual(plan.Effective.Groups, replayed.Effective.Groups)},
+			{"categories", reflect.DeepEqual(plan.Effective.Categories, replayed.Effective.Categories)},
+			{"transactions", reflect.DeepEqual(plan.Effective.Transactions, replayed.Effective.Transactions)},
+			{"external identities", reflect.DeepEqual(plan.Effective.ExternalIdentities, replayed.Effective.ExternalIdentities)},
+		}
+		for _, component := range components {
+			if !component.equal {
+				return errors.New("refresh effective " + component.name + " do not match authoritative replay")
+			}
+		}
 		return errors.New("refresh effective state does not match authoritative replay")
 	}
 	if err = requireKnownDrillSuperset(snapshot.KnownDrills, plan.KnownDrills); err != nil {

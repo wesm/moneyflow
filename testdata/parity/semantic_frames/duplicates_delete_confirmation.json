@@ -1,0 +1,70 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    37,
+    60,
+    84,
+    100
+  ],
+  "flags": [
+    "",
+    "",
+    ""
+  ],
+  "height": 30,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "duplicates_delete_confirmation",
+  "overlay": [
+    "\u26a0\ufe0f  Delete Transaction?",
+    "Are you sure you want to delete this transaction?\nThis action CANNOT be undone!",
+    "Enter=Delete | Esc=Cancel"
+  ],
+  "regions": [
+    {
+      "height": 24,
+      "lines": [
+        "         \u26a0\ufe0f  Delete Transaction?",
+        "",
+        "  Are you sure you want to delete this",
+        "              transaction?",
+        "     This action CANNOT be undone!",
+        "",
+        "",
+        "       Enter=Delete | Esc=Cancel",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "   \u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594 \u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594\u2594",
+        "        Cancel           Delete",
+        "   \u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581 \u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "name": "overlay",
+      "origin": {
+        "x": 30,
+        "y": 3
+      },
+      "width": 40
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "3 txns | In: +0.00 | Out: -32.57 | Net: -32.57",
+  "visible_row_ids": [
+    "ordinary-001",
+    "duplicate-001",
+    "duplicate-002"
+  ],
+  "width": 100
+}

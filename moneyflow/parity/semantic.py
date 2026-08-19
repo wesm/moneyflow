@@ -45,9 +45,18 @@ def load_scenarios(path: Path) -> dict[str, Any]:
     if not isinstance(scenarios, list) or not scenarios:
         raise ValueError("load frame scenarios: scenarios are required")
     names: set[str] = set()
-    expected = {"name", "width", "height", "theme", "initial", "keys"}
+    required = {"name", "width", "height", "theme", "initial", "keys"}
+    allowed = required | {"fixture"}
     for index, scenario in enumerate(scenarios):
-        if not isinstance(scenario, dict) or scenario.keys() != expected:
+        if (
+            not isinstance(scenario, dict)
+            or not required.issubset(scenario)
+            or not set(scenario).issubset(allowed)
+            or (
+                "fixture" in scenario
+                and (not isinstance(scenario["fixture"], str) or not scenario["fixture"])
+            )
+        ):
             raise ValueError(f"load frame scenarios: scenarios[{index}] is invalid")
         name = scenario["name"]
         if not isinstance(name, str) or not name or name in names:
@@ -67,12 +76,12 @@ def load_scenarios(path: Path) -> dict[str, Any]:
 async def generate_frames(scenarios_path: Path, working_root: Path) -> dict[str, dict[str, Any]]:
     """Run every scenario through Textual using only the committed fixture backend."""
     document = load_scenarios(scenarios_path)
-    fixture_path = REPOSITORY_ROOT / document["fixture"]
     frames: dict[str, dict[str, Any]] = {}
     for index, scenario in enumerate(document["scenarios"]):
         scenario_root = working_root / f"scenario-{index}"
         profile_root = scenario_root / "profile"
         profile_root.mkdir(parents=True)
+        fixture_path = REPOSITORY_ROOT / scenario.get("fixture", document["fixture"])
         backend = FixtureBackend(fixture_path)
         config = replace(MONARCH_CONFIG, backend_type="fixture", requires_auth=False)
         app = MoneyflowApp(
@@ -274,6 +283,9 @@ def _widget_region(
 
 def _overlay_region(app: MoneyflowApp, strips: list[Any]) -> dict[str, Any] | None:
     selectors = (
+        ("#delete-dialog", "#delete-dialog"),
+        ("#detail-dialog", "#detail-dialog"),
+        ("#duplicates-container", "#duplicates-title"),
         ("#search-dialog", "#search-title"),
         ("#filter-dialog", "#filter-title"),
         ("#help-dialog", "#help-title"),
@@ -288,6 +300,32 @@ def _overlay_region(app: MoneyflowApp, strips: list[Any]) -> dict[str, Any] | No
 
 
 def _overlay_semantics(app: MoneyflowApp) -> list[str]:
+    if list(app.screen.query("#delete-dialog")):
+        return [
+            str(app.screen.query_one("#delete-title").render()),
+            str(app.screen.query_one("#delete-message").render()),
+            str(app.screen.query_one("#delete-instructions").render()),
+        ]
+    if list(app.screen.query("#detail-dialog")):
+        return [str(app.screen.query_one("#detail-title").render())]
+    if list(app.screen.query("#duplicates-container")):
+        table = app.screen.query_one("#duplicates-table", DataTable)
+        duplicate_screen = app.screen
+        selected_ids = getattr(duplicate_screen, "selected_ids", set())
+        pending_hide = sum(
+            edit.field == "hide_from_reports" for edit in app.data_manager.pending_edits
+        )
+        rows = [
+            " | ".join(_plain(value) for value in table.get_row_at(index))
+            for index in range(table.row_count)
+        ]
+        return [
+            str(app.screen.query_one("#duplicates-title").render()),
+            str(app.screen.query_one("#status-line").render()),
+            f"selected={len(selected_ids)}",
+            f"hidden={pending_hide}",
+            *rows,
+        ]
     if list(app.screen.query("#search-dialog")):
         return [
             "🔍 Search Transactions",
@@ -321,9 +359,11 @@ def _strip_framework_scrollbar(line: str) -> str:
 def _strip_region(
     strips: list[Any], name: str, region: Region, *, strip_scrollbar: bool = False
 ) -> dict[str, Any]:
+    start_y = max(0, region.y)
+    end_y = min(len(strips), region.y + region.height)
     lines = [
         strips[y].crop(region.x, region.x + region.width).text.rstrip()
-        for y in range(region.y, region.y + region.height)
+        for y in range(start_y, end_y)
     ]
     if strip_scrollbar:
         lines = [_strip_framework_scrollbar(line) for line in lines]
@@ -334,9 +374,9 @@ def _strip_region(
         )
     return {
         "name": name,
-        "origin": {"x": region.x, "y": region.y},
+        "origin": {"x": region.x, "y": start_y},
         "width": region.width,
-        "height": region.height,
+        "height": len(lines),
         "lines": lines,
     }
 
