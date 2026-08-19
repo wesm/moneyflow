@@ -302,6 +302,70 @@ func TestProviderWriteDeleteItemAndAlreadyAbsentResultRoundTrip(t *testing.T) {
 	assert.True(t, state.Results[0].AlreadyAbsent)
 }
 
+func TestProviderWriteDeleteKindAndAttemptSurviveReopen(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	paths := temporaryPaths(t)
+	opened, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	first := opened.(*profile)
+	_, err = first.CreateSeededProfile(ctx, fixtureProfile(t))
+	require.NoError(t, err)
+	loaded, err := first.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := first.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-delete-reopen", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt:         time.Date(2026, time.August, 18, 17, 30, 0, 0, time.UTC),
+		Targets:           []domain.EntityID{target.ID},
+		TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 17, 31, 0, 0, time.UTC)
+	prepared, err := first.PrepareProviderWrite(ctx, store.PrepareProviderWriteRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision, ExpectedGeneration: 0,
+		Lease: store.ProviderOperationLease{
+			OwnerID: "owner-reopen", Renderer: "tui", Kind: store.ProviderOperationWrite,
+			ExpiresAt: now.Add(time.Minute),
+		},
+		ProposedBatchID: "batch-reopen", ProposedItemIDs: []string{"item-reopen"},
+		ObservedAt: now,
+	}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
+		return store.PrepareProviderWritePlan{
+			FrozenOperationIDs: []string{"operation-delete-reopen"},
+			FrozenPrefixDigest: "digest-reopen",
+			Items: []store.WriteItem{{
+				ID: "item-reopen", Position: 0, Kind: store.WriteItemDelete,
+				TransactionID: target.ID, TransactionExternalID: target.ProviderID,
+				OriginatingOperationIDs: []string{"operation-delete-reopen"},
+				State:                   store.WriteItemPending,
+			}},
+		}, nil
+	})
+	require.NoError(t, err)
+	claimed, err := first.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
+		LeaseOwnerID: "owner-reopen", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, 1, claimed[0].AttemptCount)
+	require.NoError(t, first.Close())
+
+	reopened, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	second := reopened.(*profile)
+	t.Cleanup(func() { require.NoError(t, second.Close()) })
+	state, err := second.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.Len(t, state.Items, 1)
+	assert.Equal(t, store.WriteItemDelete, state.Items[0].Kind)
+	assert.Equal(t, 1, state.Items[0].AttemptCount)
+}
+
 func TestProviderWriteResumePreservesFinalizationAndReconcilePurpose(t *testing.T) {
 	t.Parallel()
 
@@ -583,10 +647,11 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 	ctx := context.Background()
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(loaded.Committed.Transactions), 2)
+	require.GreaterOrEqual(t, len(loaded.Committed.Transactions), 3)
 	targets := []domain.EntityID{
 		loaded.Committed.Transactions[0].ID,
 		loaded.Committed.Transactions[1].ID,
+		loaded.Committed.Transactions[2].ID,
 	}
 	revision, err := profile.Append(ctx, loaded.Revision,
 		draftHideOperation("operation-write-a", loaded.Revision, targets...))
@@ -600,10 +665,10 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 			OwnerID: "owner-a", Renderer: "tui", Kind: store.ProviderOperationWrite,
 			ExpiresAt: now.Add(time.Minute),
 		},
-		ProposedBatchID: "batch-a", ProposedItemIDs: []string{"item-a", "item-b"},
+		ProposedBatchID: "batch-a", ProposedItemIDs: []string{"item-a", "item-b", "item-delete"},
 		ObservedAt: now,
 	}, func(store.PrepareProviderWriteInputs) (store.PrepareProviderWritePlan, error) {
-		items := make([]store.WriteItem, 2)
+		items := make([]store.WriteItem, 2, 3)
 		for index, target := range loaded.Committed.Transactions[:2] {
 			items[index] = store.WriteItem{
 				ID: []string{"item-a", "item-b"}[index], Position: index, Kind: store.WriteItemUpdate,
@@ -614,6 +679,12 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 				GroupLeader: index == 0, State: store.WriteItemPending,
 			}
 		}
+		deleteTarget := loaded.Committed.Transactions[2]
+		items = append(items, store.WriteItem{
+			ID: "item-delete", Position: 2, Kind: store.WriteItemDelete,
+			TransactionID: deleteTarget.ID, TransactionExternalID: deleteTarget.ProviderID,
+			OriginatingOperationIDs: []string{"operation-write-a"}, State: store.WriteItemPending,
+		})
 		return store.PrepareProviderWritePlan{
 			FrozenOperationIDs: []string{"operation-write-a"}, FrozenPrefixDigest: "digest-a",
 			Items: items,
@@ -627,8 +698,9 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 		ObservedAt: now, Limit: 4,
 	})
 	require.NoError(t, err)
-	require.Len(t, claimed, 1)
+	require.Len(t, claimed, 2)
 	assert.Equal(t, "item-a", claimed[0].ID)
+	assert.Equal(t, "item-delete", claimed[1].ID, "delete does not wait behind a name leader")
 	merchantID := "merchant-provider-new"
 	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
@@ -637,6 +709,15 @@ func TestProviderWriteClaimsNewMerchantLeaderBeforeFollowers(t *testing.T) {
 			Kind:   store.WriteItemUpdate,
 			ItemID: "item-a", TransactionExternalID: claimed[0].TransactionExternalID,
 			MerchantExternalID: &merchantID, Hidden: &hidden, RecordedAt: now,
+		}, ObservedAt: now,
+	})
+	require.NoError(t, err)
+	batch, err = profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
+		BatchID: prepared.Batch.ID, ExpectedVersion: batch.Version,
+		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
+		ItemID: "item-delete", Result: store.WriteResult{
+			Kind: store.WriteItemDelete, ItemID: "item-delete",
+			TransactionExternalID: claimed[1].TransactionExternalID, RecordedAt: now,
 		}, ObservedAt: now,
 	})
 	require.NoError(t, err)

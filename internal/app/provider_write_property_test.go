@@ -56,6 +56,13 @@ func TestResponseAdjustedCommitEquivalence(t *testing.T) {
 			}
 			snapshot.Journal = append(snapshot.Journal, operation)
 		}
+		if seed%2 == 0 {
+			snapshot.Journal = append(snapshot.Journal, providerWriteDeleteOperation(
+				fmt.Sprintf("operation-delete-%d", seed),
+				int64(len(snapshot.Journal)+1),
+				"transaction_a",
+			))
+		}
 		snapshot.Cursor = len(snapshot.Journal)
 		itemCount, err := app.CountProviderWriteItems(store.PrepareProviderWriteInputs{
 			Snapshot: snapshot, ProviderState: providerWriteState(), ProposedBatchID: "count",
@@ -76,9 +83,14 @@ func TestResponseAdjustedCommitEquivalence(t *testing.T) {
 		rotatedMerchantID := fmt.Sprintf("merchant-rotated-%d", seed)
 		for index, item := range plan.Items {
 			result := store.WriteResult{
-				Kind:   store.WriteItemUpdate,
+				Kind:   item.Kind,
 				ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
 				RecordedAt: providerWriteTime(),
+			}
+			if item.Kind == store.WriteItemDelete {
+				result.AlreadyAbsent = random.Intn(2) == 0
+				results[index] = result
+				continue
 			}
 			if item.RequestedCategoryExternalID != nil {
 				category := *item.RequestedCategoryExternalID

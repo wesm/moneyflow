@@ -31,10 +31,10 @@ func BenchmarkProviderWritePlan100K(b *testing.B) {
 		targets[index] = localID
 		itemIDs[index] = fmt.Sprintf("item_%06d", index)
 	}
-	profile.Journal = []domain.Operation{providerWriteOperation(
-		"operation-hide", 1, domain.OperationTransactionHide, targets,
-		nil, nil, nil, &domain.HideTogglePayload{},
+	profile.Journal = []domain.Operation{providerWriteDeleteOperation(
+		"operation-delete", 1, targets[0],
 	)}
+	profile.Journal[0].Targets = targets
 	profile.Cursor = 1
 	inputs := store.PrepareProviderWriteInputs{
 		Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
@@ -70,10 +70,10 @@ func BenchmarkProviderWriteFinalize100K(b *testing.B) {
 		targets[index] = localID
 		itemIDs[index] = fmt.Sprintf("item_%06d", index)
 	}
-	profile.Journal = []domain.Operation{providerWriteOperation(
-		"operation-hide", 1, domain.OperationTransactionHide, targets,
-		nil, nil, nil, &domain.HideTogglePayload{},
+	profile.Journal = []domain.Operation{providerWriteDeleteOperation(
+		"operation-delete", 1, targets[0],
 	)}
+	profile.Journal[0].Targets = targets
 	profile.Cursor = 1
 	plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
 		Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
@@ -82,13 +82,12 @@ func BenchmarkProviderWriteFinalize100K(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	hidden := true
 	results := make([]store.WriteResult, len(plan.Items))
 	for index, item := range plan.Items {
 		results[index] = store.WriteResult{
-			Kind:   store.WriteItemUpdate,
+			Kind:   item.Kind,
 			ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
-			Hidden: &hidden, RecordedAt: providerWriteTime(),
+			RecordedAt: providerWriteTime(),
 		}
 	}
 	inputs := store.FinalizeProviderWriteInputs{

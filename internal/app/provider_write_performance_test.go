@@ -101,9 +101,13 @@ func providerWritePerformanceFinalizationInput(tb testing.TB) store.FinalizeProv
 	results := make([]store.WriteResult, len(plan.Items))
 	for index, item := range plan.Items {
 		result := store.WriteResult{
-			Kind:   store.WriteItemUpdate,
+			Kind:   item.Kind,
 			ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
 			RecordedAt: providerWriteTime(),
+		}
+		if item.Kind == store.WriteItemDelete {
+			results[index] = result
+			continue
 		}
 		if item.RequestedCategoryExternalID != nil {
 			value := *item.RequestedCategoryExternalID
@@ -193,10 +197,10 @@ func providerWritePerformanceInput(
 			}
 		} else {
 			operation = domain.Operation{
-				ID:       fmt.Sprintf("operation-hide-%05d", operationIndex),
-				Sequence: int64(operationIndex + 1), Type: domain.OperationTransactionHide,
+				ID:       fmt.Sprintf("operation-delete-%05d", operationIndex),
+				Sequence: int64(operationIndex + 1), Type: domain.OperationTransactionDelete,
 				PayloadVersion: 1, CreatedRevision: 1, CreatedAt: providerWriteTime(),
-				Targets: targets, HideToggle: &domain.HideTogglePayload{},
+				Targets: targets, TransactionDelete: &domain.TransactionDeletePayload{},
 			}
 		}
 		snapshot.Journal = append(snapshot.Journal, operation)

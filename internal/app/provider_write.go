@@ -234,7 +234,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			return service.writeStatus(ctx, mapAppError(resumeErr, service.Revision()))
 		}
 		batch = resumed
-		if _, attempted := firstAttemptedPendingWriteItem(state.Items); attempted {
+		if _, attempted := firstAttemptedPendingUpdateItem(state.Items); attempted {
 			return service.parkProviderWriteFailure(
 				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
 			)
@@ -321,7 +321,7 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 			}
 			batch = *currentState.Batch
 			normalized, normalizeErr := normalizeProviderWriteResult(
-				outcome.item, outcome.result, currentState, now,
+				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, now,
 			)
 			if normalizeErr != nil {
 				failed := outcome
@@ -433,9 +433,10 @@ func (runtime *providerRuntimeState) providerWritePausePending() bool {
 }
 
 type providerWriteOutcome struct {
-	item   store.WriteItem
-	result provider.TransactionUpdateResult
-	err    error
+	item         store.WriteItem
+	updateResult provider.TransactionUpdateResult
+	deleteResult provider.TransactionDeleteResult
+	err          error
 }
 
 func runProviderWriteCalls(
@@ -447,8 +448,20 @@ func runProviderWriteCalls(
 	for _, item := range items {
 		item := item.Clone()
 		go func() {
-			result, err := writer.UpdateTransaction(ctx, providerTransactionUpdate(item))
-			results <- providerWriteOutcome{item: item, result: result, err: err}
+			outcome := providerWriteOutcome{item: item}
+			switch item.Kind {
+			case store.WriteItemUpdate:
+				outcome.updateResult, outcome.err = writer.UpdateTransaction(
+					ctx, providerTransactionUpdate(item),
+				)
+			case store.WriteItemDelete:
+				outcome.deleteResult, outcome.err = writer.DeleteTransaction(
+					ctx, item.TransactionExternalID,
+				)
+			default:
+				outcome.err = provider.NewWriteFailure(provider.WriteExpectationInvalid)
+			}
+			results <- outcome
 		}()
 	}
 	outcomes := make([]providerWriteOutcome, 0, len(items))
@@ -509,9 +522,10 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 	return outcomes, heartbeatErr
 }
 
-func firstAttemptedPendingWriteItem(items []store.WriteItem) (store.WriteItem, bool) {
+func firstAttemptedPendingUpdateItem(items []store.WriteItem) (store.WriteItem, bool) {
 	for _, item := range items {
-		if item.State == store.WriteItemPending && item.AttemptCount > 0 {
+		if item.Kind == store.WriteItemUpdate &&
+			item.State == store.WriteItemPending && item.AttemptCount > 0 {
 			return item, true
 		}
 	}
@@ -599,10 +613,25 @@ func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate 
 
 func normalizeProviderWriteResult(
 	item store.WriteItem,
-	response provider.TransactionUpdateResult,
+	updateResponse provider.TransactionUpdateResult,
+	deleteResponse provider.TransactionDeleteResult,
 	state store.ProviderWriteState,
 	recordedAt time.Time,
 ) (store.WriteResult, error) {
+	if item.Kind == store.WriteItemDelete {
+		if deleteResponse.TransactionExternalID != item.TransactionExternalID {
+			return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
+		}
+		return store.WriteResult{
+			Kind: store.WriteItemDelete, ItemID: item.ID,
+			TransactionExternalID: deleteResponse.TransactionExternalID,
+			AlreadyAbsent:         deleteResponse.AlreadyAbsent, RecordedAt: recordedAt,
+		}, nil
+	}
+	if item.Kind != store.WriteItemUpdate {
+		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteExpectationInvalid)
+	}
+	response := updateResponse
 	if response.TransactionExternalID != item.TransactionExternalID {
 		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
 	}
@@ -728,8 +757,15 @@ func (service *Service) handleProviderWriteItemError(
 }
 
 func providerWriteUnavailableCanRetry(item store.WriteItem, failure error) bool {
+	if item.AttemptCount >= providerWriteAttempts {
+		return false
+	}
 	code, ok := provider.CodeOf(failure)
-	return ok && code == provider.CodeUnavailable && item.AttemptCount < providerWriteAttempts
+	if ok && code == provider.CodeUnavailable {
+		return true
+	}
+	reason, hasReason := provider.WriteFailureReasonOf(failure)
+	return item.Kind == store.WriteItemDelete && hasReason && reason == provider.WriteOutcomeUnknown
 }
 
 func (service *Service) parkProviderWriteFailure(
@@ -944,7 +980,7 @@ func (service *Service) ResumeProviderWrite(
 	if err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
-	if _, attempted := firstAttemptedPendingWriteItem(state.Items); attempted && !allowAttemptedRetry {
+	if _, attempted := firstAttemptedPendingUpdateItem(state.Items); attempted && !allowAttemptedRetry {
 		return service.parkProviderWriteFailure(
 			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
 		)
@@ -1249,7 +1285,19 @@ func BuildProviderWriteFinalization(
 		if !ok {
 			return store.FinalizeProviderWritePlan{}, errors.New("finalize provider write: result is missing")
 		}
+		if result.Kind != item.Kind ||
+			result.TransactionExternalID != item.TransactionExternalID {
+			return store.FinalizeProviderWritePlan{}, errors.New("finalize provider write: result differs from item")
+		}
 		index, exists := transactionPositions[item.TransactionID]
+		if item.Kind == store.WriteItemDelete {
+			if exists {
+				return store.FinalizeProviderWritePlan{}, errors.New(
+					"finalize provider write: deleted transaction remains",
+				)
+			}
+			continue
+		}
 		if !exists {
 			return store.FinalizeProviderWritePlan{}, errors.New("finalize provider write: transaction is missing")
 		}

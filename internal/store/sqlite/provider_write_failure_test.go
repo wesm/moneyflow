@@ -90,12 +90,16 @@ func TestProviderWriteFinalizationFailurePreservesBatchJournalAndCommittedState(
 	ctx := context.Background()
 	profile, prepared, now := preparedWriteProfile(t)
 	bindProviderForRefreshTest(t, profile, now)
+	preparedState, err := profile.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.Len(t, preparedState.Items, 1)
 	batch, err := profile.RecordProviderWriteResult(ctx, store.RecordProviderWriteResultRequest{
 		BatchID: prepared.Batch.ID, ExpectedVersion: prepared.Batch.Version,
 		LeaseOwnerID: "owner-a", LeaseKind: store.ProviderOperationWrite,
 		ItemID: "item-a", Result: store.WriteResult{
 			Kind:   store.WriteItemUpdate,
-			ItemID: "item-a", TransactionExternalID: "provider-a", RecordedAt: now,
+			ItemID: "item-a", TransactionExternalID: preparedState.Items[0].TransactionExternalID,
+			RecordedAt: now,
 		}, ObservedAt: now,
 	})
 	require.NoError(t, err)

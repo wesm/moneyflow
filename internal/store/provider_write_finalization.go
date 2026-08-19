@@ -44,7 +44,17 @@ func BuildProviderWriteFinalization(
 		if !ok {
 			return FinalizeProviderWritePlan{}, errors.New("finalize provider write: result is missing")
 		}
+		if result.Kind != item.Kind ||
+			result.TransactionExternalID != item.TransactionExternalID {
+			return FinalizeProviderWritePlan{}, errors.New("finalize provider write: result differs from item")
+		}
 		index, exists := transactionPositions[item.TransactionID]
+		if item.Kind == WriteItemDelete {
+			if exists {
+				return FinalizeProviderWritePlan{}, errors.New("finalize provider write: deleted transaction remains")
+			}
+			continue
+		}
 		if !exists {
 			return FinalizeProviderWritePlan{}, errors.New("finalize provider write: transaction is missing")
 		}

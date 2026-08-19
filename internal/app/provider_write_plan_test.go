@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -185,6 +186,133 @@ func TestProviderWritePlanReturnsNoItemsForNetNoop(t *testing.T) {
 	assert.Empty(t, plan.Items)
 }
 
+func TestProviderWritePlanDeleteSupersedesUpdates(t *testing.T) {
+	t.Parallel()
+
+	profile := providerWriteProfile(t)
+	profile.Journal = []domain.Operation{
+		providerWriteOperation("operation-hide", 1, domain.OperationTransactionHide,
+			[]domain.EntityID{"transaction_a"}, nil, nil, nil, &domain.HideTogglePayload{}),
+		providerWriteDeleteOperation("operation-delete", 2, "transaction_a"),
+	}
+	profile.Cursor = len(profile.Journal)
+	plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+		Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
+		ProposedItemIDs: []string{"item-a"}, ObservedAt: providerWriteTime(),
+	})
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 1)
+	item := plan.Items[0]
+	assert.Equal(t, store.WriteItemDelete, item.Kind)
+	assert.Equal(t, "transaction_a", string(item.TransactionID))
+	assert.Equal(t, "2", item.TransactionExternalID)
+	assert.Equal(t, []string{"operation-hide", "operation-delete"}, item.OriginatingOperationIDs)
+	assert.Nil(t, item.RequestedMerchantName)
+	assert.Nil(t, item.RequestedCategoryExternalID)
+	assert.Nil(t, item.RequestedHidden)
+	assert.Empty(t, item.Expectation)
+	assert.Empty(t, item.NewGroupKey)
+	assert.Empty(t, plan.Groups)
+}
+
+func TestProviderWritePlanOrdersMixedUpdateAndDeleteItemsByExternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	profile := providerWriteProfile(t)
+	profile.Journal = []domain.Operation{
+		providerWriteOperation("operation-hide", 1, domain.OperationTransactionHide,
+			[]domain.EntityID{"transaction_b"}, nil, nil, nil, &domain.HideTogglePayload{}),
+		providerWriteDeleteOperation("operation-delete", 2, "transaction_a"),
+	}
+	profile.Cursor = len(profile.Journal)
+	plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+		Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
+		ProposedItemIDs: []string{"item-update", "item-delete"}, ObservedAt: providerWriteTime(),
+	})
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 2)
+	assert.Equal(t, []store.WriteItemKind{store.WriteItemUpdate, store.WriteItemDelete},
+		[]store.WriteItemKind{plan.Items[0].Kind, plan.Items[1].Kind})
+	assert.Equal(t, []string{"10", "2"},
+		[]string{plan.Items[0].TransactionExternalID, plan.Items[1].TransactionExternalID})
+	assert.Equal(t, []int{0, 1}, []int{plan.Items[0].Position, plan.Items[1].Position})
+}
+
+func TestProviderWritePlanDeleteRequiresExternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	profile := providerWriteProfile(t)
+	profile.Committed.ExternalIdentities = slices.DeleteFunc(
+		profile.Committed.ExternalIdentities,
+		func(identity domain.ExternalIdentity) bool {
+			return identity.EntityType == domain.EntityKindTransaction &&
+				identity.EntityID == "transaction_a"
+		},
+	)
+	profile.Journal = []domain.Operation{
+		providerWriteDeleteOperation("operation-delete", 1, "transaction_a"),
+	}
+	profile.Cursor = 1
+	_, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+		Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
+		ProposedItemIDs: []string{"item-a"}, ObservedAt: providerWriteTime(),
+	})
+	require.Error(t, err)
+	code, ok := provider.CodeOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeWriteUnsupported, code)
+}
+
+func TestProviderWritePlanKeepsVacuousStructuralOperationsWithDeleteItems(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operation domain.Operation
+	}{
+		{
+			name: "label",
+			operation: providerWriteOperation("operation-structure", 1,
+				domain.OperationMerchantLabel, []domain.EntityID{"merchant_a"},
+				&domain.LabelPayload{EntityID: "merchant_a", Label: "Renamed Merchant",
+					CollisionKey: "renamed merchant"}, nil, nil, nil),
+		},
+		{
+			name: "merge",
+			operation: providerWriteOperation("operation-structure", 1,
+				domain.OperationMerchantMerge, []domain.EntityID{"merchant_a"}, nil,
+				&domain.MergePayload{SourceID: "merchant_a", DestinationID: "merchant_b"}, nil, nil),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			profile := providerWriteProfile(t)
+			profile.Journal = []domain.Operation{
+				test.operation,
+				providerWriteDeleteOperation("operation-delete-a", 2, "transaction_a"),
+				providerWriteDeleteOperation("operation-delete-b", 3, "transaction_b"),
+			}
+			profile.Cursor = len(profile.Journal)
+			plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+				Snapshot: profile, ProviderState: providerWriteState(), ProposedBatchID: "batch-a",
+				ProposedItemIDs: []string{"item-a", "item-b"}, ObservedAt: providerWriteTime(),
+			})
+			require.NoError(t, err)
+			require.Len(t, plan.Items, 2)
+			for _, item := range plan.Items {
+				assert.Equal(t, store.WriteItemDelete, item.Kind)
+				assert.Contains(t, item.OriginatingOperationIDs, "operation-structure")
+				assert.Nil(t, item.RequestedMerchantName)
+			}
+			assert.Equal(t, []string{
+				"operation-structure", "operation-delete-a", "operation-delete-b",
+			}, plan.FrozenOperationIDs)
+			assert.Empty(t, plan.Groups)
+		})
+	}
+}
+
 func TestProviderWritePlanRejectsUnsupportedAndUnmappedOperations(t *testing.T) {
 	t.Parallel()
 
@@ -319,6 +447,14 @@ func providerWriteOperation(
 		ID: id, Sequence: sequence, Type: typeID, PayloadVersion: 1,
 		CreatedRevision: 7, CreatedAt: providerWriteTime(), Targets: targets,
 		Label: label, Merge: merge, Reassign: reassign, HideToggle: hide,
+	}
+}
+
+func providerWriteDeleteOperation(id string, sequence int64, target domain.EntityID) domain.Operation {
+	return domain.Operation{
+		ID: id, Sequence: sequence, Type: domain.OperationTransactionDelete, PayloadVersion: 1,
+		CreatedRevision: 7, CreatedAt: providerWriteTime(), Targets: []domain.EntityID{target},
+		TransactionDelete: &domain.TransactionDeletePayload{},
 	}
 }
 

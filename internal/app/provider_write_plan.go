@@ -69,6 +69,7 @@ func CountProviderWriteItems(inputs store.PrepareProviderWriteInputs) (int, erro
 }
 
 type providerWriteTransactionPlan struct {
+	kind         store.WriteItemKind
 	transaction  domain.TransactionRecord
 	operationIDs []string
 	expectation  store.WriteExpectationKind
@@ -96,13 +97,23 @@ func planAbsoluteWriteItems(
 	identities := providerWriteIdentityIndexes(committed.ExternalIdentities)
 	allocations := providerWriteAllocationIndex(state.Allocations)
 	committedTransactions := transactionRecordIndex(committed.Transactions)
+	effectiveTransactions := transactionRecordIndex(effective.Transactions)
 	committedMerchants := merchantIndexByID(committed.Merchants)
 	effectiveMerchants := merchantIndexByID(effective.Merchants)
 
 	plans := make([]providerWriteTransactionPlan, 0)
-	for _, transaction := range effective.Transactions {
-		before, exists := committedTransactions[transaction.ID]
+	for _, before := range committed.Transactions {
+		transaction, exists := effectiveTransactions[before.ID]
+		externalID := identities.external(domain.EntityKindTransaction, before.ID)
 		if !exists {
+			if externalID == "" {
+				return nil, nil, provider.NewError(provider.CodeWriteUnsupported)
+			}
+			plans = append(plans, providerWriteTransactionPlan{
+				kind: store.WriteItemDelete, transaction: before,
+				operationIDs: append([]string(nil), attributions[before.ID]...),
+				externalID:   externalID,
+			})
 			continue
 		}
 		merchantChanged := before.MerchantID != transaction.MerchantID ||
@@ -112,11 +123,11 @@ func planAbsoluteWriteItems(
 		if !merchantChanged && !categoryChanged && !hiddenChanged {
 			continue
 		}
-		externalID := identities.external(domain.EntityKindTransaction, transaction.ID)
 		if externalID == "" {
 			return nil, nil, provider.NewError(provider.CodeWriteUnsupported)
 		}
 		plan := providerWriteTransactionPlan{
+			kind:         store.WriteItemUpdate,
 			transaction:  transaction,
 			operationIDs: append([]string(nil), attributions[transaction.ID]...),
 			externalID:   externalID,
@@ -138,7 +149,10 @@ func planAbsoluteWriteItems(
 		return nil, nil, err
 	}
 	slices.SortFunc(plans, func(left, right providerWriteTransactionPlan) int {
-		return strings.Compare(left.externalID, right.externalID)
+		if byExternalID := strings.Compare(left.externalID, right.externalID); byExternalID != 0 {
+			return byExternalID
+		}
+		return strings.Compare(string(left.transaction.ID), string(right.transaction.ID))
 	})
 	if itemIDs != nil && len(plans) != len(itemIDs) {
 		if len(plans) == 0 && len(itemIDs) == 0 {
@@ -155,11 +169,15 @@ func planAbsoluteWriteItems(
 		}
 		item := store.WriteItem{
 			ID: itemID, BatchID: batchID, Position: index,
-			Kind:          store.WriteItemUpdate,
+			Kind:          plan.kind,
 			TransactionID: plan.transaction.ID, TransactionExternalID: plan.externalID,
 			OriginatingOperationIDs: append([]string(nil), plan.operationIDs...),
 			Expectation:             plan.expectation,
 			NewGroupKey:             plan.groupKey, State: store.WriteItemPending,
+		}
+		if plan.kind == store.WriteItemDelete {
+			items[index] = item
+			continue
 		}
 		if before.MerchantID != plan.transaction.MerchantID ||
 			committedMerchants[before.MerchantID].Label != effectiveMerchants[plan.transaction.MerchantID].Label {
@@ -233,6 +251,14 @@ func providerWriteAttributions(
 			for _, transactionID := range operation.Targets {
 				attributions[transactionID] = append(attributions[transactionID], operation.ID)
 			}
+		case domain.OperationTransactionDelete:
+			for _, transactionID := range operation.Targets {
+				attributions[transactionID] = append(attributions[transactionID], operation.ID)
+				if merchantID, exists := currentMerchant[transactionID]; exists {
+					delete(merchantMembers[merchantID], transactionID)
+					delete(currentMerchant, transactionID)
+				}
+			}
 		}
 	}
 	for transactionID, merchantID := range currentMerchant {
@@ -288,7 +314,7 @@ func supportedMonarchWriteOperation(kind domain.OperationType) bool {
 	switch kind {
 	case domain.OperationMerchantLabel, domain.OperationMerchantMerge,
 		domain.OperationMerchantReassign, domain.OperationCategoryAssign,
-		domain.OperationTransactionHide:
+		domain.OperationTransactionHide, domain.OperationTransactionDelete:
 		return true
 	default:
 		return false

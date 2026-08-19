@@ -33,6 +33,7 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 			return EffectiveSnapshot{}, fmt.Errorf("replay operation[%d]: %w", index, err)
 		}
 	}
+	compactDeletedTransactions(&effective, indexes.deletedTransactions)
 	sortCommittedProfile(&effective)
 	if err := effective.Validate(); err != nil {
 		return EffectiveSnapshot{}, fmt.Errorf("replay result: %w", err)
@@ -45,10 +46,11 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 }
 
 type replayIndexes struct {
-	transactions       map[domain.EntityID]int
-	merchantCollisions collisionIndex
-	categoryCollisions collisionIndex
-	groupCollisions    collisionIndex
+	transactions        map[domain.EntityID]int
+	deletedTransactions map[domain.EntityID]struct{}
+	merchantCollisions  collisionIndex
+	categoryCollisions  collisionIndex
+	groupCollisions     collisionIndex
 }
 
 func newReplayIndexes(profile domain.CommittedProfile) replayIndexes {
@@ -69,7 +71,8 @@ func newReplayIndexes(profile domain.CommittedProfile) replayIndexes {
 		groupCollisions.addKnown(group.ID, group.CollisionKey, !group.Retired)
 	}
 	return replayIndexes{
-		transactions: transactions, merchantCollisions: merchantCollisions,
+		transactions: transactions, deletedTransactions: make(map[domain.EntityID]struct{}),
+		merchantCollisions: merchantCollisions,
 		categoryCollisions: categoryCollisions, groupCollisions: groupCollisions,
 	}
 }
@@ -149,7 +152,7 @@ func applyOperationForReplay(
 	case domain.OperationTransactionHide:
 		err = applyHideToggleIndexed(effective, operation, indexes)
 	case domain.OperationTransactionDelete:
-		err = applyTransactionDeleteIndexed(effective, operation, indexes)
+		err = applyTransactionDeleteIndexed(operation, indexes)
 	default:
 		err = fmt.Errorf("unsupported operation type %q", operation.Type)
 	}
@@ -301,19 +304,34 @@ func applyHideToggleIndexed(
 }
 
 func applyTransactionDeleteIndexed(
-	profile *domain.CommittedProfile,
 	operation domain.Operation,
 	indexes replayIndexes,
 ) error {
 	if _, err := indexedTransactionPositions(indexes, operation.Targets); err != nil {
 		return err
 	}
-	deleteTransactionRecords(profile, operation.Targets)
-	clear(indexes.transactions)
-	for index := range profile.Transactions {
-		indexes.transactions[profile.Transactions[index].ID] = index
+	for _, target := range operation.Targets {
+		delete(indexes.transactions, target)
+		indexes.deletedTransactions[target] = struct{}{}
 	}
 	return nil
+}
+
+func compactDeletedTransactions(
+	profile *domain.CommittedProfile,
+	deleted map[domain.EntityID]struct{},
+) {
+	if len(deleted) == 0 {
+		return
+	}
+	kept := profile.Transactions[:0]
+	for _, transaction := range profile.Transactions {
+		if _, removed := deleted[transaction.ID]; !removed {
+			kept = append(kept, transaction)
+		}
+	}
+	clear(profile.Transactions[len(kept):])
+	profile.Transactions = kept
 }
 
 func indexedTransactionPositions(

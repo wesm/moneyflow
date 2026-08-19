@@ -965,6 +965,341 @@ func TestProviderWriteCommitPreparesRunsAndFinalizesAbsoluteUpdate(t *testing.T)
 	assert.True(t, providerState.Refresh.LastSuccess.IsZero(), "write completion makes refresh due")
 }
 
+func TestProviderWriteDeleteRunsAndFinalizesAbsence(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name          string
+		alreadyAbsent bool
+	}{{name: "deleted"}, {name: "already absent", alreadyAbsent: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			alreadyAbsent := test.alreadyAbsent
+			ctx := context.Background()
+			service, profileHandle := newProviderRefreshService(t)
+			now := time.Date(2026, time.August, 18, 19, 10, 0, 0, time.UTC)
+			reader := &fakeProviderSource{
+				identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+				snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+			}
+			writer := &scriptedProviderWriter{
+				identity: reader.identity,
+				delete: func(externalID string) (provider.TransactionDeleteResult, error) {
+					return provider.TransactionDeleteResult{
+						TransactionExternalID: externalID, AlreadyAbsent: alreadyAbsent,
+					}, nil
+				},
+			}
+			configureProviderRefreshService(t, service, &writeProviderSource{
+				fakeProviderSource: reader, writer: writer,
+			}, now, "instance-delete")
+			_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+			require.NoError(t, err)
+			loaded, err := profileHandle.Load(ctx)
+			require.NoError(t, err)
+			require.Len(t, loaded.Committed.Transactions, 1)
+			target := loaded.Committed.Transactions[0]
+			revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+				ID: "operation_write_delete", Type: domain.OperationTransactionDelete,
+				PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+				Targets:           []domain.EntityID{target.ID},
+				TransactionDelete: &domain.TransactionDeletePayload{},
+			})
+			require.NoError(t, err)
+			_, err = service.Refresh(ctx)
+			require.NoError(t, err)
+			prepared, err := service.Commit(ctx, app.CommitRequest{
+				ExpectedRevision: revision, ReviewedRevision: revision,
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+			require.NoError(t, err)
+			require.NotNil(t, prepared.ProviderWrite)
+			assert.Equal(t, 1, prepared.ProviderWrite.Total)
+
+			status, err := service.RunProviderWrite(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, status.Phase)
+			assert.Zero(t, writer.updateCallCount())
+			assert.Equal(t, 1, writer.deleteCallCount())
+			persisted, err := profileHandle.Load(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, persisted.Journal)
+			assert.Empty(t, persisted.Committed.Transactions)
+			assert.Contains(t, persisted.Committed.ExternalIdentities, domain.ExternalIdentity{
+				EntityType: domain.EntityKindTransaction, EntityID: target.ID,
+				Namespace: "monarch/transaction", ExternalID: target.ProviderID,
+			})
+		})
+	}
+}
+
+func TestResumeProviderWriteResendsClaimedDeleteButNotClaimedUpdate(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 19, 20, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-delete-recovery")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_claimed_delete", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets:           []domain.EntityID{target.ID},
+		TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	writeState, err := profileHandle.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+	claimed, err := profileHandle.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: writeState.Batch.ID, ExpectedVersion: writeState.Batch.Version,
+		LeaseOwnerID: "instance-delete-recovery", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	assert.Equal(t, store.WriteItemDelete, claimed[0].Kind)
+	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
+		ctx, "instance-delete-recovery", store.ProviderOperationWrite,
+	))
+
+	status, err := service.ResumeProviderWrite(ctx, writeState.Batch.Version)
+	require.NoError(t, err)
+	assert.Empty(t, status.Phase)
+	assert.Equal(t, 1, writer.deleteCallCount())
+	persisted, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, persisted.Committed.Transactions)
+}
+
+func TestProviderWriteDeleteUnknownOutcomeUsesBoundedResendBudget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 19, 30, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		delete: func(string) (provider.TransactionDeleteResult, error) {
+			return provider.TransactionDeleteResult{},
+				provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		},
+	}
+	sleeps := 0
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: "instance-delete-retry", Now: func() time.Time { return now },
+		Random: &incrementingReader{}, Sleep: func(context.Context, time.Duration) error {
+			sleeps++
+			return nil
+		},
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_delete_unknown", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets:           []domain.EntityID{loaded.Committed.Transactions[0].ID},
+		TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+	assert.Equal(t, 5, writer.deleteCallCount())
+	assert.Equal(t, 4, sleeps)
+}
+
+func TestProviderWriteDeleteStopAndReconcileAbandonsWholeFrozenPrefix(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 19, 40, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		delete: func(externalID string) (provider.TransactionDeleteResult, error) {
+			if externalID == transactionExternalID(0) {
+				return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+			}
+			return provider.TransactionDeleteResult{},
+				provider.NewWriteFailure(provider.WriteRejected)
+		},
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-delete-reconcile")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 2)
+	targets := []domain.EntityID{
+		loaded.Committed.Transactions[0].ID,
+		loaded.Committed.Transactions[1].ID,
+	}
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_delete_reconcile", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: targets, TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+	assert.Equal(t, 1, status.Completed)
+
+	remote := providerSnapshot(t, now.Add(time.Minute), 2)
+	remote.Transactions = append([]domain.ImportTransaction(nil), remote.Transactions[1])
+	reader.setSnapshot(remote)
+	reconciled, err := service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedVersion: status.Version, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, reconciled.Status.Phase)
+	persisted, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, persisted.Journal, "the complete frozen prefix is abandoned")
+	require.Len(t, persisted.Committed.Transactions, 1)
+	assert.Equal(t, transactionExternalID(1), persisted.Committed.Transactions[0].ProviderID)
+	assert.Contains(t, persisted.Committed.ExternalIdentities, domain.ExternalIdentity{
+		EntityType: domain.EntityKindTransaction, EntityID: targets[0],
+		Namespace: "monarch/transaction", ExternalID: transactionExternalID(0),
+	})
+}
+
+func TestProviderWriteVacuousMerchantLabelFoldsLocallyThenRefreshRestoresProviderLabel(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 19, 50, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-vacuous-label")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	merchantID := target.MerchantID
+	label := "Locally Renamed Merchant"
+	collisionKey, err := domain.CollisionKey(label)
+	require.NoError(t, err)
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_vacuous_label", Type: domain.OperationMerchantLabel, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{merchantID},
+		Label: &domain.LabelPayload{EntityID: merchantID, Label: label, CollisionKey: collisionKey},
+	})
+	require.NoError(t, err)
+	revision, err = profileHandle.Append(ctx, revision, domain.Operation{
+		ID: "operation_vacuous_delete", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: revision, CreatedAt: now,
+		Targets:           []domain.EntityID{target.ID},
+		TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	_, err = service.RunProviderWrite(ctx)
+	require.NoError(t, err)
+	committed, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, label, merchantLabelByID(t, committed.Committed, merchantID))
+	assert.Empty(t, committed.Committed.Transactions)
+
+	reader.setSnapshot(providerSnapshot(t, now.Add(time.Minute), 0))
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	refreshed, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "Example Merchant", merchantLabelByID(t, refreshed.Committed, merchantID))
+}
+
+func merchantLabelByID(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	merchantID domain.EntityID,
+) string {
+	t.Helper()
+	for _, merchant := range profile.Merchants {
+		if merchant.ID == merchantID {
+			return merchant.Label
+		}
+	}
+	t.Fatalf("merchant was not retained")
+	return ""
+}
+
 func TestProviderWriteFinalizationUsesProviderOverridesAsTruth(t *testing.T) {
 	t.Parallel()
 
@@ -1029,6 +1364,9 @@ type scriptedProviderWriter struct {
 	updateContext func(context.Context, provider.TransactionUpdate) (
 		provider.TransactionUpdateResult, error,
 	)
+	deleteCalls   []string
+	delete        func(string) (provider.TransactionDeleteResult, error)
+	deleteContext func(context.Context, string) (provider.TransactionDeleteResult, error)
 }
 
 func (writer *scriptedProviderWriter) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
@@ -1072,9 +1410,27 @@ func (writer *scriptedProviderWriter) UpdateTransaction(
 }
 
 func (writer *scriptedProviderWriter) DeleteTransaction(
-	_ context.Context,
+	ctx context.Context,
 	externalID string,
 ) (provider.TransactionDeleteResult, error) {
+	writer.mu.Lock()
+	writer.deleteCalls = append(writer.deleteCalls, externalID)
+	writer.active++
+	writer.maximum = max(writer.maximum, writer.active)
+	callback := writer.delete
+	contextCallback := writer.deleteContext
+	writer.mu.Unlock()
+	defer func() {
+		writer.mu.Lock()
+		writer.active--
+		writer.mu.Unlock()
+	}()
+	if contextCallback != nil {
+		return contextCallback(ctx, externalID)
+	}
+	if callback != nil {
+		return callback(externalID)
+	}
 	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
 }
 
@@ -1132,7 +1488,19 @@ func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
 func (writer *scriptedProviderWriter) callCount() int {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
+	return len(writer.calls) + len(writer.deleteCalls)
+}
+
+func (writer *scriptedProviderWriter) updateCallCount() int {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
 	return len(writer.calls)
+}
+
+func (writer *scriptedProviderWriter) deleteCallCount() int {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return len(writer.deleteCalls)
 }
 
 func (writer *scriptedProviderWriter) maxConcurrency() int {
