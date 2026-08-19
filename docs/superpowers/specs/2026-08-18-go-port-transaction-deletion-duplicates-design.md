@@ -184,6 +184,12 @@ The fold removes the active journal and redo tail only after all committed rows 
 state have been written successfully. Any failure leaves committed state, journal, cursor, and
 revision unchanged.
 
+Deleting a committed transaction does not delete its `external_identities` row. The mapping is a
+durable transaction tombstone: if the same provider external ID reappears, refresh restores the
+same stable local transaction ID. A provider row that reappears with a new external ID receives a
+fresh local ID. This preserves the refresh contract that provider mappings are never reused for a
+different identity and are not pruned merely because an entity is currently absent.
+
 ## Duplicate Detection
 
 ### Input scope
@@ -230,8 +236,7 @@ Ordering is deterministic:
 
 - groups sort by date descending, then money ascending by currency, scale, and minor units, then
   lowercased merchant label, account ID, and the smallest transaction ID;
-- rows within a group sort by date, provider ID, and stable local transaction ID using bytewise
-  string ordering.
+- rows within a group sort by stable local transaction ID using bytewise string ordering.
 
 The application projection assigns display group numbers after sorting. Group numbers are
 presentation values, not durable identities and not mutation targets.
@@ -432,7 +437,16 @@ provider truth and may show a resurrected transaction with its stable or newly m
 ## Write-Back Lifecycle and Failure Handling
 
 The existing durable batch phases, lease ownership, session reload, identity probe, pause, rate
-limit, reconnect, attention, and crash-resume behavior remain unchanged.
+limit, reconnect, and attention behavior remain unchanged. Crash-uncertain dispatch differs by item
+kind because only deletion is safely repeatable:
+
+- an attempted update item with no persisted normalized result parks for authoritative
+  reconciliation before another network call; and
+- an attempted delete item with no persisted normalized result remains eligible for resend within
+  the bounded attempt budget because absence is its absolute desired state.
+
+The worker persists item kind and attempt state before dispatch so a new process applies this rule
+without inferring it from optional update fields.
 
 Delete-specific outcomes map as follows:
 
@@ -619,6 +633,8 @@ result cannot pass.
 - Refresh revision and generation guards reject stale folds.
 - A pending deletion never flashes back into effective state during refresh.
 - A provider-resurrected row returns only after pending intent has been committed or abandoned.
+- A resurrected row with the same provider external ID restores the original stable local ID.
+- A resurrected logical transaction with a new provider external ID receives a fresh local ID.
 
 ### Write planner and storage tests
 
@@ -646,6 +662,8 @@ result cannot pass.
 - Authentication, rate limit, unavailable, malformed, and unknown-outcome classifications.
 - Crash after remote acceptance but before result persistence safely resends and completes on
   success or proven not-found.
+- Crash-uncertain update items park without resend while crash-uncertain delete items remain
+  eligible within their bounded attempt budget.
 - Retry attempt counts, lease loss, pause, reconnect, and cross-process hand-off.
 - Stop and reconcile removes the complete frozen prefix and installs remote truth.
 - A remotely absent applied deletion remains absent after reconcile.
@@ -731,6 +749,7 @@ This slice is complete when:
 - stop and reconcile abandons the entire frozen prefix and never wedges a refused deletion;
 - not-found behavior is safe without parsing or persisting provider error text;
 - refresh rebase handles present, absent, partial, empty, and resurrected targets correctly;
+- deleted transaction mappings survive as tombstones so same-ID resurrection is stable;
 - schema v7 enforces the item union and refuses v6 without migration;
 - API responses are bounded, exact-money, no-store, and provider-identity blind;
 - all pure, store, provider, application, TUI, web, API, performance, race, architecture, privacy,
