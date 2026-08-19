@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ReviewDrawer from './ReviewDrawer.svelte'
 import { testEditingController, testReviewController } from '../../test/editing'
@@ -114,5 +114,16 @@ describe('ReviewDrawer', () => {
 
     expect(editing.commit).toHaveBeenCalledTimes(1)
     expect(onwrite).toHaveBeenCalledTimes(1)
+  })
+
+  it('focuses the commit action after review loading so w then Enter is deterministic', async () => {
+    render(ReviewDrawer, {
+      editing: testEditingController(),
+      review: testReviewController(),
+      onclose: vi.fn(),
+    })
+
+    const commit = screen.getByRole('button', { name: 'Commit reviewed changes' })
+    await waitFor(() => expect(document.activeElement).toBe(commit))
   })
 })

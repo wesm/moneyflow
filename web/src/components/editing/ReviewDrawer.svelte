@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Button, DetailDrawer } from '@kenn-io/kit-ui'
   import { onMount } from 'svelte'
+  import { tick } from 'svelte'
   import type { EditingController } from '../../lib/controller/editing'
   import type { ReviewController } from '../../lib/controller/review'
 
@@ -15,8 +16,14 @@
   let targetOffset = $state(0)
   let commitContainer: HTMLDivElement | undefined
   onMount(() => {
-    void review.load()
+    void loadAndFocusCommit()
   })
+  async function loadAndFocusCommit(): Promise<void> {
+    await review.load()
+    await tick()
+    const commitButton = commitContainer?.querySelectorAll('button').item(1)
+    if (commitButton && !commitButton.disabled) commitButton.focus()
+  }
   async function expand(operationID: string): Promise<void> {
     expanded = expanded === operationID ? '' : operationID
     targetOffset = 0

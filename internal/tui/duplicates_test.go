@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
@@ -73,8 +75,27 @@ func TestDuplicateOverlayRoutesNavigationInfoHideAndEscape(t *testing.T) {
 	assert.Equal(t, overlayDuplicates, model.overlay)
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 	assert.True(t, model.duplicates.projection.Groups[0].Rows[0].Flags.Pending)
+	assert.Contains(t, strings.Join(model.RenderScreen().Overlay, "\n"), "Staged edit")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.Equal(t, overlayNone, model.overlay)
+}
+
+func TestDuplicatePreviousPageReturnsToLastRowsOfPreviousGroupWindow(t *testing.T) {
+	t.Parallel()
+
+	model := newManyDuplicateModel(t, app.MaxWindowLimit+1).model
+	model = press(t, model, keyRune('D'))
+	require.Equal(t, overlayDuplicates, model.overlay)
+	model.duplicates.groupOffset = app.MaxWindowLimit
+	model.duplicates.rowOffset = 0
+	require.True(t, model.loadDuplicates())
+	require.Equal(t, app.MaxWindowLimit, model.duplicates.projection.GroupWindow.Offset)
+
+	model.duplicatePreviousPage()
+
+	assert.Zero(t, model.duplicates.groupOffset)
+	assert.Greater(t, model.duplicates.rowOffset, 0)
+	assert.NotEmpty(t, duplicateProjectionRows(model.duplicates.projection))
 }
 
 func TestDuplicateOverlayCancellationLeavesJournalUnchanged(t *testing.T) {
@@ -111,6 +132,48 @@ func newDuplicateModel(t testing.TB) persistentModelFixture {
 	transactions[1].Amount = transactions[0].Amount
 	transactions[1].Merchant = transactions[0].Merchant
 	transactions[1].Account = transactions[0].Account
+	committed, err := fixture.CommittedProfile(transactions)
+	require.NoError(t, err)
+	_, err = profile.CreateSeededProfile(ctx, committed)
+	require.NoError(t, err)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	model, err := NewModel(ctx, service, app.NewSession(), Options{
+		Theme: ThemeDefault, ColorMode: ColorModeNone,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = profile.Close() })
+	return persistentModelFixture{model: model, profile: profile, paths: paths, ctx: ctx}
+}
+
+func newManyDuplicateModel(t testing.TB, groupCount int) persistentModelFixture {
+	t.Helper()
+	ctx := context.Background()
+	paths, err := home.ResolveRoot(filepath.Join(t.TempDir(), "profile"), nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	base, err := fixture.Decode(bytes.NewReader(paritydata.Transactions))
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(base), 2)
+	transactions := make([]domain.Transaction, 0, groupCount*2)
+	for groupIndex := 0; groupIndex < groupCount; groupIndex++ {
+		date, dateErr := base[0].Date.AddDays(groupIndex)
+		require.NoError(t, dateErr)
+		for rowIndex := 0; rowIndex < 2; rowIndex++ {
+			transaction := base[rowIndex].Clone()
+			transaction.ID = fmt.Sprintf("duplicate-%04d-%d", groupIndex, rowIndex)
+			transaction.ProviderID = fmt.Sprintf("provider-%04d-%d", groupIndex, rowIndex)
+			transaction.Date = date
+			transaction.Amount = base[0].Amount
+			transaction.Account = base[0].Account
+			transaction.Merchant = domain.EntityRef{
+				ID:   fmt.Sprintf("merchant-%04d", groupIndex),
+				Name: fmt.Sprintf("Example Merchant %04d", groupIndex),
+			}
+			transactions = append(transactions, transaction)
+		}
+	}
 	committed, err := fixture.CommittedProfile(transactions)
 	require.NoError(t, err)
 	_, err = profile.CreateSeededProfile(ctx, committed)

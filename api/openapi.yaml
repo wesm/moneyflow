@@ -296,6 +296,9 @@ components:
           type: integer
         version:
           type: string
+        window_transactions:
+          format: int64
+          type: integer
       required:
         - version
         - revision
@@ -304,6 +307,7 @@ components:
         - selection_count
         - total_groups
         - total_transactions
+        - window_transactions
         - group_window
         - row_window
         - groups

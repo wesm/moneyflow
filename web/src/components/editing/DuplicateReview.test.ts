@@ -42,6 +42,21 @@ describe('DuplicateReview', () => {
     expect(screen.queryByRole('region', { name: 'Transaction information' })).toBeNull()
     expect(screen.getByRole('grid', { name: 'Likely duplicate transactions' })).not.toBeNull()
   })
+
+  it('keeps the confirmation visible and disables controls while submitting', () => {
+    const controller = duplicateController()
+    controller.state.phase = 'submitting'
+    controller.state.confirmationCount = 1
+    render(DuplicateReview, { controller, onclose: vi.fn() })
+
+    expect(screen.getByRole('dialog', { name: 'Confirm deletion' })).not.toBeNull()
+    expect(
+      (screen.getByRole('button', { name: 'Stage deletion' }) as HTMLButtonElement).disabled,
+    ).toBe(true)
+    expect((screen.getByRole('button', { name: 'Cancel' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
 })
 
 function duplicateController(): DuplicateController {
@@ -77,6 +92,7 @@ function duplicateController(): DuplicateController {
         selection_count: 0,
         total_groups: 1,
         total_transactions: 2,
+        window_transactions: 2,
         group_window: { offset: 0, limit: 200, count: 1 },
         row_window: { offset: 0, limit: 200, count: 2 },
         groups: [

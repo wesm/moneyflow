@@ -77,7 +77,7 @@ func TestDuplicateProjectionPerformance100K(t *testing.T) {
 	require.NoError(t, err)
 	require.Less(t, duration, time.Second, "100k duplicate projection took %s", duration)
 	digest := fmt.Sprintf("%x", sha256.Sum256(encoded))
-	assert.Equal(t, "220f1b556e1c90b4c562d072a92e5c301f7adb17e498e606741956d4f7aff7f4", digest)
+	assert.Equal(t, "0b3e040e7e1c82592cc877657556d3eab73e2f5de1adef1561c9ba3b8048f742", digest)
 }
 
 func projectAndEncode100K(service *app.Service) ([]byte, error) {

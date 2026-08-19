@@ -241,6 +241,11 @@ func (service *Service) runProviderWriteOwned(
 			return service.writeStatus(ctx, mapAppError(resumeErr, service.Revision()))
 		}
 		batch = resumed
+		if _, exhausted := firstExhaustedPendingWriteItem(state.Items); exhausted {
+			return service.parkProviderWriteFailure(
+				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			)
+		}
 		if _, attempted := firstAttemptedPendingUpdateItem(state.Items); attempted {
 			return service.parkProviderWriteFailure(
 				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
@@ -533,6 +538,15 @@ func firstAttemptedPendingUpdateItem(items []store.WriteItem) (store.WriteItem, 
 	for _, item := range items {
 		if item.Kind == store.WriteItemUpdate &&
 			item.State == store.WriteItemPending && item.AttemptCount > 0 {
+			return item, true
+		}
+	}
+	return store.WriteItem{}, false
+}
+
+func firstExhaustedPendingWriteItem(items []store.WriteItem) (store.WriteItem, bool) {
+	for _, item := range items {
+		if item.State == store.WriteItemPending && item.AttemptCount >= providerWriteAttempts {
 			return item, true
 		}
 	}
@@ -990,6 +1004,11 @@ func (service *Service) ResumeProviderWrite(
 	})
 	if err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
+	}
+	if _, exhausted := firstExhaustedPendingWriteItem(state.Items); exhausted && !allowAttemptedRetry {
+		return service.parkProviderWriteFailure(
+			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+		)
 	}
 	if _, attempted := firstAttemptedPendingUpdateItem(state.Items); attempted && !allowAttemptedRetry {
 		return service.parkProviderWriteFailure(

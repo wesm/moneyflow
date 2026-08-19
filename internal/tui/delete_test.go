@@ -75,6 +75,49 @@ func TestDeleteConfirmationRejectsStaleRevisionWithoutReplaying(t *testing.T) {
 	assert.Contains(t, model.status, "profile changed")
 }
 
+func TestBulkDeleteStaleSelectionCanBeRetried(t *testing.T) {
+	t.Parallel()
+
+	fixture := newPersistentModel(t, app.NewSession())
+	model := press(t, fixture.model, keyRune('d'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	model = press(t, model, keyRune('x'))
+	require.Equal(t, overlayDeleteConfirmation, model.overlay)
+
+	externalStore, err := sqlite.Open(context.Background(), fixture.paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = externalStore.Close() })
+	externalService, err := app.NewProfileService(context.Background(), externalStore)
+	require.NoError(t, err)
+	_, err = externalService.Mutate(context.Background(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: externalService.Revision(),
+		State: model.session.ViewState(), Selection: app.EmptySelection(),
+		Target: &app.RowTarget{
+			Kind: app.IdentityTransaction, Identity: model.result.DetailRows[1].Transaction.ID,
+		},
+	})
+	require.NoError(t, err)
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Contains(t, model.status, "profile changed")
+	require.Len(t, model.session.SelectedTransactionIDs, 1)
+	model = press(t, model, keyRune('x'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, 2, model.pending.ActiveOperations)
+}
+
+func TestDeleteConfirmationDoesNotOpenWithoutSelectionOrFocusedTransaction(t *testing.T) {
+	t.Parallel()
+
+	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('d'))
+	model.result.DetailRows = nil
+	model.cursor = 0
+	model.openDeleteConfirmation()
+
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.NotEmpty(t, model.status)
+}
+
 func TestDeleteConfirmationEscapeDoesNotMutate(t *testing.T) {
 	t.Parallel()
 

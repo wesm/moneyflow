@@ -1221,6 +1221,65 @@ func TestResumeProviderWriteResendsClaimedDeleteButNotClaimedUpdate(t *testing.T
 	assert.Empty(t, persisted.Committed.Transactions)
 }
 
+func TestResumeProviderWriteDoesNotResendDeleteAtAttemptLimit(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 19, 25, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-delete-limit")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_delete_attempt_limit", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets:           []domain.EntityID{loaded.Committed.Transactions[0].ID},
+		TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	writeState, err := profileHandle.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+	for attempt := 0; attempt < 5; attempt++ {
+		claimed, claimErr := profileHandle.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+			BatchID: writeState.Batch.ID, ExpectedVersion: writeState.Batch.Version,
+			LeaseOwnerID: "instance-delete-limit", LeaseKind: store.ProviderOperationWrite,
+			ObservedAt: now, Limit: 1,
+		})
+		require.NoError(t, claimErr)
+		require.Len(t, claimed, 1)
+		assert.Equal(t, attempt+1, claimed[0].AttemptCount)
+	}
+	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
+		ctx, "instance-delete-limit", store.ProviderOperationWrite,
+	))
+
+	status, err := service.ResumeProviderWrite(ctx, writeState.Batch.Version)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, status.AttentionReason)
+	assert.Zero(t, writer.deleteCallCount())
+}
+
 func TestProviderWriteDeleteUnknownOutcomeUsesBoundedResendBudget(t *testing.T) {
 	t.Parallel()
 

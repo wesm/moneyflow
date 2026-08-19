@@ -36,6 +36,7 @@ func TestProjectDuplicatesUsesCompleteFilteredResultAndProviderLabels(t *testing
 	assert.Equal(t, 2, projection.TotalTransactions)
 	assert.Equal(t, app.Window{Offset: 0, Limit: 1, Count: 1}, projection.GroupWindow)
 	assert.Equal(t, app.Window{Offset: 0, Limit: 1, Count: 1}, projection.RowWindow)
+	assert.Equal(t, 2, projection.WindowTransactions)
 	require.Len(t, projection.Groups, 1)
 	assert.Equal(t, 1, projection.Groups[0].Number)
 	require.Len(t, projection.Groups[0].Rows, 1)
@@ -75,6 +76,27 @@ func TestProjectDuplicatesBindsTransientSelectionToItsCheckedRevision(t *testing
 	)
 	require.NoError(t, err)
 	assert.Contains(t, resolved.IDs, "transaction_a")
+}
+
+func TestProjectDuplicatesRejectsSelectionBoundToAnOlderRevision(t *testing.T) {
+	t.Parallel()
+
+	profile := duplicateMemoryProfile(t, true)
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	state := detailViewState()
+	selection := selectedValue(
+		t, effectiveSnapshotFromProfile(t, profile), state.Current, service.Revision(), "transaction_a",
+	)
+	profile.advanceExternally(reassignOperation(
+		1, domain.OperationCategoryAssign, "category_b", "transaction_b",
+	))
+
+	_, err = service.ProjectDuplicates(
+		context.Background(), service.Revision()+1, state, selection,
+		app.DuplicateWindowRequest{},
+	)
+	assertAppCode(t, err, app.AppSelectionStale)
 }
 
 func TestProjectDuplicatesReturnsPartialGroupsAndValidatesBounds(t *testing.T) {

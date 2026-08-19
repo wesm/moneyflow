@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,7 +32,12 @@ func (model *Model) openDeleteConfirmation() tea.Cmd {
 		return nil
 	}
 	count := len(resolved.IDs)
+	target := model.focusedMutationTarget()
 	if count == 0 {
+		if target == nil {
+			model.status = "No transaction is available to delete."
+			return nil
+		}
 		count = 1
 	}
 	model.deleteConfirmation = deleteConfirmationState{
@@ -39,7 +45,7 @@ func (model *Model) openDeleteConfirmation() tea.Cmd {
 		request: app.MutationRequest{
 			Action: app.ActionDeleteTransaction, ExpectedRevision: model.service.Revision(),
 			State: model.session.ViewState(), Selection: selection,
-			Target: model.focusedMutationTarget(),
+			Target: target,
 		},
 		count: count,
 	}
@@ -86,6 +92,12 @@ func (model *Model) applyOverlayMutation(
 	if err != nil {
 		message := safeInteractionMessage(err)
 		model.syncProfileMetadata()
+		var failure *app.AppError
+		if errors.As(err, &failure) && failure.Code == app.AppSelectionStale {
+			if installErr := model.installSelection(failure.Selection); installErr != nil {
+				model.clearSessionSelection()
+			}
+		}
 		model.refreshPreserving(identity)
 		model.overlay = returnOverlay
 		model.deleteConfirmation = deleteConfirmationState{}
@@ -117,8 +129,12 @@ func (model *Model) applyOverlayMutation(
 	if request.Action == app.ActionDeleteTransaction {
 		operation = "deletion"
 	}
-	model.status = fmt.Sprintf("Staged %s for %d %s. Press w to review and commit.",
+	message := fmt.Sprintf("Staged %s for %d %s. Press w to review and commit.",
 		operation, count, transactionWord(count))
+	model.status = message
+	if returnOverlay == overlayDuplicates {
+		model.duplicates.notice = message
+	}
 }
 
 func transactionWord(count int) string {

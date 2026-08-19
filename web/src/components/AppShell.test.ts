@@ -280,6 +280,7 @@ function stubController(projection = testProjection()): ViewController {
           selection_count: 0,
           total_groups: 0,
           total_transactions: 0,
+          window_transactions: 0,
           group_window: { offset: 0, limit: 200, count: 0 },
           row_window: { offset: 0, limit: 200, count: 0 },
           groups: [],

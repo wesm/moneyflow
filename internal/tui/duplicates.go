@@ -16,6 +16,7 @@ type duplicateState struct {
 	rowOffset   int
 	selection   app.SelectionValue
 	err         string
+	notice      string
 }
 
 func (model *Model) openDuplicates() tea.Cmd {
@@ -104,6 +105,22 @@ func (model *Model) routeDuplicates(message tea.KeyPressMsg) tea.Cmd {
 
 func (model *Model) duplicatePreviousPage() {
 	if model.duplicates.rowOffset == 0 {
+		if model.duplicates.groupOffset == 0 {
+			model.duplicates.cursor = 0
+			return
+		}
+		model.duplicates.groupOffset = max(
+			0, model.duplicates.groupOffset-model.duplicates.projection.GroupWindow.Limit,
+		)
+		model.duplicates.rowOffset = 0
+		model.duplicates.cursor = 0
+		if !model.loadDuplicates() || model.duplicates.projection.WindowTransactions == 0 {
+			return
+		}
+		pageSize := model.duplicatePageSize()
+		model.duplicates.rowOffset =
+			((model.duplicates.projection.WindowTransactions - 1) / pageSize) * pageSize
+		model.loadDuplicates()
 		model.duplicates.cursor = 0
 		return
 	}
@@ -113,15 +130,14 @@ func (model *Model) duplicatePreviousPage() {
 }
 
 func (model *Model) duplicateNextPage() {
-	previous := model.duplicates
-	projection := previous.projection
+	projection := model.duplicates.projection
 	if projection.RowWindow.Count == 0 {
 		return
 	}
-	model.duplicates.rowOffset += projection.RowWindow.Count
-	model.duplicates.cursor = 0
-	model.loadDuplicates()
-	if len(duplicateProjectionRows(model.duplicates.projection)) > 0 {
+	if projection.RowWindow.Offset+projection.RowWindow.Count < projection.WindowTransactions {
+		model.duplicates.rowOffset += projection.RowWindow.Count
+		model.duplicates.cursor = 0
+		model.loadDuplicates()
 		return
 	}
 	if projection.GroupWindow.Offset+projection.GroupWindow.Count < projection.TotalGroups {
@@ -130,7 +146,6 @@ func (model *Model) duplicateNextPage() {
 		model.loadDuplicates()
 		return
 	}
-	model.duplicates = previous
 	model.duplicates.cursor = max(0, len(duplicateProjectionRows(projection))-1)
 }
 

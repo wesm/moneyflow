@@ -34,16 +34,17 @@ type DuplicateGroupProjection struct {
 
 // DuplicateProjection contains one bounded duplicate-review projection.
 type DuplicateProjection struct {
-	Revision          uint64
-	State             ViewState
-	Selection         SelectionValue
-	SelectionCount    int
-	TotalGroups       int
-	TotalTransactions int
-	GroupWindow       Window
-	RowWindow         Window
-	Groups            []DuplicateGroupProjection
-	Status            string
+	Revision           uint64
+	State              ViewState
+	Selection          SelectionValue
+	SelectionCount     int
+	TotalGroups        int
+	TotalTransactions  int
+	WindowTransactions int
+	GroupWindow        Window
+	RowWindow          Window
+	Groups             []DuplicateGroupProjection
+	Status             string
 }
 
 type duplicateProjectedRow struct {
@@ -92,6 +93,18 @@ func (service *Service) ProjectDuplicates(
 	result, err := service.Query(resolvedSession)
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
+	}
+	selectionDocument, err := decodeSelection(selection)
+	if err != nil {
+		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
+	}
+	if !selectionDocument.isUniversalEmpty() && selectionDocument.Revision != nil &&
+		*selectionDocument.Revision != snapshot.Revision {
+		failure := newAppError(
+			AppSelectionStale, snapshot.Revision, errors.New("duplicate selection revision is stale"),
+		)
+		failure.Selection = EmptySelection()
+		return DuplicateProjection{}, failure
 	}
 	selectionSnapshot, err := service.ResolveSelection(detailState, selection)
 	if err != nil {
@@ -151,7 +164,8 @@ func (service *Service) ProjectDuplicates(
 	projection := DuplicateProjection{
 		Revision: snapshot.Revision, State: state.Clone(), Selection: selection,
 		SelectionCount: len(selectionSnapshot.IDs), TotalGroups: len(groups),
-		TotalTransactions: totalTransactions, GroupWindow: groupWindow, RowWindow: rowWindow,
+		TotalTransactions: totalTransactions, WindowTransactions: len(flattened),
+		GroupWindow: groupWindow, RowWindow: rowWindow,
 		Groups: projectedGroups,
 	}
 	if len(groups) == 0 {

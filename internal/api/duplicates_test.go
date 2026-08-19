@@ -38,6 +38,7 @@ func TestDuplicateProjectionIsBoundedReadOnlyPost(t *testing.T) {
 	assert.Equal(t, "v=1", projection.CanonicalQuery)
 	assert.Equal(t, 1, projection.TotalGroups)
 	assert.Equal(t, 2, projection.TotalTransactions)
+	assert.Equal(t, 2, projection.WindowTransactions)
 	require.Len(t, projection.Groups, 1)
 	require.Len(t, projection.Groups[0].Rows, 2)
 	assert.Equal(t, "-1234", projection.Groups[0].Rows[0].Amount.Minor)

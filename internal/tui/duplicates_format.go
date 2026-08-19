@@ -65,6 +65,9 @@ func (model Model) renderDuplicates(screen *RenderedScreen) {
 	screen.Regions = append(screen.Regions, regions...)
 	message := model.duplicates.err
 	if message == "" {
+		message = model.duplicates.notice
+	}
+	if message == "" {
 		message = "Space=Select | i/Enter=Info | h=Hide | x=Delete | Esc=Close"
 	}
 	screen.Frame.PutText(x, rect.Y+rect.Height-2, Truncate(message, width), model.palette.Muted)
@@ -76,6 +79,8 @@ func (model Model) renderDuplicates(screen *RenderedScreen) {
 	}
 	if model.duplicates.err != "" {
 		overlay = append(overlay, model.duplicates.err)
+	} else if model.duplicates.notice != "" {
+		overlay = append(overlay, model.duplicates.notice)
 	}
 	screen.Overlay = overlay
 }

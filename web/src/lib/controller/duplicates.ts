@@ -98,6 +98,7 @@ export function createDuplicateController(
     selectionValue?: SelectionValue,
     groupOffset = state.projection?.group_window.offset ?? 0,
     rowOffset = state.projection?.row_window.offset ?? 0,
+    refreshStaleSelection = true,
   ): Promise<boolean> {
     setState({ ...state, phase: 'loading', announcement: '' })
     try {
@@ -122,6 +123,27 @@ export function createDuplicateController(
       })
       return true
     } catch (error) {
+      if (
+        refreshStaleSelection &&
+        error instanceof MoneyflowProblem &&
+        error.problem.code === 'selection_stale' &&
+        error.problem.selection
+      ) {
+        const accepted = await load(
+          current,
+          error.problem.selection.value as SelectionValue,
+          groupOffset,
+          rowOffset,
+          false,
+        )
+        if (accepted) {
+          setState({
+            ...state,
+            announcement: 'The profile changed. The stale duplicate selection was cleared.',
+          })
+        }
+        return accepted
+      }
       setState({
         ...state,
         phase:
@@ -136,12 +158,14 @@ export function createDuplicateController(
   }
 
   function move(delta: -1 | 1): void {
+    if (!canInteract()) return
     const rows = state.projection ? flatten(state.projection) : []
     if (rows.length === 0) return
     setState({ ...state, cursor: Math.min(Math.max(state.cursor + delta, 0), rows.length - 1) })
   }
 
   function focus(index: number): void {
+    if (!canInteract()) return
     const rows = state.projection ? flatten(state.projection) : []
     if (Number.isSafeInteger(index) && index >= 0 && index < rows.length) {
       setState({ ...state, cursor: index })
@@ -149,32 +173,56 @@ export function createDuplicateController(
   }
 
   function home(): void {
+    if (!canInteract()) return
     if (state.projection) setState({ ...state, cursor: 0 })
   }
 
   function end(): void {
+    if (!canInteract()) return
     const rows = state.projection ? flatten(state.projection) : []
     if (rows.length > 0) setState({ ...state, cursor: rows.length - 1 })
   }
 
   async function page(delta: -1 | 1): Promise<boolean> {
+    if (!canInteract()) return false
     const current = options.host.current()
     const projection = state.projection
     if (!current || !projection) return false
     let groupOffset = projection.group_window.offset
     let rowOffset = projection.row_window.offset
-    if (delta > 0 && projection.row_window.count < projection.row_window.limit) {
-      const nextGroupOffset = groupOffset + projection.group_window.count
-      if (nextGroupOffset >= projection.total_groups) return false
-      groupOffset = nextGroupOffset
-      rowOffset = 0
-    } else if (delta < 0 && rowOffset === 0) {
-      if (groupOffset === 0) return false
-      groupOffset = Math.max(0, groupOffset - projection.group_window.limit)
-    } else {
+    if (delta > 0) {
+      if (rowOffset + projection.row_window.count < projection.window_transactions) {
+        rowOffset += projection.row_window.count
+      } else {
+        const nextGroupOffset = groupOffset + projection.group_window.count
+        if (nextGroupOffset >= projection.total_groups) return false
+        groupOffset = nextGroupOffset
+        rowOffset = 0
+      }
+    } else if (rowOffset > 0) {
       const nextRowOffset = Math.max(0, rowOffset + delta * windowLimit)
       if (nextRowOffset === rowOffset) return false
       rowOffset = nextRowOffset
+    } else {
+      if (groupOffset === 0) return false
+      groupOffset = Math.max(0, groupOffset - projection.group_window.limit)
+      const selected = await load(current, projection.selection as SelectionValue, groupOffset, 0)
+      if (!selected || !state.projection) return selected
+      const terminalOffset =
+        Math.floor(Math.max(0, state.projection.window_transactions - 1) / windowLimit) *
+        windowLimit
+      if (terminalOffset === 0) {
+        home()
+        return true
+      }
+      const terminal = await load(
+        current,
+        state.projection.selection as SelectionValue,
+        groupOffset,
+        terminalOffset,
+      )
+      if (terminal) home()
+      return terminal
     }
     const selectionValue = projection.selection as SelectionValue
     const accepted = await load(current, selectionValue, groupOffset, rowOffset)
@@ -187,6 +235,7 @@ export function createDuplicateController(
   }
 
   async function toggleFocused(): Promise<boolean> {
+    if (!canInteract()) return false
     const current = options.host.current()
     const projection = state.projection
     const row = focused()
@@ -212,10 +261,12 @@ export function createDuplicateController(
   }
 
   async function hideFocused(): Promise<boolean> {
+    if (!canInteract()) return false
     return await submit('transaction.toggle-hidden')
   }
 
   function requestDelete(): void {
+    if (!canInteract()) return
     if (!focused() || !state.projection) return
     const count = state.projection.selection_count > 0 ? state.projection.selection_count : 1
     setState({ ...state, phase: 'confirming', confirmationCount: count, announcement: '' })
@@ -233,6 +284,11 @@ export function createDuplicateController(
   }
 
   async function submit(action: 'transaction.toggle-hidden' | 'transaction.delete') {
+    if (action === 'transaction.delete') {
+      if (state.phase !== 'confirming') return false
+    } else if (!canInteract()) {
+      return false
+    }
     const current = options.host.current()
     const projection = state.projection
     const row = focused()
@@ -292,6 +348,10 @@ export function createDuplicateController(
       })
       return false
     }
+  }
+
+  function canInteract(): boolean {
+    return state.phase === 'ready' || state.phase === 'conflict'
   }
 
   return {

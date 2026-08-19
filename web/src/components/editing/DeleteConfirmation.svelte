@@ -11,7 +11,7 @@
   let { count, onconfirm, oncancel, submitting = false }: Props = $props()
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
+    if (submitting || event.repeat || event.altKey || event.ctrlKey || event.metaKey) return
     if (event.target instanceof HTMLButtonElement) return
     if (event.key === 'Enter') {
       event.preventDefault()
@@ -26,7 +26,7 @@
   <p>Delete {count} {count === 1 ? 'transaction' : 'transactions'}?</p>
   <p>This stages a pending edit; nothing reaches the provider until review and commit.</p>
   <div class="editing-actions">
-    <Button type="button" onclick={oncancel}>Cancel</Button><Button
+    <Button type="button" disabled={submitting} onclick={oncancel}>Cancel</Button><Button
       type="button"
       tone="danger"
       surface="solid"

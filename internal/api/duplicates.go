@@ -46,17 +46,18 @@ type DuplicateGroup struct {
 
 // DuplicateResponse returns independently bounded duplicate groups and flattened rows.
 type DuplicateResponse struct {
-	Version           string           `json:"version"`
-	Revision          string           `json:"revision" pattern:"^[0-9]+$"`
-	CanonicalQuery    string           `json:"canonical_query"`
-	Selection         string           `json:"selection"`
-	SelectionCount    int              `json:"selection_count"`
-	TotalGroups       int              `json:"total_groups"`
-	TotalTransactions int              `json:"total_transactions"`
-	GroupWindow       ReturnedWindow   `json:"group_window"`
-	RowWindow         ReturnedWindow   `json:"row_window"`
-	Groups            []DuplicateGroup `json:"groups"`
-	Status            string           `json:"status,omitempty"`
+	Version            string           `json:"version"`
+	Revision           string           `json:"revision" pattern:"^[0-9]+$"`
+	CanonicalQuery     string           `json:"canonical_query"`
+	Selection          string           `json:"selection"`
+	SelectionCount     int              `json:"selection_count"`
+	TotalGroups        int              `json:"total_groups"`
+	TotalTransactions  int              `json:"total_transactions"`
+	WindowTransactions int              `json:"window_transactions"`
+	GroupWindow        ReturnedWindow   `json:"group_window"`
+	RowWindow          ReturnedWindow   `json:"row_window"`
+	Groups             []DuplicateGroup `json:"groups"`
+	Status             string           `json:"status,omitempty"`
 }
 
 type duplicateInput struct {
@@ -118,7 +119,8 @@ func duplicateToWire(projection app.DuplicateProjection, canonical string) Dupli
 		Version: DuplicateSchemaVersion, Revision: strconv.FormatUint(projection.Revision, 10),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
 		SelectionCount: projection.SelectionCount, TotalGroups: projection.TotalGroups,
-		TotalTransactions: projection.TotalTransactions,
+		TotalTransactions:  projection.TotalTransactions,
+		WindowTransactions: projection.WindowTransactions,
 		GroupWindow: ReturnedWindow{
 			Offset: projection.GroupWindow.Offset, Limit: projection.GroupWindow.Limit,
 			Count: projection.GroupWindow.Count,

@@ -30,6 +30,7 @@
   function handleKeydown(event: KeyboardEvent): void {
     if (
       duplicateState.phase === 'confirming' ||
+      duplicateState.phase === 'submitting' ||
       event.repeat ||
       event.altKey ||
       event.ctrlKey ||
@@ -70,10 +71,10 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if duplicateState.phase === 'confirming'}
+{#if duplicateState.phase === 'confirming' || duplicateState.phase === 'submitting'}
   <DeleteConfirmation
     count={duplicateState.confirmationCount}
-    submitting={false}
+    submitting={duplicateState.phase === 'submitting'}
     onconfirm={() => void controller.confirmDelete()}
     oncancel={() => controller.cancelDelete()}
   />

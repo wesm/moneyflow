@@ -608,6 +608,8 @@ export interface components {
       /** Format: int64 */
       total_transactions: number
       version: string
+      /** Format: int64 */
+      window_transactions: number
     }
     DuplicateRow: {
       account: string
