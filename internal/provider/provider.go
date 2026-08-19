@@ -86,10 +86,17 @@ type TransactionUpdateResult struct {
 	Hidden                Optional[bool]
 }
 
+// TransactionDeleteResult is the normalized outcome of one absolute provider deletion.
+type TransactionDeleteResult struct {
+	TransactionExternalID string
+	AlreadyAbsent         bool
+}
+
 // Writer applies exactly one absolute transaction mutation per call.
 type Writer interface {
 	ProbeIdentity(context.Context) (ProfileIdentity, error)
 	UpdateTransaction(context.Context, TransactionUpdate) (TransactionUpdateResult, error)
+	DeleteTransaction(context.Context, string) (TransactionDeleteResult, error)
 }
 
 // SessionFingerprint is an opaque session-file generation fingerprint.

@@ -167,3 +167,13 @@ func (writer apiProviderWriter) UpdateTransaction(
 	}
 	return result, nil
 }
+
+func (writer apiProviderWriter) DeleteTransaction(
+	_ context.Context,
+	externalID string,
+) (provider.TransactionDeleteResult, error) {
+	writer.source.mu.Lock()
+	writer.source.writes++
+	writer.source.mu.Unlock()
+	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+}

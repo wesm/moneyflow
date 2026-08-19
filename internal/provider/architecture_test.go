@@ -106,7 +106,7 @@ func TestRenderersAndWritePlannerDoNotDependOnMonarchOrSQLite(t *testing.T) {
 	}
 }
 
-func TestMonarchPortsNoFinancialMutationBeyondTransactionUpdate(t *testing.T) {
+func TestMonarchMutationSurfaceIsLimitedToTransactionUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 
 	_, filename, _, ok := runtime.Caller(0)
@@ -119,7 +119,7 @@ func TestMonarchPortsNoFinancialMutationBeyondTransactionUpdate(t *testing.T) {
 		require.NoError(t, err)
 		text := strings.ToLower(string(contents))
 		for _, forbidden := range []string{
-			"deletetransaction", "createtransaction", "createcategory", "updatecategory",
+			"createtransaction", "createcategory", "updatecategory",
 			"deletecategory", "creategroup", "updategroup", "deletegroup",
 		} {
 			assert.NotContains(t, text, forbidden, "%s must remain outside the slice", forbidden)
@@ -129,8 +129,9 @@ func TestMonarchPortsNoFinancialMutationBeyondTransactionUpdate(t *testing.T) {
 	//nolint:gosec
 	queries, err := os.ReadFile(filepath.Join(monarchDir, "queries.go"))
 	require.NoError(t, err)
-	assert.Equal(t, 1, strings.Count(strings.ToLower(string(queries)), "mutation "))
+	assert.Equal(t, 2, strings.Count(strings.ToLower(string(queries)), "mutation "))
 	assert.Contains(t, string(queries), "updateTransaction(input: $input)")
+	assert.Contains(t, string(queries), "deleteTransaction(input: $input)")
 }
 
 func importsPackageTree(imported string, root string) bool {

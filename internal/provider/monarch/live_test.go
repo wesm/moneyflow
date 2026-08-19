@@ -19,32 +19,7 @@ func TestLiveCharacterization(t *testing.T) {
 	if os.Getenv("MONEYFLOW_MONARCH_LIVE") != "1" {
 		t.Skip("set MONEYFLOW_MONARCH_LIVE=1 for the explicit live characterization")
 	}
-	sessionPath := os.Getenv("MONEYFLOW_MONARCH_LIVE_SESSION_FILE")
-	if sessionPath == "" {
-		t.Fatal("MONEYFLOW_MONARCH_LIVE_SESSION_FILE is required")
-	}
-	profileRoot := os.Getenv("MONEYFLOW_HOME")
-	if profileRoot == "" {
-		t.Fatal("MONEYFLOW_HOME must name an isolated temporary directory")
-	}
-	session, err := readLiveSession(sessionPath)
-	if err != nil {
-		t.Fatal("live session could not be loaded")
-	}
-	paths, err := home.ResolveRoot(profileRoot, nil, "")
-	if err != nil {
-		t.Fatal("isolated live profile root is invalid")
-	}
-	sessions, err := NewSessionStore(paths)
-	if err != nil || sessions.Save(session) != nil {
-		t.Fatal("live session could not be copied into the isolated profile")
-	}
-	client, err := NewClient(Options{
-		ImportCurrency: domain.Currency("USD"), ImportScale: 2,
-	}, session.Token, session.DeviceUUID)
-	if err != nil {
-		t.Fatal("live client could not be created")
-	}
+	client := newLiveClient(t)
 	wait := livePendingWait(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute+wait)
 	defer cancel()
@@ -105,6 +80,70 @@ func TestLiveCharacterization(t *testing.T) {
 		len(second.accounts), restrictedAccounts, representedRestricted, len(second.transactions),
 		posted, pending, transitions, emptyMerchants, merchantIDInput,
 	)
+}
+
+func TestLiveDeleteDisposableTransactions(t *testing.T) {
+	if os.Getenv("MONEYFLOW_MONARCH_LIVE") != "1" ||
+		os.Getenv("MONEYFLOW_MONARCH_LIVE_DELETE") != "1" {
+		t.Skip("set both live opt-ins for the destructive deletion characterization")
+	}
+	externalIDs := []string{os.Getenv("MONEYFLOW_MONARCH_LIVE_DELETE_TRANSACTION_ID")}
+	if externalIDs[0] == "" {
+		t.Fatal("MONEYFLOW_MONARCH_LIVE_DELETE_TRANSACTION_ID must name a disposable transaction")
+	}
+	if bankID := os.Getenv("MONEYFLOW_MONARCH_LIVE_DELETE_BANK_TRANSACTION_ID"); bankID != "" {
+		externalIDs = append(externalIDs, bankID)
+	}
+	client := newLiveClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	for _, externalID := range externalIDs {
+		result, deleteErr := client.DeleteTransaction(ctx, externalID)
+		snapshot, snapshotErr := client.fetchRemoteSnapshot(ctx, 1, 1, nil)
+		if snapshotErr != nil {
+			t.Fatal("complete snapshot after the deletion attempt failed")
+		}
+		if deleteErr != nil {
+			t.Fatal("disposable transaction deletion was not positively characterized")
+		}
+		t.Logf(
+			"live delete characterization: already_absent=%t transactions_after=%d",
+			result.AlreadyAbsent,
+			len(snapshot.transactions),
+		)
+	}
+}
+
+func newLiveClient(t *testing.T) *Client {
+	t.Helper()
+	sessionPath := os.Getenv("MONEYFLOW_MONARCH_LIVE_SESSION_FILE")
+	if sessionPath == "" {
+		t.Fatal("MONEYFLOW_MONARCH_LIVE_SESSION_FILE is required")
+	}
+	profileRoot := os.Getenv("MONEYFLOW_HOME")
+	if profileRoot == "" {
+		t.Fatal("MONEYFLOW_HOME must name an isolated temporary directory")
+	}
+	session, err := readLiveSession(sessionPath)
+	if err != nil {
+		t.Fatal("live session could not be loaded")
+	}
+	paths, err := home.ResolveRoot(profileRoot, nil, "")
+	if err != nil {
+		t.Fatal("isolated live profile root is invalid")
+	}
+	sessions, err := NewSessionStore(paths)
+	if err != nil || sessions.Save(session) != nil {
+		t.Fatal("live session could not be copied into the isolated profile")
+	}
+	client, err := NewClient(Options{
+		ImportCurrency: domain.Currency("USD"), ImportScale: 2,
+	}, session.Token, session.DeviceUUID)
+	if err != nil {
+		t.Fatal("live client could not be created")
+	}
+	return client
 }
 
 type inputTypeCharacterization struct {

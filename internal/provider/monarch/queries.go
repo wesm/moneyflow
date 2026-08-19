@@ -72,3 +72,15 @@ mutation Web_TransactionDrawerUpdateTransaction($input: UpdateTransactionMutatio
     }
   }
 }`
+
+const deleteTransactionQuery = `
+mutation Common_DeleteTransactionMutation($input: DeleteTransactionMutationInput!) {
+  deleteTransaction(input: $input) {
+    deleted
+    errors {
+      fieldErrors { field messages }
+      message
+      code
+    }
+  }
+}`

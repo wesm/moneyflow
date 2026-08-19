@@ -65,3 +65,16 @@ func TestTransactionUpdateMutationPortsOnlyTheWritableSurface(t *testing.T) {
 		assert.NotContains(t, updateTransactionQuery, field)
 	}
 }
+
+func TestDeleteTransactionMutationPortsOnlyTheDeleteSurface(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, deleteTransactionQuery, "mutation Common_DeleteTransactionMutation")
+	assert.Contains(t, deleteTransactionQuery, "deleteTransaction(input: $input)")
+	for _, field := range []string{"deleted", "fieldErrors", "message", "code"} {
+		assert.Contains(t, deleteTransactionQuery, field)
+	}
+	for _, field := range []string{"merchant", "category", "hideFromReports", "amount", "notes"} {
+		assert.NotContains(t, deleteTransactionQuery, field)
+	}
+}

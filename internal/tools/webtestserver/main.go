@@ -449,6 +449,18 @@ func (writer *syntheticWriter) UpdateTransaction(
 	return result, nil
 }
 
+func (writer *syntheticWriter) DeleteTransaction(
+	_ context.Context,
+	externalID string,
+) (provider.TransactionDeleteResult, error) {
+	writer.profile.mu.Lock()
+	defer writer.profile.mu.Unlock()
+	if writer.profile.expired {
+		return provider.TransactionDeleteResult{}, provider.NewError(provider.CodeReconnectRequired)
+	}
+	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+}
+
 func (reader *syntheticReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
 	reader.profile.mu.Lock()
 	defer reader.profile.mu.Unlock()

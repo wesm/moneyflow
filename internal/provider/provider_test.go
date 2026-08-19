@@ -40,6 +40,13 @@ func (contractWriter) UpdateTransaction(
 	return provider.TransactionUpdateResult{TransactionExternalID: "transaction-a"}, nil
 }
 
+func (contractWriter) DeleteTransaction(
+	context.Context,
+	string,
+) (provider.TransactionDeleteResult, error) {
+	return provider.TransactionDeleteResult{TransactionExternalID: "transaction-a"}, nil
+}
+
 func TestReadContractsAreCapabilitySized(t *testing.T) {
 	t.Parallel()
 
@@ -69,4 +76,8 @@ func TestWriteContractsPreserveOptionalFieldPresence(t *testing.T) {
 	assert.False(t, update.CategoryExternalID.Present)
 	assert.True(t, update.Hidden.Present)
 	assert.False(t, update.Hidden.Value)
+	deleted, err := writer.DeleteTransaction(context.Background(), "transaction-a")
+	assert.NoError(t, err)
+	assert.Equal(t, "transaction-a", deleted.TransactionExternalID)
+	assert.False(t, deleted.AlreadyAbsent)
 }

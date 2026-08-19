@@ -146,3 +146,10 @@ func (tuiProviderWriter) UpdateTransaction(
 	}
 	return result, nil
 }
+
+func (tuiProviderWriter) DeleteTransaction(
+	_ context.Context,
+	externalID string,
+) (provider.TransactionDeleteResult, error) {
+	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+}

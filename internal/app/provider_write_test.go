@@ -1071,6 +1071,13 @@ func (writer *scriptedProviderWriter) UpdateTransaction(
 	return result, nil
 }
 
+func (writer *scriptedProviderWriter) DeleteTransaction(
+	_ context.Context,
+	externalID string,
+) (provider.TransactionDeleteResult, error) {
+	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+}
+
 type heartbeatErrorProfile struct {
 	store.Profile
 	mu     sync.Mutex
