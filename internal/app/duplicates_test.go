@@ -53,6 +53,30 @@ func TestProjectDuplicatesUsesCompleteFilteredResultAndProviderLabels(t *testing
 	assert.Equal(t, projection, again)
 }
 
+func TestProjectDuplicatesBindsTransientSelectionToItsCheckedRevision(t *testing.T) {
+	t.Parallel()
+
+	profile := duplicateMemoryProfile(t, true)
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	state := detailViewState()
+	selection, err := service.ToggleSelection(
+		state.Current, app.EmptySelection(), app.IdentityTransaction, "transaction_a",
+	)
+	require.NoError(t, err)
+
+	projection, err := service.ProjectDuplicates(
+		context.Background(), service.Revision(), state, selection,
+		app.DuplicateWindowRequest{},
+	)
+	require.NoError(t, err)
+	resolved, err := app.ResolveSelectionAtRevision(
+		service, state.Current, projection.Selection, projection.Revision,
+	)
+	require.NoError(t, err)
+	assert.Contains(t, resolved.IDs, "transaction_a")
+}
+
 func TestProjectDuplicatesReturnsPartialGroupsAndValidatesBounds(t *testing.T) {
 	t.Parallel()
 

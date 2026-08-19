@@ -107,6 +107,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/duplicates': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Project bounded duplicate transaction groups */
+    post: operations['projectProfileDuplicates']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/editor-catalog': {
     parameters: {
       query?: never
@@ -563,6 +580,48 @@ export interface components {
       index: number
       merchant: string
     }
+    DuplicateBody: {
+      expected_revision: string
+      group_window: components['schemas']['Window']
+      query: string
+      row_window: components['schemas']['Window']
+      selection?: string
+      version: string
+    }
+    DuplicateGroup: {
+      /** Format: int64 */
+      number: number
+      rows: components['schemas']['DuplicateRow'][] | null
+    }
+    DuplicateResponse: {
+      canonical_query: string
+      group_window: components['schemas']['ReturnedWindow']
+      groups: components['schemas']['DuplicateGroup'][] | null
+      revision: string
+      row_window: components['schemas']['ReturnedWindow']
+      selection: string
+      /** Format: int64 */
+      selection_count: number
+      status?: string
+      /** Format: int64 */
+      total_groups: number
+      /** Format: int64 */
+      total_transactions: number
+      version: string
+    }
+    DuplicateRow: {
+      account: string
+      amount: components['schemas']['Money']
+      category: string
+      date: string
+      flags: components['schemas']['Flags']
+      group: string
+      /** Format: int64 */
+      group_number: number
+      matching_label: string
+      merchant: string
+      target: components['schemas']['TransitionTarget']
+    }
     EditorCatalogBody: {
       expected_revision: string
       version: string
@@ -987,6 +1046,7 @@ export interface components {
       affected_count: number
       after?: string
       before?: string
+      label: string
       operation_id: string
       taxonomy_effect?: string
       type: string
@@ -1528,6 +1588,95 @@ export interface operations {
       }
       /** @description Forbidden */
       403: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  projectProfileDuplicates: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DuplicateBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['DuplicateResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown
         }

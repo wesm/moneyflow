@@ -135,6 +135,7 @@ func New(config Config) (*Server, error) {
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
+	server.registerDuplicateEndpoint(config)
 	server.registerEditorCatalogEndpoint(config)
 	server.registerProviderEndpoints(config)
 	server.registerProviderWriteEndpoints(config)

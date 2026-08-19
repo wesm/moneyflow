@@ -17,6 +17,7 @@ export interface E2EServer {
 export interface E2EServerOptions {
   basePath?: string
   externalURL?: string
+  fixturePath?: string
   profileHome?: string
   seedProfile?: boolean
 }
@@ -151,7 +152,11 @@ export async function startE2EServer(
       let stderr = ''
       const args = [
         'web',
-        ...(options.profileHome ? [] : ['--demo']),
+        ...(options.fixturePath
+          ? ['--fixture', resolve(repository, options.fixturePath)]
+          : options.profileHome
+            ? []
+            : ['--demo']),
         ...(options.profileHome ? ['--profile', 'Moneyflow'] : []),
         '--open=false',
         '--listen',

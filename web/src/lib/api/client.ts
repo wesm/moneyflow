@@ -20,6 +20,8 @@ export type PendingSummary = components['schemas']['PendingSummary']
 export type ReviewBody = components['schemas']['ReviewBody']
 export type ReviewTargetsBody = components['schemas']['ReviewTargetsBody']
 export type ReviewResponse = components['schemas']['ReviewResponse']
+export type DuplicateBody = components['schemas']['DuplicateBody']
+export type DuplicateResponse = components['schemas']['DuplicateResponse']
 export type EditorCatalog = components['schemas']['EditorCatalogResponse']
 export type ProviderStatus = components['schemas']['ProviderStatusResponse']
 export type ProviderRefreshBody = components['schemas']['ProviderRefreshBody']
@@ -43,6 +45,7 @@ export interface MoneyflowClient {
   readonly mutations: MutationFetch
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
+  projectDuplicates(body: DuplicateBody, signal?: AbortSignal): Promise<DuplicateResponse>
   providerStatus(signal?: AbortSignal): Promise<ProviderStatus>
   providerWriteStatus(signal?: AbortSignal): Promise<ProviderWriteStatus>
 }
@@ -215,6 +218,15 @@ export function createMoneyflowClient(
       })
       return projectionOrThrow(result.data, result.error)
     },
+    async projectDuplicates(body, signal) {
+      const result = await client.POST('/api/v1/profiles/{profile_id}/duplicates', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
+      if (isDuplicateResponse(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow duplicate response is invalid.')
+    },
     async providerStatus(signal) {
       const result = await client.GET(
         '/api/v1/profiles/{profile_id}/provider/status',
@@ -253,6 +265,19 @@ function isProjection(value: unknown): value is components['schemas']['Projectio
     typeof value.projection_schema_version === 'string' &&
     typeof value.canonical_query === 'string' &&
     typeof value.selection === 'string'
+  )
+}
+
+function isDuplicateResponse(value: unknown): value is DuplicateResponse {
+  if (!isRecord(value)) return false
+  return (
+    value.version === '1' &&
+    typeof value.revision === 'string' &&
+    typeof value.canonical_query === 'string' &&
+    typeof value.selection === 'string' &&
+    typeof value.total_groups === 'number' &&
+    typeof value.total_transactions === 'number' &&
+    Array.isArray(value.groups)
   )
 }
 

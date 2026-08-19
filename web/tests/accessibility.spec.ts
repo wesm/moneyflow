@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 
 import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 async function expectNoAxeViolations(page: import('@playwright/test').Page): Promise<void> {
   const result = await new AxeBuilder({ page }).analyze()
@@ -52,3 +53,26 @@ for (const overlay of ['search', 'filters', 'help'] as const) {
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   })
 }
+
+test('duplicate review and deletion confirmation pass axe and trap focus', async ({ page }) => {
+  const server = await startE2EServer({
+    fixturePath: 'testdata/fixtures/duplicate_transactions.json',
+  })
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+D')
+    const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
+    await expect(review).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Tab')
+    expect(await review.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('x')
+    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
+    await expect(review).toBeVisible()
+  } finally {
+    await server.stop()
+  }
+})

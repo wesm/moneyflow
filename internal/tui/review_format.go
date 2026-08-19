@@ -9,40 +9,7 @@ import (
 )
 
 func friendlyReviewOperationLabel(operationType domain.OperationType) string {
-	switch operationType {
-	case domain.OperationMerchantLabel:
-		return "Rename merchant"
-	case domain.OperationMerchantMerge:
-		return "Merge merchants"
-	case domain.OperationMerchantReassign:
-		return "Reassign merchant"
-	case domain.OperationCategoryAssign:
-		return "Change category"
-	case domain.OperationCategoryCreate:
-		return "Create category"
-	case domain.OperationCategoryLabel:
-		return "Rename category"
-	case domain.OperationCategoryMove:
-		return "Move category"
-	case domain.OperationCategoryMerge:
-		return "Merge categories"
-	case domain.OperationCategoryDelete:
-		return "Delete category"
-	case domain.OperationGroupCreate:
-		return "Create group"
-	case domain.OperationGroupLabel:
-		return "Rename group"
-	case domain.OperationGroupMerge:
-		return "Merge groups"
-	case domain.OperationGroupDelete:
-		return "Delete group"
-	case domain.OperationTransactionHide:
-		return "Toggle report visibility"
-	case domain.OperationTransactionDelete:
-		return "Delete transaction"
-	default:
-		return "Unknown change"
-	}
+	return app.ReviewOperationLabel(operationType)
 }
 
 func reviewOperationLine(operation app.ReviewOperation) string {

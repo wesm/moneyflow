@@ -46,6 +46,8 @@ describe('FinanceTable', () => {
     expect(events.onmove).toHaveBeenCalledTimes(1)
     await fireEvent.doubleClick(screen.getByRole('row', { name: /Example Merchant/ }))
     expect(events.onactivate).not.toHaveBeenCalled()
+    await fireEvent.click(screen.getByRole('row', { name: /Example Merchant/ }))
+    expect(events.onselect).toHaveBeenCalledWith('row-0', 'transaction')
   })
   it('renders aggregate columns and empty results', async () => {
     const events = callbacks()

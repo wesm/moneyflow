@@ -86,7 +86,7 @@ describe('AppShell', () => {
     expect(controller.editing.submit).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'transaction.toggle-hidden',
-        target: { kind: 'detail', identity: 'row-0' },
+        target: { kind: 'transaction', identity: 'row-0' },
       }),
     )
     await fireEvent.keyDown(window, { key: 'u' })
@@ -95,6 +95,33 @@ describe('AppShell', () => {
     expect(controller.editing.redo).toHaveBeenCalled()
     await fireEvent.keyDown(window, { key: 'w' })
     expect(screen.getByRole('dialog', { name: 'Review pending changes' })).not.toBeNull()
+  })
+
+  it('opens duplicate review with D and confirms direct deletion with x', async () => {
+    const controller = stubController()
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: 'D', shiftKey: true })
+    expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Duplicate transactions' })).toBeNull(),
+    )
+
+    await fireEvent.keyDown(window, { key: 'x' })
+    expect(screen.getByRole('dialog', { name: 'Confirm deletion' }).textContent).toContain(
+      'Delete 1 transaction?',
+    )
+    expect(controller.editing.submit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'transaction.delete' }),
+    )
+    await fireEvent.keyDown(window, { key: 'Enter' })
+    expect(controller.editing.submit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'transaction.delete',
+        target: { kind: 'transaction', identity: 'row-0' },
+      }),
+    )
   })
 
   it('routes r through the provider refresh controller', async () => {
@@ -195,6 +222,8 @@ function stubController(projection = testProjection()): ViewController {
           ['category.manage', 'C'],
           ['category-group.manage', 'G'],
           ['transaction.toggle-hidden', 'h'],
+          ['transaction.delete', 'x'],
+          ['view.find-duplicates', 'D'],
           ['changes.undo', 'u'],
           ['changes.redo', 'U'],
           ['changes.review', 'w'],
@@ -237,6 +266,40 @@ function stubController(projection = testProjection()): ViewController {
       state: { phase: 'idle', announcement: '' },
       can: vi.fn(() => false),
     }),
+    duplicates: {
+      state: {
+        phase: 'ready',
+        cursor: 0,
+        announcement: '',
+        confirmationCount: 0,
+        projection: {
+          version: '1',
+          revision: '1',
+          canonical_query: 'v=1',
+          selection: 'mfsel1.empty',
+          selection_count: 0,
+          total_groups: 0,
+          total_transactions: 0,
+          group_window: { offset: 0, limit: 200, count: 0 },
+          row_window: { offset: 0, limit: 200, count: 0 },
+          groups: [],
+          status: 'No duplicate transactions match the current view.',
+        },
+      },
+      open: vi.fn(async () => true),
+      close: vi.fn(),
+      move: vi.fn(),
+      focus: vi.fn(),
+      home: vi.fn(),
+      end: vi.fn(),
+      page: vi.fn(async () => true),
+      focused: vi.fn(),
+      toggleFocused: vi.fn(async () => true),
+      hideFocused: vi.fn(async () => true),
+      requestDelete: vi.fn(),
+      cancelDelete: vi.fn(),
+      confirmDelete: vi.fn(async () => true),
+    },
     hydrate: vi.fn(),
     recheck: vi.fn(),
     moveCursor: vi.fn(),

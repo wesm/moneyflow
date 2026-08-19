@@ -139,6 +139,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
       dismissConfirmation: vi.fn(),
     } as ViewController['provider'],
     providerWrite: testProviderWriteController(),
+    duplicates: {} as ViewController['duplicates'],
     hydrate: vi.fn(async () => undefined),
     recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),

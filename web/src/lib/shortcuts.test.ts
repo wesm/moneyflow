@@ -8,6 +8,7 @@ const capabilities = [
   ['cursor.home', 'home'],
   ['view.cycle-grouping', 'g'],
   ['view.show-detail', 'd'],
+  ['view.find-duplicates', 'D'],
   ['view.switch-accounts', 'A'],
   ['view.drill', 'enter'],
   ['view.back', 'esc'],
@@ -27,6 +28,7 @@ const capabilities = [
   ['category.manage', 'C'],
   ['category-group.manage', 'G'],
   ['transaction.toggle-hidden', 'h'],
+  ['transaction.delete', 'x'],
   ['changes.undo', 'u'],
   ['changes.redo', 'U'],
   ['changes.review', 'w'],
@@ -68,6 +70,7 @@ describe('Moneyflow browser shortcuts', () => {
       'm',
       'c',
       'h',
+      'x',
       'u',
       'w',
       'r',
@@ -75,6 +78,7 @@ describe('Moneyflow browser shortcuts', () => {
       expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(true)
     }
     expect(shortcuts.manager.handleKeydown(keyboard('A', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('D', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('C', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('G', { shiftKey: true }))).toBe(true)
     expect(shortcuts.manager.handleKeydown(keyboard('U', { shiftKey: true }))).toBe(true)

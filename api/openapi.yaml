@@ -221,6 +221,129 @@ components:
         - amount
         - flags
       type: object
+    DuplicateBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        group_window:
+          $ref: "#/components/schemas/Window"
+        query:
+          maxLength: 65536
+          type: string
+        row_window:
+          $ref: "#/components/schemas/Window"
+        selection:
+          maxLength: 1468006
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - expected_revision
+        - query
+        - group_window
+        - row_window
+      type: object
+    DuplicateGroup:
+      additionalProperties: false
+      properties:
+        number:
+          format: int64
+          type: integer
+        rows:
+          items:
+            $ref: "#/components/schemas/DuplicateRow"
+          type:
+            - array
+            - "null"
+      required:
+        - number
+        - rows
+      type: object
+    DuplicateResponse:
+      additionalProperties: false
+      properties:
+        canonical_query:
+          type: string
+        group_window:
+          $ref: "#/components/schemas/ReturnedWindow"
+        groups:
+          items:
+            $ref: "#/components/schemas/DuplicateGroup"
+          type:
+            - array
+            - "null"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        row_window:
+          $ref: "#/components/schemas/ReturnedWindow"
+        selection:
+          type: string
+        selection_count:
+          format: int64
+          type: integer
+        status:
+          type: string
+        total_groups:
+          format: int64
+          type: integer
+        total_transactions:
+          format: int64
+          type: integer
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - canonical_query
+        - selection
+        - selection_count
+        - total_groups
+        - total_transactions
+        - group_window
+        - row_window
+        - groups
+      type: object
+    DuplicateRow:
+      additionalProperties: false
+      properties:
+        account:
+          type: string
+        amount:
+          $ref: "#/components/schemas/Money"
+        category:
+          type: string
+        date:
+          type: string
+        flags:
+          $ref: "#/components/schemas/Flags"
+        group:
+          type: string
+        group_number:
+          format: int64
+          type: integer
+        matching_label:
+          type: string
+        merchant:
+          type: string
+        target:
+          $ref: "#/components/schemas/TransitionTarget"
+      required:
+        - group_number
+        - target
+        - date
+        - account
+        - merchant
+        - category
+        - group
+        - amount
+        - matching_label
+        - flags
+      type: object
     EditorCatalogBody:
       additionalProperties: false
       properties:
@@ -1327,6 +1450,8 @@ components:
           type: string
         before:
           type: string
+        label:
+          type: string
         operation_id:
           type: string
         taxonomy_effect:
@@ -1336,6 +1461,7 @@ components:
       required:
         - operation_id
         - type
+        - label
         - active
         - affected_count
       type: object
@@ -1945,6 +2071,71 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Commit one reviewed active journal prefix
+  /api/v1/profiles/{profile_id}/duplicates:
+    post:
+      operationId: projectProfileDuplicates
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DuplicateBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+        "503":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Service Unavailable
+      summary: Project bounded duplicate transaction groups
   /api/v1/profiles/{profile_id}/editor-catalog:
     post:
       operationId: editorCatalog

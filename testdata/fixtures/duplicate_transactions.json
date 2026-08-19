@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "currencies": [
+    {"code": "USD", "scale": 2}
+  ],
+  "transactions": [
+    {"id":"duplicate-001","provider_id":"fixture-duplicate-001","provider":"fixture","account":{"id":"account-example","name":"Example Account"},"date":"2026-01-15","merchant":{"id":"merchant-example","name":"Example Merchant"},"category":{"id":"category-example","name":"Example Category","group":"Example Group"},"amount":"-12.34","currency":"USD","hidden":false,"pending":false},
+    {"id":"duplicate-002","provider_id":"fixture-duplicate-002","provider":"fixture","account":{"id":"account-example","name":"Example Account"},"date":"2026-01-15","merchant":{"id":"merchant-example","name":"Example Merchant"},"category":{"id":"category-other","name":"Other Category","group":"Example Group"},"amount":"-12.34","currency":"USD","hidden":false,"pending":false},
+    {"id":"ordinary-001","provider_id":"fixture-ordinary-001","provider":"fixture","account":{"id":"account-example","name":"Example Account"},"date":"2026-01-16","merchant":{"id":"merchant-other","name":"Other Merchant"},"category":{"id":"category-other","name":"Other Category","group":"Example Group"},"amount":"-7.89","currency":"USD","hidden":false,"pending":false}
+  ]
+}

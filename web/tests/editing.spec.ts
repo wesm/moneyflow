@@ -73,3 +73,29 @@ test('bulk merchant edit clears a selection resolved beyond browser presentation
     await server.stop()
   }
 })
+
+test('x stages count-only deletion and review keeps commit explicit', async ({ page }) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('x')
+    const confirmation = page.getByRole('dialog', { name: 'Confirm deletion' })
+    await expect(confirmation).toContainText('Delete 1 transaction?')
+    await expect(confirmation).not.toContainText('Example Housing')
+    await page.keyboard.press('Escape')
+    await expect(page.getByText(/0 pending/)).toBeVisible()
+
+    await page.keyboard.press('x')
+    await page.keyboard.press('Enter')
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await page.keyboard.press('w')
+    const review = page.getByRole('dialog', { name: 'Review pending changes' })
+    await expect(review).toContainText('Delete transaction')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  } finally {
+    await server.stop()
+  }
+})

@@ -97,6 +97,10 @@ func (service *Service) ProjectDuplicates(
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
+	selection, err = BindSelectionRevision(selection, snapshot.Revision)
+	if err != nil {
+		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
+	}
 
 	transactions := make([]domain.Transaction, len(result.DetailRows))
 	flags := make(map[string]domain.RowFlags, len(result.DetailRows))

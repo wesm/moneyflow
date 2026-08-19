@@ -41,10 +41,22 @@ export function testReviewController(overrides: Partial<ReviewController> = {}):
       reviewedRevision: 1n,
       pending: { active_operations: 1, inactive_operations: 1, affected_transactions: 2 },
       activeOperations: [
-        { operation_id: 'operation-a', type: 'merchant.label', active: true, affected_count: 2 },
+        {
+          operation_id: 'operation-a',
+          type: 'merchant.label',
+          label: 'Rename merchant',
+          active: true,
+          affected_count: 2,
+        },
       ],
       inactiveOperations: [
-        { operation_id: 'operation-b', type: 'hide.toggle', active: false, affected_count: 1 },
+        {
+          operation_id: 'operation-b',
+          type: 'hide.toggle',
+          label: 'Toggle report visibility',
+          active: false,
+          affected_count: 1,
+        },
       ],
       announcement: '',
     },

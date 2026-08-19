@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { startE2EServer } from '../scripts/e2e-server'
 
 const refinement = (page: Page) => page.getByRole('navigation', { name: 'Active refinements' })
 
@@ -152,4 +153,34 @@ test('narrow layout keeps the same keyboard refinement surface', async ({ page, 
   await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test('duplicate review remains keyboard driven and restores the finance grid', async ({ page }) => {
+  const server = await startE2EServer({
+    fixturePath: 'testdata/fixtures/duplicate_transactions.json',
+  })
+  try {
+    await openMoneyflow(page, server)
+    await page.keyboard.press('Shift+D')
+    const review = page.getByRole('dialog', { name: 'Duplicate transactions' })
+    await expect(review).toBeVisible()
+    await expect(review).toContainText('1 duplicate group')
+    await page.keyboard.press('Space')
+    await expect(review.getByRole('row', { selected: true })).toHaveCount(1)
+    await page.keyboard.press('i')
+    await expect(review.getByRole('region', { name: 'Transaction information' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(review.getByRole('grid', { name: 'Likely duplicate transactions' })).toBeVisible()
+    await page.keyboard.press('x')
+    await expect(page.getByRole('dialog', { name: 'Confirm deletion' })).toContainText(
+      'Delete 1 transaction?',
+    )
+    await page.keyboard.press('Enter')
+    await expect(review).toContainText('No duplicate transactions match the current view.')
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+  } finally {
+    await server.stop()
+  }
 })

@@ -51,7 +51,7 @@ describe('browser view controller', () => {
 
     await controller.apply({
       action: 'selection.toggle',
-      target: { kind: 'detail', identity: 'row-0' },
+      target: { kind: 'transaction', identity: 'row-0' },
     })
     expect(pushes).toHaveBeenCalledTimes(1)
     expect(replacements).toHaveBeenCalled()
@@ -457,6 +457,9 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
     })),
     view: vi.fn(async (body) => projection('v=1', body.window.offset, 3)),
     transition: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
+    projectDuplicates: vi.fn(async () => {
+      throw new Error('duplicate projection not stubbed')
+    }),
     ...overrides,
   }
 }

@@ -75,7 +75,9 @@
             type="button"
             aria-expanded={expanded === operation.operation_id}
             onclick={() => void expand(operation.operation_id)}
-            ><strong>{operation.type}</strong> · {operation.affected_count} affected{#if operation.before || operation.after}<span
+            ><strong>{operation.label}</strong> · {operation.affected_count === 0
+              ? 'affects 0 transactions'
+              : `${operation.affected_count} affected`}{#if operation.before || operation.after}<span
                 >{operation.before ?? '—'} → {operation.after ?? '—'}</span
               >{/if}</button
           >
@@ -113,7 +115,9 @@
       <p>Commit permanently discards this redo history.</p>
       <ol>
         {#each review.state.inactiveOperations as operation (operation.operation_id)}<li>
-            {operation.type} · {operation.affected_count} affected
+            {operation.label} · {operation.affected_count === 0
+              ? 'affects 0 transactions'
+              : `${operation.affected_count} affected`}
           </li>{/each}
       </ol>
     </section>{/if}

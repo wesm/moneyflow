@@ -10,7 +10,7 @@ describe('CategoryDialog', () => {
     render(CategoryDialog, {
       props: {
         controller,
-        target: { kind: 'detail', identity: 'transaction-a' },
+        target: { kind: 'transaction', identity: 'transaction-a' },
         onclose: vi.fn(),
       },
     })
@@ -39,7 +39,7 @@ describe('CategoryDialog', () => {
     render(CategoryDialog, {
       props: {
         controller,
-        target: { kind: 'detail', identity: 'transaction-a' },
+        target: { kind: 'transaction', identity: 'transaction-a' },
         onclose: vi.fn(),
       },
     })

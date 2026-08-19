@@ -13,7 +13,10 @@ test('pending edits and revision survive a real server restart on one explicit p
   let first = await startE2EServer({ profileHome, seedProfile: true })
   try {
     await openMoneyflow(page, first)
-    await page.keyboard.press('h')
+    await page.keyboard.press('d')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+    await page.keyboard.press('x')
+    await page.keyboard.press('Enter')
     await expect(page.getByText(/1 pending/)).toBeVisible()
     await first.stop()
 

@@ -6,6 +6,40 @@ import type { ViewProjection } from './client'
 const profileID = 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'
 
 describe('Moneyflow generated client adapter', () => {
+  it('projects bounded duplicates beneath the profile path without mutation transport', async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      expect(request.headers.get('X-Moneyflow-Mutation-Token')).toBeNull()
+      return Response.json({
+        version: '1',
+        revision: '3',
+        canonical_query: 'v=1',
+        selection: 'mfsel1.opaque',
+        selection_count: 0,
+        total_groups: 1,
+        total_transactions: 2,
+        group_window: { offset: 0, limit: 20, count: 1 },
+        row_window: { offset: 0, limit: 20, count: 2 },
+        groups: [],
+      })
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    await expect(
+      client.projectDuplicates({
+        version: '1',
+        expected_revision: '3',
+        query: 'v=1',
+        group_window: { offset: 0, limit: 20 },
+        row_window: { offset: 0, limit: 20 },
+      }),
+    ).resolves.toMatchObject({ total_groups: 1, total_transactions: 2 })
+    const sent = upstream.mock.calls[0]?.[0]
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      `/moneyflow/api/v1/profiles/${profileID}/duplicates`,
+    )
+  })
+
   it('loads credential-blind provider write status beneath the profile path', async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void input

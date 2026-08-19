@@ -7,8 +7,8 @@
     cursorIndex: number
     onmove: (delta: -1 | 1) => void
     onhome: () => void
-    onactivate: (identity: string, kind: 'detail' | 'aggregate') => void
-    onselect: (identity: string, kind: 'detail' | 'aggregate') => void
+    onactivate: (identity: string, kind: 'transaction' | 'aggregate') => void
+    onselect: (identity: string, kind: 'transaction' | 'aggregate') => void
   }
   let { projection, cursorIndex, onmove, onhome, onactivate, onselect }: Props = $props()
   let scrollTop = $state(0)
@@ -100,10 +100,10 @@
         ondblclick={() => {
           if (!detail) onactivate(row.identity, 'aggregate')
         }}
-        onclick={() => onselect(row.identity, detail ? 'detail' : 'aggregate')}
+        onclick={() => onselect(row.identity, detail ? 'transaction' : 'aggregate')}
         onkeydown={(event) => {
           if (event.key === 'Enter' && !detail) onactivate(row.identity, 'aggregate')
-          if (event.key === ' ') onselect(row.identity, detail ? 'detail' : 'aggregate')
+          if (event.key === ' ') onselect(row.identity, detail ? 'transaction' : 'aggregate')
         }}
       >
         {#if 'merchant' in row}

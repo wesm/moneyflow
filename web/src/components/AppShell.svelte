@@ -21,6 +21,8 @@
   import GroupManager from './editing/GroupManager.svelte'
   import MerchantDialog from './editing/MerchantDialog.svelte'
   import PendingStatus from './editing/PendingStatus.svelte'
+  import DeleteConfirmation from './editing/DeleteConfirmation.svelte'
+  import DuplicateReview from './editing/DuplicateReview.svelte'
   import ProviderStatus from './ProviderStatus.svelte'
   import ReviewDrawer from './editing/ReviewDrawer.svelte'
   import WriteStatusDrawer from './editing/WriteStatusDrawer.svelte'
@@ -48,11 +50,15 @@
     | 'groups'
     | 'review'
     | 'write'
+    | 'duplicates'
+    | 'delete'
   let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
   let shortcuts: ReturnType<typeof createMoneyflowShortcuts> | undefined
   let focusRestoreFrame: number | undefined
+  let deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
+  let deleteCount = $state(0)
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
 
@@ -70,6 +76,7 @@
     } else if (action === 'manage.categories') openOverlay('categories')
     else if (action === 'manage.groups') openOverlay('groups')
     else if (action === 'edit.review') openOverlay('review')
+    else if (action === 'view.duplicates') openOverlay('duplicates')
     else if (action === 'provider.refresh') void controller.provider.refresh()
     else if (action === 'edit.undo') void controller.editing.undo()
     else if (action === 'edit.redo') void controller.editing.redo()
@@ -82,14 +89,21 @@
           target: row,
         })
       }
+    } else if (action === 'edit.delete') {
+      const row = focusedRow()
+      if (row?.kind === 'transaction') {
+        deleteTarget = { identity: row.identity, kind: 'transaction' }
+        deleteCount = projection?.selection_count ? projection.selection_count : 1
+        openOverlay('delete')
+      }
     }
   }
-  function focusedRow(): { identity: string; kind: 'detail' | 'aggregate' } | undefined {
+  function focusedRow(): { identity: string; kind: 'transaction' | 'aggregate' } | undefined {
     const row = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])].find(
       (candidate) => candidate.index === controller.cursorIndex,
     )
     return row
-      ? { identity: row.identity, kind: projection?.detail_rows ? 'detail' : 'aggregate' }
+      ? { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
       : undefined
   }
   async function apply(action: string): Promise<void> {
@@ -98,7 +112,7 @@
         (candidate) => candidate.index === controller.cursorIndex,
       )
       if (row) {
-        await target(action, row.identity, projection?.detail_rows ? 'detail' : 'aggregate')
+        await target(action, row.identity, projection?.detail_rows ? 'transaction' : 'aggregate')
         return
       }
     }
@@ -108,7 +122,7 @@
   async function target(
     action: string,
     identity: string,
-    kind: 'detail' | 'aggregate',
+    kind: 'transaction' | 'aggregate',
   ): Promise<void> {
     await controller.apply({ action, target: { identity, kind } })
     focusGrid()
@@ -124,6 +138,8 @@
     overlay = undefined
     popOverlayScope?.()
     popOverlayScope = undefined
+    deleteTarget = undefined
+    deleteCount = 0
     void tick().then(() => {
       focusRestoreFrame = requestAnimationFrame(() => {
         focusRestoreFrame = undefined
@@ -133,6 +149,15 @@
   }
   function focusGrid(): void {
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
+  }
+  async function confirmDirectDelete(): Promise<void> {
+    if (!deleteTarget) return
+    const accepted = await controller.editing.submit({
+      action: 'transaction.delete',
+      input: {},
+      target: deleteTarget,
+    })
+    if (accepted) closeOverlay()
   }
   function toggleCharts(checked: boolean): void {
     if (compact.current) setChartDrawer(checked)
@@ -228,6 +253,7 @@
     <p class="kit-sr-only" aria-live="polite">{controller.editing.state.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.provider.state.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.providerWrite.state.announcement}</p>
+    <p class="kit-sr-only" aria-live="polite">{controller.duplicates.state.announcement}</p>
     <StatusBar
       >{#snippet left()}<span
           >{projection.total_rows} results · <PendingStatus
@@ -270,6 +296,15 @@
     />
   {:else if overlay === 'write'}
     <WriteStatusDrawer controller={controller.providerWrite} onclose={closeOverlay} {onreconnect} />
+  {:else if overlay === 'duplicates'}
+    <DuplicateReview controller={controller.duplicates} onclose={closeOverlay} />
+  {:else if overlay === 'delete' && deleteTarget}
+    <DeleteConfirmation
+      count={deleteCount}
+      submitting={controller.editing.state.phase === 'submitting'}
+      onconfirm={() => void confirmDirectDelete()}
+      oncancel={closeOverlay}
+    />
   {/if}
   {#if compact.current && chartDrawer}
     <DetailDrawer

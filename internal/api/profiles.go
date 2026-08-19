@@ -63,7 +63,7 @@ func resolveProfileRequests(
 	resolvedEndpoints := map[string]struct{}{
 		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {},
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
-		"review/targets": {}, "editor-catalog": {}, "provider/status": {},
+		"review/targets": {}, "duplicates": {}, "editor-catalog": {}, "provider/status": {},
 		"provider/refresh": {}, "provider/refresh/confirm": {},
 		"provider/write-status": {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},
@@ -110,7 +110,7 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 	endpoints := map[string]struct{}{
 		"health": {}, "view": {}, "view/transition": {}, "mutations": {},
 		"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
-		"editor-catalog": {}, "provider/status": {}, "provider/refresh": {},
+		"duplicates": {}, "editor-catalog": {}, "provider/status": {}, "provider/refresh": {},
 		"provider/refresh/confirm": {},
 		"provider/write-status":    {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},

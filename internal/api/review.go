@@ -32,6 +32,7 @@ type ReviewTargetsBody struct {
 type ReviewOperation struct {
 	OperationID    string `json:"operation_id"`
 	Type           string `json:"type"`
+	Label          string `json:"label"`
 	Active         bool   `json:"active"`
 	AffectedCount  int    `json:"affected_count"`
 	Before         string `json:"before,omitempty"`
@@ -145,6 +146,7 @@ func reviewOperationsToWire(operations []app.ReviewOperation) []ReviewOperation 
 	for _, operation := range operations {
 		result = append(result, ReviewOperation{
 			OperationID: operation.OperationID, Type: string(operation.Type),
+			Label:  app.ReviewOperationLabel(operation.Type),
 			Active: operation.Active, AffectedCount: operation.AffectedCount,
 			Before: operation.Before, After: operation.After,
 			TaxonomyEffect: operation.TaxonomyEffect,

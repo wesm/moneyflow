@@ -17,6 +17,8 @@ export type LocalAction =
   | 'edit.undo'
   | 'edit.redo'
   | 'edit.review'
+  | 'view.duplicates'
+  | 'edit.delete'
   | 'provider.refresh'
 
 const bindings = [
@@ -25,6 +27,13 @@ const bindings = [
   { id: 'cursor.home', display: 'home', combos: ['home'], local: true },
   { id: 'view.cycle-grouping', display: 'g', combos: ['g'] },
   { id: 'view.show-detail', display: 'd', combos: ['d'] },
+  {
+    id: 'view.find-duplicates',
+    display: 'D',
+    combos: ['shift+d'],
+    local: true,
+    localID: 'view.duplicates',
+  },
   { id: 'view.switch-accounts', display: 'A', combos: ['shift+a'] },
   { id: 'view.drill', display: 'enter', combos: ['enter'] },
   { id: 'view.back', display: 'esc', combos: ['escape'] },
@@ -73,6 +82,13 @@ const bindings = [
     combos: ['h'],
     local: true,
     localID: 'edit.hide',
+  },
+  {
+    id: 'transaction.delete',
+    display: 'x',
+    combos: ['x'],
+    local: true,
+    localID: 'edit.delete',
   },
   { id: 'changes.undo', display: 'u', combos: ['u'], local: true, localID: 'edit.undo' },
   { id: 'changes.redo', display: 'U', combos: ['shift+u'], local: true, localID: 'edit.redo' },
