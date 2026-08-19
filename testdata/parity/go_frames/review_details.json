@@ -1515,49 +1515,7 @@
       {
         "glyph": " ",
         "display_width": 1,
-        "repeat": 2,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "h",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "d",
-        "display_width": 1,
-        "repeat": 2,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 48,
+        "repeat": 56,
         "foreground": "#e6edf3",
         "background": "#0e1626"
       },

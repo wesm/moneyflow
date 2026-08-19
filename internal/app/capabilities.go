@@ -1,5 +1,7 @@
 package app
 
+import "github.com/wesm/moneyflow/internal/domain"
+
 // Capability describes whether one static action can run against the current profile state.
 type Capability struct {
 	Action    ActionID
@@ -20,7 +22,16 @@ func (service *Service) Capabilities() []Capability {
 	if err != nil {
 		return nil
 	}
-	return service.capabilitiesForSnapshot(snapshot)
+	return service.capabilitiesForStateSnapshot(snapshot, DefaultViewState())
+}
+
+// CapabilitiesForState returns action availability for one exact analytical state.
+func (service *Service) CapabilitiesForState(state ViewState) []Capability {
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return nil
+	}
+	return service.capabilitiesForStateSnapshot(snapshot, state)
 }
 
 // Pending returns the current profile-global journal summary.
@@ -34,11 +45,13 @@ func (service *Service) Pending() PendingSummary {
 
 func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 	result := []Capability{
+		{Action: ActionFindDuplicates, Available: true},
 		{Action: ActionEditMerchant, Available: true},
 		{Action: ActionEditCategory, Available: true},
 		{Action: ActionManageCategories, Available: true},
 		{Action: ActionManageGroups, Available: true},
 		{Action: ActionToggleHidden, Available: true},
+		{Action: ActionDeleteTransaction, Available: true},
 		{Action: ActionUndo, Available: snapshot.Cursor > 0},
 		{Action: ActionRedo, Available: snapshot.Cursor < len(snapshot.Journal)},
 		{Action: ActionReviewChanges, Available: len(snapshot.Journal) > 0},
@@ -46,6 +59,24 @@ func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 	for index := range result {
 		if !result[index].Available {
 			result[index].Reason = unavailableNoPending
+		}
+	}
+	return result
+}
+
+func (service *Service) capabilitiesForStateSnapshot(
+	snapshot EffectiveSnapshot,
+	state ViewState,
+) []Capability {
+	result := service.capabilitiesForSnapshot(snapshot)
+	detail := state.Validate() == nil && state.Current.Mode == domain.ResultModeDetail &&
+		state.Current.SubGrouping == nil
+	if !detail {
+		for index := range result {
+			if result[index].Action == ActionDeleteTransaction && result[index].Available {
+				result[index].Available = false
+				result[index].Reason = "Open transaction detail before deleting."
+			}
 		}
 	}
 	return result
@@ -72,7 +103,7 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 	if providerState.Write != nil {
 		for _, action := range []ActionID{
 			ActionEditMerchant, ActionEditCategory, ActionManageCategories,
-			ActionManageGroups, ActionToggleHidden, ActionUndo, ActionRedo,
+			ActionManageGroups, ActionToggleHidden, ActionDeleteTransaction, ActionUndo, ActionRedo,
 		} {
 			setCapability(result, action, false, unavailableProviderWrite)
 		}

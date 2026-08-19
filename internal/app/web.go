@@ -182,7 +182,7 @@ func (service *Service) projectViewLocked(
 	if snapshot, snapshotErr := service.effectiveSnapshot(); snapshotErr == nil {
 		revision = snapshot.Revision
 		pending = pendingSummary(snapshot)
-		capabilities = service.capabilitiesForSnapshot(snapshot)
+		capabilities = service.capabilitiesForStateSnapshot(snapshot, state)
 		for _, capability := range capabilities {
 			if capability.Available {
 				actions = appendActionID(actions, capability.Action)

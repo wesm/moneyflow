@@ -134,7 +134,7 @@ func planAbsoluteWriteItems(
 		}
 		plans = append(plans, plan)
 	}
-	if err = requireProductiveStructuralWrites(operations, plans); err != nil {
+	if err = requireProductiveStructuralWrites(operations, plans, committed, effective); err != nil {
 		return nil, nil, err
 	}
 	slices.SortFunc(plans, func(left, right providerWriteTransactionPlan) int {
@@ -406,6 +406,8 @@ func providerLabelHasActiveCollision(
 func requireProductiveStructuralWrites(
 	operations []domain.Operation,
 	plans []providerWriteTransactionPlan,
+	committed domain.CommittedProfile,
+	effective domain.CommittedProfile,
 ) error {
 	for _, operation := range operations {
 		if operation.Type != domain.OperationMerchantLabel && operation.Type != domain.OperationMerchantMerge {
@@ -419,7 +421,15 @@ func requireProductiveStructuralWrites(
 			}
 		}
 		if !productive {
-			return provider.NewError(provider.CodeWriteUnsupported)
+			merchantID := operation.Targets[0]
+			if operation.Merge != nil {
+				merchantID = operation.Merge.SourceID
+			}
+			vacuous := merchantTransactionCount(committed, merchantID) > 0 &&
+				merchantTransactionCount(effective, merchantID) == 0
+			if !vacuous {
+				return provider.NewError(provider.CodeWriteUnsupported)
+			}
 		}
 	}
 	return nil

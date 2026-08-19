@@ -16,7 +16,7 @@ func (service *Service) validateProviderMutation(
 	if state.Binding == nil {
 		return nil
 	}
-	if state.Binding.Kind != "monarch" || !supportedMonarchWriteOperation(operation.Type) {
+	if state.Binding.Kind != "monarch" || !supportedMonarchStagingOperation(operation.Type) {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
 	identities := providerWriteIdentityIndexes(snapshot.Committed.ExternalIdentities)
@@ -60,10 +60,20 @@ func (service *Service) validateProviderMutation(
 			}
 		}
 	case domain.OperationTransactionHide:
+	case domain.OperationTransactionDelete:
+		for _, target := range operation.Targets {
+			if identities.external(domain.EntityKindTransaction, target) == "" {
+				return provider.NewError(provider.CodeWriteUnsupported)
+			}
+		}
 	default:
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
 	return nil
+}
+
+func supportedMonarchStagingOperation(kind domain.OperationType) bool {
+	return supportedMonarchWriteOperation(kind) || kind == domain.OperationTransactionDelete
 }
 
 func (service *Service) validateProviderWriteIdle() error {

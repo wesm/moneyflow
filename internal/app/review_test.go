@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestReviewRejectsOversizedWindowsAndStaleRevisionWithoutChangingState(t *testing.T) {
@@ -50,4 +51,45 @@ func TestReviewCategoryManagerCreateHasNoAffectedTransactionTargets(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, review.Operations, 1)
 	assert.Zero(t, review.Operations[0].AffectedCount)
+}
+
+func TestReviewDeleteRetainsPreOperationTargets(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.advanceExternally(transactionDeleteOperation(1, "transaction_a", "transaction_b"))
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	review, err := service.Review(ctx, 6, app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.Operations, 1)
+	assert.Equal(t, domain.OperationTransactionDelete, review.Operations[0].Type)
+	assert.Equal(t, 2, review.Operations[0].AffectedCount)
+
+	review, err = service.Review(ctx, 6, app.ReviewWindow{
+		OperationID: review.Operations[0].OperationID, Limit: 1,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, app.Window{Offset: 0, Limit: 1, Count: 1}, review.Window)
+	require.Len(t, review.Targets, 1)
+	assert.Equal(t, domain.EntityID("transaction_a"), review.Targets[0].TransactionID)
+}
+
+func TestReviewVacuousMerchantOperationIsAnnotated(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.advanceExternally(labelOperation(
+		1, domain.OperationMerchantLabel, "merchant_a", "Renamed Merchant",
+	))
+	profile.advanceExternally(transactionDeleteOperation(2, "transaction_a"))
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	review, err := service.Review(ctx, 7, app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.Operations, 2)
+	assert.Zero(t, review.Operations[0].AffectedCount)
+	assert.Equal(t, "affects 0 transactions", review.Operations[0].Annotation)
 }

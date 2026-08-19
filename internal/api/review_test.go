@@ -77,7 +77,7 @@ func TestReviewEndpointsReturnSeparateSummariesAndBoundedTargets(t *testing.T) {
 	assert.Equal(t, operationID, targets.OperationID)
 	assert.LessOrEqual(t, len(targets.Targets), app.MaxReviewTargetLimit)
 	require.Len(t, targets.Targets, 1)
-	assert.Equal(t, "Renamed Merchant", targets.Targets[0].Merchant)
+	assert.Equal(t, "Example Merchant", targets.Targets[0].Merchant)
 	assert.NotContains(t, targetResponse.Body.String(), "transaction_id")
 
 	oversized := requestProtectedJSON(t, server, "/api/v1/review/targets", ReviewTargetsBody{

@@ -28,6 +28,7 @@ type ReviewOperation struct {
 	Before         string
 	After          string
 	TaxonomyEffect string
+	Annotation     string
 }
 
 // ReviewTarget is one bounded transaction row affected by a reviewed operation.
@@ -79,7 +80,7 @@ func (service *Service) Review(
 	if limit == 0 {
 		limit = DefaultWindowLimit
 	}
-	projection, transactionIDs, found, err := buildReviewProjection(
+	projection, targets, found, err := buildReviewProjection(
 		snapshot, window.OperationID, window.Offset, limit,
 	)
 	if err != nil {
@@ -100,8 +101,8 @@ func (service *Service) Review(
 			break
 		}
 	}
-	projection.Window = Window{Offset: start, Limit: limit, Count: len(transactionIDs)}
-	projection.Targets = reviewTargets(snapshot.Effective, transactionIDs)
+	projection.Window = Window{Offset: start, Limit: limit, Count: len(targets)}
+	projection.Targets = targets
 	return projection, nil
 }
 
@@ -110,19 +111,24 @@ func buildReviewProjection(
 	detailOperationID string,
 	detailOffset int,
 	detailLimit int,
-) (ReviewProjection, []domain.EntityID, bool, error) {
+) (ReviewProjection, []ReviewTarget, bool, error) {
 	projection := ReviewProjection{
 		Revision: snapshot.Revision, Pending: pendingSummary(snapshot),
 		Operations: make([]ReviewOperation, 0, len(snapshot.Journal)),
 	}
-	var detailTargets []domain.EntityID
+	var detailTargets []ReviewTarget
 	detailFound := detailOperationID == ""
 	state := snapshot.Committed.Clone()
 	for index, operation := range snapshot.Journal {
-		affectedCount := affectedOperationCount(state, operation)
+		filterSurvivors := index < snapshot.Cursor &&
+			(operation.Type == domain.OperationMerchantLabel || operation.Type == domain.OperationMerchantMerge)
+		affectedCount, affectedWindow := affectedOperationSummary(
+			state, snapshot.Effective, operation, filterSurvivors,
+			operation.ID == detailOperationID, detailOffset, detailLimit,
+		)
 		if operation.ID == detailOperationID {
 			detailFound = true
-			detailTargets = affectedOperationWindow(state, operation, detailOffset, detailLimit)
+			detailTargets = affectedWindow
 		}
 		next, err := ApplyOperation(state, operation)
 		if err != nil {
@@ -133,6 +139,9 @@ func buildReviewProjection(
 			OperationID: operation.ID, Sequence: operation.Sequence, Type: operation.Type,
 			Active: index < snapshot.Cursor, AffectedCount: affectedCount,
 			Before: before, After: after, TaxonomyEffect: effect,
+		}
+		if filterSurvivors && affectedCount == 0 {
+			summary.Annotation = "affects 0 transactions"
 		}
 		projection.Operations = append(projection.Operations, summary)
 		if summary.Active {
@@ -145,34 +154,36 @@ func buildReviewProjection(
 	return projection, detailTargets, detailFound, nil
 }
 
-func affectedOperationCount(profile domain.CommittedProfile, operation domain.Operation) int {
+func affectedOperationSummary(
+	before domain.CommittedProfile,
+	effective domain.CommittedProfile,
+	operation domain.Operation,
+	filterSurvivors bool,
+	includeWindow bool,
+	offset int,
+	limit int,
+) (int, []ReviewTarget) {
+	survivors := make(map[domain.EntityID]struct{}, len(effective.Transactions))
+	if filterSurvivors {
+		for _, transaction := range effective.Transactions {
+			survivors[transaction.ID] = struct{}{}
+		}
+	}
 	count := 0
-	visitAffectedByOperation(profile, operation, func(domain.EntityID) bool {
+	ids := make([]domain.EntityID, 0, min(limit, len(before.Transactions)))
+	visitAffectedByOperation(before, operation, func(id domain.EntityID) bool {
+		if filterSurvivors {
+			if _, exists := survivors[id]; !exists {
+				return true
+			}
+		}
+		if includeWindow && count >= offset && len(ids) < limit {
+			ids = append(ids, id)
+		}
 		count++
 		return true
 	})
-	return count
-}
-
-func affectedOperationWindow(
-	profile domain.CommittedProfile,
-	operation domain.Operation,
-	offset int,
-	limit int,
-) []domain.EntityID {
-	if limit <= 0 {
-		return nil
-	}
-	result := make([]domain.EntityID, 0, min(limit, len(profile.Transactions)))
-	visited := 0
-	visitAffectedByOperation(profile, operation, func(id domain.EntityID) bool {
-		if visited >= offset {
-			result = append(result, id)
-		}
-		visited++
-		return len(result) < limit
-	})
-	return result
+	return count, reviewTargets(before, ids)
 }
 
 func reviewValues(

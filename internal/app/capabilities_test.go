@@ -21,6 +21,7 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
 	initial := capabilitiesByAction(service.Capabilities())
+	assert.True(t, initial[app.ActionFindDuplicates].Available)
 	assert.True(t, initial[app.ActionEditMerchant].Available)
 	assert.False(t, initial[app.ActionUndo].Available)
 	assert.False(t, initial[app.ActionRedo].Available)
@@ -46,6 +47,18 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	assert.False(t, afterUndo[app.ActionUndo].Available)
 	assert.True(t, afterUndo[app.ActionRedo].Available)
 	assert.True(t, afterUndo[app.ActionReviewChanges].Available)
+}
+
+func TestDeleteCapabilityRequiresDetailState(t *testing.T) {
+	t.Parallel()
+
+	service, err := app.NewProfileService(context.Background(), newMemoryProfile(t, 5))
+	require.NoError(t, err)
+	aggregate := capabilitiesByAction(service.CapabilitiesForState(app.DefaultViewState()))
+	assert.False(t, aggregate[app.ActionDeleteTransaction].Available)
+	assert.NotEmpty(t, aggregate[app.ActionDeleteTransaction].Reason)
+	detail := capabilitiesByAction(service.CapabilitiesForState(detailViewState()))
+	assert.True(t, detail[app.ActionDeleteTransaction].Available)
 }
 
 func TestProviderCapabilitiesPrepareWriteBatchAndDisableFurtherEditing(t *testing.T) {
@@ -216,7 +229,7 @@ func TestMonarchCapabilitiesLockMutationsDuringUnfinishedWriteBatch(t *testing.T
 	capabilities := capabilitiesByAction(service.Capabilities())
 	for _, action := range []app.ActionID{
 		app.ActionEditMerchant, app.ActionEditCategory, app.ActionManageCategories,
-		app.ActionManageGroups, app.ActionToggleHidden, app.ActionUndo,
+		app.ActionManageGroups, app.ActionToggleHidden, app.ActionDeleteTransaction, app.ActionUndo,
 		app.ActionRedo, app.ActionRefreshProvider,
 	} {
 		assert.False(t, capabilities[action].Available, action)

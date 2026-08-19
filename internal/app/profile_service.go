@@ -234,6 +234,8 @@ func buildMutationPlan(
 		return BuildTaxonomyOperation(snapshot, request, metadata)
 	case ActionToggleHidden:
 		return BuildHideMutation(snapshot, request, metadata)
+	case ActionDeleteTransaction:
+		return BuildDeleteMutation(snapshot, request, metadata)
 	default:
 		return MutationPlan{}, mutationError(
 			MutationInvalidOperation, errors.New("action is not a persistent mutation"),
@@ -463,7 +465,7 @@ func (service *Service) mutationResult(
 	return MutationResult{
 		Revision: snapshot.Revision, State: state.Clone(), Selection: selection,
 		SelectionDisposition: disposition, Pending: pendingSummary(snapshot),
-		Capabilities: service.capabilitiesForSnapshot(snapshot), Projection: projection,
+		Capabilities: service.capabilitiesForStateSnapshot(snapshot, state), Projection: projection,
 	}, nil
 }
 
@@ -509,7 +511,7 @@ func visitAffectedByOperation(
 ) {
 	switch operation.Type {
 	case domain.OperationMerchantReassign, domain.OperationCategoryAssign,
-		domain.OperationTransactionHide:
+		domain.OperationTransactionHide, domain.OperationTransactionDelete:
 		visitEntityIDs(operation.Targets, visit)
 	case domain.OperationCategoryCreate:
 		if len(operation.Targets) == 1 && operation.Targets[0] == operation.Create.EntityID {

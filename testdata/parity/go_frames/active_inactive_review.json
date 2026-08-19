@@ -3878,67 +3878,7 @@
       {
         "glyph": " ",
         "display_width": 1,
-        "repeat": 2,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": "h",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": "d",
-        "display_width": 1,
-        "repeat": 2,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#8b98a5",
-        "background": "#121826",
-        "attributes": [
-          "dim"
-        ]
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 48,
+        "repeat": 56,
         "foreground": "#e6edf3",
         "background": "#0e1626"
       },
