@@ -131,21 +131,16 @@ func (client *Client) DeleteTransaction(
 	if !validProviderText(externalID) {
 		return provider.TransactionDeleteResult{}, provider.NewError(provider.CodeWriteUnsupported)
 	}
-	data, notFound, err := client.writeGraphQLOnce(
+	data, err := client.writeGraphQLOnce(
 		ctx,
 		"Common_DeleteTransactionMutation",
 		deleteTransactionQuery,
 		map[string]any{"input": map[string]any{"transactionId": externalID}},
-		true,
 	)
 	if err != nil {
 		return provider.TransactionDeleteResult{}, err
 	}
 	result := provider.TransactionDeleteResult{TransactionExternalID: externalID}
-	if notFound {
-		result.AlreadyAbsent = true
-		return result, nil
-	}
 	var decoded deleteTransactionData
 	if err = json.Unmarshal(data, &decoded); err != nil || decoded.DeleteTransaction == nil {
 		return provider.TransactionDeleteResult{}, provider.NewWriteFailure(
@@ -170,12 +165,11 @@ func (client *Client) updateTransactionOnce(
 	ctx context.Context,
 	input map[string]any,
 ) (updateTransactionPayload, error) {
-	data, _, err := client.writeGraphQLOnce(
+	data, err := client.writeGraphQLOnce(
 		ctx,
 		"Web_TransactionDrawerUpdateTransaction",
 		updateTransactionQuery,
 		map[string]any{"input": input},
-		false,
 	)
 	if err != nil {
 		return updateTransactionPayload{}, err
@@ -192,51 +186,47 @@ func (client *Client) writeGraphQLOnce(
 	operationName string,
 	query string,
 	variables map[string]any,
-	notFoundIsSuccess bool,
-) (json.RawMessage, bool, error) {
+) (json.RawMessage, error) {
 	requestBody, err := json.Marshal(graphQLRequest{
 		OperationName: operationName, Query: query, Variables: variables,
 	})
 	if err != nil {
-		return nil, false, provider.NewError(provider.CodeWriteUnsupported)
+		return nil, provider.NewError(provider.CodeWriteUnsupported)
 	}
 	request, err := http.NewRequestWithContext(
 		ctx, http.MethodPost, client.options.GraphQLURL.String(), bytes.NewReader(requestBody),
 	)
 	if err != nil {
-		return nil, false, provider.NewError(provider.CodeWriteUnsupported)
+		return nil, provider.NewError(provider.CodeWriteUnsupported)
 	}
 	setReadHeaders(request.Header, client.authorization, client.deviceUUID)
 	response, err := client.options.HTTPClient.Do(request)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, false, ctxErr
+			return nil, ctxErr
 		}
-		return nil, false, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		return nil, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	defer func() { _ = response.Body.Close() }()
-	if notFoundIsSuccess && response.StatusCode == http.StatusNotFound {
-		return nil, true, nil
-	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, false, writeErrorForResponse(response, client.options.Now())
+		return nil, writeErrorForResponse(response, client.options.Now())
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, client.options.MaxBodyBytes+1))
 	if err != nil || int64(len(body)) > client.options.MaxBodyBytes {
-		return nil, false, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		return nil, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	var envelope graphQLResponse
 	if err = json.Unmarshal(body, &envelope); err != nil {
-		return nil, false, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		return nil, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
 	if len(envelope.Errors) > 0 {
-		return nil, false, provider.NewWriteFailure(provider.WriteRejected)
+		return nil, provider.NewWriteFailure(provider.WriteRejected)
 	}
 	data := bytes.TrimSpace(envelope.Data)
 	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
-		return nil, false, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+		return nil, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
 	}
-	return append(json.RawMessage(nil), data...), false, nil
+	return append(json.RawMessage(nil), data...), nil
 }
 
 func payloadErrorsProveNotFound(payloadErrors []payloadError) bool {

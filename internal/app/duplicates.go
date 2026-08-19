@@ -88,11 +88,12 @@ func (service *Service) ProjectDuplicates(
 	resolvedSession.Mode = domain.ResultModeDetail
 	resolvedSession.SubGrouping = nil
 	resolvedSession.Sort = dateDescending()
+	detailState := resolvedSession.ViewState().Current
 	result, err := service.Query(resolvedSession)
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
-	selectionSnapshot, err := service.ResolveSelection(state.Current, selection)
+	selectionSnapshot, err := service.ResolveSelection(detailState, selection)
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}

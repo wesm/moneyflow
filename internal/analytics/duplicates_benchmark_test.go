@@ -18,7 +18,7 @@ func BenchmarkFindDuplicates100K(b *testing.B) {
 	groups := FindDuplicates(transactions, nil)
 	require.Len(b, groups, 50_000)
 	require.Equal(b, 100_000, duplicateRowCount(groups))
-	require.Equal(b, "9c290720645ae967946fbd1d15cd1da747d8fdf28ee59fbf3e0f629bef2a6edf", duplicateDigest(groups))
+	require.Equal(b, "07b1af96bca1180ae5948f51cac60d3f1d03d718601a6027b2985eff2cc9183f", duplicateDigest(groups))
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -57,7 +57,7 @@ func duplicateDigest(groups []DuplicateGroup) string {
 	digest := sha256.New()
 	for _, group := range groups {
 		_, _ = fmt.Fprintf(digest, "%s|%s|%d|%s|%d|%s\n", group.Date, group.Amount.Currency,
-			group.Amount.Scale, group.MatchingLabel, group.Amount.Minor, group.AccountID)
+			group.Amount.Scale, group.MatchingLabel, group.Amount.Minor, group.AccountLabel)
 		for _, transactionID := range group.TransactionIDs {
 			_, _ = fmt.Fprintln(digest, transactionID)
 		}

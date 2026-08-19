@@ -204,6 +204,13 @@ func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStat
 		return service.writeStatus(ctx, nil)
 	}
 	defer runtime.endProviderWriteRun()
+	return service.runProviderWriteOwned(ctx, runtime)
+}
+
+func (service *Service) runProviderWriteOwned(
+	ctx context.Context,
+	runtime *providerRuntimeState,
+) (ProviderWriteStatus, error) {
 	state, err := service.profile.ProviderWriteState(ctx)
 	if err != nil {
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
@@ -956,6 +963,10 @@ func (service *Service) ResumeProviderWrite(
 	if err != nil {
 		return ProviderWriteStatus{}, err
 	}
+	if !runtime.beginProviderWriteRun() {
+		return service.writeStatus(ctx, nil)
+	}
+	defer runtime.endProviderWriteRun()
 	state, err := service.profile.ProviderWriteState(ctx)
 	if err != nil || state.Batch == nil {
 		return service.writeStatus(ctx, err)
@@ -985,7 +996,7 @@ func (service *Service) ResumeProviderWrite(
 			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
 		)
 	}
-	return service.RunProviderWrite(ctx)
+	return service.runProviderWriteOwned(ctx, runtime)
 }
 
 func providerWritePhaseAllowsAttemptedRetry(batch store.WriteBatch) bool {
@@ -993,7 +1004,8 @@ func providerWritePhaseAllowsAttemptedRetry(batch store.WriteBatch) bool {
 		return true
 	}
 	return batch.Phase == store.WritePhaseAttentionRequired &&
-		batch.AttentionClass == store.WriteAttentionRetryable
+		batch.AttentionClass == store.WriteAttentionRetryable &&
+		batch.AttentionReason == store.WriteAttentionUnavailableExhausted
 }
 
 // StopAndReconcileProviderWrite abandons the frozen intent and fetches provider truth.

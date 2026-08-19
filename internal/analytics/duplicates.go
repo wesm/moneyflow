@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // DuplicateGroup is one deterministic group of likely duplicate transactions.
@@ -12,8 +14,9 @@ type DuplicateGroup struct {
 	Date           domain.Date
 	Amount         domain.Money
 	MatchingLabel  string
-	AccountID      domain.EntityID
+	AccountLabel   string
 	TransactionIDs []domain.EntityID
+	matchingKey    string
 }
 
 type duplicateKey struct {
@@ -22,7 +25,7 @@ type duplicateKey struct {
 	scale         uint8
 	minor         int64
 	matchingLabel string
-	accountID     domain.EntityID
+	accountLabel  string
 }
 
 type duplicateAccumulator struct {
@@ -39,6 +42,7 @@ func FindDuplicates(
 	transactions []domain.Transaction,
 	matchingMerchantLabels map[domain.EntityID]string,
 ) []DuplicateGroup {
+	lower := cases.Lower(language.Und)
 	accumulators := make(map[duplicateKey]*duplicateAccumulator, len(transactions)/2)
 	for _, transaction := range transactions {
 		label := transaction.Merchant.Name
@@ -50,8 +54,8 @@ func FindDuplicates(
 			currency:      transaction.Amount.Currency,
 			scale:         transaction.Amount.Scale,
 			minor:         transaction.Amount.Minor,
-			matchingLabel: strings.ToLower(label),
-			accountID:     domain.EntityID(transaction.Account.ID),
+			matchingLabel: lower.String(label),
+			accountLabel:  transaction.Account.Name,
 		}
 		accumulator, ok := accumulators[key]
 		if !ok {
@@ -75,8 +79,9 @@ func FindDuplicates(
 			Date:           accumulator.date,
 			Amount:         accumulator.amount,
 			MatchingLabel:  accumulator.matchingLabel,
-			AccountID:      key.accountID,
+			AccountLabel:   key.accountLabel,
 			TransactionIDs: accumulator.transactionIDs,
+			matchingKey:    key.matchingLabel,
 		})
 	}
 	slices.SortFunc(groups, compareDuplicateGroups)
@@ -96,10 +101,10 @@ func compareDuplicateGroups(left, right DuplicateGroup) int {
 	if left.Amount.Minor != right.Amount.Minor {
 		return compareOrdered(left.Amount.Minor, right.Amount.Minor)
 	}
-	if comparison := strings.Compare(strings.ToLower(left.MatchingLabel), strings.ToLower(right.MatchingLabel)); comparison != 0 {
+	if comparison := strings.Compare(left.matchingKey, right.matchingKey); comparison != 0 {
 		return comparison
 	}
-	if comparison := strings.Compare(string(left.AccountID), string(right.AccountID)); comparison != 0 {
+	if comparison := strings.Compare(left.AccountLabel, right.AccountLabel); comparison != 0 {
 		return comparison
 	}
 	return strings.Compare(string(left.TransactionIDs[0]), string(right.TransactionIDs[0]))

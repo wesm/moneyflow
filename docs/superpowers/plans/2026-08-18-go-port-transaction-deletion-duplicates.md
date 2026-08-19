@@ -32,9 +32,9 @@ while the application worker owns retries, crash recovery, reconciliation, and f
 - Keep all money in signed integer minor units. Do not add `float32`, `float64`, or SQLite `REAL`.
 - `transaction.delete` payload version 1 stores sorted stable local transaction IDs and an empty
   typed payload. It never stores predicates, provider IDs, labels, search text, or money.
-- Duplicate matching uses exact date, exact minor/currency/scale, Unicode-lowercased un-suffixed
-  merchant label, and stable local account ID. Do not trim, NFKC-normalize, case-fold, score, or use
-  a date tolerance.
+- Duplicate matching uses exact date, exact minor/currency/scale, full Unicode-lowercased
+  un-suffixed merchant label, and effective account display label. Do not trim, NFKC-normalize,
+  case-fold, score, or use a date tolerance.
 - Provider-backed duplicate labels come from persisted `LabelAllocation.ProviderLabel`; local
   merchants use their effective user label.
 - `x` stages deletion. Only the existing `w`, then `Enter`, boundary performs remote deletion.
@@ -89,7 +89,7 @@ type DuplicateGroup struct {
     Date             domain.Date
     Amount           domain.Money
     MatchingLabel    string
-    AccountID        domain.EntityID
+    AccountLabel     string
     TransactionIDs   []domain.EntityID
 }
 
@@ -269,7 +269,7 @@ exactly-one-payload invariant.
 
 - [ ] **Step 2: Write failing exact duplicate tests**
 
-Create fixtures that separately vary date by one day, minor units, currency, scale, account ID,
+Create fixtures that separately vary date by one day, minor units, currency, scale, account label,
 whitespace, NFKC form, and a stronger case-fold pair. Assert only Unicode lowercase joins groups.
 Add the collision-allocation case using the labels map:
 
@@ -292,7 +292,7 @@ func TestFindDuplicatesUsesRawMatchingLabelsBehindLocalSuffixes(t *testing.T) {
 ```
 
 Randomize input order repeatedly and compare a canonical JSON digest. Verify group sort is date
-descending, then currency/scale/minor ascending, lowercase matching label, account ID, and smallest
+descending, then currency/scale/minor ascending, lowercase matching label, account label, and smallest
 transaction ID; verify member rows use bytewise local-ID order.
 
 - [ ] **Step 3: Run the focused tests and verify RED**
@@ -328,7 +328,7 @@ type duplicateKey struct {
     date, currency, label string
     scale                 uint8
     minor                 int64
-    accountID             domain.EntityID
+    accountLabel          string
 }
 
 label := transaction.Merchant.Name
@@ -338,7 +338,7 @@ if raw, ok := matchingMerchantLabels[domain.EntityID(transaction.Merchant.ID)]; 
 key := duplicateKey{
     date: transaction.Date.String(), currency: string(transaction.Amount.Currency),
     scale: transaction.Amount.Scale, minor: transaction.Amount.Minor,
-    label: strings.ToLower(label), accountID: domain.EntityID(transaction.Account.ID),
+    label: cases.Lower(language.Und).String(label), accountLabel: transaction.Account.Name,
 }
 ```
 
@@ -692,7 +692,10 @@ Return `SelectionCleared` only when the submitted selection is nonempty. Add the
 - [ ] **Step 6: Implement `ProjectDuplicates` over the complete filtered result**
 
 Validate state/window, lock `service.interactions`, refresh, compare expected revision, resolve the
-same session/query as `ProjectView`, and call `service.Query` without slicing first. Build the
+same session/query as `ProjectView`, derive a detail-mode session that preserves every filter and
+drilldown, and call `service.Query` without slicing first. Duplicate-overlay selection is a
+transaction selection; reject a nonempty aggregate selection instead of reporting selected rows
+that do not exist in the overlay. Build the
 matching-label map by joining active merchant `ExternalIdentity` rows to
 `LabelAllocation{Namespace, ExternalID}` and indexing `ProviderLabel` by the identity's local
 merchant ID; fall back to the effective merchant label. Call `analytics.FindDuplicates`, take the
@@ -775,9 +778,10 @@ assert.False(t, result.AlreadyAbsent)
 assert.Equal(t, 1, requests.Load(), "adapter performs exactly one attempt")
 ```
 
-Assert `deleted: true`, characterized payload not-found, and HTTP 404 normalize to success. Assert
-`deleted: false` with unclassifiable payload errors maps to the existing rejected/incomplete write
-classification without exposing raw message text.
+Assert `deleted: true` and characterized payload not-found normalize to success. Assert HTTP 404
+maps to target-not-found attention because the fixed GraphQL endpoint status cannot prove
+transaction absence. Assert `deleted: false` with unclassifiable payload errors maps to the
+existing rejected/incomplete write classification without exposing raw message text.
 
 - [ ] **Step 2: Write failing transport/error tests**
 
@@ -960,8 +964,12 @@ default:
 ```
 
 Replace `firstAttemptedPendingWriteItem` with a check that parks only uncertain update items. A
-pending delete with attempts remaining stays claimable. Persist `AlreadyAbsent` as normalized
-counts-only result state; never persist provider error messages.
+pending delete with attempts remaining stays claimable. Hold exclusive process-local run ownership
+across Resume's store transition, attempted-item check, and park so a concurrent runner cannot
+claim the update in between. Only attention reason `provider_write_unavailable_exhausted` permits
+an attempted update resend; an incomplete response remains outcome-uncertain even if its attention
+class is retryable. Persist `AlreadyAbsent` as normalized counts-only result state; never persist
+provider error messages.
 
 - [ ] **Step 8: Implement finalization and identity tombstones**
 

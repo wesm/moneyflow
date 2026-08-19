@@ -170,7 +170,7 @@ func (model *Model) refresh() {
 }
 
 func (model *Model) syncProfileMetadata() {
-	capabilities := model.service.Capabilities()
+	capabilities := model.service.CapabilitiesForState(model.session.ViewState())
 	model.caps = make(map[app.ActionID]app.Capability, len(capabilities))
 	for _, capability := range capabilities {
 		model.caps[capability.Action] = capability

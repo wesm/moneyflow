@@ -212,7 +212,7 @@ Two transactions belong to the same potential-duplicate group only when all of t
 1. exact calendar date;
 2. exact signed minor-unit amount, currency, and scale;
 3. Unicode-lowercased un-suffixed merchant label; and
-4. stable local account identity.
+4. effective account display label.
 
 For a provider-backed merchant, the un-suffixed value is the persisted raw provider label from the
 active label allocation. It is not the locally allocated display label, which may contain a
@@ -235,7 +235,7 @@ deletes a preferred member automatically.
 Ordering is deterministic:
 
 - groups sort by date descending, then money ascending by currency, scale, and minor units, then
-  lowercased merchant label, account ID, and the smallest transaction ID;
+  lowercased merchant label, account display label, and the smallest transaction ID;
 - rows within a group sort by stable local transaction ID using bytewise string ordering.
 
 The application projection assigns display group numbers after sorting. Group numbers are
@@ -417,8 +417,10 @@ The adapter never retries. The durable application worker owns the only bounded 
 The desired state of a delete item is absolute: the provider transaction is absent. Therefore:
 
 - `deleted: true` is success;
-- a positively characterized provider not-found result is also success; and
-- a confirmed HTTP not-found response is success.
+- a positively characterized provider not-found payload result is also success.
+
+An HTTP 404 from the fixed GraphQL endpoint does not prove that the requested transaction is
+absent. It enters reconcile-only attention through the ordinary target-not-found classification.
 
 Correctness does not depend on Monarch returning a distinguishable not-found payload. Python reads
 `deleteTransaction { deleted, errors }`, and an absent transaction may appear as `deleted: false`
@@ -446,7 +448,10 @@ kind because only deletion is safely repeatable:
   the bounded attempt budget because absence is its absolute desired state.
 
 The worker persists item kind and attempt state before dispatch so a new process applies this rule
-without inferring it from optional update fields.
+without inferring it from optional update fields. Resume owns the same process-local run guard as
+the worker while it resumes, inspects, and parks an uncertain update, so a concurrent local runner
+cannot claim that item in between. An incomplete response is outcome-uncertain and never qualifies
+for explicit resend merely because its durable attention class is retryable.
 
 Delete-specific outcomes map as follows:
 

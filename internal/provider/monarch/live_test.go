@@ -107,6 +107,11 @@ func TestLiveDeleteDisposableTransactions(t *testing.T) {
 		if deleteErr != nil {
 			t.Fatal("disposable transaction deletion was not positively characterized")
 		}
+		for _, transaction := range snapshot.transactions {
+			if transaction.ID == externalID {
+				t.Fatal("deleted disposable transaction remained in the complete snapshot")
+			}
+		}
 		t.Logf(
 			"live delete characterization: already_absent=%t transactions_after=%d",
 			result.AlreadyAbsent,

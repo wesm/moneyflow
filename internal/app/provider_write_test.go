@@ -500,6 +500,133 @@ func TestResumeProviderWriteParksClaimedItemAsUnknownBeforeResend(t *testing.T) 
 	assert.Zero(t, writer.callCount(), "an item with an unknown prior outcome must not be resent")
 }
 
+func TestResumeProviderWriteDoesNotRetryIncompleteResponse(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 18, 20, 26, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{
+		identity: reader.identity,
+		update: func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			return provider.TransactionUpdateResult{},
+				provider.NewWriteFailure(provider.WriteResponseIncomplete)
+		},
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-incomplete")
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_incomplete_response", Type: domain.OperationTransactionHide,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: []domain.EntityID{target.ID}, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+
+	parked, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	assert.Equal(t, store.WriteAttentionResponseIncomplete, parked.AttentionReason)
+	assert.Equal(t, 1, writer.callCount())
+
+	resumed, err := service.ResumeProviderWrite(ctx, parked.Version)
+	require.Error(t, err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, resumed.Phase)
+	assert.Equal(t, store.WriteAttentionReconcileOnly, resumed.AttentionClass)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, resumed.AttentionReason)
+	assert.Equal(t, 1, writer.callCount(), "an incomplete response may already represent an applied update")
+}
+
+func TestResumeProviderWriteSerializesUncertainItemParkingWithLocalRunner(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	_, profileHandle := newProviderRefreshService(t)
+	wrapped := &blockingResumeWriteProfile{
+		Profile: profileHandle, started: make(chan struct{}), release: make(chan struct{}),
+	}
+	service, err := app.NewProfileService(ctx, wrapped)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 18, 20, 27, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-concurrent-resume")
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_concurrent_resume", Type: domain.OperationTransactionHide,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets: []domain.EntityID{target.ID}, HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	writeState, err := profileHandle.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, writeState.Batch)
+	claimed, err := profileHandle.ClaimProviderWriteItems(ctx, store.ClaimProviderWriteRequest{
+		BatchID: writeState.Batch.ID, ExpectedVersion: writeState.Batch.Version,
+		LeaseOwnerID: "instance-concurrent-resume", LeaseKind: store.ProviderOperationWrite,
+		ObservedAt: now, Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
+		ctx, "instance-concurrent-resume", store.ProviderOperationWrite,
+	))
+
+	type resumeResult struct {
+		status app.ProviderWriteStatus
+		err    error
+	}
+	resumed := make(chan resumeResult, 1)
+	go func() {
+		status, resumeErr := service.ResumeProviderWrite(ctx, writeState.Batch.Version)
+		resumed <- resumeResult{status: status, err: resumeErr}
+	}()
+	<-wrapped.started
+	_, _ = service.RunProviderWrite(ctx)
+	assert.Zero(t, writer.callCount(), "a local runner must not claim during resume and park")
+	close(wrapped.release)
+	result := <-resumed
+	require.Error(t, result.err)
+	assert.Equal(t, store.WritePhaseAttentionRequired, result.status.Phase)
+	assert.Equal(t, store.WriteAttentionOutcomeUnknown, result.status.AttentionReason)
+	assert.Zero(t, writer.callCount())
+}
+
 func TestPausePreventsClaimAfterRequestArrivesDuringLeaseRenewal(t *testing.T) {
 	t.Parallel()
 
@@ -1447,6 +1574,30 @@ type blockingWriteRenewProfile struct {
 	once    sync.Once
 	started chan struct{}
 	release chan struct{}
+}
+
+type blockingResumeWriteProfile struct {
+	store.Profile
+	once    sync.Once
+	started chan struct{}
+	release chan struct{}
+}
+
+func (profile *blockingResumeWriteProfile) ResumeProviderWrite(
+	ctx context.Context,
+	request store.ResumeProviderWriteRequest,
+) (store.WriteBatch, error) {
+	batch, err := profile.Profile.ResumeProviderWrite(ctx, request)
+	if err != nil {
+		return store.WriteBatch{}, err
+	}
+	profile.once.Do(func() { close(profile.started) })
+	select {
+	case <-ctx.Done():
+		return store.WriteBatch{}, ctx.Err()
+	case <-profile.release:
+		return batch, nil
+	}
 }
 
 func (profile *blockingWriteRenewProfile) RenewProviderOperationLease(

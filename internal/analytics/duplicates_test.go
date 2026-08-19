@@ -17,6 +17,7 @@ func TestFindDuplicatesUsesExactPythonMatchingContract(t *testing.T) {
 	differentDate := duplicateTransaction(t, "date", "2026-08-17", "-12.34", "merchant-c", "Example Merchant", "account-a")
 	differentSign := duplicateTransaction(t, "sign", "2026-08-18", "12.34", "merchant-d", "Example Merchant", "account-a")
 	differentAccount := duplicateTransaction(t, "account", "2026-08-18", "-12.34", "merchant-e", "Example Merchant", "account-b")
+	differentAccount.Account.Name = "Other Account"
 	differentUnicodeNormalization := duplicateTransaction(t, "unicode", "2026-08-18", "-12.34", "merchant-f", "ＥＸＡＭＰＬＥ ＭＥＲＣＨＡＮＴ", "account-a")
 
 	groups := FindDuplicates([]domain.Transaction{
@@ -25,6 +26,25 @@ func TestFindDuplicatesUsesExactPythonMatchingContract(t *testing.T) {
 
 	require.Len(t, groups, 1)
 	assert.Equal(t, "EXAMPLE MERCHANT", groups[0].MatchingLabel)
+	assert.Equal(t, []domain.EntityID{"transaction-a", "transaction-b"}, groups[0].TransactionIDs)
+}
+
+func TestFindDuplicatesUsesFullUnicodeLowercaseAndAccountLabels(t *testing.T) {
+	t.Parallel()
+
+	first := duplicateTransaction(
+		t, "transaction-a", "2026-08-18", "-8.00", "merchant-a", "İ", "account-a",
+	)
+	second := duplicateTransaction(
+		t, "transaction-b", "2026-08-18", "-8.00", "merchant-b", "i\u0307", "account-b",
+	)
+	first.Account.Name = "Shared Account"
+	second.Account.Name = "Shared Account"
+
+	groups := FindDuplicates([]domain.Transaction{first, second}, nil)
+
+	require.Len(t, groups, 1)
+	assert.Equal(t, "Shared Account", groups[0].AccountLabel)
 	assert.Equal(t, []domain.EntityID{"transaction-a", "transaction-b"}, groups[0].TransactionIDs)
 }
 

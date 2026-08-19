@@ -93,6 +93,39 @@ func TestProjectDuplicatesReturnsPartialGroupsAndValidatesBounds(t *testing.T) {
 	assertAppCode(t, err, app.AppInvalidOperation)
 }
 
+func TestProjectDuplicatesDerivesDetailRowsAndRejectsAggregateSelection(t *testing.T) {
+	t.Parallel()
+
+	profile := duplicateMemoryProfile(t, true)
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	state := app.DefaultViewState()
+
+	projection, err := service.ProjectDuplicates(
+		context.Background(), service.Revision(), state, app.EmptySelection(),
+		app.DuplicateWindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, projection.TotalGroups)
+	assert.Equal(t, 2, projection.TotalTransactions)
+
+	result, err := service.Query(app.NewSession())
+	require.NoError(t, err)
+	require.NotEmpty(t, result.AggregateRows)
+	aggregateSelection, err := service.ToggleSelection(
+		state.Current, app.EmptySelection(), app.IdentityAggregate,
+		app.AggregateIdentity(result.AggregateRows[0]),
+	)
+	require.NoError(t, err)
+	aggregateSelection, err = app.BindSelectionRevision(aggregateSelection, service.Revision())
+	require.NoError(t, err)
+	_, err = service.ProjectDuplicates(
+		context.Background(), service.Revision(), state, aggregateSelection,
+		app.DuplicateWindowRequest{},
+	)
+	assertAppCode(t, err, app.AppInvalidOperation)
+}
+
 func TestProjectDuplicatesReportsNoResults(t *testing.T) {
 	t.Parallel()
 

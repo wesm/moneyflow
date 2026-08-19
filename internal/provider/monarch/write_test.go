@@ -225,13 +225,10 @@ func TestDeleteTransactionNormalizesProvenAbsence(t *testing.T) {
 		name   string
 		status int
 		body   string
-	}{
-		{
-			name: "structured payload not found", status: http.StatusOK,
-			body: `{"data":{"deleteTransaction":{"deleted":false,"errors":[{"code":"NOT_FOUND","message":"private-provider-message"}]}}}`,
-		},
-		{name: "http not found", status: http.StatusNotFound},
-	}
+	}{{
+		name: "structured payload not found", status: http.StatusOK,
+		body: `{"data":{"deleteTransaction":{"deleted":false,"errors":[{"code":"NOT_FOUND","message":"private-provider-message"}]}}}`,
+	}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -263,6 +260,7 @@ func TestDeleteTransactionClassifiesFailuresWithoutRetryOrRawValues(t *testing.T
 		{name: "unauthorized", status: http.StatusUnauthorized, code: provider.CodeReconnectRequired},
 		{name: "rate limited", status: http.StatusTooManyRequests, retryAfter: "172800", code: provider.CodeRateLimited},
 		{name: "unavailable", status: http.StatusBadGateway, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
+		{name: "graphql endpoint not found", status: http.StatusNotFound, code: provider.CodeWriteAttentionRequired, reason: provider.WriteTargetNotFound},
 		{name: "rejected", status: http.StatusBadRequest, body: `private-provider-rejection`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
 		{name: "malformed", status: http.StatusOK, body: `{private-provider-payload`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteOutcomeUnknown},
 		{name: "graphql rejection", status: http.StatusOK, body: `{"errors":[{"message":"private-provider-message"}]}`, code: provider.CodeWriteAttentionRequired, reason: provider.WriteRejected},
