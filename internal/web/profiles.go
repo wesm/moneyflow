@@ -28,10 +28,11 @@ type ProfileLease = api.ProfileLease
 
 // RegistryProfile is one opened service and the exact cleanup that owns it.
 type RegistryProfile struct {
-	ID      string
-	Paths   home.Paths
-	Service *app.Service
-	Close   func() error
+	ID        string
+	Paths     home.Paths
+	Service   *app.Service
+	Temporary bool
+	Close     func() error
 }
 
 // RegistryProfileOpener opens a canonical profile under its shared lifecycle lock.
@@ -180,6 +181,12 @@ func validateRegistryProfile(profile RegistryProfile, expectedID string) error {
 
 // Service returns the leased application service.
 func (lease *profileLease) Service() *app.Service { return lease.entry.profile.Service }
+
+// ProfileRoot returns the exact already-opened profile root.
+func (lease *profileLease) ProfileRoot() string { return lease.entry.profile.Paths.Root }
+
+// Temporary reports whether the profile is disposed with this process.
+func (lease *profileLease) Temporary() bool { return lease.entry.profile.Temporary }
 
 // Release drops exactly one reference and makes the profile eligible for idle close.
 func (lease *profileLease) Release() error {

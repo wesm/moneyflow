@@ -94,6 +94,16 @@ const (
 	CodeProviderWriteNotEligible ErrorCode = "provider_write_not_eligible"
 	// CodeProviderWriteUnsupported rejects an unwritable reviewed prefix.
 	CodeProviderWriteUnsupported ErrorCode = "provider_write_unsupported"
+	// CodeExportInvalid rejects malformed export intent.
+	CodeExportInvalid ErrorCode = "export_invalid"
+	// CodeExportEmpty reports no committed rows at execution time.
+	CodeExportEmpty ErrorCode = "export_empty"
+	// CodeExportBusy reports another live export execution.
+	CodeExportBusy ErrorCode = "export_busy"
+	// CodeExportCancelled reports a server-observed export cancellation.
+	CodeExportCancelled ErrorCode = "export_cancelled"
+	// CodeExportFailed reports an encoding or private-filesystem failure.
+	CodeExportFailed ErrorCode = "export_failed"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.

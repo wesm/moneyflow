@@ -138,6 +138,8 @@ func (resolver serverTestResolver) Acquire(_ context.Context, profileID string) 
 type serverTestLease struct{ service *app.Service }
 
 func (lease serverTestLease) Service() *app.Service { return lease.service }
+func (serverTestLease) ProfileRoot() string         { return "" }
+func (serverTestLease) Temporary() bool             { return false }
 func (serverTestLease) Release() error              { return nil }
 
 func serverTestService(t testing.TB) *app.Service {

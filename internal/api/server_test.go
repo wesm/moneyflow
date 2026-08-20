@@ -40,6 +40,36 @@ func TestServerHealthAndBasePath(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, outside.Code)
 }
 
+func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	streamedInsideHandler := false
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/octet-stream")
+		response.WriteHeader(http.StatusOK)
+		_, err := response.Write(bytes.Repeat([]byte("x"), 2<<20))
+		require.NoError(t, err)
+		streamedInsideHandler = recorder.Body.Len() == 2<<20
+		unwrapper, ok := response.(interface{ Unwrap() http.ResponseWriter })
+		require.True(t, ok)
+		assert.Same(t, recorder, unwrapper.Unwrap())
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stream", http.NoBody))
+	assert.True(t, streamedInsideHandler)
+	assert.Equal(t, 2<<20, recorder.Body.Len())
+}
+
+func TestSafeProblemResponsesStillSanitizesMaliciousError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusInternalServerError)
+		_, _ = response.Write(bytes.Repeat([]byte("private-merchant-name"), 100_000))
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/failure", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "private-merchant-name")
+	assert.Less(t, recorder.Body.Len(), 1024)
+}
+
 func TestServerProjectsAndTransitionsCanonicalViews(t *testing.T) {
 	t.Parallel()
 

@@ -67,9 +67,11 @@ func requestProfileView(t testing.TB, server *Server, profileID string) Projecti
 }
 
 type testProfileResolver struct {
-	mutex    sync.Mutex
-	services map[string]*app.Service
-	releases map[string]int
+	mutex     sync.Mutex
+	services  map[string]*app.Service
+	roots     map[string]string
+	temporary map[string]bool
+	releases  map[string]int
 }
 
 func (resolver *testProfileResolver) Acquire(_ context.Context, profileID string) (ProfileLease, error) {
@@ -82,20 +84,26 @@ func (resolver *testProfileResolver) Acquire(_ context.Context, profileID string
 	if resolver.releases == nil {
 		resolver.releases = make(map[string]int)
 	}
-	return &testProfileLease{service: service, release: func() {
-		resolver.mutex.Lock()
-		defer resolver.mutex.Unlock()
-		resolver.releases[profileID]++
-	}}, nil
+	return &testProfileLease{
+		service: service, root: resolver.roots[profileID], temporary: resolver.temporary[profileID],
+		release: func() {
+			resolver.mutex.Lock()
+			defer resolver.mutex.Unlock()
+			resolver.releases[profileID]++
+		}}, nil
 }
 
 type testProfileLease struct {
-	service *app.Service
-	release func()
-	once    sync.Once
+	service   *app.Service
+	root      string
+	temporary bool
+	release   func()
+	once      sync.Once
 }
 
 func (lease *testProfileLease) Service() *app.Service { return lease.service }
+func (lease *testProfileLease) ProfileRoot() string   { return lease.root }
+func (lease *testProfileLease) Temporary() bool       { return lease.temporary }
 
 func (lease *testProfileLease) Release() error {
 	lease.once.Do(lease.release)

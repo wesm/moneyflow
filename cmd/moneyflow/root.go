@@ -231,7 +231,9 @@ func writeOpenAPI(format string) ([]byte, error) {
 		return nil, err
 	}
 	server, err := api.New(api.Config{
-		Resolver: contractProfileResolver{service: opened.Service},
+		Resolver: contractProfileResolver{
+			service: opened.Service, root: opened.Paths.Root, temporary: true,
+		},
 		BasePath: "/", Version: version.Version,
 	})
 	if err != nil {
@@ -247,7 +249,9 @@ func writeOpenAPI(format string) ([]byte, error) {
 }
 
 type contractProfileResolver struct {
-	service *app.Service
+	service   *app.Service
+	root      string
+	temporary bool
 }
 
 func (resolver contractProfileResolver) Acquire(context.Context, string) (api.ProfileLease, error) {
@@ -255,6 +259,8 @@ func (resolver contractProfileResolver) Acquire(context.Context, string) (api.Pr
 }
 
 func (resolver contractProfileResolver) Service() *app.Service { return resolver.service }
+func (resolver contractProfileResolver) ProfileRoot() string   { return resolver.root }
+func (resolver contractProfileResolver) Temporary() bool       { return resolver.temporary }
 func (contractProfileResolver) Release() error                 { return nil }
 
 func previewOptions(theme string) (tui.Options, error) {

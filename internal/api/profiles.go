@@ -14,13 +14,17 @@ type resolvedProfileContextKey struct{}
 type legacyProfileContextKey struct{}
 
 type resolvedProfile struct {
-	id      string
-	service *app.Service
+	id        string
+	service   *app.Service
+	root      string
+	temporary bool
 }
 
 // ProfileLease keeps one profile service alive for the duration of a request.
 type ProfileLease interface {
 	Service() *app.Service
+	ProfileRoot() string
+	Temporary() bool
 	Release() error
 }
 
@@ -64,6 +68,7 @@ func resolveProfileRequests(
 		"bootstrap": {}, "health": {}, "view": {}, "view/transition": {},
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {}, "review": {},
 		"review/targets": {}, "duplicates": {}, "editor-catalog": {}, "provider/status": {},
+		"export/preview": {}, "export": {},
 		"provider/refresh": {}, "provider/refresh/confirm": {},
 		"provider/write-status": {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},
@@ -92,10 +97,21 @@ func resolveProfileRequests(
 		}
 		defer func() { _ = lease.Release() }()
 		ctx := context.WithValue(request.Context(), resolvedProfileContextKey{}, resolvedProfile{
-			id: profileID, service: lease.Service(),
+			id: profileID, service: lease.Service(), root: lease.ProfileRoot(),
+			temporary: lease.Temporary(),
 		})
 		next.ServeHTTP(response, request.WithContext(ctx))
 	})
+}
+
+func profileRoot(ctx context.Context) string {
+	profile, _ := ctx.Value(resolvedProfileContextKey{}).(resolvedProfile)
+	return profile.root
+}
+
+func temporaryProfile(ctx context.Context) bool {
+	profile, _ := ctx.Value(resolvedProfileContextKey{}).(resolvedProfile)
+	return profile.temporary
 }
 
 func profileService(ctx context.Context) *app.Service {
@@ -111,6 +127,7 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 		"health": {}, "view": {}, "view/transition": {}, "mutations": {},
 		"undo": {}, "redo": {}, "commit": {}, "review": {}, "review/targets": {},
 		"duplicates": {}, "editor-catalog": {}, "provider/status": {}, "provider/refresh": {},
+		"export/preview": {}, "export": {},
 		"provider/refresh/confirm": {},
 		"provider/write-status":    {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},

@@ -145,7 +145,8 @@ func buildDemoWebDependencies(
 			}
 			available = false
 			return webserver.RegistryProfile{
-				ID: profileID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
+				ID: profileID, Paths: opened.Paths, Service: opened.Service,
+				Temporary: true, Close: opened.Close,
 			}, nil
 		},
 	})

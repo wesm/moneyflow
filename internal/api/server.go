@@ -18,6 +18,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/exporter"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
@@ -48,6 +49,7 @@ type Health struct {
 // Server owns a self-contained mux and its generated Huma contract.
 type Server struct {
 	basePath            string
+	version             string
 	handler             http.Handler
 	api                 huma.API
 	security            *MutationSecurity
@@ -130,12 +132,14 @@ func New(config Config) (*Server, error) {
 	humaConfig.Servers = []*huma.Server{{URL: basePath}}
 	humaAPI := humago.New(mux, humaConfig)
 	server := &Server{
-		basePath: basePath, api: humaAPI, security: config.Security, resolver: config.Resolver,
+		basePath: basePath, version: config.Version, api: humaAPI,
+		security: config.Security, resolver: config.Resolver,
 	}
 	server.register(config, mux)
 	server.registerMutationEndpoints(config)
 	server.registerReviewEndpoints(config)
 	server.registerDuplicateEndpoint(config)
+	server.registerExportEndpoints()
 	server.registerEditorCatalogEndpoint(config)
 	server.registerProviderEndpoints(config)
 	server.registerProviderWriteEndpoints(config)
@@ -191,6 +195,7 @@ func profileMutationSecurity(
 	protected := map[string]struct{}{
 		"mutations": {}, "undo": {}, "redo": {}, "commit": {},
 		"review": {}, "review/targets": {}, "editor-catalog": {},
+		"export":           {},
 		"provider/refresh": {}, "provider/refresh/confirm": {},
 		"provider/write/pause": {}, "provider/write/resume": {},
 		"provider/write/reconcile": {}, "provider/write/reconcile/confirm": {},
@@ -498,6 +503,11 @@ func problemFromError(err error) *Problem {
 		status := http.StatusInternalServerError
 		code := ErrorCode(application.Code)
 		switch application.Code {
+		case app.AppExportInvalid:
+			status = http.StatusBadRequest
+		case app.AppExportEmpty:
+			status = http.StatusConflict
+		case app.AppExportFailed:
 		case app.AppRevisionConflict, app.AppSelectionStale:
 			status = http.StatusConflict
 		case app.AppInvalidOperation:
@@ -540,6 +550,20 @@ func problemFromError(err error) *Problem {
 			problem.Selection = &SelectionDisposition{Kind: kind, Value: string(selection)}
 		}
 		return problem
+	}
+	var exportFailure *exporter.Error
+	if errors.As(err, &exportFailure) {
+		status := http.StatusInternalServerError
+		switch exportFailure.Code {
+		case exporter.CodeInvalid:
+			status = http.StatusBadRequest
+		case exporter.CodeBusy:
+			status = http.StatusConflict
+		case exporter.CodeCancelled:
+			status = http.StatusRequestTimeout
+		case exporter.CodeFailed:
+		}
+		return newProblem(status, string(exportFailure.Code), exportFailure.Detail)
 	}
 	var selectionErr *app.SelectionError
 	if errors.As(err, &selectionErr) {
@@ -622,43 +646,68 @@ func requestBodyLimit(next http.Handler) http.Handler {
 }
 
 type bufferedResponse struct {
-	header http.Header
-	body   bytes.Buffer
-	status int
+	target       http.ResponseWriter
+	header       http.Header
+	body         bytes.Buffer
+	status       int
+	passthrough  bool
+	suppressBody bool
 }
+
+const maximumBufferedProblemBytes = 1 << 20
 
 func (response *bufferedResponse) Header() http.Header {
 	return response.header
 }
 
 func (response *bufferedResponse) WriteHeader(status int) {
-	if response.status == 0 {
-		response.status = status
+	if response.status != 0 {
+		return
+	}
+	response.status = status
+	if status < 400 {
+		copyHeaders(response.target.Header(), response.header)
+		response.target.WriteHeader(status)
+		response.passthrough = true
 	}
 }
 
 func (response *bufferedResponse) Write(data []byte) (int, error) {
 	if response.status == 0 {
-		response.status = http.StatusOK
+		response.WriteHeader(http.StatusOK)
 	}
-	return response.body.Write(data)
+	if response.passthrough {
+		if response.suppressBody {
+			return len(data), nil
+		}
+		return response.target.Write(data)
+	}
+	remaining := maximumBufferedProblemBytes - response.body.Len()
+	if remaining > 0 {
+		_, _ = response.body.Write(data[:min(len(data), remaining)])
+	}
+	return len(data), nil
+}
+
+func (response *bufferedResponse) Unwrap() http.ResponseWriter {
+	return response.target
 }
 
 func safeProblemResponses(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		buffered := &bufferedResponse{header: make(http.Header)}
+		buffered := &bufferedResponse{
+			target: response, header: make(http.Header), suppressBody: request.Method == http.MethodHead,
+		}
 		next.ServeHTTP(buffered, request)
 		status := buffered.status
 		if status == 0 {
 			status = http.StatusOK
 		}
 		if status < 400 {
-			copyHeaders(response.Header(), buffered.header)
-			response.WriteHeader(status)
-			if request.Method == http.MethodHead {
-				return
+			if !buffered.passthrough {
+				copyHeaders(response.Header(), buffered.header)
+				response.WriteHeader(status)
 			}
-			_, _ = response.Write(buffered.body.Bytes())
 			return
 		}
 		var problem Problem
