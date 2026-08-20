@@ -412,8 +412,8 @@ func (state *fakeShellState) TakeOpenedProfile(
 }
 
 func (state *fakeShellState) Create(
-	context.Context,
-	profilecatalog.CreateRequest,
+	_ context.Context,
+	request profilecatalog.CreateRequest,
 ) (profilecatalog.Entry, error) {
 	state.creates++
 	if state.createErr != nil {
@@ -421,7 +421,8 @@ func (state *fakeShellState) Create(
 	}
 	state.created = profilecatalog.Entry{
 		Key: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb", ID: "profile_bbbbbbbbbbbbbbbbbbbbbbbbbb",
-		DisplayName: "P", ProviderKind: "monarch", Status: profilecatalog.StatusSetupIncomplete,
+		DisplayName: request.DisplayName, ProviderKind: request.ProviderKind,
+		Status: profilecatalog.StatusSetupIncomplete,
 	}
 	state.entries = append(state.entries, state.created)
 	return state.created, nil

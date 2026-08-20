@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/analytics"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestTransactionInfoUsesFocusedRowAndRendersSortedMetadata(t *testing.T) {
@@ -39,6 +41,33 @@ func TestTransactionInfoUsesFocusedRowAndRendersSortedMetadata(t *testing.T) {
 	assert.Contains(t, lines, "Local transaction ID")
 	semantic := strings.Join(screen.Overlay, "\n")
 	assert.Less(t, strings.Index(semantic, "alpha"), strings.Index(semantic, "zeta"))
+}
+
+func TestTransactionInfoLinesRenderAmazonSourceAndFinanceMatches(t *testing.T) {
+	t.Parallel()
+	model := newTestModel(t, app.NewSession())
+	model.session.ShowAllDetail()
+	model.refresh()
+	transaction := model.result.DetailRows[0].Transaction
+	date, err := domain.ParseDate("2026-08-20")
+	require.NoError(t, err)
+	state := transactionInfoState{transaction: transaction, info: &app.TransactionInfo{
+		AmazonQualified: true,
+		Matches: []app.TransactionInfoMatch{{
+			Class: analytics.AmazonMatchExactOrder, Confidence: analytics.AmazonConfidenceHigh,
+			OrderID: "example-order", OrderDate: date,
+			OrderTotal:   domain.Money{Minor: -1234, Currency: "USD", Scale: 2},
+			FirstProduct: "Example Product",
+		}},
+	}}
+	assert.Contains(t, strings.Join(transactionInfoLines(state), "\n"), "Example Product")
+
+	state.info = &app.TransactionInfo{AmazonItem: &app.AmazonOrderItemInfo{
+		OrderID: "example-order", ProductName: "Example Product", Quantity: 1,
+	}}
+	lines := strings.Join(transactionInfoLines(state), "\n")
+	assert.Contains(t, lines, "Amazon order")
+	assert.Contains(t, lines, "Product")
 }
 
 func TestTransactionInfoRejectsAggregateRowsClearly(t *testing.T) {

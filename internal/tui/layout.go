@@ -504,7 +504,7 @@ func (model Model) renderResize(frame Frame) RenderedScreen {
 
 func (model Model) columns(width int) []Column {
 	if model.result.DetailRows != nil {
-		columns := DetailColumns(width, model.session.Sort)
+		columns := ProfileDetailColumns(width, model.session.Sort, model.profileKind, model.amazonMatchColumn)
 		// Textual uses a fixed merchant/category/account precedence when multiple
 		// active drill columns are eligible for shrinking.
 		for _, dimension := range []domain.Dimension{
@@ -546,15 +546,20 @@ func (model Model) tableRows() []TableRow {
 		rows := make([]TableRow, len(model.result.DetailRows))
 		for index, row := range model.result.DetailRows {
 			transaction := row.Transaction
+			amazonMatch := ""
+			if indicator := model.amazonMatches[transaction.ID]; indicator != nil {
+				amazonMatch = string(indicator.Confidence) + " · " + indicator.FirstProduct
+			}
 			rows[index] = TableRow{
 				Identity: transaction.ID,
 				Values: map[string]string{
-					"date":     transaction.Date.String(),
-					"merchant": transaction.Merchant.Name,
-					"category": transaction.Category.Name,
-					"account":  transaction.Account.Name,
-					"amount":   FormatAmount(transaction.Amount),
-					"flags":    FormatFlags(row.Flags),
+					"date":         transaction.Date.String(),
+					"merchant":     transaction.Merchant.Name,
+					"category":     transaction.Category.Name,
+					"account":      transaction.Account.Name,
+					"amount":       FormatAmount(transaction.Amount),
+					"amazon_match": amazonMatch,
+					"flags":        FormatFlags(row.Flags),
 				},
 			}
 		}

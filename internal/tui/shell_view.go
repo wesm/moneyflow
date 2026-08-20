@@ -34,6 +34,8 @@ func (shell Shell) renderSelectorPlaceholder() RenderedScreen {
 		shell.renderProfileRecovery(&frame, content)
 	case shellOnboarding:
 		shell.renderOnboarding(&frame, content)
+	case shellAmazonImport:
+		shell.renderAmazonImport(&frame, content)
 	default:
 		frame.PutText(content.X+2, content.Y+3, Truncate(shell.status, content.Width-4), shell.palette.Warning)
 		frame.PutText(content.X+2, content.Y+content.Height-2, "Esc Back", shell.palette.Muted)
@@ -127,7 +129,11 @@ func onboardingStateMessage(state onboarding.State) string {
 }
 
 func (shell Shell) renderProfileName(frame *Frame, content Rect) {
-	frame.PutText(content.X+2, content.Y+2, "Name this Monarch profile.", shell.palette.Muted)
+	providerName := "Monarch"
+	if shell.pendingProvider == providerAmazon {
+		providerName = "Amazon"
+	}
+	frame.PutText(content.X+2, content.Y+2, "Name this "+providerName+" profile.", shell.palette.Muted)
 	value := shell.name.input.Value()
 	if value == "" {
 		value = "Example Profile"
@@ -193,12 +199,13 @@ func (shell Shell) renderProfileSelector(frame *Frame, content Rect) {
 
 func (shell Shell) renderProviderSelector(frame *Frame, content Rect) {
 	frame.PutText(content.X+2, content.Y+2, "Choose which personal finance platform you want to connect to.", shell.palette.Muted)
-	frame.PutText(content.X+2, content.Y+3, "↑/↓ Navigate  Enter Select  m Monarch  y YNAB  s SimpleFIN  Esc Cancel", shell.palette.Muted)
+	frame.PutText(content.X+2, content.Y+3, "↑/↓ Navigate  Enter Select  m Monarch  a Amazon  y YNAB  s SimpleFIN  Esc Cancel", shell.palette.Muted)
 	rows := []struct {
 		label string
 		note  string
 	}{
 		{label: "Monarch Money", note: "Available"},
+		{label: "Amazon order history", note: "Available"},
 		{label: "YNAB", note: "Not available in Go yet"},
 		{label: "SimpleFIN", note: "Not available in Go yet"},
 	}

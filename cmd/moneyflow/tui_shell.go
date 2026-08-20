@@ -6,7 +6,10 @@ import (
 	"errors"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/amazonimport"
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/tui"
 )
@@ -30,6 +33,10 @@ func buildTUIShellDependencies(
 	}
 
 	catalog, err := openProfileCatalog(options.ExplicitHome)
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
+	amazonMatcher, err := newCatalogAmazonMatcher(catalog)
 	if err != nil {
 		return tui.ShellDependencies{}, err
 	}
@@ -65,8 +72,28 @@ func buildTUIShellDependencies(
 	if err != nil {
 		return tui.ShellDependencies{}, err
 	}
+	amazonCoordinator, err := amazonimport.New(amazonimport.Config{
+		InstanceID: instanceID + "-amazon", Now: time.Now, Random: cryptorand.Reader,
+		Limits: amazon.ProductionLimits, Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+		ResolveTarget: func(targetContext context.Context, profileID string) (amazonimport.Target, error) {
+			entry, resolveErr := catalog.Resolve(targetContext, profileID)
+			if resolveErr != nil {
+				return amazonimport.Target{}, resolveErr
+			}
+			if entry.ProviderKind != "amazon" {
+				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
+			}
+			return openAmazonImportTarget(targetContext, catalog, entry)
+		},
+	})
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
 	dependencies := tui.ShellDependencies{
-		Catalog: catalog, Profiles: catalog, Onboarding: coordinator,
+		Catalog: catalog, Profiles: catalog, Onboarding: coordinator, AmazonImports: amazonCoordinator,
+		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
+			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
+		},
 		OpenProfile: func(openContext context.Context, selector string) (tui.ShellOpenedProfile, error) {
 			opened, openErr := rawOpen(openContext, selector)
 			if openErr != nil {
@@ -77,6 +104,7 @@ func buildTUIShellDependencies(
 			); configureErr != nil {
 				return tui.ShellOpenedProfile{}, closeOpenedProfile(opened, configureErr)
 			}
+			opened.Service.ConfigureAmazonMatching(amazonMatcher)
 			return shellOpenedProfile(opened), nil
 		},
 		OpenDemo: func(openContext context.Context) (tui.ShellOpenedProfile, error) {

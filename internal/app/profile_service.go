@@ -60,6 +60,32 @@ func (service *Service) Revision() uint64 {
 	return service.snapshot.Revision
 }
 
+// ProfileKind returns the renderer-neutral profile kind discovered from durable state.
+func (service *Service) ProfileKind() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.profileKind
+}
+
+// AmazonSettings returns the immutable money settings for an Amazon profile.
+func (service *Service) AmazonSettings(ctx context.Context) (*store.AmazonSettings, error) {
+	service.mu.RLock()
+	profile := service.profile
+	service.mu.RUnlock()
+	if profile == nil {
+		return nil, newAppError(AppInvalidOperation, service.Revision(), errors.New("amazon settings require a durable profile"))
+	}
+	state, err := profile.LoadAmazonState(ctx)
+	if err != nil {
+		return nil, mapAppError(err, service.Revision())
+	}
+	if state.Settings == nil {
+		return nil, newAppError(AppInvalidOperation, service.Revision(), errors.New("amazon settings are unavailable"))
+	}
+	settings := *state.Settings
+	return &settings, nil
+}
+
 // Refresh checks the cheap revision row before replacing the complete immutable cache.
 func (service *Service) Refresh(ctx context.Context) (bool, error) {
 	service.interactions.Lock()

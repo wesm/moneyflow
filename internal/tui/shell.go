@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
@@ -23,6 +26,7 @@ const (
 	shellName
 	shellRecovery
 	shellOnboarding
+	shellAmazonImport
 	shellFinance
 )
 
@@ -66,12 +70,14 @@ type ShellDemoOpener func(context.Context) (ShellOpenedProfile, error)
 
 // ShellDependencies are application boundaries injected by the command composition root.
 type ShellDependencies struct {
-	Catalog     CatalogView
-	Profiles    ProfileLifecycle
-	OpenProfile ShellProfileOpener
-	OpenDemo    ShellDemoOpener
-	Onboarding  OnboardingView
-	Preselected *ShellOpenedProfile
+	Catalog            CatalogView
+	Profiles           ProfileLifecycle
+	OpenProfile        ShellProfileOpener
+	OpenDemo           ShellDemoOpener
+	Onboarding         OnboardingView
+	AmazonImports      AmazonImportView
+	LoadAmazonTaxonomy AmazonTaxonomyLoader
+	Preselected        *ShellOpenedProfile
 }
 
 type shellOwnedProfile struct {
@@ -94,34 +100,36 @@ func (owned *shellOwnedProfile) close() error {
 
 // Shell owns profile-neutral navigation around the existing finance model.
 type Shell struct {
-	ctx            context.Context
-	dependencies   ShellDependencies
-	options        Options
-	initialSession app.Session
-	palette        Palette
-	screen         shellScreen
-	entries        []profilecatalog.Entry
-	selector       profileSelectorState
-	providers      providerSelectorState
-	selected       *profilecatalog.Entry
-	name           profileNameState
-	recovery       profileRecoveryState
-	createdID      string
-	snapshot       onboarding.Snapshot
-	haveSnapshot   bool
-	settings       settingsForm
-	unlock         unlockForm
-	credentials    credentialForm
-	canceling      bool
-	cancelQueued   bool
-	requestID      uint64
-	resume         *financeResumeState
-	finance        *Model
-	opened         *shellOwnedProfile
-	width          int
-	height         int
-	status         string
-	err            error
+	ctx             context.Context
+	dependencies    ShellDependencies
+	options         Options
+	initialSession  app.Session
+	palette         Palette
+	screen          shellScreen
+	entries         []profilecatalog.Entry
+	selector        profileSelectorState
+	providers       providerSelectorState
+	pendingProvider providerChoice
+	selected        *profilecatalog.Entry
+	name            profileNameState
+	recovery        profileRecoveryState
+	createdID       string
+	snapshot        onboarding.Snapshot
+	haveSnapshot    bool
+	settings        settingsForm
+	unlock          unlockForm
+	credentials     credentialForm
+	amazon          amazonImportState
+	canceling       bool
+	cancelQueued    bool
+	requestID       uint64
+	resume          *financeResumeState
+	finance         *Model
+	opened          *shellOwnedProfile
+	width           int
+	height          int
+	status          string
+	err             error
 }
 
 type financeResumeState struct {
@@ -292,9 +300,15 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if message.resume != nil {
 			shell.finance.cursor = message.resume.cursor
 			shell.finance.scroll = message.resume.scroll
+			if err := shell.finance.rebuildSelectionValue(); err != nil {
+				shell.finance.clearSessionSelection()
+				shell.finance.status = "Selection cleared because imported rows changed."
+			}
 			shell.finance.clampCursor()
 			shell.resume = nil
 		}
+		shell.createdID = ""
+		shell.selected = nil
 		updated, command := shell.finance.Update(tea.WindowSizeMsg{Width: shell.width, Height: shell.height})
 		finance := updated.(Model)
 		shell.finance = &finance
@@ -311,6 +325,12 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		entry := message.entry
 		shell.selected = &entry
 		shell.createdID = entry.ID
+		if entry.ProviderKind == "amazon" {
+			shell.screen = shellAmazonImport
+			shell.amazon, _ = newAmazonImportState()
+			shell.status = "Continue setting up " + entry.DisplayName + "."
+			return shell, shell.amazon.focus()
+		}
 		shell.screen = shellOnboarding
 		shell.status = "Continue setting up " + entry.DisplayName + "."
 		return shell, shell.beginOnboarding(entry)
@@ -415,6 +435,23 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		shell.cancelQueued = false
 		shell.applyOnboardingSnapshot(message.snapshot)
 		return shell.nextOnboardingStep()
+	case shellAmazonImportMsg:
+		if shell.screen != shellAmazonImport {
+			return shell, nil
+		}
+		shell.amazon.cancel = nil
+		if message.err != nil {
+			shell.amazon.phase = amazonImportFailed
+			shell.amazon.status = amazonImportFailureMessage(message.err)
+			shell.err = nil
+			return shell, nil
+		}
+		shell.amazon.phase = amazonImportComplete
+		shell.amazon.result = message.snapshot.Result
+		shell.amazon.status = ""
+		return shell, nil
+	case amazonImportRequestedMsg:
+		return shell.startFinanceAmazonImport()
 	case shellOnboardingPollMsg:
 		if !shell.acceptsOnboardingGuard(message.guard) {
 			return shell, nil
@@ -488,7 +525,8 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if selection.back {
 				shell.invalidateShellRequests()
 				shell.screen = shellSelector
-			} else if selection.provider == providerMonarch {
+			} else if selection.provider == providerMonarch || selection.provider == providerAmazon {
+				shell.pendingProvider = selection.provider
 				shell.screen = shellName
 				shell.name, _ = newProfileNameState()
 				shell.status = ""
@@ -510,9 +548,13 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if name != "" {
 				shell.name.busy = true
 				guard := shell.beginShellRequest(shellName, "")
+				providerKind := "monarch"
+				if shell.pendingProvider == providerAmazon {
+					providerKind = "amazon"
+				}
 				return shell, func() tea.Msg {
 					entry, err := shell.dependencies.Profiles.Create(shell.ctx, profilecatalog.CreateRequest{
-						DisplayName: name, ProviderKind: "monarch",
+						DisplayName: name, ProviderKind: providerKind,
 					})
 					return shellProfileCreatedMsg{entry: entry, guard: guard, err: err}
 				}
@@ -527,6 +569,9 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if shell.screen == shellOnboarding {
 			return shell.routeOnboardingKey(message)
+		}
+		if shell.screen == shellAmazonImport {
+			return shell.routeAmazonImportKey(message)
 		}
 		if message.Keystroke() == "esc" && shell.screen != shellFinance {
 			shell.invalidateShellRequests()
@@ -545,6 +590,85 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return shell, command
 	}
 	return shell, nil
+}
+
+func (shell Shell) routeAmazonImportKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if message.Keystroke() == "esc" {
+		if shell.amazon.phase == amazonImportRunning && shell.amazon.cancel != nil {
+			shell.amazon.cancel()
+			shell.amazon.status = "Cancellation requested; waiting for parsing to stop."
+			return shell, nil
+		}
+		if shell.createdID != "" {
+			profileID := shell.createdID
+			guard := shell.beginShellRequest(shellAmazonImport, profileID)
+			return shell, func() tea.Msg {
+				removed, err := shell.dependencies.Profiles.CancelNewProfile(shell.ctx, profileID)
+				return shellProfileCanceledMsg{removed: removed, guard: guard, err: err}
+			}
+		}
+		if shell.resume != nil {
+			resume := *shell.resume
+			guard := shell.beginShellRequest(shellAmazonImport, resume.profileID)
+			return shell, func() tea.Msg {
+				profile, err := shell.dependencies.OpenProfile(shell.ctx, resume.profileID)
+				return shellProfileOpenedMsg{profile: profile, resume: &resume, guard: guard, err: err}
+			}
+		}
+		shell.screen = shellSelector
+		shell.selected = nil
+		shell.refreshEntries()
+		return shell, nil
+	}
+	if shell.amazon.phase == amazonImportComplete && message.Keystroke() == "enter" {
+		profileID := ""
+		if shell.selected != nil {
+			profileID = shell.selected.ID
+		}
+		guard := shell.beginShellRequest(shellAmazonImport, profileID)
+		resume := shell.resume
+		return shell, func() tea.Msg {
+			opened, err := shell.dependencies.OpenProfile(shell.ctx, profileID)
+			return shellProfileOpenedMsg{profile: opened, resume: resume, guard: guard, err: err}
+		}
+	}
+	if shell.amazon.phase == amazonImportFailed && message.Keystroke() == "enter" {
+		shell.amazon.phase = amazonImportSource
+		shell.amazon.status = ""
+		return shell, shell.amazon.focus()
+	}
+	var execute bool
+	var command tea.Cmd
+	shell.amazon, execute, command = shell.amazon.update(message)
+	if execute {
+		if shell.dependencies.AmazonImports == nil {
+			shell.amazon.phase = amazonImportFailed
+			shell.amazon.status = "Amazon import is not configured."
+			return shell, nil
+		}
+		importContext, cancel := context.WithCancel(shell.ctx)
+		shell.amazon.cancel = cancel
+		return shell, shell.runAmazonImport(importContext)
+	}
+	return shell, command
+}
+
+func amazonImportFailureMessage(err error) string {
+	coordinate := amazonimport.CoordinateOf(err)
+	if coordinate.RelativeFilename != "" {
+		return fmt.Sprintf(
+			"%s: record %d: %s: %s",
+			coordinate.RelativeFilename, coordinate.Record, coordinate.Column, coordinate.Reason,
+		)
+	}
+	switch amazonimport.CodeOf(err) {
+	case amazonimport.CodeImportBusy:
+		return "Another process is importing this Amazon profile."
+	case amazonimport.CodeImportEmpty:
+		return "No Amazon order-history rows were found."
+	default:
+		return "The Amazon import could not be completed."
+	}
 }
 
 func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model, tea.Cmd) {
@@ -575,6 +699,12 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 	case selectorOnboarding:
 		entry := selection.entry
 		shell.selected = &entry
+		if entry.ProviderKind == "amazon" {
+			shell.screen = shellAmazonImport
+			shell.amazon, _ = newAmazonImportState()
+			shell.status = "Profile setup will continue here."
+			return shell, shell.amazon.focus()
+		}
 		shell.screen = shellOnboarding
 		shell.status = "Profile setup will continue here."
 		return shell, shell.beginOnboarding(entry)
@@ -832,6 +962,51 @@ func (shell Shell) startFinanceReconnect() (tea.Model, tea.Cmd) {
 	shell.cancelQueued = false
 	shell.status = "Reconnect Monarch to continue refreshing this profile."
 	return shell, shell.beginOnboarding(entry)
+}
+
+func (shell Shell) startFinanceAmazonImport() (tea.Model, tea.Cmd) {
+	if shell.finance == nil || shell.opened == nil || shell.opened.profile.ID == "" {
+		shell.status = "This profile cannot start an Amazon import from the current view."
+		return shell, nil
+	}
+	settings, err := shell.finance.service.AmazonSettings(shell.ctx)
+	if err != nil {
+		shell.status = "The Amazon import settings could not be loaded."
+		shell.err = err
+		return shell, nil
+	}
+	resume := &financeResumeState{
+		profileID: shell.opened.profile.ID,
+		session:   shell.finance.session,
+		cursor:    shell.finance.cursor,
+		scroll:    shell.finance.scroll,
+	}
+	entry := profilecatalog.Entry{
+		ID: resume.profileID, Key: resume.profileID,
+		DisplayName: "Amazon profile", ProviderKind: "amazon",
+	}
+	for _, candidate := range shell.entries {
+		if candidate.ID == resume.profileID || candidate.Key == resume.profileID {
+			entry = candidate
+			break
+		}
+	}
+	if err = shell.Close(); err != nil {
+		shell.status = "The profile could not be closed for Amazon import."
+		shell.err = err
+		return shell, nil
+	}
+	shell.resume = resume
+	shell.selected = &entry
+	shell.screen = shellAmazonImport
+	shell.amazon, _ = newAmazonImportState()
+	shell.amazon.settings = amazon.Settings{Currency: settings.Currency, Scale: settings.Scale}
+	shell.amazon.currency.SetValue(string(settings.Currency))
+	shell.amazon.scale.SetValue(strconv.Itoa(int(settings.Scale)))
+	shell.amazon.phase = amazonImportSource
+	shell.amazon.focused = 0
+	shell.status = "Choose another Amazon order-history export."
+	return shell, shell.amazon.focus()
 }
 
 func (shell *Shell) applyOnboardingSnapshot(snapshot onboarding.Snapshot) {

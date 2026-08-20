@@ -93,7 +93,7 @@ func (model *Model) routeDuplicates(message tea.KeyPressMsg) tea.Cmd {
 		model.toggleDuplicateSelection()
 	case "i", "enter":
 		if row, ok := model.focusedDuplicateRow(); ok {
-			model.openTransactionInfoFor(row.Transaction, overlayDuplicates)
+			return model.openTransactionInfoFor(row.Transaction, overlayDuplicates)
 		}
 	case "h":
 		model.stageDuplicateMutation(app.ActionToggleHidden)

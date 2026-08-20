@@ -58,15 +58,37 @@ func AggregateColumns(width int, dimension domain.Dimension, sortSpec domain.Sor
 
 // DetailColumns returns the Python-compatible detail columns fitted to width.
 func DetailColumns(width int, sortSpec domain.SortSpec) []Column {
+	return ProfileDetailColumns(width, sortSpec, "local", false)
+}
+
+// ProfileDetailColumns adapts semantic labels and the bounded Amazon match column by profile.
+func ProfileDetailColumns(
+	width int,
+	sortSpec domain.SortSpec,
+	profileKind string,
+	amazonMatchColumn bool,
+) []Column {
+	merchantLabel, accountLabel := "Merchant", "Account"
+	if profileKind == "amazon" {
+		merchantLabel, accountLabel = "Product", "Order"
+	}
 	columns := []Column{
 		{Key: "date", Label: withArrow("Date", domain.SortFieldDate, sortSpec)},
-		{Key: "merchant", Label: withArrow("Merchant", domain.SortFieldMerchant, sortSpec)},
+		{Key: "merchant", Label: withArrow(merchantLabel, domain.SortFieldMerchant, sortSpec)},
 		{Key: "category", Label: withArrow("Category", domain.SortFieldCategory, sortSpec)},
-		{Key: "account", Label: withArrow("Account", domain.SortFieldAccount, sortSpec)},
+		{Key: "account", Label: withArrow(accountLabel, domain.SortFieldAccount, sortSpec)},
 		{Key: "amount", Label: withArrow("Amount ($)", domain.SortFieldAmount, sortSpec), Align: AlignRight},
-		{Key: "flags"},
 	}
-	widths := fitPythonWidths(width, []int{12, 20, 21, 22, 14, 3}, []int{1, 2, 3})
+	widths := []int{12, 20, 21, 22, 14}
+	flexible := []int{1, 2, 3}
+	if amazonMatchColumn {
+		columns = append(columns, Column{Key: "amazon_match", Label: "Amazon match"})
+		widths = append(widths, 22)
+		flexible = append(flexible, 5)
+	}
+	columns = append(columns, Column{Key: "flags"})
+	widths = append(widths, 3)
+	widths = fitPythonWidths(width, widths, flexible)
 	return placeColumns(width, columns, widths)
 }
 

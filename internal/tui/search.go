@@ -49,7 +49,7 @@ func (model *Model) routeSearch(message tea.KeyPressMsg) tea.Cmd {
 
 func (model *Model) updateSearch() {
 	model.session.SetSearch(model.search.input.Value())
-	result, err := model.service.Query(model.session)
+	result, err := model.service.QueryContext(model.ctx, model.session)
 	if err != nil {
 		model.search.err = "Invalid search expression"
 		model.err = nil
@@ -58,6 +58,7 @@ func (model *Model) updateSearch() {
 	model.search.err = ""
 	model.err = nil
 	model.result = result
+	model.refreshAmazonPresentation()
 	model.cursor, model.scroll = 0, 0
 	model.clampCursor()
 }

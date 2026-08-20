@@ -93,6 +93,9 @@ type Model struct {
 	duplicates         duplicateState
 	deleteConfirmation deleteConfirmationState
 	export             exportState
+	profileKind        string
+	amazonMatchColumn  bool
+	amazonMatches      map[string]*app.AmazonMatchIndicator
 	now                func() time.Time
 	clockAt            time.Time
 }
@@ -124,30 +127,35 @@ func NewModel(ctx context.Context, service *app.Service, session app.Session, op
 	if _, err = service.Refresh(ctx); err != nil {
 		return Model{}, err
 	}
-	result, err := service.Query(session)
+	result, err := service.QueryContext(ctx, session)
 	if err != nil {
 		return Model{}, err
 	}
 	model := Model{
-		ctx:       ctx,
-		service:   service,
-		session:   session,
-		options:   options,
-		palette:   palette,
-		bindings:  defaultBindings(),
-		result:    result,
-		width:     minimumWidth,
-		height:    minimumHeight,
-		selection: app.EmptySelection(),
-		now:       options.Now,
-		clockAt:   options.Now(),
+		ctx:         ctx,
+		service:     service,
+		session:     session,
+		options:     options,
+		palette:     palette,
+		bindings:    defaultBindings(),
+		result:      result,
+		width:       minimumWidth,
+		height:      minimumHeight,
+		selection:   app.EmptySelection(),
+		now:         options.Now,
+		clockAt:     options.Now(),
+		profileKind: service.ProfileKind(),
 	}
 	model.syncProfileMetadata()
+	model.refreshAmazonPresentation()
 	return model, nil
 }
 
 // Init starts the renderer clock and the bounded provider loop when refresh is available.
 func (model Model) Init() tea.Cmd {
+	if model.profileKind == "amazon" {
+		return clockTickCommand()
+	}
 	if _, available := model.capability(app.ActionRefreshProvider); !available &&
 		model.providerWrite.status.Phase == "" {
 		return clockTickCommand()
@@ -169,30 +177,58 @@ func (model *Model) refresh() {
 		model.clampCursor()
 		return
 	}
-	result, err := model.service.Query(model.session)
+	result, err := model.service.QueryContext(model.ctx, model.session)
 	model.err = err
 	if err == nil {
 		model.result = result
 	}
 	model.syncProfileMetadata()
+	model.refreshAmazonPresentation()
 	model.clampCursor()
 }
 
+func (model *Model) refreshAmazonPresentation() {
+	model.amazonMatchColumn = false
+	model.amazonMatches = nil
+	if model.result.DetailRows == nil || model.profileKind == "amazon" {
+		return
+	}
+	transactions := make([]domain.Transaction, len(model.result.DetailRows))
+	for index, row := range model.result.DetailRows {
+		transactions[index] = row.Transaction
+	}
+	visible, indicators, err := model.service.AmazonMatchIndicators(model.ctx, transactions)
+	if err != nil {
+		model.status = "Amazon matches could not be loaded."
+		return
+	}
+	model.amazonMatchColumn = visible
+	model.amazonMatches = indicators
+}
+
 func (model *Model) syncProfileMetadata() {
+	model.profileKind = model.service.ProfileKind()
+	for index := range model.bindings {
+		if model.bindings[index].action == app.ActionRefreshProvider {
+			model.bindings[index].description = model.actionDescription(app.ActionRefreshProvider)
+		}
+	}
 	capabilities := model.service.CapabilitiesForState(model.session.ViewState())
 	model.caps = make(map[app.ActionID]app.Capability, len(capabilities))
 	for _, capability := range capabilities {
 		model.caps[capability.Action] = capability
 	}
 	model.pending = model.service.Pending()
-	connection, err := model.service.ProviderConnection(model.ctx)
-	model.provider.bound = err == nil && connection.Bound
-	if status, statusErr := model.service.ProviderWriteStatus(model.ctx); statusErr == nil {
-		model.providerWrite.status = status
-	}
-	if _, available := model.capability(app.ActionRefreshProvider); available {
-		if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {
-			model.provider.status = status
+	if model.profileKind != "amazon" {
+		connection, err := model.service.ProviderConnection(model.ctx)
+		model.provider.bound = err == nil && connection.Bound
+		if status, statusErr := model.service.ProviderWriteStatus(model.ctx); statusErr == nil {
+			model.providerWrite.status = status
+		}
+		if _, available := model.capability(app.ActionRefreshProvider); available {
+			if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {
+				model.provider.status = status
+			}
 		}
 	}
 }

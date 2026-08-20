@@ -7,6 +7,8 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+type amazonImportRequestedMsg struct{}
+
 // Update routes synchronous profile interactions through the application session.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
@@ -228,6 +230,9 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 			model.status = capabilityMessage(capability)
 		}
 	case app.ActionRefreshProvider:
+		if model.profileKind == "amazon" {
+			return func() tea.Msg { return amazonImportRequestedMsg{} }
+		}
 		return model.startProviderRefresh(true, "")
 	case app.ActionExport:
 		return model.openExport()
@@ -237,6 +242,17 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (model Model) actionDescription(action app.ActionID) string {
+	if action == app.ActionRefreshProvider && model.profileKind == "amazon" {
+		return "Import Amazon order history"
+	}
+	definition, ok := app.ActionByID(action)
+	if !ok {
+		return ""
+	}
+	return definition.Description
 }
 
 func (model *Model) refreshForInteraction() bool {
@@ -254,13 +270,14 @@ func (model *Model) refreshForInteraction() bool {
 	if !changed {
 		return true
 	}
-	result, err := model.service.Query(model.session)
+	result, err := model.service.QueryContext(model.ctx, model.session)
 	if err != nil {
 		model.status = "The profile could not be refreshed."
 		return false
 	}
 	model.result = result
 	model.syncProfileMetadata()
+	model.refreshAmazonPresentation()
 	if selectedSessionCount(model.session) > 0 {
 		if err := model.rebuildSelectionValue(); err != nil {
 			model.clearSessionSelection()

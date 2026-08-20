@@ -7,6 +7,7 @@ type providerChoice int
 const (
 	providerNone providerChoice = iota
 	providerMonarch
+	providerAmazon
 	providerYNAB
 	providerSimpleFIN
 )
@@ -32,17 +33,20 @@ func (selector *providerSelectorState) update(message tea.KeyPressMsg) providerS
 	case "m":
 		selector.cursor = 0
 		return providerSelection{provider: providerMonarch}
-	case "y":
+	case "a":
 		selector.cursor = 1
+		return providerSelection{provider: providerAmazon}
+	case "y":
+		selector.cursor = 2
 		selector.status = "YNAB is not available in Go yet."
 	case "s":
-		selector.cursor = 2
+		selector.cursor = 3
 		selector.status = "SimpleFIN is not available in Go yet."
 	case "up", "k":
-		selector.cursor = (selector.cursor + 2) % 3
+		selector.cursor = (selector.cursor + 3) % 4
 		selector.status = ""
 	case "down", "j":
-		selector.cursor = (selector.cursor + 1) % 3
+		selector.cursor = (selector.cursor + 1) % 4
 		selector.status = ""
 	case "home":
 		selector.cursor = 0
@@ -50,8 +54,8 @@ func (selector *providerSelectorState) update(message tea.KeyPressMsg) providerS
 	case "esc":
 		return providerSelection{back: true}
 	case "enter":
-		if selector.focused() == providerMonarch {
-			return providerSelection{provider: providerMonarch}
+		if selector.focused() == providerMonarch || selector.focused() == providerAmazon {
+			return providerSelection{provider: selector.focused()}
 		}
 		selector.status = map[providerChoice]string{
 			providerYNAB:      "YNAB is not available in Go yet.",

@@ -229,39 +229,54 @@ func (service *Service) projectViewLocked(
 }
 
 func (service *Service) decorateAmazonMatchColumn(projection *WebProjection) error {
+	transactions := make([]domain.Transaction, len(projection.DetailRows))
+	for index, row := range projection.DetailRows {
+		transactions[index] = row.Row.Transaction
+	}
+	visible, indicators, err := service.AmazonMatchIndicators(context.Background(), transactions)
+	if err != nil || !visible {
+		return err
+	}
+	projection.AmazonMatchColumn = true
+	for index := range projection.DetailRows {
+		projection.DetailRows[index].AmazonMatch = indicators[projection.DetailRows[index].Identity]
+	}
+	return nil
+}
+
+// AmazonMatchIndicators returns the best bounded match only when every row qualifies.
+func (service *Service) AmazonMatchIndicators(
+	ctx context.Context,
+	transactions []domain.Transaction,
+) (bool, map[string]*AmazonMatchIndicator, error) {
 	service.mu.RLock()
 	matcher := service.amazonMatcher
 	rawLabels := service.rawProviderMerchantLabelsLocked()
 	service.mu.RUnlock()
-	if matcher == nil || len(projection.DetailRows) == 0 {
-		return nil
+	if matcher == nil || len(transactions) == 0 {
+		return false, nil, nil
 	}
-	indicators := make([]*AmazonMatchIndicator, len(projection.DetailRows))
-	for index, row := range projection.DetailRows {
+	indicators := make(map[string]*AmazonMatchIndicator, len(transactions))
+	for _, transaction := range transactions {
 		matched, err := matcher.Match(
-			context.Background(), row.Row.Transaction,
-			rawLabels[row.Row.Transaction.Merchant.ID], 1,
+			ctx, transaction, rawLabels[transaction.Merchant.ID], 1,
 		)
 		if err != nil {
-			return err
+			return false, nil, err
 		}
 		if !matched.Qualified {
-			return nil
+			return false, nil, nil
 		}
 		if len(matched.Result.Matches) == 0 {
 			continue
 		}
 		best := matched.Result.Matches[0]
-		indicators[index] = &AmazonMatchIndicator{
+		indicators[transaction.ID] = &AmazonMatchIndicator{
 			Class: best.Class, Confidence: best.Confidence,
 			FirstProduct: best.FirstProduct, TotalMatches: matched.Result.Total,
 		}
 	}
-	projection.AmazonMatchColumn = true
-	for index := range projection.DetailRows {
-		projection.DetailRows[index].AmazonMatch = indicators[index]
-	}
-	return nil
+	return true, indicators, nil
 }
 
 // TransitionView applies one server-authoritative transition and projects its result.
