@@ -274,7 +274,7 @@ not derived by embedding the order ID in a local ID.
 Each observed order maps to a stable local account whose default label is the order ID. Each real
 ASIN maps to a stable local product merchant. ASIN-less rows keep the transaction's current local
 merchant when safe pairing preserves the transaction; a newly allocated ASIN-less row gets a new
-product merchant.
+product merchant, shared by newly allocated rows with the same ASIN-less key.
 
 Imported product labels use the existing sticky provider-label allocation discipline:
 
@@ -528,15 +528,15 @@ Pairing occurs independently within each observed order:
 1. Pair exact identity fingerprints. Existing active rows sort by bytewise stable local
    transaction ID. Incoming equals sort by bytewise relative filename and then logical record
    number. Equal fingerprints describe interchangeable source rows, so positional pairing is safe.
-2. For each real ASIN, pair unequal fingerprints only when exactly one unpaired active existing
+2. Pair an incoming row to a retired source-facts row only on an exact identity fingerprint,
+   choosing the bytewise lowest stable local ID among exact retired equals. This restores a known
+   purchase before any weaker singleton inference can move an active row's user-owned state.
+3. For each real ASIN, pair unequal fingerprints only when exactly one unpaired active existing
    row and one unpaired incoming row remain for that ASIN. This preserves identity through one
    unambiguous price or product correction.
-3. Across the whole order, pair unequal ASIN-less rows only when exactly one unpaired active
+4. Across the whole order, pair unequal ASIN-less rows only when exactly one unpaired active
    ASIN-less row and one unpaired incoming ASIN-less row remain. The derived key may differ after a
    product-label correction; the singleton rule deliberately ignores it.
-4. Pair an incoming row to a retired source-facts row only on an exact identity fingerprint,
-   choosing the bytewise lowest stable local ID among exact retired equals. This restores a known
-   purchase without guessing across a changed retired row.
 5. Allocate fresh stable local IDs for every remaining incoming row and retire every remaining
    active existing row.
 
@@ -544,7 +544,7 @@ Ambiguous unequal many-to-many leftovers are never positionally paired. Losing a
 through retirement and allocation is preferable to moving a user's category or notes to a
 different physical purchase.
 
-No pairing may link unequal identity fingerprints except through tier 2 or tier 3. This is a named
+No pairing may link unequal identity fingerprints except through tier 3 or tier 4. This is a named
 property-test invariant.
 
 ### Field authority
@@ -828,6 +828,10 @@ The protected execute response may carry the one ephemeral actionable CSV coordi
 Huma problem and the read-only status response carry only the stable code and counts. If the
 execute connection disappears, the coordinate is not recoverable from disk.
 
+A client disconnect observed before the authoritative immediate transaction begins cancels the
+attempt. Once that transaction begins, connection loss never interrupts it: the fold completes or
+rolls back atomically, and its terminal result remains visible through status.
+
 Attempts are bound to `(server instance, profile ID)`. One profile has at most one active Amazon
 attempt. An attempt expires after 30 minutes without a running job, upload, execute request, status
 poll, or cancellation activity. A running parse/fold and active file stream count as activity and
@@ -1031,6 +1035,8 @@ on every filesystem finishes within the CPU-planning ceiling.
 - Fully and partially cancelled observed orders retire the correct active rows.
 - Exact retired reappearance restores the original local ID; changed or new source identity gets a
   fresh ID.
+- An exact retired reappearance wins before an unequal active singleton candidate, preserving the
+  active row's user-owned state and restoring the retired row's original local ID.
 - Retired transaction external identities and source facts survive restart.
 - User category, hidden, notes, and safe merchant intent survive every reimport case.
 - Sticky product-label collisions are deterministic and never silently merge distinct ASINs.
