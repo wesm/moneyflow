@@ -127,6 +127,138 @@ func TestCoordinatorStageRejectsDuplicateContent(t *testing.T) {
 	assert.Equal(t, CodeImportInvalid, CodeOf(err))
 }
 
+func TestCoordinatorStartReapsAnExpiredIdleAttempt(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	closes := 0
+	coordinator, err := New(Config{
+		InstanceID: "server-a", Now: func() time.Time { return now },
+		Random: strings.NewReader(strings.Repeat("a", 256)), Limits: amazon.ProductionLimits,
+		ResolveTarget: func(context.Context, string) (Target, error) {
+			return Target{ProfileID: "profile-a", Root: root, Close: func() error { closes++; return nil }}, nil
+		},
+		Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+	})
+	require.NoError(t, err)
+	_, err = coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	now = now.Add(attemptIdleLimit)
+
+	second, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, second.AttemptID)
+	assert.Equal(t, 1, closes)
+}
+
+func TestCoordinatorCancelInterruptsParsingBeforeInstall(t *testing.T) {
+	root := t.TempDir()
+	parsing := make(chan struct{})
+	coordinator := newTestCoordinator(t, root, time.Now(), nil, func(
+		ctx context.Context, _ []amazon.SourceFile, _ amazon.Settings, _ amazon.Limits, _ amazon.ObserveFunc,
+	) (amazon.Candidate, error) {
+		close(parsing)
+		<-ctx.Done()
+		return amazon.Candidate{}, ctx.Err()
+	}, func(context.Context, app.AmazonImportRequest) (app.AmazonImportResult, error) {
+		t.Fatal("install must not begin after cancellation")
+		return app.AmazonImportResult{}, nil
+	})
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	staged, err := coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: "profile-a", AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion,
+		Files: []Upload{{
+			RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+		}},
+	})
+	require.NoError(t, err)
+	type outcome struct {
+		snapshot Snapshot
+		err      error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		snapshot, executeErr := coordinator.Execute(context.Background(), ExecuteRequest{
+			ProfileID: "profile-a", AttemptID: staged.AttemptID,
+			ExpectedStateVersion: staged.StateVersion,
+		})
+		done <- outcome{snapshot: snapshot, err: executeErr}
+	}()
+	<-parsing
+	status, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: "profile-a", AttemptID: staged.AttemptID,
+	})
+	require.NoError(t, err)
+	canceled, err := coordinator.Cancel(context.Background(), CancelRequest{
+		ProfileID: "profile-a", AttemptID: staged.AttemptID,
+		ExpectedStateVersion: status.StateVersion,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateCanceled, canceled.State)
+	completed := <-done
+	assert.Equal(t, CodeImportCanceled, CodeOf(completed.err))
+	assert.Equal(t, StateCanceled, completed.snapshot.State)
+}
+
+func TestCoordinatorClientDisconnectAfterInstallBeginsDoesNotAbortFold(t *testing.T) {
+	root := t.TempDir()
+	installing := make(chan struct{})
+	release := make(chan struct{})
+	coordinator := newTestCoordinator(t, root, time.Now(), nil, func(
+		context.Context, []amazon.SourceFile, amazon.Settings, amazon.Limits, amazon.ObserveFunc,
+	) (amazon.Candidate, error) {
+		return amazon.Candidate{Digest: "candidate", ObservedOrderIDs: []string{"order"}}, nil
+	}, func(ctx context.Context, _ app.AmazonImportRequest) (app.AmazonImportResult, error) {
+		close(installing)
+		<-release
+		assert.NoError(t, ctx.Err(), "install must be detached from the client connection")
+		return app.AmazonImportResult{Revision: 1, Inserted: 1}, nil
+	})
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	staged, err := coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: "profile-a", AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion,
+		Files:                []Upload{{RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n")}},
+	})
+	require.NoError(t, err)
+	requestContext, disconnect := context.WithCancel(context.Background())
+	type outcome struct {
+		snapshot Snapshot
+		err      error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		snapshot, executeErr := coordinator.Execute(requestContext, ExecuteRequest{
+			ProfileID: "profile-a", AttemptID: staged.AttemptID,
+			ExpectedStateVersion: staged.StateVersion,
+		})
+		done <- outcome{snapshot: snapshot, err: executeErr}
+	}()
+	<-installing
+	disconnect()
+	close(release)
+
+	completed := <-done
+	require.NoError(t, completed.err)
+	assert.Equal(t, StateComplete, completed.snapshot.State)
+	status, err := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: "profile-a", AttemptID: staged.AttemptID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateComplete, status.State)
+	assert.Equal(t, uint64(1), status.Result.Revision)
+}
+
 type countingReader struct {
 	io.Reader
 	read int

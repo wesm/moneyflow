@@ -38,6 +38,22 @@ func TestProfileServiceRefreshUsesRevisionBeforeReload(t *testing.T) {
 	assert.Equal(t, 2, profile.loadCalls)
 }
 
+func TestProfileServiceProjectsCachedAmazonImportSettings(t *testing.T) {
+	profile := newMemoryProfile(t, 5)
+	profile.amazonSettings = &store.AmazonSettings{Currency: "EUR", Scale: 2}
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+
+	projection, err := service.ProjectView(
+		app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "amazon", projection.ProfileKind)
+	require.NotNil(t, projection.AmazonSettings)
+	assert.Equal(t, domain.Currency("EUR"), projection.AmazonSettings.Currency)
+	assert.Equal(t, uint8(2), projection.AmazonSettings.Scale)
+}
+
 func TestProfileServiceMutateUndoRedoReviewAndCommit(t *testing.T) {
 	t.Parallel()
 
@@ -391,11 +407,12 @@ func assertAppCode(t *testing.T, err error, code app.AppErrorCode) {
 }
 
 type memoryProfile struct {
-	mu            sync.Mutex
-	snapshot      domain.ProfileSnapshot
-	revisionCalls int
-	loadCalls     int
-	currentErr    error
+	mu             sync.Mutex
+	snapshot       domain.ProfileSnapshot
+	revisionCalls  int
+	loadCalls      int
+	currentErr     error
+	amazonSettings *store.AmazonSettings
 }
 
 func newMemoryProfile(t *testing.T, revision uint64) *memoryProfile {
@@ -615,7 +632,12 @@ func (profile *memoryProfile) ApplyProviderRefresh(
 func (profile *memoryProfile) LoadAmazonState(context.Context) (store.AmazonImportState, error) {
 	profile.mu.Lock()
 	defer profile.mu.Unlock()
-	return store.AmazonImportState{Snapshot: profile.snapshot.Clone()}, nil
+	var settings *store.AmazonSettings
+	if profile.amazonSettings != nil {
+		settingsCopy := *profile.amazonSettings
+		settings = &settingsCopy
+	}
+	return store.AmazonImportState{Snapshot: profile.snapshot.Clone(), Settings: settings}, nil
 }
 
 func (profile *memoryProfile) LoadAmazonMatchSource(context.Context) (store.AmazonMatchSourceState, error) {

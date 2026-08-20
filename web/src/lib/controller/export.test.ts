@@ -155,6 +155,35 @@ describe('ExportController', () => {
     expect(publish).not.toHaveBeenCalled()
     expect(controller.state.announcement).toBe('Export cancelled.')
   })
+
+  it('never lets a cancelled response publish after a newer export starts', async () => {
+    let releaseFirst!: (blob: Blob) => void
+    const firstResponse = {
+      ok: true,
+      headers: new Headers(),
+      blob: async () => await new Promise<Blob>((resolve) => (releaseFirst = resolve)),
+    } as Response
+    const client = exportClient()
+    vi.mocked(client.downloadExport)
+      .mockResolvedValueOnce(firstResponse)
+      .mockResolvedValueOnce(new Response('new export'))
+    const publish = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    const controller = createExportController({ client })
+    await controller.open('v=1')
+
+    const first = controller.export()
+    await vi.waitFor(() => expect(controller.state.phase).toBe('exporting'))
+    controller.cancel()
+    const second = controller.export()
+    releaseFirst(new Blob(['cancelled export']))
+
+    await expect(first).resolves.toBe(false)
+    await expect(second).resolves.toBe(true)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(controller.state.phase).toBe('complete')
+  })
 })
 
 function exportClient(

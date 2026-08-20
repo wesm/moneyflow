@@ -23,14 +23,24 @@ type AmazonSourceDirectory interface {
 	ListAmazonSources(context.Context) ([]AmazonSourceDescriptor, error)
 }
 
-// AmazonSourceLoader returns a detached committed source and its exact close function.
-type AmazonSourceLoader func(context.Context, AmazonSourceDescriptor) (store.AmazonMatchSourceState, func() error, error)
+// AmazonSourceLoader probes one source revision and returns data only when it changed.
+type AmazonSourceLoader func(
+	context.Context,
+	AmazonSourceDescriptor,
+	uint64,
+) (*store.AmazonMatchSourceState, func() error, error)
 
 // AmazonMatchProjection contains one result plus counts-only source diagnostics.
 type AmazonMatchProjection struct {
 	Qualified bool
 	Result    analytics.AmazonMatchResult
 	Skipped   map[string]int
+}
+
+// AmazonMatchInput is one transaction plus its provider-owned merchant label.
+type AmazonMatchInput struct {
+	Transaction              domain.Transaction
+	RawProviderMerchantLabel string
 }
 
 type amazonCachedSource struct {
@@ -68,15 +78,64 @@ func (service *AmazonMatchingService) Match(
 	rawProviderMerchantLabel string,
 	limit int,
 ) (AmazonMatchProjection, error) {
-	projection := AmazonMatchProjection{Skipped: make(map[string]int)}
-	projection.Qualified = isAmazonMerchantLabel(transaction.Merchant.Name) ||
-		isAmazonMerchantLabel(rawProviderMerchantLabel)
-	if !projection.Qualified {
-		return projection, nil
-	}
-	descriptors, err := service.directory.ListAmazonSources(ctx)
+	results, err := service.MatchBatch(ctx, []AmazonMatchInput{{
+		Transaction: transaction, RawProviderMerchantLabel: rawProviderMerchantLabel,
+	}}, limit)
 	if err != nil {
 		return AmazonMatchProjection{}, err
+	}
+	return results[0], nil
+}
+
+// MatchBatch loads each source snapshot once and evaluates a bounded transaction batch.
+func (service *AmazonMatchingService) MatchBatch(
+	ctx context.Context,
+	inputs []AmazonMatchInput,
+	limit int,
+) ([]AmazonMatchProjection, error) {
+	results := make([]AmazonMatchProjection, len(inputs))
+	qualified := false
+	for index, input := range inputs {
+		results[index].Qualified = isAmazonMerchantLabel(input.Transaction.Merchant.Name) ||
+			isAmazonMerchantLabel(input.RawProviderMerchantLabel)
+		results[index].Skipped = make(map[string]int)
+		qualified = qualified || results[index].Qualified
+	}
+	if !qualified {
+		return results, nil
+	}
+	sources, skipped, err := service.loadSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for index, input := range inputs {
+		if !results[index].Qualified {
+			continue
+		}
+		for reason, count := range skipped {
+			results[index].Skipped[reason] = count
+		}
+		for _, source := range sources {
+			if source.Currency != input.Transaction.Amount.Currency ||
+				source.Scale != input.Transaction.Amount.Scale {
+				results[index].Skipped["money_mismatch"]++
+			}
+		}
+		results[index].Result, err = analytics.MatchAmazonOrders(input.Transaction, sources, limit)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+func (service *AmazonMatchingService) loadSources(
+	ctx context.Context,
+) ([]analytics.AmazonMatchSource, map[string]int, error) {
+	skipped := make(map[string]int)
+	descriptors, err := service.directory.ListAmazonSources(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
 	slices.SortFunc(descriptors, func(left, right AmazonSourceDescriptor) int {
 		return strings.Compare(left.ProfileID, right.ProfileID)
@@ -86,33 +145,56 @@ func (service *AmazonMatchingService) Match(
 	for _, descriptor := range descriptors {
 		present[descriptor.ProfileID] = struct{}{}
 		if descriptor.Kind != amazonProvider {
-			projection.Skipped["not_amazon"]++
+			skipped["not_amazon"]++
 			continue
 		}
-		state, closeSource, loadErr := service.loader(ctx, descriptor)
+		state, closeSource, loadErr := service.loader(
+			ctx, descriptor, service.cachedRevision(descriptor.ProfileID),
+		)
 		if loadErr != nil {
-			projection.Skipped["source_unavailable"]++
+			skipped["source_unavailable"]++
 			continue
 		}
 		if closeSource == nil {
-			projection.Skipped["source_unavailable"]++
+			skipped["source_unavailable"]++
 			continue
 		}
 		closeErr := closeSource()
 		if closeErr != nil {
-			projection.Skipped["source_unavailable"]++
+			skipped["source_unavailable"]++
 			continue
 		}
-		if state.Settings.Currency != transaction.Amount.Currency ||
-			state.Settings.Scale != transaction.Amount.Scale {
-			projection.Skipped["money_mismatch"]++
+		if state == nil {
+			cached, ok := service.cloneCachedSource(descriptor.ProfileID)
+			if !ok {
+				skipped["source_unavailable"]++
+				continue
+			}
+			sources = append(sources, cached)
 			continue
 		}
-		sources = append(sources, service.cachedSource(descriptor.ProfileID, state))
+		sources = append(sources, service.cachedSource(descriptor.ProfileID, *state))
 	}
 	service.evictMissing(present)
-	projection.Result, err = analytics.MatchAmazonOrders(transaction, sources, limit)
-	return projection, err
+	return sources, skipped, nil
+}
+
+func (service *AmazonMatchingService) cachedRevision(profileID string) uint64 {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.cache[profileID].revision
+}
+
+func (service *AmazonMatchingService) cloneCachedSource(
+	profileID string,
+) (analytics.AmazonMatchSource, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	cached, ok := service.cache[profileID]
+	if !ok {
+		return analytics.AmazonMatchSource{}, false
+	}
+	return cloneAnalyticsAmazonSource(cached.source), true
 }
 
 // ProductMatches reports whether one bounded canonical match contains a raw product substring.

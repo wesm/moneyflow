@@ -201,28 +201,35 @@ type ViewMetadata struct {
 
 // Projection is the strict browser-facing view contract.
 type Projection struct {
-	APISchemaVersion        string         `json:"api_schema_version"`
-	ProjectionSchemaVersion string         `json:"projection_schema_version"`
-	Revision                string         `json:"revision" pattern:"^[0-9]+$"`
-	ProfileKind             string         `json:"profile_kind" enum:"monarch,amazon,local"`
-	Pending                 PendingSummary `json:"pending"`
-	CanonicalQuery          string         `json:"canonical_query"`
-	Selection               string         `json:"selection"`
-	SelectionCount          int            `json:"selection_count"`
-	View                    ViewMetadata   `json:"view"`
-	Breadcrumbs             []Breadcrumb   `json:"breadcrumbs"`
-	BreadcrumbText          string         `json:"breadcrumb_text"`
-	Filters                 ActiveFilters  `json:"filters"`
-	Capabilities            []Capability   `json:"capabilities"`
-	TotalRows               int            `json:"total_rows"`
-	Window                  ReturnedWindow `json:"window"`
-	DetailRows              []DetailRow    `json:"detail_rows,omitempty"`
-	AmazonMatchColumn       bool           `json:"amazon_match_column"`
-	AggregateRows           []AggregateRow `json:"aggregate_rows,omitempty"`
-	Statistics              []Statistics   `json:"statistics"`
-	Chart                   Chart          `json:"chart"`
-	Status                  string         `json:"status,omitempty"`
-	Warnings                []Warning      `json:"warnings,omitempty"`
+	APISchemaVersion        string          `json:"api_schema_version"`
+	ProjectionSchemaVersion string          `json:"projection_schema_version"`
+	Revision                string          `json:"revision" pattern:"^[0-9]+$"`
+	ProfileKind             string          `json:"profile_kind" enum:"monarch,amazon,local"`
+	AmazonSettings          *AmazonSettings `json:"amazon_settings,omitempty"`
+	Pending                 PendingSummary  `json:"pending"`
+	CanonicalQuery          string          `json:"canonical_query"`
+	Selection               string          `json:"selection"`
+	SelectionCount          int             `json:"selection_count"`
+	View                    ViewMetadata    `json:"view"`
+	Breadcrumbs             []Breadcrumb    `json:"breadcrumbs"`
+	BreadcrumbText          string          `json:"breadcrumb_text"`
+	Filters                 ActiveFilters   `json:"filters"`
+	Capabilities            []Capability    `json:"capabilities"`
+	TotalRows               int             `json:"total_rows"`
+	Window                  ReturnedWindow  `json:"window"`
+	DetailRows              []DetailRow     `json:"detail_rows,omitempty"`
+	AmazonMatchColumn       bool            `json:"amazon_match_column"`
+	AggregateRows           []AggregateRow  `json:"aggregate_rows,omitempty"`
+	Statistics              []Statistics    `json:"statistics"`
+	Chart                   Chart           `json:"chart"`
+	Status                  string          `json:"status,omitempty"`
+	Warnings                []Warning       `json:"warnings,omitempty"`
+}
+
+// AmazonSettings carries immutable money parsing settings for repeat imports.
+type AmazonSettings struct {
+	Currency string `json:"currency" minLength:"3" maxLength:"3"`
+	Scale    uint8  `json:"scale" maximum:"9"`
 }
 
 func projectionToWire(
@@ -252,6 +259,11 @@ func projectionToWire(
 		},
 		Status: projection.Status, Warnings: append([]Warning(nil), warnings...),
 		AmazonMatchColumn: projection.AmazonMatchColumn,
+	}
+	if projection.AmazonSettings != nil {
+		wire.AmazonSettings = &AmazonSettings{
+			Currency: string(projection.AmazonSettings.Currency), Scale: projection.AmazonSettings.Scale,
+		}
 	}
 	for _, breadcrumb := range projection.Breadcrumbs {
 		wire.Breadcrumbs = append(wire.Breadcrumbs, Breadcrumb{

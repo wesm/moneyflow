@@ -133,6 +133,154 @@ func TestAmazonImportObservedShrinkRewritesJournalTargets(t *testing.T) {
 	require.Len(t, second.Journal, 1)
 	assert.Len(t, second.Journal[0].Targets, 1)
 	assert.Equal(t, 1, second.Cursor)
+	assert.Equal(t, 1, second.History.RemovedJournalTargets)
+	assert.Zero(t, second.History.RemovedJournalOperations)
+}
+
+func TestAmazonImportRestorationPreservesRetiredUserState(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, time.August, 20, 20, 0, 0, 0, time.UTC)
+	row := amazonIncomingRow("order-a", "ASIN-A", amazonDigest("a"), "orders.csv", 2)
+	request := AmazonImportRequest{
+		Candidate: amazon.Candidate{
+			Rows: []amazon.Row{row}, ObservedOrderIDs: []string{"order-a"}, Digest: amazonDigest("b"),
+		},
+		Settings: amazon.Settings{Currency: "USD", Scale: 2}, ImportedAt: now,
+	}
+	first, err := BuildAmazonImportPlan(store.AmazonImportState{}, amazonProposedIDs(), request)
+	require.NoError(t, err)
+	transactionID := first.Items[0].LocalTransactionID
+	customGroup := domain.CategoryGroup{ID: "group-custom", Label: "Custom", CollisionKey: "custom"}
+	customCategory := domain.Category{
+		ID: "category-custom", GroupID: customGroup.ID, Label: "Custom", CollisionKey: "custom",
+	}
+	customMerchant := domain.Merchant{ID: "merchant-custom", Label: "Custom Merchant", CollisionKey: "custom merchant"}
+	first.Committed.Groups = append(first.Committed.Groups, customGroup)
+	first.Committed.Categories = append(first.Committed.Categories, customCategory)
+	first.Committed.Merchants = append(first.Committed.Merchants, customMerchant)
+	for index := range first.Committed.Transactions {
+		if first.Committed.Transactions[index].ID == transactionID {
+			first.Committed.Transactions[index].CategoryID = customCategory.ID
+			first.Committed.Transactions[index].MerchantID = customMerchant.ID
+			first.Committed.Transactions[index].Notes = "User note"
+			first.Committed.Transactions[index].Hidden = true
+		}
+	}
+	require.NoError(t, first.Committed.Validate())
+
+	state := store.AmazonImportState{
+		Snapshot: domain.ProfileSnapshot{Revision: 1, Committed: first.Committed},
+		Settings: first.Settings, Items: first.Items, Allocations: first.Allocations,
+	}
+	retireRequest := request
+	retireRequest.Candidate.Rows = nil
+	retireRequest.Candidate.Digest = amazonDigest("c")
+	retired, err := BuildAmazonImportPlan(state, amazonProposedIDs(), retireRequest)
+	require.NoError(t, err)
+	assert.Empty(t, retired.Committed.Transactions)
+	require.Len(t, retired.Items, 1)
+	assert.True(t, retired.Items[0].Retired)
+
+	restoredState := store.AmazonImportState{
+		Snapshot: domain.ProfileSnapshot{Revision: 2, Committed: retired.Committed},
+		Settings: retired.Settings, Items: retired.Items, Allocations: retired.Allocations,
+	}
+	restored, err := BuildAmazonImportPlan(restoredState, amazonProposedIDs(), request)
+	require.NoError(t, err)
+	require.Len(t, restored.Committed.Transactions, 1)
+	transaction := restored.Committed.Transactions[0]
+	assert.Equal(t, transactionID, transaction.ID)
+	assert.Equal(t, customCategory.ID, transaction.CategoryID)
+	assert.Equal(t, customMerchant.ID, transaction.MerchantID)
+	assert.Equal(t, "User note", transaction.Notes)
+	assert.True(t, transaction.Hidden)
+}
+
+func TestAmazonImportASINLessKeyChangeMovesOnlyProviderOwnedMerchant(t *testing.T) {
+	now := time.Date(2026, time.August, 20, 20, 0, 0, 0, time.UTC)
+	row := amazonIncomingRow("order-a", "", amazonDigest("a"), "orders.csv", 2)
+	row.ASINLessKey = "amazon:asinless:old"
+	request := AmazonImportRequest{
+		Candidate: amazon.Candidate{Rows: []amazon.Row{row}, ObservedOrderIDs: []string{"order-a"}, Digest: amazonDigest("b")},
+		Settings:  amazon.Settings{Currency: "USD", Scale: 2}, ImportedAt: now,
+	}
+	first, err := BuildAmazonImportPlan(store.AmazonImportState{}, amazonProposedIDs(), request)
+	require.NoError(t, err)
+	oldMerchantID := first.Committed.Transactions[0].MerchantID
+
+	state := store.AmazonImportState{
+		Snapshot: domain.ProfileSnapshot{Revision: 1, Committed: first.Committed},
+		Settings: first.Settings, Items: first.Items, Allocations: first.Allocations,
+	}
+	changed := request
+	changed.Candidate.Rows = append([]amazon.Row(nil), request.Candidate.Rows...)
+	changed.Candidate.Rows[0].ASINLessKey = "amazon:asinless:new"
+	changed.Candidate.Rows[0].IdentityFingerprint = amazonDigest("c")
+	changed.Candidate.Rows[0].FullFingerprint = amazonDigest("d")
+	changed.Candidate.Digest = amazonDigest("e")
+	nextIDs := amazonProposedIDs()
+	nextIDs.MerchantIDs = []domain.EntityID{"merchant_new_c", "merchant_new_d"}
+	second, err := BuildAmazonImportPlan(state, nextIDs, changed)
+	require.NoError(t, err)
+	require.Len(t, second.Committed.Transactions, 1)
+	assert.NotEqual(t, oldMerchantID, second.Committed.Transactions[0].MerchantID)
+	assert.Equal(t, second.Items[0].LocalMerchantID, second.Committed.Transactions[0].MerchantID)
+
+	custom := first.Committed.Clone()
+	customMerchant := domain.Merchant{ID: "merchant-custom", Label: "Custom", CollisionKey: "custom"}
+	custom.Merchants = append(custom.Merchants, customMerchant)
+	custom.Transactions[0].MerchantID = customMerchant.ID
+	state.Snapshot.Committed = custom
+	third, err := BuildAmazonImportPlan(state, nextIDs, changed)
+	require.NoError(t, err)
+	assert.Equal(t, customMerchant.ID, third.Committed.Transactions[0].MerchantID)
+}
+
+func TestAmazonImportReusesASINLessMerchantAcrossLaterImports(t *testing.T) {
+	now := time.Date(2026, time.August, 20, 20, 0, 0, 0, time.UTC)
+	firstRow := amazonIncomingRow("order-a", "", amazonDigest("a"), "first.csv", 1)
+	firstRow.ASINLessKey = "amazon:asinless:shared"
+	first, err := BuildAmazonImportPlan(
+		store.AmazonImportState{}, amazonProposedIDs(), AmazonImportRequest{
+			Candidate: amazon.Candidate{Rows: []amazon.Row{firstRow}, ObservedOrderIDs: []string{"order-a"}, Digest: amazonDigest("b")},
+			Settings:  amazon.Settings{Currency: "USD", Scale: 2}, ImportedAt: now,
+		},
+	)
+	require.NoError(t, err)
+	firstMerchantID := first.Committed.Transactions[0].MerchantID
+	secondRow := amazonIncomingRow("order-b", "", amazonDigest("c"), "second.csv", 1)
+	secondRow.ASINLessKey = firstRow.ASINLessKey
+
+	nextIDs := amazonProposedIDs()
+	nextIDs.TransactionIDs = []domain.EntityID{"transaction_later_a", "transaction_later_b"}
+	nextIDs.AccountIDs = []domain.EntityID{"account_later_a", "account_later_b"}
+	nextIDs.MerchantIDs = []domain.EntityID{"merchant_later_a", "merchant_later_b"}
+	nextIDs.SourceIdentities = []string{
+		"amazon_item_cccccccccccccccccccccccccc", "amazon_item_dddddddddddddddddddddddddd",
+	}
+	second, err := BuildAmazonImportPlan(store.AmazonImportState{
+		Snapshot: domain.ProfileSnapshot{Revision: 1, Committed: first.Committed},
+		Settings: first.Settings, Items: first.Items, Allocations: first.Allocations,
+	}, nextIDs, AmazonImportRequest{
+		Candidate: amazon.Candidate{Rows: []amazon.Row{secondRow}, ObservedOrderIDs: []string{"order-b"}, Digest: amazonDigest("d")},
+		Settings:  amazon.Settings{Currency: "USD", Scale: 2}, ImportedAt: now.Add(time.Hour),
+	})
+	require.NoError(t, err)
+	require.Len(t, second.Committed.Transactions, 2)
+	for _, transaction := range second.Committed.Transactions {
+		assert.Equal(t, firstMerchantID, transaction.MerchantID)
+	}
+}
+
+func TestAmazonImportRejectsMalformedCurrency(t *testing.T) {
+	_, err := BuildAmazonImportPlan(
+		store.AmazonImportState{}, amazonProposedIDs(), AmazonImportRequest{
+			Candidate:  amazon.Candidate{Digest: amazonDigest("a")},
+			Settings:   amazon.Settings{Currency: "U1D", Scale: 2},
+			ImportedAt: time.Date(2026, time.August, 20, 20, 0, 0, 0, time.UTC),
+		},
+	)
+	require.Error(t, err)
 }
 
 func amazonProposedIDs() store.ProposedAmazonIDs {

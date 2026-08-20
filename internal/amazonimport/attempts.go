@@ -1,6 +1,7 @@
 package amazonimport
 
 import (
+	"context"
 	"encoding/base32"
 	"errors"
 	"io"
@@ -15,22 +16,24 @@ import (
 const attemptIdleLimit = 30 * time.Minute
 
 type attempt struct {
-	id            string
-	profileID     string
-	root          string
-	target        Target
-	state         State
-	version       uint64
-	lastActivity  time.Time
-	running       bool
-	settings      amazon.Settings
-	taxonomyClone *app.TaxonomyClone
-	progress      Progress
-	result        app.AmazonImportResult
-	failure       Failure
-	files         []amazon.SourceFile
-	stageDir      string
-	lock          *home.Lock
+	id              string
+	profileID       string
+	root            string
+	target          Target
+	state           State
+	version         uint64
+	lastActivity    time.Time
+	running         bool
+	cancel          context.CancelFunc
+	cancelRequested bool
+	settings        amazon.Settings
+	taxonomyClone   *app.TaxonomyClone
+	progress        Progress
+	result          app.AmazonImportResult
+	failure         Failure
+	files           []amazon.SourceFile
+	stageDir        string
+	lock            *home.Lock
 }
 
 func (value *attempt) snapshot() Snapshot {

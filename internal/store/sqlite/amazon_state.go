@@ -111,7 +111,8 @@ func loadAmazonItems(ctx context.Context, queryer snapshotQueryer) ([]store.Amaz
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT local_transaction_id, source_identity, order_id, asin, asinless_key,
 			product_name, order_date, quantity, amount_minor, unit_price_minor, currency,
-			scale, order_status, shipment_status, identity_fingerprint, full_fingerprint, retired
+			scale, order_status, shipment_status, identity_fingerprint, full_fingerprint, retired,
+			local_account_id, local_merchant_id, local_category_id, local_notes, local_hidden
 		FROM amazon_order_items ORDER BY source_identity`)
 	if err != nil {
 		return nil, loadFailure(err)
@@ -124,11 +125,14 @@ func loadAmazonItems(ctx context.Context, queryer snapshotQueryer) ([]store.Amaz
 		var unitPrice sql.NullInt64
 		var date string
 		var retired int
+		var localHidden int
 		if err = rows.Scan(
 			&item.LocalTransactionID, &item.SourceIdentity, &item.OrderID, &asin,
 			&item.ASINLessKey, &item.ProductName, &date, &item.Quantity, &item.AmountMinor,
 			&unitPrice, &item.Currency, &item.Scale, &item.OrderStatus, &item.ShipmentStatus,
 			&item.IdentityFingerprint, &item.FullFingerprint, &retired,
+			&item.LocalAccountID, &item.LocalMerchantID, &item.LocalCategoryID,
+			&item.LocalNotes, &localHidden,
 		); err != nil {
 			return nil, loadFailure(err)
 		}
@@ -142,6 +146,7 @@ func loadAmazonItems(ctx context.Context, queryer snapshotQueryer) ([]store.Amaz
 			return nil, store.NewError(store.CodeStoreCorrupt, err)
 		}
 		item.Retired = retired == 1
+		item.LocalHidden = localHidden == 1
 		items = append(items, item)
 	}
 	if err = rows.Err(); err != nil {

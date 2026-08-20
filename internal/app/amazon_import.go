@@ -91,7 +91,10 @@ func ImportAmazonProfile(ctx context.Context, profile store.Profile, request Ama
 	return AmazonImportResult{
 		Revision: commit.Revision, Inserted: history.InsertedCount, Updated: history.UpdatedCount,
 		Restored: history.RestoredCount, Retired: history.RetiredCount,
-		Unchanged: history.UnchangedCount, NoOp: !commit.SemanticChange,
+		Unchanged:                history.UnchangedCount,
+		RemovedJournalTargets:    history.RemovedJournalTargets,
+		RemovedJournalOperations: history.RemovedJournalOperations,
+		NoOp:                     !commit.SemanticChange,
 	}, nil
 }
 
@@ -169,7 +172,9 @@ func BuildAmazonImportPlan(
 		CancelledRecordCount: request.Candidate.CancelledRecordCount,
 		InsertedCount:        reconciled.Inserted, UpdatedCount: reconciled.Updated,
 		RestoredCount: reconciled.Restored, RetiredCount: reconciled.Retired,
-		UnchangedCount: reconciled.Unchanged,
+		UnchangedCount:           reconciled.Unchanged,
+		RemovedJournalTargets:    rebased.Summary.RemovedTargets,
+		RemovedJournalOperations: rebased.Summary.RemovedOperations,
 	}
 	semantic := !reflect.DeepEqual(state.Snapshot.Committed, committed) ||
 		!equivalentAppSlice(state.Snapshot.Journal, rebased.Journal) || state.Snapshot.Cursor != rebased.Cursor ||
@@ -184,7 +189,7 @@ func BuildAmazonImportPlan(
 }
 
 func validateAmazonSettings(current *store.AmazonSettings, request AmazonImportRequest) error {
-	if len(request.Settings.Currency) != 3 || request.Settings.Scale > 9 {
+	if !domain.IsValidCurrency(request.Settings.Currency) || request.Settings.Scale > 9 {
 		return errors.New("amazon import settings are invalid")
 	}
 	if current == nil {
@@ -277,14 +282,39 @@ func materializeAmazonCommitted(
 	for _, value := range committed.Transactions {
 		transactions[value.ID] = value
 	}
+	beforeByTransaction := make(map[domain.EntityID]store.AmazonOrderItem, len(beforeItems))
+	for _, item := range beforeItems {
+		beforeByTransaction[item.LocalTransactionID] = item
+	}
+	for index := range items {
+		if previous, exists := transactions[items[index].LocalTransactionID]; exists {
+			items[index].LocalAccountID = previous.AccountID
+			items[index].LocalMerchantID = previous.MerchantID
+			items[index].LocalCategoryID = previous.CategoryID
+			items[index].LocalNotes = previous.Notes
+			items[index].LocalHidden = previous.Hidden
+		}
+	}
 	allocationMap := make(map[string]store.LabelAllocation)
 	for _, value := range allocations {
 		allocationMap[value.Namespace+"\x00"+value.ExternalID] = value
 	}
+	reservedLabels := make(map[string]struct{}, len(accounts)+len(merchants))
+	for _, account := range accounts {
+		if !account.Retired {
+			reservedLabels[account.CollisionKey] = struct{}{}
+		}
+	}
+	for _, merchant := range merchants {
+		if !merchant.Retired {
+			reservedLabels[merchant.CollisionKey] = struct{}{}
+		}
+	}
 	accountCursor, merchantCursor := 0, 0
 	accountForOrder := make(map[string]domain.EntityID)
 	merchantForProduct := make(map[string]domain.EntityID)
-	for _, item := range items {
+	for index := range items {
+		item := items[index]
 		if item.Retired {
 			continue
 		}
@@ -295,11 +325,12 @@ func materializeAmazonCommitted(
 			}
 			accountID = proposed.AccountIDs[accountCursor]
 			accountCursor++
-			label, key, allocation, allocationErr := allocateAmazonLabel(domain.EntityKindAccount, "amazon/order", item.OrderID, item.OrderID, accountID, accounts, merchants, allocationMap)
+			label, key, allocation, allocationErr := allocateAmazonLabel(domain.EntityKindAccount, "amazon/order", item.OrderID, item.OrderID, accountID, reservedLabels, allocationMap)
 			if allocationErr != nil {
 				return domain.CommittedProfile{}, nil, allocationErr
 			}
 			accounts[accountID] = domain.Account{ID: accountID, Label: label, CollisionKey: key}
+			reservedLabels[key] = struct{}{}
 			allocationMap[allocation.Namespace+"\x00"+allocation.ExternalID] = allocation
 			identities["amazon/order\x00"+item.OrderID] = domain.ExternalIdentity{EntityType: domain.EntityKindAccount, EntityID: accountID, Namespace: "amazon/order", ExternalID: item.OrderID}
 		}
@@ -312,11 +343,12 @@ func materializeAmazonCommitted(
 			}
 			merchantID = proposed.MerchantIDs[merchantCursor]
 			merchantCursor++
-			label, key, allocation, allocationErr := allocateAmazonLabel(domain.EntityKindMerchant, "amazon/product", productKey, item.ProductName, merchantID, accounts, merchants, allocationMap)
+			label, key, allocation, allocationErr := allocateAmazonLabel(domain.EntityKindMerchant, "amazon/product", productKey, item.ProductName, merchantID, reservedLabels, allocationMap)
 			if allocationErr != nil {
 				return domain.CommittedProfile{}, nil, allocationErr
 			}
 			merchants[merchantID] = domain.Merchant{ID: merchantID, Label: label, CollisionKey: key}
+			reservedLabels[key] = struct{}{}
 			allocationMap[allocation.Namespace+"\x00"+allocation.ExternalID] = allocation
 			identities["amazon/product\x00"+productKey] = domain.ExternalIdentity{EntityType: domain.EntityKindMerchant, EntityID: merchantID, Namespace: "amazon/product", ExternalID: productKey}
 		}
@@ -329,7 +361,8 @@ func materializeAmazonCommitted(
 		}
 	}
 	activeNow := make(map[domain.EntityID]struct{})
-	for _, item := range items {
+	for index := range items {
+		item := items[index]
 		if item.Retired {
 			continue
 		}
@@ -341,9 +374,28 @@ func materializeAmazonCommitted(
 		notes := ""
 		hidden := false
 		if existed {
-			categoryID, merchantID, accountID = previous.CategoryID, previous.MerchantID, previous.AccountID
+			categoryID, accountID = previous.CategoryID, previous.AccountID
+			merchantID = previous.MerchantID
+			if priorItem, ok := beforeByTransaction[item.LocalTransactionID]; ok {
+				priorProviderMerchant, mapped := resolveAmazonIdentity(
+					identities, domain.EntityKindMerchant, "amazon/product", amazonProductKey(priorItem),
+				)
+				if mapped && previous.MerchantID == priorProviderMerchant {
+					merchantID = merchantForProduct[amazonProductKey(item)]
+				}
+			}
 			notes, hidden = previous.Notes, previous.Hidden
+		} else if item.LocalCategoryID != "" {
+			categoryID = activeAmazonCategory(committed, item.LocalCategoryID)
+			merchantID = activeAmazonMerchant(committed, item.LocalMerchantID, merchantID)
+			accountID = activeAmazonAccount(committed, item.LocalAccountID, accountID)
+			notes, hidden = item.LocalNotes, item.LocalHidden
 		}
+		items[index].LocalAccountID = accountID
+		items[index].LocalMerchantID = merchantID
+		items[index].LocalCategoryID = categoryID
+		items[index].LocalNotes = notes
+		items[index].LocalHidden = hidden
 		transactions[item.LocalTransactionID] = domain.TransactionRecord{
 			ID: item.LocalTransactionID, Provider: amazonProvider, ProviderID: item.SourceIdentity,
 			AccountID: accountID, MerchantID: merchantID, CategoryID: categoryID,
@@ -368,6 +420,64 @@ func materializeAmazonCommitted(
 	return committed, allocations, committed.Validate()
 }
 
+func activeAmazonAccount(profile domain.CommittedProfile, requested, fallback domain.EntityID) domain.EntityID {
+	for _, account := range profile.Accounts {
+		if account.ID == requested && !account.Retired {
+			return requested
+		}
+	}
+	return fallback
+}
+
+func activeAmazonMerchant(
+	profile domain.CommittedProfile,
+	requested, fallback domain.EntityID,
+) domain.EntityID {
+	for range len(profile.Merchants) + 1 {
+		found := false
+		for _, merchant := range profile.Merchants {
+			if merchant.ID != requested {
+				continue
+			}
+			found = true
+			if !merchant.Retired {
+				return requested
+			}
+			if merchant.MergeDestination != nil {
+				requested = *merchant.MergeDestination
+			}
+			break
+		}
+		if !found {
+			break
+		}
+	}
+	return fallback
+}
+
+func activeAmazonCategory(profile domain.CommittedProfile, requested domain.EntityID) domain.EntityID {
+	for range len(profile.Categories) + 1 {
+		found := false
+		for _, category := range profile.Categories {
+			if category.ID != requested {
+				continue
+			}
+			found = true
+			if !category.Retired {
+				return requested
+			}
+			if category.MergeDestination != nil {
+				requested = *category.MergeDestination
+			}
+			break
+		}
+		if !found {
+			break
+		}
+	}
+	return domain.UncategorizedCategoryID
+}
+
 func resolveAmazonIdentity(values map[string]domain.ExternalIdentity, kind domain.EntityKind, namespace, externalID string) (domain.EntityID, bool) {
 	value, ok := values[namespace+"\x00"+externalID]
 	return value.EntityID, ok && value.EntityType == kind
@@ -382,23 +492,12 @@ func amazonProductKey(item store.AmazonOrderItem) string {
 
 func allocateAmazonLabel(
 	kind domain.EntityKind, namespace, externalID, providerLabel string, localID domain.EntityID,
-	accounts map[domain.EntityID]domain.Account, merchants map[domain.EntityID]domain.Merchant,
+	reserved map[string]struct{},
 	allocations map[string]store.LabelAllocation,
 ) (string, string, store.LabelAllocation, error) {
 	baseKey, err := domain.CollisionKey(providerLabel)
 	if err != nil {
 		return "", "", store.LabelAllocation{}, err
-	}
-	reserved := make(map[string]struct{}, len(accounts)+len(merchants))
-	for _, value := range accounts {
-		if !value.Retired {
-			reserved[value.CollisionKey] = struct{}{}
-		}
-	}
-	for _, value := range merchants {
-		if !value.Retired {
-			reserved[value.CollisionKey] = struct{}{}
-		}
 	}
 	label, collisionKey, suffix, unsuffixed := providerLabel, baseKey, "", true
 	if _, collision := reserved[baseKey]; collision {

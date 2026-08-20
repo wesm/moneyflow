@@ -34,16 +34,17 @@ type AmazonImportView interface {
 type AmazonTaxonomyLoader func(context.Context, string) (*app.TaxonomyClone, error)
 
 type amazonImportState struct {
-	phase     amazonImportPhase
-	currency  textinput.Model
-	scale     textinput.Model
-	directory textinput.Model
-	taxonomy  textinput.Model
-	focused   int
-	settings  amazon.Settings
-	result    app.AmazonImportResult
-	status    string
-	cancel    context.CancelFunc
+	phase         amazonImportPhase
+	currency      textinput.Model
+	scale         textinput.Model
+	directory     textinput.Model
+	taxonomy      textinput.Model
+	allowTaxonomy bool
+	focused       int
+	settings      amazon.Settings
+	result        app.AmazonImportResult
+	status        string
+	cancel        context.CancelFunc
 }
 
 type shellAmazonImportMsg struct {
@@ -66,7 +67,7 @@ func newAmazonImportState() (amazonImportState, tea.Cmd) {
 	taxonomy.SetWidth(48)
 	state := amazonImportState{
 		phase: amazonImportSettings, currency: currency, scale: scale,
-		directory: directory, taxonomy: taxonomy,
+		directory: directory, taxonomy: taxonomy, allowTaxonomy: true,
 	}
 	return state, state.focus()
 }
@@ -74,8 +75,8 @@ func newAmazonImportState() (amazonImportState, tea.Cmd) {
 func (state *amazonImportState) settingsRequest() bool {
 	currency := strings.ToUpper(strings.TrimSpace(state.currency.Value()))
 	scale, err := strconv.ParseUint(strings.TrimSpace(state.scale.Value()), 10, 8)
-	if len(currency) != 3 || err != nil || scale > 9 {
-		state.status = "Currency must have three letters and scale must be between 0 and 9."
+	if !domain.IsValidCurrency(domain.Currency(currency)) || err != nil || scale > 9 {
+		state.status = "Currency must have three uppercase letters and scale must be between 0 and 9."
 		return false
 	}
 	state.settings = amazon.Settings{Currency: domain.Currency(currency), Scale: uint8(scale)}
@@ -91,6 +92,9 @@ func (state amazonImportState) update(message tea.KeyPressMsg) (amazonImportStat
 		return state, false, nil
 	}
 	fieldCount := 2
+	if state.phase == amazonImportSource && !state.allowTaxonomy {
+		fieldCount = 1
+	}
 	if message.Keystroke() == "tab" || message.Keystroke() == "shift+tab" ||
 		message.Keystroke() == "up" || message.Keystroke() == "down" {
 		step := 1
@@ -120,7 +124,7 @@ func (state amazonImportState) update(message tea.KeyPressMsg) (amazonImportStat
 		} else {
 			state.scale, command = state.scale.Update(message)
 		}
-	} else if state.focused == 0 {
+	} else if state.focused == 0 || !state.allowTaxonomy {
 		state.directory, command = state.directory.Update(message)
 	} else {
 		state.taxonomy, command = state.taxonomy.Update(message)
@@ -140,7 +144,7 @@ func (state *amazonImportState) focus() tea.Cmd {
 		}
 		return state.scale.Focus()
 	}
-	if state.focused == 0 {
+	if state.focused == 0 || !state.allowTaxonomy {
 		return state.directory.Focus()
 	}
 	return state.taxonomy.Focus()
@@ -153,7 +157,10 @@ func (shell Shell) runAmazonImport(importContext context.Context) tea.Cmd {
 	}
 	directory := strings.TrimSpace(shell.amazon.directory.Value())
 	settings := shell.amazon.settings
-	taxonomySelector := strings.TrimSpace(shell.amazon.taxonomy.Value())
+	taxonomySelector := ""
+	if shell.amazon.allowTaxonomy {
+		taxonomySelector = strings.TrimSpace(shell.amazon.taxonomy.Value())
+	}
 	return func() tea.Msg {
 		var clone *app.TaxonomyClone
 		var err error
@@ -188,7 +195,9 @@ func (shell Shell) renderAmazonImport(frame *Frame, content Rect) {
 	case amazonImportSource:
 		frame.PutText(x, content.Y+2, "Choose an Amazon order-history export directory.", shell.palette.Muted)
 		frame.PutText(x, content.Y+5, "Directory: "+shell.amazon.directory.Value(), shell.palette.Heading)
-		frame.PutText(x, content.Y+8, "Advanced · clone taxonomy from: "+shell.amazon.taxonomy.Value(), shell.palette.Text)
+		if shell.amazon.allowTaxonomy {
+			frame.PutText(x, content.Y+8, "Advanced · clone taxonomy from: "+shell.amazon.taxonomy.Value(), shell.palette.Text)
+		}
 	case amazonImportRunning:
 		frame.PutText(x, content.Y+4, "Importing Amazon order history…", shell.palette.Heading)
 		frame.PutText(x, content.Y+6, "Moneyflow is parsing and installing the committed snapshot.", shell.palette.Muted)

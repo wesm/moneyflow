@@ -47,7 +47,13 @@ func (coordinator *Coordinator) Start(ctx context.Context, request StartRequest)
 	}
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
-	if current := coordinator.attempts[target.ProfileID]; current != nil && !terminal(current.state) {
+	current := coordinator.attempts[target.ProfileID]
+	if current != nil && !current.running && coordinator.now().Sub(current.lastActivity) >= attemptIdleLimit {
+		coordinator.cleanupAttempt(current)
+		delete(coordinator.attempts, target.ProfileID)
+		current = nil
+	}
+	if current != nil && (!terminal(current.state) || current.running) {
 		if target.Close != nil {
 			_ = target.Close()
 		}
@@ -72,28 +78,51 @@ func (coordinator *Coordinator) Start(ctx context.Context, request StartRequest)
 // Stage streams bounded private files after acquiring the cross-process import lock.
 func (coordinator *Coordinator) Stage(ctx context.Context, request StageRequest) (Snapshot, error) {
 	coordinator.mu.Lock()
-	defer coordinator.mu.Unlock()
 	value, err := coordinator.attempt(request.ProfileID, request.AttemptID)
 	if err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
 	if err = checkVersion(value, request.ExpectedStateVersion); err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
 	if value.state != StateSourceRequired {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeAttemptInvalid, errors.New("attempt is not accepting files"))
 	}
 	lock, err := home.TryLockExisting(value.root, home.LockAmazonImport, home.LockExclusive)
 	if errors.Is(err, home.ErrLockBusy) {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeImportBusy, err)
 	}
 	if err != nil {
+		coordinator.mu.Unlock()
 		return Snapshot{}, newError(CodeProfileInvalid, err)
 	}
+	runContext, cancel := context.WithCancel(ctx)
 	value.lock = lock
-	files, stageDir, err := stageUploads(ctx, value.root, value.id, request.Files, coordinator.limits, coordinator.now())
+	value.running = true
+	value.cancel = cancel
+	value.cancelRequested = false
+	value.version++
+	coordinator.mu.Unlock()
+
+	files, stageDir, err := stageUploads(runContext, value.root, value.id, request.Files, coordinator.limits, coordinator.now())
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	value.running = false
+	cancel()
+	value.cancel = nil
+	if value.cancelRequested || CodeOf(err) == CodeImportCanceled {
+		value.state = StateCanceled
+		value.version++
+		coordinator.cleanupAttempt(value)
+		return value.snapshot(), newError(CodeImportCanceled, context.Canceled)
+	}
 	if err != nil {
 		coordinator.releaseAttemptLock(value)
+		value.version++
 		return Snapshot{}, err
 	}
 	value.files, value.stageDir = files, stageDir
@@ -115,25 +144,36 @@ func (coordinator *Coordinator) Execute(ctx context.Context, request ExecuteRequ
 		coordinator.mu.Unlock()
 		return Snapshot{}, err
 	}
+	runContext, cancel := context.WithCancel(ctx)
 	value.state, value.running = StateParsing, true
+	value.cancel = cancel
+	value.cancelRequested = false
 	value.version++
 	files := append([]amazon.SourceFile(nil), value.files...)
 	settings, clone := value.settings, value.taxonomyClone
 	startedAt := value.lastActivity
 	coordinator.mu.Unlock()
 
-	candidate, runErr := coordinator.parse(ctx, files, settings, coordinator.limits, func(progress amazon.Progress) {
+	candidate, runErr := coordinator.parse(runContext, files, settings, coordinator.limits, func(progress amazon.Progress) {
 		coordinator.updateProgress(value, progress)
 	})
 	if runErr == nil {
 		coordinator.mu.Lock()
-		value.state = StateInstalling
-		value.version++
+		if value.cancelRequested {
+			runErr = context.Canceled
+		} else {
+			value.state = StateInstalling
+			value.version++
+			value.cancel = nil
+		}
 		coordinator.mu.Unlock()
+		if runErr != nil {
+			return coordinator.finish(value, runErr)
+		}
 		if value.target.Import == nil {
 			runErr = newError(CodeProfileInvalid, errors.New("target import boundary is unavailable"))
 		} else {
-			result, importErr := value.target.Import(ctx, app.AmazonImportRequest{
+			result, importErr := value.target.Import(context.WithoutCancel(ctx), app.AmazonImportRequest{
 				Candidate: candidate, Settings: settings, TaxonomyClone: clone,
 				StartedAt: startedAt, ImportedAt: coordinator.now().UTC(),
 			})
@@ -168,8 +208,19 @@ func (coordinator *Coordinator) Cancel(_ context.Context, request CancelRequest)
 	if err = checkVersion(value, request.ExpectedStateVersion); err != nil {
 		return Snapshot{}, err
 	}
-	if value.running || value.state == StateInstalling {
+	if value.state == StateInstalling {
 		return Snapshot{}, newError(CodeAttemptInvalid, errors.New("attempt is already running"))
+	}
+	if terminal(value.state) && !value.running {
+		return Snapshot{}, newError(CodeAttemptInvalid, errors.New("attempt is already terminal"))
+	}
+	if value.running {
+		value.cancelRequested = true
+		value.state, value.version = StateCanceled, value.version+1
+		if value.cancel != nil {
+			value.cancel()
+		}
+		return value.snapshot(), nil
 	}
 	value.state, value.version = StateCanceled, value.version+1
 	coordinator.cleanupAttempt(value)
@@ -220,9 +271,15 @@ func (coordinator *Coordinator) finish(value *attempt, runErr error) (Snapshot, 
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	value.running = false
+	if value.cancel != nil {
+		value.cancel()
+		value.cancel = nil
+	}
 	value.version++
 	mapped := mapError(runErr)
-	if mapped == nil {
+	if value.cancelRequested || CodeOf(mapped) == CodeImportCanceled {
+		value.state = StateCanceled
+	} else if mapped == nil {
 		value.state = StateComplete
 	} else {
 		value.state = StateFailed

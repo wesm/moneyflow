@@ -36,7 +36,7 @@ func Parse(
 	if len(files) == 0 {
 		return Candidate{}, newError(CodeEmpty, ErrEmpty)
 	}
-	if len(files) > limits.Files || settings.Scale > 9 || len(settings.Currency) != 3 {
+	if len(files) > limits.Files || settings.Scale > 9 || !domain.IsValidCurrency(settings.Currency) {
 		return Candidate{}, newError(CodeInvalid, ErrInvalid)
 	}
 	files = append([]SourceFile(nil), files...)
@@ -45,6 +45,8 @@ func Parse(
 	})
 	candidate := Candidate{FileCount: len(files)}
 	observed := make(map[string]struct{})
+	observedSources := make(map[string]map[string]struct{})
+	var totalBytes int64
 	for index, source := range files {
 		if err := ctx.Err(); err != nil {
 			return Candidate{}, err
@@ -52,9 +54,14 @@ func Parse(
 		if observe != nil {
 			observe(Progress{Phase: "parsing", Completed: index, Total: len(files)})
 		}
-		if err := parseFile(ctx, source, settings, limits, &candidate, observed); err != nil {
+		if err := parseFile(
+			ctx, source, settings, limits, &candidate, observed, observedSources, &totalBytes,
+		); err != nil {
 			return Candidate{}, err
 		}
+	}
+	if err := deduplicateOverlappingOrders(&candidate, observedSources); err != nil {
+		return Candidate{}, err
 	}
 	for orderID := range observed {
 		candidate.ObservedOrderIDs = append(candidate.ObservedOrderIDs, orderID)
@@ -84,24 +91,38 @@ func parseFile(
 	limits Limits,
 	candidate *Candidate,
 	observed map[string]struct{},
+	observedSources map[string]map[string]struct{},
+	totalBytes *int64,
 ) error {
 	info, err := os.Lstat(source.Path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return newError(CodeInvalid, ErrInvalid)
 	}
-	if info.Size() > limits.BytesPerFile {
+	if info.Size() > limits.BytesPerFile || *totalBytes > limits.TotalBytes-info.Size() {
 		return newError(CodeTooLarge, ErrTooLarge)
 	}
+	*totalBytes += info.Size()
 	file, err := os.Open(source.Path) // #nosec G304 -- coordinator/discovery supplies an inspected file.
 	if err != nil {
 		return newError(CodeInvalid, ErrInvalid)
 	}
 	defer func() { _ = file.Close() }()
-	reader := csv.NewReader(io.LimitReader(&contextReader{ctx: ctx, reader: file}, limits.BytesPerFile+1))
+	bounded := &csvBoundaryReader{
+		reader:         &contextReader{ctx: ctx, reader: io.LimitReader(file, limits.BytesPerFile+1)},
+		maxRecordBytes: limits.BytesPerRecord, maxColumns: limits.Columns, columns: 1,
+		atFieldStart: true,
+	}
+	reader := csv.NewReader(bounded)
 	reader.FieldsPerRecord = -1
 	reader.ReuseRecord = false
 	header, err := reader.Read()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if errors.Is(err, errCSVBoundary) {
+			return newError(CodeTooLarge, ErrTooLarge)
+		}
 		return newError(CodeInvalid, ErrInvalid)
 	}
 	if len(header) > 0 {
@@ -120,13 +141,19 @@ func parseFile(
 			break
 		}
 		if readErr != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			if errors.Is(readErr, errCSVBoundary) {
+				return newError(CodeTooLarge, ErrTooLarge)
+			}
 			return coordinateError(source.RelativeName, record, "", "invalid_csv", ErrInvalid)
 		}
 		candidate.LogicalRecordCount++
 		if candidate.LogicalRecordCount > limits.Records {
 			return newError(CodeTooLarge, ErrTooLarge)
 		}
-		if recordBytes(fields) > limits.BytesPerRecord {
+		if len(fields) > limits.Columns || recordBytes(fields) > limits.BytesPerRecord {
 			return newError(CodeTooLarge, ErrTooLarge)
 		}
 		for _, field := range fields {
@@ -143,6 +170,10 @@ func parseFile(
 			return parseErr
 		}
 		observed[row.OrderID] = struct{}{}
+		if observedSources[row.OrderID] == nil {
+			observedSources[row.OrderID] = make(map[string]struct{})
+		}
+		observedSources[row.OrderID][source.RelativeName] = struct{}{}
 		if cancelled {
 			candidate.CancelledRecordCount++
 			continue
@@ -150,6 +181,64 @@ func parseFile(
 		candidate.Rows = append(candidate.Rows, row)
 	}
 	return nil
+}
+
+func deduplicateOverlappingOrders(
+	candidate *Candidate,
+	observedSources map[string]map[string]struct{},
+) error {
+	keepSource := make(map[string]string)
+	for orderID, sourceSet := range observedSources {
+		if len(sourceSet) < 2 {
+			continue
+		}
+		sources := make([]string, 0, len(sourceSet))
+		for source := range sourceSet {
+			sources = append(sources, source)
+		}
+		slices.Sort(sources)
+		reference := orderSourceFingerprints(candidate.Rows, orderID, sources[0])
+		for _, source := range sources[1:] {
+			if !slices.Equal(reference, orderSourceFingerprints(candidate.Rows, orderID, source)) {
+				return overlappingOrderError(candidate.Rows, orderID, source)
+			}
+		}
+		keepSource[orderID] = sources[0]
+	}
+	if len(keepSource) == 0 {
+		return nil
+	}
+	rows := candidate.Rows[:0]
+	for _, row := range candidate.Rows {
+		if source, duplicate := keepSource[row.OrderID]; duplicate && row.RelativeFilename != source {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	candidate.Rows = rows
+	return nil
+}
+
+func orderSourceFingerprints(rows []Row, orderID, source string) []string {
+	fingerprints := make([]string, 0)
+	for _, row := range rows {
+		if row.OrderID == orderID && row.RelativeFilename == source {
+			fingerprints = append(fingerprints, row.FullFingerprint)
+		}
+	}
+	slices.Sort(fingerprints)
+	return fingerprints
+}
+
+func overlappingOrderError(rows []Row, orderID, source string) error {
+	record := 1
+	for _, row := range rows {
+		if row.OrderID == orderID && row.RelativeFilename == source {
+			record = row.Record
+			break
+		}
+	}
+	return coordinateError(source, record, "", "overlapping_order_conflict", ErrInvalid)
 }
 
 func validateHeaders(headers []string, limits Limits) (map[string]int, error) {

@@ -51,6 +51,7 @@ func TestAmazonMatchCacheKeysByProfileRevisionAndCatalogPresence(t *testing.T) {
 	_, err = matcher.Match(context.Background(), transaction, "", 20)
 	require.NoError(t, err)
 	assert.Equal(t, 2, loader.opens, "revision must be probed from a fresh short-lived snapshot")
+	assert.Equal(t, 1, loader.loads, "unchanged revisions must not reload the full source ledger")
 	assert.Equal(t, 1, matcher.CacheBuilds())
 
 	state := loader.states["source"]
@@ -59,6 +60,7 @@ func TestAmazonMatchCacheKeysByProfileRevisionAndCatalogPresence(t *testing.T) {
 	_, err = matcher.Match(context.Background(), transaction, "", 20)
 	require.NoError(t, err)
 	assert.Equal(t, 2, matcher.CacheBuilds())
+	assert.Equal(t, 2, loader.loads)
 	directory.sources = nil
 	_, err = matcher.Match(context.Background(), transaction, "", 20)
 	require.NoError(t, err)
@@ -82,6 +84,76 @@ func TestAmazonMatchQualificationUsesDisplayAndRawProviderLabels(t *testing.T) {
 	assert.Empty(t, unqualified.Result.Matches)
 }
 
+func TestAmazonMatchIndicatorsLoadEachSourceOncePerProjection(t *testing.T) {
+	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{ProfileID: "source", Kind: amazonProvider}}}
+	loader := &fakeAmazonLoader{states: map[string]store.AmazonMatchSourceState{
+		"source": amazonSourceState(t, 1, "USD", 2, -1234),
+	}}
+	matcher, err := NewAmazonMatchingService(directory, loader.Load)
+	require.NoError(t, err)
+	service, err := NewService([]domain.Transaction{
+		matchingFinanceTransaction(t, "first", "Amazon", -1234),
+		matchingFinanceTransaction(t, "second", "AMZN", -1234),
+	})
+	require.NoError(t, err)
+	service.ConfigureAmazonMatching(matcher)
+
+	visible, indicators, err := service.AmazonMatchIndicators(
+		context.Background(), service.transactions,
+	)
+	require.NoError(t, err)
+	assert.True(t, visible)
+	assert.Len(t, indicators, 2)
+	assert.Equal(t, 1, loader.opens)
+}
+
+func TestAmazonProductSearchLoadsEachSourceOnce(t *testing.T) {
+	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{ProfileID: "source", Kind: amazonProvider}}}
+	state := amazonSourceState(t, 1, "USD", 2, -1234)
+	state.Items[0].ProductName = "Searchable Product"
+	loader := &fakeAmazonLoader{states: map[string]store.AmazonMatchSourceState{"source": state}}
+	matcher, err := NewAmazonMatchingService(directory, loader.Load)
+	require.NoError(t, err)
+	service, err := NewService([]domain.Transaction{
+		matchingFinanceTransaction(t, "first", "Amazon", -1234),
+		matchingFinanceTransaction(t, "second", "AMZN", -1234),
+	})
+	require.NoError(t, err)
+	service.ConfigureAmazonMatching(matcher)
+	session := NewSession()
+	session.Mode = domain.ResultModeDetail
+	session.Search = "searchable"
+
+	result, err := service.QueryContext(context.Background(), session)
+	require.NoError(t, err)
+	assert.Len(t, result.DetailRows, 2)
+	assert.Equal(t, 1, loader.opens)
+}
+
+func TestAmazonProductSearchPreservesPendingAggregateDecoration(t *testing.T) {
+	committed := matchingFinanceTransaction(t, "finance", "Amazon Original", -1234)
+	effective := committed
+	effective.Merchant = domain.EntityRef{ID: "merchant-new", Name: "Amazon Renamed"}
+	service, err := NewService([]domain.Transaction{effective})
+	require.NoError(t, err)
+	service.profile = &inertProfile{}
+	service.committedTransactions = []domain.Transaction{committed}
+	service.localPending = map[string]struct{}{effective.ID: {}}
+	state := amazonSourceState(t, 1, "USD", 2, -1234)
+	state.Items[0].ProductName = "Searchable Product"
+	configureMatchingSource(t, service, state)
+	session := NewSession()
+	session.Search = "searchable"
+
+	result, err := service.QueryContext(context.Background(), session)
+	require.NoError(t, err)
+	require.Len(t, result.AggregateRows, 1)
+	assert.Equal(t, "merchant-new", result.AggregateRows[0].Key)
+	assert.True(t, result.AggregateRows[0].Flags.Pending)
+}
+
+type inertProfile struct{ store.Profile }
+
 type fakeAmazonDirectory struct {
 	sources []AmazonSourceDescriptor
 }
@@ -96,28 +168,35 @@ type fakeAmazonLoader struct {
 	failures map[string]error
 	opens    int
 	closes   int
+	loads    int
 	open     bool
 }
 
 func (loader *fakeAmazonLoader) Load(
 	_ context.Context,
 	descriptor AmazonSourceDescriptor,
-) (store.AmazonMatchSourceState, func() error, error) {
+	knownRevision uint64,
+) (*store.AmazonMatchSourceState, func() error, error) {
 	loader.mu.Lock()
 	defer loader.mu.Unlock()
 	if err := loader.failures[descriptor.ProfileID]; err != nil {
-		return store.AmazonMatchSourceState{}, nil, err
+		return nil, nil, err
 	}
 	loader.opens++
 	loader.open = true
 	state := loader.states[descriptor.ProfileID]
-	return state, func() error {
+	closeSource := func() error {
 		loader.mu.Lock()
 		defer loader.mu.Unlock()
 		loader.closes++
 		loader.open = false
 		return nil
-	}, nil
+	}
+	if knownRevision != 0 && knownRevision == state.Revision {
+		return nil, closeSource, nil
+	}
+	loader.loads++
+	return &state, closeSource, nil
 }
 
 func amazonSourceState(t *testing.T, revision uint64, currency domain.Currency, scale uint8, amount int64) store.AmazonMatchSourceState {

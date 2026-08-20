@@ -38,8 +38,9 @@ func amazonParityService(
 		require.NoError(t, err)
 		matcher, err := app.NewAmazonMatchingService(
 			parityAmazonDirectory{},
-			func(context.Context, app.AmazonSourceDescriptor) (store.AmazonMatchSourceState, func() error, error) {
-				return parityAmazonMatchSource(t), func() error { return nil }, nil
+			func(context.Context, app.AmazonSourceDescriptor, uint64) (*store.AmazonMatchSourceState, func() error, error) {
+				state := parityAmazonMatchSource(t)
+				return &state, func() error { return nil }, nil
 			},
 		)
 		require.NoError(t, err)

@@ -128,6 +128,8 @@ func TestShellValidatesDependenciesAndPropagatesCloseFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.ErrorIs(t, shell.Close(), state.closeErr)
 	assert.Equal(t, 1, state.closes)
+	assert.NotNil(t, shell.finance, "a failed close must not leave the finance screen without its model")
+	assert.NotNil(t, shell.opened)
 }
 
 type fakeShellState struct {

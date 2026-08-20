@@ -93,11 +93,9 @@ func runAmazonImportCommand(command *cobra.Command, streams IOStreams, options A
 	); err != nil {
 		return err
 	}
-	selector := options.Profile
-	if selector == "" {
-		selector = snapshot.ProfileID
-	}
-	_, err = fmt.Fprintf(command.OutOrStdout(), "Open it with: moneyflow tui --profile %s\n", selector)
+	_, err = fmt.Fprintf(
+		command.OutOrStdout(), "Open it with: moneyflow tui --profile %s\n", snapshot.ProfileID,
+	)
 	return err
 }
 
@@ -119,7 +117,12 @@ func runAmazonDirectoryImport(
 	if created {
 		defer func() {
 			if resultErr != nil {
-				_, _ = catalog.CancelNewProfile(context.Background(), entry.ID)
+				removed, cleanupErr := catalog.CancelNewProfile(context.Background(), entry.ID)
+				if cleanupErr != nil {
+					resultErr = errors.Join(resultErr, fmt.Errorf("roll back new Amazon profile: %w", cleanupErr))
+				} else if !removed {
+					resultErr = errors.Join(resultErr, errors.New("roll back new Amazon profile: profile is no longer pristine"))
+				}
 			}
 		}()
 	}
@@ -217,7 +220,7 @@ func resolveAmazonCommandSettings(
 		return stored, nil
 	}
 	if options.SettingsConfigured {
-		if len(options.Settings.Currency) != 3 || options.Settings.Scale > 9 {
+		if !domain.IsValidCurrency(options.Settings.Currency) || options.Settings.Scale > 9 {
 			return amazon.Settings{}, errors.New("currency and scale are invalid")
 		}
 		return options.Settings, nil
@@ -238,7 +241,7 @@ func resolveAmazonCommandSettings(
 		scaleText = "2"
 	}
 	scale, err := strconv.ParseUint(strings.TrimSpace(scaleText), 10, 8)
-	if err != nil || scale > 9 || len(currency) != 3 {
+	if err != nil || scale > 9 || !domain.IsValidCurrency(domain.Currency(currency)) {
 		return amazon.Settings{}, errors.New("currency must have three letters and scale must be between 0 and 9")
 	}
 	return amazon.Settings{Currency: domain.Currency(currency), Scale: uint8(scale)}, nil

@@ -107,6 +107,14 @@ func MatchAmazonOrders(
 	for _, class := range passes {
 		matches := make([]AmazonMatch, 0)
 		for _, order := range orders {
+			if class == AmazonMatchExactItem {
+				itemMatches, itemErr := matchAmazonItems(transaction, order)
+				if itemErr != nil {
+					return AmazonMatchResult{}, itemErr
+				}
+				matches = append(matches, itemMatches...)
+				continue
+			}
 			match, ok, matchErr := matchAmazonOrder(transaction, order, class)
 			if matchErr != nil {
 				return AmazonMatchResult{}, matchErr
@@ -197,18 +205,6 @@ func matchAmazonOrder(
 		matched = orderDifference <= tolerance
 	case AmazonMatchFuzzyOrder:
 		matched, err = amazonFuzzyMatch(transaction.Amount.Minor, order.total, order.scale)
-	case AmazonMatchExactItem:
-		amountDifference = math.MaxInt64
-		for _, item := range order.items {
-			difference, differenceErr := absoluteDifference(transaction.Amount.Minor, item.AmountMinor)
-			if differenceErr != nil {
-				return AmazonMatch{}, false, differenceErr
-			}
-			if difference <= tolerance && difference < amountDifference {
-				amountDifference = difference
-				matched = true
-			}
-		}
 	default:
 		return AmazonMatch{}, false, errors.New("match Amazon orders: unknown pass")
 	}
@@ -226,11 +222,6 @@ func matchAmazonOrder(
 		if days <= 2 && amountDifference < cent {
 			confidence = AmazonConfidenceHigh
 		}
-	case AmazonMatchExactItem:
-		confidence = AmazonConfidenceMedium
-		if days <= 2 {
-			confidence = AmazonConfidenceHigh
-		}
 	}
 	firstProduct := ""
 	if len(order.items) > 0 {
@@ -243,6 +234,39 @@ func matchAmazonOrder(
 		DateDistanceDays: days, AmountDifferenceMinor: amountDifference,
 		FirstProduct: firstProduct, Items: append([]AmazonMatchItem(nil), order.items...),
 	}, true, nil
+}
+
+func matchAmazonItems(transaction domain.Transaction, order amazonOrderCandidate) ([]AmazonMatch, error) {
+	tolerance, err := amazonExactTolerance(order.scale)
+	if err != nil {
+		return nil, err
+	}
+	matches := make([]AmazonMatch, 0)
+	for _, item := range order.items {
+		days := amazonDateDistance(transaction.Date, item.Date)
+		if days > amazonMatchWindowDays {
+			continue
+		}
+		difference, differenceErr := absoluteDifference(transaction.Amount.Minor, item.AmountMinor)
+		if differenceErr != nil {
+			return nil, differenceErr
+		}
+		if difference > tolerance {
+			continue
+		}
+		confidence := AmazonConfidenceMedium
+		if days <= 2 {
+			confidence = AmazonConfidenceHigh
+		}
+		matches = append(matches, AmazonMatch{
+			Class: AmazonMatchExactItem, Confidence: confidence, ProfileID: order.profileID,
+			SourceRevision: order.revision, OrderID: order.orderID, OrderDate: item.Date,
+			OrderTotal:       domain.Money{Minor: item.AmountMinor, Currency: order.currency, Scale: order.scale},
+			DateDistanceDays: days, AmountDifferenceMinor: difference,
+			FirstProduct: item.ProductName, Items: []AmazonMatchItem{item},
+		})
+	}
+	return matches, nil
 }
 
 func amazonFuzzyMatch(transaction, order int64, scale uint8) (bool, error) {
@@ -302,18 +326,11 @@ func checkedPower10(scale uint8) (int64, error) {
 }
 
 func absoluteDifference(left, right int64) (int64, error) {
-	leftMagnitude, err := absoluteMinor(left)
-	if err != nil {
-		return 0, err
+	if (right > 0 && left < math.MinInt64+right) ||
+		(right < 0 && left > math.MaxInt64+right) {
+		return 0, errors.New("match Amazon orders: money difference overflow")
 	}
-	rightMagnitude, err := absoluteMinor(right)
-	if err != nil {
-		return 0, err
-	}
-	if leftMagnitude >= rightMagnitude {
-		return leftMagnitude - rightMagnitude, nil
-	}
-	return rightMagnitude - leftMagnitude, nil
+	return absoluteMinor(left - right)
 }
 
 func absoluteMinor(value int64) (int64, error) {

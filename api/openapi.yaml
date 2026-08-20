@@ -226,6 +226,22 @@ components:
         - product_name
         - quantity
       type: object
+    AmazonSettings:
+      additionalProperties: false
+      properties:
+        currency:
+          maxLength: 3
+          minLength: 3
+          type: string
+        scale:
+          format: int32
+          maximum: 9
+          minimum: 0
+          type: integer
+      required:
+        - currency
+        - scale
+      type: object
     Bootstrap:
       additionalProperties: false
       properties:
@@ -1248,6 +1264,8 @@ components:
             - "null"
         amazon_match_column:
           type: boolean
+        amazon_settings:
+          $ref: "#/components/schemas/AmazonSettings"
         api_schema_version:
           type: string
         breadcrumb_text:

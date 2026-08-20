@@ -60,8 +60,7 @@
   }
 
   async function cancel(): Promise<void> {
-    await controller.cancel()
-    oncancel()
+    if (await controller.cancel()) oncancel()
   }
 </script>
 

@@ -131,6 +131,7 @@ type ChartProjection struct {
 type WebProjection struct {
 	Revision          uint64
 	ProfileKind       string
+	AmazonSettings    *AmazonProjectionSettings
 	Pending           PendingSummary
 	Capabilities      []Capability
 	State             ViewState
@@ -148,6 +149,12 @@ type WebProjection struct {
 	Statistics        []domain.CurrencyStats
 	Chart             ChartProjection
 	Status            string
+}
+
+// AmazonProjectionSettings carries immutable import money settings without source facts.
+type AmazonProjectionSettings struct {
+	Currency domain.Currency
+	Scale    uint8
 }
 
 // ProjectView resolves durable state and returns one deterministic row/chart projection.
@@ -212,9 +219,16 @@ func (service *Service) projectViewLocked(
 		Actions: actions, TotalRows: resultRowCount(result),
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 	}
+	service.mu.RLock()
+	if service.amazonSettings != nil {
+		projection.AmazonSettings = &AmazonProjectionSettings{
+			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,
+		}
+	}
+	service.mu.RUnlock()
 	projection.Window = windowResult(window, projection.TotalRows)
 	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
-	if err = service.decorateAmazonMatchColumn(&projection); err != nil {
+	if err = service.decorateAmazonMatchColumn(&projection, result.DetailRows); err != nil {
 		return WebProjection{}, invalidWebRequest(err)
 	}
 	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
@@ -229,7 +243,23 @@ func (service *Service) projectViewLocked(
 	return projection, nil
 }
 
-func (service *Service) decorateAmazonMatchColumn(projection *WebProjection) error {
+func (service *Service) decorateAmazonMatchColumn(
+	projection *WebProjection,
+	allRows []domain.DetailRow,
+) error {
+	service.mu.RLock()
+	matcher := service.amazonMatcher
+	rawLabels := service.rawProviderMerchantLabelsLocked()
+	service.mu.RUnlock()
+	if matcher == nil || len(allRows) == 0 {
+		return nil
+	}
+	for _, row := range allRows {
+		if !isAmazonMerchantLabel(row.Transaction.Merchant.Name) &&
+			!isAmazonMerchantLabel(rawLabels[row.Transaction.Merchant.ID]) {
+			return nil
+		}
+	}
 	transactions := make([]domain.Transaction, len(projection.DetailRows))
 	for index, row := range projection.DetailRows {
 		transactions[index] = row.Row.Transaction
@@ -257,14 +287,19 @@ func (service *Service) AmazonMatchIndicators(
 	if matcher == nil || len(transactions) == 0 {
 		return false, nil, nil
 	}
-	indicators := make(map[string]*AmazonMatchIndicator, len(transactions))
-	for _, transaction := range transactions {
-		matched, err := matcher.Match(
-			ctx, transaction, rawLabels[transaction.Merchant.ID], 1,
-		)
-		if err != nil {
-			return false, nil, err
+	inputs := make([]AmazonMatchInput, len(transactions))
+	for index, transaction := range transactions {
+		inputs[index] = AmazonMatchInput{
+			Transaction: transaction, RawProviderMerchantLabel: rawLabels[transaction.Merchant.ID],
 		}
+	}
+	matchedBatch, err := matcher.MatchBatch(ctx, inputs, 1)
+	if err != nil {
+		return false, nil, err
+	}
+	indicators := make(map[string]*AmazonMatchIndicator, len(transactions))
+	for index, transaction := range transactions {
+		matched := matchedBatch[index]
 		if !matched.Qualified {
 			return false, nil, nil
 		}

@@ -61,7 +61,7 @@ func NewTransaction(transaction Transaction) (Transaction, error) {
 	if transaction.Date.Year() == 0 {
 		return Transaction{}, errors.New("new transaction: date is invalid")
 	}
-	if !validCurrency(transaction.Amount.Currency) {
+	if !IsValidCurrency(transaction.Amount.Currency) {
 		return Transaction{}, errors.New("new transaction: currency must be a three-letter uppercase code")
 	}
 	return transaction.Clone(), nil
@@ -73,7 +73,8 @@ func (transaction Transaction) Clone() Transaction {
 	return transaction
 }
 
-func validCurrency(currency Currency) bool {
+// IsValidCurrency reports whether currency is a canonical three-letter ASCII code.
+func IsValidCurrency(currency Currency) bool {
 	if len(currency) != 3 {
 		return false
 	}
@@ -84,6 +85,8 @@ func validCurrency(currency Currency) bool {
 	}
 	return true
 }
+
+func validCurrency(currency Currency) bool { return IsValidCurrency(currency) }
 
 func cloneStringMap(input map[string]string) map[string]string {
 	if input == nil {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/wesm/moneyflow/internal/app"
@@ -53,6 +54,7 @@ func (model Model) renderDuplicates(screen *RenderedScreen) {
 	x, width := rect.X+2, max(0, rect.Width-4)
 	screen.Frame.PutText(x, rect.Y+2, Truncate(status, width), model.palette.Heading)
 	tableRect := Rect{X: x, Y: rect.Y + 4, Width: width, Height: max(0, rect.Height-8)}
+	projectedRows := duplicateProjectionRows(model.duplicates.projection)
 	rows := duplicateTableRows(model.duplicates.projection)
 	regions := RenderTable(
 		&screen.Frame, tableRect, duplicateColumns(width), rows,
@@ -71,11 +73,36 @@ func (model Model) renderDuplicates(screen *RenderedScreen) {
 		message = "Space=Select | i/Enter=Info | h=Hide | x=Delete | Esc=Close"
 	}
 	screen.Frame.PutText(x, rect.Y+rect.Height-2, Truncate(message, width), model.palette.Muted)
-	overlay := []string{"Duplicate transactions", status}
-	for _, row := range rows {
-		overlay = append(overlay,
-			row.Values["merchant"]+" | "+row.Values["category"]+" | "+row.Values["account"]+" | "+row.Values["amount"]+" | "+row.Values["flags"],
-		)
+	selected, hidden := model.duplicates.projection.SelectionCount, 0
+	for _, row := range projectedRows {
+		if row.Flags.Hidden {
+			hidden++
+		}
+	}
+	hint := "Space=Select | i=Details | x=Delete | h=Hide | Esc=Close"
+	if selected > 0 {
+		hint = fmt.Sprintf("✓ %d selected | %s", selected, hint)
+	}
+	overlay := []string{
+		fmt.Sprintf(
+			"🔍 Found %d potential duplicates in %d groups",
+			model.duplicates.projection.TotalTransactions-model.duplicates.projection.TotalGroups,
+			model.duplicates.projection.TotalGroups,
+		),
+		hint,
+		fmt.Sprintf("selected=%d", selected),
+		fmt.Sprintf("hidden=%d", hidden),
+	}
+	for index, row := range rows {
+		selectedPrefix := ""
+		if projectedRows[index].Flags.Selected {
+			selectedPrefix = "✓"
+		}
+		overlay = append(overlay, fmt.Sprintf(
+			"%s | #%s | %s | %s | %s | %s",
+			selectedPrefix, row.Values["group"], row.Values["date"], row.Values["merchant"],
+			row.Values["amount"], row.Values["account"],
+		))
 	}
 	if model.duplicates.err != "" {
 		overlay = append(overlay, model.duplicates.err)

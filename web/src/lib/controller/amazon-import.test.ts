@@ -44,6 +44,43 @@ describe('Amazon import controller', () => {
     expect(controller.state.problem).toContain('record 7')
     expect(controller.state.problem).toContain('Total Owed')
   })
+
+  it('ignores a stale polling snapshot after execute completes', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolvePoll!: (value: AmazonImportStatus) => void
+      let resolveExecute!: (value: AmazonImportStatus) => void
+      const transport = transportStub()
+      transport.status.mockImplementation(
+        async () => await new Promise<AmazonImportStatus>((resolve) => (resolvePoll = resolve)),
+      )
+      transport.execute.mockImplementation(
+        async () => await new Promise<AmazonImportStatus>((resolve) => (resolveExecute = resolve)),
+      )
+      const controller = createAmazonImportController({ transport })
+      await controller.start('USD', 2)
+      await controller.upload([new File(['x'], 'Retail.OrderHistory.1.csv')])
+      const executing = controller.execute()
+      await vi.advanceTimersByTimeAsync(500)
+      expect(transport.status).toHaveBeenCalled()
+      resolveExecute(status({ state: 'complete', state_version: '4' }))
+      expect(await executing).toBe(true)
+      resolvePoll(status({ state: 'parsing', state_version: '3' }))
+      await Promise.resolve()
+      expect(controller.state.phase).toBe('complete')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the wizard open when cancellation fails', async () => {
+    const transport = transportStub()
+    transport.cancel.mockRejectedValue(new Error('busy'))
+    const controller = createAmazonImportController({ transport })
+    await controller.start('USD', 2)
+    expect(await controller.cancel()).toBe(false)
+    expect(controller.state.phase).toBe('failed')
+  })
 })
 
 function transportStub(overrides: { execute?: AmazonImportStatus } = {}) {

@@ -68,21 +68,20 @@ func (service *Service) ProfileKind() string {
 }
 
 // AmazonSettings returns the immutable money settings for an Amazon profile.
-func (service *Service) AmazonSettings(ctx context.Context) (*store.AmazonSettings, error) {
+func (service *Service) AmazonSettings(_ context.Context) (*store.AmazonSettings, error) {
 	service.mu.RLock()
-	profile := service.profile
-	service.mu.RUnlock()
-	if profile == nil {
-		return nil, newAppError(AppInvalidOperation, service.Revision(), errors.New("amazon settings require a durable profile"))
+	defer service.mu.RUnlock()
+	revision := uint64(0)
+	if service.snapshot != nil {
+		revision = service.snapshot.Revision
 	}
-	state, err := profile.LoadAmazonState(ctx)
-	if err != nil {
-		return nil, mapAppError(err, service.Revision())
+	if service.profile == nil {
+		return nil, newAppError(AppInvalidOperation, revision, errors.New("amazon settings require a durable profile"))
 	}
-	if state.Settings == nil {
-		return nil, newAppError(AppInvalidOperation, service.Revision(), errors.New("amazon settings are unavailable"))
+	if service.amazonSettings == nil {
+		return nil, newAppError(AppInvalidOperation, revision, errors.New("amazon settings are unavailable"))
 	}
-	settings := *state.Settings
+	settings := *service.amazonSettings
 	return &settings, nil
 }
 
@@ -153,8 +152,17 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	service.providerBound = providerState.Binding != nil
 	service.providerState = cloneProviderState(providerState)
 	service.profileKind = profileKind
+	service.amazonSettings = cloneAmazonSettings(amazonState.Settings)
 	service.mu.Unlock()
 	return nil
+}
+
+func cloneAmazonSettings(settings *store.AmazonSettings) *store.AmazonSettings {
+	if settings == nil {
+		return nil
+	}
+	clone := *settings
+	return &clone
 }
 
 func cloneProviderState(state store.ProviderState) store.ProviderState {

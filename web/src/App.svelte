@@ -222,7 +222,10 @@
     document.addEventListener('visibilitychange', visible)
     const statusInterval = window.setInterval(pollProvider, 60_000)
     const writeStatusInterval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        controller.projection?.profile_kind !== 'amazon'
+      ) {
         void controller.providerWrite.poll().catch(() => undefined)
       }
     }, 1_000)
@@ -243,8 +246,8 @@
 {#if amazonImport && amazonProfileID}
   <AmazonImportWizard
     controller={amazonImport}
-    initialCurrency={controller?.projection?.statistics?.[0]?.currency ?? 'USD'}
-    initialScale={controller?.projection?.statistics?.[0]?.scale ?? 2}
+    initialCurrency={controller?.projection?.amazon_settings?.currency ?? 'USD'}
+    initialScale={controller?.projection?.amazon_settings?.scale ?? 2}
     oncomplete={completeAmazonImport}
     oncancel={() => void closeAmazonImport()}
   />
@@ -275,9 +278,9 @@
     {controller}
     onreconnect={() => profileID && void setup(profileID)}
     onamazonimport={() => {
-      const stats = controller.projection?.statistics?.[0]
-      if (profileID && stats) {
-        void setupAmazon(profileID, { currency: stats.currency, scale: stats.scale })
+      const settings = controller.projection?.amazon_settings
+      if (profileID && settings) {
+        void setupAmazon(profileID, { currency: settings.currency, scale: settings.scale })
       }
     }}
   />

@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 8);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 9);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -400,7 +400,9 @@ CREATE TABLE amazon_profile_settings (
 CREATE TABLE amazon_order_items (
     local_transaction_id TEXT PRIMARY KEY CHECK(local_transaction_id <> ''),
     source_identity TEXT NOT NULL UNIQUE CHECK(
-        source_identity GLOB 'amazon_item_[a-z2-7]*' AND length(source_identity) = 38
+        substr(source_identity, 1, 12) = 'amazon_item_' AND
+        length(source_identity) = 38 AND
+        substr(source_identity, 13) NOT GLOB '*[^a-z2-7]*'
     ),
     order_id TEXT NOT NULL CHECK(order_id <> ''),
     asin TEXT,
@@ -420,12 +422,17 @@ CREATE TABLE amazon_order_items (
     order_status TEXT NOT NULL CHECK(order_status <> ''),
     shipment_status TEXT NOT NULL CHECK(shipment_status <> ''),
     identity_fingerprint TEXT NOT NULL CHECK(
-        length(identity_fingerprint) = 64 AND identity_fingerprint GLOB '[0-9a-f]*'
+        length(identity_fingerprint) = 64 AND identity_fingerprint NOT GLOB '*[^0-9a-f]*'
     ),
     full_fingerprint TEXT NOT NULL CHECK(
-        length(full_fingerprint) = 64 AND full_fingerprint GLOB '[0-9a-f]*'
+        length(full_fingerprint) = 64 AND full_fingerprint NOT GLOB '*[^0-9a-f]*'
     ),
     retired INTEGER NOT NULL CHECK(retired IN (0, 1)),
+    local_account_id TEXT NOT NULL CHECK(local_account_id <> ''),
+    local_merchant_id TEXT NOT NULL CHECK(local_merchant_id <> ''),
+    local_category_id TEXT NOT NULL CHECK(local_category_id <> ''),
+    local_notes TEXT NOT NULL,
+    local_hidden INTEGER NOT NULL CHECK(local_hidden IN (0, 1)),
     CHECK((asin IS NOT NULL AND asin <> '' AND asinless_key = '') OR
           (asin IS NULL AND asinless_key GLOB 'amazon:asinless:*'))
 ) STRICT;
@@ -447,7 +454,7 @@ CREATE TABLE amazon_import_history (
         typeof(resulting_revision) = 'integer' AND resulting_revision >= source_revision
     ),
     candidate_digest TEXT NOT NULL CHECK(
-        length(candidate_digest) = 64 AND candidate_digest GLOB '[0-9a-f]*'
+        length(candidate_digest) = 64 AND candidate_digest NOT GLOB '*[^0-9a-f]*'
     ),
     file_count INTEGER NOT NULL CHECK(typeof(file_count) = 'integer' AND file_count >= 0),
     logical_record_count INTEGER NOT NULL CHECK(
@@ -463,5 +470,11 @@ CREATE TABLE amazon_import_history (
     updated_count INTEGER NOT NULL CHECK(typeof(updated_count) = 'integer' AND updated_count >= 0),
     restored_count INTEGER NOT NULL CHECK(typeof(restored_count) = 'integer' AND restored_count >= 0),
     retired_count INTEGER NOT NULL CHECK(typeof(retired_count) = 'integer' AND retired_count >= 0),
-    unchanged_count INTEGER NOT NULL CHECK(typeof(unchanged_count) = 'integer' AND unchanged_count >= 0)
+    unchanged_count INTEGER NOT NULL CHECK(typeof(unchanged_count) = 'integer' AND unchanged_count >= 0),
+    removed_journal_targets INTEGER NOT NULL CHECK(
+        typeof(removed_journal_targets) = 'integer' AND removed_journal_targets >= 0
+    ),
+    removed_journal_operations INTEGER NOT NULL CHECK(
+        typeof(removed_journal_operations) = 'integer' AND removed_journal_operations >= 0
+    )
 ) STRICT;

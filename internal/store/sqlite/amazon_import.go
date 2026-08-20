@@ -10,6 +10,7 @@ import (
 	"regexp"
 
 	"github.com/wesm/moneyflow/internal/domain"
+	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -167,6 +168,21 @@ func validateAmazonImportPlan(state store.AmazonImportState, plan store.AmazonIm
 	if err := planned.Validate(); err != nil {
 		return fmt.Errorf("amazon import plan: %w", err)
 	}
+	if _, err := profilereplay.Replay(planned); err != nil {
+		return fmt.Errorf("amazon import plan replay: %w", err)
+	}
+	if state.Settings != nil && !reflect.DeepEqual(state.Settings, plan.Settings) {
+		return errors.New("amazon import plan changes immutable settings")
+	}
+	if state.Settings == nil {
+		if plan.Settings == nil || !domain.IsValidCurrency(plan.Settings.Currency) ||
+			plan.Settings.Scale > 9 || plan.Settings.CreatedAt.IsZero() {
+			return errors.New("amazon import plan does not install canonical settings")
+		}
+	}
+	if err := validateAmazonLedger(plan.Committed, plan.Settings, plan.Items); err != nil {
+		return fmt.Errorf("amazon import plan ledger: %w", err)
+	}
 	changedParts := make([]string, 0, 7)
 	if !reflect.DeepEqual(state.Snapshot.Committed, plan.Committed) {
 		changedParts = append(changedParts, "committed")
@@ -193,6 +209,78 @@ func validateAmazonImportPlan(state store.AmazonImportState, plan store.AmazonIm
 	return nil
 }
 
+func validateAmazonLedger(
+	committed domain.CommittedProfile,
+	settings *store.AmazonSettings,
+	items []store.AmazonOrderItem,
+) error {
+	if settings == nil {
+		if len(items) == 0 {
+			return nil
+		}
+		return errors.New("ledger exists without settings")
+	}
+	transactions := make(map[domain.EntityID]domain.TransactionRecord, len(committed.Transactions))
+	for _, transaction := range committed.Transactions {
+		transactions[transaction.ID] = transaction
+	}
+	identities := make(map[string]domain.ExternalIdentity, len(committed.ExternalIdentities))
+	for _, identity := range committed.ExternalIdentities {
+		identities[identity.Namespace+"\x00"+identity.ExternalID] = identity
+	}
+	active := make(map[domain.EntityID]struct{}, len(items))
+	seen := make(map[domain.EntityID]struct{}, len(items))
+	for index, item := range items {
+		if _, duplicate := seen[item.LocalTransactionID]; duplicate {
+			return fmt.Errorf("item[%d] duplicates local transaction", index)
+		}
+		seen[item.LocalTransactionID] = struct{}{}
+		if item.LocalTransactionID == "" || item.SourceIdentity == "" ||
+			item.LocalAccountID == "" || item.LocalMerchantID == "" || item.LocalCategoryID == "" {
+			return fmt.Errorf("item[%d] has incomplete local identity", index)
+		}
+		if item.Currency != settings.Currency || item.Scale != settings.Scale ||
+			!amazonDigestPattern.MatchString(item.IdentityFingerprint) ||
+			!amazonDigestPattern.MatchString(item.FullFingerprint) {
+			return fmt.Errorf("item[%d] has invalid source facts", index)
+		}
+		identity, exists := identities["amazon/order-item\x00"+item.SourceIdentity]
+		if !exists || identity.EntityType != domain.EntityKindTransaction ||
+			identity.EntityID != item.LocalTransactionID {
+			return fmt.Errorf("item[%d] has no matching external identity", index)
+		}
+		transaction, exists := transactions[item.LocalTransactionID]
+		if item.Retired {
+			if exists {
+				return fmt.Errorf("item[%d] is retired but transaction remains active", index)
+			}
+			continue
+		}
+		if !exists || transaction.Provider != "amazon" || transaction.ProviderID != item.SourceIdentity {
+			return fmt.Errorf("item[%d] has no matching Amazon transaction", index)
+		}
+		if transaction.Date != item.OrderDate || transaction.Amount.Minor != item.AmountMinor ||
+			transaction.Amount.Currency != item.Currency || transaction.Amount.Scale != item.Scale {
+			return fmt.Errorf("item[%d] money or date differs from its transaction", index)
+		}
+		if transaction.AccountID != item.LocalAccountID || transaction.MerchantID != item.LocalMerchantID ||
+			transaction.CategoryID != item.LocalCategoryID || transaction.Notes != item.LocalNotes ||
+			transaction.Hidden != item.LocalHidden {
+			return fmt.Errorf("item[%d] local state differs from its transaction", index)
+		}
+		active[item.LocalTransactionID] = struct{}{}
+	}
+	for _, transaction := range committed.Transactions {
+		if transaction.Provider != "amazon" {
+			continue
+		}
+		if _, exists := active[transaction.ID]; !exists {
+			return fmt.Errorf("amazon transaction %q has no active ledger item", transaction.ID)
+		}
+	}
+	return nil
+}
+
 func equivalentAmazonSlice[T any](left, right []T) bool {
 	return (len(left) == 0 && len(right) == 0) || reflect.DeepEqual(left, right)
 }
@@ -204,6 +292,12 @@ func cloneAmazonImportState(state store.AmazonImportState) store.AmazonImportSta
 		state.Settings = &settings
 	}
 	state.Items = append([]store.AmazonOrderItem(nil), state.Items...)
+	for index := range state.Items {
+		if state.Items[index].UnitPriceMinor != nil {
+			value := *state.Items[index].UnitPriceMinor
+			state.Items[index].UnitPriceMinor = &value
+		}
+	}
 	state.Allocations = append([]store.LabelAllocation(nil), state.Allocations...)
 	return state
 }
@@ -239,8 +333,9 @@ func replaceAmazonItems(ctx context.Context, connection *sql.Conn, before, after
 		INSERT INTO amazon_order_items(
 			local_transaction_id, source_identity, order_id, asin, asinless_key, product_name,
 			order_date, quantity, amount_minor, unit_price_minor, currency, scale, order_status,
-			shipment_status, identity_fingerprint, full_fingerprint, retired
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			shipment_status, identity_fingerprint, full_fingerprint, retired,
+			local_account_id, local_merchant_id, local_category_id, local_notes, local_hidden
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
@@ -259,6 +354,8 @@ func replaceAmazonItems(ctx context.Context, connection *sql.Conn, before, after
 			item.ProductName, item.OrderDate.String(), item.Quantity, item.AmountMinor, unit,
 			item.Currency, item.Scale, item.OrderStatus, item.ShipmentStatus,
 			item.IdentityFingerprint, item.FullFingerprint, booleanInteger(item.Retired),
+			item.LocalAccountID, item.LocalMerchantID, item.LocalCategoryID,
+			item.LocalNotes, booleanInteger(item.LocalHidden),
 		); err != nil {
 			return mapDriverError(err, store.CodeStoreError)
 		}
@@ -272,12 +369,14 @@ func insertAmazonHistory(ctx context.Context, connection *sql.Conn, history stor
 			import_id, started_at_unix_ms, completed_at_unix_ms, source_revision,
 			resulting_revision, candidate_digest, file_count, logical_record_count,
 			blank_record_count, cancelled_record_count, inserted_count, updated_count,
-			restored_count, retired_count, unchanged_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			restored_count, retired_count, unchanged_count, removed_journal_targets,
+			removed_journal_operations
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		history.ImportID, history.StartedAt.UnixMilli(), history.CompletedAt.UnixMilli(),
 		history.SourceRevision, history.ResultingRevision, history.CandidateDigest,
 		history.FileCount, history.LogicalRecordCount, history.BlankRecordCount,
 		history.CancelledRecordCount, history.InsertedCount, history.UpdatedCount,
-		history.RestoredCount, history.RetiredCount, history.UnchangedCount)
+		history.RestoredCount, history.RetiredCount, history.UnchangedCount,
+		history.RemovedJournalTargets, history.RemovedJournalOperations)
 	return mapDriverError(err, store.CodeStoreError)
 }

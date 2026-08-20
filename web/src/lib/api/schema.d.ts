@@ -721,6 +721,11 @@ export interface components {
       shipment_status?: string
       unit_price?: components['schemas']['Money']
     }
+    AmazonSettings: {
+      currency: string
+      /** Format: int32 */
+      scale: number
+    }
     Bootstrap: {
       base_path: string
       canonical_url: string
@@ -1110,6 +1115,7 @@ export interface components {
     Projection: {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
       amazon_match_column: boolean
+      amazon_settings?: components['schemas']['AmazonSettings']
       api_schema_version: string
       breadcrumb_text: string
       breadcrumbs: components['schemas']['Breadcrumb'][] | null

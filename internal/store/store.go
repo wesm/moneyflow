@@ -70,25 +70,32 @@ type AmazonOrderItem struct {
 	IdentityFingerprint string
 	FullFingerprint     string
 	Retired             bool
+	LocalAccountID      domain.EntityID
+	LocalMerchantID     domain.EntityID
+	LocalCategoryID     domain.EntityID
+	LocalNotes          string
+	LocalHidden         bool
 }
 
 // AmazonImportHistory is one counts-only operational import record.
 type AmazonImportHistory struct {
-	ImportID             string
-	StartedAt            time.Time
-	CompletedAt          time.Time
-	SourceRevision       uint64
-	ResultingRevision    uint64
-	CandidateDigest      string
-	FileCount            int
-	LogicalRecordCount   int
-	BlankRecordCount     int
-	CancelledRecordCount int
-	InsertedCount        int
-	UpdatedCount         int
-	RestoredCount        int
-	RetiredCount         int
-	UnchangedCount       int
+	ImportID                 string
+	StartedAt                time.Time
+	CompletedAt              time.Time
+	SourceRevision           uint64
+	ResultingRevision        uint64
+	CandidateDigest          string
+	FileCount                int
+	LogicalRecordCount       int
+	BlankRecordCount         int
+	CancelledRecordCount     int
+	InsertedCount            int
+	UpdatedCount             int
+	RestoredCount            int
+	RetiredCount             int
+	UnchangedCount           int
+	RemovedJournalTargets    int
+	RemovedJournalOperations int
 }
 
 // AmazonImportState contains every persisted input exposed to the pure import planner.
@@ -144,7 +151,6 @@ type AtomicAmazonImportRequest struct {
 	ImportedAt      time.Time
 	CandidateDigest string
 	ProposedCounts  AmazonIDCounts
-	TaxonomyClone   *domain.CommittedProfile
 }
 
 // AmazonImportCommit reports the semantic result installed by an atomic import.

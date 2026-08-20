@@ -81,14 +81,14 @@ func TestBulkEditingPerformance100K(t *testing.T) {
 func TestAmazonImport100KPerformance(t *testing.T) {
 	skipEditingPerformance(t)
 	ctx := context.Background()
-	paths := createPerformanceProfile(t)
+	paths := temporaryPaths(t)
 	profileStore, err := Open(ctx, paths, DefaultOptions)
 	require.NoError(t, err)
 	profile := profileStore.(*profile)
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
-	snapshot, err := profile.Load(ctx)
+	candidateCommitted, err := fixture.CommittedProfile(fixture.Generate(20260814, editingPerformanceRows))
 	require.NoError(t, err)
-	transactions, err := snapshot.Committed.MaterializeTransactions()
+	transactions, err := candidateCommitted.MaterializeTransactions()
 	require.NoError(t, err)
 	now := time.Date(2026, time.August, 20, 18, 0, 0, 0, time.UTC)
 
@@ -99,20 +99,33 @@ func TestAmazonImport100KPerformance(t *testing.T) {
 		ProposedCounts:  store.AmazonIDCounts{Sources: len(transactions)},
 	}, func(_ store.AmazonImportState, proposed store.ProposedAmazonIDs) (store.AmazonImportPlan, error) {
 		items := make([]store.AmazonOrderItem, len(transactions))
+		committed := candidateCommitted.Clone()
 		for index, transaction := range transactions {
+			committed.Transactions[index].Provider = "amazon"
+			committed.Transactions[index].ProviderID = proposed.SourceIdentities[index]
+			committed.Transactions[index].Amount.Currency = "USD"
+			committed.Transactions[index].Amount.Scale = 2
+			committed.ExternalIdentities = append(committed.ExternalIdentities, domain.ExternalIdentity{
+				EntityType: domain.EntityKindTransaction, EntityID: domain.EntityID(transaction.ID),
+				Namespace: "amazon/order-item", ExternalID: proposed.SourceIdentities[index],
+			})
 			items[index] = store.AmazonOrderItem{
 				LocalTransactionID: domain.EntityID(transaction.ID), SourceIdentity: proposed.SourceIdentities[index],
 				OrderID: "order-" + fmt.Sprint(index/4), ASIN: "ASIN-" + fmt.Sprint(index),
 				ProductName: transaction.Merchant.Name, OrderDate: transaction.Date,
 				Quantity: 1, AmountMinor: transaction.Amount.Minor,
-				Currency: transaction.Amount.Currency, Scale: transaction.Amount.Scale,
+				Currency: "USD", Scale: 2,
 				OrderStatus: "Closed", ShipmentStatus: "Delivered",
 				IdentityFingerprint: strings.Repeat("b", 64),
 				FullFingerprint:     strings.Repeat("c", 64),
+				LocalAccountID:      domain.EntityID(transaction.Account.ID),
+				LocalMerchantID:     domain.EntityID(transaction.Merchant.ID),
+				LocalCategoryID:     domain.EntityID(transaction.Category.ID),
+				LocalNotes:          transaction.Notes, LocalHidden: transaction.Hidden,
 			}
 		}
 		return store.AmazonImportPlan{
-			Committed: snapshot.Committed.Clone(), Journal: []domain.Operation{},
+			Committed: committed, Journal: []domain.Operation{},
 			KnownDrills: []domain.DrillIdentity{},
 			Settings:    &store.AmazonSettings{Currency: "USD", Scale: 2, CreatedAt: now},
 			Items:       items, History: store.AmazonImportHistory{

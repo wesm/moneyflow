@@ -174,6 +174,9 @@ type AmazonOrderItem struct {
     OrderStatus, ShipmentStatus string
     IdentityFingerprint, FullFingerprint string
     Retired bool
+    LocalAccountID, LocalMerchantID, LocalCategoryID domain.EntityID
+    LocalNotes string
+    LocalHidden bool
 }
 
 type AmazonImportState struct {
@@ -211,9 +214,11 @@ type AmazonImportPlan struct {
 type AmazonImportPlanner func(AmazonImportState, ProposedAmazonIDs) (AmazonImportPlan, error)
 
 type AtomicAmazonImportRequest struct {
+    ImportID string
+    StartedAt time.Time
     ImportedAt time.Time
     CandidateDigest string
-    TaxonomyClone *domain.CommittedProfile
+    ProposedCounts AmazonIDCounts
 }
 
 type AmazonImportCommit struct {
@@ -722,7 +727,8 @@ Expected: FAIL because the planner is missing.
 
 Partition by order, consume incoming rows once, and apply the fixed tier order from Global
 Constraints. For equal duplicates, pair bytewise local ID against bytewise filename/record order.
-Allocate one merchant per real ASIN and one shared merchant per newly allocated ASIN-less key.
+Allocate one merchant per real ASIN and persist/reuse one `amazon/product` identity per ASIN-less
+key across imports.
 Refresh source-owned facts while retaining user category, hidden, notes, and user-touched merchant.
 Restore retired ledger and external identity rows; never reuse a retired ID for a different row.
 
@@ -826,6 +832,9 @@ locks acquire catalog during creation, shared lifecycle, then import and never r
 death releases; sequential reuse succeeds; import and export locks can coexist. Assert attempt IDs
 are bound to `(server instance, profile ID)`, state versions reject stale actions, 30-minute expiry
 counts active jobs/uploads/status as activity, and status is coordinate-blind.
+Use deterministic barriers on both sides of the install boundary: disconnect before installation
+cancels without a fold, while disconnect after installation starts completes or rolls back
+atomically and leaves the terminal result readable through status.
 
 Run:
 
@@ -1197,7 +1206,8 @@ feat: add Amazon workflows to the TUI
 Cover start/files/execute/status/cancel paths exactly. Assert start, upload, execute, and cancel
 require mutation token, canonical Origin, and Fetch Metadata; attempts are profile/instance-bound;
 all mutations use state-version CAS; status is read-only/counts-only; uploads stream under limits;
-and raw multipart values never enter Huma problems or logs.
+raw multipart values never enter Huma problems or logs; and disconnect tests cover both sides of
+the authoritative transaction boundary.
 
 Run:
 
@@ -1255,7 +1265,7 @@ match items, and query/cursor/selection preservation.
 Run:
 
 ```bash
-bun test --cwd web --filter 'amazon-import|TransactionInfoDrawer'
+bun run --cwd web test -- amazon-import TransactionInfoDrawer
 ```
 
 Expected: FAIL because the controller/components are missing.

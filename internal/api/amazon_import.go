@@ -94,7 +94,8 @@ func (server *Server) registerAmazonImportEndpoints(config Config) {
 		if config.AmazonImports == nil {
 			return nil, amazonImportUnavailable()
 		}
-		if input.Body.Version != AmazonImportWireVersion || len(input.Body.Currency) != 3 || input.Body.Scale > 9 {
+		if input.Body.Version != AmazonImportWireVersion ||
+			!domain.IsValidCurrency(domain.Currency(input.Body.Currency)) || input.Body.Scale > 9 {
 			return nil, amazonImportProblem(errors.New("invalid start request"))
 		}
 		var clone *app.TaxonomyClone

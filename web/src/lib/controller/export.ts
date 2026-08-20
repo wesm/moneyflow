@@ -45,7 +45,6 @@ export function createExportController(options: ExportControllerOptions): Export
   const objectURLs = options.objectURLs ?? URL
   let query = ''
   let request: AbortController | undefined
-  let cancelled = false
   let state: ExportState = initialState()
   let notify = (): void => undefined
   const subscribe = createSubscriber((update) => {
@@ -62,15 +61,15 @@ export function createExportController(options: ExportControllerOptions): Export
 
   async function open(nextQuery: string): Promise<boolean> {
     request?.abort()
-    request = new AbortController()
-    cancelled = false
+    const operation = new AbortController()
+    request = operation
     setState({ ...initialState(), phase: 'previewing', canCancel: true })
     try {
       const preview = await options.client.previewExport(
         { version: exportVersion, query: nextQuery },
-        request.signal,
+        operation.signal,
       )
-      if (cancelled) return false
+      if (operation.signal.aborted || request !== operation) return false
       query = preview.canonical_query
       if (preview.full_count === 0) {
         setState({ ...initialState(), announcement: 'No data to export.' })
@@ -86,7 +85,7 @@ export function createExportController(options: ExportControllerOptions): Export
       })
       return true
     } catch (error) {
-      if (cancelled || isAbort(error)) return false
+      if (operation.signal.aborted || request !== operation || isAbort(error)) return false
       setState({
         ...state,
         phase: 'failed',
@@ -95,13 +94,12 @@ export function createExportController(options: ExportControllerOptions): Export
       })
       return false
     } finally {
-      request = undefined
+      if (request === operation) request = undefined
     }
   }
 
   function close(): void {
     request?.abort()
-    cancelled = true
     request = undefined
     query = ''
     setState(initialState())
@@ -126,8 +124,8 @@ export function createExportController(options: ExportControllerOptions): Export
   async function execute(): Promise<boolean> {
     if (!state.preview || state.phase === 'exporting') return false
     request?.abort()
-    request = new AbortController()
-    cancelled = false
+    const operation = new AbortController()
+    request = operation
     const body: ExportBody = {
       version: exportVersion,
       format: state.format,
@@ -142,8 +140,8 @@ export function createExportController(options: ExportControllerOptions): Export
       canCancel: true,
     })
     try {
-      const response = await options.client.downloadExport(body, request.signal)
-      if (cancelled) return false
+      const response = await options.client.downloadExport(body, operation.signal)
+      if (operation.signal.aborted || request !== operation) return false
       if (!response.ok) {
         setState({
           ...state,
@@ -154,7 +152,7 @@ export function createExportController(options: ExportControllerOptions): Export
         return false
       }
       const blob = await response.blob()
-      if (cancelled) return false
+      if (operation.signal.aborted || request !== operation) return false
       const filename = exportFilename(response.headers.get('Content-Disposition'), state.format)
       const actualCount = exportCount(
         response.headers.get('X-Moneyflow-Transaction-Count'),
@@ -170,7 +168,7 @@ export function createExportController(options: ExportControllerOptions): Export
       })
       return true
     } catch (error) {
-      if (cancelled || isAbort(error)) return false
+      if (operation.signal.aborted || request !== operation || isAbort(error)) return false
       setState({
         ...state,
         phase: 'failed',
@@ -179,13 +177,12 @@ export function createExportController(options: ExportControllerOptions): Export
       })
       return false
     } finally {
-      request = undefined
+      if (request === operation) request = undefined
     }
   }
 
   function cancel(): void {
     if (!state.canCancel) return
-    cancelled = true
     request?.abort()
     request = undefined
     if (state.preview) {

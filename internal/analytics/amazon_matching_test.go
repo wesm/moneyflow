@@ -93,6 +93,33 @@ func TestAmazonMatchItemFallbackOrderingAndBound(t *testing.T) {
 	assert.Equal(t, "Matched Product", result.Matches[0].FirstProduct)
 }
 
+func TestAmazonMatchNeverTreatsOppositeSignedAmountsAsEqual(t *testing.T) {
+	transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -2500, 2)
+	source := amazonMatchSource(t, "source", "refund", "2026-08-20", 2500, 2)
+
+	result, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+	require.NoError(t, err)
+	assert.Empty(t, result.Matches)
+}
+
+func TestAmazonExactItemMatchReturnsOnlyTheMatchingItem(t *testing.T) {
+	transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -2500, 2)
+	source := amazonMatchSource(t, "source", "order", "2026-08-20", -10000, 2)
+	source.Items = append(source.Items, AmazonMatchItem{
+		LocalTransactionID: "matching-item", OrderID: "order", ProductName: "Matching Product",
+		Date: mustAmazonDate(t, "2026-08-20"), AmountMinor: -2500,
+	})
+
+	result, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+	require.NoError(t, err)
+	require.Len(t, result.Matches, 1)
+	assert.Equal(t, AmazonMatchExactItem, result.Matches[0].Class)
+	assert.Equal(t, int64(-2500), result.Matches[0].OrderTotal.Minor)
+	assert.Equal(t, "Matching Product", result.Matches[0].FirstProduct)
+	require.Len(t, result.Matches[0].Items, 1)
+	assert.Equal(t, domain.EntityID("matching-item"), result.Matches[0].Items[0].LocalTransactionID)
+}
+
 func amazonFinanceTransaction(t *testing.T, id, date string, minor int64, scale uint8) domain.Transaction {
 	t.Helper()
 	transaction, err := domain.NewTransaction(domain.Transaction{

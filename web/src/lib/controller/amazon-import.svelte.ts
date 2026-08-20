@@ -23,7 +23,7 @@ export interface AmazonImportController {
   start(currency: string, scale: number, taxonomySourceID?: string): Promise<boolean>
   upload(files: File[]): Promise<boolean>
   execute(): Promise<boolean>
-  cancel(): Promise<void>
+  cancel(): Promise<boolean>
   destroy(): void
 }
 
@@ -44,9 +44,16 @@ export function createAmazonImportController(options: {
   })
   let polling: number | undefined
   let destroyed = false
+  let installedVersion = -1n
 
   function install(snapshot: AmazonImportStatus): void {
     if (destroyed) return
+    const version = BigInt(snapshot.state_version)
+    if (version < installedVersion) return
+    if (version === installedVersion && terminalPhase(state.phase) && !terminalSnapshot(snapshot)) {
+      return
+    }
+    installedVersion = version
     const phase = phaseFor(snapshot)
     state = {
       phase,
@@ -111,16 +118,18 @@ export function createAmazonImportController(options: {
     }
   }
 
-  async function cancel(): Promise<void> {
+  async function cancel(): Promise<boolean> {
     const snapshot = state.snapshot
     if (!snapshot) {
       state = { ...state, phase: 'canceled', announcement: 'Amazon import canceled.' }
-      return
+      return true
     }
     try {
       install(await options.transport.cancel(snapshot.attempt_id, snapshot.state_version))
+      return state.phase === 'canceled'
     } catch (error) {
       fail(error, 'Amazon import could not be canceled safely.')
+      return false
     }
   }
 
@@ -142,6 +151,16 @@ export function createAmazonImportController(options: {
       if (polling !== undefined) window.clearInterval(polling)
     },
   }
+}
+
+function terminalPhase(phase: AmazonImportState['phase']): boolean {
+  return phase === 'complete' || phase === 'failed' || phase === 'canceled'
+}
+
+function terminalSnapshot(snapshot: AmazonImportStatus): boolean {
+  return (
+    snapshot.state === 'complete' || snapshot.state === 'failed' || snapshot.state === 'canceled'
+  )
 }
 
 export function createAmazonImportTransport(

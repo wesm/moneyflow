@@ -123,11 +123,11 @@ func WriteFile(ctx context.Context, request Request) (Result, error) {
 	if err = ctx.Err(); err != nil {
 		return Result{}, exportError(CodeCancelled, err)
 	}
-	if err = home.PublishPrivateNoReplace(prepared.stagePath, prepared.finalPath); err != nil {
+	info, err := os.Stat(prepared.stagePath)
+	if err != nil {
 		return Result{}, exportError(CodeFailed, err)
 	}
-	info, err := os.Stat(prepared.finalPath)
-	if err != nil {
+	if err = home.PublishPrivateNoReplace(prepared.stagePath, prepared.finalPath); err != nil {
 		return Result{}, exportError(CodeFailed, err)
 	}
 	return Result{

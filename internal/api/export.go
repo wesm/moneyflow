@@ -139,9 +139,26 @@ func (server *Server) registerExportEndpoints() {
 			stream.SetHeader("Content-Disposition", exportContentDisposition(download.Filename))
 			stream.SetHeader("X-Moneyflow-Transaction-Count", strconv.Itoa(download.Count))
 			stream.SetHeader("X-Content-Type-Options", "nosniff")
-			_, _ = io.Copy(stream.BodyWriter(), download.Reader)
+			if _, copyErr := io.Copy(
+				stream.BodyWriter(),
+				&exportStreamReader{ctx: stream.Context(), reader: download.Reader},
+			); copyErr != nil {
+				return
+			}
 		}}, nil
 	})
+}
+
+type exportStreamReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *exportStreamReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
 }
 
 func validExportFormat(format exporter.Format) bool {

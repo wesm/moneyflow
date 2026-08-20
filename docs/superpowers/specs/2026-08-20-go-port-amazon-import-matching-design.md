@@ -240,6 +240,11 @@ amazon_order_items
     identity_fingerprint
     full_fingerprint
     retired: boolean
+    local_account_id
+    local_merchant_id
+    local_category_id
+    local_notes
+    local_hidden: boolean
 ```
 
 `source_identity` is `amazon_item_` plus a lowercase base32 encoding of 128 random bits from the
@@ -248,12 +253,13 @@ and remains fixed for the lifetime of the ledger row. The external identity name
 `amazon/order-item`.
 
 The ledger retains a retired row after its active transaction is removed. It is the source-side
-tombstone that lets an exact reappearance recover the original local transaction ID. The ordinary
+tombstone that lets an exact reappearance recover the original local transaction ID and the last
+committed user-owned account, merchant, category, notes, and hidden state. The ordinary
 `external_identities` row is retained as well, matching the standing transaction-lineage rule.
 
 An active ledger row has one ordinary committed transaction with the same local ID. A retired row
-has none. Restoration clears `retired`, restores the ordinary transaction with the same local ID,
-and refreshes its source facts.
+has none. Restoration clears `retired`, restores the ordinary transaction with the same local ID
+and last valid user-owned state, and refreshes its source facts.
 
 The ordinary transaction stores:
 
@@ -273,8 +279,10 @@ not derived by embedding the order ID in a local ID.
 
 Each observed order maps to a stable local account whose default label is the order ID. Each real
 ASIN maps to a stable local product merchant. ASIN-less rows keep the transaction's current local
-merchant when safe pairing preserves the transaction; a newly allocated ASIN-less row gets a new
-product merchant, shared by newly allocated rows with the same ASIN-less key.
+merchant when safe pairing preserves the transaction; a newly allocated ASIN-less row resolves
+the persisted `amazon/product` external identity for its ASIN-less key, allocating only when the
+key has never been seen. Later imports therefore reuse the same product merchant without
+overwriting a transaction-specific merchant choice.
 
 Imported product labels use the existing sticky provider-label allocation discipline:
 
@@ -515,6 +523,13 @@ UTF-8 fields, never delimiter-joined ambiguous text.
 
 An order wholly absent from an import is untouched. Absence across files is not evidence of
 deletion.
+
+Within one candidate, an order ID observed in more than one file is accepted only when every
+file's full-fingerprint multiset is identical; exact repeated observations deduplicate to the
+bytewise-lowest relative filename. Conflicting active or cancelled observations reject the whole
+candidate as `amazon_import_invalid` with an `overlapping_order_conflict` coordinate. This
+conservative rule preserves genuine within-file multiplicity without guessing which overlapping
+export is newer.
 
 When an order ID appears in any valid or cancelled record, the import's valid non-cancelled rows
 for that order are authoritative. Existing active rows not paired to that multiset retire. A fully
@@ -810,11 +825,11 @@ or logs.
 The fixed web workflow is:
 
 ```text
-POST /p/<id>/api/v1/amazon-import/start
-POST /p/<id>/api/v1/amazon-import/<attempt-id>/files
-POST /p/<id>/api/v1/amazon-import/<attempt-id>/execute
-GET  /p/<id>/api/v1/amazon-import/<attempt-id>/status
-POST /p/<id>/api/v1/amazon-import/<attempt-id>/cancel
+POST <base-path>/api/v1/profiles/<profile-id>/amazon-import/start
+POST <base-path>/api/v1/profiles/<profile-id>/amazon-import/<attempt-id>/files
+POST <base-path>/api/v1/profiles/<profile-id>/amazon-import/<attempt-id>/execute
+GET  <base-path>/api/v1/profiles/<profile-id>/amazon-import/<attempt-id>/status
+POST <base-path>/api/v1/profiles/<profile-id>/amazon-import/<attempt-id>/cancel
 ```
 
 Start records settings and the optional clone source, returning an instance-bound attempt ID and
@@ -1024,6 +1039,8 @@ on every filesystem finishes within the CPU-planning ceiling.
 ### Reconciliation and storage tests
 
 - Reordered files, records, and directory enumeration produce identical canonical candidates.
+- Exact duplicate order observations across files deduplicate to the bytewise-lowest filename;
+  conflicting active or cancelled observations reject with `overlapping_order_conflict`.
 - Unit Price appearing or disappearing changes only the full fingerprint.
 - Status-only changes preserve stable IDs and update provider facts.
 - One unambiguous real-ASIN price correction and one whole-order ASIN-less label correction preserve
@@ -1031,8 +1048,10 @@ on every filesystem finishes within the CPU-planning ceiling.
 - Ambiguous unequal many-to-many rows retire and allocate rather than cross-pair.
 - An observed shrink retires unmatched rows; an absent order remains untouched.
 - Fully and partially cancelled observed orders retire the correct active rows.
-- Exact retired reappearance restores the original local ID; changed or new source identity gets a
-  fresh ID.
+- Exact retired reappearance restores the original local ID and user-owned account, merchant,
+  category, notes, and hidden state; changed or new source identity gets a fresh ID.
+- A later import using an existing ASIN-less key reuses its persisted product merchant while a
+  transaction-specific merchant override remains untouched.
 - An exact retired reappearance wins before an unequal active singleton candidate, preserving the
   active row's user-owned state and restoring the retired row's original local ID.
 - Retired transaction external identities and source facts survive restart.

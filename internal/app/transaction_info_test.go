@@ -110,6 +110,26 @@ func TestAmazonColumnRequiresEveryDetailRowToQualify(t *testing.T) {
 	}
 }
 
+func TestAmazonColumnQualificationIncludesRowsOutsideTheWindow(t *testing.T) {
+	first := matchingFinanceTransaction(t, "first", "Amazon", -1234)
+	second := matchingFinanceTransaction(t, "second", "Example Merchant", -1234)
+	date, err := domain.ParseDate("2026-08-19")
+	require.NoError(t, err)
+	second.Date = date
+	service, err := NewService([]domain.Transaction{first, second})
+	require.NoError(t, err)
+	configureMatchingSource(t, service, amazonSourceState(t, 1, "USD", 2, -1234))
+	state := DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, projection.DetailRows, 1)
+	assert.Equal(t, "first", projection.DetailRows[0].Identity)
+	assert.False(t, projection.AmazonMatchColumn)
+	assert.Nil(t, projection.DetailRows[0].AmazonMatch)
+}
+
 func TestAmazonProductSearchCombinesWithExistingFilters(t *testing.T) {
 	matching := matchingFinanceTransaction(t, "matching", "Amazon", -1234)
 	other := matchingFinanceTransaction(t, "other", "Amazon", -9900)

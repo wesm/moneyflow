@@ -20,12 +20,14 @@ func TestDuplicateOverlayFormattingIsBoundedAndComplete(t *testing.T) {
 	require.True(t, ok)
 	assertRectInside(t, region.Rect, 80, 24)
 	rendered := strings.Join(screen.Overlay, "\n")
-	assert.Contains(t, rendered, "1 duplicate group")
-	assert.Contains(t, rendered, "2 transactions")
+	assert.Contains(t, rendered, "Found 1 potential duplicates in 1 groups")
+	assert.Equal(t, 2, strings.Count(rendered, "#1"))
+	assert.Contains(t, rendered, "selected=0")
+	assert.Contains(t, rendered, "hidden=0")
 	assert.Contains(t, rendered, model.duplicates.projection.Groups[0].Rows[0].MatchingLabel)
-	assert.Contains(t, rendered, model.duplicates.projection.Groups[0].Rows[0].Transaction.Category.Name)
 	assert.Contains(t, rendered, model.duplicates.projection.Groups[0].Rows[0].Transaction.Account.Name)
 	assert.Contains(t, rendered, FormatAmount(model.duplicates.projection.Groups[0].Rows[0].Transaction.Amount))
+	assert.Contains(t, screen.Frame.RenderANSI(), "Catego")
 }
 
 func TestDuplicateActionBindingsAreImplemented(t *testing.T) {

@@ -1000,6 +1000,7 @@ func (shell Shell) startFinanceAmazonImport() (tea.Model, tea.Cmd) {
 	shell.selected = &entry
 	shell.screen = shellAmazonImport
 	shell.amazon, _ = newAmazonImportState()
+	shell.amazon.allowTaxonomy = false
 	shell.amazon.settings = amazon.Settings{Currency: settings.Currency, Scale: settings.Scale}
 	shell.amazon.currency.SetValue(string(settings.Currency))
 	shell.amazon.scale.SetValue(strconv.Itoa(int(settings.Scale)))
@@ -1198,9 +1199,12 @@ func (shell *Shell) Close() error {
 		shell.finance.cancelAndWaitExport()
 	}
 	err := shell.opened.close()
+	if err != nil {
+		return err
+	}
 	shell.opened = nil
 	shell.finance = nil
-	return err
+	return nil
 }
 
 func (shell *Shell) enterFinance(opened ShellOpenedProfile, session app.Session) error {

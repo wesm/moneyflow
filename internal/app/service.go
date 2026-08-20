@@ -4,6 +4,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/wesm/moneyflow/internal/analytics"
@@ -36,6 +37,7 @@ type Service struct {
 	providerBound         bool
 	providerState         store.ProviderState
 	profileKind           string
+	amazonSettings        *store.AmazonSettings
 	amazonMatcher         *AmazonMatchingService
 }
 
@@ -83,6 +85,8 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 	rawLabels := service.rawProviderMerchantLabelsLocked()
 	service.mu.RUnlock()
 	spec := session.QuerySpec()
+	pendingSpec := spec
+	pendingCommitted := committed
 	result, err := analytics.Query(transactions, spec)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
@@ -98,9 +102,11 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 		if err != nil {
 			return domain.QueryResult{}, fmt.Errorf("query Amazon product results: %w", err)
 		}
+		pendingSpec.Search = ""
+		pendingCommitted = transactionsWithIDs(committed, transactionIDs(transactions))
 	}
 	if persistent {
-		decorateLocalPending(&result, committed, transactions, spec, localPending)
+		decorateLocalPending(&result, pendingCommitted, transactions, pendingSpec, localPending)
 	}
 	selectedTransactions := make(map[string]bool, len(session.SelectedTransactionIDs))
 	for id := range session.SelectedTransactionIDs {
@@ -119,6 +125,27 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[identity]
 	}
 	return result.Clone(), nil
+}
+
+func transactionIDs(transactions []domain.Transaction) map[string]struct{} {
+	ids := make(map[string]struct{}, len(transactions))
+	for _, transaction := range transactions {
+		ids[transaction.ID] = struct{}{}
+	}
+	return ids
+}
+
+func transactionsWithIDs(
+	transactions []domain.Transaction,
+	ids map[string]struct{},
+) []domain.Transaction {
+	filtered := make([]domain.Transaction, 0, len(ids))
+	for _, transaction := range transactions {
+		if _, ok := ids[transaction.ID]; ok {
+			filtered = append(filtered, transaction)
+		}
+	}
+	return filtered
 }
 
 func amazonProductSearch(
@@ -142,17 +169,25 @@ func amazonProductSearch(
 	if err != nil {
 		return nil, err
 	}
+	candidates := make([]domain.Transaction, 0, len(base))
+	inputs := make([]AmazonMatchInput, 0, len(base))
 	for _, transaction := range base {
 		if _, ok := included[transaction.ID]; ok {
 			continue
 		}
-		matches, matchErr := matcher.ProductMatches(
-			ctx, transaction, rawLabels[transaction.Merchant.ID], spec.Search,
-		)
-		if matchErr != nil {
-			return nil, matchErr
-		}
-		if matches {
+		candidates = append(candidates, transaction)
+		inputs = append(inputs, AmazonMatchInput{
+			Transaction: transaction, RawProviderMerchantLabel: rawLabels[transaction.Merchant.ID],
+		})
+	}
+	matched, err := matcher.MatchBatch(ctx, inputs, 20)
+	if err != nil {
+		return nil, err
+	}
+	query := strings.ToLower(spec.Search)
+	for index, projection := range matched {
+		if amazonProjectionProductMatches(projection, query) {
+			transaction := candidates[index]
 			included[transaction.ID] = struct{}{}
 		}
 	}
@@ -163,6 +198,20 @@ func amazonProductSearch(
 		}
 	}
 	return result, nil
+}
+
+func amazonProjectionProductMatches(projection AmazonMatchProjection, loweredQuery string) bool {
+	if !projection.Qualified {
+		return false
+	}
+	for _, match := range projection.Result.Matches {
+		for _, item := range match.Items {
+			if strings.Contains(strings.ToLower(item.ProductName), loweredQuery) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func decorateLocalPending(

@@ -96,6 +96,19 @@ func TestWireProjectionIncludesServerDerivedViewMetadata(t *testing.T) {
 	assert.Equal(t, string(projection.State.Current.Sort.Direction), wire.View.SortDirection)
 }
 
+func TestWireProjectionCarriesAmazonSettingsWithoutSourceFacts(t *testing.T) {
+	projection := app.WebProjection{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(), ProfileKind: "amazon",
+		AmazonSettings: &app.AmazonProjectionSettings{Currency: "EUR", Scale: 2},
+	}
+
+	wire := projectionToWire(projection, "v=1", nil)
+
+	require.NotNil(t, wire.AmazonSettings)
+	assert.Equal(t, "EUR", wire.AmazonSettings.Currency)
+	assert.Equal(t, uint8(2), wire.AmazonSettings.Scale)
+}
+
 func TestWireCapabilitiesIncludeCategoriesAndUnavailableWebActions(t *testing.T) {
 	t.Parallel()
 

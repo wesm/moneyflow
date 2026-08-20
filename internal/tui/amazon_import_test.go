@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -97,6 +98,33 @@ func TestAmazonRepeatImportUsesInteractiveChooser(t *testing.T) {
 	assert.True(t, ok)
 	assert.False(t, model.provider.refreshing)
 	assert.Contains(t, model.actionDescription(app.ActionRefreshProvider), "Import Amazon")
+}
+
+func TestAmazonRepeatImportHidesFirstImportTaxonomyCloneField(t *testing.T) {
+	palette, err := PaletteFor(ThemeDefault, ColorModeNone)
+	require.NoError(t, err)
+	state, _ := newAmazonImportState()
+	state.phase = amazonImportSource
+	state.allowTaxonomy = false
+	shell := Shell{amazon: state, palette: palette}
+	frame := NewFrame(100, 30, Cell{})
+
+	shell.renderAmazonImport(&frame, Rect{Width: 100, Height: 30})
+
+	rendered := strings.Join(frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "Choose an Amazon order-history export directory")
+	assert.NotContains(t, rendered, "clone taxonomy")
+}
+
+func TestAmazonImportSettingsRejectMalformedCurrencyBeforeSourceStep(t *testing.T) {
+	for _, currency := range []string{"US1", "€"} {
+		state, _ := newAmazonImportState()
+		state.currency.SetValue(currency)
+
+		assert.False(t, state.settingsRequest(), currency)
+		assert.Equal(t, amazonImportSettings, state.phase)
+		assert.Contains(t, state.status, "three uppercase letters")
+	}
 }
 
 type fakeAmazonImports struct {

@@ -27,7 +27,7 @@ func TestAmazonImportCommandPresentsProgressAndNextStep(t *testing.T) {
 		ImportAmazon: func(_ context.Context, options AmazonCommandOptions, observe func(amazonimport.Progress)) (amazonimport.Snapshot, error) {
 			got = options
 			observe(amazonimport.Progress{Phase: "parsing", Completed: 2, Total: 3})
-			return amazonimport.Snapshot{State: amazonimport.StateComplete, Result: app.AmazonImportResult{Revision: 4, Inserted: 8, Updated: 2, Retired: 1}}, nil
+			return amazonimport.Snapshot{ProfileID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", State: amazonimport.StateComplete, Result: app.AmazonImportResult{Revision: 4, Inserted: 8, Updated: 2, Retired: 1}}, nil
 		},
 	})
 	command.SetArgs([]string{"provider", "import", "amazon", "/orders", "--profile", "Purchases", "--currency", "USD", "--scale", "2", "--clone-taxonomy-from", "Primary"})
@@ -39,7 +39,7 @@ func TestAmazonImportCommandPresentsProgressAndNextStep(t *testing.T) {
 	assert.True(t, got.SettingsConfigured)
 	assert.Equal(t, "Primary", got.CloneTaxonomyFrom)
 	assert.Contains(t, stderr.String(), "Parsed 2 of 3 files.")
-	assert.Equal(t, "Imported 8, updated 2, restored 0, retired 1 Amazon transactions.\nOpen it with: moneyflow tui --profile Purchases\n", stdout.String())
+	assert.Equal(t, "Imported 8, updated 2, restored 0, retired 1 Amazon transactions.\nOpen it with: moneyflow tui --profile profile_aaaaaaaaaaaaaaaaaaaaaaaaaa\n", stdout.String())
 }
 
 func TestAmazonImportCommandShowsActionableCoordinateOnlyToInitiator(t *testing.T) {
@@ -105,7 +105,7 @@ func TestAmazonImportCommandCreatesAndInstallsProfile(t *testing.T) {
 	require.NotNil(t, state.Settings)
 	assert.Equal(t, "USD", string(state.Settings.Currency))
 	assert.Len(t, state.Snapshot.Committed.Transactions, 1)
-	assert.Contains(t, stdout.String(), "moneyflow tui --profile Purchases")
+	assert.Contains(t, stdout.String(), "moneyflow tui --profile "+entry.ID)
 }
 
 func TestAmazonImportCommandPromptsForCreationSettings(t *testing.T) {

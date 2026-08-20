@@ -189,6 +189,28 @@ func TestExportDownloadCleansStageWhenTheClientDisconnects(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+func TestExportStreamReaderStopsBeforeReadingAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	underlying := &countingReader{data: []byte("private export")}
+	buffer := make([]byte, 32)
+
+	_, err := (&exportStreamReader{ctx: ctx, reader: underlying}).Read(buffer)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, underlying.reads)
+}
+
+type countingReader struct {
+	data  []byte
+	reads int
+}
+
+func (reader *countingReader) Read(buffer []byte) (int, error) {
+	reader.reads++
+	return copy(buffer, reader.data), io.EOF
+}
+
 type disconnectingResponseWriter struct {
 	header http.Header
 	status int
