@@ -754,8 +754,6 @@ cancel or failure before successful installation removes a newly created profile
 no durable state beyond that pristine shell and has no retained import stages. Atomic first import
 prevents a half-cloned or half-bound profile.
 
-### Cobra
-
 The command is:
 
 ```text
