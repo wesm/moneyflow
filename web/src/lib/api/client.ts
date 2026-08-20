@@ -22,6 +22,9 @@ export type ReviewTargetsBody = components['schemas']['ReviewTargetsBody']
 export type ReviewResponse = components['schemas']['ReviewResponse']
 export type DuplicateBody = components['schemas']['DuplicateBody']
 export type DuplicateResponse = components['schemas']['DuplicateResponse']
+export type ExportBody = components['schemas']['ExportBody']
+export type ExportPreviewBody = components['schemas']['ExportPreviewBody']
+export type ExportPreviewResponse = components['schemas']['ExportPreviewResponse']
 export type EditorCatalog = components['schemas']['EditorCatalogResponse']
 export type ProviderStatus = components['schemas']['ProviderStatusResponse']
 export type ProviderRefreshBody = components['schemas']['ProviderRefreshBody']
@@ -46,6 +49,8 @@ export interface MoneyflowClient {
   view(body: ViewBody, signal?: AbortSignal): Promise<ViewProjection>
   transition(body: TransitionBody, signal?: AbortSignal): Promise<ViewProjection>
   projectDuplicates(body: DuplicateBody, signal?: AbortSignal): Promise<DuplicateResponse>
+  previewExport(body: ExportPreviewBody, signal?: AbortSignal): Promise<ExportPreviewResponse>
+  downloadExport(body: ExportBody, signal?: AbortSignal): Promise<Response>
   providerStatus(signal?: AbortSignal): Promise<ProviderStatus>
   providerWriteStatus(signal?: AbortSignal): Promise<ProviderWriteStatus>
 }
@@ -227,6 +232,18 @@ export function createMoneyflowClient(
       if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
       throw new Error('The Moneyflow duplicate response is invalid.')
     },
+    async previewExport(body, signal) {
+      const result = await client.POST('/api/v1/profiles/{profile_id}/export/preview', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
+      if (isExportPreviewResponse(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow export preview response is invalid.')
+    },
+    async downloadExport(body, signal) {
+      return await mutations.request('api/v1/export', JSON.stringify(body), signal)
+    },
     async providerStatus(signal) {
       const result = await client.GET(
         '/api/v1/profiles/{profile_id}/provider/status',
@@ -278,6 +295,21 @@ function isDuplicateResponse(value: unknown): value is DuplicateResponse {
     typeof value.total_groups === 'number' &&
     typeof value.total_transactions === 'number' &&
     Array.isArray(value.groups)
+  )
+}
+
+function isExportPreviewResponse(value: unknown): value is ExportPreviewResponse {
+  if (!isRecord(value)) return false
+  return (
+    value.version === '2' &&
+    typeof value.revision === 'string' &&
+    Number.isSafeInteger(value.full_count) &&
+    Number.isSafeInteger(value.filtered_count) &&
+    Number.isSafeInteger(value.active_operations) &&
+    Number.isSafeInteger(value.inactive_operations) &&
+    typeof value.commit_available === 'boolean' &&
+    typeof value.temporary_profile === 'boolean' &&
+    typeof value.canonical_query === 'string'
   )
 }
 

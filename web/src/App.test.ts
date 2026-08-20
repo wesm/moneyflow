@@ -140,6 +140,7 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     } as ViewController['provider'],
     providerWrite: testProviderWriteController(),
     duplicates: {} as ViewController['duplicates'],
+    export: {} as ViewController['export'],
     hydrate: vi.fn(async () => undefined),
     recheck: vi.fn(async () => undefined),
     moveCursor: vi.fn(async () => undefined),

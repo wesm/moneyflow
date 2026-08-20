@@ -18,6 +18,7 @@ export type LocalAction =
   | 'edit.redo'
   | 'edit.review'
   | 'view.duplicates'
+  | 'transactions.export'
   | 'edit.delete'
   | 'provider.refresh'
 
@@ -99,6 +100,12 @@ const bindings = [
     combos: ['r'],
     local: true,
     localID: 'provider.refresh',
+  },
+  {
+    id: 'transactions.export',
+    display: 'E',
+    combos: ['shift+e'],
+    local: true,
   },
 ] as const
 

@@ -40,6 +40,72 @@ describe('Moneyflow generated client adapter', () => {
     )
   })
 
+  it('previews committed export counts without mutation transport', async () => {
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      expect(request.headers.get('X-Moneyflow-Mutation-Token')).toBeNull()
+      expect(await request.json()).toEqual({ version: '2', query: 'group=merchant&v=1' })
+      return Response.json({
+        version: '2',
+        revision: '4',
+        full_count: 12,
+        filtered_count: 3,
+        active_operations: 2,
+        inactive_operations: 1,
+        commit_available: true,
+        temporary_profile: false,
+        canonical_query: 'group=merchant&v=1',
+      })
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    await expect(
+      client.previewExport({ version: '2', query: 'group=merchant&v=1' }),
+    ).resolves.toMatchObject({ full_count: 12, filtered_count: 3 })
+    const sent = upstream.mock.calls[0]?.[0]
+    expect(sent instanceof Request ? sent.url : String(sent)).toContain(
+      `/moneyflow/api/v1/profiles/${profileID}/export/preview`,
+    )
+  })
+
+  it('returns the protected export response without decoding its body or headers', async () => {
+    document.head.innerHTML = '<meta name="moneyflow-mutation-token" content="catalog-token">'
+    const bytes = new Uint8Array([80, 65, 82, 49])
+    const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      if (request.url.endsWith(`/api/v1/profiles/${profileID}/bootstrap`)) {
+        return Response.json({
+          mutation_token: 'profile-token',
+          token_expires_at: '2099-01-01T00:00:00Z',
+        })
+      }
+      expect(request.headers.get('X-Moneyflow-Mutation-Token')).toBe('profile-token')
+      expect(await request.json()).toEqual({
+        version: '2',
+        format: 'parquet',
+        scope: 'full',
+        query: 'v=1',
+      })
+      return new Response(bytes, {
+        headers: {
+          'Content-Disposition': 'attachment; filename="moneyflow-export.parquet"',
+          'Content-Type': 'application/vnd.apache.parquet',
+        },
+      })
+    })
+    const client = createMoneyflowClient('/moneyflow/', profileID, upstream as typeof fetch)
+
+    const response = await client.downloadExport({
+      version: '2',
+      format: 'parquet',
+      scope: 'full',
+      query: 'v=1',
+    })
+
+    expect(response.headers.get('Content-Disposition')).toContain('moneyflow-export.parquet')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes)
+  })
+
   it('loads credential-blind provider write status beneath the profile path', async () => {
     const upstream = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       void input

@@ -23,6 +23,7 @@
   import PendingStatus from './editing/PendingStatus.svelte'
   import DeleteConfirmation from './editing/DeleteConfirmation.svelte'
   import DuplicateReview from './editing/DuplicateReview.svelte'
+  import ExportDialog from './editing/ExportDialog.svelte'
   import ProviderStatus from './ProviderStatus.svelte'
   import ReviewDrawer from './editing/ReviewDrawer.svelte'
   import WriteStatusDrawer from './editing/WriteStatusDrawer.svelte'
@@ -52,6 +53,7 @@
     | 'write'
     | 'duplicates'
     | 'delete'
+    | 'export'
   let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
@@ -78,6 +80,7 @@
     else if (action === 'edit.review') openOverlay('review')
     else if (action === 'view.duplicates') openOverlay('duplicates')
     else if (action === 'provider.refresh') void controller.provider.refresh()
+    else if (action === 'transactions.export') void beginExport()
     else if (action === 'edit.undo') void controller.editing.undo()
     else if (action === 'edit.redo') void controller.editing.redo()
     else if (action === 'edit.hide') {
@@ -97,6 +100,10 @@
         openOverlay('delete')
       }
     }
+  }
+  async function beginExport(): Promise<void> {
+    if (!projection) return
+    if (await controller.export.open(projection.canonical_query)) openOverlay('export')
   }
   function focusedRow(): { identity: string; kind: 'transaction' | 'aggregate' } | undefined {
     const row = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])].find(
@@ -254,6 +261,7 @@
     <p class="kit-sr-only" aria-live="polite">{controller.provider.state.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.providerWrite.state.announcement}</p>
     <p class="kit-sr-only" aria-live="polite">{controller.duplicates.state.announcement}</p>
+    <p class="kit-sr-only" aria-live="polite">{controller.export.state.announcement}</p>
     <StatusBar
       >{#snippet left()}<span
           >{projection.total_rows} results · <PendingStatus
@@ -305,6 +313,8 @@
       onconfirm={() => void confirmDirectDelete()}
       oncancel={closeOverlay}
     />
+  {:else if overlay === 'export'}
+    <ExportDialog controller={controller.export} onclose={closeOverlay} />
   {/if}
   {#if compact.current && chartDrawer}
     <DetailDrawer

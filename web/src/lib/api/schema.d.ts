@@ -141,6 +141,40 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/export': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Download one committed transaction export */
+    post: operations['downloadProfileExport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/export/preview': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Preview committed transaction export counts */
+    post: operations['previewProfileExport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/health': {
     parameters: {
       query?: never
@@ -681,6 +715,33 @@ export interface components {
        * @example https://example.com/errors/example
        */
       type: string
+    }
+    ExportBody: {
+      /** @enum {string} */
+      format: 'parquet' | 'csv' | 'sqlite'
+      query: string
+      /** @enum {string} */
+      scope: 'full' | 'filtered'
+      version: string
+    }
+    ExportPreviewBody: {
+      query: string
+      version: string
+    }
+    ExportPreviewResponse: {
+      /** Format: int64 */
+      active_operations: number
+      canonical_query: string
+      commit_available: boolean
+      /** Format: int64 */
+      filtered_count: number
+      /** Format: int64 */
+      full_count: number
+      /** Format: int64 */
+      inactive_operations: number
+      revision: string
+      temporary_profile: boolean
+      version: string
     }
     Flags: {
       hidden: boolean
@@ -1813,6 +1874,164 @@ export interface operations {
       }
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  downloadProfileExport: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ExportBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Timeout */
+      408: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  previewProfileExport: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ExportPreviewBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ExportPreviewResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
         headers: {
           [name: string]: unknown
         }

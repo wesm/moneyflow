@@ -10,6 +10,7 @@ import { SvelteMap } from 'svelte/reactivity'
 import { applicationURL, normalizeBrowserBasePath } from './base-path'
 import { createEditingController, type EditingController } from './editing'
 import { createDuplicateController, type DuplicateController } from './duplicates'
+import { createExportController, type ExportController } from './export'
 import { OwnedHistoryLedger, type MoneyflowHistoryState } from './history'
 import { createProviderController, type ProviderController } from './provider'
 import { createProviderWriteController, type ProviderWriteController } from './provider-write'
@@ -47,6 +48,7 @@ export interface ViewController {
   readonly problem: ControllerProblem | undefined
   readonly editing: EditingController
   readonly duplicates: DuplicateController
+  readonly export: ExportController
   readonly review: ReviewController
   readonly provider: ProviderController
   readonly providerWrite: ProviderWriteController
@@ -130,6 +132,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       recheck: recheckInternal,
     },
   })
+  const exportController = createExportController({ client: options.client })
   const review = createReviewController({
     transport: options.client.mutations,
     revision: () => editing.state.revision,
@@ -585,6 +588,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     },
     editing,
     duplicates,
+    export: exportController,
     review,
     provider,
     providerWrite,

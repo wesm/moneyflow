@@ -460,6 +460,12 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
     projectDuplicates: vi.fn(async () => {
       throw new Error('duplicate projection not stubbed')
     }),
+    previewExport: vi.fn(async () => {
+      throw new Error('export preview not stubbed')
+    }),
+    downloadExport: vi.fn(async () => {
+      throw new Error('export download not stubbed')
+    }),
     ...overrides,
   }
 }

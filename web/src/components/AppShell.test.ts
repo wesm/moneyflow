@@ -133,6 +133,37 @@ describe('AppShell', () => {
     expect(controller.provider.refresh).toHaveBeenCalledTimes(1)
   })
 
+  it('opens committed export with E and leaves view state unchanged when closed', async () => {
+    const controller = stubController()
+    const historyBefore = history.state
+    const urlBefore = location.href
+    render(AppShell, { controller })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+
+    await fireEvent.keyDown(window, { key: 'E', shiftKey: true })
+
+    expect(controller.export.open).toHaveBeenCalledWith('v=1')
+    expect(screen.getByRole('dialog', { name: 'Export transactions' })).not.toBeNull()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+    expect(location.href).toBe(urlBefore)
+    expect(history.state).toBe(historyBefore)
+    expect(controller.cursorIndex).toBe(0)
+    expect(controller.projection?.selection_count).toBe(0)
+  })
+
+  it('announces empty committed export without mounting the chooser', async () => {
+    const controller = stubController()
+    controller.export.state.announcement = 'No data to export.'
+    vi.mocked(controller.export.open).mockResolvedValue(false)
+    render(AppShell, { controller })
+
+    await fireEvent.keyDown(window, { key: 'E', shiftKey: true })
+
+    expect(screen.queryByRole('dialog', { name: 'Export transactions' })).toBeNull()
+    expect(screen.getByText('No data to export.')).not.toBeNull()
+  })
+
   it('opens an editor from the table and restores stable grid focus on cancel', async () => {
     const controller = stubController()
     render(AppShell, { controller })
@@ -228,6 +259,7 @@ function stubController(projection = testProjection()): ViewController {
           ['changes.redo', 'U'],
           ['changes.review', 'w'],
           ['provider.refresh', 'r'],
+          ['transactions.export', 'E'],
         ].map(([id, key_display]) => ({
           id: id!,
           key_display: key_display!,
@@ -266,6 +298,34 @@ function stubController(projection = testProjection()): ViewController {
       state: { phase: 'idle', announcement: '' },
       can: vi.fn(() => false),
     }),
+    export: {
+      state: {
+        phase: 'ready',
+        format: 'parquet',
+        scope: 'full',
+        count: 1,
+        announcement: '',
+        filename: undefined,
+        canCancel: true,
+        preview: {
+          version: '2',
+          revision: '1',
+          full_count: 1,
+          filtered_count: 1,
+          active_operations: 0,
+          inactive_operations: 0,
+          commit_available: true,
+          temporary_profile: false,
+          canonical_query: 'v=1',
+        },
+      },
+      open: vi.fn(async () => true),
+      close: vi.fn(),
+      setFormat: vi.fn(),
+      setScope: vi.fn(),
+      export: vi.fn(async () => true),
+      cancel: vi.fn(),
+    },
     duplicates: {
       state: {
         phase: 'ready',

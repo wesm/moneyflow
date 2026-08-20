@@ -318,6 +318,8 @@ function duplicateClient(): MoneyflowClient {
     view: vi.fn(),
     transition: vi.fn(),
     projectDuplicates: vi.fn(),
+    previewExport: vi.fn(),
+    downloadExport: vi.fn(),
     providerStatus: vi.fn(),
     providerWriteStatus: vi.fn(),
   }

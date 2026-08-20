@@ -462,6 +462,80 @@ components:
           format: uri
           type: string
       type: object
+    ExportBody:
+      additionalProperties: false
+      properties:
+        format:
+          enum:
+            - parquet
+            - csv
+            - sqlite
+          type: string
+        query:
+          maxLength: 65536
+          type: string
+        scope:
+          enum:
+            - full
+            - filtered
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - format
+        - scope
+        - query
+      type: object
+    ExportPreviewBody:
+      additionalProperties: false
+      properties:
+        query:
+          maxLength: 65536
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - query
+      type: object
+    ExportPreviewResponse:
+      additionalProperties: false
+      properties:
+        active_operations:
+          format: int64
+          type: integer
+        canonical_query:
+          type: string
+        commit_available:
+          type: boolean
+        filtered_count:
+          format: int64
+          type: integer
+        full_count:
+          format: int64
+          type: integer
+        inactive_operations:
+          format: int64
+          type: integer
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        temporary_profile:
+          type: boolean
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - full_count
+        - filtered_count
+        - active_operations
+        - inactive_operations
+        - commit_available
+        - temporary_profile
+        - canonical_query
+      type: object
     Flags:
       additionalProperties: false
       properties:
@@ -2205,6 +2279,120 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Load bounded active editor choices
+  /api/v1/profiles/{profile_id}/export:
+    post:
+      operationId: downloadProfileExport
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportBody"
+        required: true
+      responses:
+        "200":
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "408":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Timeout
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Download one committed transaction export
+  /api/v1/profiles/{profile_id}/export/preview:
+    post:
+      operationId: previewProfileExport
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportPreviewBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportPreviewResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Preview committed transaction export counts
   /api/v1/profiles/{profile_id}/health:
     get:
       operationId: health
