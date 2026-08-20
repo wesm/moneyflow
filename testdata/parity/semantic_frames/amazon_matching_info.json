@@ -1,0 +1,71 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    32,
+    55,
+    79,
+    95,
+    137
+  ],
+  "flags": [
+    ""
+  ],
+  "height": 30,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "amazon_matching_info",
+  "overlay": [
+    "Transaction Details"
+  ],
+  "regions": [
+    {
+      "height": 30,
+      "lines": [
+        "",
+        "",
+        "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
+        "\u2502                                                                    \u2502",
+        "\u2502 Matching Amazon Orders                                             \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500                                             \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Order: order-example*                                              \u2502",
+        "\u2502   Date: 2026-08-19 | From: amazon                                  \u2502",
+        "\u2502       Example Headphones: -12.34                                   \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502   Total: -12.34                                                    \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 ID:                                                                \u2502",
+        "\u2502   finance-amazon-1                                                 \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Date:                                                              \u2502",
+        "\u2502   2026-08-19                                                       \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Amount:                                                            \u2502",
+        "\u2502   -12.34                                                           \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Merchant:                                                          \u2502",
+        "\u2502   Amazon Marketplace                                               \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Merchant ID:                                                       \u2502",
+        "\u2502   merchant-amazon                                                  \u2502",
+        "\u2502                                                                    \u2502",
+        "\u2502 Category:                                                          \u2502"
+      ],
+      "name": "overlay",
+      "origin": {
+        "x": 14,
+        "y": 0
+      },
+      "width": 70
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "1 txns | In: +0.00 | Out: -12.34 | Net: -12.34",
+  "visible_row_ids": [
+    "finance-amazon-1"
+  ],
+  "width": 100
+}

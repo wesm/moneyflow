@@ -69,7 +69,10 @@ func TestVisualGoldens(t *testing.T) {
 					require.NoError(t, loadErr)
 					visualTransactions = loaded
 				}
-				service := visualGoldenService(t, visualTransactions, visual.durable)
+				service, _, amazonScenario := amazonParityService(t, visual.scenario, visualTransactions)
+				if !amazonScenario {
+					service = visualGoldenService(t, visualTransactions, visual.durable)
+				}
 				session, sessionErr := parity.SessionFromFrameInitial(visual.scenario.Initial)
 				require.NoError(t, sessionErr)
 				model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{

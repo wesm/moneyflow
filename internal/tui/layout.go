@@ -147,10 +147,12 @@ func (model Model) visibleTableRows(rows []TableRow) []TableRow {
 }
 
 func (model Model) displayBreadcrumb() string {
+	breadcrumb := ""
 	if model.session.Mode == domain.ResultModeDetail && len(model.session.Drilldowns) == 0 && model.session.SubGrouping == nil {
-		return "All Transactions"
+		breadcrumb = "All Transactions"
+	} else {
+		breadcrumb = model.session.Breadcrumb(model.result.DateRange)
 	}
-	breadcrumb := model.session.Breadcrumb(model.result.DateRange)
 	if model.session.Search != "" {
 		breadcrumb += " > Search: '" + model.session.Search + "'"
 	}
@@ -548,7 +550,7 @@ func (model Model) tableRows() []TableRow {
 			transaction := row.Transaction
 			amazonMatch := ""
 			if indicator := model.amazonMatches[transaction.ID]; indicator != nil {
-				amazonMatch = string(indicator.Confidence) + " · " + indicator.FirstProduct
+				amazonMatch = amazonMatchSummary(*indicator)
 			}
 			rows[index] = TableRow{
 				Identity: transaction.ID,
@@ -585,6 +587,17 @@ func (model Model) tableRows() []TableRow {
 		}
 	}
 	return rows
+}
+
+func amazonMatchSummary(indicator app.AmazonMatchIndicator) string {
+	prefix := "~"
+	if indicator.Confidence == "high" || indicator.Confidence == "medium" {
+		prefix = "✓"
+	}
+	if indicator.FirstProduct == "" {
+		return prefix
+	}
+	return prefix + " " + indicator.FirstProduct
 }
 
 func (model Model) visibleMode() domain.ResultMode {

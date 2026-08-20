@@ -57,13 +57,15 @@ func TestProfileDetailColumnsUseAmazonLabelsAndBoundedMatchColumn(t *testing.T) 
 	columns := ProfileDetailColumns(150, domain.SortSpec{}, "amazon", false)
 	assert.Equal(t, "Product", columns[1].Label)
 	assert.Equal(t, "Order", columns[3].Label)
+	assert.Equal(t, []int{1, 15, 77, 100, 122, 138}, ColumnStarts(columns))
 
 	matched := ProfileDetailColumns(150, domain.SortSpec{}, "monarch", true)
 	labels := make([]string, len(matched))
 	for index, column := range matched {
 		labels[index] = column.Label
 	}
-	assert.Contains(t, labels, "Amazon match")
+	assert.Contains(t, labels, "Amazon")
+	assert.Equal(t, []int{1, 15, 32, 55, 79, 95, 137}, ColumnStarts(matched))
 }
 
 func TestColumnsNeverEscapeNarrowPositiveWidth(t *testing.T) {

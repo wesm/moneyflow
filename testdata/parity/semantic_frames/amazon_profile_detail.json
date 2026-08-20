@@ -1,0 +1,87 @@
+{
+  "breadcrumb": "All Transactions",
+  "columns": [
+    1,
+    15,
+    77,
+    100,
+    122,
+    138
+  ],
+  "flags": [
+    ""
+  ],
+  "height": 50,
+  "hints": "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll",
+  "name": "amazon_profile_detail",
+  "overlay": [],
+  "regions": [
+    {
+      "height": 1,
+      "lines": [
+        "All Transactions"
+      ],
+      "name": "breadcrumb",
+      "origin": {
+        "x": 1,
+        "y": 1
+      },
+      "width": 102
+    },
+    {
+      "height": 1,
+      "lines": [
+        "1 txns | In: +0.00 | Out: -12.34 | Net: -12.34"
+      ],
+      "name": "stats",
+      "origin": {
+        "x": 103,
+        "y": 1
+      },
+      "width": 46
+    },
+    {
+      "height": 1,
+      "lines": [
+        " Date \u2193        Product                                                       Category               Order                     Amount ($)"
+      ],
+      "name": "table_header",
+      "origin": {
+        "x": 2,
+        "y": 3
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        " 2026-08-19    Example Headphones                                            Uncategorized          order-example                 -12.34"
+      ],
+      "name": "table_body",
+      "origin": {
+        "x": 2,
+        "y": 4
+      },
+      "width": 146
+    },
+    {
+      "height": 1,
+      "lines": [
+        "Esc/g=Group | m=\u270f\ufe0f Merchant | c=\u270f\ufe0f Category | h=Hide | x=Delete | Space=Select | Ctrl-A=SelectAll"
+      ],
+      "name": "hints",
+      "origin": {
+        "x": 1,
+        "y": 48
+      },
+      "width": 148
+    }
+  ],
+  "schema_version": 1,
+  "selection_ids": [],
+  "stats": "1 txns | In: +0.00 | Out: -12.34 | Net: -12.34",
+  "visible_row_ids": [
+    "amazon-source-1"
+  ],
+  "width": 150
+}

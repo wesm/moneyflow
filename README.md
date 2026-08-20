@@ -152,10 +152,40 @@ current view, cursor, or scroll position. The CLI reports authentication and imp
 bounded transaction counts, and a retained valid session after a failed import skips credential
 prompts entirely.
 
-This slice is read/import/refresh only. Edits are durable local intent, survive refresh and
-restart, and may be reviewed or undone, but `w` cannot commit them until the separate Monarch
-write-back slice lands. Moneyflow imports posted transactions only; pending provider rows are used
-for snapshot-integrity checks and do not enter the local profile.
+Monarch edits are durable local intent and survive refresh and restart. Press `w` to review and
+start the resumable provider write batch. Successful remote results are recorded item by item, and
+authentication, rate-limit, or reconciliation-required states remain recoverable across process
+restarts. Moneyflow imports posted transactions only; pending provider rows are used for
+snapshot-integrity checks and do not enter the local profile.
+
+### Amazon import preview
+
+The Go v2 application imports official Amazon `Retail.OrderHistory.*.csv` exports into the same
+profile catalog used by the TUI and web UI. Choose **Add profile**, select **Amazon**, confirm the
+currency and minor-unit scale, then choose the unzipped export directory. The advanced CLI path is:
+
+```bash
+./bin/moneyflow provider import amazon ~/Downloads/Your-Orders --profile "Amazon Orders"
+
+# Open the imported profile directly by its exact name or ID
+./bin/moneyflow tui --profile "Amazon Orders"
+```
+
+Press `r` in an Amazon profile to choose and import another export. Imports are user-initiated;
+there is no Amazon network connection or background refresh. Reimporting overlapping data updates
+provider facts while preserving stable local identities and user edits. Orders observed in the new
+export are reconciled authoritatively; orders absent because the export covers a different period
+are not deleted. Cancelled rows retire previously imported items from the same observed order.
+
+Amazon profiles support ordinary local editing, undo/redo, deletion, taxonomy management, and `w`
+commit without provider write-back. A one-time `--clone-taxonomy-from NAME_OR_ID` option copies the
+source profile's committed taxonomy when the Amazon profile is created. Each Amazon profile has one
+immutable currency/scale binding; exports containing a different currency are rejected atomically.
+
+Finance profiles automatically show a bounded **Amazon** match column when every visible row is an
+Amazon-like merchant. Press `i` for matched order details, or use `/` to search imported product
+names. Matching uses exact integer money, a seven-day window, and the Python-compatible exact,
+gift-card, and item passes across all compatible Amazon profiles.
 
 For a Caddy mount, preserve the request path and make `--external-url` use exactly the configured
 base path:
@@ -188,10 +218,10 @@ uses exact integer minor units, `synchronous=FULL`, and revision-checked atomic 
 session material is stored separately inside each profile directory with owner-only platform
 permissions. Monarch credentials live in that profile's separate owner-only `credentials.enc`
 vault protected by an account password using Argon2id and AES-256-GCM; generated verification codes
-are never persisted. The current preview intentionally has no provider write-back, built-in web
-authentication, export workflow, Python-state import, or schema migrations. If the install-only
-schema is incompatible, use the TUI recovery flow or move the complete profile directory aside;
-automatic migration begins only after the v2 format stabilizes.
+are never persisted. The current preview intentionally has no built-in web authentication,
+Python-state import, or schema migrations. If the install-only schema is incompatible, use the TUI
+recovery flow or move the complete profile directory aside; automatic migration begins only after
+the v2 format stabilizes.
 
 ---
 
@@ -242,8 +272,8 @@ Import and analyze your Amazon purchase history:
 
 1. Request "Your Orders" export from Amazon (Account Settings → Privacy)
 2. Download and unzip "Your Orders.zip"
-3. Import: `moneyflow amazon import ~/Downloads/"Your Orders"`
-4. Launch: `moneyflow amazon`
+3. Import: `moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"`
+4. Launch: `moneyflow tui --profile "Amazon Orders"` or `moneyflow web`
 
 See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
 

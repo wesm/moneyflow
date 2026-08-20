@@ -118,7 +118,11 @@ func writeColumn(frame *Frame, bounds Rect, y int, column Column, value string, 
 	if start+width > bounds.X+bounds.Width {
 		width = bounds.X + bounds.Width - start
 	}
-	value = Truncate(value, width)
+	if column.HardClip {
+		value = clipText(value, width)
+	} else {
+		value = Truncate(value, width)
+	}
 	padding := width - lipgloss.Width(value)
 	if padding < 0 {
 		padding = 0
@@ -129,6 +133,25 @@ func writeColumn(frame *Frame, bounds Rect, y int, column Column, value string, 
 		value += strings.Repeat(" ", padding)
 	}
 	frame.PutText(start, y, value, style)
+}
+
+func clipText(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
+		return value
+	}
+	var result strings.Builder
+	used := 0
+	for _, cluster := range graphemeClusters(value) {
+		if used+cluster.width > width {
+			break
+		}
+		result.WriteString(cluster.value)
+		used += cluster.width
+	}
+	return result.String()
 }
 
 func fillRect(frame *Frame, rect Rect, style Style) {

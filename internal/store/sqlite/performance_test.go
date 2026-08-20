@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 const editingPerformanceRows = 100_000
@@ -74,6 +76,55 @@ func TestBulkEditingPerformance100K(t *testing.T) {
 	_ = requireEditingDuration(t, "fold", func() (uint64, error) {
 		return profile.Fold(ctx, revision, plan)
 	})
+}
+
+func TestAmazonImport100KPerformance(t *testing.T) {
+	skipEditingPerformance(t)
+	ctx := context.Background()
+	paths := createPerformanceProfile(t)
+	profileStore, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	snapshot, err := profile.Load(ctx)
+	require.NoError(t, err)
+	transactions, err := snapshot.Committed.MaterializeTransactions()
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 20, 18, 0, 0, 0, time.UTC)
+
+	started := time.Now()
+	commit, err := profile.ApplyAmazonImport(ctx, store.AtomicAmazonImportRequest{
+		ImportID: "amazon-performance", StartedAt: now, ImportedAt: now,
+		CandidateDigest: strings.Repeat("a", 64),
+		ProposedCounts:  store.AmazonIDCounts{Sources: len(transactions)},
+	}, func(_ store.AmazonImportState, proposed store.ProposedAmazonIDs) (store.AmazonImportPlan, error) {
+		items := make([]store.AmazonOrderItem, len(transactions))
+		for index, transaction := range transactions {
+			items[index] = store.AmazonOrderItem{
+				LocalTransactionID: domain.EntityID(transaction.ID), SourceIdentity: proposed.SourceIdentities[index],
+				OrderID: "order-" + fmt.Sprint(index/4), ASIN: "ASIN-" + fmt.Sprint(index),
+				ProductName: transaction.Merchant.Name, OrderDate: transaction.Date,
+				Quantity: 1, AmountMinor: transaction.Amount.Minor,
+				Currency: transaction.Amount.Currency, Scale: transaction.Amount.Scale,
+				OrderStatus: "Closed", ShipmentStatus: "Delivered",
+				IdentityFingerprint: strings.Repeat("b", 64),
+				FullFingerprint:     strings.Repeat("c", 64),
+			}
+		}
+		return store.AmazonImportPlan{
+			Committed: snapshot.Committed.Clone(), Journal: []domain.Operation{},
+			KnownDrills: []domain.DrillIdentity{},
+			Settings:    &store.AmazonSettings{Currency: "USD", Scale: 2, CreatedAt: now},
+			Items:       items, History: store.AmazonImportHistory{
+				FileCount: 1, LogicalRecordCount: len(items), InsertedCount: len(items),
+			}, SemanticChange: true,
+		}, nil
+	})
+	duration := time.Since(started)
+	require.NoError(t, err)
+	require.True(t, commit.SemanticChange)
+	t.Logf("100k Amazon SQLite fold: %s", duration)
+	require.Less(t, duration, 10*time.Second)
 }
 
 func BenchmarkColdProfile100K(b *testing.B) {

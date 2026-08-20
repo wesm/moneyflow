@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "currencies": [{"code": "USD", "scale": 2}],
+  "transactions": [
+    {
+      "id": "amazon-source-1",
+      "provider_id": "amazon-source-1",
+      "provider": "amazon",
+      "account": {"id": "order-example", "name": "order-example"},
+      "date": "2026-08-19",
+      "merchant": {"id": "product-headphones", "name": "Example Headphones"},
+      "category": {"id": "category-uncategorized", "name": "Uncategorized", "group": "Uncategorized"},
+      "amount": "-12.34",
+      "currency": "USD",
+      "hidden": false,
+      "pending": false,
+      "notes": "",
+      "metadata": {
+        "amazon_order_id": "order-example",
+        "amazon_asin": "ASIN-EXAMPLE",
+        "amazon_product_name": "Example Headphones",
+        "amazon_quantity": "1",
+        "amazon_order_status": "Closed",
+        "amazon_shipment_status": "Delivered"
+      }
+    }
+  ]
+}

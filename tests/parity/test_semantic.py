@@ -57,6 +57,10 @@ def test_frame_scenarios_cover_required_states() -> None:
         "duplicates_delete_confirmation",
         "duplicates_delete_cancel",
         "duplicates_closed",
+        "amazon_profile_detail",
+        "amazon_finance_detail",
+        "amazon_product_search",
+        "amazon_matching_info",
     } == names
 
 
@@ -154,3 +158,21 @@ async def test_python_semantic_extractor_uses_isolated_fixture(tmp_path: Path) -
     ]
     assert frames["duplicates_delete_cancel"]["overlay"][0].startswith("🔍 Found 1")
     assert frames["duplicates_closed"]["overlay"] == []
+    amazon_source = "\n".join(
+        line for region in frames["amazon_profile_detail"]["regions"] for line in region["lines"]
+    )
+    assert "Product" in amazon_source
+    assert "Order" in amazon_source
+    assert "Example Headphones" in amazon_source
+    amazon_finance = "\n".join(
+        line for region in frames["amazon_finance_detail"]["regions"] for line in region["lines"]
+    )
+    assert "Amazon" in amazon_finance
+    assert "Example Headphones" in amazon_finance
+    assert frames["amazon_product_search"]["visible_row_ids"] == ["finance-amazon-1"]
+    assert frames["amazon_product_search"]["breadcrumb"].endswith("Search: 'headphones'")
+    amazon_info = "\n".join(
+        line for region in frames["amazon_matching_info"]["regions"] for line in region["lines"]
+    )
+    assert "Matching Amazon Orders" in amazon_info
+    assert "order-example" in amazon_info

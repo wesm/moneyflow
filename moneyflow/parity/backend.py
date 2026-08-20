@@ -11,8 +11,9 @@ from moneyflow.parity.fixture import FixtureDocument, load_document
 class FixtureBackend(FinanceBackend):
     """Serve one committed fixture without credentials, network, or user paths."""
 
-    def __init__(self, fixture_path: Path):
+    def __init__(self, fixture_path: Path, *, backend_type: str = "fixture"):
         self.document: FixtureDocument = load_document(fixture_path)
+        self.backend_type = backend_type
         self.transactions = [
             _transaction(value, self.document.currencies[value["currency"]])
             for value in self.document.transactions
@@ -83,11 +84,21 @@ class FixtureBackend(FinanceBackend):
         return True
 
     def get_backend_type(self) -> str:
-        return "fixture"
+        return self.backend_type
+
+    def get_display_labels(self) -> dict[str, str]:
+        if self.backend_type == "amazon":
+            return {"merchant": "Product", "account": "Order", "accounts": "Orders"}
+        return super().get_display_labels()
+
+    def get_column_config(self) -> dict[str, Any]:
+        if self.backend_type == "amazon":
+            return {"merchant_width_pct": 60, "account_width_pct": 20}
+        return super().get_column_config()
 
 
 def _transaction(value: dict[str, Any], scale: int) -> dict[str, Any]:
-    return {
+    transaction = {
         "id": value["id"],
         "provider_id": value["provider_id"],
         "provider": value["provider"],
@@ -109,6 +120,18 @@ def _transaction(value: dict[str, Any], scale: int) -> dict[str, Any]:
         "pending": value["pending"],
         "isRecurring": False,
     }
+    metadata = value.get("metadata", {})
+    for source, target in {
+        "amazon_order_id": "order_id",
+        "amazon_asin": "asin",
+        "amazon_product_name": "product_name",
+        "amazon_quantity": "quantity",
+        "amazon_order_status": "order_status",
+        "amazon_shipment_status": "shipment_status",
+    }.items():
+        if source in metadata:
+            transaction[target] = metadata[source]
+    return transaction
 
 
 def _categories(document: FixtureDocument) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

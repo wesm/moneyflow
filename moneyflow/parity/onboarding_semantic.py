@@ -102,6 +102,12 @@ async def extract_onboarding_frames(
             "monarch",
             account_id="monarch-example",
         )
+    if manager.get_account("amazon-example") is None:
+        manager.create_account(
+            "Amazon Orders",
+            "amazon",
+            account_id="amazon-example",
+        )
     frames: dict[str, dict[str, Any]] = {}
     for scenario in document["scenarios"]:
         host = _OnboardingHost(config_dir)

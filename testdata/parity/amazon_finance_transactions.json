@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "currencies": [{"code": "USD", "scale": 2}],
+  "transactions": [
+    {
+      "id": "finance-amazon-1",
+      "provider_id": "finance-amazon-1",
+      "provider": "fixture",
+      "account": {"id": "account-checking", "name": "Example Checking"},
+      "date": "2026-08-19",
+      "merchant": {"id": "merchant-amazon", "name": "Amazon Marketplace"},
+      "category": {"id": "category-shopping", "name": "Shopping", "group": "Shopping"},
+      "amount": "-12.34",
+      "currency": "USD",
+      "hidden": false,
+      "pending": false,
+      "notes": "",
+      "metadata": {}
+    }
+  ]
+}

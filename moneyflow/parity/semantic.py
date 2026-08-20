@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import sqlite3
 import tempfile
 from dataclasses import replace
 from datetime import date
@@ -19,7 +20,7 @@ from moneyflow.parity.backend import FixtureBackend
 from moneyflow.parity.fixture import synthetic_group_id
 from moneyflow.parity.logical import canonical_json
 from moneyflow.tui.app import MoneyflowApp
-from moneyflow.tui.backend_config import MONARCH_CONFIG
+from moneyflow.tui.backend_config import AMAZON_CONFIG, MONARCH_CONFIG
 from moneyflow.tui.keybindings import get_help_text
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -46,7 +47,7 @@ def load_scenarios(path: Path) -> dict[str, Any]:
         raise ValueError("load frame scenarios: scenarios are required")
     names: set[str] = set()
     required = {"name", "width", "height", "theme", "initial", "keys"}
-    allowed = required | {"fixture"}
+    allowed = required | {"fixture", "profile_kind"}
     for index, scenario in enumerate(scenarios):
         if (
             not isinstance(scenario, dict)
@@ -58,6 +59,12 @@ def load_scenarios(path: Path) -> dict[str, Any]:
             )
         ):
             raise ValueError(f"load frame scenarios: scenarios[{index}] is invalid")
+        if scenario.get("profile_kind", "fixture") not in {
+            "fixture",
+            "amazon",
+            "finance_with_amazon",
+        }:
+            raise ValueError(f"load frame scenarios: scenarios[{index}].profile_kind is invalid")
         name = scenario["name"]
         if not isinstance(name, str) or not name or name in names:
             raise ValueError(f"load frame scenarios: scenarios[{index}].name is invalid")
@@ -81,15 +88,25 @@ async def generate_frames(scenarios_path: Path, working_root: Path) -> dict[str,
         scenario_root = working_root / f"scenario-{index}"
         profile_root = scenario_root / "profile"
         profile_root.mkdir(parents=True)
+        _create_parity_amazon_database(scenario_root)
         fixture_path = REPOSITORY_ROOT / scenario.get("fixture", document["fixture"])
-        backend = FixtureBackend(fixture_path)
-        config = replace(MONARCH_CONFIG, backend_type="fixture", requires_auth=False)
+        profile_kind = scenario.get("profile_kind", "fixture")
+        backend = FixtureBackend(
+            fixture_path,
+            backend_type="amazon" if profile_kind == "amazon" else "fixture",
+        )
+        base_config = AMAZON_CONFIG if profile_kind == "amazon" else MONARCH_CONFIG
+        config = replace(
+            base_config,
+            backend_type="amazon" if profile_kind == "amazon" else "fixture",
+            requires_auth=False,
+        )
         app = MoneyflowApp(
             backend=backend,
             config=config,
             config_dir=str(scenario_root),
             profile_dir=profile_root,
-            backend_type="fixture",
+            backend_type="amazon" if profile_kind == "amazon" else "fixture",
             cache_path=None,
             theme_override=scenario["theme"],
         )
@@ -105,6 +122,41 @@ async def generate_frames(scenarios_path: Path, working_root: Path) -> dict[str,
                 await pilot.pause()
             frames[scenario["name"]] = _extract_frame(app, scenario, backend)
     return frames
+
+
+def _create_parity_amazon_database(config_dir: Path) -> None:
+    """Install one isolated synthetic order used by finance matching frames."""
+    profile_dir = config_dir / "profiles" / "amazon"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(profile_dir / "amazon.db") as connection:
+        connection.execute(
+            """
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                order_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                merchant TEXT NOT NULL,
+                amount REAL NOT NULL,
+                quantity INTEGER DEFAULT 1,
+                asin TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO transactions (id, order_id, date, merchant, amount, quantity, asin)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "amazon-parity-item",
+                "order-example",
+                "2026-08-19",
+                "Example Headphones",
+                -12.34,
+                1,
+                "ASIN-EXAMPLE",
+            ),
+        )
 
 
 def check_frames(generated: dict[str, dict[str, Any]], output_dir: Path) -> None:
@@ -158,7 +210,17 @@ def _apply_initial(app: MoneyflowApp, initial: dict[str, Any], backend: FixtureB
     state.sort_by = SortMode(initial["sort"]["field"])
     state.sort_direction = SortDirection(initial["sort"]["direction"])
     state.time_granularity = TimeGranularity(initial["time_granularity"])
-    state.search_query = initial.get("search", "")
+    search_query = initial.get("search", "")
+    if search_query:
+        amazon_match_ids = app.amazon_presentation.search_amazon_items_for_query(
+            search_query,
+            state.transactions_df,
+            state.start_date,
+            state.end_date,
+        )
+        state.set_search(search_query, amazon_match_ids)
+    else:
+        state.search_query = ""
     state.show_hidden = initial["show_hidden"]
     state.show_transfers = initial["show_transfers"]
     if raw_range := initial.get("date_range"):

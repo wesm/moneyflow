@@ -15,11 +15,12 @@ const (
 
 // Column is a deterministic table column and its absolute cell origin.
 type Column struct {
-	Key   string
-	Label string
-	Start int
-	Width int
-	Align Alignment
+	Key      string
+	Label    string
+	Start    int
+	Width    int
+	Align    Alignment
+	HardClip bool
 }
 
 // AggregateColumns returns stable aggregate columns fitted to the available width.
@@ -81,9 +82,18 @@ func ProfileDetailColumns(
 	}
 	widths := []int{12, 20, 21, 22, 14}
 	flexible := []int{1, 2, 3}
+	if profileKind == "amazon" {
+		// Match Python's source-profile emphasis: product names get most of the
+		// available line while order IDs stay secondary.
+		widths = []int{12, 60, 21, 20, 14}
+		flexible = []int{1, 2, 3}
+	}
 	if amazonMatchColumn {
-		columns = append(columns, Column{Key: "amazon_match", Label: "Amazon match"})
-		widths = append(widths, 22)
+		columns = append(columns, Column{Key: "amazon_match", Label: "Amazon"})
+		// Python reserves enough room for the matched product indicator and
+		// compensates by narrowing the merchant column.
+		widths = []int{12, 15, 21, 22, 14, 40}
+		columns[1].HardClip = true
 		flexible = append(flexible, 5)
 	}
 	columns = append(columns, Column{Key: "flags"})

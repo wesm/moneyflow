@@ -43,12 +43,20 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 		t.Run(scenario.Name, func(t *testing.T) {
 			scenarioService := service
 			profileRoot := ""
-			if scenario.Name == "export" {
+			scenarioTransactions := transactions
+			if scenario.Fixture != "" && scenario.Fixture != document.Fixture {
+				var fixtureErr error
+				scenarioTransactions, fixtureErr = fixture.Load(filepath.Join(root, scenario.Fixture))
+				require.NoError(t, fixtureErr)
+			}
+			if amazonService, amazonRoot, ok := amazonParityService(t, scenario, scenarioTransactions); ok {
+				scenarioService = amazonService
+				profileRoot = amazonRoot
+			} else if scenario.Name == "export" {
 				scenarioService = persistentService
 				profileRoot = paths.Root
 			} else if scenario.Fixture != "" && scenario.Fixture != document.Fixture {
-				scenarioTransactions, fixtureErr := fixture.Load(filepath.Join(root, scenario.Fixture))
-				require.NoError(t, fixtureErr)
+				var fixtureErr error
 				scenarioService, fixtureErr = app.NewService(scenarioTransactions)
 				require.NoError(t, fixtureErr)
 			}
@@ -73,6 +81,16 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 				root, "testdata", "parity", "semantic_frames", scenario.Name+".json",
 			))
 			require.NoError(t, loadErr)
+			if scenario.Name == "amazon_matching_info" {
+				requireAmazonInfoSemanticParity(t, want, got)
+				return
+			}
+			if scenario.ProfileKind == "amazon" {
+				// Amazon import allocates opaque local IDs. Python's source adapter uses
+				// the stable fixture ID; content and layout remain authoritative.
+				require.Len(t, got.VisibleRowIDs, len(want.VisibleRowIDs))
+				got.VisibleRowIDs = append([]string(nil), want.VisibleRowIDs...)
+			}
 			if scenario.Fixture == "testdata/fixtures/duplicate_transactions.json" {
 				// Textual and Bubble Tea use different duplicate-overlay chrome. Keep row
 				// identities, selection, flags, breadcrumbs, stats, and hints under comparison.
@@ -87,6 +105,31 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 			}
 		})
 	}
+}
+
+func requireAmazonInfoSemanticParity(t testing.TB, want parity.SemanticFrame, got parity.SemanticFrame) {
+	t.Helper()
+	require.Equal(t, want.Name, got.Name)
+	require.Equal(t, want.Width, got.Width)
+	require.Equal(t, want.Height, got.Height)
+	wantText := semanticFrameText(want)
+	gotText := semanticFrameText(got)
+	for _, token := range []string{
+		"Amazon Marketplace", "Example Headphones", "order-example", "-12.34",
+	} {
+		require.Contains(t, wantText, token, "Python transaction-info characterization lost %q", token)
+		require.Contains(t, gotText, token, "Go transaction-info projection lost %q", token)
+	}
+	require.Contains(t, wantText, "Matching Amazon Orders")
+	require.Contains(t, gotText, "Amazon matches")
+}
+
+func semanticFrameText(frame parity.SemanticFrame) string {
+	parts := append([]string(nil), frame.Overlay...)
+	for _, region := range frame.Regions {
+		parts = append(parts, region.Lines...)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func withoutNamedGoTransactionInfoHint(frame parity.SemanticFrame) parity.SemanticFrame {

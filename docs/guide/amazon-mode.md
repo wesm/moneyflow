@@ -38,55 +38,43 @@ The directory will contain files like:
 
 ```bash
 # Import from the unzipped directory
-moneyflow amazon import ~/Downloads/"Your Orders"
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"
 ```
 
 The import will:
 
 - Scan for all Retail.OrderHistory CSV files
-- Parse and validate order data
-- Assign categories automatically using built-in category mappings
-- Detect and skip duplicates
-- Skip cancelled orders
-- Store everything in SQLite
+- Parse and validate the complete candidate before changing the profile
+- Reconcile repeated and corrected rows under stable local identities
+- Preserve existing user categories and assign new purchases to Uncategorized
+- Treat cancelled rows as authoritative observations that can retire earlier items
+- Store the item ledger and ordinary Moneyflow transactions in one Go v2 SQLite profile
 
-### 3. Check Import Status
+When creating a profile, omit `--currency USD --scale 2` to confirm those defaults interactively.
+For a different currency, provide both flags. A profile's currency and scale are immutable after
+its first successful import.
 
-```bash
-# View database statistics
-moneyflow amazon status
-```
+Use `--clone-taxonomy-from NAME_OR_ID` only on the first import to copy another profile's committed
+taxonomy. The copy is point-in-time; later taxonomy changes do not synchronize across profiles.
 
-This shows:
-
-- Total transactions imported
-- Date range of purchases
-- Total amount spent
-- Number of unique items and categories
-- Import history
-
-### 4. Launch the UI
-
-You can access Amazon mode in two ways:
-
-#### Option 1: Account Selector (Recommended)
+### 3. Open the Profile
 
 ```bash
-# Launch moneyflow normally
-moneyflow
+# Open by exact profile name or opaque profile ID
+moneyflow tui --profile "Amazon Orders"
 ```
 
-After importing, Amazon will appear in the account selector alongside your other accounts (Monarch Money, YNAB,
-etc.). Select it with arrow keys or click.
+You can also run `moneyflow tui` or `moneyflow web`, choose **Add profile**, and complete the Amazon
+source chooser. Existing Amazon profiles appear in the shared profile selector.
 
-#### Option 2: Direct CLI Command
+Press ++r++ inside an Amazon profile to choose another export directory. Amazon imports are always
+user-initiated: there is no background refresh, reconnect state, or Amazon credential storage.
 
-```bash
-# Open Amazon mode directly
-moneyflow amazon
-```
+### 4. Edit and Commit Locally
 
-Both methods use the same keyboard-driven interface and features.
+Amazon profiles use Moneyflow's ordinary local journal. Merchant/category edits, hide toggles,
+deletions, category and group management, undo/redo, and ++w++ commit never call Amazon. Pressing
+++r++ is the only import action.
 
 ## CSV Format
 
@@ -102,40 +90,36 @@ Files named: `Retail.OrderHistory.*.csv`
 - **Order ID**: Amazon order identifier
 - **Order Date**: ISO timestamp (e.g., "2025-10-13T22:08:07Z")
 - **Product Name**: Item description/title
-- **Quantity**: Number of items ordered
+- **Quantity**: Number of items ordered; a blank value is treated as 1 for older exports
 - **Total Owed**: Final amount paid (after tax)
-- **Unit Price**: Item price before tax
+- **Unit Price**: Optional item price before tax
+- **Currency**: Optional currency code, validated against the profile binding when present
 - **Order Status**: "Closed", "New", "Cancelled", etc.
 - **Shipment Status**: "Shipped", "Delivered", etc.
 
 ### Category Assignment
 
-Categories are automatically assigned using moneyflow's built-in category mappings. You can edit categories in the UI
-after import.
+New purchases start in Uncategorized. You can edit them locally after import, or clone another
+profile's committed taxonomy during Amazon profile creation.
+
+One Amazon profile supports one currency. A candidate containing conflicting currency codes is
+rejected atomically; use separate profiles for multi-currency histories.
 
 ## Features
 
 ### Automatic Deduplication
 
-Transactions are deduplicated based on a unique ID generated from:
-
-- ASIN (or product name hash if ASIN missing)
-- Order ID
-
-This means you can safely re-import the same directory multiple times - duplicates will be automatically
-skipped.
+Moneyflow reconciles order-local multisets using order ID, ASIN or an ASIN-less key, date, product,
+quantity, exact minor-unit amount, and currency. Stable local IDs preserve user edits across status
+changes and unambiguous corrections.
 
 ```bash
 # First import
-moneyflow amazon import ~/Downloads/"Your Orders"
-# Output: Imported 100 new transactions
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"
 
 # Re-import (safe!)
-moneyflow amazon import ~/Downloads/"Your Orders"
-# Output: Skipped 100 duplicates, Imported 0 new transactions
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"
 ```
-
-Cancelled orders are automatically skipped during import.
 
 ### Transaction Linking
 
@@ -194,7 +178,7 @@ transactions where you purchased Kindle-related items, even if the merchant show
 
 **Requirements:**
 
-- Import your Amazon purchase history first (`moneyflow amazon import`)
+- Import your Amazon purchase history first (`moneyflow provider import amazon`)
 - Transaction must have "amazon" or "amzn" in the merchant name
 - Amount and date must be within tolerance (7 days)
 
@@ -207,8 +191,8 @@ Amazon mode supports incremental imports, preserving any manual edits you've mad
 1. Import initial data export
 2. Edit categories and item names in the UI
 3. Request and import a fresh data export from Amazon (with new purchases)
-4. Only new orders are added - your edits are preserved
-5. Use `--force` flag to re-import and overwrite existing transactions if needed
+4. Overlapping rows update provider facts while stable local IDs preserve your edits
+5. Orders present in the new export reconcile authoritatively; orders outside its period remain
 
 ### Database Location
 
@@ -217,23 +201,10 @@ Amazon mode supports incremental imports, preserving any manual edits you've mad
 Amazon data is stored in your profile directory:
 
 ```text
-~/.moneyflow/profiles/amazon/amazon.db
+~/.moneyflow/v2/profiles/<profile-id>/moneyflow.db
 ```
 
 This integrates Amazon with your other accounts and allows selection from the account picker.
-
-**Custom Database Location**:
-
-You can use a custom location with the `--db-path` flag:
-
-```bash
-# Use custom database
-moneyflow amazon --db-path ~/Documents/amazon-purchases.db
-
-# All commands support --db-path
-moneyflow amazon --db-path ~/custom.db import ~/Downloads/"Your Orders"
-moneyflow amazon --db-path ~/custom.db status
-```
 
 ## UI Navigation
 
@@ -263,25 +234,25 @@ All navigation, editing, and search shortcuts work identically.
 2. Point to the unzipped directory (not individual CSV files)
 3. The directory should contain folders like `Retail.OrderHistory.1/`
 
-### "Amazon database is empty" when launching
+### Amazon profile is empty when launching
 
 **Cause**: No data has been imported yet.
 
 **Solution**: Import your data first:
 
 ```bash
-moneyflow amazon import ~/Downloads/"Your Orders"
+moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"
 ```
 
-### Import shows "0 new transactions"
+### Import reports no inserted or updated transactions
 
 **Cause**: All transactions already exist in the database.
 
 **Solution**:
 
 - This is expected if you're re-importing the same data
-- Use `--force` flag to re-import: `moneyflow amazon import --force ~/Downloads/"Your Orders"`
-- Or delete the database and start fresh: `rm ~/.moneyflow/profiles/amazon/amazon.db`
+- No-op imports append counts-only history without changing the profile revision
+- Use the profile selector's explicit recovery flow only for an incompatible preview schema
 
 ### Missing ASIN for some items
 
@@ -292,9 +263,9 @@ affect functionality.
 
 ## Tips
 
-- **Check status often**: Use `moneyflow amazon status` to verify imports
-- **Safe to experiment**: Edits are local only, delete the database to reset
-- **Use custom paths**: Keep different analyses separate with `--db-path`
+- **Review CLI counts**: Each import reports inserted, updated, restored, and retired rows
+- **Safe to edit**: Amazon edits and commits are local only
+- **Use separate profiles**: Keep different currencies or analyses in distinct catalog profiles
 - **Re-import periodically**: Request fresh exports from Amazon to get new orders
 - **Filter by status**: Use order status and shipment status to find specific orders
 

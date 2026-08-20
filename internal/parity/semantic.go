@@ -26,13 +26,14 @@ type FrameScenarioDocument struct {
 
 // FrameScenario contains one initial session and terminal key sequence.
 type FrameScenario struct {
-	Name    string       `json:"name"`
-	Width   int          `json:"width"`
-	Height  int          `json:"height"`
-	Theme   string       `json:"theme"`
-	Fixture string       `json:"fixture,omitempty"`
-	Initial FrameInitial `json:"initial"`
-	Keys    []string     `json:"keys"`
+	Name        string       `json:"name"`
+	Width       int          `json:"width"`
+	Height      int          `json:"height"`
+	Theme       string       `json:"theme"`
+	Fixture     string       `json:"fixture,omitempty"`
+	ProfileKind string       `json:"profile_kind,omitempty"`
+	Initial     FrameInitial `json:"initial"`
+	Keys        []string     `json:"keys"`
 }
 
 // FrameInitial is the serializable renderer-neutral starting state.
@@ -103,6 +104,13 @@ func LoadFrameScenarios(path string) (FrameScenarioDocument, error) {
 		}
 		if _, exists := seen[scenario.Name]; exists {
 			return FrameScenarioDocument{}, fmt.Errorf("load frame scenarios: duplicate name %q", scenario.Name)
+		}
+		switch scenario.ProfileKind {
+		case "", "fixture", "amazon", "finance_with_amazon":
+		default:
+			return FrameScenarioDocument{}, fmt.Errorf(
+				"load frame scenarios: scenarios[%d].profile_kind is invalid", index,
+			)
 		}
 		seen[scenario.Name] = struct{}{}
 		if err := queryForInitial(scenario.Initial).Validate(); err != nil {
