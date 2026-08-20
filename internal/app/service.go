@@ -34,6 +34,7 @@ type Service struct {
 	providerRuntime       *providerRuntimeState
 	providerBound         bool
 	providerState         store.ProviderState
+	profileKind           string
 }
 
 // NewService validates and defensively copies the normalized transaction set.

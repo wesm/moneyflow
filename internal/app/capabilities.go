@@ -88,6 +88,7 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 	service.mu.RLock()
 	bound := service.providerBound
 	configured := service.providerRuntime != nil
+	profileKind := service.profileKind
 	providerState := cloneProviderState(service.providerState)
 	service.mu.RUnlock()
 	if bound && providerState.Binding != nil && providerState.Binding.Kind == "monarch" {
@@ -96,6 +97,9 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 	}
 	refresh := Capability{Action: ActionRefreshProvider, Available: bound && configured}
 	switch {
+	case profileKind == amazonProvider:
+		refresh.Available = true
+		refresh.Reason = ""
 	case !bound:
 		refresh.Reason = "Connect a provider before refreshing."
 	case !configured:

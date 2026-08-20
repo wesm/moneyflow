@@ -613,7 +613,9 @@ func (profile *memoryProfile) ApplyProviderRefresh(
 }
 
 func (profile *memoryProfile) LoadAmazonState(context.Context) (store.AmazonImportState, error) {
-	return store.AmazonImportState{}, errors.New("not implemented")
+	profile.mu.Lock()
+	defer profile.mu.Unlock()
+	return store.AmazonImportState{Snapshot: profile.snapshot.Clone()}, nil
 }
 
 func (profile *memoryProfile) ApplyAmazonImport(

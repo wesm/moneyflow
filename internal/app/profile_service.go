@@ -109,6 +109,16 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	if err != nil {
 		return mapAppError(err, loaded.Revision)
 	}
+	amazonState, err := service.profile.LoadAmazonState(ctx)
+	if err != nil {
+		return mapAppError(err, loaded.Revision)
+	}
+	profileKind := "local"
+	if providerState.Binding != nil {
+		profileKind = providerState.Binding.Kind
+	} else if amazonState.Settings != nil {
+		profileKind = amazonProvider
+	}
 	service.mu.Lock()
 	service.snapshot = cloneEffectiveSnapshot(replayed)
 	service.transactions = transactions
@@ -116,6 +126,7 @@ func (service *Service) reloadLocked(ctx context.Context) error {
 	service.localPending = localPending
 	service.providerBound = providerState.Binding != nil
 	service.providerState = cloneProviderState(providerState)
+	service.profileKind = profileKind
 	service.mu.Unlock()
 	return nil
 }
