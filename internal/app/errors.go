@@ -24,6 +24,9 @@ const (
 	AppSchemaIncompatible                   AppErrorCode = "schema_incompatible"
 	AppStoreCorrupt                         AppErrorCode = "store_corrupt"
 	AppJournalFull                          AppErrorCode = "journal_full"
+	AppExportInvalid                        AppErrorCode = "export_invalid"
+	AppExportEmpty                          AppErrorCode = "export_empty"
+	AppExportFailed                         AppErrorCode = "export_failed"
 	AppProviderReconnectRequired            AppErrorCode = "provider_reconnect_required"
 	AppProviderIdentityMismatch             AppErrorCode = "provider_identity_mismatch"
 	AppProviderSnapshotUnstable             AppErrorCode = "provider_snapshot_unstable"
@@ -53,6 +56,9 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppSchemaIncompatible:                   "The profile format is not supported.",
 	AppStoreCorrupt:                         "The profile is corrupt and cannot be opened.",
 	AppJournalFull:                          "The pending edit limit is reached. Review or undo existing edits.",
+	AppExportInvalid:                        "The export request is invalid.",
+	AppExportEmpty:                          "No committed transactions are available to export.",
+	AppExportFailed:                         "The export could not be created.",
 	AppProviderReconnectRequired:            "Reconnect the provider through the command line.",
 	AppProviderIdentityMismatch:             "The provider profile does not match this local profile.",
 	AppProviderSnapshotUnstable:             "The provider returned inconsistent data after three attempts. No financial data changed. Retry once; if it repeats, report the progress counts.",

@@ -21,6 +21,7 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
 	initial := capabilitiesByAction(service.Capabilities())
+	assert.True(t, initial[app.ActionExport].Available)
 	assert.True(t, initial[app.ActionFindDuplicates].Available)
 	assert.True(t, initial[app.ActionEditMerchant].Available)
 	assert.False(t, initial[app.ActionUndo].Available)
@@ -47,6 +48,22 @@ func TestCapabilitiesTrackUndoRedoAndPendingReview(t *testing.T) {
 	assert.False(t, afterUndo[app.ActionUndo].Available)
 	assert.True(t, afterUndo[app.ActionRedo].Available)
 	assert.True(t, afterUndo[app.ActionReviewChanges].Available)
+}
+
+func TestExportCapabilityRemainsAvailableDuringProviderWrite(t *testing.T) {
+	t.Parallel()
+
+	profile := &exportProviderProfile{
+		memoryProfile: newMemoryProfile(t, 5),
+		providerState: store.ProviderState{Write: &store.WriteBatchStatus{
+			Phase: store.WritePhaseWriting,
+		}},
+	}
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+
+	capabilities := capabilitiesByAction(service.Capabilities())
+	assert.True(t, capabilities[app.ActionExport].Available)
 }
 
 func TestDeleteCapabilityRequiresDetailState(t *testing.T) {

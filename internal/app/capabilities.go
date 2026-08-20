@@ -45,6 +45,7 @@ func (service *Service) Pending() PendingSummary {
 
 func capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Capability {
 	result := []Capability{
+		{Action: ActionExport, Available: true},
 		{Action: ActionFindDuplicates, Available: true},
 		{Action: ActionEditMerchant, Available: true},
 		{Action: ActionEditCategory, Available: true},

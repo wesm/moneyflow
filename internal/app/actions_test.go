@@ -49,7 +49,7 @@ func TestActionRegistryMatchesReadOnlyContract(t *testing.T) {
 		{app.ActionOpenFilters, []string{"f"}, "f", "Show filter options", "Filters", app.ScopeOverlay, true, true},
 		{app.ActionOpenSearch, []string{"/"}, "/", "Search transactions", "Filters", app.ScopeOverlay, true, true},
 		{app.ActionReviewChanges, []string{"w"}, "w", "Review and commit pending changes", "System", app.ScopeOverlay, false, true},
-		{app.ActionExport, []string{"E"}, "E", "Export transactions", "System", app.ScopeOverlay, false, true},
+		{app.ActionExport, []string{"E"}, "E", "Export transactions", "System", app.ScopeOverlay, true, true},
 		{app.ActionUndo, []string{"u"}, "u", "Undo most recent pending edit", "System", app.ScopeAnalytical, false, true},
 		{app.ActionRedo, []string{"U"}, "U", "Redo most recent undone edit", "System", app.ScopeAnalytical, false, true},
 		{app.ActionRefreshProvider, []string{"r"}, "r", "Refresh provider data", "System", app.ScopeAnalytical, false, true},
@@ -89,6 +89,16 @@ func TestEditingActionsReserveRedoWithoutChangingExistingKeys(t *testing.T) {
 		assert.Equal(t, []string{keyName}, definition.Keys)
 		assert.False(t, definition.Implemented)
 	}
+}
+
+func TestExportActionIsImplementedForBothRenderers(t *testing.T) {
+	t.Parallel()
+
+	definition, ok := app.ActionByID(app.ActionExport)
+	require.True(t, ok)
+	assert.True(t, definition.Implemented)
+	assert.True(t, definition.Web)
+	assert.Equal(t, []string{"E"}, definition.Keys)
 }
 
 func TestActionRegistryIsUniqueAndDefensivelyCopied(t *testing.T) {
