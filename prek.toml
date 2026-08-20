@@ -9,8 +9,8 @@ hooks = [
   { id = "detect-private-key" },
   { id = "no-commit-to-branch" },
   { id = "check-added-large-files", args = ["--maxkb=1024"] },
-  { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"], exclude = "^internal/web/dist/" },
-  { id = "end-of-file-fixer", exclude = "^internal/web/dist/" },
+  { id = "trailing-whitespace", args = ["--markdown-linebreak-ext=md"] },
+  { id = "end-of-file-fixer" },
   { id = "check-json" },
   { id = "check-toml" },
   { id = "check-yaml" },
@@ -90,7 +90,9 @@ hooks = [
     stages = ["pre-push"],
     types_or = ["go", "go-mod", "go-sum"],
     pass_filenames = false,
-    priority = 20,
+    # Both Go hooks generate ignored web assets. Run lint after vet so their
+    # destructive embed steps never race on the same output directories.
+    priority = 30,
   },
 ]
 
