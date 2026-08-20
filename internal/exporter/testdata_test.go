@@ -9,7 +9,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-func testDocument(t *testing.T) app.ExportDocument {
+func testDocument(t testing.TB) app.ExportDocument {
 	t.Helper()
 	first, err := domain.ParseDate("2026-08-18")
 	require.NoError(t, err)

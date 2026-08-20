@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-go-quick test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-export test-go-quick test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -24,6 +24,10 @@ test: web-embed
 
 test-go-quick: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test -short $(GOFLAGS_TEST) ./...
+
+test-export:
+	go test ./internal/exporter -count=1
+	uv run pytest tests/parity/test_go_export.py -v
 
 test-store:
 	go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|ProviderRefresh100KPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1

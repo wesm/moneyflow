@@ -322,8 +322,15 @@ func encodeStage(
 		defer func() { _ = file.Close() }()
 		return file.Sync()
 	case FormatParquet:
-		_ = stage.Close()
-		return errors.New("parquet export is not installed")
+		if err := WriteParquet(stage, document); err != nil {
+			_ = stage.Close()
+			return err
+		}
+		if err := stage.Sync(); err != nil {
+			_ = stage.Close()
+			return err
+		}
+		return stage.Close()
 	default:
 		_ = stage.Close()
 		return errors.New("export format is invalid")
