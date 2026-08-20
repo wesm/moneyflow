@@ -46,6 +46,24 @@ func TestProviderConnectLockIsIndependentAndExclusive(t *testing.T) {
 	assert.FileExists(t, filepath.Join(root, "provider-connect.lock"))
 }
 
+func TestExportLockIsIndependentExclusiveAndSequential(t *testing.T) {
+	root := t.TempDir()
+	profile, err := TryLock(root, LockProfile, LockShared)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Release()) })
+
+	export, err := TryLockExisting(root, LockExport, LockExclusive)
+	require.NoError(t, err)
+	_, err = TryLockExisting(root, LockExport, LockExclusive)
+	assert.ErrorIs(t, err, ErrLockBusy)
+	require.NoError(t, export.Release())
+
+	export, err = TryLockExisting(root, LockExport, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, export.Release())
+	assert.FileExists(t, filepath.Join(root, "export.lock"))
+}
+
 func TestCatalogLockRejectsInvalidNameAndMode(t *testing.T) {
 	root := t.TempDir()
 	_, err := TryLock(root, LockName(99), LockExclusive)
@@ -110,13 +128,45 @@ func TestLockReleasedWhenProcessDies(t *testing.T) {
 	require.NoError(t, lock.Release())
 }
 
+func TestExportLockReleasedWhenProcessDies(t *testing.T) {
+	root := t.TempDir()
+	command := lockHelperCommandForName(t, root, "hold", "export")
+	stdin, err := command.StdinPipe()
+	require.NoError(t, err)
+	stdout, err := command.StdoutPipe()
+	require.NoError(t, err)
+	command.Stderr = os.Stderr
+	require.NoError(t, command.Start())
+
+	reader := bufio.NewReader(stdout)
+	line, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "locked\n", line)
+	_, err = TryLockExisting(root, LockExport, LockExclusive)
+	require.ErrorIs(t, err, ErrLockBusy)
+
+	require.NoError(t, command.Process.Kill())
+	require.NoError(t, stdin.Close())
+	err = command.Wait()
+	var exitError *exec.ExitError
+	require.True(t, errors.As(err, &exitError))
+
+	lock, err := TryLockExisting(root, LockExport, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+}
+
 func TestLockHelperProcess(t *testing.T) {
 	if os.Getenv(lockHelperEnvironment) == "" {
 		t.Skip("helper process")
 	}
 	root := os.Getenv("MONEYFLOW_HOME_LOCK_ROOT")
 	action := os.Getenv("MONEYFLOW_HOME_LOCK_ACTION")
-	lock, err := TryLock(root, LockProfile, LockExclusive)
+	name := LockProfile
+	if os.Getenv("MONEYFLOW_HOME_LOCK_NAME") == "export" {
+		name = LockExport
+	}
+	lock, err := TryLock(root, name, LockExclusive)
 	if errors.Is(err, ErrLockBusy) {
 		_, _ = os.Stdout.WriteString("busy\n")
 		return
@@ -133,6 +183,10 @@ func TestLockHelperProcess(t *testing.T) {
 }
 
 func lockHelperCommand(t *testing.T, root string, action string) *exec.Cmd {
+	return lockHelperCommandForName(t, root, action, "profile")
+}
+
+func lockHelperCommandForName(t *testing.T, root string, action string, name string) *exec.Cmd {
 	t.Helper()
 	command := exec.Command( //nolint:gosec // Re-execute this fixed test binary and test name.
 		os.Args[0], "-test.run=^TestLockHelperProcess$",
@@ -141,6 +195,7 @@ func lockHelperCommand(t *testing.T, root string, action string) *exec.Cmd {
 		lockHelperEnvironment+"=1",
 		"MONEYFLOW_HOME_LOCK_ROOT="+root,
 		"MONEYFLOW_HOME_LOCK_ACTION="+action,
+		"MONEYFLOW_HOME_LOCK_NAME="+name,
 	)
 	if runtime.GOOS == "windows" {
 		command.Env = append(command.Env, "MONEYFLOW_HOME_LOCK_PLATFORM=windows")

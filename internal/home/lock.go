@@ -17,6 +17,8 @@ const (
 	LockProfile
 	// LockProviderConnect serializes provider connection attempts for one profile.
 	LockProviderConnect
+	// LockExport serializes export execution for one profile.
+	LockExport
 )
 
 // LockMode controls whether other readers may hold the same lock concurrently.
@@ -158,6 +160,8 @@ func lockFilename(name LockName) (string, error) {
 		return "profile.lock", nil
 	case LockProviderConnect:
 		return "provider-connect.lock", nil
+	case LockExport:
+		return "export.lock", nil
 	default:
 		return "", errors.New("acquire home lock: invalid lock name")
 	}
