@@ -105,7 +105,13 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 		&disconnectProfile, "profile", "", "profile name or ID",
 	)
 	disconnect.AddCommand(disconnectMonarch)
-	providerCommand.AddCommand(connect, disconnect)
+	importCommand := &cobra.Command{
+		Use:   "import",
+		Short: "Import provider data",
+		Args:  cobra.NoArgs,
+	}
+	importCommand.AddCommand(newAmazonImportCommand(streams))
+	providerCommand.AddCommand(connect, disconnect, importCommand)
 	return providerCommand
 }
 

@@ -147,6 +147,23 @@ func TestAmazonImporterDependencyBoundary(t *testing.T) {
 	})
 }
 
+func TestAmazonImportCoordinatorDependencyBoundary(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	internalDir := filepath.Dir(filepath.Dir(filename))
+	coordinatorDir := filepath.Join(internalDir, "amazonimport")
+	assertNoInternalImport(t, coordinatorDir, func(_ string, imported string) bool {
+		if !strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/") {
+			return true
+		}
+		return imported == "github.com/wesm/moneyflow/internal/app" ||
+			imported == "github.com/wesm/moneyflow/internal/home" ||
+			importsPackageTree(imported, "github.com/wesm/moneyflow/internal/importer/amazon")
+	})
+}
+
 func TestMonarchMutationSurfaceIsLimitedToTransactionUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 

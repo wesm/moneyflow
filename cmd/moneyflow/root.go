@@ -34,8 +34,9 @@ type IOStreams struct {
 	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
 	OpenProfile ProfileOpener
 	// OpenMonarch and Prompt are provider lifecycle seams overridden in tests.
-	OpenMonarch MonarchCommandFactory
-	Prompt      PromptFunc
+	OpenMonarch  MonarchCommandFactory
+	ImportAmazon AmazonCommandImporter
+	Prompt       PromptFunc
 	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.
 	Listen        ListenerFactory
 	OpenBrowser   BrowserOpener

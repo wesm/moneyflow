@@ -346,7 +346,7 @@ func cancelEligible(ctx context.Context, root string, id string) (bool, error) {
 	}
 	allowed := []string{
 		ManifestFilename, "moneyflow.db", "moneyflow.db-shm", "moneyflow.db-wal",
-		"profile.lock", "provider-connect.lock",
+		"profile.lock", "provider-connect.lock", "amazon-import.lock",
 	}
 	for _, child := range children {
 		if child.Name() == "providers" {
