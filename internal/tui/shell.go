@@ -51,10 +51,11 @@ type OnboardingView interface {
 
 // ShellOpenedProfile is one profile-scoped finance service owned by the shell.
 type ShellOpenedProfile struct {
-	ID      string
-	Paths   home.Paths
-	Service *app.Service
-	Close   func() error
+	ID        string
+	Paths     home.Paths
+	Service   *app.Service
+	Temporary bool
+	Close     func() error
 }
 
 // ShellProfileOpener opens one selected profile while preserving its lifecycle lock.
@@ -1028,7 +1029,10 @@ func (shell *Shell) enterFinance(opened ShellOpenedProfile, session app.Session)
 	if opened.Service == nil || opened.Close == nil {
 		return errors.New("enter finance TUI: opened profile is incomplete")
 	}
-	finance, err := NewModel(shell.ctx, opened.Service, session, shell.options)
+	options := shell.options
+	options.ProfileRoot = opened.Paths.Root
+	options.Temporary = opened.Temporary
+	finance, err := NewModel(shell.ctx, opened.Service, session, options)
 	if err != nil {
 		return errors.Join(err, opened.Close())
 	}

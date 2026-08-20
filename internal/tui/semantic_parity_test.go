@@ -13,7 +13,9 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/fixture"
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/parity"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 	"github.com/wesm/moneyflow/internal/tui"
 )
 
@@ -23,6 +25,17 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 	require.NoError(t, err)
 	transactions, err := fixture.Load(filepath.Join(root, document.Fixture))
 	require.NoError(t, err)
+	paths, err := home.ResolveRoot(filepath.Join(t.TempDir(), "profile"), nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	committed, err := fixture.CommittedProfile(transactions)
+	require.NoError(t, err)
+	_, err = profile.CreateSeededProfile(context.Background(), committed)
+	require.NoError(t, err)
+	persistentService, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
 	service, err := app.NewService(transactions)
 	require.NoError(t, err)
 
@@ -31,10 +44,18 @@ func TestPythonSemanticFrameParity(t *testing.T) {
 			if scenario.Fixture == "testdata/fixtures/duplicate_transactions.json" {
 				t.Skip("named Python-immediate versus Go-staged duplicate workflow divergence")
 			}
+			scenarioService := service
+			profileRoot := ""
+			if scenario.Name == "export" {
+				scenarioService = persistentService
+				profileRoot = paths.Root
+			}
 			session, sessionErr := parity.SessionFromFrameInitial(scenario.Initial)
 			require.NoError(t, sessionErr)
-			model, modelErr := tui.NewModel(context.Background(), service, session, tui.Options{
+			model, modelErr := tui.NewModel(context.Background(), scenarioService, session, tui.Options{
 				Theme: tui.ThemeName(scenario.Theme), ColorMode: tui.ColorModeNone,
+				ProfileRoot:     profileRoot,
+				EncodeViewQuery: func(app.ViewState) (string, error) { return "v=1", nil },
 			})
 			require.NoError(t, modelErr)
 			model = updateModel(t, model, tea.WindowSizeMsg{Width: scenario.Width, Height: scenario.Height})

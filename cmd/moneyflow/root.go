@@ -286,8 +286,9 @@ func previewOptions(theme string) (tui.Options, error) {
 		profile.Colors = 16
 	}
 	return tui.Options{
-		Theme:     themeName,
-		ColorMode: tui.ResolveColorMode(tui.ColorModeAuto, environment, profile),
-		Version:   version.Version,
+		Theme:           themeName,
+		ColorMode:       tui.ResolveColorMode(tui.ColorModeAuto, environment, profile),
+		Version:         version.Version,
+		EncodeViewQuery: api.EncodeViewQuery,
 	}, nil
 }

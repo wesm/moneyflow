@@ -157,7 +157,9 @@ func (frame SemanticFrame) Validate() error {
 // ProjectSemantic crops style-free regions from the Go-owned rendered frame.
 func ProjectSemantic(name string, screen tui.RenderedScreen) SemanticFrame {
 	regions := make([]SemanticRegion, 0, 6)
-	for _, overlayName := range []string{"search_semantic", "filter_semantic", "help_semantic"} {
+	for _, overlayName := range []string{
+		"search_semantic", "filter_semantic", "help_semantic", "export_semantic",
+	} {
 		if region, ok := namedRegion(screen.Regions, overlayName); ok {
 			regions = append(regions, projectRegion(screen.Frame, "overlay", region.Rect))
 			goto projected

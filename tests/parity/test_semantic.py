@@ -44,6 +44,7 @@ def test_frame_scenarios_cover_required_states() -> None:
         "multi_level",
         "selected_rows",
         "help",
+        "export",
         "merchant_150x40",
         "detail_150x40",
         "drilldown_150x30",

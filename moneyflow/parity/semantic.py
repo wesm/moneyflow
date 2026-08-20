@@ -12,7 +12,7 @@ from typing import Any
 import textual
 from rich.text import Text
 from textual.geometry import Region
-from textual.widgets import Checkbox, DataTable, Input
+from textual.widgets import Checkbox, DataTable, Input, RadioSet
 
 from moneyflow.data.state import SortDirection, SortMode, TimeGranularity, ViewMode
 from moneyflow.parity.backend import FixtureBackend
@@ -289,6 +289,7 @@ def _overlay_region(app: MoneyflowApp, strips: list[Any]) -> dict[str, Any] | No
         ("#search-dialog", "#search-title"),
         ("#filter-dialog", "#filter-title"),
         ("#help-dialog", "#help-title"),
+        ("#export-container", "#export-title"),
     )
     for dialog_selector, semantic_selector in selectors:
         matches = list(app.screen.query(dialog_selector))
@@ -347,6 +348,16 @@ def _overlay_semantics(app: MoneyflowApp) -> list[str]:
             *get_help_text().splitlines(),
             "j/k=Scroll | Esc/Enter=Close",
             "Close (Enter)",
+        ]
+    if list(app.screen.query("#export-container")):
+        format_set = app.screen.query_one("#format-select", RadioSet)
+        scope_set = app.screen.query_one("#scope-select", RadioSet)
+        return [
+            "Export Data",
+            str(format_set.pressed_button.label),
+            str(scope_set.pressed_button.label),
+            "Export",
+            "Cancel",
         ]
     return []
 

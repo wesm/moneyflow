@@ -211,6 +211,8 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderDuplicates(screen)
 	case overlayDeleteConfirmation:
 		model.renderDeleteConfirmation(screen)
+	case overlayExport:
+		model.renderExport(screen)
 	case overlayQuit:
 		model.renderQuit(screen)
 	}

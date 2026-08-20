@@ -21,6 +21,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model, model.handleProviderWriteReconcile(message)
 	case providerStatusMsg:
 		return model, model.handleProviderStatus(message)
+	case exportCompletedMsg:
+		return model, model.handleExportCompleted(message)
 	case providerScheduleTickMsg:
 		if message.timerGeneration != model.provider.timerGeneration {
 			return model, nil
@@ -111,6 +113,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeDuplicates(message)
 	case overlayDeleteConfirmation:
 		return model.routeDeleteConfirmation(message)
+	case overlayExport:
+		return model.routeExport(message)
 	case overlayQuit:
 		return model.routeQuit(message)
 	}
@@ -222,6 +226,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		}
 	case app.ActionRefreshProvider:
 		return model.startProviderRefresh(true, "")
+	case app.ActionExport:
+		return model.openExport()
 	default:
 		if definition, ok := app.ActionByID(matchAction(message, model.bindings)); ok && !definition.Implemented {
 			model.status = "This action is not available for the current profile."

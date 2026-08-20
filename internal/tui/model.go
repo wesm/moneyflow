@@ -23,6 +23,9 @@ type Options struct {
 	ColorMode        ColorMode
 	Version          string
 	InitialDateRange *domain.DateRange
+	ProfileRoot      string
+	Temporary        bool
+	EncodeViewQuery  ViewQueryEncoder
 	// Now supplies renderer-local scheduling time. The application owns durable refresh time.
 	Now func() time.Time
 }
@@ -44,6 +47,7 @@ const (
 	overlayProviderWrite
 	overlayDuplicates
 	overlayDeleteConfirmation
+	overlayExport
 	overlayQuit
 )
 
@@ -88,6 +92,7 @@ type Model struct {
 	providerWrite      providerWriteTUIState
 	duplicates         duplicateState
 	deleteConfirmation deleteConfirmationState
+	export             exportState
 	now                func() time.Time
 	clockAt            time.Time
 }

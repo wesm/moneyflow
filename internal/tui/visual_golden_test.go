@@ -119,7 +119,8 @@ func visualGoldenScenarios(document parity.FrameScenarioDocument) []visualScenar
 		result = append(result, visualScenario{
 			name: scenario.Name, scenario: scenario,
 			theme: tui.ThemeName(scenario.Theme), colorMode: tui.ColorModeTrueColor,
-			fixturePath: scenario.Fixture, durable: scenario.Fixture != "",
+			fixturePath: scenario.Fixture,
+			durable:     scenario.Fixture != "" || scenario.Name == "export",
 		})
 		if scenario.Name == "merchant" {
 			merchant = scenario

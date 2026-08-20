@@ -100,7 +100,7 @@ func buildTUIShellDependencies(
 func shellOpenedProfile(opened OpenedProfile) tui.ShellOpenedProfile {
 	return tui.ShellOpenedProfile{
 		ID: opened.ID, Paths: opened.Paths, Service: opened.Service,
-		Close: opened.Close,
+		Temporary: opened.Demo, Close: opened.Close,
 	}
 }
 
