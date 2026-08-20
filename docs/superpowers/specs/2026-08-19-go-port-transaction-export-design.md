@@ -1,7 +1,7 @@
 # Go Port Transaction Export Design
 
 **Date:** 2026-08-19
-**Status:** Review ready
+**Status:** Approved
 **Branch:** `go-port`
 
 ## Summary
@@ -264,13 +264,15 @@ then one header row and data rows in canonical order. The literal `#` preamble s
 through row-cell sanitization. Dynamic header values use a separate sanitizer that replaces CR,
 LF, and commas with spaces and applies the same formula guard where relevant.
 
-Every string cell matching Python's `^\s*[=+\-@\t\r]` pattern receives a leading apostrophe.
-This includes account, merchant, category, group, notes, IDs, and metadata JSON if applicable.
-The transformation intentionally changes dangerous text. SQLite or Parquet is the exact-text
-choice; IDs and exact money columns remain available for reconciliation.
+The formula guard applies only to free-text columns: account, merchant, category, group, notes, and
+`transaction_metadata_json`. A value in one of those columns matching Python's
+`^\s*[=+\-@\t\r]` pattern receives a leading apostrophe. The transformation intentionally changes
+dangerous free text. SQLite or Parquet is the exact-text choice for those fields.
 
-Dates, integers, booleans, and exact decimal strings use canonical text encodings. The CSV writer
-handles delimiters, quotes, and embedded newlines after sanitization.
+Canonical typed encodings are emitted verbatim. This includes amount, amount minor units, scale,
+date, hidden, currency, provider kind, and every local or provider ID. In particular, a negative
+amount such as `-12.34` never receives an apostrophe and round trips as exact money. The CSV writer
+handles delimiters, quotes, and embedded newlines after applying the column-specific policy.
 
 ### SQLite
 
@@ -296,6 +298,9 @@ Writer configuration is fixed: Snappy compression, an 8,192-row maximum row grou
 column order, statistics enabled, and one pinned library version. Closing the writer and staging
 file is mandatory before success.
 
+The 100,000-row writer benchmark must confirm that the 8,192-row maximum remains within the local
+and CI performance targets before tests pin it as the canonical setting.
+
 Tests use an injected clock. Canonical logical digests exclude the export timestamp. Exact physical
 Parquet bytes are tested only under the pinned dependency; dependency upgrades require deliberate
 artifact review. A Python test reads a Go-written file with Polars and PyArrow, then asserts row
@@ -320,8 +325,10 @@ Closing the handle releases it. Process death releases it automatically, so a cr
 wedge future export behind stale ownership. Tests cover contention, process-death recovery, and
 same-process export-complete-export success to catch forgotten unlocks.
 
-The lock is held from preview revalidation/document capture through writer close and either final
-publication or response cleanup. It does not change profile revision.
+Preview never acquires the export lock; multiple processes may preview the same profile
+concurrently. Execution acquires the lock before revision revalidation and document capture, then
+holds it through encoding, writer close, and either final publication or response cleanup. It does
+not change profile revision.
 
 ### Private directories and staging
 
@@ -457,7 +464,8 @@ Stable application/API codes are:
 - `export_invalid` — unsupported schema version, format, scope, or query;
 - `export_empty` — the execution-time committed scope contains no rows;
 - `export_busy` — another live process holds the profile export lock;
-- `export_cancelled` — the caller cancelled before delivery completed; and
+- `export_cancelled` — the TUI caller cancelled, or the server observed a web client abort before
+  delivery completed; a disconnected HTTP client cannot receive this code; and
 - `export_failed` — safe projection, encoding, staging, flush, close, stat, publish, or delivery
   failure.
 
@@ -510,8 +518,9 @@ Tests prove:
 
 ### Format conformance
 
-CSV tests cover exact preamble order, header order, Unicode, quoting, CR/LF, formula prefixes with
-and without whitespace, metadata sanitization, exact amounts, and comment-aware readback.
+CSV tests cover exact preamble order, header order, Unicode, quoting, CR/LF, free-text formula
+prefixes with and without whitespace, metadata sanitization, exact amounts, and comment-aware
+readback. A negative-amount row round trips through CSV as `-12.34` without a leading apostrophe.
 
 SQLite tests inspect `sqlite_schema`, enforce STRICT and CHECK constraints, assert no REAL money
 columns, run `integrity_check`, and compare every logical row and named metadata value.
@@ -532,9 +541,10 @@ publish, directory sync, response copy, and cleanup failures. Assertions prove n
 file, bounded Windows cleanup retry, safe stale leftovers, and unchanged profiles.
 
 Lock tests cover two processes, same-process contention, process death, immediate sequential reuse,
-and lock release on every error and cancellation path. Filename tests cover microsecond collision,
-counter suffixes, counter exhaustion, link rejection, unknown-file preservation, and stale managed
-temporary cleanup.
+and lock release on every error and cancellation path. Two processes can preview concurrently while
+neither is executing an export. Filename tests cover microsecond collision, counter suffixes,
+counter exhaustion, link rejection, unknown-file preservation, and stale managed temporary
+cleanup.
 
 ### Renderer and browser behavior
 
