@@ -67,7 +67,7 @@ func (catalog *Catalog) Create(ctx context.Context, request CreateRequest) (Entr
 	if err != nil {
 		return Entry{}, newError(CodeProfileInvalid, err)
 	}
-	if request.ProviderKind != "monarch" && request.ProviderKind != "local" {
+	if !supportedProviderKind(request.ProviderKind) {
 		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is unsupported"))
 	}
 	catalogLock, err := home.TryLock(catalog.paths.Root, home.LockCatalog, home.LockExclusive)
@@ -182,7 +182,7 @@ func (catalog *Catalog) FinalizeLegacyManifest(
 	if err != nil {
 		return Entry{}, newError(CodeProfileInvalid, err)
 	}
-	if request.ProviderKind != "monarch" && request.ProviderKind != "local" {
+	if !supportedProviderKind(request.ProviderKind) {
 		return Entry{}, newError(CodeProfileInvalid, errors.New("provider kind is unsupported"))
 	}
 	if inspection.Bound && request.ProviderKind != inspection.ProviderKind {

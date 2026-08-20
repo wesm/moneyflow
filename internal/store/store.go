@@ -37,7 +37,114 @@ type Profile interface {
 	ReleaseRefreshLease(context.Context, string) error
 	RecordRefreshFailure(context.Context, RefreshFailure) error
 	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
+	LoadAmazonState(context.Context) (AmazonImportState, error)
+	ApplyAmazonImport(context.Context, AtomicAmazonImportRequest, AmazonImportPlanner) (AmazonImportCommit, error)
 	Close() error
+}
+
+// AmazonSettings binds one local Amazon profile to exact-money and optional taxonomy settings.
+type AmazonSettings struct {
+	Currency                domain.Currency
+	Scale                   uint8
+	TaxonomySourceProfileID string
+	CreatedAt               time.Time
+}
+
+// AmazonOrderItem is one durable Amazon source-ledger row.
+type AmazonOrderItem struct {
+	LocalTransactionID  domain.EntityID
+	SourceIdentity      string
+	OrderID             string
+	ASIN                string
+	ASINLessKey         string
+	ProductName         string
+	OrderDate           domain.Date
+	Quantity            int64
+	AmountMinor         int64
+	UnitPriceMinor      *int64
+	Currency            domain.Currency
+	Scale               uint8
+	OrderStatus         string
+	ShipmentStatus      string
+	IdentityFingerprint string
+	FullFingerprint     string
+	Retired             bool
+}
+
+// AmazonImportHistory is one counts-only operational import record.
+type AmazonImportHistory struct {
+	ImportID             string
+	StartedAt            time.Time
+	CompletedAt          time.Time
+	SourceRevision       uint64
+	ResultingRevision    uint64
+	CandidateDigest      string
+	FileCount            int
+	LogicalRecordCount   int
+	BlankRecordCount     int
+	CancelledRecordCount int
+	InsertedCount        int
+	UpdatedCount         int
+	RestoredCount        int
+	RetiredCount         int
+	UnchangedCount       int
+}
+
+// AmazonImportState contains every persisted input exposed to the pure import planner.
+type AmazonImportState struct {
+	Snapshot    domain.ProfileSnapshot
+	Settings    *AmazonSettings
+	Items       []AmazonOrderItem
+	Allocations []LabelAllocation
+}
+
+// ProposedAmazonIDs contains opaque identities generated inside the store boundary.
+type ProposedAmazonIDs struct {
+	TransactionIDs   []domain.EntityID
+	AccountIDs       []domain.EntityID
+	MerchantIDs      []domain.EntityID
+	SourceIdentities []string
+	GroupIDs         []domain.EntityID
+	CategoryIDs      []domain.EntityID
+}
+
+// AmazonIDCounts bounds the opaque identities generated for one planner invocation.
+type AmazonIDCounts struct {
+	Transactions, Accounts, Merchants, Sources, Groups, Categories int
+}
+
+// AmazonImportPlan is the complete deterministic state produced by the pure planner.
+type AmazonImportPlan struct {
+	Committed      domain.CommittedProfile
+	Journal        []domain.Operation
+	Cursor         int
+	KnownDrills    []domain.DrillIdentity
+	Settings       *AmazonSettings
+	Items          []AmazonOrderItem
+	Allocations    []LabelAllocation
+	History        AmazonImportHistory
+	SemanticChange bool
+}
+
+// AmazonImportPlanner computes one closed import plan without store or I/O access.
+type AmazonImportPlanner func(AmazonImportState, ProposedAmazonIDs) (AmazonImportPlan, error)
+
+// AtomicAmazonImportRequest carries operational metadata and bounded ID demand.
+type AtomicAmazonImportRequest struct {
+	ImportID        string
+	StartedAt       time.Time
+	ImportedAt      time.Time
+	CandidateDigest string
+	ProposedCounts  AmazonIDCounts
+	TaxonomyClone   *domain.CommittedProfile
+}
+
+// AmazonImportCommit reports the semantic result installed by an atomic import.
+type AmazonImportCommit struct {
+	PreviousRevision uint64
+	Revision         uint64
+	SemanticChange   bool
+	History          AmazonImportHistory
 }
 
 // ProviderBinding locks one local profile to one remote provider profile.

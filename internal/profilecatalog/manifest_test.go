@@ -51,6 +51,20 @@ func TestReadManifestRoundTripsCanonicalVersionOne(t *testing.T) {
 	assert.NotContains(t, string(contents), "  ")
 }
 
+func TestReadManifestAcceptsAmazonProviderKind(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), exampleProfileID)
+	require.NoError(t, os.Mkdir(root, 0o700))
+	manifest := validManifest()
+	manifest.ProviderKind = "amazon"
+	path := filepath.Join(root, ManifestFilename)
+	require.NoError(t, writeManifest(path, manifest))
+
+	loaded, err := ReadManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, "amazon", loaded.ProviderKind)
+}
+
 func TestReadManifestRejectsUnknownVersionWithoutTrustingOtherFields(t *testing.T) {
 	t.Parallel()
 	path := writeManifestFixture(t,

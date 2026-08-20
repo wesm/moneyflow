@@ -26,6 +26,7 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 		"provider_label_allocations", "provider_identity_lineage", "provider_write_batches",
 		"provider_write_batch_operations", "provider_write_items", "provider_write_results",
 		"provider_last_write_summary",
+		"amazon_profile_settings", "amazon_order_items", "amazon_import_history",
 	}
 	for _, table := range requiredTables {
 		var strict int
@@ -86,9 +87,36 @@ func TestSchemaInstallsProviderWriteObjects(t *testing.T) {
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
 	assert.Equal(t, CurrentSchemaVersion, version)
-	assert.Equal(t, 7, version)
+	assert.Equal(t, 8, version)
 	assertColumnType(t, profile.database, "provider_write_items", "item_kind", "TEXT")
 	assertColumnType(t, profile.database, "provider_write_results", "already_absent", "INTEGER")
+}
+
+func TestAmazonSchemaUsesStrictExactMoneyTables(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+
+	for _, table := range []string{
+		"amazon_profile_settings", "amazon_order_items", "amazon_import_history",
+	} {
+		var strict int
+		err = profile.database.QueryRowContext(context.Background(),
+			"SELECT strict FROM pragma_table_list WHERE schema = 'main' AND name = ?", table).
+			Scan(&strict)
+		require.NoError(t, err, table)
+		assert.Equal(t, 1, strict, table)
+	}
+	for _, table := range []string{"amazon_profile_settings", "amazon_order_items"} {
+		var realColumns int
+		require.NoError(t, profile.database.QueryRowContext(context.Background(), `
+			SELECT count(*) FROM pragma_table_info(?) WHERE upper(type) = 'REAL'`, table).
+			Scan(&realColumns))
+		assert.Zero(t, realColumns, table)
+	}
 }
 
 func TestProviderWriteItemSchemaEnforcesUpdateDeleteUnion(t *testing.T) {

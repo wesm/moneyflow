@@ -152,6 +152,7 @@ func validateSchema(ctx context.Context, database *sql.DB) error {
 		"provider_label_allocations", "provider_identity_lineage", "provider_write_batches",
 		"provider_write_batch_operations", "provider_write_items", "provider_write_results",
 		"provider_last_write_summary",
+		"amazon_profile_settings", "amazon_order_items", "amazon_import_history",
 	}
 	for _, table := range required {
 		var count int

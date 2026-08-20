@@ -612,6 +612,18 @@ func (profile *memoryProfile) ApplyProviderRefresh(
 	return store.RefreshCommit{}, errors.New("not implemented")
 }
 
+func (profile *memoryProfile) LoadAmazonState(context.Context) (store.AmazonImportState, error) {
+	return store.AmazonImportState{}, errors.New("not implemented")
+}
+
+func (profile *memoryProfile) ApplyAmazonImport(
+	context.Context,
+	store.AtomicAmazonImportRequest,
+	store.AmazonImportPlanner,
+) (store.AmazonImportCommit, error) {
+	return store.AmazonImportCommit{}, errors.New("not implemented")
+}
+
 func (profile *memoryProfile) Close() error { return nil }
 
 func (profile *memoryProfile) advanceExternally(operation domain.Operation) {

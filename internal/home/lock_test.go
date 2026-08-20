@@ -64,6 +64,28 @@ func TestExportLockIsIndependentExclusiveAndSequential(t *testing.T) {
 	assert.FileExists(t, filepath.Join(root, "export.lock"))
 }
 
+func TestAmazonImportLockIsIndependentExclusiveAndSequential(t *testing.T) {
+	root := t.TempDir()
+	profile, err := TryLock(root, LockProfile, LockShared)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Release()) })
+
+	importLock, err := TryLockExisting(root, LockAmazonImport, LockExclusive)
+	require.NoError(t, err)
+	_, err = TryLockExisting(root, LockAmazonImport, LockExclusive)
+	assert.ErrorIs(t, err, ErrLockBusy)
+
+	exportLock, err := TryLockExisting(root, LockExport, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, exportLock.Release())
+	require.NoError(t, importLock.Release())
+
+	importLock, err = TryLockExisting(root, LockAmazonImport, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, importLock.Release())
+	assert.FileExists(t, filepath.Join(root, "amazon-import.lock"))
+}
+
 func TestCatalogLockRejectsInvalidNameAndMode(t *testing.T) {
 	root := t.TempDir()
 	_, err := TryLock(root, LockName(99), LockExclusive)
@@ -163,8 +185,11 @@ func TestLockHelperProcess(t *testing.T) {
 	root := os.Getenv("MONEYFLOW_HOME_LOCK_ROOT")
 	action := os.Getenv("MONEYFLOW_HOME_LOCK_ACTION")
 	name := LockProfile
-	if os.Getenv("MONEYFLOW_HOME_LOCK_NAME") == "export" {
+	switch os.Getenv("MONEYFLOW_HOME_LOCK_NAME") {
+	case "export":
 		name = LockExport
+	case "amazon-import":
+		name = LockAmazonImport
 	}
 	lock, err := TryLock(root, name, LockExclusive)
 	if errors.Is(err, ErrLockBusy) {

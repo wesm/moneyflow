@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 7);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 8);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -384,4 +384,84 @@ CREATE TABLE provider_last_write_summary (
     operation_count INTEGER NOT NULL CHECK(typeof(operation_count) = 'integer' AND operation_count >= 0),
     item_count INTEGER NOT NULL CHECK(typeof(item_count) = 'integer' AND item_count >= 0),
     override_count INTEGER NOT NULL CHECK(typeof(override_count) = 'integer' AND override_count >= 0)
+) STRICT;
+
+CREATE TABLE amazon_profile_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+    currency TEXT NOT NULL CHECK(length(currency) = 3 AND currency GLOB '[A-Z][A-Z][A-Z]'),
+    scale INTEGER NOT NULL CHECK(typeof(scale) = 'integer' AND scale BETWEEN 0 AND 9),
+    taxonomy_source_profile_id TEXT,
+    created_at_unix_ms INTEGER NOT NULL CHECK(
+        typeof(created_at_unix_ms) = 'integer' AND created_at_unix_ms >= 0
+    ),
+    CHECK(taxonomy_source_profile_id IS NULL OR taxonomy_source_profile_id <> '')
+) STRICT;
+
+CREATE TABLE amazon_order_items (
+    local_transaction_id TEXT PRIMARY KEY CHECK(local_transaction_id <> ''),
+    source_identity TEXT NOT NULL UNIQUE CHECK(
+        source_identity GLOB 'amazon_item_[a-z2-7]*' AND length(source_identity) = 38
+    ),
+    order_id TEXT NOT NULL CHECK(order_id <> ''),
+    asin TEXT,
+    asinless_key TEXT NOT NULL,
+    order_date TEXT NOT NULL CHECK(
+        length(order_date) = 10 AND
+        order_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+    ),
+    product_name TEXT NOT NULL CHECK(product_name <> ''),
+    quantity INTEGER NOT NULL CHECK(typeof(quantity) = 'integer' AND quantity > 0),
+    amount_minor INTEGER NOT NULL CHECK(typeof(amount_minor) = 'integer'),
+    unit_price_minor INTEGER CHECK(
+        unit_price_minor IS NULL OR typeof(unit_price_minor) = 'integer'
+    ),
+    currency TEXT NOT NULL CHECK(length(currency) = 3 AND currency GLOB '[A-Z][A-Z][A-Z]'),
+    scale INTEGER NOT NULL CHECK(typeof(scale) = 'integer' AND scale BETWEEN 0 AND 9),
+    order_status TEXT NOT NULL CHECK(order_status <> ''),
+    shipment_status TEXT NOT NULL CHECK(shipment_status <> ''),
+    identity_fingerprint TEXT NOT NULL CHECK(
+        length(identity_fingerprint) = 64 AND identity_fingerprint GLOB '[0-9a-f]*'
+    ),
+    full_fingerprint TEXT NOT NULL CHECK(
+        length(full_fingerprint) = 64 AND full_fingerprint GLOB '[0-9a-f]*'
+    ),
+    retired INTEGER NOT NULL CHECK(retired IN (0, 1)),
+    CHECK((asin IS NOT NULL AND asin <> '' AND asinless_key = '') OR
+          (asin IS NULL AND asinless_key GLOB 'amazon:asinless:*'))
+) STRICT;
+
+CREATE INDEX amazon_order_items_order ON amazon_order_items(order_id, retired);
+CREATE INDEX amazon_order_items_identity ON amazon_order_items(identity_fingerprint, retired);
+
+CREATE TABLE amazon_import_history (
+    import_id TEXT PRIMARY KEY CHECK(import_id <> ''),
+    started_at_unix_ms INTEGER NOT NULL CHECK(
+        typeof(started_at_unix_ms) = 'integer' AND started_at_unix_ms >= 0
+    ),
+    completed_at_unix_ms INTEGER NOT NULL CHECK(
+        typeof(completed_at_unix_ms) = 'integer' AND
+        completed_at_unix_ms >= started_at_unix_ms
+    ),
+    source_revision INTEGER NOT NULL CHECK(typeof(source_revision) = 'integer' AND source_revision >= 0),
+    resulting_revision INTEGER NOT NULL CHECK(
+        typeof(resulting_revision) = 'integer' AND resulting_revision >= source_revision
+    ),
+    candidate_digest TEXT NOT NULL CHECK(
+        length(candidate_digest) = 64 AND candidate_digest GLOB '[0-9a-f]*'
+    ),
+    file_count INTEGER NOT NULL CHECK(typeof(file_count) = 'integer' AND file_count >= 0),
+    logical_record_count INTEGER NOT NULL CHECK(
+        typeof(logical_record_count) = 'integer' AND logical_record_count >= 0
+    ),
+    blank_record_count INTEGER NOT NULL CHECK(
+        typeof(blank_record_count) = 'integer' AND blank_record_count >= 0
+    ),
+    cancelled_record_count INTEGER NOT NULL CHECK(
+        typeof(cancelled_record_count) = 'integer' AND cancelled_record_count >= 0
+    ),
+    inserted_count INTEGER NOT NULL CHECK(typeof(inserted_count) = 'integer' AND inserted_count >= 0),
+    updated_count INTEGER NOT NULL CHECK(typeof(updated_count) = 'integer' AND updated_count >= 0),
+    restored_count INTEGER NOT NULL CHECK(typeof(restored_count) = 'integer' AND restored_count >= 0),
+    retired_count INTEGER NOT NULL CHECK(typeof(retired_count) = 'integer' AND retired_count >= 0),
+    unchanged_count INTEGER NOT NULL CHECK(typeof(unchanged_count) = 'integer' AND unchanged_count >= 0)
 ) STRICT;

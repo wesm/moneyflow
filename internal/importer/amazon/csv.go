@@ -22,6 +22,7 @@ var requiredHeaders = []string{
 	"Order Status", "Shipment Status",
 }
 
+// Parse validates and normalizes a complete bounded Amazon order-history candidate.
 func Parse(
 	ctx context.Context,
 	files []SourceFile,

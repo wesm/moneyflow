@@ -10,11 +10,13 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+// FingerprintPair separates stable pairing identity from provider-fact change detection.
 type FingerprintPair struct {
 	Identity string
 	Full     string
 }
 
+// ASINLessKey derives a stable, non-reversible key for a row without an ASIN.
 func ASINLessKey(productName string) (string, error) {
 	key, err := domain.CollisionKey(productName)
 	if err != nil {
@@ -24,6 +26,7 @@ func ASINLessKey(productName string) (string, error) {
 	return "amazon:asinless:" + hex.EncodeToString(digest[:]), nil
 }
 
+// Fingerprints derives the versioned identity and full provider-fact digests for a row.
 func Fingerprints(row Row) (FingerprintPair, error) {
 	asin := row.ASIN
 	if asin == "" {

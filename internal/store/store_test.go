@@ -124,6 +124,16 @@ func (fakeProfile) ApplyProviderRefresh(
 ) (store.RefreshCommit, error) {
 	return store.RefreshCommit{}, nil
 }
+func (fakeProfile) LoadAmazonState(context.Context) (store.AmazonImportState, error) {
+	return store.AmazonImportState{}, nil
+}
+func (fakeProfile) ApplyAmazonImport(
+	context.Context,
+	store.AtomicAmazonImportRequest,
+	store.AmazonImportPlanner,
+) (store.AmazonImportCommit, error) {
+	return store.AmazonImportCommit{}, nil
+}
 func (fakeProfile) Close() error { return nil }
 
 var _ store.Profile = fakeProfile{}

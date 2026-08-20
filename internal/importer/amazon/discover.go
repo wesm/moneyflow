@@ -13,6 +13,7 @@ import (
 	"strings"
 )
 
+// DiscoverDirectory returns unique regular CSV files beneath root in canonical order.
 func DiscoverDirectory(ctx context.Context, root string, limits Limits) ([]SourceFile, error) {
 	if err := limits.validate(); err != nil {
 		return nil, err

@@ -214,7 +214,7 @@ func validateManifest(manifest Manifest, directory string) error {
 	if err != nil || name != manifest.DisplayName {
 		return newError(CodeProfileInvalid, errors.New("display name is not canonical"))
 	}
-	if manifest.ProviderKind != "monarch" && manifest.ProviderKind != "local" {
+	if !supportedProviderKind(manifest.ProviderKind) {
 		return newError(CodeProfileInvalid, errors.New("provider kind is unsupported"))
 	}
 	if manifest.CreatedAt.IsZero() || manifest.CreatedAt.Location() != time.UTC {
@@ -224,6 +224,10 @@ func validateManifest(manifest Manifest, directory string) error {
 		return newError(CodeProfileInvalid, err)
 	}
 	return nil
+}
+
+func supportedProviderKind(kind string) bool {
+	return kind == "monarch" || kind == "local" || kind == "amazon"
 }
 
 func validateVersionString(value string) error {

@@ -8,8 +8,10 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+// Code is a stable renderer-neutral Amazon import failure code.
 type Code string
 
+// Stable Amazon import failure codes.
 const (
 	CodeEmpty    Code = "amazon_import_empty"
 	CodeTooLarge Code = "amazon_import_too_large"
@@ -17,11 +19,15 @@ const (
 )
 
 var (
-	ErrEmpty    = errors.New("Amazon import contains no eligible data")
-	ErrTooLarge = errors.New("Amazon import exceeds a fixed limit")
-	ErrInvalid  = errors.New("Amazon import is invalid")
+	// ErrEmpty reports a source with no eligible order rows.
+	ErrEmpty = errors.New("amazon import contains no eligible data")
+	// ErrTooLarge reports a source that exceeds a fixed parser bound.
+	ErrTooLarge = errors.New("amazon import exceeds a fixed limit")
+	// ErrInvalid reports malformed or unsupported source data.
+	ErrInvalid = errors.New("amazon import is invalid")
 )
 
+// Error retains one optional in-session source coordinate without exposing it in Error.
 type Error struct {
 	Code       Code
 	Coordinate Coordinate
@@ -49,11 +55,13 @@ func coordinateError(file string, record int, column, reason string, cause error
 	}
 }
 
+// Settings defines the exact-money binding used to parse one candidate.
 type Settings struct {
 	Currency domain.Currency
 	Scale    uint8
 }
 
+// Limits bounds discovery and parsing resource use.
 type Limits struct {
 	Files          int
 	Records        int
@@ -64,6 +72,7 @@ type Limits struct {
 	BytesPerField  int64
 }
 
+// ProductionLimits defines the fixed import bounds used by application surfaces.
 var ProductionLimits = Limits{
 	Files: 256, Records: 1_000_000, Columns: 128,
 	BytesPerFile: 64 << 20, TotalBytes: 512 << 20,
@@ -79,6 +88,7 @@ func (limits Limits) validate() error {
 	return nil
 }
 
+// Coordinate identifies one actionable source record for the initiating UI only.
 type Coordinate struct {
 	RelativeFilename string
 	Record           int
@@ -86,11 +96,13 @@ type Coordinate struct {
 	Reason           string
 }
 
+// SourceFile is one rooted regular CSV input in canonical relative-name order.
 type SourceFile struct {
 	RelativeName string
 	Path         string
 }
 
+// Row is one normalized non-cancelled Amazon order item.
 type Row struct {
 	OrderID             string
 	ProductName         string
@@ -110,6 +122,7 @@ type Row struct {
 	Record              int
 }
 
+// Candidate is one fully parsed, bounded, deterministic import observation.
 type Candidate struct {
 	Rows                 []Row
 	ObservedOrderIDs     []string
@@ -120,10 +133,12 @@ type Candidate struct {
 	Digest               string
 }
 
+// Progress contains counts-only parser progress safe for every renderer.
 type Progress struct {
 	Phase     string
 	Completed int
 	Total     int
 }
 
+// ObserveFunc receives counts-only parser progress.
 type ObserveFunc func(Progress)

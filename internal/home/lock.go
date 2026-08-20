@@ -19,6 +19,8 @@ const (
 	LockProviderConnect
 	// LockExport serializes export execution for one profile.
 	LockExport
+	// LockAmazonImport serializes Amazon import execution for one profile.
+	LockAmazonImport
 )
 
 // LockMode controls whether other readers may hold the same lock concurrently.
@@ -162,6 +164,8 @@ func lockFilename(name LockName) (string, error) {
 		return "provider-connect.lock", nil
 	case LockExport:
 		return "export.lock", nil
+	case LockAmazonImport:
+		return "amazon-import.lock", nil
 	default:
 		return "", errors.New("acquire home lock: invalid lock name")
 	}

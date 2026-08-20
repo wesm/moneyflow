@@ -36,6 +36,19 @@ func TestCreateInstallsCurrentPristineProfileUnderOpaqueID(t *testing.T) {
 	assert.Equal(t, "monarch", manifest.ProviderKind)
 }
 
+func TestCreateInstallsAmazonProfile(t *testing.T) {
+	t.Parallel()
+	catalog := newTestCatalog(t, nil)
+	entry, err := catalog.Create(context.Background(), CreateRequest{
+		DisplayName: "Orders", ProviderKind: "amazon",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "amazon", entry.ProviderKind)
+	manifest, err := ReadManifest(filepath.Join(entry.Root, ManifestFilename))
+	require.NoError(t, err)
+	assert.Equal(t, "amazon", manifest.ProviderKind)
+}
+
 func TestCreateRejectsNormalizedNameConflictWithoutCreatingDirectory(t *testing.T) {
 	t.Parallel()
 	catalog := newTestCatalog(t, nil)
