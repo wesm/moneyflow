@@ -93,8 +93,13 @@ func (model *Model) applyOverlayMutation(
 		message := safeInteractionMessage(err)
 		model.syncProfileMetadata()
 		var failure *app.AppError
-		if errors.As(err, &failure) && failure.Code == app.AppSelectionStale {
-			if installErr := model.installSelection(failure.Selection); installErr != nil {
+		if errors.As(err, &failure) {
+			switch failure.Code {
+			case app.AppSelectionStale:
+				if installErr := model.installSelection(failure.Selection); installErr != nil {
+					model.clearSessionSelection()
+				}
+			case app.AppRevisionConflict:
 				model.clearSessionSelection()
 			}
 		}

@@ -153,15 +153,19 @@ export function createExportController(options: ExportControllerOptions): Export
         })
         return false
       }
-      setState({ ...state, canCancel: false })
       const blob = await response.blob()
+      if (cancelled) return false
       const filename = exportFilename(response.headers.get('Content-Disposition'), state.format)
+      const actualCount = exportCount(
+        response.headers.get('X-Moneyflow-Transaction-Count'),
+        state.count,
+      )
       publish(root, objectURLs, blob, filename)
       setState({
         ...state,
         phase: 'complete',
         filename,
-        announcement: `Exported ${state.count} ${transactionWord(state.count)}.`,
+        announcement: `Exported ${actualCount} ${transactionWord(actualCount)}.`,
         canCancel: false,
       })
       return true
@@ -203,6 +207,12 @@ export function createExportController(options: ExportControllerOptions): Export
     export: execute,
     cancel,
   }
+}
+
+function exportCount(value: string | null, fallback: number): number {
+  if (value === null || !/^\d+$/.test(value)) return fallback
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : fallback
 }
 
 function initialState(): ExportState {

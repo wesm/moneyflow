@@ -30,6 +30,7 @@ type exportState struct {
 	busy    bool
 	count   int
 	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 type exportCompletedMsg struct {
@@ -137,8 +138,11 @@ func (model *Model) executeExport() tea.Cmd {
 	}
 	model.export.count = count
 	model.export.cancel = cancel
+	done := make(chan struct{})
+	model.export.done = done
 	model.status = fmt.Sprintf("Exporting %d committed transactions…", count)
 	return func() tea.Msg {
+		defer close(done)
 		result, err := exporter.WriteFile(exportContext, exporter.Request{
 			ProfileRoot: root, Format: format, Scope: scope, Now: now,
 			Capture: func(captureContext context.Context, exportedAt time.Time) (app.ExportDocument, error) {
@@ -157,6 +161,7 @@ func (model *Model) handleExportCompleted(message exportCompletedMsg) tea.Cmd {
 		model.export.cancel()
 	}
 	model.export.cancel = nil
+	model.export.done = nil
 	model.export.busy = false
 	model.overlay = overlayNone
 	if message.err != nil {
@@ -169,9 +174,24 @@ func (model *Model) handleExportCompleted(message exportCompletedMsg) tea.Cmd {
 		return nil
 	}
 	model.status = fmt.Sprintf(
-		"Exported %d committed transactions to %s", model.export.count, message.result.Path,
+		"Exported %d committed transactions to %s", message.result.Count, message.result.Path,
 	)
 	return nil
+}
+
+func (model *Model) cancelAndWaitExport() {
+	if model == nil || !model.export.busy {
+		return
+	}
+	if model.export.cancel != nil {
+		model.export.cancel()
+	}
+	if model.export.done != nil {
+		<-model.export.done
+	}
+	model.export.busy = false
+	model.export.cancel = nil
+	model.export.done = nil
 }
 
 func (model Model) renderExport(screen *RenderedScreen) {

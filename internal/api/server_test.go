@@ -53,9 +53,40 @@ func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
 		require.True(t, ok)
 		assert.Same(t, recorder, unwrapper.Unwrap())
 	}))
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/stream", http.NoBody))
+	handler.ServeHTTP(recorder, httptest.NewRequest(
+		http.MethodPost, "/api/v1/profiles/profile-a/export", http.NoBody,
+	))
 	assert.True(t, streamedInsideHandler)
 	assert.Equal(t, 2<<20, recorder.Body.Len())
+}
+
+func TestSafeProblemResponsesBuffersOrdinarySuccessUntilHandlerReturns(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	visibleInsideHandler := false
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+		_, err := response.Write([]byte("complete"))
+		require.NoError(t, err)
+		visibleInsideHandler = recorder.Body.Len() > 0
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+	assert.False(t, visibleInsideHandler)
+	assert.Equal(t, "complete", recorder.Body.String())
+}
+
+func TestOrdinarySuccessCanStillRecoverPanicWithoutPartialResponse(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := recoverAPI(safeProblemResponses(http.HandlerFunc(
+		func(response http.ResponseWriter, _ *http.Request) {
+			response.WriteHeader(http.StatusOK)
+			_, _ = response.Write([]byte("private partial response"))
+			panic("private panic")
+		},
+	)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "private")
+	assert.Contains(t, recorder.Body.String(), "internal_error")
 }
 
 func TestSafeProblemResponsesStillSanitizesMaliciousError(t *testing.T) {

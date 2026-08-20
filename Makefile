@@ -124,7 +124,7 @@ web-e2e: web-embed
 	bun run --cwd web test:e2e -- --project=webkit --grep @smoke
 
 test-editing-e2e: web-embed
-	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly)' -count=1
+	go test ./internal/app ./internal/tui ./internal/api -run 'Test(Editing|Identity|Restart|Concurrent|PendingOnly|Delete|Deletion|Duplicate|Drill|Privacy|Export)' -count=1
 	bun run --cwd web test:e2e -- base-path.spec.ts editing.spec.ts origin.spec.ts restart.spec.ts review.spec.ts --project=chromium
 
 test-provider-e2e: web-embed

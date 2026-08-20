@@ -7,6 +7,7 @@ import {
   type MutationFetch,
   type Problem,
   type SelectionValue,
+  type ViewProjection,
 } from '../api/client'
 import { testProjection } from '../../test/projection'
 import { createDuplicateController } from './duplicates'
@@ -47,6 +48,31 @@ describe('DuplicateController', () => {
     expect(controller.state.projection?.selection_count).toBe(1)
     expect(current.selection_count).toBe(0)
     expect(location.search).toBe('')
+  })
+
+  it('locks interaction while a selection transition is pending', async () => {
+    let release!: (value: ViewProjection) => void
+    const client = duplicateClient()
+    vi.mocked(client.projectDuplicates).mockResolvedValue(duplicates())
+    vi.mocked(client.transition).mockImplementation(
+      async () => await new Promise<ViewProjection>((resolve) => (release = resolve)),
+    )
+    const current = testProjection()
+    const controller = createDuplicateController({
+      client,
+      mutations: mutationTransport(),
+      host: { current: () => current, recheck: vi.fn(async () => current) },
+    })
+    await controller.open()
+
+    const pending = controller.toggleFocused()
+    expect(controller.state.phase).toBe('loading')
+    controller.requestDelete()
+    expect(controller.state.phase).toBe('loading')
+    release(testProjection({ selection: selection('selected'), selection_count: 1 }))
+
+    await expect(pending).resolves.toBe(true)
+    expect(controller.state.phase).toBe('ready')
   })
 
   it('stages deletion only after confirmation and reloads remote projections', async () => {

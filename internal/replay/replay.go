@@ -715,6 +715,10 @@ func deleteTransactionRecords(profile *domain.CommittedProfile, targets []domain
 			kept = append(kept, transaction)
 		}
 	}
+	if len(kept) == 0 {
+		profile.Transactions = nil
+		return
+	}
 	profile.Transactions = kept
 }
 

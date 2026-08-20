@@ -19,7 +19,7 @@ func TestWriteCSVUsesStableMetadataColumnsAndSelectiveFormulaGuard(t *testing.T)
 		"# moneyflow_app_version: v2.0.0-test\n",
 		"# source_revision: 42\n",
 		"# excluded_pending_operation_count: 3\n",
-		"# provider_kinds: [\"local\" \"monarch\"]\n",
+		"# provider_kinds: [\"local\",\"monarch\"]\n",
 	} {
 		assert.Contains(t, text, line)
 	}
@@ -41,7 +41,7 @@ func TestWriteCSVUsesStableMetadataColumnsAndSelectiveFormulaGuard(t *testing.T)
 }
 
 func TestCSVMetadataSanitizerRemovesRecordBreaksAndFormulaPrefix(t *testing.T) {
-	assert.Equal(t, "' =danger  next", sanitizeMetadataValue(" =danger,\r\nnext"))
+	assert.Equal(t, "' =danger, next", sanitizeMetadataValue(" =danger,\r\nnext"))
 	assert.Equal(t, "safe", sanitizeMetadataValue("safe"))
 }
 

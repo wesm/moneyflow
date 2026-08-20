@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,7 @@ func TestExportChooserDefaultsNavigatesCancelsAndSurvivesMinimumSize(t *testing.
 	assert.Contains(t, rendered.Frame.RenderANSI(), "temporary profile")
 
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	model.export.preview.FullCount = 999
 	assert.Equal(t, exporter.FormatCSV, model.export.format)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
@@ -80,7 +82,8 @@ func TestExportChooserShowsPendingExclusionAndStateAwareCommitGuidance(t *testin
 }
 
 func TestExportChooserExecutesAsynchronouslyAndReportsCompletedPath(t *testing.T) {
-	fixture := newExportModel(t, exportTransactions(t), false)
+	transactions := exportTransactions(t)
+	fixture := newExportModel(t, transactions, false)
 	model := press(t, fixture.model, keyRune('E'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
 
@@ -97,6 +100,8 @@ func TestExportChooserExecutesAsynchronouslyAndReportsCompletedPath(t *testing.T
 	assert.Equal(t, overlayNone, model.overlay)
 	assert.Contains(t, model.status, fixture.paths.Root)
 	assert.Contains(t, model.status, ".csv")
+	assert.Contains(t, model.status, fmt.Sprintf("%d committed transactions", len(transactions)))
+	assert.NotContains(t, model.status, "999")
 
 	entries, err := os.ReadDir(filepath.Join(fixture.paths.Root, "exports"))
 	require.NoError(t, err)
@@ -131,6 +136,31 @@ func TestShellInjectsTheOpenedProfileExportBoundary(t *testing.T) {
 	assert.Equal(t, fixture.paths.Root, shell.finance.options.ProfileRoot)
 	assert.True(t, shell.finance.options.Temporary)
 	assert.NotNil(t, shell.finance.options.EncodeViewQuery)
+}
+
+func TestShellCloseCancelsAndWaitsForActiveExport(t *testing.T) {
+	fixture := newExportModel(t, exportTransactions(t), false)
+	cancelled := false
+	done := make(chan struct{})
+	finance := fixture.model
+	finance.export.busy = true
+	finance.export.done = done
+	finance.export.cancel = func() {
+		cancelled = true
+		close(done)
+	}
+	closed := false
+	shell := Shell{
+		finance: &finance,
+		opened: &shellOwnedProfile{profile: ShellOpenedProfile{Close: func() error {
+			closed = true
+			return nil
+		}}},
+	}
+
+	require.NoError(t, shell.Close())
+	assert.True(t, cancelled)
+	assert.True(t, closed)
 }
 
 type exportModelFixture struct {

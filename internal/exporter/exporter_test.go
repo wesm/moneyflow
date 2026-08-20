@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -34,13 +35,19 @@ func TestWriteFilePublishesPrivateCSVAndReleasesLock(t *testing.T) {
 	result, err := WriteFile(context.Background(), request)
 	require.NoError(t, err)
 	assert.True(t, captured)
+	assert.Equal(t, 2, result.Count)
 	assert.Equal(t, "2026-08-19_141516_123000-full-export.csv", result.Filename)
 	assert.Equal(t, filepath.Join(result.Path), result.Path)
 	assert.Positive(t, result.Size)
 	assert.FileExists(t, result.Path)
 	info, err := os.Stat(result.Path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+	opened, err := home.OpenPrivateFile(result.Path)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
 
 	lock, err := home.TryLockExisting(root, home.LockExport, home.LockExclusive)
 	require.NoError(t, err)
@@ -127,6 +134,7 @@ func TestPrepareDownloadRetainsLockUntilCloseAndRemovesStage(t *testing.T) {
 	assert.Equal(t, "2026-08-19_141516_123000-full-export.csv", download.Filename)
 	assert.Equal(t, "text/csv; charset=utf-8", download.ContentType)
 	assert.Positive(t, download.Size)
+	assert.Equal(t, 2, download.Count)
 	contents, err := io.ReadAll(download.Reader)
 	require.NoError(t, err)
 	assert.NotEmpty(t, contents)
@@ -152,6 +160,22 @@ func TestPrepareDownloadCancellationIsTypedAndReleasesLock(t *testing.T) {
 	lock, lockErr := home.TryLockExisting(root, home.LockExport, home.LockExclusive)
 	require.NoError(t, lockErr)
 	require.NoError(t, lock.Release())
+}
+
+func TestWriteFileCancellationAfterCaptureDoesNotPublish(t *testing.T) {
+	root := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	request := testRequest(t, root, FormatParquet)
+	request.Capture = func(_ context.Context, capturedAt time.Time) (app.ExportDocument, error) {
+		document := testDocument(t)
+		document.Metadata.ExportedAt = capturedAt
+		cancel()
+		return document, nil
+	}
+
+	_, err := WriteFile(ctx, request)
+	assertExportCode(t, err, CodeCancelled)
+	assert.NoFileExists(t, filepath.Join(root, "exports", "2026-08-19_141516_123000-full-export.parquet"))
 }
 
 func testRequest(t *testing.T, root string, format Format) Request {

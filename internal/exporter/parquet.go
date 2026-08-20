@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -39,8 +40,16 @@ type parquetRow struct {
 // WriteParquet writes one detached export document without opening a profile.
 // Callers remain responsible for private staging, syncing, and publication.
 func WriteParquet(output io.Writer, document app.ExportDocument) (resultErr error) {
+	return writeParquetContext(context.Background(), output, document)
+}
+
+func writeParquetContext(
+	ctx context.Context,
+	output io.Writer,
+	document app.ExportDocument,
+) (resultErr error) {
 	writer := parquet.NewGenericWriter[parquetRow](
-		output,
+		contextWriter{ctx: ctx, writer: output},
 		parquet.Compression(&snappy.Codec{}),
 		parquet.MaxRowsPerRowGroup(parquetRowsPerGroup),
 	)
@@ -54,6 +63,9 @@ func WriteParquet(output io.Writer, document app.ExportDocument) (resultErr erro
 	}
 	rows := make([]parquetRow, len(document.Rows))
 	for index, row := range document.Rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		rows[index], resultErr = makeParquetRow(row)
 		if resultErr != nil {
 			return resultErr

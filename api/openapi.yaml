@@ -2296,7 +2296,34 @@ paths:
         required: true
       responses:
         "200":
-          description: OK
+          content:
+            application/vnd.apache.parquet:
+              schema:
+                contentMediaType: application/octet-stream
+                format: binary
+                type: string
+            application/vnd.sqlite3:
+              schema:
+                contentMediaType: application/octet-stream
+                format: binary
+                type: string
+            text/csv:
+              schema:
+                contentMediaType: application/octet-stream
+                format: binary
+                type: string
+          description: Complete committed transaction export
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                format: int64
+                type: integer
+            X-Moneyflow-Transaction-Count:
+              schema:
+                type: integer
         "400":
           content:
             application/problem+json:

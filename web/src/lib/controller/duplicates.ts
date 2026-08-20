@@ -240,6 +240,7 @@ export function createDuplicateController(
     const projection = state.projection
     const row = focused()
     if (!current || !projection || !row) return false
+    setState({ ...state, phase: 'loading', announcement: '' })
     try {
       const toggled = await options.client.transition({
         query: detailQuery(current.canonical_query),

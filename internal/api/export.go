@@ -91,6 +91,21 @@ func (server *Server) registerExportEndpoints() {
 		OperationID: "downloadProfileExport", Method: http.MethodPost,
 		Path: server.profilePath("export"), Summary: "Download one committed transaction export",
 		Errors: []int{400, 404, 408, 409, 413, 422, 500},
+		Responses: map[string]*huma.Response{
+			"200": {
+				Description: "Complete committed transaction export",
+				Headers: map[string]*huma.Param{
+					"Content-Length":                {Schema: &huma.Schema{Type: "integer", Format: "int64"}},
+					"Content-Disposition":           {Schema: &huma.Schema{Type: "string"}},
+					"X-Moneyflow-Transaction-Count": {Schema: &huma.Schema{Type: "integer"}},
+				},
+				Content: map[string]*huma.MediaType{
+					"text/csv":                       {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+					"application/vnd.sqlite3":        {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+					"application/vnd.apache.parquet": {Schema: &huma.Schema{Type: "string", Format: "binary"}},
+				},
+			},
+		},
 	}, func(ctx context.Context, input *exportInput) (*huma.StreamResponse, error) {
 		body := input.Body
 		if body.Version != ExportWireVersion || !validExportFormat(body.Format) ||
@@ -122,6 +137,7 @@ func (server *Server) registerExportEndpoints() {
 			stream.SetHeader("Content-Type", download.ContentType)
 			stream.SetHeader("Content-Length", strconv.FormatInt(download.Size, 10))
 			stream.SetHeader("Content-Disposition", exportContentDisposition(download.Filename))
+			stream.SetHeader("X-Moneyflow-Transaction-Count", strconv.Itoa(download.Count))
 			stream.SetHeader("X-Content-Type-Options", "nosniff")
 			_, _ = io.Copy(stream.BodyWriter(), download.Reader)
 		}}, nil

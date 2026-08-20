@@ -54,6 +54,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if matched == app.ActionForceQuit {
 			return model, tea.Quit
 		}
+		if model.overlay == overlayExport && model.export.busy && message.Keystroke() == "esc" {
+			return model, model.routeExport(message)
+		}
 		if model.provider.refreshing && model.overlay == overlayNone && message.Keystroke() == "esc" {
 			if model.provider.cancel != nil {
 				model.provider.cancel()

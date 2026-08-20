@@ -106,6 +106,7 @@ func TestExportDownloadRequiresMutationSecurityAndStreamsCompleteFormats(t *test
 			assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 			assert.Empty(t, response.Header().Get("Access-Control-Allow-Origin"))
 			assert.Equal(t, int64(response.Body.Len()), response.Result().ContentLength)
+			assert.Equal(t, "1", response.Header().Get("X-Moneyflow-Transaction-Count"))
 			disposition := response.Header().Get("Content-Disposition")
 			assert.Contains(t, disposition, `attachment; filename="`)
 			assert.Contains(t, disposition, "filename*=UTF-8''")
@@ -124,6 +125,24 @@ func TestExportDownloadRequiresMutationSecurityAndStreamsCompleteFormats(t *test
 			assert.Empty(t, entries)
 		})
 	}
+}
+
+func TestExportOpenAPIDeclaresBinaryBodiesAndDownloadHeaders(t *testing.T) {
+	server, _, _, _ := exportTestServer(t, false)
+	document := server.api.OpenAPI()
+	operation := document.Paths["/api/v1/profiles/{profile_id}/export"].Post
+	require.NotNil(t, operation)
+	response := operation.Responses["200"]
+	require.NotNil(t, response)
+	for _, mediaType := range []string{
+		"text/csv", "application/vnd.sqlite3", "application/vnd.apache.parquet",
+	} {
+		require.NotNil(t, response.Content[mediaType])
+		assert.Equal(t, "binary", response.Content[mediaType].Schema.Format)
+	}
+	assert.Contains(t, response.Headers, "Content-Disposition")
+	assert.Contains(t, response.Headers, "Content-Length")
+	assert.Contains(t, response.Headers, "X-Moneyflow-Transaction-Count")
 }
 
 func TestExportDownloadRejectsCrossOriginBeforeCreatingStage(t *testing.T) {

@@ -651,6 +651,7 @@ type bufferedResponse struct {
 	body         bytes.Buffer
 	status       int
 	passthrough  bool
+	streaming    bool
 	suppressBody bool
 }
 
@@ -665,7 +666,7 @@ func (response *bufferedResponse) WriteHeader(status int) {
 		return
 	}
 	response.status = status
-	if status < 400 {
+	if status < 400 && response.streaming {
 		copyHeaders(response.target.Header(), response.header)
 		response.target.WriteHeader(status)
 		response.passthrough = true
@@ -697,6 +698,7 @@ func safeProblemResponses(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		buffered := &bufferedResponse{
 			target: response, header: make(http.Header), suppressBody: request.Method == http.MethodHead,
+			streaming: isExportStreamRequest(request),
 		}
 		next.ServeHTTP(buffered, request)
 		status := buffered.status
@@ -707,6 +709,9 @@ func safeProblemResponses(next http.Handler) http.Handler {
 			if !buffered.passthrough {
 				copyHeaders(response.Header(), buffered.header)
 				response.WriteHeader(status)
+				if !buffered.suppressBody {
+					_, _ = response.Write(buffered.body.Bytes())
+				}
 			}
 			return
 		}
@@ -726,6 +731,12 @@ func safeProblemResponses(next http.Handler) http.Handler {
 		}
 		writeProblem(response, newProblem(status, code, detail))
 	})
+}
+
+func isExportStreamRequest(request *http.Request) bool {
+	return request.Method == http.MethodPost &&
+		strings.Contains(request.URL.Path, "/api/v1/profiles/") &&
+		strings.HasSuffix(request.URL.Path, "/export")
 }
 
 func recoverAPI(next http.Handler) http.Handler {

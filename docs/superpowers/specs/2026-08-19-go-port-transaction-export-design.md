@@ -344,6 +344,9 @@ file.
 Web generation closes the writer, stats the staging file for `Content-Length`, reopens it through
 the hardened private-file helper, and streams it. Cleanup closes the handle before removal and runs
 on success, writer failure, request cancellation, response failure, and client disconnect.
+The safe-problem middleware passes successful bodies through only for the exact protected export
+route. Ordinary successful API responses remain buffered until their handlers return, so panic
+recovery can still replace them without exposing a partial response.
 
 Windows can report a sharing violation if removal races a still-open response handle. Cleanup
 closes first and retries briefly with bounded backoff. A remaining file is safe owner-only staging
@@ -541,8 +544,9 @@ publish, directory sync, response copy, and cleanup failures. Assertions prove n
 file, bounded Windows cleanup retry, safe stale leftovers, and unchanged profiles.
 
 Lock tests cover two processes, same-process contention, process death, immediate sequential reuse,
-and lock release on every error and cancellation path. Two processes can preview concurrently while
-neither is executing an export. Filename tests cover microsecond collision, counter suffixes,
+and lock release on every error and cancellation path. Preview remains available while another
+process holds the execution lock, as well as concurrently with other previews. Filename tests cover
+microsecond collision, counter suffixes,
 counter exhaustion, link rejection, unknown-file preservation, and stale managed temporary
 cleanup.
 

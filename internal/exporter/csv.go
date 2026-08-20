@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -17,6 +18,11 @@ var exportColumnNames = []string{
 }
 
 func writeCSV(output io.Writer, document app.ExportDocument) error {
+	return writeCSVContext(context.Background(), output, document)
+}
+
+func writeCSVContext(ctx context.Context, output io.Writer, document app.ExportDocument) error {
+	output = contextWriter{ctx: ctx, writer: output}
 	for _, entry := range metadataEntries(document.Metadata) {
 		if _, err := fmt.Fprintf(output, "# %s: %s\n", entry.Key, sanitizeMetadataValue(entry.Value)); err != nil {
 			return fmt.Errorf("write CSV metadata: %w", err)
@@ -28,6 +34,9 @@ func writeCSV(output io.Writer, document app.ExportDocument) error {
 		return fmt.Errorf("write CSV header: %w", err)
 	}
 	for _, row := range document.Rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := writer.Write(csvRecord(row)); err != nil {
 			return fmt.Errorf("write CSV row: %w", err)
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/wesm/moneyflow/internal/app"
 	// Register the pure-Go SQLite driver used only for standalone export files.
@@ -36,9 +37,15 @@ CREATE TABLE transactions (
     "group" TEXT NOT NULL,
     notes TEXT NOT NULL,
     hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
-    transaction_metadata_json TEXT NOT NULL
-        CHECK (substr(transaction_metadata_json, 1, 1) = '{' AND substr(transaction_metadata_json, -1) = '}')
+	transaction_metadata_json TEXT NOT NULL
+		CHECK (json_valid(transaction_metadata_json) AND json_type(transaction_metadata_json) = 'object')
 ) STRICT;`
+
+const insertExportRowSQL = `INSERT INTO transactions (
+    transaction_id, provider, provider_transaction_id, date, amount, amount_minor,
+    currency, scale, account_id, account, merchant_id, merchant, category_id,
+    category, group_id, "group", notes, hidden, transaction_metadata_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const insertExportRowsSQL = `INSERT INTO transactions (
     transaction_id, provider, provider_transaction_id, date, amount, amount_minor,
@@ -126,12 +133,29 @@ func writeSQLite(ctx context.Context, path string, document app.ExportDocument) 
 			return fmt.Errorf("write SQLite export metadata: %w", err)
 		}
 	}
-	rowsJSON, err := json.Marshal(sqliteJSONRows(document.Rows))
-	if err != nil {
-		return fmt.Errorf("encode SQLite export rows: %w", err)
+	validRows := make([]app.ExportRow, 0, len(document.Rows))
+	for _, row := range document.Rows {
+		if exportRowValidUTF8(row) {
+			validRows = append(validRows, row)
+			continue
+		}
+		if _, err = transaction.ExecContext(ctx, insertExportRowSQL,
+			row.TransactionID, row.Provider, row.ProviderTransactionID, row.Date.String(),
+			row.Amount, row.AmountMinor, row.Currency, int(row.Scale), row.AccountID, row.Account,
+			row.MerchantID, row.Merchant, row.CategoryID, row.Category, row.GroupID, row.Group,
+			row.Notes, row.Hidden, row.TransactionMetadataJSON,
+		); err != nil {
+			return fmt.Errorf("write SQLite export row: %w", err)
+		}
 	}
-	if _, err = transaction.ExecContext(ctx, insertExportRowsSQL, string(rowsJSON)); err != nil {
-		return fmt.Errorf("write SQLite export rows: %w", err)
+	if len(validRows) > 0 {
+		rowsJSON, marshalErr := json.Marshal(sqliteJSONRows(validRows))
+		if marshalErr != nil {
+			return fmt.Errorf("encode SQLite export rows: %w", marshalErr)
+		}
+		if _, err = transaction.ExecContext(ctx, insertExportRowsSQL, string(rowsJSON)); err != nil {
+			return fmt.Errorf("write SQLite export rows: %w", err)
+		}
 	}
 	if err = transaction.Commit(); err != nil {
 		return fmt.Errorf("commit SQLite export: %w", err)
@@ -144,6 +168,17 @@ func writeSQLite(ctx context.Context, path string, document app.ExportDocument) 
 		return errors.New("check SQLite export: integrity check failed")
 	}
 	return nil
+}
+
+func exportRowValidUTF8(row app.ExportRow) bool {
+	return utf8.ValidString(row.TransactionID) && utf8.ValidString(row.Provider) &&
+		utf8.ValidString(row.ProviderTransactionID) && utf8.ValidString(row.Amount) &&
+		utf8.ValidString(row.Currency) && utf8.ValidString(row.AccountID) &&
+		utf8.ValidString(row.Account) && utf8.ValidString(row.MerchantID) &&
+		utf8.ValidString(row.Merchant) && utf8.ValidString(row.CategoryID) &&
+		utf8.ValidString(row.Category) && utf8.ValidString(row.GroupID) &&
+		utf8.ValidString(row.Group) && utf8.ValidString(row.Notes) &&
+		utf8.ValidString(row.TransactionMetadataJSON)
 }
 
 func sqliteJSONRows(rows []app.ExportRow) []sqliteJSONRow {

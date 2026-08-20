@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,6 +51,21 @@ func TestWriteSQLiteCreatesLosslessStandaloneDatabase(t *testing.T) {
 	assert.Equal(t, 1, hidden)
 }
 
+func TestWriteSQLitePreservesInvalidUTF8WithoutJSONReplacement(t *testing.T) {
+	document := testDocument(t)
+	document.Rows = document.Rows[:1]
+	document.Rows[0].Notes = string([]byte{'a', 0xff, 'b'})
+	path := filepath.Join(t.TempDir(), "export.db")
+	require.NoError(t, writeSQLite(context.Background(), path, document))
+	database, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+
+	var notes string
+	require.NoError(t, database.QueryRow("SELECT notes FROM transactions").Scan(&notes))
+	assert.Equal(t, document.Rows[0].Notes, notes)
+}
+
 func TestSQLiteSchemaIsStrictAndRejectsInvalidTypedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "export.db")
 	require.NoError(t, writeSQLite(context.Background(), path, testDocument(t)))
@@ -88,4 +104,10 @@ func TestSQLiteSchemaIsStrictAndRejectsInvalidTypedValues(t *testing.T) {
 		WHERE name IN ('profile', 'journal_operations', 'provider_sessions', 'provider_write_batches')`,
 	).Scan(&forbidden))
 	assert.Zero(t, forbidden)
+
+	_, err = database.Exec(`UPDATE transactions SET transaction_metadata_json = '{invalid}'`)
+	assert.Error(t, err)
+	_, err = database.Exec(`UPDATE transactions SET transaction_metadata_json = '[]'`)
+	assert.Error(t, err)
+	assert.False(t, strings.Contains(exportSchemaSQL, "substr(transaction_metadata_json"))
 }

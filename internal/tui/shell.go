@@ -1019,6 +1019,9 @@ func (shell *Shell) Close() error {
 	if shell == nil || shell.opened == nil {
 		return nil
 	}
+	if shell.finance != nil {
+		shell.finance.cancelAndWaitExport()
+	}
 	err := shell.opened.close()
 	shell.opened = nil
 	shell.finance = nil

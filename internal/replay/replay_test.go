@@ -39,6 +39,24 @@ func TestReplayTransactionDeleteUndoRedo(t *testing.T) {
 	assert.Equal(t, []domain.EntityID{other}, replayTransactionIDs(redone.Effective))
 }
 
+func TestReplayFinalTransactionDeleteMatchesDirectApply(t *testing.T) {
+	t.Parallel()
+
+	committed, err := fixture.CommittedProfile(fixture.Generate(20260818, 1))
+	require.NoError(t, err)
+	operation := transactionDeleteOperation(1, committed.Transactions[0].ID)
+
+	replayed, err := replay.Replay(domain.ProfileSnapshot{
+		Revision: 1, Cursor: 1, Committed: committed, Journal: []domain.Operation{operation},
+	})
+	require.NoError(t, err)
+	direct, err := replay.ApplyOperation(committed, operation)
+	require.NoError(t, err)
+
+	assert.Equal(t, direct.Transactions, replayed.Effective.Transactions)
+	assert.Nil(t, replayed.Effective.Transactions)
+}
+
 func TestReplayRejectsOperationTargetingDeletedTransaction(t *testing.T) {
 	t.Parallel()
 

@@ -34,4 +34,18 @@ describe('DeleteConfirmation', () => {
 
     expect(confirm).toHaveBeenCalledTimes(1)
   })
+
+  it('does not close through modal chrome while submitting', async () => {
+    const cancel = vi.fn()
+    render(DeleteConfirmation, {
+      count: 1,
+      onconfirm: vi.fn(),
+      oncancel: cancel,
+      submitting: true,
+    })
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel deletion' }))
+
+    expect(cancel).not.toHaveBeenCalled()
+  })
 })

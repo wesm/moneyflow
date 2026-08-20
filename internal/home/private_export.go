@@ -74,7 +74,7 @@ func CreatePrivateStage(stageDir string, prefix string) (*os.File, string, error
 }
 
 // PublishPrivateNoReplace atomically installs one staged regular file without overwriting.
-func PublishPrivateNoReplace(stagePath string, finalPath string) error {
+func PublishPrivateNoReplace(stagePath string, finalPath string) (resultErr error) {
 	if stagePath == "" || finalPath == "" ||
 		!filepath.IsAbs(stagePath) || !filepath.IsAbs(finalPath) {
 		return errors.New("publish private file: paths must be absolute")
@@ -96,6 +96,13 @@ func PublishPrivateNoReplace(stagePath string, finalPath string) error {
 		}
 		return fmt.Errorf("publish private file: install: %w", err)
 	}
+	installed := true
+	defer func() {
+		if resultErr != nil && installed {
+			_ = os.Remove(finalPath)
+			_ = SyncPrivateDirectory(filepath.Dir(finalPath))
+		}
+	}()
 	if err := enforcePrivateFile(finalPath); err != nil {
 		return err
 	}
@@ -107,6 +114,7 @@ func PublishPrivateNoReplace(stagePath string, finalPath string) error {
 			return fmt.Errorf("publish private file: sync stage directory: %w", err)
 		}
 	}
+	installed = false
 	return nil
 }
 
@@ -134,7 +142,7 @@ func RemoveManagedExportStages(stageDir string, olderThan time.Time) error {
 			continue
 		}
 		path := filepath.Join(stageDir, entry.Name())
-		if err = os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err = removePrivateWithRetry(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("clean export stages: remove managed file: %w", err)
 		}
 	}
@@ -142,4 +150,18 @@ func RemoveManagedExportStages(stageDir string, olderThan time.Time) error {
 		return fmt.Errorf("clean export stages: sync: %w", err)
 	}
 	return nil
+}
+
+func removePrivateWithRetry(path string) error {
+	var err error
+	for attempt := 0; attempt < 4; attempt++ {
+		err = os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if attempt < 3 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	return err
 }

@@ -52,6 +52,7 @@ type Result struct {
 	Path     string
 	Filename string
 	Size     int64
+	Count    int
 }
 
 // Download owns a private temporary export and its cross-process lock.
@@ -60,6 +61,7 @@ type Download struct {
 	Filename    string
 	ContentType string
 	Size        int64
+	Count       int
 
 	file      *os.File
 	stagePath string
@@ -118,6 +120,9 @@ func WriteFile(ctx context.Context, request Request) (Result, error) {
 	}
 	defer func() { _ = prepared.lock.Release() }()
 	defer func() { _ = os.Remove(prepared.stagePath) }()
+	if err = ctx.Err(); err != nil {
+		return Result{}, exportError(CodeCancelled, err)
+	}
 	if err = home.PublishPrivateNoReplace(prepared.stagePath, prepared.finalPath); err != nil {
 		return Result{}, exportError(CodeFailed, err)
 	}
@@ -125,7 +130,9 @@ func WriteFile(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, exportError(CodeFailed, err)
 	}
-	return Result{Path: prepared.finalPath, Filename: prepared.filename, Size: info.Size()}, nil
+	return Result{
+		Path: prepared.finalPath, Filename: prepared.filename, Size: info.Size(), Count: prepared.count,
+	}, nil
 }
 
 // PrepareDownload creates a private seekable export and retains export.lock until Close.
@@ -149,7 +156,7 @@ func PrepareDownload(ctx context.Context, request Request) (*Download, error) {
 	}
 	return &Download{
 		Reader: file, Filename: prepared.filename, ContentType: contentType(request.Format),
-		Size: info.Size(), file: file, stagePath: prepared.stagePath, lock: prepared.lock,
+		Size: info.Size(), Count: prepared.count, file: file, stagePath: prepared.stagePath, lock: prepared.lock,
 	}, nil
 }
 
@@ -172,6 +179,7 @@ type preparedExport struct {
 	stagePath string
 	finalPath string
 	filename  string
+	count     int
 }
 
 func prepare(ctx context.Context, request Request, persistent bool) (preparedExport, error) {
@@ -208,12 +216,15 @@ func prepare(ctx context.Context, request Request, persistent bool) (preparedExp
 	}
 	document, err := request.Capture(ctx, now)
 	if err != nil {
-		var applicationError *app.AppError
-		if errors.As(err, &applicationError) {
-			return preparedExport{}, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return preparedExport{}, exportError(CodeCancelled, ctxErr)
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return preparedExport{}, exportError(CodeCancelled, err)
+		}
+		var applicationError *app.AppError
+		if errors.As(err, &applicationError) {
+			return preparedExport{}, err
 		}
 		return preparedExport{}, exportError(CodeFailed, err)
 	}
@@ -232,11 +243,15 @@ func prepare(ctx context.Context, request Request, persistent bool) (preparedExp
 	}
 	stagePath = createdPath
 	if err = encodeStage(ctx, request.Format, stage, stagePath, document); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return preparedExport{}, exportError(CodeCancelled, err)
+		}
 		return preparedExport{}, exportError(CodeFailed, err)
 	}
 	failed = false
 	return preparedExport{
 		lock: lock, stagePath: stagePath, finalPath: finalPath, filename: filename,
+		count: len(document.Rows),
 	}, nil
 }
 
@@ -299,7 +314,7 @@ func encodeStage(
 ) error {
 	switch format {
 	case FormatCSV:
-		if err := writeCSV(stage, document); err != nil {
+		if err := writeCSVContext(ctx, stage, document); err != nil {
 			_ = stage.Close()
 			return err
 		}
@@ -322,7 +337,7 @@ func encodeStage(
 		defer func() { _ = file.Close() }()
 		return file.Sync()
 	case FormatParquet:
-		if err := WriteParquet(stage, document); err != nil {
+		if err := writeParquetContext(ctx, stage, document); err != nil {
 			_ = stage.Close()
 			return err
 		}
@@ -335,6 +350,18 @@ func encodeStage(
 		_ = stage.Close()
 		return errors.New("export format is invalid")
 	}
+}
+
+type contextWriter struct {
+	ctx    context.Context
+	writer io.Writer
+}
+
+func (writer contextWriter) Write(data []byte) (int, error) {
+	if err := writer.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return writer.writer.Write(data)
 }
 
 func extension(format Format) string {

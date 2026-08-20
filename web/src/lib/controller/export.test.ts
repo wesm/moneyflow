@@ -47,6 +47,7 @@ describe('ExportController', () => {
         headers: {
           'Content-Disposition': 'attachment; filename="moneyflow-full-export.parquet"',
           'Content-Type': 'application/vnd.apache.parquet',
+          'X-Moneyflow-Transaction-Count': '9',
         },
       }),
     )
@@ -78,7 +79,7 @@ describe('ExportController', () => {
     expect(controller.state).toMatchObject({
       phase: 'complete',
       filename: 'moneyflow-full-export.parquet',
-      announcement: 'Exported 12 transactions.',
+      announcement: 'Exported 9 transactions.',
     })
   })
 
@@ -127,6 +128,32 @@ describe('ExportController', () => {
     expect(controller.state.phase).toBe('ready')
     expect(controller.state.announcement).toBe('Export cancelled.')
     expect(controller.state.filename).toBeUndefined()
+  })
+
+  it('can cancel while the response body is still being consumed', async () => {
+    let release!: (blob: Blob) => void
+    const response = {
+      ok: true,
+      headers: new Headers(),
+      blob: async () => await new Promise<Blob>((resolve) => (release = resolve)),
+    } as Response
+    const client = exportClient()
+    vi.mocked(client.downloadExport).mockResolvedValue(response)
+    const publish = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    const controller = createExportController({ client })
+    await controller.open('v=1')
+
+    const exporting = controller.export()
+    await vi.waitFor(() => expect(controller.state.phase).toBe('exporting'))
+    expect(controller.state.canCancel).toBe(true)
+    controller.cancel()
+    release(new Blob(['late body']))
+
+    await expect(exporting).resolves.toBe(false)
+    expect(publish).not.toHaveBeenCalled()
+    expect(controller.state.announcement).toBe('Export cancelled.')
   })
 })
 

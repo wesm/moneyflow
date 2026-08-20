@@ -3,6 +3,7 @@ package home
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -23,14 +24,19 @@ func TestEnsureExportDirectoriesAndPrivateStage(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stage.Close())
 
-	for _, directory := range []string{exportsDir, stageDir} {
-		info, statErr := os.Stat(directory)
+	if runtime.GOOS != "windows" {
+		for _, directory := range []string{exportsDir, stageDir} {
+			info, statErr := os.Stat(directory)
+			require.NoError(t, statErr)
+			assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+		}
+		info, statErr := os.Stat(stagePath)
 		require.NoError(t, statErr)
-		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 	}
-	info, err := os.Stat(stagePath)
+	reopened, err := OpenPrivateFile(stagePath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	require.NoError(t, reopened.Close())
 }
 
 func TestCreatePrivateStageRejectsUnmanagedPrefix(t *testing.T) {

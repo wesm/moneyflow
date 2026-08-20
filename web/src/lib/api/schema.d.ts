@@ -1898,12 +1898,19 @@ export interface operations {
       }
     }
     responses: {
-      /** @description OK */
+      /** @description Complete committed transaction export */
       200: {
         headers: {
+          'Content-Disposition'?: string
+          'Content-Length'?: number
+          'X-Moneyflow-Transaction-Count'?: number
           [name: string]: unknown
         }
-        content?: never
+        content: {
+          'application/vnd.apache.parquet': string
+          'application/vnd.sqlite3': string
+          'text/csv': string
+        }
       }
       /** @description Bad Request */
       400: {

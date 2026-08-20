@@ -67,6 +67,10 @@ The granularity matches your drill-down level (year-to-year, month-to-month, or 
 
 ## Editing Transactions
 
+The editing shortcuts below describe Go v2. In Python v1, ++x++ deletes immediately after
+confirmation and cannot be undone, while ++shift+u++ is not bound. Python v1 users should treat
+deletion as irreversible.
+
 ### Single Transaction (Detail View)
 
 | Key | Action |

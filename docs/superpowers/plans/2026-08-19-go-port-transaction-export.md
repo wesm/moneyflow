@@ -391,7 +391,7 @@ go test ./internal/home -run 'Test.*Export|Test.*Publish' -count=1
 Extend the existing lock enum/switch rather than creating another locking implementation:
 
 ```go
-const LockExport LockName = "export.lock"
+const LockExport LockName = iota // appended to the existing LockName constants
 ```
 
 Use the repository's Unix `flock` and Windows `LockFileEx` paths. Do not add persisted owner,
@@ -500,7 +500,8 @@ transaction_id=txn-example
 
 The negative amount must round-trip without an apostrophe. The literal metadata preamble syntax is
 not passed through row-cell sanitization. Dynamic metadata values use their separate deterministic
-header sanitizer: CR, LF, and comma become spaces, and dangerous leading formula text is guarded.
+header sanitizer: CR and LF become spaces, commas remain reversible data, and dangerous leading
+formula text is guarded.
 
 - [ ] **Step 4: Implement CSV**
 
@@ -734,10 +735,11 @@ Assert:
 
 - [ ] **Step 4: Make successful responses stream without weakening problem sanitization**
 
-`safeProblemResponses` currently buffers all responses. Change its response writer so successful
-status headers/body pass through immediately, while status `>=400` remains bounded and sanitized.
-Implement `Unwrap() http.ResponseWriter` for response-controller compatibility. Add tests proving a
-large success stream is not buffered and a malicious error body is still replaced.
+`safeProblemResponses` currently buffers all responses. Change its response writer so only the
+exact protected export route passes successful status headers/body through immediately. Ordinary
+successes and status `>=400` remain bounded and sanitized. Implement `Unwrap() http.ResponseWriter`
+for response-controller compatibility. Add tests proving a large export stream is not buffered, an
+ordinary panic cannot expose a partial success, and a malicious error body is still replaced.
 
 - [ ] **Step 5: Implement Huma streaming**
 

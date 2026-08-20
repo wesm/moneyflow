@@ -42,7 +42,7 @@ func metadataEntries(metadata app.ExportMetadata) []metadataEntry {
 
 func sanitizeMetadataValue(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", " ")
-	value = strings.NewReplacer("\r", " ", "\n", " ", ",", " ").Replace(value)
+	value = strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
 	if needsFormulaGuard(value) {
 		return "'" + value
 	}
