@@ -618,6 +618,10 @@ func (profile *memoryProfile) LoadAmazonState(context.Context) (store.AmazonImpo
 	return store.AmazonImportState{Snapshot: profile.snapshot.Clone()}, nil
 }
 
+func (profile *memoryProfile) LoadAmazonMatchSource(context.Context) (store.AmazonMatchSourceState, error) {
+	return store.AmazonMatchSourceState{}, nil
+}
+
 func (profile *memoryProfile) ApplyAmazonImport(
 	context.Context,
 	store.AtomicAmazonImportRequest,

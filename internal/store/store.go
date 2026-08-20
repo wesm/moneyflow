@@ -38,6 +38,7 @@ type Profile interface {
 	RecordRefreshFailure(context.Context, RefreshFailure) error
 	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
 	LoadAmazonState(context.Context) (AmazonImportState, error)
+	LoadAmazonMatchSource(context.Context) (AmazonMatchSourceState, error)
 	ApplyAmazonImport(context.Context, AtomicAmazonImportRequest, AmazonImportPlanner) (AmazonImportCommit, error)
 	Close() error
 }
@@ -96,6 +97,13 @@ type AmazonImportState struct {
 	Settings    *AmazonSettings
 	Items       []AmazonOrderItem
 	Allocations []LabelAllocation
+}
+
+// AmazonMatchSourceState is the narrow committed-only source used by cross-profile matching.
+type AmazonMatchSourceState struct {
+	Revision uint64
+	Settings AmazonSettings
+	Items    []AmazonOrderItem
 }
 
 // ProposedAmazonIDs contains opaque identities generated inside the store boundary.

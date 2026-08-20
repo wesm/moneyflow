@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/big"
@@ -90,9 +91,18 @@ type BreadcrumbSegment struct {
 
 // WebDetailRow decorates a detail row with a stable identity and global index.
 type WebDetailRow struct {
-	Index    int
-	Identity string
-	Row      domain.DetailRow
+	Index       int
+	Identity    string
+	Row         domain.DetailRow
+	AmazonMatch *AmazonMatchIndicator
+}
+
+// AmazonMatchIndicator is the bounded table-cell summary for one best match.
+type AmazonMatchIndicator struct {
+	Class        analytics.AmazonMatchClass
+	Confidence   analytics.AmazonMatchConfidence
+	FirstProduct string
+	TotalMatches int
 }
 
 // WebAggregateRow decorates an aggregate row with a stable identity and global index.
@@ -119,23 +129,24 @@ type ChartProjection struct {
 
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
-	Revision       uint64
-	Pending        PendingSummary
-	Capabilities   []Capability
-	State          ViewState
-	Selection      SelectionValue
-	SelectionCount int
-	Breadcrumbs    []BreadcrumbSegment
-	BreadcrumbText string
-	Filters        Filters
-	Actions        []ActionID
-	TotalRows      int
-	Window         Window
-	DetailRows     []WebDetailRow
-	AggregateRows  []WebAggregateRow
-	Statistics     []domain.CurrencyStats
-	Chart          ChartProjection
-	Status         string
+	Revision          uint64
+	Pending           PendingSummary
+	Capabilities      []Capability
+	State             ViewState
+	Selection         SelectionValue
+	SelectionCount    int
+	Breadcrumbs       []BreadcrumbSegment
+	BreadcrumbText    string
+	Filters           Filters
+	Actions           []ActionID
+	TotalRows         int
+	Window            Window
+	DetailRows        []WebDetailRow
+	AmazonMatchColumn bool
+	AggregateRows     []WebAggregateRow
+	Statistics        []domain.CurrencyStats
+	Chart             ChartProjection
+	Status            string
 }
 
 // ProjectView resolves durable state and returns one deterministic row/chart projection.
@@ -202,6 +213,9 @@ func (service *Service) projectViewLocked(
 	}
 	projection.Window = windowResult(window, projection.TotalRows)
 	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
+	if err = service.decorateAmazonMatchColumn(&projection); err != nil {
+		return WebProjection{}, invalidWebRequest(err)
+	}
 	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
 	if result.DetailRows != nil {
 		projection.Chart.Summary = append([]domain.CurrencyStats(nil), result.Statistics...)
@@ -212,6 +226,42 @@ func (service *Service) projectViewLocked(
 		projection.Status = "No transactions match the current view."
 	}
 	return projection, nil
+}
+
+func (service *Service) decorateAmazonMatchColumn(projection *WebProjection) error {
+	service.mu.RLock()
+	matcher := service.amazonMatcher
+	rawLabels := service.rawProviderMerchantLabelsLocked()
+	service.mu.RUnlock()
+	if matcher == nil || len(projection.DetailRows) == 0 {
+		return nil
+	}
+	indicators := make([]*AmazonMatchIndicator, len(projection.DetailRows))
+	for index, row := range projection.DetailRows {
+		matched, err := matcher.Match(
+			context.Background(), row.Row.Transaction,
+			rawLabels[row.Row.Transaction.Merchant.ID], 1,
+		)
+		if err != nil {
+			return err
+		}
+		if !matched.Qualified {
+			return nil
+		}
+		if len(matched.Result.Matches) == 0 {
+			continue
+		}
+		best := matched.Result.Matches[0]
+		indicators[index] = &AmazonMatchIndicator{
+			Class: best.Class, Confidence: best.Confidence,
+			FirstProduct: best.FirstProduct, TotalMatches: matched.Result.Total,
+		}
+	}
+	projection.AmazonMatchColumn = true
+	for index := range projection.DetailRows {
+		projection.DetailRows[index].AmazonMatch = indicators[index]
+	}
+	return nil
 }
 
 // TransitionView applies one server-authoritative transition and projects its result.

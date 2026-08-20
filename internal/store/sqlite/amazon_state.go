@@ -32,6 +32,40 @@ func (profile *profile) LoadAmazonState(ctx context.Context) (store.AmazonImport
 	return state, nil
 }
 
+// LoadAmazonMatchSource returns only active committed Amazon source facts.
+func (profile *profile) LoadAmazonMatchSource(ctx context.Context) (store.AmazonMatchSourceState, error) {
+	transaction, err := profile.database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return store.AmazonMatchSourceState{}, mapDriverError(err, store.CodeStoreError)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	var revision uint64
+	if err = transaction.QueryRowContext(ctx, "SELECT revision FROM profile_state WHERE singleton = 1").Scan(&revision); err != nil {
+		return store.AmazonMatchSourceState{}, loadFailure(err)
+	}
+	settings, err := loadAmazonSettings(ctx, transaction)
+	if err != nil {
+		return store.AmazonMatchSourceState{}, err
+	}
+	if settings == nil {
+		return store.AmazonMatchSourceState{}, store.NewError(store.CodeInvalidOperation, sql.ErrNoRows)
+	}
+	items, err := loadAmazonItems(ctx, transaction)
+	if err != nil {
+		return store.AmazonMatchSourceState{}, err
+	}
+	active := make([]store.AmazonOrderItem, 0, len(items))
+	for _, item := range items {
+		if !item.Retired {
+			active = append(active, item)
+		}
+	}
+	if err = transaction.Commit(); err != nil {
+		return store.AmazonMatchSourceState{}, mapDriverError(err, store.CodeStoreError)
+	}
+	return store.AmazonMatchSourceState{Revision: revision, Settings: *settings, Items: active}, nil
+}
+
 func loadAmazonState(ctx context.Context, queryer snapshotQueryer) (store.AmazonImportState, error) {
 	snapshot, err := loadSnapshot(ctx, queryer)
 	if err != nil {

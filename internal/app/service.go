@@ -2,6 +2,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -35,6 +36,14 @@ type Service struct {
 	providerBound         bool
 	providerState         store.ProviderState
 	profileKind           string
+	amazonMatcher         *AmazonMatchingService
+}
+
+// ConfigureAmazonMatching installs the shared cross-profile matcher used by both renderers.
+func (service *Service) ConfigureAmazonMatching(matcher *AmazonMatchingService) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.amazonMatcher = matcher
 }
 
 // NewService validates and defensively copies the normalized transaction set.
@@ -57,6 +66,11 @@ func NewService(transactions []domain.Transaction) (*Service, error) {
 
 // Query evaluates the current session without exposing the service's owned data.
 func (service *Service) Query(session Session) (domain.QueryResult, error) {
+	return service.QueryContext(context.Background(), session)
+}
+
+// QueryContext evaluates the current session and enriches search with matched Amazon products.
+func (service *Service) QueryContext(ctx context.Context, session Session) (domain.QueryResult, error) {
 	service.mu.RLock()
 	transactions := append([]domain.Transaction(nil), service.transactions...)
 	committed := append([]domain.Transaction(nil), service.committedTransactions...)
@@ -65,13 +79,28 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 		localPending[id] = struct{}{}
 	}
 	persistent := service.profile != nil
+	matcher := service.amazonMatcher
+	rawLabels := service.rawProviderMerchantLabelsLocked()
 	service.mu.RUnlock()
-	result, err := analytics.Query(transactions, session.QuerySpec())
+	spec := session.QuerySpec()
+	result, err := analytics.Query(transactions, spec)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
 	}
+	if matcher != nil && spec.Search != "" {
+		transactions, err = amazonProductSearch(ctx, transactions, spec, matcher, rawLabels)
+		if err != nil {
+			return domain.QueryResult{}, fmt.Errorf("query Amazon products: %w", err)
+		}
+		withoutSearch := spec
+		withoutSearch.Search = ""
+		result, err = analytics.Query(transactions, withoutSearch)
+		if err != nil {
+			return domain.QueryResult{}, fmt.Errorf("query Amazon product results: %w", err)
+		}
+	}
 	if persistent {
-		decorateLocalPending(&result, committed, transactions, session.QuerySpec(), localPending)
+		decorateLocalPending(&result, committed, transactions, spec, localPending)
 	}
 	selectedTransactions := make(map[string]bool, len(session.SelectedTransactionIDs))
 	for id := range session.SelectedTransactionIDs {
@@ -90,6 +119,50 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[identity]
 	}
 	return result.Clone(), nil
+}
+
+func amazonProductSearch(
+	ctx context.Context,
+	transactions []domain.Transaction,
+	spec domain.QuerySpec,
+	matcher *AmazonMatchingService,
+	rawLabels map[string]string,
+) ([]domain.Transaction, error) {
+	normal, err := analytics.Filter(transactions, spec)
+	if err != nil {
+		return nil, err
+	}
+	included := make(map[string]struct{}, len(normal))
+	for _, transaction := range normal {
+		included[transaction.ID] = struct{}{}
+	}
+	baseSpec := spec
+	baseSpec.Search = ""
+	base, err := analytics.Filter(transactions, baseSpec)
+	if err != nil {
+		return nil, err
+	}
+	for _, transaction := range base {
+		if _, ok := included[transaction.ID]; ok {
+			continue
+		}
+		matches, matchErr := matcher.ProductMatches(
+			ctx, transaction, rawLabels[transaction.Merchant.ID], spec.Search,
+		)
+		if matchErr != nil {
+			return nil, matchErr
+		}
+		if matches {
+			included[transaction.ID] = struct{}{}
+		}
+	}
+	result := make([]domain.Transaction, 0, len(included))
+	for _, transaction := range base {
+		if _, ok := included[transaction.ID]; ok {
+			result = append(result, transaction)
+		}
+	}
+	return result, nil
 }
 
 func decorateLocalPending(

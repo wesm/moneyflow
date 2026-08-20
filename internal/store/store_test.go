@@ -127,6 +127,9 @@ func (fakeProfile) ApplyProviderRefresh(
 func (fakeProfile) LoadAmazonState(context.Context) (store.AmazonImportState, error) {
 	return store.AmazonImportState{}, nil
 }
+func (fakeProfile) LoadAmazonMatchSource(context.Context) (store.AmazonMatchSourceState, error) {
+	return store.AmazonMatchSourceState{}, nil
+}
 func (fakeProfile) ApplyAmazonImport(
 	context.Context,
 	store.AtomicAmazonImportRequest,
