@@ -106,6 +106,32 @@ func TestRenderersAndWritePlannerDoNotDependOnMonarchOrSQLite(t *testing.T) {
 	}
 }
 
+func TestExporterDependencyBoundary(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	providerDir := filepath.Dir(filename)
+	internalDir := filepath.Dir(providerDir)
+	exporterDir := filepath.Join(internalDir, "exporter")
+	assertNoInternalImport(t, exporterDir, func(_ string, imported string) bool {
+		if !strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/") {
+			return true
+		}
+		return imported == "github.com/wesm/moneyflow/internal/app" ||
+			imported == "github.com/wesm/moneyflow/internal/home"
+	})
+	assertNoInternalImport(t, filepath.Join(internalDir, "app"), func(_ string, imported string) bool {
+		return !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/exporter")
+	})
+	for _, directory := range []string{"api", "tui"} {
+		assertNoInternalImport(t, filepath.Join(internalDir, directory), func(_ string, imported string) bool {
+			return imported != "modernc.org/sqlite" &&
+				!importsPackageTree(imported, "github.com/parquet-go/parquet-go")
+		})
+	}
+}
+
 func TestMonarchMutationSurfaceIsLimitedToTransactionUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/store"
 )
 
@@ -37,6 +38,21 @@ func TestPreviewExportUsesCommittedRowsAndReportsJournalState(t *testing.T) {
 	profile.mu.Lock()
 	assert.GreaterOrEqual(t, profile.revisionCalls, 1)
 	profile.mu.Unlock()
+}
+
+func TestPreviewExportDoesNotContendOnExportExecutionLock(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	lock, err := home.TryLock(root, home.LockExport, home.LockExclusive)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Release()) })
+	service, err := app.NewProfileService(context.Background(), exportMemoryProfile(t))
+	require.NoError(t, err)
+
+	preview, err := service.PreviewExport(context.Background(), detailViewState())
+	require.NoError(t, err)
+	assert.Equal(t, 2, preview.FullCount)
 }
 
 func TestCaptureExportReturnsDetachedCommittedRowsAndNamedMetadata(t *testing.T) {
