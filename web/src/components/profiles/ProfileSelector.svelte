@@ -13,7 +13,11 @@
   }
 
   function providerLabel(provider: string): string {
-    return provider === 'monarch' ? 'Monarch Money' : 'Local profile'
+    return provider === 'monarch'
+      ? 'Monarch Money'
+      : provider === 'amazon'
+        ? 'Amazon orders'
+        : 'Local profile'
   }
 
   function inputTarget(target: EventTarget | null): boolean {
@@ -38,10 +42,11 @@
     recovery?: RecoveryResponse | undefined
     onopen: (profileID: string) => void
     onsetup: (profileID: string) => void
+    onamazonsetup?: (profileID: string) => void
     onrecover: (profileID: string, confirmed: boolean) => Promise<void> | void
     oncreate: (
       name: string,
-      provider: 'monarch' | 'local',
+      provider: 'monarch' | 'amazon' | 'local',
     ) => Promise<ProfileSummary | undefined> | ProfileSummary | undefined
     ondemo: () => void
     onexit: () => void
@@ -55,6 +60,7 @@
     recovery,
     onopen,
     onsetup,
+    onamazonsetup,
     onrecover,
     oncreate,
     ondemo,
@@ -64,7 +70,7 @@
   let view = $state<View>('list')
   let active = $state(0)
   let selected = $state<ProfileSummary | undefined>()
-  let provider = $state<'monarch' | 'local'>('monarch')
+  let provider = $state<'monarch' | 'amazon' | 'local'>('monarch')
   let profileList = $state<HTMLElement | undefined>()
   let wasLoading = $state(false)
   const entries = $derived([
@@ -126,7 +132,8 @@
       return
     }
     if (profile.status === 'reconnect' || profile.status === 'setup_incomplete') {
-      onsetup(profile.id ?? profile.key)
+      if (profile.provider_kind === 'amazon') (onamazonsetup ?? onsetup)(profile.id ?? profile.key)
+      else onsetup(profile.id ?? profile.key)
       return
     }
     if (profile.status === 'local_only') {
@@ -151,6 +158,7 @@
     const created = await oncreate(name, provider)
     if (!created?.id) return
     if (provider === 'local') onopen(created.id)
+    else if (provider === 'amazon') (onamazonsetup ?? onsetup)(created.id)
     else onsetup(created.id)
   }
 

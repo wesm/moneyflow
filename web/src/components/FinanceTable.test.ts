@@ -8,6 +8,7 @@ const callbacks = () => ({
   onhome: vi.fn(),
   onactivate: vi.fn(),
   onselect: vi.fn(),
+  oninformation: vi.fn(),
 })
 describe('FinanceTable', () => {
   afterEach(cleanup)
@@ -46,8 +47,33 @@ describe('FinanceTable', () => {
     expect(events.onmove).toHaveBeenCalledTimes(1)
     await fireEvent.doubleClick(screen.getByRole('row', { name: /Example Merchant/ }))
     expect(events.onactivate).not.toHaveBeenCalled()
+    expect(events.oninformation).toHaveBeenCalledWith('row-0')
     await fireEvent.click(screen.getByRole('row', { name: /Example Merchant/ }))
     expect(events.onselect).toHaveBeenCalledWith('row-0', 'transaction')
+  })
+  it('renders a bounded Amazon match indicator with an explicit details action', async () => {
+    const events = callbacks()
+    const projection = testProjection()
+    render(FinanceTable, {
+      projection: testProjection({
+        amazon_match_column: true,
+        detail_rows: projection.detail_rows!.map((row) => ({
+          ...row,
+          amazon_match: {
+            class: 'exact',
+            confidence: 'high',
+            first_product: 'Example Product',
+            total_matches: 1,
+          },
+        })),
+      }),
+      cursorIndex: 0,
+      ...events,
+    })
+    expect(screen.getByRole('columnheader', { name: 'Amazon match' })).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: /Example Product/ }))
+    expect(events.oninformation).toHaveBeenCalledWith('row-0')
+    expect(events.onselect).not.toHaveBeenCalled()
   })
   it('renders aggregate columns and empty results', async () => {
     const events = callbacks()

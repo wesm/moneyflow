@@ -58,6 +58,8 @@ type TransactionInfo struct {
 	TotalMatches    int
 	MatchOffset     int
 	MatchLimit      int
+	ItemOffset      int
+	ItemLimit       int
 	Matches         []TransactionInfoMatch
 }
 
@@ -91,6 +93,7 @@ func (service *Service) TransactionInfo(
 	}
 	info := TransactionInfo{
 		Revision: revision, Transaction: transaction, MatchOffset: matchOffset, MatchLimit: matchLimit,
+		ItemOffset: itemOffset, ItemLimit: itemLimit,
 	}
 	if profileKind == amazonProvider && service.profile != nil {
 		state, loadErr := service.profile.LoadAmazonMatchSource(ctx)

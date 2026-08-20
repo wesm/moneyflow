@@ -3,6 +3,7 @@ import {
   type MoneyflowClient,
   type SelectionValue,
   type TransitionBody,
+  type TransactionInformationResponse,
   type ViewBody,
   type ViewProjection,
 } from '../api/client'
@@ -65,6 +66,7 @@ export interface ViewController {
   restore(event: PopStateEvent): Promise<void>
   retry(): Promise<void>
   reset(): Promise<void>
+  transactionInformation?(identity: string): Promise<TransactionInformationResponse | undefined>
 }
 
 export interface ViewControllerOptions {
@@ -260,6 +262,29 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   async function reset(): Promise<void> {
     browserHistory.replaceState(null, '', basePath)
     await hydrate()
+  }
+
+  async function transactionInformation(
+    identity: string,
+  ): Promise<TransactionInformationResponse | undefined> {
+    if (!projection) return undefined
+    try {
+      if (!options.client.transactionInformation) return undefined
+      return await options.client.transactionInformation({
+        version: '1',
+        expected_revision: projection.revision,
+        query: projection.canonical_query,
+        target: { kind: 'transaction', identity },
+        match_window: { offset: 0, limit: 20 },
+        item_window: { offset: 0, limit: 20 },
+      })
+    } catch (error) {
+      announcement =
+        error instanceof MoneyflowProblem
+          ? error.problem.detail
+          : 'Transaction information could not be loaded.'
+      return undefined
+    }
   }
 
   function beginSearch(): SearchSnapshot {
@@ -605,6 +630,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     restore,
     retry,
     reset,
+    transactionInformation,
   }
 }
 

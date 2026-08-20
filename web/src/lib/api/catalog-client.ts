@@ -14,8 +14,8 @@ export type RecoveryResponse = components['schemas']['RecoveryResponse']
 export interface CatalogClient {
   readonly mutations: MutationFetch
   list(signal?: AbortSignal): Promise<ProfileCatalogResponse>
-  create(displayName: string, providerKind: 'monarch' | 'local'): Promise<ProfileSummary>
-  activate(key: string, providerKind?: 'monarch' | 'local'): Promise<ProfileSummary>
+  create(displayName: string, providerKind: 'monarch' | 'amazon' | 'local'): Promise<ProfileSummary>
+  activate(key: string, providerKind?: 'monarch' | 'amazon' | 'local'): Promise<ProfileSummary>
   cancelNew(profileID: string): Promise<boolean>
   recovery(profileID: string, body: RecoveryBody): Promise<RecoveryResponse>
 }

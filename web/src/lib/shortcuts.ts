@@ -20,6 +20,7 @@ export type LocalAction =
   | 'view.duplicates'
   | 'transactions.export'
   | 'edit.delete'
+  | 'transaction.info'
   | 'provider.refresh'
 
 const bindings = [
@@ -46,6 +47,13 @@ const bindings = [
   { id: 'sort.reverse', display: 'v', combos: ['v'] },
   { id: 'selection.toggle', display: 'space', combos: ['space'] },
   { id: 'selection.toggle-all', display: 'ctrl+a', combos: ['ctrl+a'] },
+  {
+    id: 'transaction.show-info',
+    display: 'i',
+    combos: ['i'],
+    local: true,
+    localID: 'transaction.info',
+  },
   { id: 'overlay.filters', display: 'f', combos: ['f'], local: true },
   { id: 'overlay.search', display: '/', combos: ['/'], local: true },
   { id: 'overlay.help', display: '?', combos: ['?'], local: true },

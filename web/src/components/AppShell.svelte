@@ -25,6 +25,7 @@
   import DuplicateReview from './editing/DuplicateReview.svelte'
   import ExportDialog from './editing/ExportDialog.svelte'
   import ProviderStatus from './ProviderStatus.svelte'
+  import TransactionInformationDrawer from './TransactionInformationDrawer.svelte'
   import ReviewDrawer from './editing/ReviewDrawer.svelte'
   import WriteStatusDrawer from './editing/WriteStatusDrawer.svelte'
   import {
@@ -33,11 +34,13 @@
     type LocalAction,
   } from '../lib/shortcuts'
   import type { ViewController } from '../lib/controller/view-controller.svelte'
+  import type { TransactionInformationResponse } from '../lib/api/client'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
+    onamazonimport?: (() => void) | undefined
   }
-  let { controller, onreconnect }: Props = $props()
+  let { controller, onreconnect, onamazonimport }: Props = $props()
   let charts = $state(true)
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
@@ -54,6 +57,7 @@
     | 'duplicates'
     | 'delete'
     | 'export'
+    | 'information'
   let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
@@ -61,6 +65,8 @@
   let focusRestoreFrame: number | undefined
   let deleteTarget = $state<{ identity: string; kind: 'transaction' } | undefined>()
   let deleteCount = $state(0)
+  let transactionInformation = $state<TransactionInformationResponse | undefined>()
+  let transitionTail: Promise<void> = Promise.resolve()
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
 
@@ -79,8 +85,10 @@
     else if (action === 'manage.groups') openOverlay('groups')
     else if (action === 'edit.review') openOverlay('review')
     else if (action === 'view.duplicates') openOverlay('duplicates')
-    else if (action === 'provider.refresh') void controller.provider.refresh()
-    else if (action === 'transactions.export') void beginExport()
+    else if (action === 'provider.refresh') {
+      if (projection?.profile_kind === 'amazon') onamazonimport?.()
+      else void controller.provider.refresh()
+    } else if (action === 'transactions.export') void beginExport()
     else if (action === 'edit.undo') void controller.editing.undo()
     else if (action === 'edit.redo') void controller.editing.redo()
     else if (action === 'edit.hide') {
@@ -99,11 +107,23 @@
         deleteCount = projection?.selection_count ? projection.selection_count : 1
         openOverlay('delete')
       }
+    } else if (action === 'transaction.info') {
+      void transitionTail.then(async () => {
+        await tick()
+        const row = focusedRow()
+        if (row?.kind === 'transaction') await openTransactionInformation(row.identity)
+      })
     }
   }
   async function beginExport(): Promise<void> {
     if (!projection) return
     if (await controller.export.open(projection.canonical_query)) openOverlay('export')
+  }
+  async function openTransactionInformation(identity: string): Promise<void> {
+    const information = await controller.transactionInformation?.(identity)
+    if (!information) return
+    transactionInformation = information
+    openOverlay('information')
   }
   function focusedRow(): { identity: string; kind: 'transaction' | 'aggregate' } | undefined {
     const row = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])].find(
@@ -126,6 +146,10 @@
     await controller.apply({ action })
     focusGrid()
   }
+  function queueApply(action: string): void {
+    const run = () => apply(action)
+    transitionTail = transitionTail.then(run, run)
+  }
   async function target(
     action: string,
     identity: string,
@@ -147,6 +171,7 @@
     popOverlayScope = undefined
     deleteTarget = undefined
     deleteCount = 0
+    transactionInformation = undefined
     void tick().then(() => {
       focusRestoreFrame = requestAnimationFrame(() => {
         focusRestoreFrame = undefined
@@ -182,7 +207,7 @@
     if (!projection) return
     const current = createMoneyflowShortcuts(projection.capabilities ?? [], {
       local,
-      apply: (action) => void apply(action),
+      apply: queueApply,
     })
     shortcuts = current
     const activeOverlay = untrack(() => overlay)
@@ -218,10 +243,13 @@
   <div class="app-shell">
     <TopBar ariaLabel="Moneyflow">
       {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}<ProviderStatus
-          controller={controller.provider}
-          {onreconnect}
-        />{#if controller.providerWrite.state.status?.phase}<Button
+      {#snippet right()}{#if projection.profile_kind === 'amazon'}<Button
+            size="sm"
+            onclick={onamazonimport}>Import Amazon orders</Button
+          >{:else}<ProviderStatus
+            controller={controller.provider}
+            {onreconnect}
+          />{/if}{#if controller.providerWrite.state.status?.phase}<Button
             size="sm"
             onclick={() => openOverlay('write')}
             >Write {controller.providerWrite.state.status.completed}/{controller.providerWrite.state
@@ -243,6 +271,7 @@
           onhome={() => void controller.moveHome()}
           onactivate={(identity, kind) => void target('view.drill', identity, kind)}
           onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
+          oninformation={(identity) => void openTransactionInformation(identity)}
         />
       </div>
       {#if charts && !compact.current}
@@ -315,6 +344,8 @@
     />
   {:else if overlay === 'export'}
     <ExportDialog controller={controller.export} onclose={closeOverlay} />
+  {:else if overlay === 'information' && transactionInformation}
+    <TransactionInformationDrawer information={transactionInformation} onclose={closeOverlay} />
   {/if}
   {#if compact.current && chartDrawer}
     <DetailDrawer

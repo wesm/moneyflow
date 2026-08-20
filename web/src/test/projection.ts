@@ -5,6 +5,8 @@ export function testProjection(overrides: Partial<ViewProjection> = {}): ViewPro
     api_schema_version: '1',
     projection_schema_version: '1',
     revision: '0',
+    profile_kind: 'local',
+    amazon_match_column: false,
     pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: 'v=1',
     selection: 'mfsel1.example' as ViewProjection['selection'],

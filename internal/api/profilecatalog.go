@@ -34,14 +34,14 @@ type ProfileCatalogResponse struct {
 type ProfileCreateBody struct {
 	Version      string `json:"version"`
 	DisplayName  string `json:"display_name" minLength:"1" maxLength:"320"`
-	ProviderKind string `json:"provider_kind" enum:"monarch,local"`
+	ProviderKind string `json:"provider_kind" enum:"monarch,amazon,local"`
 }
 
 // ProfileActivateBody turns a catalog-only key into a durable canonical profile identity.
 type ProfileActivateBody struct {
 	Version      string `json:"version"`
 	Key          string `json:"key" minLength:"1" maxLength:"128"`
-	ProviderKind string `json:"provider_kind,omitempty" enum:"monarch,local"`
+	ProviderKind string `json:"provider_kind,omitempty" enum:"monarch,amazon,local"`
 }
 
 // ProfileResponse returns one selector-safe profile.

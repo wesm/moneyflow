@@ -79,15 +79,24 @@ type Flags struct {
 
 // DetailRow contains only fields rendered by the read-only interface.
 type DetailRow struct {
-	Index    int    `json:"index"`
-	Identity string `json:"identity"`
-	Date     string `json:"date"`
-	Account  string `json:"account"`
-	Merchant string `json:"merchant"`
-	Category string `json:"category"`
-	Group    string `json:"group"`
-	Amount   Money  `json:"amount"`
-	Flags    Flags  `json:"flags"`
+	Index       int                   `json:"index"`
+	Identity    string                `json:"identity"`
+	Date        string                `json:"date"`
+	Account     string                `json:"account"`
+	Merchant    string                `json:"merchant"`
+	Category    string                `json:"category"`
+	Group       string                `json:"group"`
+	Amount      Money                 `json:"amount"`
+	Flags       Flags                 `json:"flags"`
+	AmazonMatch *AmazonMatchIndicator `json:"amazon_match,omitempty"`
+}
+
+// AmazonMatchIndicator is the bounded summary rendered in qualifying transaction tables.
+type AmazonMatchIndicator struct {
+	Class        string `json:"class"`
+	Confidence   string `json:"confidence"`
+	FirstProduct string `json:"first_product"`
+	TotalMatches int    `json:"total_matches"`
 }
 
 // Period is a typed time label with no locale-dependent parsing.
@@ -195,6 +204,7 @@ type Projection struct {
 	APISchemaVersion        string         `json:"api_schema_version"`
 	ProjectionSchemaVersion string         `json:"projection_schema_version"`
 	Revision                string         `json:"revision" pattern:"^[0-9]+$"`
+	ProfileKind             string         `json:"profile_kind" enum:"monarch,amazon,local"`
 	Pending                 PendingSummary `json:"pending"`
 	CanonicalQuery          string         `json:"canonical_query"`
 	Selection               string         `json:"selection"`
@@ -207,6 +217,7 @@ type Projection struct {
 	TotalRows               int            `json:"total_rows"`
 	Window                  ReturnedWindow `json:"window"`
 	DetailRows              []DetailRow    `json:"detail_rows,omitempty"`
+	AmazonMatchColumn       bool           `json:"amazon_match_column"`
 	AggregateRows           []AggregateRow `json:"aggregate_rows,omitempty"`
 	Statistics              []Statistics   `json:"statistics"`
 	Chart                   Chart          `json:"chart"`
@@ -221,7 +232,8 @@ func projectionToWire(
 ) Projection {
 	wire := Projection{
 		APISchemaVersion: APISchemaVersion, ProjectionSchemaVersion: ProjectionSchemaVersion,
-		Revision: strconv.FormatUint(projection.Revision, 10), Pending: pendingToWire(projection.Pending),
+		Revision: strconv.FormatUint(projection.Revision, 10), ProfileKind: projection.ProfileKind,
+		Pending:        pendingToWire(projection.Pending),
 		CanonicalQuery: canonical, Selection: string(projection.Selection),
 		SelectionCount: projection.SelectionCount,
 		View: ViewMetadata{
@@ -239,6 +251,7 @@ func projectionToWire(
 			Count: projection.Window.Count,
 		},
 		Status: projection.Status, Warnings: append([]Warning(nil), warnings...),
+		AmazonMatchColumn: projection.AmazonMatchColumn,
 	}
 	for _, breadcrumb := range projection.Breadcrumbs {
 		wire.Breadcrumbs = append(wire.Breadcrumbs, Breadcrumb{
@@ -263,9 +276,13 @@ func projectionToWire(
 			available = dynamic.Available
 			reason = dynamic.Reason
 		}
+		description := definition.Description
+		if projection.ProfileKind == "amazon" && definition.ID == app.ActionRefreshProvider {
+			description = "Import Amazon order history"
+		}
 		wire.Capabilities = append(wire.Capabilities, Capability{
 			ID: definition.ID, KeyDisplay: definition.KeyDisplay,
-			Description: definition.Description, Category: definition.Category,
+			Description: description, Category: definition.Category,
 			Available: available, Reason: reason,
 		})
 	}
@@ -299,12 +316,19 @@ func moneyToWire(money domain.Money) Money {
 
 func detailRowToWire(row app.WebDetailRow) DetailRow {
 	transaction := row.Row.Transaction
-	return DetailRow{
+	wire := DetailRow{
 		Index: row.Index, Identity: row.Identity, Date: transaction.Date.String(),
 		Account: transaction.Account.Name, Merchant: transaction.Merchant.Name,
 		Category: transaction.Category.Name, Group: transaction.Category.Group,
 		Amount: moneyToWire(transaction.Amount), Flags: flagsToWire(row.Row.Flags),
 	}
+	if row.AmazonMatch != nil {
+		wire.AmazonMatch = &AmazonMatchIndicator{
+			Class: string(row.AmazonMatch.Class), Confidence: string(row.AmazonMatch.Confidence),
+			FirstProduct: row.AmazonMatch.FirstProduct, TotalMatches: row.AmazonMatch.TotalMatches,
+		}
+	}
+	return wire
 }
 
 func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {

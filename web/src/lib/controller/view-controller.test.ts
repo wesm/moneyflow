@@ -475,6 +475,8 @@ function projection(query: string, offset: number, total: number, revision = '0'
   return {
     api_schema_version: '1',
     projection_schema_version: '1',
+    profile_kind: 'local',
+    amazon_match_column: false,
     revision,
     pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: query,

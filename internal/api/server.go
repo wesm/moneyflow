@@ -19,20 +19,23 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/exporter"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 // Config supplies immutable dependencies for a stateless API handler.
 type Config struct {
-	Resolver        ProfileResolver
-	LegacyProfileID string
-	BasePath        string
-	Version         string
-	Origin          OriginConfig
-	Security        *MutationSecurity
-	Catalog         ProfileCatalog
-	Evictor         ProfileEvictor
-	Onboarding      OnboardingCoordinator
+	Resolver           ProfileResolver
+	LegacyProfileID    string
+	BasePath           string
+	Version            string
+	Origin             OriginConfig
+	Security           *MutationSecurity
+	Catalog            ProfileCatalog
+	Evictor            ProfileEvictor
+	Onboarding         OnboardingCoordinator
+	AmazonImports      AmazonImportCoordinator
+	LoadAmazonTaxonomy func(context.Context, string) (*app.TaxonomyClone, error)
 }
 
 // Health reports non-sensitive process and persistent-profile metadata.
@@ -145,10 +148,12 @@ func New(config Config) (*Server, error) {
 	server.registerProviderWriteEndpoints(config)
 	server.registerProfileCatalogEndpoints(config)
 	server.registerOnboardingEndpoints(config)
+	server.registerAmazonImportEndpoints(config)
+	server.registerTransactionInformationEndpoint()
 	server.installProblemSchemas()
 
 	var handler http.Handler = mux
-	handler = requestBodyLimit(handler)
+	handler = requestBodyLimit(handler, basePath)
 	handler = resolveProfileRequests(handler, basePath, config.Resolver)
 	handler = profileMutationSecurity(handler, basePath, config.Security)
 	handler = strictProfileAPIPaths(handler, basePath)
@@ -199,6 +204,7 @@ func profileMutationSecurity(
 		"provider/refresh": {}, "provider/refresh/confirm": {},
 		"provider/write/pause": {}, "provider/write/resume": {},
 		"provider/write/reconcile": {}, "provider/write/reconcile/confirm": {},
+		"amazon-import/start": {},
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost {
@@ -218,6 +224,12 @@ func profileMutationSecurity(
 				if endpoint == "onboarding/start" ||
 					(strings.HasPrefix(endpoint, "onboarding/") &&
 						(strings.HasSuffix(endpoint, "/submit") || strings.HasSuffix(endpoint, "/cancel"))) {
+					requiresProtection = true
+				}
+				if endpoint == "amazon-import/start" ||
+					(strings.HasPrefix(endpoint, "amazon-import/") &&
+						(strings.HasSuffix(endpoint, "/files") ||
+							strings.HasSuffix(endpoint, "/execute") || strings.HasSuffix(endpoint, "/cancel"))) {
 					requiresProtection = true
 				}
 				if requiresProtection {
@@ -610,9 +622,16 @@ func isInvalidHydrationSelection(err error) bool {
 	return errors.As(err, &selectionErr)
 }
 
-func requestBodyLimit(next http.Handler) http.Handler {
+func requestBodyLimit(next http.Handler, basePath string) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.Method == http.MethodPost {
+			if _, endpoint, err := ParseProfileAPIPath(basePath, request.URL.EscapedPath()); err == nil && strings.HasPrefix(endpoint, "amazon-import/") && strings.HasSuffix(endpoint, "/files") {
+				request.Body = http.MaxBytesReader(
+					response, request.Body, amazon.ProductionLimits.TotalBytes+(2<<20),
+				)
+				next.ServeHTTP(response, request)
+				return
+			}
 			if request.ContentLength > MaxViewBodyBytes {
 				writeProblem(response, newProblem(
 					http.StatusRequestEntityTooLarge,

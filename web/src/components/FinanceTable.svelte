@@ -9,8 +9,10 @@
     onhome: () => void
     onactivate: (identity: string, kind: 'transaction' | 'aggregate') => void
     onselect: (identity: string, kind: 'transaction' | 'aggregate') => void
+    oninformation?: (identity: string) => void
   }
-  let { projection, cursorIndex, onmove, onhome, onactivate, onselect }: Props = $props()
+  let { projection, cursorIndex, onmove, onhome, onactivate, onselect, oninformation }: Props =
+    $props()
   let scrollTop = $state(0)
   let viewport = $state(520)
   const rows = $derived(projection.detail_rows ?? projection.aggregate_rows ?? [])
@@ -75,6 +77,9 @@
         <div role="columnheader" aria-sort={sortState('merchant')}>Merchant</div>
         <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
         <div role="columnheader" aria-sort={sortState('category')}>Category</div>
+        {#if projection.amazon_match_column}
+          <div role="columnheader">Amazon match</div>
+        {/if}
       {:else}
         <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->
         <div role="columnheader" aria-sort={sortState(groupingSortField())}>
@@ -98,11 +103,15 @@
         aria-rowindex={row.index + 2}
         aria-selected={row.flags.selected}
         ondblclick={() => {
-          if (!detail) onactivate(row.identity, 'aggregate')
+          if (detail) oninformation?.(row.identity)
+          else onactivate(row.identity, 'aggregate')
         }}
         onclick={() => onselect(row.identity, detail ? 'transaction' : 'aggregate')}
         onkeydown={(event) => {
-          if (event.key === 'Enter' && !detail) onactivate(row.identity, 'aggregate')
+          if (event.key === 'Enter') {
+            if (detail) oninformation?.(row.identity)
+            else onactivate(row.identity, 'aggregate')
+          }
           if (event.key === ' ') onselect(row.identity, detail ? 'transaction' : 'aggregate')
         }}
       >
@@ -113,6 +122,27 @@
             {row.merchant}{#if row.flags.pending}<span class="pending-marker">pending</span>{/if}
           </div>
           <div role="gridcell">{row.category}</div>
+          {#if projection.amazon_match_column}
+            <div role="gridcell">
+              {#if row.amazon_match}
+                <button
+                  class="table-detail-button"
+                  onclick={(event) => {
+                    event.stopPropagation()
+                    oninformation?.(row.identity)
+                  }}>{row.amazon_match.first_product} · {row.amazon_match.confidence}</button
+                >
+              {:else}
+                <button
+                  class="table-detail-button"
+                  onclick={(event) => {
+                    event.stopPropagation()
+                    oninformation?.(row.identity)
+                  }}>Details</button
+                >
+              {/if}
+            </div>
+          {/if}
           <div class="money" role="gridcell">{row.amount.display}</div>
         {:else}
           <div role="gridcell">

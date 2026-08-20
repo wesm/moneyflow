@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,20 +11,23 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/app"
 )
 
 // ServerConfig supplies the immutable dependencies shared by the API and browser application.
 type ServerConfig struct {
-	Resolver         api.ProfileResolver
-	Catalog          api.ProfileCatalog
-	Evictor          api.ProfileEvictor
-	Onboarding       api.OnboardingCoordinator
-	PreselectedID    string
-	BasePath         string
-	Version          string
-	Origin           api.OriginConfig
-	Security         *api.MutationSecurity
-	WarnNonCanonical bool
+	Resolver           api.ProfileResolver
+	Catalog            api.ProfileCatalog
+	Evictor            api.ProfileEvictor
+	Onboarding         api.OnboardingCoordinator
+	AmazonImports      api.AmazonImportCoordinator
+	LoadAmazonTaxonomy func(context.Context, string) (*app.TaxonomyClone, error)
+	PreselectedID      string
+	BasePath           string
+	Version            string
+	Origin             api.OriginConfig
+	Security           *api.MutationSecurity
+	WarnNonCanonical   bool
 }
 
 // Server is the composed profile API and embedded browser application.
@@ -60,6 +64,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		Resolver: config.Resolver, BasePath: basePath, Version: config.Version,
 		Origin: config.Origin, Security: config.Security,
 		Catalog: config.Catalog, Evictor: config.Evictor, Onboarding: config.Onboarding,
+		AmazonImports: config.AmazonImports, LoadAmazonTaxonomy: config.LoadAmazonTaxonomy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new web server API: %w", err)
@@ -95,7 +100,7 @@ func (server *Server) HTTPServer(address string, errorOutput io.Writer) *http.Se
 	return &http.Server{
 		Addr: address, Handler: server.handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
+		ReadTimeout:       api.ProviderRefreshTimeout,
 		WriteTimeout:      api.ProviderRefreshTimeout + time.Minute,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,

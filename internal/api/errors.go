@@ -104,6 +104,24 @@ const (
 	CodeExportCancelled ErrorCode = "export_cancelled"
 	// CodeExportFailed reports an encoding or private-filesystem failure.
 	CodeExportFailed ErrorCode = "export_failed"
+	// CodeAmazonImportBusy reports another live Amazon import owner.
+	CodeAmazonImportBusy ErrorCode = "amazon_import_busy"
+	// CodeAmazonImportInvalid rejects invalid import settings, files, or rows.
+	CodeAmazonImportInvalid ErrorCode = "amazon_import_invalid"
+	// CodeAmazonImportTooLarge rejects a source beyond the fixed upload bounds.
+	CodeAmazonImportTooLarge ErrorCode = "amazon_import_too_large"
+	// CodeAmazonImportEmpty reports a candidate with no observable orders.
+	CodeAmazonImportEmpty ErrorCode = "amazon_import_empty"
+	// CodeAmazonCurrencyMismatch rejects rows outside the profile binding.
+	CodeAmazonCurrencyMismatch ErrorCode = "amazon_currency_mismatch"
+	// CodeAmazonProfileInvalid rejects an unusable Amazon target profile.
+	CodeAmazonProfileInvalid ErrorCode = "amazon_profile_invalid"
+	// CodeAmazonImportStale reports an attempt state-version conflict.
+	CodeAmazonImportStale ErrorCode = "amazon_import_stale"
+	// CodeAmazonImportExpired reports an unavailable process-local attempt.
+	CodeAmazonImportExpired ErrorCode = "amazon_import_expired"
+	// CodeImportCancelled reports a canceled local import.
+	CodeImportCancelled ErrorCode = "import_cancelled"
 )
 
 // SafeError separates public detail from an internal diagnostic cause.

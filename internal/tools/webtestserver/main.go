@@ -19,10 +19,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/provider"
@@ -98,13 +100,31 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("create onboarding coordinator: %w", err)
 	}
+	amazonCoordinator, err := amazonimport.New(amazonimport.Config{
+		InstanceID: "webtestserver-amazon", Random: cryptorand.Reader, Now: time.Now,
+		Limits: amazon.ProductionLimits, Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+		ResolveTarget: func(targetContext context.Context, profileID string) (amazonimport.Target, error) {
+			entry, resolveErr := catalog.Resolve(targetContext, profileID)
+			if resolveErr != nil {
+				return amazonimport.Target{}, resolveErr
+			}
+			if entry.ProviderKind != "amazon" {
+				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
+			}
+			return openAmazonTarget(targetContext, catalog, entry)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create Amazon import coordinator: %w", err)
+	}
 	origin, err := api.ResolveOrigin(listen, basePath, "")
 	if err != nil {
 		return fmt.Errorf("resolve origin: %w", err)
 	}
 	application, err := webserver.NewServer(webserver.ServerConfig{
 		Resolver: registry, Catalog: catalog, Evictor: registry, Onboarding: coordinator,
-		BasePath: basePath, Version: version.Version, Origin: origin,
+		AmazonImports: amazonCoordinator,
+		BasePath:      basePath, Version: version.Version, Origin: origin,
 	})
 	if err != nil {
 		return fmt.Errorf("compose web server: %w", err)
@@ -134,6 +154,32 @@ func run(ctx context.Context, args []string) error {
 	cleanupContext, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelCleanup()
 	return errors.Join(runErr, coordinator.Close(cleanupContext), registry.Close(cleanupContext))
+}
+
+func openAmazonTarget(
+	_ context.Context,
+	catalog *profilecatalog.Catalog,
+	entry profilecatalog.Entry,
+) (amazonimport.Target, error) {
+	lifecycle, err := home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
+	if err != nil {
+		return amazonimport.Target{}, err
+	}
+	if err = catalog.ValidateEntry(entry); err != nil {
+		_ = lifecycle.Release()
+		return amazonimport.Target{}, err
+	}
+	return amazonimport.Target{
+		ProfileID: entry.ID, Root: entry.Root, Close: lifecycle.Release,
+		Import: func(ctx context.Context, request app.AmazonImportRequest) (app.AmazonImportResult, error) {
+			profile, openErr := sqlite.Open(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
+			if openErr != nil {
+				return app.AmazonImportResult{}, openErr
+			}
+			defer func() { _ = profile.Close() }()
+			return app.ImportAmazonProfile(ctx, profile, request)
+		},
+	}, nil
 }
 
 func requireIsolatedRoot(root string, token string) error {

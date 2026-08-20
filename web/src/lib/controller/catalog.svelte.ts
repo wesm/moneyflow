@@ -13,10 +13,13 @@ export interface CatalogState {
 export interface CatalogController {
   readonly state: CatalogState
   load(): Promise<void>
-  canonicalID(profile: ProfileSummary, providerKind?: 'monarch' | 'local'): Promise<string>
+  canonicalID(
+    profile: ProfileSummary,
+    providerKind?: 'monarch' | 'amazon' | 'local',
+  ): Promise<string>
   create(
     displayName: string,
-    providerKind: 'monarch' | 'local',
+    providerKind: 'monarch' | 'amazon' | 'local',
   ): Promise<ProfileSummary | undefined>
   cancelNew(profileID: string): Promise<boolean>
   recovery(profileID: string, confirmed: boolean): Promise<RecoveryResponse | undefined>
@@ -56,7 +59,7 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
 
   async function canonicalID(
     profile: ProfileSummary,
-    providerKind?: 'monarch' | 'local',
+    providerKind?: 'monarch' | 'amazon' | 'local',
   ): Promise<string> {
     if (profile.id) return profile.id
     const activated = await options.client.activate(profile.key, providerKind)
@@ -67,7 +70,7 @@ export function createCatalogController(options: { client: CatalogClient }): Cat
 
   async function create(
     displayName: string,
-    providerKind: 'monarch' | 'local',
+    providerKind: 'monarch' | 'amazon' | 'local',
   ): Promise<ProfileSummary | undefined> {
     setState({ ...state, loading: true, problem: undefined })
     try {

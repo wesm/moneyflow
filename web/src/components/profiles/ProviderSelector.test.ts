@@ -16,5 +16,7 @@ describe('provider selector', () => {
     )
     await fireEvent.keyDown(window, { key: 'm' })
     expect(onselect).toHaveBeenCalledWith('monarch')
+    await fireEvent.keyDown(window, { key: 'a' })
+    expect(onselect).toHaveBeenCalledWith('amazon')
   })
 })

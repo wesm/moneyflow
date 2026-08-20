@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/wesm/moneyflow/internal/amazonimport"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
@@ -58,6 +59,15 @@ type OnboardingCoordinator interface {
 	TakeOpenedProfile(context.Context, onboarding.StatusRequest) (onboarding.OpenedProfile, error)
 }
 
+// AmazonImportCoordinator is the protected browser import attempt surface.
+type AmazonImportCoordinator interface {
+	Start(context.Context, amazonimport.StartRequest) (amazonimport.Snapshot, error)
+	Stage(context.Context, amazonimport.StageRequest) (amazonimport.Snapshot, error)
+	Execute(context.Context, amazonimport.ExecuteRequest) (amazonimport.Snapshot, error)
+	Status(context.Context, amazonimport.StatusRequest) (amazonimport.Snapshot, error)
+	Cancel(context.Context, amazonimport.CancelRequest) (amazonimport.Snapshot, error)
+}
+
 func resolveProfileRequests(
 	next http.Handler,
 	basePath string,
@@ -73,6 +83,7 @@ func resolveProfileRequests(
 		"provider/write-status": {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},
 		"provider/write/reconcile/confirm": {},
+		"transaction-information":          {},
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if !strings.HasPrefix(request.URL.EscapedPath(), prefix) {
@@ -132,6 +143,7 @@ func legacyProfileRoutes(next http.Handler, basePath string, profileID string) h
 		"provider/write-status":    {}, "provider/write/pause": {},
 		"provider/write/resume": {}, "provider/write/reconcile": {},
 		"provider/write/reconcile/confirm": {},
+		"transaction-information":          {},
 	}
 	prefix := basePath + "api/v1/"
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {

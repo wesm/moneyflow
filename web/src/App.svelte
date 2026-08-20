@@ -6,6 +6,7 @@
   import { createCatalogClient, type ProfileSummary } from './lib/api/catalog-client'
   import AppShell from './components/AppShell.svelte'
   import OnboardingWizard from './components/profiles/OnboardingWizard.svelte'
+  import AmazonImportWizard from './components/profiles/AmazonImportWizard.svelte'
   import ProfileSelector from './components/profiles/ProfileSelector.svelte'
   import { createCatalogController, type CatalogController } from './lib/controller/catalog.svelte'
   import {
@@ -18,6 +19,11 @@
     type ViewController,
   } from './lib/controller/view-controller.svelte'
   import { profileApplicationPath } from './lib/controller/routing'
+  import {
+    createAmazonImportController,
+    createAmazonImportTransport,
+    type AmazonImportController,
+  } from './lib/controller/amazon-import.svelte'
 
   interface Props {
     basePath: string
@@ -40,6 +46,9 @@
   let onboardingProfileID = $state<string | undefined>()
   let createdOnboardingProfileID = $state<string | undefined>()
   let closingOnboarding = $state(false)
+  let amazonImport = $state<AmazonImportController | undefined>()
+  let amazonProfileID = $state<string | undefined>()
+  let createdAmazonProfileID = $state<string | undefined>()
 
   function resolveController(): ViewController | undefined {
     if (suppliedController) return suppliedController
@@ -58,7 +67,7 @@
 
   async function canonicalID(
     selector: string,
-    providerKind?: 'monarch' | 'local',
+    providerKind?: 'monarch' | 'amazon' | 'local',
   ): Promise<string | undefined> {
     if (!catalog) return selector
     const profile = catalog.state.profiles.find(
@@ -97,6 +106,45 @@
     })
   }
 
+  async function setupAmazon(
+    selector: string,
+    settings?: { currency: string; scale: number },
+  ): Promise<void> {
+    const id = await canonicalID(selector, 'amazon')
+    if (!id) return
+    amazonImport?.destroy()
+    if (createdAmazonProfileID !== id) createdAmazonProfileID = undefined
+    amazonProfileID = id
+    amazonImport = createAmazonImportController({
+      transport: createAmazonImportTransport(basePath, id),
+    })
+    if (settings) await amazonImport.start(settings.currency, settings.scale)
+  }
+
+  async function closeAmazonImport(): Promise<void> {
+    amazonImport?.destroy()
+    const createdProfileID = createdAmazonProfileID
+    amazonImport = undefined
+    amazonProfileID = undefined
+    createdAmazonProfileID = undefined
+    if (catalog && createdProfileID) await catalog.cancelNew(createdProfileID)
+    else if (catalog) await catalog.load()
+  }
+
+  function completeAmazonImport(): void {
+    const id = amazonProfileID
+    const fromCatalog = catalog !== undefined
+    amazonImport?.destroy()
+    amazonImport = undefined
+    amazonProfileID = undefined
+    createdAmazonProfileID = undefined
+    if (fromCatalog && id) {
+      void navigate(id)
+      return
+    }
+    if (controller) void controller.recheck()
+  }
+
   async function closeOnboarding(): Promise<void> {
     if (closingOnboarding) return
     closingOnboarding = true
@@ -122,11 +170,12 @@
 
   async function createProfile(
     name: string,
-    provider: 'monarch' | 'local',
+    provider: 'monarch' | 'amazon' | 'local',
   ): Promise<ProfileSummary | undefined> {
     if (!catalog) return undefined
     const created = await catalog.create(name, provider)
     if (provider === 'monarch' && created?.id) createdOnboardingProfileID = created.id
+    if (provider === 'amazon' && created?.id) createdAmazonProfileID = created.id
     return created
   }
 
@@ -145,12 +194,18 @@
   onMount(() => {
     if (catalog) {
       void catalog.load()
-      return () => onboarding?.destroy()
+      return () => {
+        onboarding?.destroy()
+        amazonImport?.destroy()
+      }
     }
     if (!controller) return
     const restore = (event: PopStateEvent) => void controller.restore(event)
     const pollProvider = () => {
-      if (document.visibilityState === 'visible') {
+      if (
+        document.visibilityState === 'visible' &&
+        controller.projection?.profile_kind !== 'amazon'
+      ) {
         void controller.provider.poll().catch(() => undefined)
         void controller.providerWrite.poll().catch(() => undefined)
       }
@@ -185,7 +240,15 @@
   })
 </script>
 
-{#if onboarding && onboardingProfileID}
+{#if amazonImport && amazonProfileID}
+  <AmazonImportWizard
+    controller={amazonImport}
+    initialCurrency={controller?.projection?.statistics?.[0]?.currency ?? 'USD'}
+    initialScale={controller?.projection?.statistics?.[0]?.scale ?? 2}
+    oncomplete={completeAmazonImport}
+    oncancel={() => void closeAmazonImport()}
+  />
+{:else if onboarding && onboardingProfileID}
   <OnboardingWizard
     controller={onboarding}
     oncomplete={completeOnboarding}
@@ -201,13 +264,23 @@
     recovery={catalog.state.recovery}
     onopen={(id) => void navigate(id)}
     onsetup={(id) => void setup(id)}
+    onamazonsetup={(id) => void setupAmazon(id)}
     onrecover={recover}
     oncreate={createProfile}
     ondemo={() => catalog.announce('Start moneyflow web with --demo for a temporary profile.')}
     onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
   />
 {:else if controller?.projection}
-  <AppShell {controller} onreconnect={() => profileID && void setup(profileID)} />
+  <AppShell
+    {controller}
+    onreconnect={() => profileID && void setup(profileID)}
+    onamazonimport={() => {
+      const stats = controller.projection?.statistics?.[0]
+      if (profileID && stats) {
+        void setupAmazon(profileID, { currency: stats.currency, scale: stats.scale })
+      }
+    }}
+  />
 {:else}
   <div class="moneyflow-app">
     <TopBar ariaLabel="Moneyflow">

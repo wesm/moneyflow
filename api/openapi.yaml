@@ -63,6 +63,169 @@ components:
         - share_tenths
         - flags
       type: object
+    AmazonImportAttemptBody:
+      additionalProperties: false
+      properties:
+        expected_state_version:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - expected_state_version
+      type: object
+    AmazonImportCoordinate:
+      additionalProperties: false
+      properties:
+        column:
+          maxLength: 128
+          type: string
+        reason:
+          maxLength: 128
+          type: string
+        record:
+          format: int64
+          type: integer
+        relative_filename:
+          maxLength: 1024
+          type: string
+      required:
+        - relative_filename
+        - record
+        - column
+        - reason
+      type: object
+    AmazonImportResultResponse:
+      additionalProperties: false
+      properties:
+        inserted:
+          format: int64
+          type: integer
+        no_op:
+          type: boolean
+        restored:
+          format: int64
+          type: integer
+        retired:
+          format: int64
+          type: integer
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        unchanged:
+          format: int64
+          type: integer
+        updated:
+          format: int64
+          type: integer
+      required:
+        - revision
+        - inserted
+        - updated
+        - restored
+        - retired
+        - unchanged
+        - no_op
+      type: object
+    AmazonImportStartBody:
+      additionalProperties: false
+      properties:
+        currency:
+          maxLength: 3
+          minLength: 3
+          type: string
+        scale:
+          format: int32
+          maximum: 9
+          minimum: 0
+          type: integer
+        taxonomy_source_id:
+          maxLength: 128
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - currency
+        - scale
+      type: object
+    AmazonImportStatusResponse:
+      additionalProperties: false
+      properties:
+        attempt_id:
+          maxLength: 128
+          type: string
+        coordinate:
+          $ref: "#/components/schemas/AmazonImportCoordinate"
+        failure_code:
+          maxLength: 128
+          type: string
+        profile_id:
+          maxLength: 128
+          type: string
+        progress:
+          $ref: "#/components/schemas/Progress"
+        result:
+          $ref: "#/components/schemas/AmazonImportResultResponse"
+        state:
+          type: string
+        state_version:
+          pattern: ^[0-9]+$
+          type: string
+        version:
+          type: string
+      required:
+        - version
+        - attempt_id
+        - profile_id
+        - state
+        - state_version
+        - progress
+        - result
+      type: object
+    AmazonMatchIndicator:
+      additionalProperties: false
+      properties:
+        class:
+          type: string
+        confidence:
+          type: string
+        first_product:
+          type: string
+        total_matches:
+          format: int64
+          type: integer
+      required:
+        - class
+        - confidence
+        - first_product
+        - total_matches
+      type: object
+    AmazonOrderItemInformation:
+      additionalProperties: false
+      properties:
+        asin:
+          type: string
+        order_id:
+          type: string
+        order_status:
+          type: string
+        product_name:
+          type: string
+        quantity:
+          pattern: ^[0-9]+$
+          type: string
+        shipment_status:
+          type: string
+        unit_price:
+          $ref: "#/components/schemas/Money"
+      required:
+        - order_id
+        - product_name
+        - quantity
+      type: object
     Bootstrap:
       additionalProperties: false
       properties:
@@ -193,6 +356,8 @@ components:
       properties:
         account:
           type: string
+        amazon_match:
+          $ref: "#/components/schemas/AmazonMatchIndicator"
         amount:
           $ref: "#/components/schemas/Money"
         category:
@@ -549,6 +714,24 @@ components:
         - selected
         - hidden
         - pending
+      type: object
+    FormFile:
+      additionalProperties: false
+      properties:
+        ContentType:
+          type: string
+        Filename:
+          type: string
+        IsSet:
+          type: boolean
+        Size:
+          format: int64
+          type: integer
+      required:
+        - ContentType
+        - IsSet
+        - Size
+        - Filename
       type: object
     Health:
       additionalProperties: false
@@ -945,6 +1128,7 @@ components:
         provider_kind:
           enum:
             - monarch
+            - amazon
             - local
           type: string
         version:
@@ -997,6 +1181,7 @@ components:
         provider_kind:
           enum:
             - monarch
+            - amazon
             - local
           type: string
         version:
@@ -1036,6 +1221,22 @@ components:
         - provider_kind
         - status
       type: object
+    Progress:
+      additionalProperties: false
+      properties:
+        completed:
+          format: int64
+          type: integer
+        phase:
+          type: string
+        total:
+          format: int64
+          type: integer
+      required:
+        - phase
+        - completed
+        - total
+      type: object
     Projection:
       additionalProperties: false
       properties:
@@ -1045,6 +1246,8 @@ components:
           type:
             - array
             - "null"
+        amazon_match_column:
+          type: boolean
         api_schema_version:
           type: string
         breadcrumb_text:
@@ -1075,6 +1278,12 @@ components:
           $ref: "#/components/schemas/ActiveFilters"
         pending:
           $ref: "#/components/schemas/PendingSummary"
+        profile_kind:
+          enum:
+            - monarch
+            - amazon
+            - local
+          type: string
         projection_schema_version:
           type: string
         revision:
@@ -1110,6 +1319,7 @@ components:
         - api_schema_version
         - projection_schema_version
         - revision
+        - profile_kind
         - pending
         - canonical_query
         - selection
@@ -1121,6 +1331,7 @@ components:
         - capabilities
         - total_rows
         - window
+        - amazon_match_column
         - statistics
         - chart
       type: object
@@ -1680,6 +1891,115 @@ components:
         - out
         - net
       type: object
+    TransactionInformationBody:
+      additionalProperties: false
+      properties:
+        expected_revision:
+          maxLength: 20
+          pattern: ^[0-9]+$
+          type: string
+        item_window:
+          $ref: "#/components/schemas/Window"
+        match_window:
+          $ref: "#/components/schemas/Window"
+        query:
+          maxLength: 65536
+          type: string
+        target:
+          $ref: "#/components/schemas/TransitionTarget"
+        version:
+          type: string
+      required:
+        - version
+        - expected_revision
+        - query
+        - target
+        - match_window
+        - item_window
+      type: object
+    TransactionInformationMatch:
+      additionalProperties: false
+      properties:
+        amount_difference_minor:
+          pattern: ^-?[0-9]+$
+          type: string
+        class:
+          type: string
+        confidence:
+          type: string
+        date_distance_days:
+          format: int64
+          type: integer
+        first_product:
+          type: string
+        items:
+          items:
+            $ref: "#/components/schemas/AmazonOrderItemInformation"
+          type:
+            - array
+            - "null"
+        order_date:
+          format: date
+          type: string
+        order_id:
+          type: string
+        order_total:
+          $ref: "#/components/schemas/Money"
+        total_items:
+          format: int64
+          type: integer
+      required:
+        - class
+        - confidence
+        - order_id
+        - order_date
+        - order_total
+        - date_distance_days
+        - amount_difference_minor
+        - first_product
+        - total_items
+        - items
+      type: object
+    TransactionInformationResponse:
+      additionalProperties: false
+      properties:
+        amazon_item:
+          $ref: "#/components/schemas/AmazonOrderItemInformation"
+        amazon_qualified:
+          type: boolean
+        canonical_query:
+          type: string
+        item_window:
+          $ref: "#/components/schemas/ReturnedWindow"
+        match_window:
+          $ref: "#/components/schemas/ReturnedWindow"
+        matches:
+          items:
+            $ref: "#/components/schemas/TransactionInformationMatch"
+          type:
+            - array
+            - "null"
+        revision:
+          pattern: ^[0-9]+$
+          type: string
+        total_matches:
+          format: int64
+          type: integer
+        transaction:
+          $ref: "#/components/schemas/DetailRow"
+        version:
+          type: string
+      required:
+        - version
+        - revision
+        - canonical_query
+        - transaction
+        - amazon_qualified
+        - total_matches
+        - match_window
+        - item_window
+        - matches
+      type: object
     TransitionBody:
       additionalProperties: false
       properties:
@@ -1978,6 +2298,313 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Activate a catalog profile and return its durable identity
+  /api/v1/profiles/{profile_id}/amazon-import/start:
+    post:
+      operationId: startAmazonImport
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AmazonImportStartBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmazonImportStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Start Amazon import
+  /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/cancel:
+    post:
+      operationId: cancelAmazonImport
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AmazonImportAttemptBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmazonImportStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Cancel Amazon import
+  /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/execute:
+    post:
+      operationId: executeAmazonImport
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AmazonImportAttemptBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmazonImportStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Execute Amazon import
+  /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/files:
+    post:
+      operationId: stageAmazonImportFiles
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            encoding:
+              expected_state_version:
+                contentType: text/plain
+              files:
+                contentType: text/csv,application/vnd.ms-excel,text/plain,application/octet-stream
+              version:
+                contentType: text/plain
+            schema:
+              properties:
+                expected_state_version:
+                  type: string
+                files:
+                  items:
+                    contentEncoding: binary
+                    contentMediaType: application/octet-stream
+                    format: binary
+                    type: string
+                  type: array
+                version:
+                  type: string
+              required:
+                - version
+                - expected_state_version
+                - files
+              type: object
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmazonImportStatusResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Stage Amazon import files
+  /api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/status:
+    get:
+      operationId: readAmazonImportStatus
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attempt_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmazonImportStatusResponse"
+          description: OK
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Read Amazon import status
   /api/v1/profiles/{profile_id}/bootstrap:
     get:
       operationId: profileBootstrap
@@ -3505,6 +4132,65 @@ paths:
                 $ref: "#/components/schemas/Problem"
           description: Service Unavailable
       summary: Review one bounded affected-target window
+  /api/v1/profiles/{profile_id}/transaction-information:
+    post:
+      operationId: readTransactionInformation
+      parameters:
+        - in: path
+          name: profile_id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionInformationBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionInformationResponse"
+          description: OK
+        "400":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Bad Request
+        "404":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Not Found
+        "409":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Conflict
+        "413":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Request Entity Too Large
+        "422":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Unprocessable Entity
+        "500":
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+          description: Internal Server Error
+      summary: Read bounded transaction information
   /api/v1/profiles/{profile_id}/undo:
     post:
       operationId: undoProfile

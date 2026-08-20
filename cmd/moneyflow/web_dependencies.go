@@ -7,7 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/amazonimport"
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	webserver "github.com/wesm/moneyflow/internal/web"
@@ -18,6 +21,8 @@ type WebDependencies struct {
 	Catalog              *profilecatalog.Catalog
 	Registry             *webserver.ProfileRegistry
 	Onboarding           *onboarding.Coordinator
+	AmazonImports        *amazonimport.Coordinator
+	LoadAmazonTaxonomy   func(context.Context, string) (*app.TaxonomyClone, error)
 	PreselectedProfileID string
 	CloseIdle            func(context.Context) error
 	IdleSweepInterval    time.Duration
@@ -52,6 +57,10 @@ func buildWebDependencies(
 	if err != nil {
 		return WebDependencies{}, err
 	}
+	amazonMatcher, err := newCatalogAmazonMatcher(catalog)
+	if err != nil {
+		return WebDependencies{}, err
+	}
 	preselectedID := ""
 	if options.Profile != "" {
 		entry, resolveErr := catalog.Resolve(ctx, options.Profile)
@@ -80,6 +89,7 @@ func buildWebDependencies(
 			); configureErr != nil {
 				return webserver.RegistryProfile{}, closeOpenedProfile(opened, configureErr)
 			}
+			opened.Service.ConfigureAmazonMatching(amazonMatcher)
 			return webserver.RegistryProfile{
 				ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
 			}, nil
@@ -109,8 +119,30 @@ func buildWebDependencies(
 		_ = registry.Close(context.Background())
 		return WebDependencies{}, err
 	}
+	amazonCoordinator, err := amazonimport.New(amazonimport.Config{
+		InstanceID: instanceID + "-amazon", Now: time.Now, Random: cryptorand.Reader,
+		Limits: amazon.ProductionLimits, Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+		ResolveTarget: func(targetContext context.Context, profileID string) (amazonimport.Target, error) {
+			entry, resolveErr := catalog.Resolve(targetContext, profileID)
+			if resolveErr != nil {
+				return amazonimport.Target{}, resolveErr
+			}
+			if entry.ProviderKind != "amazon" {
+				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
+			}
+			return openAmazonImportTarget(targetContext, catalog, entry)
+		},
+	})
+	if err != nil {
+		_ = coordinator.Close(context.Background())
+		_ = registry.Close(context.Background())
+		return WebDependencies{}, err
+	}
 	return WebDependencies{
-		Catalog: catalog, Registry: registry, Onboarding: coordinator,
+		Catalog: catalog, Registry: registry, Onboarding: coordinator, AmazonImports: amazonCoordinator,
+		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
+			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
+		},
 		PreselectedProfileID: preselectedID,
 		CloseIdle:            registry.CloseIdle,
 		IdleSweepInterval:    time.Minute,

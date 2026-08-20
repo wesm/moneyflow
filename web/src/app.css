@@ -220,6 +220,29 @@ input {
 .finance-grid [role='row'] {
   border-bottom: 1px solid var(--border-muted);
 }
+.finance-grid:has([role='columnheader']:nth-child(6)) [role='row'],
+.finance-grid:has([role='columnheader']:nth-child(6)) .finance-grid__header {
+  grid-template-columns: 7rem 10rem minmax(10rem, 1fr) minmax(10rem, 1fr) minmax(12rem, 1fr) 9rem;
+}
+
+.table-detail-button {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.table-detail-button:hover,
+.table-detail-button:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
 .finance-grid__row--active {
   background: var(--bg-surface-hover);
   box-shadow: inset 3px 0 var(--moneyflow-focus);

@@ -343,6 +343,8 @@ function projection(selection: string, minor: string): ViewProjection {
   return {
     api_schema_version: '1',
     projection_schema_version: '1',
+    profile_kind: 'local',
+    amazon_match_column: false,
     revision: '0',
     pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
     canonical_query: 'v=1',

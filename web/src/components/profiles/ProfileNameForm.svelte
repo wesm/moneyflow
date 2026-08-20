@@ -2,7 +2,7 @@
   import { Button, TextInput } from '@kenn-io/kit-ui'
 
   interface Props {
-    provider: 'monarch' | 'local'
+    provider: 'monarch' | 'amazon' | 'local'
     onsubmit: (name: string) => void
     onback: () => void
   }
@@ -22,7 +22,13 @@
 </script>
 
 <section class="profile-panel" aria-labelledby="profile-name-title">
-  <p class="moneyflow-eyebrow">{provider === 'monarch' ? 'Monarch Money' : 'Local profile'}</p>
+  <p class="moneyflow-eyebrow">
+    {provider === 'monarch'
+      ? 'Monarch Money'
+      : provider === 'amazon'
+        ? 'Amazon orders'
+        : 'Local profile'}
+  </p>
   <h1 id="profile-name-title">Name this profile</h1>
   <form
     class="profile-form"

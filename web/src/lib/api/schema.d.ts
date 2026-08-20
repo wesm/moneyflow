@@ -56,6 +56,91 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/amazon-import/start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Start Amazon import */
+    post: operations['startAmazonImport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/cancel': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Cancel Amazon import */
+    post: operations['cancelAmazonImport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/execute': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Execute Amazon import */
+    post: operations['executeAmazonImport']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/files': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Stage Amazon import files */
+    post: operations['stageAmazonImportFiles']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/profiles/{profile_id}/amazon-import/{attempt_id}/status': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Read Amazon import status */
+    get: operations['readAmazonImportStatus']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/bootstrap': {
     parameters: {
       query?: never
@@ -480,6 +565,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/profiles/{profile_id}/transaction-information': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Read bounded transaction information */
+    post: operations['readTransactionInformation']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/profiles/{profile_id}/undo': {
     parameters: {
       query?: never
@@ -560,6 +662,65 @@ export interface components {
       top_category_percent?: number
       total: components['schemas']['Money']
     }
+    AmazonImportAttemptBody: {
+      expected_state_version: string
+      version: string
+    }
+    AmazonImportCoordinate: {
+      column: string
+      reason: string
+      /** Format: int64 */
+      record: number
+      relative_filename: string
+    }
+    AmazonImportResultResponse: {
+      /** Format: int64 */
+      inserted: number
+      no_op: boolean
+      /** Format: int64 */
+      restored: number
+      /** Format: int64 */
+      retired: number
+      revision: string
+      /** Format: int64 */
+      unchanged: number
+      /** Format: int64 */
+      updated: number
+    }
+    AmazonImportStartBody: {
+      currency: string
+      /** Format: int32 */
+      scale: number
+      taxonomy_source_id?: string
+      version: string
+    }
+    AmazonImportStatusResponse: {
+      attempt_id: string
+      coordinate?: components['schemas']['AmazonImportCoordinate']
+      failure_code?: string
+      profile_id: string
+      progress: components['schemas']['Progress']
+      result: components['schemas']['AmazonImportResultResponse']
+      state: string
+      state_version: string
+      version: string
+    }
+    AmazonMatchIndicator: {
+      class: string
+      confidence: string
+      first_product: string
+      /** Format: int64 */
+      total_matches: number
+    }
+    AmazonOrderItemInformation: {
+      asin?: string
+      order_id: string
+      order_status?: string
+      product_name: string
+      quantity: string
+      shipment_status?: string
+      unit_price?: components['schemas']['Money']
+    }
     Bootstrap: {
       base_path: string
       canonical_url: string
@@ -604,6 +765,7 @@ export interface components {
     }
     DetailRow: {
       account: string
+      amazon_match?: components['schemas']['AmazonMatchIndicator']
       amount: components['schemas']['Money']
       category: string
       date: string
@@ -747,6 +909,13 @@ export interface components {
       hidden: boolean
       pending: boolean
       selected: boolean
+    }
+    FormFile: {
+      ContentType: string
+      Filename: string
+      IsSet: boolean
+      /** Format: int64 */
+      Size: number
     }
     Health: {
       api_schema_version: string
@@ -900,7 +1069,7 @@ export interface components {
     ProfileActivateBody: {
       key: string
       /** @enum {string} */
-      provider_kind?: 'monarch' | 'local'
+      provider_kind?: 'monarch' | 'amazon' | 'local'
       version: string
     }
     ProfileCancelBody: {
@@ -917,7 +1086,7 @@ export interface components {
     ProfileCreateBody: {
       display_name: string
       /** @enum {string} */
-      provider_kind: 'monarch' | 'local'
+      provider_kind: 'monarch' | 'amazon' | 'local'
       version: string
     }
     ProfileResponse: {
@@ -931,8 +1100,16 @@ export interface components {
       provider_kind: string
       status: string
     }
+    Progress: {
+      /** Format: int64 */
+      completed: number
+      phase: string
+      /** Format: int64 */
+      total: number
+    }
     Projection: {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
+      amazon_match_column: boolean
       api_schema_version: string
       breadcrumb_text: string
       breadcrumbs: components['schemas']['Breadcrumb'][] | null
@@ -942,6 +1119,8 @@ export interface components {
       detail_rows?: components['schemas']['DetailRow'][] | null
       filters: components['schemas']['ActiveFilters']
       pending: components['schemas']['PendingSummary']
+      /** @enum {string} */
+      profile_kind: 'monarch' | 'amazon' | 'local'
       projection_schema_version: string
       revision: string
       selection: string
@@ -1156,6 +1335,42 @@ export interface components {
       out: components['schemas']['Money']
       /** Format: int32 */
       scale: number
+    }
+    TransactionInformationBody: {
+      expected_revision: string
+      item_window: components['schemas']['Window']
+      match_window: components['schemas']['Window']
+      query: string
+      target: components['schemas']['TransitionTarget']
+      version: string
+    }
+    TransactionInformationMatch: {
+      amount_difference_minor: string
+      class: string
+      confidence: string
+      /** Format: int64 */
+      date_distance_days: number
+      first_product: string
+      items: components['schemas']['AmazonOrderItemInformation'][] | null
+      /** Format: date */
+      order_date: string
+      order_id: string
+      order_total: components['schemas']['Money']
+      /** Format: int64 */
+      total_items: number
+    }
+    TransactionInformationResponse: {
+      amazon_item?: components['schemas']['AmazonOrderItemInformation']
+      amazon_qualified: boolean
+      canonical_query: string
+      item_window: components['schemas']['ReturnedWindow']
+      match_window: components['schemas']['ReturnedWindow']
+      matches: components['schemas']['TransactionInformationMatch'][] | null
+      revision: string
+      /** Format: int64 */
+      total_matches: number
+      transaction: components['schemas']['DetailRow']
+      version: string
     }
     TransitionBody: {
       action: string
@@ -1460,6 +1675,374 @@ export interface operations {
       }
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  startAmazonImport: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AmazonImportStartBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AmazonImportStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  cancelAmazonImport: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AmazonImportAttemptBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AmazonImportStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  executeAmazonImport: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AmazonImportAttemptBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AmazonImportStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  stageAmazonImportFiles: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: {
+      content: {
+        'multipart/form-data': {
+          expected_state_version: string
+          files: string[]
+          version: string
+        }
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AmazonImportStatusResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  readAmazonImportStatus: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+        attempt_id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AmazonImportStatusResponse']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
         headers: {
           [name: string]: unknown
         }
@@ -3511,6 +4094,86 @@ export interface operations {
       }
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+    }
+  }
+  readTransactionInformation: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        profile_id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TransactionInformationBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['TransactionInformationResponse']
+        }
+      }
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Request Entity Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['Problem']
+        }
+      }
+      /** @description Internal Server Error */
+      500: {
         headers: {
           [name: string]: unknown
         }

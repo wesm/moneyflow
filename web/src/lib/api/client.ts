@@ -35,6 +35,8 @@ export type ProviderWriteControlBody = components['schemas']['ProviderWriteContr
 export type ProviderWriteReconcileBody = components['schemas']['ProviderWriteReconcileBody']
 export type ProviderWriteConfirmationBody = components['schemas']['ProviderWriteConfirmationBody']
 export type ProviderWriteResponse = components['schemas']['ProviderWriteResponse']
+export type TransactionInformationBody = components['schemas']['TransactionInformationBody']
+export type TransactionInformationResponse = components['schemas']['TransactionInformationResponse']
 
 interface BootstrapResponse {
   mutation_token: string
@@ -53,10 +55,15 @@ export interface MoneyflowClient {
   downloadExport(body: ExportBody, signal?: AbortSignal): Promise<Response>
   providerStatus(signal?: AbortSignal): Promise<ProviderStatus>
   providerWriteStatus(signal?: AbortSignal): Promise<ProviderWriteStatus>
+  transactionInformation?(
+    body: TransactionInformationBody,
+    signal?: AbortSignal,
+  ): Promise<TransactionInformationResponse>
 }
 
 export interface MutationFetch {
   request(path: string, body: string, signal?: AbortSignal): Promise<Response>
+  upload?(path: string, body: FormData, signal?: AbortSignal): Promise<Response>
 }
 
 export async function requestProfileJSON<T>(
@@ -108,7 +115,12 @@ export function createMutationFetch(
     refreshAt = Date.parse(value.token_expires_at) - proactiveRefreshMillis
   }
 
-  const send = async (path: string, body: string, signal?: AbortSignal): Promise<Response> => {
+  const send = async (
+    path: string,
+    body: BodyInit,
+    signal?: AbortSignal,
+    contentType = 'application/json',
+  ): Promise<Response> => {
     if (token === '' || now() >= refreshAt) await refresh(signal)
     const options = (): RequestInit => ({
       method: 'POST',
@@ -116,7 +128,7 @@ export function createMutationFetch(
       credentials: 'omit',
       redirect: 'error',
       headers: {
-        'Content-Type': 'application/json',
+        ...(contentType === '' ? {} : { 'Content-Type': contentType }),
         [mutationTokenHeader]: token,
       },
       ...(signal === undefined ? {} : { signal }),
@@ -129,7 +141,14 @@ export function createMutationFetch(
     return response
   }
 
-  return { request: send }
+  return {
+    request(path, body, signal) {
+      return send(path, body, signal)
+    },
+    upload(path, body, signal) {
+      return send(path, body, signal, '')
+    },
+  }
 }
 
 function readMutationToken(root: Document | null | undefined): string {
@@ -205,6 +224,18 @@ export function createMoneyflowClient(
         signal,
       )
     },
+    upload(path, body, signal) {
+      const relative = path.replace(/^\/+/, '')
+      if (!relative.startsWith('api/v1/')) {
+        throw new Error('The Moneyflow profile API path is invalid.')
+      }
+      if (!scopedMutations.upload) throw new Error('Profile uploads are unavailable.')
+      return scopedMutations.upload(
+        `${profilePrefix}${relative.slice('api/v1/'.length)}`,
+        body,
+        signal,
+      )
+    },
   }
 
   return {
@@ -265,6 +296,15 @@ export function createMoneyflowClient(
       if (isProviderWriteStatus(result.data)) return result.data
       if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
       throw new Error('The Moneyflow provider write status response is invalid.')
+    },
+    async transactionInformation(body, signal) {
+      const result = await client.POST('/api/v1/profiles/{profile_id}/transaction-information', {
+        ...requestOptions(body, signal),
+        params: { path: { profile_id: profileID } },
+      })
+      if (isTransactionInformation(result.data)) return result.data
+      if (isProblem(result.error)) throw new MoneyflowProblem(result.error)
+      throw new Error('The Moneyflow transaction information response is invalid.')
     },
   }
 }
@@ -346,6 +386,16 @@ function isProviderWriteStatus(value: unknown): value is ProviderWriteStatus {
     typeof value.completed === 'number' &&
     typeof value.remaining === 'number' &&
     (Array.isArray(value.actions) || value.actions === null)
+  )
+}
+
+function isTransactionInformation(value: unknown): value is TransactionInformationResponse {
+  return (
+    isRecord(value) &&
+    value.version === '1' &&
+    typeof value.revision === 'string' &&
+    isRecord(value.transaction) &&
+    Array.isArray(value.matches)
   )
 }
 

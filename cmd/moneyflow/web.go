@@ -201,6 +201,8 @@ func runWeb(
 	if dependencies.Onboarding != nil {
 		serverConfig.Onboarding = dependencies.Onboarding
 	}
+	serverConfig.AmazonImports = dependencies.AmazonImports
+	serverConfig.LoadAmazonTaxonomy = dependencies.LoadAmazonTaxonomy
 	application, err := webserver.NewServer(serverConfig)
 	if err != nil {
 		_ = listener.Close()

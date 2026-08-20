@@ -130,6 +130,7 @@ type ChartProjection struct {
 // WebProjection is the complete renderer-neutral output for one browser row window.
 type WebProjection struct {
 	Revision          uint64
+	ProfileKind       string
 	Pending           PendingSummary
 	Capabilities      []Capability
 	State             ViewState
@@ -201,7 +202,7 @@ func (service *Service) projectViewLocked(
 		}
 	}
 	projection := WebProjection{
-		Revision: revision, Pending: pending, Capabilities: capabilities,
+		Revision: revision, ProfileKind: service.ProfileKind(), Pending: pending, Capabilities: capabilities,
 		State: state.Clone(), Selection: selection, SelectionCount: len(snapshot.IDs),
 		Breadcrumbs: breadcrumbs, BreadcrumbText: resolvedSession.Breadcrumb(result.DateRange),
 		Filters: Filters{
