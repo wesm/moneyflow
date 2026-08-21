@@ -1,7 +1,7 @@
 # Go Port MCP Server Design
 
 **Date:** 2026-08-21
-**Status:** Draft
+**Status:** Approved
 **Branch:** `go-port`
 
 ## Summary
@@ -282,9 +282,12 @@ before commit. Pending status is exposed as a boolean or bounded summary, never 
 implementation detail.
 
 Results use existing application ordering and filtering rules. MCP does not create an independent
-query language. Search uses the same normalized search semantics as TUI and web. Date ranges are
-inclusive. Hidden rows are included or excluded only through an explicit input with the same
-default as the ordinary application projection.
+query language. It does add one renderer-neutral application search variant to preserve the Python
+MCP contract: Unicode-lowercased literal substring matching across merchant, category, and notes.
+The MCP variant never interprets the query as a regular expression. TUI and web retain their
+existing merchant-and-category regular-expression search. Date ranges are inclusive. Hidden rows
+are included or excluded only through an explicit input with the same default as the ordinary
+application projection.
 
 All row-producing tools are bounded. Defaults match Python where practical, and the hard limit is
 1,000 rows. A response reports the complete matching count and returned window so truncation is
@@ -296,15 +299,17 @@ dates, and reversed ranges fail before projection.
 ### `search_transactions`
 
 Inputs are `query`, optional `offset`, and optional `limit` with Python's default of 50. It searches
-merchant, category, and notes through the shared application search path. The result contains the
-total count and one deterministic transaction window.
+merchant, category, and notes through the MCP application-search variant. Matching is a
+Unicode-lowercased literal substring comparison, so regular-expression metacharacters have no
+special meaning. The result contains the total count and one deterministic transaction window.
 
 ### `get_transactions`
 
 Optional inputs are inclusive `start_date`, `end_date`, stable `category_id`, category label,
 merchant substring, exact-decimal `min_amount`, exact-decimal `max_amount`, hidden inclusion,
 offset, and limit. A category ID and label are mutually exclusive. Category-label ambiguity fails.
-The default limit remains 100.
+The merchant filter uses the same Unicode-lowercased literal substring comparison as Python MCP;
+it is not a regular expression. The default limit remains 100.
 
 ### `get_spending_summary`
 
@@ -666,10 +671,12 @@ There is no automatic replay after `revision_conflict`, `selection_stale`, ident
 confirmation invalidation, data invalidity, store failure, or provider reconnect. Existing bounded
 provider retry and rate-limit rules remain inside explicitly started refresh and write workers.
 
-If structured output plus its text fallback would exceed the configured response ceiling, the tool
-returns a bounded `mcp_response_too_large` error rather than dropping content while reporting
-success. Row windows should make this exceptional. Any prior, more specific failure is preserved
-instead of being replaced by a size-limit failure.
+`internal/mcp` owns `MaxResponseContentBytes`, fixed at 8 MiB. The bound applies to the combined
+serialized structured result and its equivalent JSON-text fallback, before SDK framing. If that
+combined content would exceed the ceiling, the tool returns a bounded `mcp_response_too_large`
+error rather than dropping content while reporting success. Row windows should make this
+exceptional. Any prior, more specific failure is preserved instead of being replaced by a
+size-limit failure.
 
 ## Testing Strategy
 
@@ -683,7 +690,7 @@ instead of being replaced by a size-limit failure.
 - Assert structured content and JSON text decode to the same canonical logical document.
 - Assert protocol negotiation errors remain protocol errors while business failures are tool
   results with `isError`.
-- Assert every successful and failed result respects the response-size ceiling.
+- Assert every successful and failed result respects the exact 8 MiB combined-content ceiling.
 
 ### Tool registration and read tests
 
@@ -698,7 +705,11 @@ instead of being replaced by a size-limit failure.
 - Effective staged values appear in search, transaction, category, merchant, summary, details, and
   resources before commit.
 - Windows report complete totals, deterministic ordering, offsets, and truncation.
-- Search/date/category/merchant/hidden filters match application projections.
+- MCP search uses Unicode-lowercased literal substring matching across merchant, category, and
+  notes; regular-expression metacharacters remain literal. TUI and web retain their existing
+  merchant-and-category regular-expression search.
+- `get_transactions` merchant filtering uses Unicode-lowercased literal substring matching rather
+  than regular-expression matching.
 - Exact decimal input rejects floats, excess scale, invalid syntax, and overflow.
 - Exact amounts, minor units, currency, and scale round-trip without floating point.
 - Amazon detail calls use the matching service and skip incompatible sources safely.
