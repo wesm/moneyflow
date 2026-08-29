@@ -247,7 +247,7 @@ func matchAmazonOrder(
 		SourceRevision: order.revision, OrderID: order.orderID, OrderDate: order.date,
 		OrderTotal:       domain.Money{Minor: order.total, Currency: order.currency, Scale: order.scale},
 		DateDistanceDays: days, AmountDifferenceMinor: amountDifference,
-		FirstProduct: firstProduct, Items: append([]AmazonMatchItem(nil), order.items...),
+		FirstProduct: firstProduct, Items: cloneAmazonMatchItems(order.items),
 	}, true, nil
 }
 
@@ -278,10 +278,22 @@ func matchAmazonItems(transaction domain.Transaction, order amazonOrderCandidate
 			SourceRevision: order.revision, OrderID: order.orderID, OrderDate: item.Date,
 			OrderTotal:       domain.Money{Minor: item.AmountMinor, Currency: order.currency, Scale: order.scale},
 			DateDistanceDays: days, AmountDifferenceMinor: difference,
-			FirstProduct: item.ProductName, Items: []AmazonMatchItem{item},
+			FirstProduct: item.ProductName, Items: cloneAmazonMatchItems([]AmazonMatchItem{item}),
 		})
 	}
 	return matches, nil
+}
+
+func cloneAmazonMatchItems(items []AmazonMatchItem) []AmazonMatchItem {
+	cloned := append([]AmazonMatchItem(nil), items...)
+	for index := range cloned {
+		if cloned[index].UnitPriceMinor == nil {
+			continue
+		}
+		unitPrice := *cloned[index].UnitPriceMinor
+		cloned[index].UnitPriceMinor = &unitPrice
+	}
+	return cloned
 }
 
 func amazonFuzzyMatch(transaction, order int64, scale uint8) (bool, error) {

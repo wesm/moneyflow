@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -50,6 +51,21 @@ func TestToolResultStructuredAndTextContentAreEquivalent(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestToolResultPreservesLargeIntegersInStructuredContent(t *testing.T) {
+	document := struct {
+		Header
+		Count int64 `json:"count"`
+	}{Header: NewHeader(StatusOK, 17), Count: math.MaxInt64}
+	result, err := ToolResult(document, false)
+	require.NoError(t, err)
+	text, ok := result.Content[0].(*mcpsdk.TextContent)
+	require.True(t, ok)
+	structured, err := json.Marshal(result.StructuredContent)
+	require.NoError(t, err)
+	assert.JSONEq(t, text.Text, string(structured))
+	assert.Contains(t, string(structured), `"count":9223372036854775807`)
+}
+
 func TestToolResultReplacesOversizedSuccessWithBoundedFailure(t *testing.T) {
 	document := struct {
 		Header
@@ -74,6 +90,18 @@ func TestToolResultPreservesSpecificCodeWhenErrorDetailIsOversized(t *testing.T)
 	bounded := decodeErrorDocument(t, result)
 	assert.Equal(t, "invalid_target", bounded.Code)
 	assert.NotEqual(t, document.Detail, bounded.Detail)
+	assert.LessOrEqual(t, resultContentBytes(t, result), MaxResponseContentBytes)
+}
+
+func TestToolResultBoundsPointerErrorDocument(t *testing.T) {
+	document := &ErrorDocument{
+		Header: NewHeader(StatusError, 11), Code: "invalid_target",
+		Detail: strings.Repeat("sensitive", MaxResponseContentBytes),
+	}
+	result, err := ToolResult(document, true)
+	require.NoError(t, err)
+	bounded := decodeErrorDocument(t, result)
+	assert.Equal(t, "invalid_target", bounded.Code)
 	assert.LessOrEqual(t, resultContentBytes(t, result), MaxResponseContentBytes)
 }
 

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -18,7 +19,7 @@ func ToolResult(document any, isError bool) (*mcpsdk.CallToolResult, error) {
 	}
 	if combinedContentBytes(canonical) > MaxResponseContentBytes {
 		if isError {
-			failure, ok := document.(ErrorDocument)
+			failure, ok := errorDocumentValue(document)
 			if !ok {
 				return nil, errResultMustBeObject
 			}
@@ -49,10 +50,24 @@ func encodeDocument(document any) ([]byte, map[string]any, error) {
 		return nil, nil, err
 	}
 	var structured map[string]any
-	if err = json.Unmarshal(canonical, &structured); err != nil || structured == nil {
+	decoder := json.NewDecoder(bytes.NewReader(canonical))
+	decoder.UseNumber()
+	if err = decoder.Decode(&structured); err != nil || structured == nil {
 		return nil, nil, errResultMustBeObject
 	}
 	return canonical, structured, nil
+}
+
+func errorDocumentValue(document any) (ErrorDocument, bool) {
+	switch value := document.(type) {
+	case ErrorDocument:
+		return value, true
+	case *ErrorDocument:
+		if value != nil {
+			return *value, true
+		}
+	}
+	return ErrorDocument{}, false
 }
 
 func combinedContentBytes(canonical []byte) int {

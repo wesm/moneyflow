@@ -120,6 +120,24 @@ func TestAmazonExactItemMatchReturnsOnlyTheMatchingItem(t *testing.T) {
 	assert.Equal(t, domain.EntityID("matching-item"), result.Matches[0].Items[0].LocalTransactionID)
 }
 
+func TestAmazonMatchResultsDoNotShareUnitPricePointersWithIndex(t *testing.T) {
+	transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -2500, 2)
+	unitPrice := int64(2500)
+	source := amazonMatchSource(t, "source", "order", "2026-08-20", -2500, 2)
+	source.Items[0].UnitPriceMinor = &unitPrice
+	indexes := indexed(t, []AmazonMatchSource{source})
+
+	first, err := MatchAmazonOrders(transaction, indexes, 20)
+	require.NoError(t, err)
+	require.NotNil(t, first.Matches[0].Items[0].UnitPriceMinor)
+	*first.Matches[0].Items[0].UnitPriceMinor = 9999
+
+	second, err := MatchAmazonOrders(transaction, indexes, 20)
+	require.NoError(t, err)
+	require.NotNil(t, second.Matches[0].Items[0].UnitPriceMinor)
+	assert.Equal(t, int64(2500), *second.Matches[0].Items[0].UnitPriceMinor)
+}
+
 func amazonFinanceTransaction(t *testing.T, id, date string, minor int64, scale uint8) domain.Transaction {
 	t.Helper()
 	transaction, err := domain.NewTransaction(domain.Transaction{
