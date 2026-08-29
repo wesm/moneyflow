@@ -55,6 +55,23 @@ func TestAmazonImportStatusIsCoordinateBlind(t *testing.T) {
 	assert.Contains(t, response.Body.String(), string(amazonimport.CodeImportInvalid))
 }
 
+func TestAmazonImportStatusReportsRemovedPendingIntentCounts(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiAmazonImportFake{snapshot: amazonimport.Snapshot{
+		AttemptID: "attempt_example", ProfileID: testProfileID, State: amazonimport.StateComplete,
+		StateVersion: 4, Result: app.AmazonImportResult{
+			Revision: 5, RemovedJournalOperations: 2, RemovedJournalTargets: 7,
+		},
+	}}
+	server := newAmazonImportAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "amazon-import/attempt_example/status")
+	require.NoError(t, err)
+	response := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Contains(t, response.Body.String(), `"removed_operations":2`)
+	assert.Contains(t, response.Body.String(), `"removed_targets":7`)
+}
+
 func TestAmazonImportOpenAPIIncludesAttemptLifecycle(t *testing.T) {
 	t.Parallel()
 	server := newAmazonImportAPIServer(t, &apiAmazonImportFake{})

@@ -181,6 +181,34 @@ func TestParseRejectsConflictingOrderObservationAcrossFiles(t *testing.T) {
 	}, parseError.Coordinate)
 }
 
+func TestParseRejectsConflictingCancelledMultiplicityAcrossFiles(t *testing.T) {
+	one := "order-overlap,garbage,garbage,,garbage,Cancelled,,_ASINLESS_,EUR,garbage\n"
+	first := sourceCSV(t, "Retail.OrderHistory.1.csv", requiredHeader+one)
+	second := sourceCSV(t, "Retail.OrderHistory.2.csv", requiredHeader+one+one)
+
+	_, err := Parse(context.Background(), []SourceFile{first, second}, Settings{
+		Currency: "USD", Scale: 2,
+	}, ProductionLimits, nil)
+	var parseError *Error
+	require.ErrorAs(t, err, &parseError)
+	assert.Equal(t, "overlapping_order_conflict", parseError.Coordinate.Reason)
+	assert.Equal(t, "Retail.OrderHistory.2.csv", parseError.Coordinate.RelativeFilename)
+}
+
+func TestParseRejectsMixedActiveAndCancelledOverlapConflict(t *testing.T) {
+	active := "order-overlap,2026-08-19,Example Product,1,12.34,Closed,Delivered,ASIN1,USD,12.34\n"
+	cancelled := "order-overlap,garbage,garbage,,garbage,Cancelled,,_ASINLESS_,EUR,garbage\n"
+	first := sourceCSV(t, "Retail.OrderHistory.1.csv", requiredHeader+active)
+	second := sourceCSV(t, "Retail.OrderHistory.2.csv", requiredHeader+active+cancelled)
+
+	_, err := Parse(context.Background(), []SourceFile{first, second}, Settings{
+		Currency: "USD", Scale: 2,
+	}, ProductionLimits, nil)
+	var parseError *Error
+	require.ErrorAs(t, err, &parseError)
+	assert.Equal(t, "overlapping_order_conflict", parseError.Coordinate.Reason)
+}
+
 func sourceCSV(t *testing.T, relativeName string, contents string) SourceFile {
 	t.Helper()
 	root := t.TempDir()

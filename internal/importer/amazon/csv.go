@@ -45,7 +45,7 @@ func Parse(
 	})
 	candidate := Candidate{FileCount: len(files)}
 	observed := make(map[string]struct{})
-	observedSources := make(map[string]map[string]struct{})
+	observedSources := make(map[string]map[string][]orderObservation)
 	var totalBytes int64
 	for index, source := range files {
 		if err := ctx.Err(); err != nil {
@@ -91,7 +91,7 @@ func parseFile(
 	limits Limits,
 	candidate *Candidate,
 	observed map[string]struct{},
-	observedSources map[string]map[string]struct{},
+	observedSources map[string]map[string][]orderObservation,
 	totalBytes *int64,
 ) error {
 	info, err := os.Lstat(source.Path)
@@ -171,9 +171,16 @@ func parseFile(
 		}
 		observed[row.OrderID] = struct{}{}
 		if observedSources[row.OrderID] == nil {
-			observedSources[row.OrderID] = make(map[string]struct{})
+			observedSources[row.OrderID] = make(map[string][]orderObservation)
 		}
-		observedSources[row.OrderID][source.RelativeName] = struct{}{}
+		fingerprint := row.FullFingerprint
+		if cancelled {
+			fingerprint = "cancelled"
+		}
+		observedSources[row.OrderID][source.RelativeName] = append(
+			observedSources[row.OrderID][source.RelativeName],
+			orderObservation{fingerprint: fingerprint, record: record},
+		)
 		if cancelled {
 			candidate.CancelledRecordCount++
 			continue
@@ -185,7 +192,7 @@ func parseFile(
 
 func deduplicateOverlappingOrders(
 	candidate *Candidate,
-	observedSources map[string]map[string]struct{},
+	observedSources map[string]map[string][]orderObservation,
 ) error {
 	keepSource := make(map[string]string)
 	for orderID, sourceSet := range observedSources {
@@ -197,10 +204,10 @@ func deduplicateOverlappingOrders(
 			sources = append(sources, source)
 		}
 		slices.Sort(sources)
-		reference := orderSourceFingerprints(candidate.Rows, orderID, sources[0])
+		reference := orderSourceFingerprints(sourceSet[sources[0]])
 		for _, source := range sources[1:] {
-			if !slices.Equal(reference, orderSourceFingerprints(candidate.Rows, orderID, source)) {
-				return overlappingOrderError(candidate.Rows, orderID, source)
+			if !slices.Equal(reference, orderSourceFingerprints(sourceSet[source])) {
+				return overlappingOrderError(source, sourceSet[source])
 			}
 		}
 		keepSource[orderID] = sources[0]
@@ -219,24 +226,24 @@ func deduplicateOverlappingOrders(
 	return nil
 }
 
-func orderSourceFingerprints(rows []Row, orderID, source string) []string {
-	fingerprints := make([]string, 0)
-	for _, row := range rows {
-		if row.OrderID == orderID && row.RelativeFilename == source {
-			fingerprints = append(fingerprints, row.FullFingerprint)
-		}
+type orderObservation struct {
+	fingerprint string
+	record      int
+}
+
+func orderSourceFingerprints(observations []orderObservation) []string {
+	fingerprints := make([]string, 0, len(observations))
+	for _, observation := range observations {
+		fingerprints = append(fingerprints, observation.fingerprint)
 	}
 	slices.Sort(fingerprints)
 	return fingerprints
 }
 
-func overlappingOrderError(rows []Row, orderID, source string) error {
+func overlappingOrderError(source string, observations []orderObservation) error {
 	record := 1
-	for _, row := range rows {
-		if row.OrderID == orderID && row.RelativeFilename == source {
-			record = row.Record
-			break
-		}
+	if len(observations) > 0 {
+		record = observations[0].record
 	}
 	return coordinateError(source, record, "", "overlapping_order_conflict", ErrInvalid)
 }

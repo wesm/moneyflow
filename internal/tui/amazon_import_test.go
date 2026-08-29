@@ -17,7 +17,7 @@ func TestAmazonOnboardingCreatesImportsAndOpensProfile(t *testing.T) {
 	dependencies, state := fakeShellDependencies(t)
 	imports := &fakeAmazonImports{snapshot: amazonimport.Snapshot{
 		ProtocolVersion: amazonimport.ProtocolVersion, State: amazonimport.StateComplete,
-		Result: app.AmazonImportResult{Inserted: 2, Revision: 1},
+		Result: app.AmazonImportResult{Inserted: 2, Revision: 1, RemovedJournalOperations: 1, RemovedJournalTargets: 3},
 	}}
 	dependencies.AmazonImports = imports
 	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
@@ -54,6 +54,7 @@ func TestAmazonOnboardingCreatesImportsAndOpensProfile(t *testing.T) {
 	assert.Equal(t, "USD", string(imports.request.Settings.Currency))
 	assert.Equal(t, uint8(2), imports.request.Settings.Scale)
 	assert.Contains(t, shell.View().Content, "Imported 2")
+	assert.Contains(t, shell.View().Content, "removed 1 pending operation and 3 targets")
 
 	updated, open := shell.Update(keyMessage("enter"))
 	shell = updated.(Shell)

@@ -154,6 +154,30 @@ func TestAmazonProductSearchPreservesPendingAggregateDecoration(t *testing.T) {
 
 type inertProfile struct{ store.Profile }
 
+func TestAmazonMatchingCacheNeverRegressesToAnOlderLoadedRevision(t *testing.T) {
+	service, err := NewAmazonMatchingService(&fakeAmazonDirectory{}, func(
+		context.Context, AmazonSourceDescriptor, uint64,
+	) (*store.AmazonMatchSourceState, func() error, error) {
+		return nil, func() error { return nil }, nil
+	})
+	require.NoError(t, err)
+	newer := amazonSourceState(t, 2, "USD", 2, -1234)
+	newer.Items[0].ProductName = "Newer"
+	older := amazonSourceState(t, 1, "USD", 2, -1234)
+	older.Items[0].ProductName = "Older"
+
+	newerIndex, err := service.indexSource("profile-a", newer)
+	require.NoError(t, err)
+	loadedAfter, err := service.indexSource("profile-a", older)
+	require.NoError(t, err)
+	assert.Equal(t, newerIndex.Revision, loadedAfter.Revision)
+	cached, ok := service.cachedIndex("profile-a", newer.Revision)
+	require.True(t, ok)
+	assert.Equal(t, newer.Revision, cached.Revision)
+	_, ok = service.cachedIndex("profile-a", newer.Revision+1)
+	assert.False(t, ok)
+}
+
 type fakeAmazonDirectory struct {
 	sources []AmazonSourceDescriptor
 }

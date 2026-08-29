@@ -54,13 +54,15 @@ type AmazonImportStatusResponse struct {
 
 // AmazonImportResultResponse summarizes a completed committed import.
 type AmazonImportResultResponse struct {
-	Revision  string `json:"revision" pattern:"^[0-9]+$"`
-	Inserted  int    `json:"inserted"`
-	Updated   int    `json:"updated"`
-	Restored  int    `json:"restored"`
-	Retired   int    `json:"retired"`
-	Unchanged int    `json:"unchanged"`
-	NoOp      bool   `json:"no_op"`
+	Revision          string `json:"revision" pattern:"^[0-9]+$"`
+	Inserted          int    `json:"inserted"`
+	Updated           int    `json:"updated"`
+	Restored          int    `json:"restored"`
+	Retired           int    `json:"retired"`
+	Unchanged         int    `json:"unchanged"`
+	RemovedOperations int    `json:"removed_operations"`
+	RemovedTargets    int    `json:"removed_targets"`
+	NoOp              bool   `json:"no_op"`
 }
 
 type amazonStartInput struct {
@@ -201,7 +203,7 @@ func amazonAttemptVersion(body AmazonImportAttemptBody) (uint64, error) {
 }
 
 func amazonSnapshotOutput(snapshot amazonimport.Snapshot, coordinate *amazon.Coordinate) *amazonImportOutput {
-	response := AmazonImportStatusResponse{Version: AmazonImportWireVersion, AttemptID: snapshot.AttemptID, ProfileID: snapshot.ProfileID, State: snapshot.State, StateVersion: strconv.FormatUint(snapshot.StateVersion, 10), Progress: snapshot.Progress, FailureCode: string(snapshot.Failure.Code), Result: AmazonImportResultResponse{Revision: strconv.FormatUint(snapshot.Result.Revision, 10), Inserted: snapshot.Result.Inserted, Updated: snapshot.Result.Updated, Restored: snapshot.Result.Restored, Retired: snapshot.Result.Retired, Unchanged: snapshot.Result.Unchanged, NoOp: snapshot.Result.NoOp}}
+	response := AmazonImportStatusResponse{Version: AmazonImportWireVersion, AttemptID: snapshot.AttemptID, ProfileID: snapshot.ProfileID, State: snapshot.State, StateVersion: strconv.FormatUint(snapshot.StateVersion, 10), Progress: snapshot.Progress, FailureCode: string(snapshot.Failure.Code), Result: AmazonImportResultResponse{Revision: strconv.FormatUint(snapshot.Result.Revision, 10), Inserted: snapshot.Result.Inserted, Updated: snapshot.Result.Updated, Restored: snapshot.Result.Restored, Retired: snapshot.Result.Retired, Unchanged: snapshot.Result.Unchanged, RemovedOperations: snapshot.Result.RemovedJournalOperations, RemovedTargets: snapshot.Result.RemovedJournalTargets, NoOp: snapshot.Result.NoOp}}
 	if coordinate != nil {
 		response.Coordinate = &AmazonImportCoordinate{RelativeFilename: coordinate.RelativeFilename, Record: coordinate.Record, Column: coordinate.Column, Reason: coordinate.Reason}
 	}

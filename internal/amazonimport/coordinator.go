@@ -105,7 +105,6 @@ func (coordinator *Coordinator) Stage(ctx context.Context, request StageRequest)
 	value.running = true
 	value.cancel = cancel
 	value.cancelRequested = false
-	value.version++
 	coordinator.mu.Unlock()
 
 	files, stageDir, err := stageUploads(runContext, value.root, value.id, request.Files, coordinator.limits, coordinator.now())
@@ -122,7 +121,6 @@ func (coordinator *Coordinator) Stage(ctx context.Context, request StageRequest)
 	}
 	if err != nil {
 		coordinator.releaseAttemptLock(value)
-		value.version++
 		return Snapshot{}, err
 	}
 	value.files, value.stageDir = files, stageDir

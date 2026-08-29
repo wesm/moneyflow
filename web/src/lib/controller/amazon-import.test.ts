@@ -81,6 +81,24 @@ describe('Amazon import controller', () => {
     expect(await controller.cancel()).toBe(false)
     expect(controller.state.phase).toBe('failed')
   })
+
+  it('closes a terminal failed attempt without asking the server to cancel it', async () => {
+    const transport = transportStub({
+      execute: status({
+        state: 'failed',
+        state_version: '3',
+        failure_code: 'amazon_import_invalid',
+      }),
+    })
+    const controller = createAmazonImportController({ transport })
+    await controller.start('USD', 2)
+    await controller.upload([new File(['bad'], 'Retail.OrderHistory.csv')])
+    expect(await controller.execute()).toBe(false)
+
+    expect(await controller.cancel()).toBe(true)
+    expect(transport.cancel).not.toHaveBeenCalled()
+    expect(controller.state.phase).toBe('canceled')
+  })
 })
 
 function transportStub(overrides: { execute?: AmazonImportStatus } = {}) {
@@ -100,6 +118,8 @@ function transportStub(overrides: { execute?: AmazonImportStatus } = {}) {
             restored: 0,
             retired: 0,
             unchanged: 0,
+            removed_operations: 0,
+            removed_targets: 0,
             no_op: false,
           },
         }),
@@ -124,6 +144,8 @@ function status(overrides: Partial<AmazonImportStatus> = {}): AmazonImportStatus
       restored: 0,
       retired: 0,
       unchanged: 0,
+      removed_operations: 0,
+      removed_targets: 0,
       no_op: false,
     },
     ...overrides,

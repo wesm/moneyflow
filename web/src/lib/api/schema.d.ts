@@ -678,6 +678,10 @@ export interface components {
       inserted: number
       no_op: boolean
       /** Format: int64 */
+      removed_operations: number
+      /** Format: int64 */
+      removed_targets: number
+      /** Format: int64 */
       restored: number
       /** Format: int64 */
       retired: number

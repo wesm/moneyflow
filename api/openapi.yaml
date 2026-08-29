@@ -105,6 +105,12 @@ components:
           type: integer
         no_op:
           type: boolean
+        removed_operations:
+          format: int64
+          type: integer
+        removed_targets:
+          format: int64
+          type: integer
         restored:
           format: int64
           type: integer
@@ -127,6 +133,8 @@ components:
         - restored
         - retired
         - unchanged
+        - removed_operations
+        - removed_targets
         - no_op
       type: object
     AmazonImportStartBody:

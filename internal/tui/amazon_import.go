@@ -208,6 +208,19 @@ func (shell Shell) renderAmazonImport(frame *Frame, content Rect) {
 			shell.amazon.result.Restored, shell.amazon.result.Retired,
 		)
 		frame.PutText(x, content.Y+4, Truncate(message, width), shell.palette.Heading)
+		if shell.amazon.result.RemovedJournalOperations > 0 ||
+			shell.amazon.result.RemovedJournalTargets > 0 {
+			operationWord := "operations"
+			if shell.amazon.result.RemovedJournalOperations == 1 {
+				operationWord = "operation"
+			}
+			warning := fmt.Sprintf(
+				"Warning: import removed %d pending %s and %d targets that no longer resolve.",
+				shell.amazon.result.RemovedJournalOperations, operationWord,
+				shell.amazon.result.RemovedJournalTargets,
+			)
+			frame.PutText(x, content.Y+6, Truncate(warning, width), shell.palette.Warning)
+		}
 		frame.PutText(x, content.Y+7, "Enter Open profile", shell.palette.Muted)
 	case amazonImportFailed:
 		frame.PutText(x, content.Y+4, Truncate(shell.amazon.status, width), shell.palette.Warning)

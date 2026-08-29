@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -125,6 +126,44 @@ func TestCoordinatorStageRejectsDuplicateContent(t *testing.T) {
 		{RelativeName: "Retail.OrderHistory.2.csv", Reader: strings.NewReader("same")},
 	}})
 	assert.Equal(t, CodeImportInvalid, CodeOf(err))
+}
+
+func TestCoordinatorStageFailureLeavesAttemptRetryableAndCancelable(t *testing.T) {
+	root := t.TempDir()
+	coordinator := newTestCoordinator(t, root, time.Now(), nil, nil, nil)
+	started, err := coordinator.Start(context.Background(), StartRequest{
+		ProfileID: "profile-a", Settings: amazon.Settings{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+
+	_, err = coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: started.ProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: started.StateVersion,
+		Files: []Upload{{
+			RelativeName: "Retail.OrderHistory.1.csv",
+			Reader:       iotest.ErrReader(errors.New("upload failed")),
+		}},
+	})
+	assert.Equal(t, CodeImportInvalid, CodeOf(err))
+	status, statusErr := coordinator.Status(context.Background(), StatusRequest{
+		ProfileID: started.ProfileID, AttemptID: started.AttemptID,
+	})
+	require.NoError(t, statusErr)
+	assert.Equal(t, started.StateVersion, status.StateVersion)
+
+	staged, err := coordinator.Stage(context.Background(), StageRequest{
+		ProfileID: started.ProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: status.StateVersion,
+		Files: []Upload{{
+			RelativeName: "Retail.OrderHistory.1.csv", Reader: strings.NewReader("header\n"),
+		}},
+	})
+	require.NoError(t, err)
+	_, err = coordinator.Cancel(context.Background(), CancelRequest{
+		ProfileID: started.ProfileID, AttemptID: started.AttemptID,
+		ExpectedStateVersion: staged.StateVersion,
+	})
+	require.NoError(t, err)
 }
 
 func TestCoordinatorStartReapsAnExpiredIdleAttempt(t *testing.T) {

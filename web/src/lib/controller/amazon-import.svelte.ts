@@ -124,6 +124,10 @@ export function createAmazonImportController(options: {
       state = { ...state, phase: 'canceled', announcement: 'Amazon import canceled.' }
       return true
     }
+    if (terminalSnapshot(snapshot)) {
+      state = { ...state, phase: 'canceled', announcement: 'Amazon import closed.' }
+      return true
+    }
     try {
       install(await options.transport.cancel(snapshot.attempt_id, snapshot.state_version))
       return state.phase === 'canceled'

@@ -148,9 +148,8 @@ func (service *AmazonMatchingService) loadSources(
 			skipped["not_amazon"]++
 			continue
 		}
-		state, closeSource, loadErr := service.loader(
-			ctx, descriptor, service.cachedRevision(descriptor.ProfileID),
-		)
+		knownRevision := service.cachedRevision(descriptor.ProfileID)
+		state, closeSource, loadErr := service.loader(ctx, descriptor, knownRevision)
 		if loadErr != nil {
 			skipped["source_unavailable"]++
 			continue
@@ -165,7 +164,7 @@ func (service *AmazonMatchingService) loadSources(
 			continue
 		}
 		if state == nil {
-			cached, ok := service.cachedIndex(descriptor.ProfileID)
+			cached, ok := service.cachedIndex(descriptor.ProfileID, knownRevision)
 			if !ok {
 				skipped["source_unavailable"]++
 				continue
@@ -191,11 +190,12 @@ func (service *AmazonMatchingService) cachedRevision(profileID string) uint64 {
 
 func (service *AmazonMatchingService) cachedIndex(
 	profileID string,
+	minimumRevision uint64,
 ) (analytics.AmazonOrderIndex, bool) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	cached, ok := service.cache[profileID]
-	if !ok {
+	if !ok || cached.revision < minimumRevision {
 		return analytics.AmazonOrderIndex{}, false
 	}
 	return cached.index, true
@@ -231,6 +231,8 @@ func (service *AmazonMatchingService) indexSource(
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if cached, ok := service.cache[profileID]; ok && cached.revision == state.Revision {
+		return cached.index, nil
+	} else if ok && cached.revision > state.Revision {
 		return cached.index, nil
 	}
 	items := make([]analytics.AmazonMatchItem, 0, len(state.Items))

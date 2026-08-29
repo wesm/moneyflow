@@ -93,6 +93,17 @@ func runAmazonImportCommand(command *cobra.Command, streams IOStreams, options A
 	); err != nil {
 		return err
 	}
+	if result.RemovedJournalOperations > 0 || result.RemovedJournalTargets > 0 {
+		operationWord := "operations"
+		if result.RemovedJournalOperations == 1 {
+			operationWord = "operation"
+		}
+		_, _ = fmt.Fprintf(
+			command.ErrOrStderr(),
+			"Warning: import removed %d pending %s and %d targets that no longer resolve.\n",
+			result.RemovedJournalOperations, operationWord, result.RemovedJournalTargets,
+		)
+	}
 	_, err = fmt.Fprintf(
 		command.OutOrStdout(), "Open it with: moneyflow tui --profile %s\n", snapshot.ProfileID,
 	)

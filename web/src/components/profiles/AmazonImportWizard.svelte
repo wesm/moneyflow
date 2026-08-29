@@ -178,6 +178,13 @@
             <dd>{controller.state.snapshot?.result.retired ?? 0}</dd>
           </div>
         </dl>
+        {#if (controller.state.snapshot?.result.removed_operations ?? 0) > 0 || (controller.state.snapshot?.result.removed_targets ?? 0) > 0}
+          <p class="editing-error" role="alert">
+            Warning: the import removed {controller.state.snapshot?.result.removed_operations ?? 0}
+            pending operations and {controller.state.snapshot?.result.removed_targets ?? 0} targets that
+            no longer resolve.
+          </p>
+        {/if}
         <div class="profile-actions">
           <Button tone="info" surface="solid" onclick={oncomplete}>Open profile</Button>
         </div>

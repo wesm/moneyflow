@@ -27,7 +27,7 @@ func TestAmazonImportCommandPresentsProgressAndNextStep(t *testing.T) {
 		ImportAmazon: func(_ context.Context, options AmazonCommandOptions, observe func(amazonimport.Progress)) (amazonimport.Snapshot, error) {
 			got = options
 			observe(amazonimport.Progress{Phase: "parsing", Completed: 2, Total: 3})
-			return amazonimport.Snapshot{ProfileID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", State: amazonimport.StateComplete, Result: app.AmazonImportResult{Revision: 4, Inserted: 8, Updated: 2, Retired: 1}}, nil
+			return amazonimport.Snapshot{ProfileID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", State: amazonimport.StateComplete, Result: app.AmazonImportResult{Revision: 4, Inserted: 8, Updated: 2, Retired: 1, RemovedJournalOperations: 1, RemovedJournalTargets: 3}}, nil
 		},
 	})
 	command.SetArgs([]string{"provider", "import", "amazon", "/orders", "--profile", "Purchases", "--currency", "USD", "--scale", "2", "--clone-taxonomy-from", "Primary"})
@@ -39,6 +39,7 @@ func TestAmazonImportCommandPresentsProgressAndNextStep(t *testing.T) {
 	assert.True(t, got.SettingsConfigured)
 	assert.Equal(t, "Primary", got.CloneTaxonomyFrom)
 	assert.Contains(t, stderr.String(), "Parsed 2 of 3 files.")
+	assert.Contains(t, stderr.String(), "Warning: import removed 1 pending operation and 3 targets")
 	assert.Equal(t, "Imported 8, updated 2, restored 0, retired 1 Amazon transactions.\nOpen it with: moneyflow tui --profile profile_aaaaaaaaaaaaaaaaaaaaaaaaaa\n", stdout.String())
 }
 
