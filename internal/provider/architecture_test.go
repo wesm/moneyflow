@@ -164,6 +164,37 @@ func TestAmazonImportCoordinatorDependencyBoundary(t *testing.T) {
 	})
 }
 
+func TestMCPDependencyBoundary(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	internalDir := filepath.Dir(filepath.Dir(filename))
+	mcpDir := filepath.Join(internalDir, "mcp")
+	require.DirExists(t, mcpDir)
+	assertNoInternalImport(t, mcpDir, func(_ string, imported string) bool {
+		if strings.HasPrefix(imported, "github.com/wesm/moneyflow/internal/") {
+			for _, allowed := range []string{
+				"app", "domain", "provider", "httpsecurity", "home", "version",
+			} {
+				if importsPackageTree(imported, "github.com/wesm/moneyflow/internal/"+allowed) {
+					return true
+				}
+			}
+			return false
+		}
+		if strings.Contains(strings.Split(imported, "/")[0], ".") {
+			return importsPackageTree(imported, "github.com/modelcontextprotocol/go-sdk")
+		}
+		return true
+	})
+	for _, directory := range []string{"provider", "store"} {
+		assertNoInternalImport(t, filepath.Join(internalDir, directory), func(_ string, imported string) bool {
+			return !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/mcp")
+		})
+	}
+}
+
 func TestMonarchMutationSurfaceIsLimitedToTransactionUpdateAndDelete(t *testing.T) {
 	t.Parallel()
 
