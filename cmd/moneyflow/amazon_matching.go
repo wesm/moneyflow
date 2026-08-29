@@ -44,20 +44,21 @@ func newCatalogAmazonMatcher(catalog *profilecatalog.Catalog) (*app.AmazonMatchi
 		if err != nil {
 			return nil, nil, err
 		}
-		profile, err := sqlite.Open(ctx, entry.ProfilePaths(), sqlite.DefaultOptions)
+		paths := entry.ProfilePaths()
+		currentRevision, err := sqlite.ProbeRevision(ctx, paths, sqlite.DefaultOptions)
+		if err != nil {
+			_ = lifecycle.Release()
+			return nil, nil, err
+		}
+		if knownRevision != 0 && currentRevision == knownRevision {
+			return nil, lifecycle.Release, nil
+		}
+		profile, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
 		if err != nil {
 			_ = lifecycle.Release()
 			return nil, nil, err
 		}
 		closeSource := func() error { return errors.Join(profile.Close(), lifecycle.Release()) }
-		currentRevision, err := profile.CurrentRevision(ctx)
-		if err != nil {
-			_ = closeSource()
-			return nil, nil, err
-		}
-		if knownRevision != 0 && currentRevision == knownRevision {
-			return nil, closeSource, nil
-		}
 		state, err := profile.LoadAmazonMatchSource(ctx)
 		if err != nil {
 			_ = closeSource()

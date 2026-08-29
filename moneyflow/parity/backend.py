@@ -4,6 +4,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
 
+from moneyflow.backends.amazon import AMAZON_COLUMN_CONFIG, AMAZON_DISPLAY_LABELS
 from moneyflow.backends.base import FinanceBackend
 from moneyflow.parity.fixture import FixtureDocument, load_document
 
@@ -88,12 +89,12 @@ class FixtureBackend(FinanceBackend):
 
     def get_display_labels(self) -> dict[str, str]:
         if self.backend_type == "amazon":
-            return {"merchant": "Product", "account": "Order", "accounts": "Orders"}
+            return dict(AMAZON_DISPLAY_LABELS)
         return super().get_display_labels()
 
     def get_column_config(self) -> dict[str, Any]:
         if self.backend_type == "amazon":
-            return {"merchant_width_pct": 60, "account_width_pct": 20}
+            return dict(AMAZON_COLUMN_CONFIG)
         return super().get_column_config()
 
 

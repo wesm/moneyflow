@@ -268,12 +268,15 @@ Learn more: [Navigation & Search Guide](https://moneyflow.dev/guide/navigation)
 
 ## Amazon Mode
 
-Import and analyze your Amazon purchase history:
+Import and analyze your Amazon purchase history with the installed Python package:
 
 1. Request "Your Orders" export from Amazon (Account Settings → Privacy)
 2. Download and unzip "Your Orders.zip"
-3. Import: `moneyflow provider import amazon ~/Downloads/"Your Orders" --profile "Amazon Orders"`
-4. Launch: `moneyflow tui --profile "Amazon Orders"` or `moneyflow web`
+3. Import: `moneyflow amazon import ~/Downloads/"Your Orders"`
+4. Launch: `moneyflow amazon`
+
+The Go v2 preview built from this branch uses its own `provider import amazon` and `tui`
+commands instead; see [Go v2 SQLite Preview](#go-v2-sqlite-preview) above.
 
 See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
 

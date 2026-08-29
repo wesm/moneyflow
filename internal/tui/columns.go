@@ -71,7 +71,7 @@ func ProfileDetailColumns(
 ) []Column {
 	merchantLabel, accountLabel := "Merchant", "Account"
 	if profileKind == "amazon" {
-		merchantLabel, accountLabel = "Product", "Order"
+		merchantLabel, accountLabel = "Item Name", "Order"
 	}
 	columns := []Column{
 		{Key: "date", Label: withArrow("Date", domain.SortFieldDate, sortSpec)},

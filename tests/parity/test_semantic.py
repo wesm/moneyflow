@@ -161,7 +161,7 @@ async def test_python_semantic_extractor_uses_isolated_fixture(tmp_path: Path) -
     amazon_source = "\n".join(
         line for region in frames["amazon_profile_detail"]["regions"] for line in region["lines"]
     )
-    assert "Product" in amazon_source
+    assert "Item Name" in amazon_source
     assert "Order" in amazon_source
     assert "Example Headphones" in amazon_source
     amazon_finance = "\n".join(

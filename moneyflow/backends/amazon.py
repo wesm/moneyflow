@@ -22,6 +22,14 @@ from .base import AggregationFunc, ComputedColumn, FinanceBackend
 
 logger = logging.getLogger(__name__)
 
+# Presentation contract shared with the Go TUI parity fixtures.
+AMAZON_DISPLAY_LABELS: Dict[str, str] = {
+    "merchant": "Item Name",
+    "account": "Order",
+    "accounts": "Orders",
+}
+AMAZON_COLUMN_CONFIG: Dict[str, int] = {"merchant_width_pct": 60, "account_width_pct": 20}
+
 
 def get_amazon_category_source(config_dir: Optional[Union[str, Path]] = None) -> Optional[str]:
     """Get the profile ID that Amazon should inherit categories from."""
@@ -230,11 +238,7 @@ class AmazonBackend(FinanceBackend):
             - account: How to display the account column (singular)
             - accounts: How to display accounts in views/breadcrumbs (plural)
         """
-        return {
-            "merchant": "Item Name",
-            "account": "Order",
-            "accounts": "Orders",
-        }
+        return dict(AMAZON_DISPLAY_LABELS)
 
     def get_computed_columns(self) -> List[ComputedColumn]:
         """
@@ -266,7 +270,7 @@ class AmazonBackend(FinanceBackend):
             - merchant_width_pct: 60 (wider for Item Names)
             - account_width_pct: 30 (Order IDs are small)
         """
-        return {"merchant_width_pct": 60, "account_width_pct": 20}
+        return dict(AMAZON_COLUMN_CONFIG)
 
     async def login(
         self,

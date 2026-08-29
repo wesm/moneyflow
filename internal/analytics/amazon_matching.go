@@ -87,10 +87,25 @@ type amazonOrderCandidate struct {
 	items     []AmazonMatchItem
 }
 
-// MatchAmazonOrders runs the three global Python-compatible passes over immutable sources.
+// AmazonOrderIndex is one immutable source snapshot grouped into deterministic order
+// candidates. Build it once per source revision and share it across every transaction.
+type AmazonOrderIndex struct {
+	ProfileID string
+	Revision  uint64
+	Currency  domain.Currency
+	Scale     uint8
+	orders    []amazonOrderCandidate
+}
+
+// OrderCount reports how many distinct orders the index holds.
+func (index AmazonOrderIndex) OrderCount() int {
+	return len(index.orders)
+}
+
+// MatchAmazonOrders runs the three global Python-compatible passes over prebuilt indexes.
 func MatchAmazonOrders(
 	transaction domain.Transaction,
-	sources []AmazonMatchSource,
+	indexes []AmazonOrderIndex,
 	limit int,
 ) (AmazonMatchResult, error) {
 	if limit < 1 {
@@ -99,9 +114,12 @@ func MatchAmazonOrders(
 	if transaction.Amount.Minor >= 0 {
 		return AmazonMatchResult{}, nil
 	}
-	orders, err := buildAmazonOrderCandidates(transaction.Amount, sources)
-	if err != nil {
-		return AmazonMatchResult{}, err
+	orders := make([]amazonOrderCandidate, 0)
+	for _, index := range indexes {
+		if index.Currency != transaction.Amount.Currency || index.Scale != transaction.Amount.Scale {
+			continue
+		}
+		orders = append(orders, index.orders...)
 	}
 	passes := []AmazonMatchClass{AmazonMatchExactOrder, AmazonMatchFuzzyOrder, AmazonMatchExactItem}
 	for _, class := range passes {
@@ -134,51 +152,48 @@ func MatchAmazonOrders(
 	return AmazonMatchResult{}, nil
 }
 
-func buildAmazonOrderCandidates(
-	money domain.Money,
-	sources []AmazonMatchSource,
-) ([]amazonOrderCandidate, error) {
-	orders := make([]amazonOrderCandidate, 0)
-	for _, source := range sources {
-		if source.Currency != money.Currency || source.Scale != money.Scale {
-			continue
-		}
-		byOrder := make(map[string][]AmazonMatchItem)
-		for _, item := range source.Items {
-			if item.OrderID != "" {
-				byOrder[item.OrderID] = append(byOrder[item.OrderID], item)
-			}
-		}
-		orderIDs := make([]string, 0, len(byOrder))
-		for orderID := range byOrder {
-			orderIDs = append(orderIDs, orderID)
-		}
-		slices.Sort(orderIDs)
-		for _, orderID := range orderIDs {
-			items := append([]AmazonMatchItem(nil), byOrder[orderID]...)
-			slices.SortFunc(items, func(left, right AmazonMatchItem) int {
-				return strings.Compare(string(left.LocalTransactionID), string(right.LocalTransactionID))
-			})
-			date := items[0].Date
-			var total int64
-			for _, item := range items {
-				if (item.AmountMinor > 0 && total > math.MaxInt64-item.AmountMinor) ||
-					(item.AmountMinor < 0 && total < math.MinInt64-item.AmountMinor) {
-					return nil, errors.New("match Amazon orders: order total overflow")
-				}
-				total += item.AmountMinor
-				if item.Date.Compare(date) < 0 {
-					date = item.Date
-				}
-			}
-			orders = append(orders, amazonOrderCandidate{
-				profileID: source.ProfileID, revision: source.Revision,
-				currency: source.Currency, scale: source.Scale, orderID: orderID,
-				date: date, total: total, items: items,
-			})
+// IndexAmazonOrders groups one source snapshot into sorted order candidates. The
+// returned index copies every item it keeps, so callers may discard the source.
+func IndexAmazonOrders(source AmazonMatchSource) (AmazonOrderIndex, error) {
+	byOrder := make(map[string][]AmazonMatchItem)
+	for _, item := range source.Items {
+		if item.OrderID != "" {
+			byOrder[item.OrderID] = append(byOrder[item.OrderID], item)
 		}
 	}
-	return orders, nil
+	orderIDs := make([]string, 0, len(byOrder))
+	for orderID := range byOrder {
+		orderIDs = append(orderIDs, orderID)
+	}
+	slices.Sort(orderIDs)
+	orders := make([]amazonOrderCandidate, 0, len(orderIDs))
+	for _, orderID := range orderIDs {
+		items := byOrder[orderID]
+		slices.SortFunc(items, func(left, right AmazonMatchItem) int {
+			return strings.Compare(string(left.LocalTransactionID), string(right.LocalTransactionID))
+		})
+		date := items[0].Date
+		var total int64
+		for _, item := range items {
+			if (item.AmountMinor > 0 && total > math.MaxInt64-item.AmountMinor) ||
+				(item.AmountMinor < 0 && total < math.MinInt64-item.AmountMinor) {
+				return AmazonOrderIndex{}, errors.New("index Amazon orders: order total overflow")
+			}
+			total += item.AmountMinor
+			if item.Date.Compare(date) < 0 {
+				date = item.Date
+			}
+		}
+		orders = append(orders, amazonOrderCandidate{
+			profileID: source.ProfileID, revision: source.Revision,
+			currency: source.Currency, scale: source.Scale, orderID: orderID,
+			date: date, total: total, items: items,
+		})
+	}
+	return AmazonOrderIndex{
+		ProfileID: source.ProfileID, Revision: source.Revision,
+		Currency: source.Currency, Scale: source.Scale, orders: orders,
+	}, nil
 }
 
 func matchAmazonOrder(

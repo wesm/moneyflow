@@ -43,7 +43,7 @@
     {
       "height": 1,
       "lines": [
-        " Date \u2193        Product                                                       Category               Order                     Amount ($)"
+        " Date \u2193        Item Name                                                     Category               Order                     Amount ($)"
       ],
       "name": "table_header",
       "origin": {

@@ -248,3 +248,52 @@ func TestInspectProfileReconstructsMissingSharedMemorySidecar(t *testing.T) {
 	assert.Equal(t, SchemaCurrent, inspection.Schema)
 	assert.False(t, inspection.Pristine)
 }
+
+func TestProbeRevisionTracksCommittedRevisionWithoutFullOpen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	paths := temporaryPaths(t)
+
+	_, err := ProbeRevision(ctx, paths, DefaultOptions)
+	require.Error(t, err, "missing database cannot report a revision")
+
+	handle, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	opened, err := handle.CurrentRevision(ctx)
+	require.NoError(t, err)
+	require.NoError(t, handle.Close())
+
+	probed, err := ProbeRevision(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	assert.Equal(t, opened, probed)
+
+	handle, err = Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	profile := handle.(*profile)
+	_, err = profile.database.ExecContext(ctx,
+		"UPDATE profile_state SET revision = revision + 1 WHERE singleton = 1")
+	require.NoError(t, err)
+	require.NoError(t, handle.Close())
+
+	advanced, err := ProbeRevision(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	assert.Equal(t, opened+1, advanced)
+}
+
+func TestProbeRevisionRefusesIncompatibleSchema(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	paths := temporaryPaths(t)
+	handle, err := Open(ctx, paths, DefaultOptions)
+	require.NoError(t, err)
+	profile := handle.(*profile)
+	_, err = profile.database.ExecContext(ctx,
+		"UPDATE schema_metadata SET schema_version = schema_version + 1 WHERE singleton = 1")
+	require.NoError(t, err)
+	require.NoError(t, handle.Close())
+
+	_, err = ProbeRevision(ctx, paths, DefaultOptions)
+	var storeErr *store.Error
+	require.ErrorAs(t, err, &storeErr)
+	assert.Equal(t, store.CodeSchemaIncompatible, storeErr.Code)
+}

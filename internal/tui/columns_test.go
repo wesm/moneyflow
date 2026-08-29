@@ -55,7 +55,7 @@ func TestColumnsDetailLayouts(t *testing.T) {
 func TestProfileDetailColumnsUseAmazonLabelsAndBoundedMatchColumn(t *testing.T) {
 	t.Parallel()
 	columns := ProfileDetailColumns(150, domain.SortSpec{}, "amazon", false)
-	assert.Equal(t, "Product", columns[1].Label)
+	assert.Equal(t, "Item Name", columns[1].Label)
 	assert.Equal(t, "Order", columns[3].Label)
 	assert.Equal(t, []int{1, 15, 77, 100, 122, 138}, ColumnStarts(columns))
 

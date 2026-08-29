@@ -19,13 +19,13 @@ func TestAmazonMatchExactToleranceAcrossScales(t *testing.T) {
 			}
 			transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -(100 * pow10Test(scale)), scale)
 			source := amazonMatchSource(t, "source", "order", "2026-08-20", transaction.Amount.Minor-tolerance, scale)
-			matched, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+			matched, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{source}), 20)
 			require.NoError(t, err)
 			require.Len(t, matched.Matches, 1)
 			assert.Equal(t, AmazonMatchExactOrder, matched.Matches[0].Class)
 
 			source.Items[0].AmountMinor--
-			unmatched, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+			unmatched, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{source}), 20)
 			require.NoError(t, err)
 			if len(unmatched.Matches) > 0 {
 				assert.NotEqual(t, AmazonMatchExactOrder, unmatched.Matches[0].Class)
@@ -41,7 +41,7 @@ func TestAmazonMatchInclusiveDateWindowAndConfidence(t *testing.T) {
 		amazonMatchSource(t, "near", "near", "2026-08-22", -10000, 2),
 		amazonMatchSource(t, "outside", "outside", "2026-08-28", -10000, 2),
 	}
-	result, err := MatchAmazonOrders(transaction, sources, 20)
+	result, err := MatchAmazonOrders(transaction, indexed(t, sources), 20)
 	require.NoError(t, err)
 	require.Len(t, result.Matches, 2)
 	assert.Equal(t, "near", result.Matches[0].OrderID)
@@ -53,17 +53,17 @@ func TestAmazonMatchUsesGlobalPassExclusivityAndFuzzyFifteenDollarFloor(t *testi
 	transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -9000, 2)
 	fuzzy := amazonMatchSource(t, "a-fuzzy", "fuzzy", "2026-08-20", -10000, 2)
 	exact := amazonMatchSource(t, "z-exact", "exact", "2026-08-20", -9000, 2)
-	result, err := MatchAmazonOrders(transaction, []AmazonMatchSource{fuzzy, exact}, 20)
+	result, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{fuzzy, exact}), 20)
 	require.NoError(t, err)
 	require.Len(t, result.Matches, 1)
 	assert.Equal(t, AmazonMatchExactOrder, result.Matches[0].Class)
 	assert.Equal(t, "exact", result.Matches[0].OrderID)
 
 	// Python's comment says $10, but its implemented FUZZY_TOLERANCE_MIN is $15.
-	fuzzyOnly, err := MatchAmazonOrders(transaction, []AmazonMatchSource{
+	fuzzyOnly, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{
 		amazonMatchSource(t, "source", "within-floor", "2026-08-20", -10499, 2),
 		amazonMatchSource(t, "source", "outside-floor", "2026-08-20", -10501, 2),
-	}, 20)
+	}), 20)
 	require.NoError(t, err)
 	require.Len(t, fuzzyOnly.Matches, 1)
 	assert.Equal(t, AmazonMatchFuzzyOrder, fuzzyOnly.Matches[0].Class)
@@ -84,7 +84,7 @@ func TestAmazonMatchItemFallbackOrderingAndBound(t *testing.T) {
 		})
 		sources = append(sources, source)
 	}
-	result, err := MatchAmazonOrders(transaction, sources, 20)
+	result, err := MatchAmazonOrders(transaction, indexed(t, sources), 20)
 	require.NoError(t, err)
 	assert.Equal(t, 25, result.Total)
 	require.Len(t, result.Matches, 20)
@@ -97,7 +97,7 @@ func TestAmazonMatchNeverTreatsOppositeSignedAmountsAsEqual(t *testing.T) {
 	transaction := amazonFinanceTransaction(t, "finance", "2026-08-20", -2500, 2)
 	source := amazonMatchSource(t, "source", "refund", "2026-08-20", 2500, 2)
 
-	result, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+	result, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{source}), 20)
 	require.NoError(t, err)
 	assert.Empty(t, result.Matches)
 }
@@ -110,7 +110,7 @@ func TestAmazonExactItemMatchReturnsOnlyTheMatchingItem(t *testing.T) {
 		Date: mustAmazonDate(t, "2026-08-20"), AmountMinor: -2500,
 	})
 
-	result, err := MatchAmazonOrders(transaction, []AmazonMatchSource{source}, 20)
+	result, err := MatchAmazonOrders(transaction, indexed(t, []AmazonMatchSource{source}), 20)
 	require.NoError(t, err)
 	require.Len(t, result.Matches, 1)
 	assert.Equal(t, AmazonMatchExactItem, result.Matches[0].Class)
@@ -157,4 +157,15 @@ func pow10Test(scale uint8) int64 {
 		result *= 10
 	}
 	return result
+}
+
+func indexed(t *testing.T, sources []AmazonMatchSource) []AmazonOrderIndex {
+	t.Helper()
+	indexes := make([]AmazonOrderIndex, 0, len(sources))
+	for _, source := range sources {
+		index, err := IndexAmazonOrders(source)
+		require.NoError(t, err)
+		indexes = append(indexes, index)
+	}
+	return indexes
 }

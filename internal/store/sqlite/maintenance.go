@@ -128,6 +128,46 @@ func validateInspectionSidecars(paths home.Paths) error {
 	return nil
 }
 
+// ProbeRevision reads the committed revision of an installed current-schema profile through
+// a read-only connection. It skips the integrity check that Open performs so callers can
+// detect unchanged sources cheaply before paying for a full open and load.
+func ProbeRevision(ctx context.Context, paths home.Paths, options Options) (uint64, error) {
+	if err := validateMaintenancePaths(paths); err != nil {
+		return 0, err
+	}
+	info, err := os.Lstat(paths.Database)
+	if err != nil {
+		return 0, store.NewError(store.CodeStoreError, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 {
+		return 0, store.NewError(store.CodeStoreCorrupt, errors.New("profile database is not installed"))
+	}
+	if err = validateInspectionSidecars(paths); err != nil {
+		return 0, err
+	}
+	database, pinned, err := openMaintenanceDatabase(
+		ctx, paths, options, store.CodeStoreCorrupt, true,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = errors.Join(database.Close(), pinned.Close()) }()
+	state, err := inspectSchema(ctx, database)
+	if err != nil {
+		return 0, mapDriverError(err, store.CodeStoreCorrupt)
+	}
+	if state != schemaCurrent {
+		return 0, store.NewError(store.CodeSchemaIncompatible,
+			fmt.Errorf("profile schema is %s, not current", exportedSchemaStatus(state)))
+	}
+	var revision uint64
+	if err = database.QueryRowContext(ctx,
+		"SELECT revision FROM profile_state WHERE singleton = 1").Scan(&revision); err != nil {
+		return 0, mapDriverError(err, store.CodeStoreCorrupt)
+	}
+	return revision, nil
+}
+
 // CheckpointProfile truncates an existing database's write-ahead log without schema validation.
 func CheckpointProfile(ctx context.Context, paths home.Paths, options Options) error {
 	if err := validateMaintenancePaths(paths); err != nil {

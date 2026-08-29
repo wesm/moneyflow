@@ -45,7 +45,7 @@ type AmazonMatchInput struct {
 
 type amazonCachedSource struct {
 	revision uint64
-	source   analytics.AmazonMatchSource
+	index    analytics.AmazonOrderIndex
 }
 
 // AmazonMatchingService owns immutable source indexes shared by every renderer.
@@ -108,20 +108,20 @@ func (service *AmazonMatchingService) MatchBatch(
 	if err != nil {
 		return nil, err
 	}
-	for index, input := range inputs {
-		if !results[index].Qualified {
+	for position, input := range inputs {
+		if !results[position].Qualified {
 			continue
 		}
 		for reason, count := range skipped {
-			results[index].Skipped[reason] = count
+			results[position].Skipped[reason] = count
 		}
 		for _, source := range sources {
 			if source.Currency != input.Transaction.Amount.Currency ||
 				source.Scale != input.Transaction.Amount.Scale {
-				results[index].Skipped["money_mismatch"]++
+				results[position].Skipped["money_mismatch"]++
 			}
 		}
-		results[index].Result, err = analytics.MatchAmazonOrders(input.Transaction, sources, limit)
+		results[position].Result, err = analytics.MatchAmazonOrders(input.Transaction, sources, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func (service *AmazonMatchingService) MatchBatch(
 
 func (service *AmazonMatchingService) loadSources(
 	ctx context.Context,
-) ([]analytics.AmazonMatchSource, map[string]int, error) {
+) ([]analytics.AmazonOrderIndex, map[string]int, error) {
 	skipped := make(map[string]int)
 	descriptors, err := service.directory.ListAmazonSources(ctx)
 	if err != nil {
@@ -141,7 +141,7 @@ func (service *AmazonMatchingService) loadSources(
 		return strings.Compare(left.ProfileID, right.ProfileID)
 	})
 	present := make(map[string]struct{}, len(descriptors))
-	sources := make([]analytics.AmazonMatchSource, 0, len(descriptors))
+	sources := make([]analytics.AmazonOrderIndex, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		present[descriptor.ProfileID] = struct{}{}
 		if descriptor.Kind != amazonProvider {
@@ -165,7 +165,7 @@ func (service *AmazonMatchingService) loadSources(
 			continue
 		}
 		if state == nil {
-			cached, ok := service.cloneCachedSource(descriptor.ProfileID)
+			cached, ok := service.cachedIndex(descriptor.ProfileID)
 			if !ok {
 				skipped["source_unavailable"]++
 				continue
@@ -173,7 +173,11 @@ func (service *AmazonMatchingService) loadSources(
 			sources = append(sources, cached)
 			continue
 		}
-		sources = append(sources, service.cachedSource(descriptor.ProfileID, *state))
+		index, indexErr := service.indexSource(descriptor.ProfileID, *state)
+		if indexErr != nil {
+			return nil, nil, indexErr
+		}
+		sources = append(sources, index)
 	}
 	service.evictMissing(present)
 	return sources, skipped, nil
@@ -185,16 +189,16 @@ func (service *AmazonMatchingService) cachedRevision(profileID string) uint64 {
 	return service.cache[profileID].revision
 }
 
-func (service *AmazonMatchingService) cloneCachedSource(
+func (service *AmazonMatchingService) cachedIndex(
 	profileID string,
-) (analytics.AmazonMatchSource, bool) {
+) (analytics.AmazonOrderIndex, bool) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	cached, ok := service.cache[profileID]
 	if !ok {
-		return analytics.AmazonMatchSource{}, false
+		return analytics.AmazonOrderIndex{}, false
 	}
-	return cloneAnalyticsAmazonSource(cached.source), true
+	return cached.index, true
 }
 
 // ProductMatches reports whether one bounded canonical match contains a raw product substring.
@@ -219,14 +223,15 @@ func (service *AmazonMatchingService) ProductMatches(
 	return false, nil
 }
 
-func (service *AmazonMatchingService) cachedSource(
+// indexSource builds the immutable order index for one revision at most once.
+func (service *AmazonMatchingService) indexSource(
 	profileID string,
 	state store.AmazonMatchSourceState,
-) analytics.AmazonMatchSource {
+) (analytics.AmazonOrderIndex, error) {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if cached, ok := service.cache[profileID]; ok && cached.revision == state.Revision {
-		return cloneAnalyticsAmazonSource(cached.source)
+		return cached.index, nil
 	}
 	items := make([]analytics.AmazonMatchItem, 0, len(state.Items))
 	for _, item := range state.Items {
@@ -249,9 +254,13 @@ func (service *AmazonMatchingService) cachedSource(
 		ProfileID: profileID, Revision: state.Revision,
 		Currency: state.Settings.Currency, Scale: state.Settings.Scale, Items: items,
 	}
-	service.cache[profileID] = amazonCachedSource{revision: state.Revision, source: source}
+	index, err := analytics.IndexAmazonOrders(source)
+	if err != nil {
+		return analytics.AmazonOrderIndex{}, err
+	}
+	service.cache[profileID] = amazonCachedSource{revision: state.Revision, index: index}
 	service.builds++
-	return cloneAnalyticsAmazonSource(source)
+	return index, nil
 }
 
 func (service *AmazonMatchingService) evictMissing(present map[string]struct{}) {
@@ -276,18 +285,6 @@ func (service *AmazonMatchingService) CacheSize() int {
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	return len(service.cache)
-}
-
-func cloneAnalyticsAmazonSource(source analytics.AmazonMatchSource) analytics.AmazonMatchSource {
-	clone := source
-	clone.Items = append([]analytics.AmazonMatchItem(nil), source.Items...)
-	for index := range clone.Items {
-		if clone.Items[index].UnitPriceMinor != nil {
-			value := *clone.Items[index].UnitPriceMinor
-			clone.Items[index].UnitPriceMinor = &value
-		}
-	}
-	return clone
 }
 
 func isAmazonMerchantLabel(label string) bool {
