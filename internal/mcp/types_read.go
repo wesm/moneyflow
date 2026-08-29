@@ -11,6 +11,11 @@ import (
 
 type EmptyInput struct{}
 
+type AccountInfoInput struct {
+	PartitionOffset int  `json:"partition_offset,omitempty"`
+	PartitionLimit  *int `json:"partition_limit,omitempty"`
+}
+
 type SearchTransactionsInput struct {
 	Query  string `json:"query" jsonschema:"literal text to find in merchant, category, or notes"`
 	Offset int    `json:"offset,omitempty" jsonschema:"zero-based result offset"`
@@ -208,6 +213,7 @@ type AccountDocument struct {
 	ProfileID        string                   `json:"profile_id"`
 	ProfileName      string                   `json:"profile_name"`
 	ProfileKind      string                   `json:"profile_kind"`
+	PartitionWindow  CollectionWindow         `json:"partition_window"`
 	MoneyPartitions  []MoneyPartitionDocument `json:"money_partitions"`
 	TransactionCount int                      `json:"transaction_count"`
 	DateRange        *DateRangeDocument       `json:"date_range,omitempty"`
@@ -272,11 +278,30 @@ type AmazonMatchDocument struct {
 
 type ReviewDocument struct {
 	Header
-	Pending         PendingDocument       `json:"pending"`
-	OperationWindow CollectionWindow      `json:"operation_window"`
-	Operations      []app.ReviewOperation `json:"operations"`
-	TargetWindow    CollectionWindow      `json:"target_window"`
-	Targets         []app.ReviewTarget    `json:"targets"`
+	Pending         PendingDocument           `json:"pending"`
+	OperationWindow CollectionWindow          `json:"operation_window"`
+	Operations      []ReviewOperationDocument `json:"operations"`
+	TargetWindow    CollectionWindow          `json:"target_window"`
+	Targets         []ReviewTargetDocument    `json:"targets"`
+}
+
+type ReviewOperationDocument struct {
+	OperationID    string `json:"operation_id"`
+	Type           string `json:"type"`
+	Active         bool   `json:"active"`
+	AffectedCount  int    `json:"affected_count"`
+	Before         string `json:"before,omitempty"`
+	After          string `json:"after,omitempty"`
+	TaxonomyEffect string `json:"taxonomy_effect,omitempty"`
+	Annotation     string `json:"annotation,omitempty"`
+}
+
+type ReviewTargetDocument struct {
+	TransactionID string `json:"transaction_id"`
+	Date          string `json:"date"`
+	Merchant      string `json:"merchant"`
+	Category      string `json:"category"`
+	Hidden        bool   `json:"hidden"`
 }
 
 type CommitStatusDocument struct {

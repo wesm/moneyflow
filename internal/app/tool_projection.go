@@ -97,10 +97,19 @@ type MoneyPartition struct {
 	TransactionCount int
 }
 
+// AccountProjectionRequest requests a bounded money-partition window.
+type AccountProjectionRequest struct {
+	ExpectedRevision uint64
+	Partitions       CollectionWindowRequest
+}
+
 // AccountProjection is the credential-blind profile summary shared by adapters.
 type AccountProjection struct {
 	Revision         uint64
 	ProfileKind      string
+	PartitionTotal   int
+	PartitionOffset  int
+	PartitionLimit   int
 	MoneyPartitions  []MoneyPartition
 	TransactionCount int
 	DateRange        *domain.DateRange
@@ -215,7 +224,10 @@ func (service *Service) CatalogProjection(
 	if err != nil {
 		return CatalogProjection{}, newAppError(AppInvalidOperation, state.revision, err)
 	}
-	groups, categories, merchants := buildCatalogEntries(*state.snapshot, state.transactions)
+	groups, categories, merchants, err := buildCatalogEntries(*state.snapshot, state.transactions)
+	if err != nil {
+		return CatalogProjection{}, newAppError(AppStoreCorrupt, state.revision, err)
+	}
 	result := CatalogProjection{Revision: state.revision}
 	result.GroupTotal, result.GroupOffset, result.Groups = len(groups), min(groupOffset, len(groups)), windowGroups(groups, groupOffset, groupLimit)
 	result.CategoryTotal, result.CategoryOffset, result.Categories = len(categories), min(categoryOffset, len(categories)), windowCategories(categories, categoryOffset, categoryLimit)
@@ -224,10 +236,19 @@ func (service *Service) CatalogProjection(
 }
 
 // AccountProjection returns a current credential-blind profile summary.
-func (service *Service) AccountProjection(ctx context.Context, expected uint64) (AccountProjection, error) {
-	state, err := service.toolProjectionState(ctx, expected)
+func (service *Service) AccountProjection(
+	ctx context.Context,
+	request AccountProjectionRequest,
+) (AccountProjection, error) {
+	state, err := service.toolProjectionState(ctx, request.ExpectedRevision)
 	if err != nil {
 		return AccountProjection{}, err
+	}
+	partitionOffset, partitionLimit, err := normalizeToolWindow(
+		request.Partitions.Offset, request.Partitions.Limit,
+	)
+	if err != nil {
+		return AccountProjection{}, newAppError(AppInvalidOperation, state.revision, err)
 	}
 	partitions := make(map[string]MoneyPartition)
 	var first, last domain.Date
@@ -272,8 +293,13 @@ func (service *Service) AccountProjection(ctx context.Context, expected uint64) 
 		}
 		categoryCount = len(seen)
 	}
+	partitionStart := min(partitionOffset, len(moneyPartitions))
+	partitionEnd := min(partitionStart+partitionLimit, len(moneyPartitions))
 	return AccountProjection{
-		Revision: state.revision, ProfileKind: state.profileKind, MoneyPartitions: moneyPartitions,
+		Revision: state.revision, ProfileKind: state.profileKind,
+		PartitionTotal: len(moneyPartitions), PartitionOffset: partitionStart,
+		PartitionLimit:   partitionLimit,
+		MoneyPartitions:  append([]MoneyPartition(nil), moneyPartitions[partitionStart:partitionEnd]...),
 		TransactionCount: len(state.transactions), DateRange: dateRange, CategoryCount: categoryCount,
 		Pending: state.pending, Capabilities: append([]Capability(nil), state.capabilities...),
 		Provider: state.providerState, Write: state.writeState,
@@ -361,8 +387,12 @@ func (service *Service) toolProjectionState(ctx context.Context, expected uint64
 		return toolProjectionState{}, err
 	}
 	service.mu.RLock()
+	revision := uint64(0)
+	if service.snapshot != nil {
+		revision = service.snapshot.Revision
+	}
 	state := toolProjectionState{
-		revision: service.Revision(), profileKind: service.profileKind,
+		revision: revision, profileKind: service.profileKind,
 		transactions: make([]domain.Transaction, len(service.transactions)),
 	}
 	for index := range service.transactions {
@@ -490,7 +520,10 @@ func normalizeToolWindow(offset, limit int) (int, int, error) {
 	return offset, limit, nil
 }
 
-func buildCatalogEntries(snapshot EffectiveSnapshot, transactions []domain.Transaction) ([]GroupProjection, []CategoryProjection, []MerchantProjection) {
+func buildCatalogEntries(
+	snapshot EffectiveSnapshot,
+	transactions []domain.Transaction,
+) ([]GroupProjection, []CategoryProjection, []MerchantProjection, error) {
 	groupCounts := make(map[domain.EntityID]int)
 	categoryCounts := make(map[domain.EntityID]int)
 	merchantCounts := make(map[domain.EntityID]int)
@@ -508,7 +541,11 @@ func buildCatalogEntries(snapshot EffectiveSnapshot, transactions []domain.Trans
 		if total.Currency == "" {
 			total = domain.Money{Currency: transaction.Amount.Currency, Scale: transaction.Amount.Scale}
 		}
-		total, _ = total.Add(transaction.Amount)
+		var err error
+		total, err = total.Add(transaction.Amount)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		merchantTotals[merchantID][key] = total
 	}
 	groups := make([]GroupProjection, 0)
@@ -552,7 +589,7 @@ func buildCatalogEntries(snapshot EffectiveSnapshot, transactions []domain.Trans
 		}
 		return entityLess(merchants[left].Merchant.Label, string(merchants[left].Merchant.ID), merchants[right].Merchant.Label, string(merchants[right].Merchant.ID))
 	})
-	return groups, categories, merchants
+	return groups, categories, merchants, nil
 }
 
 func catalogFromTransactions(state toolProjectionState, request CatalogWindowRequest) (CatalogProjection, error) {
@@ -593,7 +630,10 @@ func catalogFromTransactions(state toolProjectionState, request CatalogWindowReq
 	if err != nil {
 		return CatalogProjection{}, newAppError(AppInvalidOperation, state.revision, err)
 	}
-	groupEntries, categoryEntries, merchantEntries := buildCatalogEntries(snapshot, state.transactions)
+	groupEntries, categoryEntries, merchantEntries, err := buildCatalogEntries(snapshot, state.transactions)
+	if err != nil {
+		return CatalogProjection{}, newAppError(AppStoreCorrupt, state.revision, err)
+	}
 	return CatalogProjection{
 		Revision:   state.revision,
 		GroupTotal: len(groupEntries), GroupOffset: min(groupOffset, len(groupEntries)), Groups: windowGroups(groupEntries, groupOffset, groupLimit),

@@ -34,8 +34,8 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 			return merchantsDocument(ctx, dependencies.Service, input)
 		})
 	registerTool(server, "get_account_info", "Return credential-blind local profile information.", true,
-		func(ctx context.Context, _ EmptyInput) (any, error) {
-			return accountDocument(ctx, dependencies)
+		func(ctx context.Context, input AccountInfoInput) (any, error) {
+			return accountDocument(ctx, dependencies, input)
 		})
 	registerTool(server, "get_uncategorized_transactions", "Return effective uncategorized transactions.", true,
 		func(ctx context.Context, input UncategorizedInput) (any, error) {
@@ -55,7 +55,9 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 		})
 	registerTool(server, "get_commit_status", "Return the durable provider-write status without provider I/O.", true,
 		func(ctx context.Context, _ EmptyInput) (any, error) {
-			account, err := dependencies.Service.AccountProjection(ctx, 0)
+			account, err := dependencies.Service.AccountProjection(ctx, app.AccountProjectionRequest{
+				Partitions: app.CollectionWindowRequest{Limit: 1},
+			})
 			if err != nil {
 				return nil, err
 			}
@@ -239,14 +241,22 @@ func merchantsDocument(ctx context.Context, service *app.Service, input WindowIn
 	return document, nil
 }
 
-func accountDocument(ctx context.Context, dependencies Dependencies) (AccountDocument, error) {
-	projection, err := dependencies.Service.AccountProjection(ctx, 0)
+func accountDocument(
+	ctx context.Context,
+	dependencies Dependencies,
+	input AccountInfoInput,
+) (AccountDocument, error) {
+	limit := defaultedLimit(input.PartitionLimit, 100)
+	projection, err := dependencies.Service.AccountProjection(ctx, app.AccountProjectionRequest{
+		Partitions: app.CollectionWindowRequest{Offset: input.PartitionOffset, Limit: limit},
+	})
 	if err != nil {
 		return AccountDocument{}, err
 	}
 	document := AccountDocument{
 		Header: NewHeader(StatusOK, projection.Revision), ProfileID: dependencies.ProfileID,
 		ProfileName: dependencies.ProfileName, ProfileKind: projection.ProfileKind,
+		PartitionWindow:  CollectionWindow{Total: projection.PartitionTotal, Offset: projection.PartitionOffset, Limit: projection.PartitionLimit, Returned: len(projection.MoneyPartitions)},
 		TransactionCount: projection.TransactionCount, CategoryCount: projection.CategoryCount,
 		Pending: pendingDocument(projection.Pending), Provider: providerStatusDocument(projection.Provider), Write: writeStatusDocument(projection.Write),
 	}
@@ -285,7 +295,7 @@ func spendingDocument(ctx context.Context, service *app.Service, clock func() ti
 
 func spendingDates(clock func() time.Time, startText, endText string) (*domain.Date, *domain.Date, error) {
 	if startText == "" && endText == "" {
-		endTime := clock().UTC()
+		endTime := clock()
 		end, err := domain.NewDate(endTime.Year(), endTime.Month(), endTime.Day())
 		if err != nil {
 			return nil, nil, err
@@ -323,7 +333,7 @@ func uncategorizedDocument(ctx context.Context, service *app.Service, input Unca
 func transactionInfoDocument(ctx context.Context, service *app.Service, input TransactionDetailsInput) (TransactionInfoDocument, error) {
 	matchLimit := defaultedLimit(input.MatchLimit, 20)
 	itemLimit := defaultedLimit(input.ItemLimit, 20)
-	if matchLimit <= 0 || itemLimit <= 0 {
+	if matchLimit <= 0 || matchLimit > 20 || itemLimit <= 0 || itemLimit > 100 {
 		return TransactionInfoDocument{}, newAppInputError(service.Revision(), errors.New("transaction information window is invalid"))
 	}
 	info, err := service.TransactionInfo(ctx, app.TransactionInfoRequest{TransactionID: input.TransactionID, MatchOffset: input.MatchOffset, MatchLimit: matchLimit, ItemOffset: input.ItemOffset, ItemLimit: itemLimit})
@@ -388,10 +398,33 @@ func reviewDocument(ctx context.Context, service *app.Service, input ReviewChang
 	return ReviewDocument{
 		Header: NewHeader(StatusOK, projection.Revision), Pending: pendingDocument(projection.Pending),
 		OperationWindow: CollectionWindow{Total: len(projection.Operations), Offset: operationStart, Limit: operationLimit, Returned: operationEnd - operationStart},
-		Operations:      append([]app.ReviewOperation(nil), projection.Operations[operationStart:operationEnd]...),
+		Operations:      reviewOperationDocuments(projection.Operations[operationStart:operationEnd]),
 		TargetWindow:    CollectionWindow{Total: targetTotal, Offset: projection.Window.Offset, Limit: projection.Window.Limit, Returned: len(projection.Targets)},
-		Targets:         append([]app.ReviewTarget(nil), projection.Targets...),
+		Targets:         reviewTargetDocuments(projection.Targets),
 	}, nil
+}
+
+func reviewOperationDocuments(values []app.ReviewOperation) []ReviewOperationDocument {
+	result := make([]ReviewOperationDocument, 0, len(values))
+	for _, value := range values {
+		result = append(result, ReviewOperationDocument{
+			OperationID: value.OperationID, Type: string(value.Type), Active: value.Active,
+			AffectedCount: value.AffectedCount, Before: value.Before, After: value.After,
+			TaxonomyEffect: value.TaxonomyEffect, Annotation: value.Annotation,
+		})
+	}
+	return result
+}
+
+func reviewTargetDocuments(values []app.ReviewTarget) []ReviewTargetDocument {
+	result := make([]ReviewTargetDocument, 0, len(values))
+	for _, value := range values {
+		result = append(result, ReviewTargetDocument{
+			TransactionID: string(value.TransactionID), Date: value.Date.String(),
+			Merchant: value.Merchant, Category: value.Category, Hidden: value.Hidden,
+		})
+	}
+	return result
 }
 
 func capabilityUnavailable(service *app.Service, detail string) ErrorDocument {

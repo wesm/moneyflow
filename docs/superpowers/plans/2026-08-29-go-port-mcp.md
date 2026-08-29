@@ -251,6 +251,9 @@ func (service *Service) CatalogProjection(
 type AccountProjection struct {
     Revision         uint64
     ProfileKind      string
+    PartitionTotal   int
+    PartitionOffset  int
+    PartitionLimit   int
     MoneyPartitions  []MoneyPartition
     TransactionCount int
     DateRange        *domain.DateRange
@@ -261,6 +264,11 @@ type AccountProjection struct {
     Write            ProviderWriteStatus
 }
 
+type AccountProjectionRequest struct {
+    ExpectedRevision uint64
+    Partitions       CollectionWindowRequest
+}
+
 type MoneyPartition struct {
     Currency         domain.Currency
     Scale            uint8
@@ -269,7 +277,7 @@ type MoneyPartition struct {
 
 func (service *Service) AccountProjection(
     context.Context,
-    uint64,
+    AccountProjectionRequest,
 ) (AccountProjection, error)
 ```
 
@@ -394,17 +402,21 @@ func (supervisor *Supervisor) StartWrite(
 ) (app.ProviderWriteStatus, error)
 func (supervisor *Supervisor) RefreshStatus(string) (AttemptSnapshot, error)
 func (supervisor *Supervisor) StartReconcile(
-    func(context.Context) (app.ProviderRefreshResult, error),
+    batchVersion uint64,
+    revision uint64,
+    func(context.Context) (app.ProviderWriteResult, error),
 ) (AttemptSnapshot, error)
 func (supervisor *Supervisor) ReconcileStatus(string) (AttemptSnapshot, error)
 func (supervisor *Supervisor) Close(context.Context) error
 ```
 
 An empty status ID selects the current retained attempt of that kind for the profile. Starting a
-refresh or reconciliation while one is active returns its existing ID and snapshot. The concrete
-implementation adds mutexes, one refresh slot, one reconcile slot, one write slot, a wait group,
-bounded terminal retention, and random opaque IDs. Attempt snapshots contain counts and stable
-codes only; only the matching status path may include a process-local confirmation token.
+refresh while one is active returns its existing ID and snapshot. Reconciliation records the
+guarded batch version and revision as its attempt key, returns the active attempt only when both
+guards match, and rejects a mismatched start as stale rather than returning unrelated work. The
+concrete implementation adds mutexes, one refresh slot, one reconcile slot, one write slot, a wait
+group, bounded terminal retention, and random opaque IDs. Attempt snapshots contain counts and
+stable codes only; only the matching status path may include a process-local confirmation token.
 
 Task 6 establishes the neutral HTTP security and token contracts:
 

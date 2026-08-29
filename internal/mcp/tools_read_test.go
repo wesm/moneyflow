@@ -89,7 +89,7 @@ func TestOfficialClientResourcesMatchToolProjection(t *testing.T) {
 		tool      string
 		arguments map[string]any
 	}{
-		{uri: resourceAccount, tool: "get_account_info"},
+		{uri: resourceAccount, tool: "get_account_info", arguments: map[string]any{"partition_limit": 1000}},
 		{uri: resourceCategories, tool: "get_categories", arguments: map[string]any{"group_limit": 1000, "category_limit": 1000}},
 		{uri: resourceMerchantsTop, tool: "get_merchants", arguments: map[string]any{"limit": 50}},
 		{uri: resourceMonthly, tool: "get_spending_summary", arguments: map[string]any{"start_date": "2026-08-01", "end_date": "2026-08-31", "group_by": "category", "limit": 1000}},
@@ -106,6 +106,74 @@ func TestOfficialClientResourcesMatchToolProjection(t *testing.T) {
 			assert.JSONEq(t, tool.Content[0].(*mcpsdk.TextContent).Text, resource.Contents[0].Text)
 		})
 	}
+}
+
+func TestReadToolBoundsAccountPartitionsAndTransactionMatches(t *testing.T) {
+	date, err := domain.ParseDate("2026-08-29")
+	require.NoError(t, err)
+	service, err := app.NewService([]domain.Transaction{
+		{ID: "a", ProviderID: "provider-a", Provider: "fixture", Date: date, Account: domain.EntityRef{ID: "account", Name: "Account"}, Merchant: domain.EntityRef{ID: "merchant", Name: "Merchant"}, Category: domain.CategoryRef{ID: "category", Name: "Category", GroupID: "group", Group: "Group"}, Amount: domain.Money{Minor: -1, Currency: "EUR", Scale: 2}},
+		{ID: "b", ProviderID: "provider-b", Provider: "fixture", Date: date, Account: domain.EntityRef{ID: "account", Name: "Account"}, Merchant: domain.EntityRef{ID: "merchant", Name: "Merchant"}, Category: domain.CategoryRef{ID: "category", Name: "Category", GroupID: "group", Group: "Group"}, Amount: domain.Money{Minor: -1, Currency: "USD", Scale: 2}},
+	})
+	require.NoError(t, err)
+	client, cleanup := connectReadTestServer(t, service)
+	defer cleanup()
+
+	account, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{
+		Name: "get_account_info", Arguments: map[string]any{"partition_offset": 1, "partition_limit": 1},
+	})
+	require.NoError(t, err)
+	structured := account.StructuredContent.(map[string]any)
+	window := structured["partition_window"].(map[string]any)
+	assert.Equal(t, float64(2), window["total"])
+	assert.Equal(t, float64(1), window["returned"])
+	assert.Len(t, structured["money_partitions"].([]any), 1)
+
+	for _, arguments := range []map[string]any{
+		{"transaction_id": "a", "match_limit": 21},
+		{"transaction_id": "a", "item_limit": 101},
+	} {
+		result, callErr := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_transaction_details", Arguments: arguments})
+		require.NoError(t, callErr)
+		assert.True(t, result.IsError)
+		assert.Equal(t, "invalid_operation", result.StructuredContent.(map[string]any)["code"])
+	}
+}
+
+func TestCalendarDefaultsUseInjectedClockLocation(t *testing.T) {
+	location := time.FixedZone("UTC-minus-7", -7*60*60)
+	clock := func() time.Time { return time.Date(2026, 8, 31, 23, 30, 0, 0, location) }
+	start, end, err := spendingDates(clock, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "2026-08-02", start.String())
+	assert.Equal(t, "2026-08-31", end.String())
+
+	monthStart, monthEnd, err := currentMonth(clock())
+	require.NoError(t, err)
+	assert.Equal(t, "2026-08-01", monthStart.String())
+	assert.Equal(t, "2026-08-31", monthEnd.String())
+}
+
+func TestReviewDocumentsUseStableSnakeCaseWireTypes(t *testing.T) {
+	date, err := domain.ParseDate("2026-08-29")
+	require.NoError(t, err)
+	document := ReviewDocument{
+		Operations: reviewOperationDocuments([]app.ReviewOperation{{
+			OperationID: "operation-a", Sequence: 99, Type: domain.OperationCategoryAssign,
+			Active: true, AffectedCount: 2, Before: "Before", After: "After",
+		}}),
+		Targets: reviewTargetDocuments([]app.ReviewTarget{{
+			TransactionID: "transaction-a", Date: date, Merchant: "Merchant", Category: "Category",
+		}}),
+	}
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	text := string(encoded)
+	assert.Contains(t, text, `"operation_id":"operation-a"`)
+	assert.Contains(t, text, `"affected_count":2`)
+	assert.Contains(t, text, `"transaction_id":"transaction-a"`)
+	assert.NotContains(t, text, "OperationID")
+	assert.NotContains(t, text, "Sequence")
 }
 
 func connectReadTestServer(t *testing.T, service *app.Service) (*mcpsdk.ClientSession, func()) {

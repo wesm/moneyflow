@@ -19,7 +19,7 @@ const (
 
 func registerResources(server *Server, dependencies Dependencies) {
 	addResource(server, resourceAccount, "Moneyflow account", "Credential-blind local profile information", func(ctx context.Context) (any, error) {
-		return accountDocument(ctx, dependencies)
+		return accountDocument(ctx, dependencies, AccountInfoInput{PartitionLimit: intPointer(1_000)})
 	})
 	addResource(server, resourceCategories, "Moneyflow categories", "Active category groups and categories", func(ctx context.Context) (any, error) {
 		return categoriesDocument(ctx, dependencies.Service, CategoriesInput{GroupLimit: intPointer(1_000), CategoryLimit: intPointer(1_000)})
@@ -72,12 +72,11 @@ func addResource(
 }
 
 func currentMonth(value time.Time) (domain.Date, domain.Date, error) {
-	value = value.UTC()
 	start, err := domain.NewDate(value.Year(), value.Month(), 1)
 	if err != nil {
 		return domain.Date{}, domain.Date{}, err
 	}
-	next := time.Date(value.Year(), value.Month()+1, 1, 0, 0, 0, 0, time.UTC)
+	next := time.Date(value.Year(), value.Month()+1, 1, 0, 0, 0, 0, value.Location())
 	end, err := domain.NewDate(next.AddDate(0, 0, -1).Year(), next.AddDate(0, 0, -1).Month(), next.AddDate(0, 0, -1).Day())
 	return start, end, err
 }

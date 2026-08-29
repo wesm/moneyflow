@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,19 +76,43 @@ func TestToolCatalogAndAccountProjectionAreBoundedAndDetached(t *testing.T) {
 	assert.Equal(t, 2, catalog.MerchantTotal)
 	assert.Len(t, catalog.Merchants, 1)
 
-	account, err := service.AccountProjection(context.Background(), 5)
+	account, err := service.AccountProjection(context.Background(), app.AccountProjectionRequest{
+		ExpectedRevision: 5, Partitions: app.CollectionWindowRequest{Offset: 1, Limit: 1},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(5), account.Revision)
 	assert.Equal(t, 2, account.TransactionCount)
+	assert.Equal(t, 2, account.PartitionTotal)
+	assert.Equal(t, 1, account.PartitionOffset)
 	assert.Equal(t, []app.MoneyPartition{
-		{Currency: "EUR", Scale: 2, TransactionCount: 1},
 		{Currency: "USD", Scale: 2, TransactionCount: 1},
 	}, account.MoneyPartitions)
 
 	profile.advanceExternally(hideOperation(1, "transaction_a"))
-	advanced, err := service.AccountProjection(context.Background(), 0)
+	advanced, err := service.AccountProjection(context.Background(), app.AccountProjectionRequest{
+		Partitions: app.CollectionWindowRequest{Limit: 1},
+	})
 	require.NoError(t, err)
 	assert.Equal(t, uint64(6), advanced.Revision)
+}
+
+func TestToolCatalogRejectsMerchantTotalOverflow(t *testing.T) {
+	t.Parallel()
+
+	first := toolTransaction(t, "transaction_a", "2026-08-01", "Merchant", "Food", "", math.MaxInt64, "USD", 2)
+	second := toolTransaction(t, "transaction_b", "2026-08-01", "Merchant", "Food", "", 1, "USD", 2)
+	second.Merchant.ID = first.Merchant.ID
+	service, err := app.NewService([]domain.Transaction{first, second})
+	require.NoError(t, err)
+
+	_, err = service.CatalogProjection(context.Background(), app.CatalogWindowRequest{
+		Groups: app.CollectionWindowRequest{Limit: 1}, Categories: app.CollectionWindowRequest{Limit: 1},
+		Merchants: app.CollectionWindowRequest{Limit: 1},
+	})
+	require.Error(t, err)
+	var appErr *app.AppError
+	require.ErrorAs(t, err, &appErr)
+	assert.Equal(t, app.AppStoreCorrupt, appErr.Code)
 }
 
 func TestToolSpendingSummaryScansBeyondReturnWindow(t *testing.T) {
