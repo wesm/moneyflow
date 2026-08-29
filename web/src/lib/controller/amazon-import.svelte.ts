@@ -89,7 +89,8 @@ export function createAmazonImportController(options: {
       install(await options.transport.upload(snapshot.attempt_id, snapshot.state_version, files))
       return true
     } catch (error) {
-      fail(error, 'Amazon order-history files could not be staged.')
+      const detail = failureDetail(error, 'Amazon order-history files could not be staged.')
+      state = { ...state, phase: 'source', problem: detail, announcement: detail }
       return false
     }
   }
@@ -138,7 +139,7 @@ export function createAmazonImportController(options: {
   }
 
   function fail(error: unknown, fallback: string): void {
-    const detail = error instanceof MoneyflowProblem ? error.problem.detail : fallback
+    const detail = failureDetail(error, fallback)
     state = { ...state, phase: 'failed', problem: detail, announcement: detail }
   }
 
@@ -155,6 +156,10 @@ export function createAmazonImportController(options: {
       if (polling !== undefined) window.clearInterval(polling)
     },
   }
+}
+
+function failureDetail(error: unknown, fallback: string): string {
+  return error instanceof MoneyflowProblem ? error.problem.detail : fallback
 }
 
 function terminalPhase(phase: AmazonImportState['phase']): boolean {

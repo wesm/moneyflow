@@ -140,7 +140,9 @@
         <p>
           {selectedFiles.length.toLocaleString()} file{selectedFiles.length === 1 ? '' : 's'} selected.
         </p>
-        {#if localProblem}<p class="editing-error" role="alert">{localProblem}</p>{/if}
+        {#if localProblem || controller.state.problem}
+          <p class="editing-error" role="alert">{localProblem || controller.state.problem}</p>
+        {/if}
         <div class="profile-actions">
           <Button onclick={() => void cancel()}>Cancel</Button>
           <Button

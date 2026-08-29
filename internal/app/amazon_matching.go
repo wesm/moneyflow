@@ -56,6 +56,7 @@ type AmazonMatchingService struct {
 	directory AmazonSourceDirectory
 	loader    AmazonSourceLoader
 
+	loadMu sync.Mutex
 	mu     sync.Mutex
 	cache  map[string]amazonCachedSource
 	builds int
@@ -136,6 +137,11 @@ func (service *AmazonMatchingService) MatchBatch(
 func (service *AmazonMatchingService) loadSources(
 	ctx context.Context,
 ) ([]analytics.AmazonOrderIndex, map[string]string, map[string]int, error) {
+	// Serialize probes and loads so an earlier, slower load cannot overwrite a later revision.
+	// This also lets a recreated profile legitimately replace the cache with a lower revision.
+	service.loadMu.Lock()
+	defer service.loadMu.Unlock()
+
 	skipped := make(map[string]int)
 	descriptors, err := service.directory.ListAmazonSources(ctx)
 	if err != nil {
@@ -240,8 +246,6 @@ func (service *AmazonMatchingService) indexSource(
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if cached, ok := service.cache[profileID]; ok && cached.revision == state.Revision {
-		return cached.index, nil
-	} else if ok && cached.revision > state.Revision {
 		return cached.index, nil
 	}
 	items := make([]analytics.AmazonMatchItem, 0, len(state.Items))
