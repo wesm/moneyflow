@@ -43,8 +43,8 @@ resolution, profile lifecycle, concrete Monarch runtime wiring, and process shut
   ownerless write batch. Only explicit tool calls start network work.
 - Background work is owned by the MCP server lifetime, not a tool-request context. Every goroutine
   has one owner, a shutdown cancellation path, and a wait path.
-- Keep all row windows bounded to 1,000 and all review target windows bounded to 400. Enforce the
-  8 MiB combined structured-content plus JSON-text response ceiling before SDK framing.
+- Keep every collection window bounded to 1,000 and all review target windows bounded to 400.
+  Enforce the 8 MiB combined structured-content plus JSON-text response ceiling before SDK framing.
 - Logs use the spec's positive allowlist only. Never log labels, search text, notes, amounts,
   financial dates, transaction details, external provider IDs, request or response bodies, token
   values, credentials, or query strings.
@@ -213,28 +213,45 @@ type TransactionWindow struct {
     Pending  PendingSummary
 }
 
+type CollectionWindowRequest struct {
+    Offset int
+    Limit  int
+}
+
+type CatalogWindowRequest struct {
+    ExpectedRevision uint64
+    Groups           CollectionWindowRequest
+    Categories       CollectionWindowRequest
+    Merchants        CollectionWindowRequest
+}
+
 func (service *Service) TransactionWindow(
     context.Context,
     TransactionWindowRequest,
 ) (TransactionWindow, error)
 
 type CatalogProjection struct {
-    Revision   uint64
-    Groups     []domain.CategoryGroup
-    Categories []domain.Category
-    Merchants  []MerchantProjection
+    Revision       uint64
+    GroupTotal     int
+    GroupOffset    int
+    Groups         []domain.CategoryGroup
+    CategoryTotal  int
+    CategoryOffset int
+    Categories     []domain.Category
+    MerchantTotal  int
+    MerchantOffset int
+    Merchants      []MerchantProjection
 }
 
 func (service *Service) CatalogProjection(
     context.Context,
-    uint64,
+    CatalogWindowRequest,
 ) (CatalogProjection, error)
 
 type AccountProjection struct {
     Revision         uint64
     ProfileKind      string
-    Currency         domain.Currency
-    Scale            uint8
+    MoneyPartitions  []MoneyPartition
     TransactionCount int
     DateRange        *domain.DateRange
     CategoryCount    int
@@ -242,6 +259,12 @@ type AccountProjection struct {
     Capabilities     []Capability
     Provider         ProviderStatus
     Write            ProviderWriteStatus
+}
+
+type MoneyPartition struct {
+    Currency         domain.Currency
+    Scale            uint8
+    TransactionCount int
 }
 
 func (service *Service) AccountProjection(
@@ -255,6 +278,13 @@ the effective transactions, releases all locks, and then filters/sorts/windows o
 Literal matching is `strings.Contains(strings.ToLower(value), strings.ToLower(query))` over
 merchant, category, and notes. Merchant-only filtering uses the same literal rule. Existing
 `analytics.Filter` and TUI/web regex behavior do not change.
+
+Every projection collection has its own offset, limit, complete count, and deterministic ordering.
+This includes summary groups, category groups, categories, merchants, review operations, and review
+targets. Limits are at most 1,000 except for the existing 400-row review-target ceiling. Transaction
+amount bounds arrive as `domain.Money`; the MCP input requires currency and scale whenever either
+bound is present, and the application projection restricts the comparison to that exact money
+partition. `AccountProjection` returns all partitions rather than choosing one profile-wide pair.
 
 Task 3 adds an exact-selection constructor and pure preview path:
 
@@ -362,12 +392,19 @@ func (supervisor *Supervisor) StartRefresh(
 func (supervisor *Supervisor) StartWrite(
     *app.ProviderWriteExecution,
 ) (app.ProviderWriteStatus, error)
-func (supervisor *Supervisor) Status(string) (AttemptSnapshot, error)
+func (supervisor *Supervisor) RefreshStatus(string) (AttemptSnapshot, error)
+func (supervisor *Supervisor) StartReconcile(
+    func(context.Context) (app.ProviderRefreshResult, error),
+) (AttemptSnapshot, error)
+func (supervisor *Supervisor) ReconcileStatus(string) (AttemptSnapshot, error)
 func (supervisor *Supervisor) Close(context.Context) error
 ```
 
-The concrete implementation adds mutexes, one refresh slot, one write slot, a wait group, bounded
-terminal retention, and random opaque IDs. Attempt snapshots contain counts and stable codes only.
+An empty status ID selects the current retained attempt of that kind for the profile. Starting a
+refresh or reconciliation while one is active returns its existing ID and snapshot. The concrete
+implementation adds mutexes, one refresh slot, one reconcile slot, one write slot, a wait group,
+bounded terminal retention, and random opaque IDs. Attempt snapshots contain counts and stable
+codes only; only the matching status path may include a process-local confirmation token.
 
 Task 6 establishes the neutral HTTP security and token contracts:
 
@@ -512,9 +549,13 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
   - `.` and `[` are literal and never compile as regex;
   - merchant-only filtering is literal and case-insensitive;
   - dates are inclusive and amounts use exact `domain.Money` comparisons;
+  - amount bounds require explicit currency and scale, restrict results to that partition, and a
+    mixed-currency account projection returns every partition;
   - category ID and unique label agree, while ambiguous label fails;
   - offsets, non-positive limits, limits above 1,000, and reversed dates fail;
-  - total count is complete while returned rows are bounded and deterministic;
+  - transaction, summary-group, category-group, category, merchant, review-operation, and
+    review-target total counts are complete while every returned window is bounded and
+    deterministic;
   - an external revision advance is observed before projection.
 
   Run:
@@ -575,14 +616,14 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 - [ ] **Step 4: Implement the 14 read handlers**
 
   Define typed SDK inputs with JSON Schema descriptions and strict limits. Parse dates with
-  `domain.ParseDate`; parse amount strings with `domain.ParseMoney` using the profile's currency and
-  scale. Reject JSON numeric amounts through typed string schemas. Convert app projections into
-  version-one documents with stable local IDs only.
+  `domain.ParseDate`; require currency and scale with either amount bound and parse strings with
+  `domain.ParseMoney` for that exact partition. Reject JSON numeric amounts through typed string
+  schemas. Convert app projections into version-one documents with stable local IDs only.
 
   `get_spending_summary` defaults to the trailing 30 calendar days from the injected clock and
   includes expenses only. `get_uncategorized_transactions` resolves the active Uncategorized
-  identity, not its label. `get_account_info` adds profile ID/name at the adapter boundary and omits
-  external provider identity.
+  identity, not its label. `get_account_info` adds profile ID/name and every active money partition
+  at the adapter boundary and omits external provider identity.
 
 - [ ] **Step 5: Add all five resource aliases**
 
@@ -598,7 +639,8 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 
   Each resource calls the same projection function as its tool, revalidates revision, and returns
   the same canonical JSON document. Monthly uses the injected current calendar month; top merchants
-  and recent transactions use limit 50. Add equality tests at one revision.
+  and recent transactions use limit 50. Category and account resources use explicit bounded
+  collection windows and include complete counts. Add equality tests at one revision.
 
 - [ ] **Step 6: Verify Task 2**
 
@@ -671,6 +713,7 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
   pause_commit
   resume_commit
   stop_and_reconcile
+  get_reconcile_status
   confirm_reconcile
   ```
 
@@ -684,7 +727,8 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
   Resolve category ID or unique normalized label through the application catalog projection. Build
   a detail-state explicit selection at the checked revision, then call `PreviewMutation` for dry run
   or `Service.Mutate` otherwise. Use `Service.Review`, `UndoInteraction`, and `RedoInteraction`
-  directly. Return active and inactive review rows with the existing 400-target maximum.
+  directly. Window active and inactive operation summaries with complete counts, then return a
+  separately windowed target detail collection with the existing 400-target maximum.
 
   Keep transaction IDs unique and canonicalize bytewise before creating the selection. Do not let
   MCP handlers construct `domain.Operation` values.
@@ -744,10 +788,11 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 
 - [ ] **Step 3: Write failing supervisor tests**
 
-  Use a blocked fake execution to prove `StartWrite` returns promptly, the request context can be
-  canceled without canceling accepted work, only one process-local write runs, terminal status is
-  retained without financial fields, and server shutdown cancels then waits. Exercise the race
-  detector on the supervisor package.
+  Use blocked fake write and reconciliation executions to prove both starts return promptly, the
+  request context can be canceled without canceling accepted work, only one process-local operation
+  of each kind runs, a second start returns the active attempt, empty-ID status recovers it, terminal
+  status is retained without financial fields, and server shutdown cancels then waits. Exercise the
+  race detector on the supervisor package.
 
 - [ ] **Step 4: Implement commit and batch-control tools**
 
@@ -756,11 +801,14 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
   prepared execution, launches it through the supervisor, and returns immediately without claiming
   remote completion.
 
-  Implement `get_commit_status`, `pause_commit`, `resume_commit`, `stop_and_reconcile`, and
-  `confirm_reconcile`. Resume performs reservation synchronously and launches the worker only after
-  the transition succeeds. Stop-and-reconcile and confirmation may remain synchronous because they
-  already return bounded parked/terminal states; tool cancellation obeys the transaction-boundary
-  rule.
+  Implement `get_commit_status`, `pause_commit`, `resume_commit`, `stop_and_reconcile`,
+  `get_reconcile_status`, and `confirm_reconcile`. Resume performs reservation synchronously and
+  launches the worker only after the transition succeeds. Stop-and-reconcile starts a supervised
+  server-owned attempt and returns its opaque ID immediately; status accepts that ID or an empty ID
+  for lost-response recovery and is the only path that returns the matching confirmation token.
+  Confirmation remains a short authoritative transition and requires the attempt ID. Tool-request
+  cancellation after acceptance does not cancel the provider fetch; transaction-boundary rules
+  still govern the final fold.
 
 - [ ] **Step 5: Verify Task 4**
 
@@ -793,8 +841,9 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 
   Add `mcp` to the accepted provider renderer identities and assert it appears only in lease/status
   ownership, never a scheduler. With a blocked fake Monarch source, assert `refresh_data` returns an
-  opaque attempt ID promptly, `get_refresh_status` observes running then terminal state, and a
-  second start returns `mcp_attempt_busy`.
+  opaque attempt ID promptly, `get_refresh_status` observes running then terminal state, empty-ID
+  status recovers a lost acceptance response, and a second start returns the active attempt ID and
+  status without starting another fetch.
 
   Cover local and Amazon capability reasons, read-only registration, journal rebase/redo-tail
   behavior, request cancellation after acceptance, and server shutdown.
@@ -812,7 +861,8 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 - [ ] **Step 3: Implement deletion-confirmation status and tool**
 
   When the provider result parks on deletion confirmation, retain its process-local token only in
-  the matching attempt. `get_refresh_status` is the only read that exposes it.
+  the matching attempt. `get_refresh_status` is the only read that exposes it; an omitted attempt ID
+  selects the current retained refresh attempt for this profile and process.
   `confirm_refresh_deletions` requires both attempt ID and exact token, calls
   `Service.ConfirmProviderRefresh`, and replaces the attempt terminal state.
 
@@ -931,7 +981,7 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
   moneyflow mcp token rotate --profile <name-or-id>
   ```
 
-  Default transport is `stdio`. HTTP defaults to `127.0.0.1:8081`, `/`, and no external URL.
+  Default transport is `stdio`. HTTP defaults to `127.0.0.1:8081`, `/mcp/`, and no external URL.
   Resolve and open one profile through `openProfile`, configure Monarch with renderer `mcp`, and
   configure Amazon matching through the catalog matcher. The runner owns signals, server close,
   profile close, and joined cleanup errors. Startup prints only the token path and canonical HTTP
@@ -939,7 +989,8 @@ bounds and strictly decodes the bearer, and uses `subtle.ConstantTimeCompare` on
 
   Add injectable `MCPRunner` and dependency builder seams to `IOStreams`. Profile resolution tests
   cover ID precedence, unique normalized name, ambiguous name, sole-profile default, and explicit
-  failure guidance. Token subcommands never start an MCP server.
+  failure guidance. HTTP command tests cover the exact default `/mcp/` endpoint. Token subcommands
+  never start an MCP server.
 
 - [ ] **Step 8: Verify Task 6**
 

@@ -257,8 +257,10 @@ Money uses all of these fields together:
 }
 ```
 
-`amount` and `amount_minor` are strings. Input amount bounds are exact signed decimal strings and
-must match the profile scale. JSON floating-point amounts are rejected.
+`amount` and `amount_minor` are strings. Input amount bounds are exact signed decimal strings.
+Supplying either bound requires an explicit currency and scale; those fields select the one money
+partition to which the bounds apply. Currency and scale must be supplied together, and bounds never
+compare values across partitions. JSON floating-point amounts are rejected.
 
 Expected application, capability, provider, selection, and store failures return an MCP tool result
 with `isError` set and a structured version-one error envelope. The envelope contains only a stable
@@ -289,10 +291,11 @@ existing merchant-and-category regular-expression search. Date ranges are inclus
 are included or excluded only through an explicit input with the same default as the ordinary
 application projection.
 
-All row-producing tools are bounded. Defaults match Python where practical, and the hard limit is
-1,000 rows. A response reports the complete matching count and returned window so truncation is
-never silent. Invalid negative offsets, non-positive limits, limits over the maximum, malformed
-dates, and reversed ranges fail before projection.
+Every returned collection is bounded. Defaults match Python where practical, and the hard limit is
+1,000 entries except for the existing 400-row review-target limit. Each collection has its own
+offset and limit and reports its complete count and returned window, so truncation is never silent.
+Invalid negative offsets, non-positive limits, limits over the applicable maximum, malformed dates,
+and reversed ranges fail before projection.
 
 ## Always-Registered Tools
 
@@ -307,20 +310,25 @@ special meaning. The result contains the total count and one deterministic trans
 
 Optional inputs are inclusive `start_date`, `end_date`, stable `category_id`, category label,
 merchant substring, exact-decimal `min_amount`, exact-decimal `max_amount`, hidden inclusion,
-offset, and limit. A category ID and label are mutually exclusive. Category-label ambiguity fails.
+money-partition `currency` and `scale`, offset, and limit. Currency and scale must appear together;
+either amount bound requires both and excludes transactions from other partitions. A category ID
+and label are mutually exclusive. Category-label ambiguity fails.
 The merchant filter uses the same Unicode-lowercased literal substring comparison as Python MCP;
 it is not a regular expression. The default limit remains 100.
 
 ### `get_spending_summary`
 
-Inputs are optional inclusive dates and `group_by`, which is exactly `category` or `merchant`.
-Absent dates retain Python's trailing-30-day default. Only expenses participate. Groups and totals
-come from the existing integer analytics path.
+Inputs are optional inclusive dates, `group_by`, offset, and limit. `group_by` is exactly `category`
+or `merchant`. Absent dates retain Python's trailing-30-day default. Only expenses participate.
+Groups and totals come from the existing integer analytics path. The result reports the complete
+group count and one deterministic group window.
 
 ### `get_categories`
 
-Returns active groups and categories in deterministic label-and-ID order, including stable local
-IDs and bounded transaction counts. Retired entities are omitted.
+Inputs independently window groups and categories with `group_offset`, `group_limit`,
+`category_offset`, and `category_limit`. The result returns active groups and categories in
+deterministic label-and-ID order, including stable local IDs and bounded transaction counts, plus
+complete and returned counts for both collections. Retired entities are omitted.
 
 ### `get_merchants`
 
@@ -329,10 +337,11 @@ existing deterministic tie-break. The default remains 100 and the maximum remain
 
 ### `get_account_info`
 
-Returns the local profile ID and display name, profile kind, currency, scale, effective transaction
-count, date range, category count, current revision, pending-operation summary, provider capability
-state, last successful refresh, and durable write-batch summary when present. Provider household,
-account, session, and external entity IDs are omitted.
+Returns the local profile ID and display name, profile kind, every active `(currency, scale)` money
+partition with its transaction count, effective transaction count, date range, category count,
+current revision, pending-operation summary, provider capability state, last successful refresh,
+and durable write-batch summary when present. Provider household, account, session, and external
+entity IDs are omitted. A mixed-currency profile never reports one partition as profile-wide.
 
 ### `get_uncategorized_transactions`
 
@@ -355,9 +364,10 @@ interactive information view.
 
 ### `review_changes`
 
-Inputs are `expected_revision` and an optional operation ID, offset, and limit. It calls
-`Service.Review` and returns active and redo operation summaries plus at most 400 requested target
-rows. Review never mutates the journal.
+Inputs are `expected_revision`, optional operation ID, operation offset and limit, and target offset
+and limit. It calls `Service.Review` and returns one deterministic window over active and redo
+operation summaries with complete counts, plus at most 400 requested target rows with their own
+complete count and window. Review never mutates the journal.
 
 ### `get_commit_status`
 
@@ -378,10 +388,13 @@ generation CAS, journal rebase, and atomic fold contract.
 
 ### `get_refresh_status`
 
-Input is the opaque process-local attempt ID returned by `refresh_data`. It reports running,
-completed, failed, or deletion-confirmation-required state, plus counts, generation, revision,
-timings, and safe recovery guidance. It is the only MCP result that returns the process-local
-refresh confirmation token.
+Input is an optional opaque process-local attempt ID returned by `refresh_data`. When omitted, the
+tool returns the current retained refresh attempt for this profile in this MCP process. It reports
+running, completed, failed, or deletion-confirmation-required state, plus counts, generation,
+revision, timings, and safe recovery guidance. It is the only MCP result that returns the
+process-local refresh confirmation token. If `refresh_data` is called while an attempt is already
+active, it returns that attempt ID and status rather than an ID-less busy error. These two paths let
+a client recover after disconnecting before it receives the original acceptance response.
 
 ### `confirm_refresh_deletions`
 
@@ -457,14 +470,24 @@ immediately. Retry is offered only for the existing retryable attention class.
 
 Inputs are the current batch version and current revision. It uses the approved provider-write
 reconcile contract: fetch remote truth, remove the entire frozen prefix atomically with the fold,
-and preserve completed remote effects through that truth. It may return deletion-confirmation-
-required with a process-local token.
+and preserve completed remote effects through that truth. The tool starts one supervised
+reconciliation attempt and returns its opaque attempt ID and initial counts-only status promptly.
+
+### `get_reconcile_status`
+
+Input is an optional process-local reconciliation attempt ID. When omitted, it returns the current
+retained reconciliation attempt for this profile in this MCP process. It reports running,
+completed, failed, reconnect-required, or deletion-confirmation-required state. It is the only MCP
+result that exposes the matching process-local reconciliation confirmation token. Calling
+`stop_and_reconcile` while the same attempt is active returns its ID and status, which makes a lost
+acceptance response recoverable without starting another provider fetch.
 
 ### `confirm_reconcile`
 
-Inputs are the current batch version, current revision, and exact process-local confirmation token.
-It confirms only the matching stop-and-reconcile candidate. Expired, wrong-process, wrong-batch,
-wrong-generation, and stale-revision tokens fail without a fold.
+Inputs are the reconciliation attempt ID, current batch version, current revision, and exact
+process-local confirmation token. It confirms only the matching stop-and-reconcile candidate.
+Expired, wrong-process, wrong-attempt, wrong-batch, wrong-generation, and stale-revision tokens fail
+without a fold.
 
 ## Explicit Operation Supervisor
 
@@ -476,9 +499,11 @@ The supervisor provides:
 
 - one active refresh attempt per process;
 - one active provider-write worker per process;
+- one active stop-and-reconcile attempt per process;
 - opaque attempt identity for refresh status;
 - bounded credential-blind terminal status retention;
-- process-local retention of refresh and reconcile confirmation tokens;
+- process-local retention of refresh and reconcile confirmation tokens, exposed only by their
+  matching status tools;
 - cancellation through the server-lifetime context on orderly shutdown;
 - no persistence outside the existing profile/provider state.
 
@@ -642,8 +667,9 @@ IDs; MCP request or response bodies; bearer tokens; credentials; raw provider er
 or query strings.
 
 Tool results may contain requested financial information because they are the authenticated product
-surface. Status tools and background-attempt records remain counts-only. A tool result is never
-copied into a log message.
+surface. Status tools and background-attempt records remain counts-only except for the exact opaque
+confirmation token returned by the matching refresh or reconciliation status call. A tool result is
+never copied into a log message.
 
 The stdio transport writes no logger, startup banner, progress line, or panic text to stdout. Panic
 recovery emits one safe correlation ID to stderr and one internal-error envelope when the protocol
@@ -704,13 +730,16 @@ size-limit failure.
   serialization.
 - Effective staged values appear in search, transaction, category, merchant, summary, details, and
   resources before commit.
-- Windows report complete totals, deterministic ordering, offsets, and truncation.
+- Transaction, merchant, summary-group, category, group, review-operation, and review-target windows
+  report complete totals, deterministic ordering, independent offsets, and truncation.
 - MCP search uses Unicode-lowercased literal substring matching across merchant, category, and
   notes; regular-expression metacharacters remain literal. TUI and web retain their existing
   merchant-and-category regular-expression search.
 - `get_transactions` merchant filtering uses Unicode-lowercased literal substring matching rather
   than regular-expression matching.
 - Exact decimal input rejects floats, excess scale, invalid syntax, and overflow.
+- Amount bounds require one explicit currency/scale partition, never compare across partitions, and
+  account information reports every partition in mixed-currency profiles.
 - Exact amounts, minor units, currency, and scale round-trip without floating point.
 - Amazon detail calls use the matching service and skip incompatible sources safely.
 
@@ -733,6 +762,8 @@ size-limit failure.
 
 - `refresh_data` returns promptly with an attempt ID while a blocked fake provider continues in the
   background.
+- A lost refresh acceptance response is recoverable by status lookup without an ID and by a second
+  start returning the active attempt ID and status.
 - Tool-request cancellation after acceptance does not cancel the server-owned attempt.
 - Server shutdown cancels network work at a safe boundary and leaves durable state recoverable.
 - Only Monarch can refresh; Amazon and local profiles return exact capability reasons.
@@ -752,6 +783,8 @@ size-limit failure.
   CAS reject stale work independently.
 - Pause, retryable resume, reconnect, rate limit, reconcile-only attention, stop-and-reconcile, and
   confirmation retain the write-back specification's behavior.
+- Stop-and-reconcile returns promptly with an attempt ID; status without an ID recovers a lost
+  response, and only the matching status result exposes its process-local confirmation token.
 - Process restart never auto-resumes from MCP; an explicit resume or a TUI/web standing scheduler
   can take over safely.
 
