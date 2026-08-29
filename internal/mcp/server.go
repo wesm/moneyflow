@@ -32,8 +32,10 @@ type Options struct {
 
 // Server owns one SDK server and all process-lifetime background work.
 type Server struct {
-	SDK        *mcpsdk.Server
-	supervisor *Supervisor
+	SDK          *mcpsdk.Server
+	service      *app.Service
+	dependencies Dependencies
+	supervisor   *Supervisor
 }
 
 // Supervisor is expanded by the provider-work checkpoints. Its lifetime exists from server start.
@@ -66,7 +68,10 @@ func New(dependencies Dependencies, _ Options) (*Server, error) {
 		&mcpsdk.Implementation{Name: "moneyflow", Version: version.Version},
 		&mcpsdk.ServerOptions{Logger: dependencies.Logger},
 	)
-	return &Server{SDK: sdk, supervisor: supervisor}, nil
+	server := &Server{SDK: sdk, service: dependencies.Service, dependencies: dependencies, supervisor: supervisor}
+	registerReadTools(server, dependencies)
+	registerResources(server, dependencies)
+	return server, nil
 }
 
 // Close cancels process-owned work and waits for it or the caller deadline.

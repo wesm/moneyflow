@@ -25,7 +25,7 @@ func (sources catalogAmazonSources) ListAmazonSources(ctx context.Context) ([]ap
 		if entry.ID == "" {
 			continue
 		}
-		result = append(result, app.AmazonSourceDescriptor{ProfileID: entry.ID, Kind: entry.ProviderKind})
+		result = append(result, app.AmazonSourceDescriptor{ProfileID: entry.ID, DisplayName: entry.DisplayName, Kind: entry.ProviderKind})
 	}
 	return result, nil
 }

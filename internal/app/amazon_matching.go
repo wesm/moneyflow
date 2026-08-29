@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -14,8 +15,9 @@ import (
 
 // AmazonSourceDescriptor is one catalog entry without financial contents.
 type AmazonSourceDescriptor struct {
-	ProfileID string
-	Kind      string
+	ProfileID   string
+	DisplayName string
+	Kind        string
 }
 
 // AmazonSourceDirectory lists current catalog entries for matching.
@@ -32,9 +34,10 @@ type AmazonSourceLoader func(
 
 // AmazonMatchProjection contains one result plus counts-only source diagnostics.
 type AmazonMatchProjection struct {
-	Qualified bool
-	Result    analytics.AmazonMatchResult
-	Skipped   map[string]int
+	Qualified    bool
+	Result       analytics.AmazonMatchResult
+	Skipped      map[string]int
+	ProfileNames map[string]string
 }
 
 // AmazonMatchInput is one transaction plus its provider-owned merchant label.
@@ -104,7 +107,7 @@ func (service *AmazonMatchingService) MatchBatch(
 	if !qualified {
 		return results, nil
 	}
-	sources, skipped, err := service.loadSources(ctx)
+	sources, profileNames, skipped, err := service.loadSources(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +118,7 @@ func (service *AmazonMatchingService) MatchBatch(
 		for reason, count := range skipped {
 			results[position].Skipped[reason] = count
 		}
+		results[position].ProfileNames = maps.Clone(profileNames)
 		for _, source := range sources {
 			if source.Currency != input.Transaction.Amount.Currency ||
 				source.Scale != input.Transaction.Amount.Scale {
@@ -131,12 +135,13 @@ func (service *AmazonMatchingService) MatchBatch(
 
 func (service *AmazonMatchingService) loadSources(
 	ctx context.Context,
-) ([]analytics.AmazonOrderIndex, map[string]int, error) {
+) ([]analytics.AmazonOrderIndex, map[string]string, map[string]int, error) {
 	skipped := make(map[string]int)
 	descriptors, err := service.directory.ListAmazonSources(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	profileNames := make(map[string]string, len(descriptors))
 	slices.SortFunc(descriptors, func(left, right AmazonSourceDescriptor) int {
 		return strings.Compare(left.ProfileID, right.ProfileID)
 	})
@@ -144,6 +149,10 @@ func (service *AmazonMatchingService) loadSources(
 	sources := make([]analytics.AmazonOrderIndex, 0, len(descriptors))
 	for _, descriptor := range descriptors {
 		present[descriptor.ProfileID] = struct{}{}
+		profileNames[descriptor.ProfileID] = descriptor.DisplayName
+		if profileNames[descriptor.ProfileID] == "" {
+			profileNames[descriptor.ProfileID] = descriptor.ProfileID
+		}
 		if descriptor.Kind != amazonProvider {
 			skipped["not_amazon"]++
 			continue
@@ -174,12 +183,12 @@ func (service *AmazonMatchingService) loadSources(
 		}
 		index, indexErr := service.indexSource(descriptor.ProfileID, *state)
 		if indexErr != nil {
-			return nil, nil, indexErr
+			return nil, nil, nil, indexErr
 		}
 		sources = append(sources, index)
 	}
 	service.evictMissing(present)
-	return sources, skipped, nil
+	return sources, profileNames, skipped, nil
 }
 
 func (service *AmazonMatchingService) cachedRevision(profileID string) uint64 {

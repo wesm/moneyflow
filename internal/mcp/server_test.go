@@ -35,9 +35,27 @@ func TestServerLifecycle(t *testing.T) {
 
 	tools, err := clientSession.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Empty(t, tools.Tools)
+	assert.Len(t, tools.Tools, 14)
+	assert.Equal(t, []string{
+		"confirm_refresh_deletions", "get_account_info", "get_amazon_order_details",
+		"get_categories", "get_commit_status", "get_merchants", "get_refresh_status",
+		"get_spending_summary", "get_transaction_details", "get_transactions",
+		"get_uncategorized_transactions", "refresh_data", "review_changes",
+		"search_transactions",
+	}, toolNames(tools.Tools))
+	resources, err := clientSession.ListResources(t.Context(), nil)
+	require.NoError(t, err)
+	assert.Len(t, resources.Resources, 5)
 	require.NoError(t, clientSession.Close())
 	require.NoError(t, serverSession.Wait())
+}
+
+func toolNames(tools []*mcpsdk.Tool) []string {
+	result := make([]string, len(tools))
+	for index := range tools {
+		result[index] = tools[index].Name
+	}
+	return result
 }
 
 func TestNewRejectsIncompleteDependencies(t *testing.T) {

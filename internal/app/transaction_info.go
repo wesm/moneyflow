@@ -39,6 +39,7 @@ type TransactionInfoMatch struct {
 	Class                 analytics.AmazonMatchClass
 	Confidence            analytics.AmazonMatchConfidence
 	ProfileID             string
+	ProfileName           string
 	OrderID               string
 	OrderDate             domain.Date
 	OrderTotal            domain.Money
@@ -131,7 +132,8 @@ func (service *Service) TransactionInfo(
 	for _, match := range selected {
 		projected := TransactionInfoMatch{
 			Class: match.Class, Confidence: match.Confidence, ProfileID: match.ProfileID,
-			OrderID: match.OrderID, OrderDate: match.OrderDate, OrderTotal: match.OrderTotal,
+			ProfileName: projection.ProfileNames[match.ProfileID],
+			OrderID:     match.OrderID, OrderDate: match.OrderDate, OrderTotal: match.OrderTotal,
 			DateDistanceDays:      match.DateDistanceDays,
 			AmountDifferenceMinor: match.AmountDifferenceMinor,
 			FirstProduct:          match.FirstProduct, TotalItems: len(match.Items),

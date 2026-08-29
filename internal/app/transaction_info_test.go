@@ -63,7 +63,7 @@ func TestTransactionInfoReturnsBoundedCrossProfileMatches(t *testing.T) {
 	transaction := matchingFinanceTransaction(t, "finance", "Amazon", -1234)
 	service, err := NewService([]domain.Transaction{transaction})
 	require.NoError(t, err)
-	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{ProfileID: "source", Kind: amazonProvider}}}
+	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{ProfileID: "source", DisplayName: "Orders", Kind: amazonProvider}}}
 	loader := &fakeAmazonLoader{states: map[string]store.AmazonMatchSourceState{"source": amazonSourceState(t, 1, "USD", 2, -1234)}}
 	matcher, err := NewAmazonMatchingService(directory, loader.Load)
 	require.NoError(t, err)
@@ -77,6 +77,7 @@ func TestTransactionInfoReturnsBoundedCrossProfileMatches(t *testing.T) {
 	assert.Equal(t, 1, info.TotalMatches)
 	require.Len(t, info.Matches, 1)
 	assert.Equal(t, "Example Product", info.Matches[0].FirstProduct)
+	assert.Equal(t, "Orders", info.Matches[0].ProfileName)
 	assert.Len(t, info.Matches[0].Items, 1)
 }
 
