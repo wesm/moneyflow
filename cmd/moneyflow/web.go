@@ -196,7 +196,7 @@ func runWeb(
 	}
 	if dependencies.Catalog != nil {
 		serverConfig.Catalog = dependencies.Catalog
-		serverConfig.Evictor = dependencies.Registry
+		serverConfig.Evictor = dependencies.Evictor
 	}
 	if dependencies.Onboarding != nil {
 		serverConfig.Onboarding = dependencies.Onboarding

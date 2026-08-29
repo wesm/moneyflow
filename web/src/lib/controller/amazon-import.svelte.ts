@@ -89,6 +89,15 @@ export function createAmazonImportController(options: {
       install(await options.transport.upload(snapshot.attempt_id, snapshot.state_version, files))
       return true
     } catch (error) {
+      try {
+        const current = await options.transport.status(snapshot.attempt_id)
+        if (BigInt(current.state_version) > BigInt(snapshot.state_version)) {
+          install(current)
+          return current.state === 'source_required'
+        }
+      } catch {
+        // The original upload failure remains the actionable result when status is unavailable.
+      }
       const detail = failureDetail(error, 'Amazon order-history files could not be staged.')
       state = { ...state, phase: 'source', problem: detail, announcement: detail }
       return false

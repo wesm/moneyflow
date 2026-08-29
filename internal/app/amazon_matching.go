@@ -288,6 +288,17 @@ func (service *AmazonMatchingService) evictMissing(present map[string]struct{}) 
 	}
 }
 
+// Invalidate drops one source index before destructive profile lifecycle work. Recovery can
+// recreate a database at the same semantic revision, so revision comparison alone cannot prove
+// that a cached index still belongs to the current database contents.
+func (service *AmazonMatchingService) Invalidate(profileID string) {
+	service.loadMu.Lock()
+	defer service.loadMu.Unlock()
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	delete(service.cache, profileID)
+}
+
 // CacheBuilds returns a test/diagnostic count without exposing source facts.
 func (service *AmazonMatchingService) CacheBuilds() int {
 	service.mu.Lock()

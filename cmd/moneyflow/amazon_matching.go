@@ -15,6 +15,36 @@ type catalogAmazonSources struct {
 	catalog *profilecatalog.Catalog
 }
 
+type amazonMatchingProfileLifecycle struct {
+	*profilecatalog.Catalog
+	matcher *app.AmazonMatchingService
+}
+
+func (lifecycle amazonMatchingProfileLifecycle) Recreate(
+	ctx context.Context,
+	request profilecatalog.RecoveryRequest,
+) (profilecatalog.RecoveryResult, error) {
+	lifecycle.matcher.Invalidate(request.Plan.ProfileID)
+	return lifecycle.Catalog.Recreate(ctx, request)
+}
+
+type profileEvictor interface {
+	Evict(context.Context, string) error
+}
+
+type amazonMatchingProfileEvictor struct {
+	profileEvictor
+	matcher *app.AmazonMatchingService
+}
+
+func (evictor amazonMatchingProfileEvictor) Evict(ctx context.Context, profileID string) error {
+	if err := evictor.profileEvictor.Evict(ctx, profileID); err != nil {
+		return err
+	}
+	evictor.matcher.Invalidate(profileID)
+	return nil
+}
+
 func (sources catalogAmazonSources) ListAmazonSources(ctx context.Context) ([]app.AmazonSourceDescriptor, error) {
 	entries, err := sources.catalog.List(ctx)
 	if err != nil {

@@ -20,6 +20,7 @@ import (
 type WebDependencies struct {
 	Catalog              *profilecatalog.Catalog
 	Registry             *webserver.ProfileRegistry
+	Evictor              profileEvictor
 	Onboarding           *onboarding.Coordinator
 	AmazonImports        *amazonimport.Coordinator
 	LoadAmazonTaxonomy   func(context.Context, string) (*app.TaxonomyClone, error)
@@ -139,7 +140,9 @@ func buildWebDependencies(
 		return WebDependencies{}, err
 	}
 	return WebDependencies{
-		Catalog: catalog, Registry: registry, Onboarding: coordinator, AmazonImports: amazonCoordinator,
+		Catalog: catalog, Registry: registry,
+		Evictor:    amazonMatchingProfileEvictor{profileEvictor: registry, matcher: amazonMatcher},
+		Onboarding: coordinator, AmazonImports: amazonCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
 			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
 		},

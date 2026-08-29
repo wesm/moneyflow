@@ -179,6 +179,39 @@ func TestAmazonMatchingCacheRebuildsForRecoveredProfileWithLowerRevision(t *test
 	assert.False(t, ok)
 }
 
+func TestAmazonMatchingCacheInvalidationReloadsRecoveredProfileAtSameRevision(t *testing.T) {
+	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{
+		ProfileID: "profile-a", DisplayName: "Amazon", Kind: amazonProvider,
+	}}}
+	loader := &fakeAmazonLoader{states: map[string]store.AmazonMatchSourceState{
+		"profile-a": amazonSourceState(t, 1, "USD", 2, -1234),
+	}}
+	loaderState := loader.states["profile-a"]
+	loaderState.Items[0].ProductName = "Before recovery"
+	loader.states["profile-a"] = loaderState
+	service, err := NewAmazonMatchingService(directory, loader.Load)
+	require.NoError(t, err)
+
+	_, _, _, err = service.loadSources(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, service.CacheBuilds())
+
+	recovered := amazonSourceState(t, 1, "USD", 2, -1234)
+	recovered.Items[0].ProductName = "After recovery"
+	loader.mu.Lock()
+	loader.states["profile-a"] = recovered
+	loader.mu.Unlock()
+	service.Invalidate("profile-a")
+
+	projection, err := service.Match(
+		context.Background(), matchingFinanceTransaction(t, "finance", "Amazon", -1234), "", 20,
+	)
+	require.NoError(t, err)
+	require.Len(t, projection.Result.Matches, 1)
+	assert.Equal(t, 2, service.CacheBuilds())
+	assert.Equal(t, "After recovery", projection.Result.Matches[0].FirstProduct)
+}
+
 type fakeAmazonDirectory struct {
 	sources []AmazonSourceDescriptor
 }

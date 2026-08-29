@@ -90,7 +90,9 @@ func buildTUIShellDependencies(
 		return tui.ShellDependencies{}, err
 	}
 	dependencies := tui.ShellDependencies{
-		Catalog: catalog, Profiles: catalog, Onboarding: coordinator, AmazonImports: amazonCoordinator,
+		Catalog:    catalog,
+		Profiles:   amazonMatchingProfileLifecycle{Catalog: catalog, matcher: amazonMatcher},
+		Onboarding: coordinator, AmazonImports: amazonCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
 			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
 		},

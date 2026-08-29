@@ -84,6 +84,7 @@ describe('Amazon import controller', () => {
 
   it('returns a failed upload to the source step so the same attempt can retry', async () => {
     const transport = transportStub()
+    transport.status.mockResolvedValue(status())
     transport.upload
       .mockRejectedValueOnce(new Error('temporary upload failure'))
       .mockResolvedValueOnce(status({ state_version: '2' }))
@@ -100,6 +101,23 @@ describe('Amazon import controller', () => {
     expect(controller.state.phase).toBe('source')
     expect(controller.state.problem).toBeUndefined()
     expect(transport.upload).toHaveBeenCalledTimes(2)
+  })
+
+  it('continues from server state when an upload response is lost after staging', async () => {
+    const transport = transportStub()
+    transport.upload.mockRejectedValueOnce(new Error('response lost'))
+    transport.status.mockResolvedValueOnce(status({ state_version: '2' }))
+    const controller = createAmazonImportController({ transport })
+    await controller.start('USD', 2)
+    const file = new File(['x'], 'Retail.OrderHistory.csv')
+
+    expect(await controller.upload([file])).toBe(true)
+    expect(transport.status).toHaveBeenCalledWith('attempt-example')
+    expect(controller.state.snapshot?.state_version).toBe('2')
+    expect(controller.state.problem).toBeUndefined()
+
+    expect(await controller.execute()).toBe(true)
+    expect(transport.execute).toHaveBeenCalledWith('attempt-example', '2')
   })
 
   it('closes a terminal failed attempt without asking the server to cancel it', async () => {
