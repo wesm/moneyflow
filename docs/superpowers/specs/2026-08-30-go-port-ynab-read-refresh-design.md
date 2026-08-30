@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-30
 
-**Status:** Draft
+**Status:** Approved
 
 **Branch:** `go-port`
 
@@ -144,6 +144,10 @@ The consolidated parity decisions in earlier designs remain in force. This slice
     stages and reviews edits but disables commit until the YNAB write-back contract is approved.
 11. **No generated SDK is shipped.** Python depends on the generated `ynab-python` package. Go
     ports only the two read endpoints used by this slice, reducing binary and API surface.
+12. **Deleted transactions are absent, not hidden rows.** Python converts a returned deleted
+    transaction into a hidden transaction. YNAB documents deleted entities as delta-only, and Go
+    uses complete non-delta responses, so a deleted transaction in a full response is invalid and
+    an absent transaction is reconciled as a deletion.
 
 ## Architecture and Dependency Direction
 
@@ -164,14 +168,18 @@ Svelte web ── Huma inbound API ───────────> internal/o
 and error codes. It imports only `internal/domain`. Its source boundary becomes:
 
 ```go
-type ReaderSource interface {
-    Reader(context.Context, bool) (Reader, SessionFingerprint, error)
+type SourceState interface {
     Changed(SessionFingerprint) (bool, error)
 }
 
+type ReaderSource interface {
+    SourceState
+    Reader(context.Context, bool) (Reader, SessionFingerprint, error)
+}
+
 type WriterSource interface {
+    SourceState
     Writer(context.Context, bool) (Writer, SessionFingerprint, error)
-    Changed(SessionFingerprint) (bool, error)
 }
 ```
 
@@ -302,10 +310,10 @@ returned, the user must choose. The response order has no semantic meaning. Choi
 Unicode-lowercased display name, then opaque remote ID bytewise for deterministic presentation.
 
 Presenter snapshots do not expose the remote ID. Each choice carries an attempt-scoped opaque
-`choice_id`, display name, and last-modified date when supplied. Plan summaries are not trusted to
-contain currency settings. After selection, Moneyflow fetches the full selected plan and derives
-currency and scale from that response. The submitted choice ID is valid only for the same attempt,
-profile, state version, and server process.
+`choice_id`, display name, and last-modified date when supplied. Plan summaries may include a
+nullable currency format, but Moneyflow deliberately derives the binding from the selected full
+plan so identity, currency, data, and server knowledge come from one coherent document. The
+submitted choice ID is valid only for the same attempt, profile, state version, and server process.
 
 Binding and the first snapshot fold occur in the same authoritative store transaction. A failure
 leaves the profile unbound and without imported rows. Once bound, every refresh first verifies that
@@ -360,6 +368,12 @@ The payload never contains the Moneyflow account password. The envelope uses the
 Argon2id parameters, a random salt and nonce, AES-256-GCM, provider-specific authenticated data,
 owner-only files, hardened path traversal, bounded reads, and atomic replacement. Wrong-password
 and tamper failures remain deliberately indistinguishable.
+
+The SQLite provider binding is authoritative after the first import transaction commits. The
+budget, currency, and scale copied into the vault are consulted only while the profile is unbound,
+so an initial import failure can resume without repeating selection. For a bound profile, a vault
+whose budget ID differs from SQLite produces `provider_identity_mismatch`; differing currency or
+scale produces `provider_money_mismatch`. Moneyflow never rewrites the binding from vault contents.
 
 The token is held only in process memory after unlock. Secret byte buffers are cleared after
 handoff where Go permits. The account password is never cached. A process restart therefore makes
@@ -498,7 +512,8 @@ offline. It is idempotent when the vault is already absent.
 Normalization produces one complete `domain.ImportSnapshot` plus provider-owned YNAB split details.
 All IDs are trimmed, nonempty, valid UTF-8 strings of at most 256 bytes. Account, payee, category,
 and group labels are valid UTF-8 strings of at most 1,024 bytes. Transaction and split memos are
-valid UTF-8 strings of at most 500 bytes. Duplicate external identities reject the candidate.
+valid UTF-8 strings of at most 500 Unicode code points. Duplicate external identities reject the
+candidate.
 
 Because absence drives deletion, the full response must explicitly contain the accounts, payees,
 category groups, categories, transactions, and subtransactions arrays. A missing required array is
@@ -532,15 +547,15 @@ the visibility rule below; its identity is not collapsed into the destination ac
 Every nondeleted category group and category is imported with stable local IDs, including hidden or
 internal groups needed by historical transactions. A category's group ID must resolve.
 
-A nonsplit transaction with no category uses one protected provider-owned `Uncategorized`
-category. A split parent uses one protected provider-owned `Split` category. Both belong to one
-protected provider-owned `YNAB` group. Their external identities use a reserved synthetic namespace
-that cannot be produced by the adapter's ordinary YNAB-ID mapping. A nonempty unresolved category
-ID rejects the candidate.
+A nonsplit transaction with no category references the installed protected system category
+`category_system_uncategorized`, matching Monarch and local profiles. A split parent references one
+new protected system category, `category_system_split`, under the installed
+`group_system_uncategorized` group. Split is provider-neutral because later split-aware accounting
+can use it for any provider. Neither protected category participates in provider-label collision
+allocation or external-ID retirement. A nonempty unresolved category ID rejects the candidate.
 
-The protected placeholder identities are scoped to provider kind and profile. They cannot collide
-with an ordinary remote ID and cannot be retired merely because the provider omits a synthetic
-entity.
+The protected system identities cannot collide with an ordinary remote ID and cannot be retired
+because a provider omits them.
 
 ### Transactions
 
@@ -571,17 +586,18 @@ filtering, duplicate detection, export, and later write-back according to ordina
 
 ### Split Transactions
 
-A transaction with nondeleted subtransactions remains one parent Moneyflow transaction at its full
-amount. The full-plan document returns transactions and subtransactions as separate arrays;
+A transaction with one or more subtransactions remains one parent Moneyflow transaction at its
+full amount. The full-plan document returns transactions and subtransactions as separate arrays;
 Moneyflow joins them by each subtransaction's parent transaction ID. The parent's visible merchant
 stays the parent payee or Unknown Payee, and its visible category is Split. Split lines are not
 separately aggregated, selected, edited, exported, or returned by the bounded transaction API in
 this slice.
 
-The sum of all nondeleted split milliunit amounts must equal the parent milliunit amount exactly.
-Every split ID must be unique within the provider snapshot, its parent ID must resolve to exactly
-one returned transaction, and any nonempty payee, category, or transfer references must be valid.
-A violation rejects the full candidate.
+Every split in a complete non-delta response must have `deleted = false`. A deleted split rejects
+the candidate as an endpoint-contract violation. The sum of all split milliunit amounts must equal
+the parent milliunit amount exactly. Every split ID must be unique within the provider snapshot,
+its parent ID must resolve to exactly one returned transaction, and any nonempty payee, category,
+or transfer references must be valid. A violation rejects the full candidate.
 
 The store retains each split's complete used payload:
 
@@ -592,8 +608,7 @@ The store retains each split's complete used payload:
 - memo;
 - payee ID and label when present;
 - category ID and label when present;
-- transfer account and transfer transaction IDs when present; and
-- deleted flag.
+- transfer account and transfer transaction IDs when present.
 
 The retained payload is provider detail, not a second accounting source. The parent transaction
 remains authoritative until the split-aware slice explicitly changes that model.
@@ -626,8 +641,8 @@ The refresh sequence is:
 
 1. acquire the provider refresh lease without changing profile revision;
 2. unlock or reuse the current process's token runtime;
-3. list plans and verify the bound budget identity;
-4. fetch and normalize one full-budget response outside SQLite;
+3. fetch the exact bound plan ID and normalize one full-budget response outside SQLite;
+4. treat HTTP 404 as identity mismatch and verify the returned plan ID against the binding;
 5. compute the deletion-plausibility decision against the current committed base;
 6. enter the existing immediate store transaction;
 7. verify no provider write batch exists, the refresh generation is unchanged, and the binding
@@ -800,7 +815,8 @@ Existing generic tables store:
 - refresh lease, generation, status, and confirmation bookkeeping; and
 - the ordinary committed base and journal.
 
-Version 11 adds a STRICT provider-owned split table with the logical shape:
+Version 11 adds the protected `category_system_split` row and a STRICT provider-owned split table
+with the logical shape:
 
 ```text
 ynab_transaction_splits(
@@ -816,18 +832,14 @@ ynab_transaction_splits(
   category_label TEXT,
   transfer_account_external_id TEXT,
   transfer_transaction_external_id TEXT,
-  deleted INTEGER NOT NULL CHECK (deleted IN (0, 1)),
   PRIMARY KEY(parent_transaction_id, position),
   UNIQUE(external_id),
   FOREIGN KEY(parent_transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
 )
 ```
 
-The full endpoint documents deleted subtransactions as delta-only, so ordinary full snapshots
-store `deleted = 0`. If YNAB nevertheless returns a deleted split, Moneyflow retains it losslessly
-with `deleted = 1`; it does not contribute to the parent sum and its optional entity references do
-not need to resolve. This rule preserves the response without granting delta semantics to the
-slice.
+The full endpoint documents deleted subtransactions as delta-only. A returned deleted split is
+therefore rejected before planning and needs no speculative storage branch.
 
 Indexes support parent lookup and external-ID uniqueness. Schema inspection tests assert STRICT
 mode, foreign keys, integer money columns, absence of REAL money columns, and version 11.
@@ -904,13 +916,14 @@ They never contact YNAB or use the user's default profile.
 - Separate same-label payees/categories/accounts remain separate stable entities with sticky suffixes.
 - Missing nonempty references, duplicate identities, unknown cleared values, invalid dates, invalid
   UTF-8, or oversized fields reject the complete candidate.
-- Protected Unknown Payee, Uncategorized, and Split entities cannot collide with provider IDs.
+- Protected Unknown Payee and system Uncategorized/Split entities cannot collide with provider IDs.
 
 ### Split Retention
 
 - A split parent projects as one transaction at the parent amount and Split category.
-- Every nondeleted split field is retained with deterministic position and exact money.
+- Every split field is retained with deterministic position and exact money.
 - Split sums must equal the parent exactly; mismatch rejects the candidate.
+- A deleted split in a complete response rejects the candidate and changes no state.
 - Duplicate split IDs, wrong parent IDs, and unresolved split references reject the candidate.
 - Refresh replacement removes obsolete split rows atomically with the parent base.
 - Split rows never appear as independent analytics or export transactions in this slice.
