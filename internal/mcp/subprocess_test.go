@@ -195,7 +195,9 @@ type mcpHTTPSubprocess struct {
 
 // startMCPHTTPSubprocess starts the HTTP MCP child on a reserved ephemeral port. The port is
 // reserved by binding and closing, so another process can claim it first; when the child then
-// exits with a bind failure before announcing its endpoint, a fresh port is tried.
+// exits with a bind failure before announcing its endpoint, a fresh port is tried. The bind
+// failure is recognized by the child's own "listen on <address>" wrapping rather than the
+// OS-specific error text, which differs between Unix and Windows.
 func startMCPHTTPSubprocess(
 	t *testing.T,
 	binary, homeRoot string,
@@ -204,13 +206,14 @@ func startMCPHTTPSubprocess(
 	t.Helper()
 	const attempts = 5
 	for attempt := 1; attempt <= attempts; attempt++ {
-		child := launchMCPHTTPSubprocess(t, binary, homeRoot, entry, reserveLoopbackAddress(t))
+		listenAddress := reserveLoopbackAddress(t)
+		child := launchMCPHTTPSubprocess(t, binary, homeRoot, entry, listenAddress)
 		select {
 		case serverURL := <-child.endpoint:
 			return child.command, serverURL, child.stdout, child.stderrDone
 		case captured := <-child.stderrDone:
 			err := waitForMCPProcess(child.command, 5*time.Second)
-			if strings.Contains(captured, "address already in use") {
+			if strings.Contains(captured, "listen on "+listenAddress+": ") {
 				t.Logf("attempt %d lost the ephemeral port race: %v", attempt, err)
 				continue
 			}
