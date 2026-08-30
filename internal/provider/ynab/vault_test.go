@@ -37,6 +37,27 @@ func TestCredentialVaultRoundTripFingerprintAndDelete(t *testing.T) {
 	assert.False(t, exists)
 }
 
+func TestCredentialFilePresentInspectsWithoutCreatingProviderDirectories(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "profile")
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(paths.Root, 0o700))
+
+	present, err := CredentialFilePresent(paths.Root)
+	require.NoError(t, err)
+	assert.False(t, present)
+	assert.NoDirExists(t, filepath.Join(paths.Root, "providers"))
+
+	vault := newTestCredentialVaultAt(t, root)
+	require.NoError(t, vault.Save(StoredCredentials{
+		AccessToken: "synthetic-access-token", PlanID: "plan-example", Currency: "USD", Scale: 2,
+	}, []byte("account-password")))
+	present, err = CredentialFilePresent(paths.Root)
+	require.NoError(t, err)
+	assert.True(t, present)
+}
+
 func TestCredentialVaultValidatesCompleteBinding(t *testing.T) {
 	t.Parallel()
 	vault := newTestCredentialVault(t)

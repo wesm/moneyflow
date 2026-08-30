@@ -118,6 +118,26 @@ func TestMCPProfileResolutionDoesNotCreateAnImplicitProfile(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+func TestMCPReadsBoundYNABProfileOfflineWithoutUnlockingVault(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	catalog, err := openProfileCatalog(root)
+	require.NoError(t, err)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Example YNAB", ProviderKind: "ynab",
+	})
+	require.NoError(t, err)
+	bindYNABCommandProfile(t, entry.Root)
+
+	dependencies, err := buildMCPDependencies(context.Background(), ProfileOptions{
+		ExplicitHome: root, Profile: entry.ID,
+	}, false, IOStreams{})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dependencies.Close(context.Background())) })
+	assert.NotNil(t, dependencies.Server)
+	assert.Equal(t, entry.ID, dependencies.ProfileID)
+}
+
 func TestRunMCPHTTPServesOnlyTheDefaultEndpointWithoutRevealingToken(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)

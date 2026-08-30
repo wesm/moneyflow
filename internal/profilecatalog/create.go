@@ -350,7 +350,7 @@ func cancelEligible(ctx context.Context, root string, id string) (bool, error) {
 	}
 	for _, child := range children {
 		if child.Name() == "providers" {
-			if !emptyMonarchRuntimeDirectory(root, child) {
+			if !emptyProviderRuntimeDirectory(root, child, manifest.ProviderKind) {
 				return false, nil
 			}
 			continue
@@ -363,7 +363,7 @@ func cancelEligible(ctx context.Context, root string, id string) (bool, error) {
 	return true, nil
 }
 
-func emptyMonarchRuntimeDirectory(root string, providers os.DirEntry) bool {
+func emptyProviderRuntimeDirectory(root string, providers os.DirEntry, providerKind string) bool {
 	if providers.Type()&os.ModeSymlink != 0 || !providers.IsDir() {
 		return false
 	}
@@ -371,12 +371,13 @@ func emptyMonarchRuntimeDirectory(root string, providers os.DirEntry) bool {
 	if err != nil || len(providerEntries) != 1 {
 		return false
 	}
-	monarch := providerEntries[0]
-	if monarch.Name() != "monarch" || monarch.Type()&os.ModeSymlink != 0 || !monarch.IsDir() {
+	providerDirectory := providerEntries[0]
+	if providerDirectory.Name() != providerKind || providerDirectory.Type()&os.ModeSymlink != 0 ||
+		!providerDirectory.IsDir() {
 		return false
 	}
-	monarchEntries, err := os.ReadDir(filepath.Join(root, providers.Name(), monarch.Name()))
-	return err == nil && len(monarchEntries) == 0
+	entries, err := os.ReadDir(filepath.Join(root, providers.Name(), providerDirectory.Name()))
+	return err == nil && len(entries) == 0
 }
 
 func removeOwnedProfileRoot(profiles string, id string) error {

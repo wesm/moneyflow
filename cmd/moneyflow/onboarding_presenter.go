@@ -17,15 +17,20 @@ import (
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/ynab"
 )
 
 const cliOnboardingPollInterval = 2 * time.Millisecond
 
 func inspectCommandProviderSession(profileRoot string, providerKind string) (bool, error) {
-	if providerKind != "monarch" {
+	switch providerKind {
+	case "monarch":
+		return monarch.SessionFilePresent(profileRoot)
+	case "ynab":
+		return ynab.CredentialFilePresent(profileRoot)
+	default:
 		return false, nil
 	}
-	return monarch.SessionFilePresent(profileRoot)
 }
 
 type cliOnboardingFailure struct {

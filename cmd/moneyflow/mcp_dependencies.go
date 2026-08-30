@@ -55,7 +55,7 @@ func buildMCPDependencies(
 	if err != nil {
 		return MCPDependencies{}, err
 	}
-	if err = configureOpenedMonarchProvider(ctx, opened, streams, "mcp"); err != nil {
+	if err = configureOpenedProvider(ctx, opened, streams, "mcp"); err != nil {
 		return MCPDependencies{}, closeOpenedProfile(opened, err)
 	}
 	matcher, err := newCatalogAmazonMatcher(catalog)

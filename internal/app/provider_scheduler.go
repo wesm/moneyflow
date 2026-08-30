@@ -76,8 +76,24 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 	runtime.mu.Lock()
 	parked := runtime.parkedReconnect
 	fingerprint := runtime.fingerprint
+	providerKind := runtime.provider
 	progress := runtime.progress
 	runtime.mu.Unlock()
+	if providerKind == "ynab" && fingerprint != "" {
+		changed, _ := runtime.readSource.Changed(fingerprint)
+		if changed {
+			service.mu.Lock()
+			if service.providerRuntime == runtime {
+				service.providerRuntime = nil
+			}
+			service.mu.Unlock()
+			status := providerStatusFromState(state)
+			status.Code = provider.CodeReconnectRequired
+			status.Fetched = progress.Fetched
+			status.Total = progress.Total
+			return status, nil
+		}
+	}
 	healed := false
 	if parked {
 		changed, changeErr := runtime.readSource.Changed(fingerprint)

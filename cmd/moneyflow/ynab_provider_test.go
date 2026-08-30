@@ -11,10 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/ynab"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
 func TestYNABProviderCommandsExposeOnlyProfileFlag(t *testing.T) {
@@ -76,6 +79,29 @@ func TestYNABDisconnectIsIdempotent(t *testing.T) {
 		require.NoError(t, command.Execute())
 		assert.Equal(t, "Disconnected YNAB. Profile data was preserved.\n", stdout.String())
 	}
+}
+
+func TestDefaultProviderOnboardingRuntimeSelectsYNABFromManifest(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	catalog, err := openProfileCatalog(root)
+	require.NoError(t, err)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Example Profile", ProviderKind: "ynab",
+	})
+	require.NoError(t, err)
+	called := false
+	want := onboarding.Runtime{ProviderKind: "ynab", InstanceID: "ynab-runtime"}
+	got, err := defaultProviderOnboardingRuntime(entry.ProfilePaths(), IOStreams{
+		OpenYNAB: func(home.Paths) (onboarding.Runtime, error) {
+			called = true
+			return want, nil
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, called)
+	assert.Equal(t, want.ProviderKind, got.ProviderKind)
+	assert.Equal(t, want.InstanceID, got.InstanceID)
 }
 
 type commandYNABVault struct {
@@ -144,4 +170,26 @@ func commandYNABPlan(planID string) ynab.PlanDocument {
 			Cleared: "cleared", Approved: &yes, AccountID: "account-example", PayeeID: "payee-example", Deleted: &no}},
 		ServerKnowledge: 1,
 	}
+}
+
+func bindYNABCommandProfile(t testing.TB, root string) {
+	t.Helper()
+	paths, err := home.ResolveRoot(root, nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(context.Background(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	service, err := app.NewProfileService(context.Background(), profile)
+	require.NoError(t, err)
+	snapshot, err := ynab.Normalize(commandYNABPlan("plan-example"), time.Now().UTC())
+	require.NoError(t, err)
+	source := &commandYNABSource{result: provider.SnapshotResult{
+		Identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"}, Snapshot: snapshot,
+	}}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2,
+		Renderer: "cli", InstanceID: "ynab-bind-test", Now: time.Now,
+	}))
+	_, err = service.RefreshProvider(context.Background(), providerRefreshRequest())
+	require.NoError(t, err)
+	require.NoError(t, profile.Close())
 }

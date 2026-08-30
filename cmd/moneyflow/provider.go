@@ -15,6 +15,7 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
 	"github.com/wesm/moneyflow/internal/provider/ynab"
@@ -204,6 +205,21 @@ func defaultCommandOnboardingRuntime(
 		streams,
 		monarch.ImportConfig{Currency: "USD", Scale: 2},
 	)
+}
+
+func defaultProviderOnboardingRuntime(paths home.Paths, streams IOStreams) (onboarding.Runtime, error) {
+	manifest, err := profilecatalog.ReadManifest(filepath.Join(paths.Root, profilecatalog.ManifestFilename))
+	if err != nil {
+		return onboarding.Runtime{}, err
+	}
+	if manifest.ProviderKind == "ynab" {
+		factory := streams.OpenYNAB
+		if factory == nil {
+			factory = defaultYNABCommandFactory
+		}
+		return factory(paths)
+	}
+	return defaultCommandOnboardingRuntime(paths, streams)
 }
 
 func runMonarchConnect(
@@ -478,7 +494,7 @@ func newProviderInstanceID(renderer string) (string, error) {
 	return renderer + "-" + hex.EncodeToString(material), nil
 }
 
-func configureOpenedMonarchProvider(
+func configureOpenedProvider(
 	ctx context.Context,
 	opened OpenedProfile,
 	streams IOStreams,
@@ -492,6 +508,11 @@ func configureOpenedMonarchProvider(
 		return err
 	}
 	if !connection.Bound {
+		return nil
+	}
+	if connection.Kind != "monarch" {
+		// Password-locked YNAB credentials are configured by the shared onboarding flow.
+		// Amazon and local profiles have no network reader runtime.
 		return nil
 	}
 	paths := opened.Paths

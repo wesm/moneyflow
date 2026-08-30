@@ -194,6 +194,73 @@ func TestMonarchCapabilitiesRejectOnTheFlyCategoryCreation(t *testing.T) {
 	assert.Equal(t, app.AppProviderWriteUnsupported, failure.Code)
 }
 
+func TestYNABCapabilitiesRequireUnlockedReaderAndNeverOfferProviderCommit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	service, profile := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 30, 16, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "vault-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: "instance-ynab", Now: func() time.Time { return now },
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	unlocked := capabilitiesByAction(service.Capabilities())
+	assert.True(t, unlocked[app.ActionRefreshProvider].Available)
+	assert.True(t, unlocked[app.ActionManageCategories].Available)
+
+	locked, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	lockedCapabilities := capabilitiesByAction(locked.Capabilities())
+	assert.False(t, lockedCapabilities[app.ActionRefreshProvider].Available)
+	assert.Contains(t, lockedCapabilities[app.ActionRefreshProvider].Reason, "Unlock YNAB")
+	_, err = locked.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppProviderReconnectRequired, failure.Code)
+}
+
+func TestYNABStatusInvalidatesRuntimeAfterVaultReplacement(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 30, 16, 30, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "vault-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2,
+		Renderer: "web", InstanceID: "instance-ynab", Now: func() time.Time { return now },
+	}))
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	source.mu.Lock()
+	source.fingerprint = "vault-b"
+	source.mu.Unlock()
+
+	status, err := service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, provider.CodeReconnectRequired, status.Code)
+	assert.False(t, capabilitiesByAction(service.Capabilities())[app.ActionRefreshProvider].Available)
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	var failure *app.AppError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, app.AppProviderReconnectRequired, failure.Code)
+}
+
 func TestMonarchCapabilitiesLockMutationsDuringUnfinishedWriteBatch(t *testing.T) {
 	t.Parallel()
 

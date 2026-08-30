@@ -86,7 +86,7 @@ func buildWebDependencies(
 			if openErr != nil {
 				return webserver.RegistryProfile{}, openErr
 			}
-			if configureErr := configureOpenedMonarchProvider(
+			if configureErr := configureOpenedProvider(
 				openContext, opened, streams, "web",
 			); configureErr != nil {
 				return webserver.RegistryProfile{}, closeOpenedProfile(opened, configureErr)
@@ -109,7 +109,7 @@ func buildWebDependencies(
 		Random: cryptorand.Reader, Now: time.Now, InstanceID: instanceID,
 		OpenProfile: registry.OnboardingOpener(),
 		Runtime: func(paths home.Paths) (onboarding.Runtime, error) {
-			runtime, runtimeErr := defaultCommandOnboardingRuntime(paths, streams)
+			runtime, runtimeErr := defaultProviderOnboardingRuntime(paths, streams)
 			if runtimeErr != nil {
 				return onboarding.Runtime{}, runtimeErr
 			}

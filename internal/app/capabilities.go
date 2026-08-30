@@ -103,7 +103,11 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 	case !bound:
 		refresh.Reason = "Connect a provider before refreshing."
 	case !configured:
-		refresh.Reason = "Reconnect the provider through the command line."
+		if profileKind == "ynab" {
+			refresh.Reason = "Unlock YNAB credentials before refreshing."
+		} else {
+			refresh.Reason = "Reconnect the provider through the command line."
+		}
 	}
 	if providerState.Write != nil {
 		for _, action := range []ActionID{

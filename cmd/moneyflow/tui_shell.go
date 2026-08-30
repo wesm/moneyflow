@@ -61,7 +61,7 @@ func buildTUIShellDependencies(
 			}, nil
 		},
 		Runtime: func(paths home.Paths) (onboarding.Runtime, error) {
-			runtime, runtimeErr := defaultCommandOnboardingRuntime(paths, streams)
+			runtime, runtimeErr := defaultProviderOnboardingRuntime(paths, streams)
 			if runtimeErr != nil {
 				return onboarding.Runtime{}, runtimeErr
 			}
@@ -101,7 +101,7 @@ func buildTUIShellDependencies(
 			if openErr != nil {
 				return tui.ShellOpenedProfile{}, openErr
 			}
-			if configureErr := configureOpenedMonarchProvider(
+			if configureErr := configureOpenedProvider(
 				openContext, opened, streams, "tui",
 			); configureErr != nil {
 				return tui.ShellOpenedProfile{}, closeOpenedProfile(opened, configureErr)

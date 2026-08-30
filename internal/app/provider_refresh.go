@@ -440,8 +440,19 @@ func (service *Service) ConfirmProviderRefresh(
 func (service *Service) requireProviderRuntime() (*providerRuntimeState, error) {
 	service.mu.RLock()
 	runtime := service.providerRuntime
+	bound := service.providerBound
 	service.mu.RUnlock()
-	if service.profile == nil || runtime == nil {
+	if service.profile == nil {
+		return nil, newAppError(
+			AppInvalidOperation,
+			service.Revision(),
+			errors.New("provider refresh is not configured"),
+		)
+	}
+	if runtime == nil && bound {
+		return nil, providerAppError(provider.CodeReconnectRequired, service.Revision())
+	}
+	if runtime == nil {
 		return nil, newAppError(
 			AppInvalidOperation,
 			service.Revision(),

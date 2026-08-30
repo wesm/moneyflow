@@ -89,7 +89,7 @@ func TestListDerivesStatusOnlyFromLocalProfileState(t *testing.T) {
 	inspected := 0
 	catalog := newTestCatalog(t, func(root string, providerKind string) (bool, error) {
 		inspected++
-		assert.Equal(t, "monarch", providerKind)
+		assert.Contains(t, []string{"monarch", "ynab"}, providerKind)
 		return sessions[root], nil
 	})
 	createTestManifestProfile(t, catalog, 0x61, "Setup", "monarch")
@@ -100,14 +100,20 @@ func TestListDerivesStatusOnlyFromLocalProfileState(t *testing.T) {
 	sessions[ready.Root] = true
 	reconnect := createTestManifestProfile(t, catalog, 0x64, "Reconnect", "monarch")
 	bindTestProfile(t, reconnect.ProfilePaths(), "monarch")
+	ynabReady := createTestManifestProfile(t, catalog, 0x65, "YNAB Ready", "ynab")
+	bindTestProfile(t, ynabReady.ProfilePaths(), "ynab")
+	sessions[ynabReady.Root] = true
+	ynabReconnect := createTestManifestProfile(t, catalog, 0x66, "YNAB Reconnect", "ynab")
+	bindTestProfile(t, ynabReconnect.ProfilePaths(), "ynab")
 
 	entries, err := catalog.List(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, map[string]Status{
 		"Local": StatusLocalOnly, "Ready": StatusReady, "Reconnect": StatusReconnect,
-		"Setup": StatusSetupIncomplete,
+		"Setup": StatusSetupIncomplete, "YNAB Ready": StatusReady,
+		"YNAB Reconnect": StatusReconnect,
 	}, entryStatuses(entries))
-	assert.Equal(t, 2, inspected, "only bound profiles need local session-file inspection")
+	assert.Equal(t, 4, inspected, "only bound profiles need local credential inspection")
 }
 
 func TestListClassifiesOlderNewerCorruptRecoveryAndUnknownManifest(t *testing.T) {

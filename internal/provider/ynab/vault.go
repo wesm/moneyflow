@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -74,6 +75,39 @@ func (credentials StoredCredentials) Validate() error {
 // CredentialVault persists one password-encrypted YNAB token and plan binding outside SQLite.
 type CredentialVault struct {
 	sealed *credentialvault.Vault
+}
+
+// CredentialFilePresent checks the provider-owned vault path without creating or modifying
+// profile directories. Catalog listing uses this local-only probe.
+func CredentialFilePresent(profileRoot string) (bool, error) {
+	if profileRoot == "" || !filepath.IsAbs(profileRoot) {
+		return false, errors.New("inspect YNAB credentials: profile root must be absolute")
+	}
+	components := []string{
+		profileRoot,
+		filepath.Join(profileRoot, "providers"),
+		filepath.Join(profileRoot, "providers", providerKind),
+	}
+	for _, directory := range components {
+		info, err := os.Lstat(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("inspect YNAB credential directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return false, errors.New("inspect YNAB credentials: directory is redirected")
+		}
+	}
+	path := filepath.Join(components[len(components)-1], vaultFilename)
+	if _, err := home.PrivateFileFingerprint(path, vaultMaximumBytes); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect YNAB credentials: %w", err)
+	}
+	return true, nil
 }
 
 // NewCredentialVault resolves the fixed provider credential path below a Go v2 profile root.
