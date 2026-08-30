@@ -198,6 +198,7 @@ type ProviderStatusDocument struct {
 }
 
 type WriteStatusDocument struct {
+	BatchID    string `json:"batch_id,omitempty"`
 	Phase      string `json:"phase,omitempty"`
 	Version    string `json:"version"`
 	Generation string `json:"generation"`
@@ -333,7 +334,8 @@ func providerStatusDocument(status app.ProviderStatus) ProviderStatusDocument {
 
 func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 	return WriteStatusDocument{
-		Phase: string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
+		BatchID: status.BatchID,
+		Phase:   string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
 		Total: status.Total, Completed: status.Completed, Failed: status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
 	}
 }

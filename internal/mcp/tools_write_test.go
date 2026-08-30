@@ -146,6 +146,65 @@ func TestCategoryToolBatchIsAllOrNothingAndBounded(t *testing.T) {
 	assert.Equal(t, uint64(2), service.Revision())
 }
 
+func TestCommitToolFoldsOnlyTheReviewedLocalRevision(t *testing.T) {
+	service, closeProfile := writeTestService(t, 2)
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+
+	staged := callWriteTool(t, client, "update_transaction_category", map[string]any{
+		"expected_revision": "1", "transaction_id": "transaction_000",
+		"category_id": "category_b",
+	})
+	require.False(t, staged.IsError)
+
+	stale := callWriteTool(t, client, "commit_changes", map[string]any{
+		"expected_revision": "2", "reviewed_revision": "1",
+	})
+	assert.True(t, stale.IsError)
+	assert.Equal(t, "revision_conflict", stale.StructuredContent.(map[string]any)["code"])
+	assert.Equal(t, uint64(2), service.Revision())
+
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{
+		"expected_revision": "2", "reviewed_revision": "2",
+	})
+	require.False(t, committed.IsError)
+	document := committed.StructuredContent.(map[string]any)
+	assert.Equal(t, "3", document["revision"])
+	assert.Equal(t, true, document["completed"])
+	assert.Equal(t, false, document["background_active"])
+	assert.Equal(t, uint64(3), service.Revision())
+
+	review := callWriteTool(t, client, "review_changes", map[string]any{
+		"expected_revision": "3", "operation_limit": 20,
+	})
+	require.False(t, review.IsError)
+	assert.Empty(t, review.StructuredContent.(map[string]any)["operations"])
+}
+
+func TestReconcileStatusIsRecoverableAndTokenIsStatusOnly(t *testing.T) {
+	service, closeProfile := writeTestService(t, 2)
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+
+	missing := callWriteTool(t, client, "get_reconcile_status", map[string]any{})
+	assert.True(t, missing.IsError)
+	assert.Equal(t, "mcp_attempt_not_found", missing.StructuredContent.(map[string]any)["code"])
+
+	status := AttemptStatus{
+		ID: "attempt-a", State: AttemptConfirmationRequired, Revision: 4, Generation: 2,
+		StartedAt:         time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC),
+		Write:             app.ProviderWriteStatus{BatchID: "batch-a", Version: 3},
+		ConfirmationToken: "confirmation-a",
+	}
+	startDocument := attemptDocument(status, 4, false)
+	assert.Empty(t, startDocument.ConfirmationToken)
+	statusDocument := attemptDocument(status, 4, true)
+	assert.Equal(t, "confirmation-a", statusDocument.ConfirmationToken)
+	assert.Equal(t, "batch-a", statusDocument.Write.BatchID)
+}
+
 func callWriteTool(
 	t *testing.T,
 	client *mcpsdk.ClientSession,

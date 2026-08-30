@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -29,29 +30,215 @@ func registerWriteTools(server *Server, dependencies Dependencies) {
 			return cursorMutationDocument(ctx, dependencies.Service, input.ExpectedRevision, true)
 		})
 	registerTool(server, "commit_changes", "Commit one explicitly reviewed journal revision.", false,
-		func(context.Context, CommitChangesInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "MCP commit supervision is not available yet."), nil
+		func(ctx context.Context, input CommitChangesInput) (any, error) {
+			return commitChangesDocument(ctx, server, input)
 		})
 	registerTool(server, "pause_commit", "Pause one durable provider write batch.", false,
-		func(context.Context, BatchVersionInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "MCP commit supervision is not available yet."), nil
+		func(ctx context.Context, input BatchVersionInput) (any, error) {
+			return pauseCommitDocument(ctx, server, input)
 		})
 	registerTool(server, "resume_commit", "Resume one durable provider write batch.", false,
-		func(context.Context, BatchVersionInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "MCP commit supervision is not available yet."), nil
+		func(ctx context.Context, input BatchVersionInput) (any, error) {
+			return resumeCommitDocument(ctx, server, input)
 		})
 	registerTool(server, "stop_and_reconcile", "Abandon an unfinished write prefix and reconcile provider truth.", false,
-		func(context.Context, BatchVersionInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "MCP reconciliation supervision is not available yet."), nil
+		func(_ context.Context, input StopReconcileInput) (any, error) {
+			return stopAndReconcileDocument(server, input)
 		})
 	registerTool(server, "get_reconcile_status", "Return one process-local reconciliation attempt.", true,
-		func(context.Context, ReconcileStatusInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "No MCP reconciliation attempt is active."), nil
+		func(_ context.Context, input ReconcileStatusInput) (any, error) {
+			return reconcileStatusDocument(server, input)
 		})
 	registerTool(server, "confirm_reconcile", "Confirm one process-local reconciliation candidate.", false,
-		func(context.Context, ConfirmReconcileInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "No MCP reconciliation confirmation is available."), nil
+		func(ctx context.Context, input ConfirmReconcileInput) (any, error) {
+			return confirmReconcileDocument(ctx, server, input)
 		})
+}
+
+func commitChangesDocument(
+	ctx context.Context,
+	server *Server,
+	input CommitChangesInput,
+) (CommitDocument, error) {
+	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+	if err != nil {
+		return CommitDocument{}, err
+	}
+	reviewed, err := parseMutationRevision(server.service, input.ReviewedRevision)
+	if err != nil {
+		return CommitDocument{}, err
+	}
+	result, err := server.service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: expected, ReviewedRevision: reviewed,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Window: app.WindowRequest{Limit: 1},
+	})
+	if err != nil {
+		return CommitDocument{}, err
+	}
+	document := CommitDocument{
+		Header: NewHeader(StatusOK, result.Revision), Completed: result.ProviderWrite == nil,
+	}
+	if result.ProviderWrite == nil {
+		return document, nil
+	}
+	status, execution, reserveErr := server.service.ReserveProviderWriteExecution(
+		ctx, result.ProviderWrite.Version,
+	)
+	if reserveErr != nil {
+		return CommitDocument{}, reserveErr
+	}
+	document.Write = writeStatusDocument(status)
+	if execution != nil {
+		server.supervisor.StartWrite(execution)
+	}
+	document.BackgroundActive = server.supervisor.WriteActive()
+	return document, nil
+}
+
+func pauseCommitDocument(
+	ctx context.Context,
+	server *Server,
+	input BatchVersionInput,
+) (BatchControlDocument, error) {
+	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	if err != nil {
+		return BatchControlDocument{}, err
+	}
+	status, err := server.service.PauseProviderWrite(ctx, version)
+	if err != nil {
+		return BatchControlDocument{}, err
+	}
+	return BatchControlDocument{
+		Header:           NewHeader(StatusOK, server.service.Revision()),
+		BackgroundActive: server.supervisor.WriteActive(), Write: writeStatusDocument(status),
+	}, nil
+}
+
+func resumeCommitDocument(
+	ctx context.Context,
+	server *Server,
+	input BatchVersionInput,
+) (BatchControlDocument, error) {
+	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	if err != nil {
+		return BatchControlDocument{}, err
+	}
+	status, execution, err := server.service.ReserveProviderWriteExecution(ctx, version)
+	if err != nil {
+		return BatchControlDocument{}, err
+	}
+	if execution != nil {
+		server.supervisor.StartWrite(execution)
+	}
+	return BatchControlDocument{
+		Header:           NewHeader(StatusOK, server.service.Revision()),
+		BackgroundActive: server.supervisor.WriteActive(), Write: writeStatusDocument(status),
+	}, nil
+}
+
+func stopAndReconcileDocument(server *Server, input StopReconcileInput) (AttemptDocument, error) {
+	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+	if err != nil {
+		return AttemptDocument{}, err
+	}
+	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	if err != nil {
+		return AttemptDocument{}, err
+	}
+	attempt, err := server.supervisor.StartReconcile(expected, version, func(ctx context.Context) (app.ProviderWriteResult, error) {
+		return server.service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+			ExpectedRevision: expected, ExpectedVersion: version,
+			State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			Window: app.WindowRequest{Limit: 1},
+		})
+	})
+	if err != nil {
+		return AttemptDocument{}, err
+	}
+	return attemptDocument(attempt, server.service.Revision(), false), nil
+}
+
+func reconcileStatusDocument(server *Server, input ReconcileStatusInput) (any, error) {
+	attempt, err := server.supervisor.ReconcileStatus(input.AttemptID)
+	if err != nil {
+		if errors.Is(err, ErrAttemptNotFound) {
+			return attemptNotFoundDocument(server.service.Revision()), nil
+		}
+		return nil, err
+	}
+	return attemptDocument(attempt, server.service.Revision(), true), nil
+}
+
+func confirmReconcileDocument(
+	ctx context.Context,
+	server *Server,
+	input ConfirmReconcileInput,
+) (any, error) {
+	expected, err := parseMutationRevision(server.service, input.ExpectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	version, err := parseMutationRevision(server.service, input.BatchVersion)
+	if err != nil {
+		return nil, err
+	}
+	if err = server.supervisor.BeginReconcileConfirmation(
+		input.AttemptID, input.ConfirmationToken,
+	); err != nil {
+		return confirmationInvalidDocument(server.service.Revision()), nil
+	}
+	result, confirmErr := server.service.ConfirmProviderWriteReconcile(
+		ctx, app.ProviderWriteReconcileRequest{
+			ExpectedRevision: expected, ExpectedVersion: version,
+			ConfirmationToken: input.ConfirmationToken,
+			State:             app.DefaultViewState(), Selection: app.EmptySelection(),
+			Window: app.WindowRequest{Limit: 1},
+		},
+	)
+	if finishErr := server.supervisor.FinishReconcile(input.AttemptID, result, confirmErr); finishErr != nil {
+		return nil, finishErr
+	}
+	if confirmErr != nil {
+		return nil, confirmErr
+	}
+	attempt, err := server.supervisor.ReconcileStatus(input.AttemptID)
+	if err != nil {
+		return nil, err
+	}
+	return attemptDocument(attempt, server.service.Revision(), false), nil
+}
+
+func attemptDocument(status AttemptStatus, currentRevision uint64, includeToken bool) AttemptDocument {
+	revision := status.Revision
+	if revision == 0 {
+		revision = currentRevision
+	}
+	document := AttemptDocument{
+		Header: NewHeader(StatusOK, revision), AttemptID: status.ID,
+		State: string(status.State), Code: status.Code,
+		Generation: strconv.FormatUint(status.Generation, 10),
+		StartedAt:  status.StartedAt.UTC().Format(time.RFC3339Nano),
+		FinishedAt: formatOptionalTime(status.FinishedAt), Write: writeStatusDocument(status.Write),
+	}
+	if includeToken {
+		document.ConfirmationToken = status.ConfirmationToken
+	}
+	return document
+}
+
+func attemptNotFoundDocument(revision uint64) ErrorDocument {
+	return ErrorDocument{
+		Header: NewHeader(StatusError, revision), Code: "mcp_attempt_not_found",
+		Detail: "The process-local MCP attempt is unavailable.",
+	}
+}
+
+func confirmationInvalidDocument(revision uint64) ErrorDocument {
+	return ErrorDocument{
+		Header: NewHeader(StatusError, revision), Code: string(app.AppProviderConfirmationInvalid),
+		Detail: "The provider confirmation is no longer valid.",
+	}
 }
 
 func categoryMutationDocument(

@@ -83,6 +83,142 @@ func TestProviderWriteWorkerCapsConcurrencyAtFour(t *testing.T) {
 	assert.Equal(t, 8, writer.callCount())
 }
 
+func TestProviderWriteReservationIsOneShotAndProcessLocal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 12, 0, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-reservation")
+	prepared := prepareOneHiddenProviderWrite(t, service, profileHandle, now)
+
+	status, execution, err := service.ReserveProviderWriteExecution(ctx, prepared.Version)
+	require.NoError(t, err)
+	require.NotNil(t, execution)
+	assert.Equal(t, store.WritePhaseWriting, status.Phase)
+	active, competing, err := service.ReserveProviderWriteExecution(ctx, prepared.Version)
+	require.NoError(t, err)
+	assert.Nil(t, competing)
+	assert.Equal(t, status.Version, active.Version)
+
+	execution.Release()
+	execution.Release()
+	_, execution, err = service.ReserveProviderWriteExecution(ctx, prepared.Version)
+	require.NoError(t, err)
+	require.NotNil(t, execution)
+	completed, err := execution.Run(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, completed.Phase)
+	assert.Equal(t, 1, writer.callCount())
+	_, err = execution.Run(ctx)
+	assertAppCode(t, err, app.AppInvalidOperation)
+	assert.Equal(t, 1, writer.callCount(), "a one-shot execution must not resend work")
+}
+
+func TestProviderWriteReservationResumesPausedBatchBeforeReturning(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 12, 5, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	writer := &scriptedProviderWriter{identity: reader.identity}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: writer,
+	}, now, "instance-resume-reservation")
+	prepared := prepareOneHiddenProviderWrite(t, service, profileHandle, now)
+	paused, err := service.PauseProviderWrite(ctx, prepared.Version)
+	require.NoError(t, err)
+	require.Equal(t, store.WritePhasePaused, paused.Phase)
+
+	resumed, execution, err := service.ReserveProviderWriteExecution(ctx, paused.Version)
+	require.NoError(t, err)
+	require.NotNil(t, execution)
+	assert.Equal(t, store.WritePhaseWriting, resumed.Phase)
+	assert.Greater(t, resumed.Version, paused.Version)
+	state, err := profileHandle.ProviderState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, state.Lease)
+	assert.Equal(t, store.ProviderOperationWrite, state.Lease.Kind)
+	assert.Equal(t, "instance-resume-reservation", state.Lease.OwnerID)
+	assert.Equal(t, resumed.Version, state.Write.Version)
+	assert.Zero(t, writer.callCount(), "reservation performs no provider I/O")
+	execution.Release()
+}
+
+func TestProviderWriteReconcileRejectsStaleRevisionBeforeProviderWork(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	service, profileHandle := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 12, 10, 0, 0, time.UTC)
+	reader := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, &writeProviderSource{
+		fakeProviderSource: reader, writer: &scriptedProviderWriter{identity: reader.identity},
+	}, now, "instance-stale-reconcile")
+	prepared := prepareOneHiddenProviderWrite(t, service, profileHandle, now)
+	before, err := profileHandle.ProviderState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, before.Write)
+
+	_, err = service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedRevision: service.Revision() - 1, ExpectedVersion: prepared.Version,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	assertAppCode(t, err, app.AppRevisionConflict)
+	after, err := profileHandle.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before.Refresh.Generation, after.Refresh.Generation)
+	require.NotNil(t, after.Write)
+	assert.Equal(t, before.Write.Version, after.Write.Version)
+	assert.Equal(t, store.WritePhaseWriting, after.Write.Phase)
+}
+
+func prepareOneHiddenProviderWrite(
+	t *testing.T,
+	service *app.Service,
+	profileHandle store.Profile,
+	now time.Time,
+) app.ProviderWriteStatus {
+	t.Helper()
+	ctx := context.Background()
+	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := profileHandle.Load(ctx)
+	require.NoError(t, err)
+	revision, err := profileHandle.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation_reservation", Type: domain.OperationTransactionHide, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now,
+		Targets:    []domain.EntityID{loaded.Committed.Transactions[0].ID},
+		HideToggle: &domain.HideTogglePayload{},
+	})
+	require.NoError(t, err)
+	_, err = service.Refresh(ctx)
+	require.NoError(t, err)
+	result, err := service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: revision, ReviewedRevision: revision,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result.ProviderWrite)
+	return *result.ProviderWrite
+}
+
 func TestProviderWriteHeartbeatRenewsLeaseDuringSlowRequest(t *testing.T) {
 	t.Parallel()
 

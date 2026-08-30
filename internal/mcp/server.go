@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"sync"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -38,13 +37,6 @@ type Server struct {
 	supervisor   *Supervisor
 }
 
-// Supervisor is expanded by the provider-work checkpoints. Its lifetime exists from server start.
-type Supervisor struct {
-	cancel context.CancelFunc
-	once   sync.Once
-	wait   sync.WaitGroup
-}
-
 // New validates one profile binding and constructs its configured MCP surface.
 func New(dependencies Dependencies, options Options) (*Server, error) {
 	switch {
@@ -61,9 +53,7 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 	case dependencies.Logger == nil:
 		return nil, errors.New("new MCP server: logger is nil")
 	}
-	// The server owns this process-lifetime cancellation and invokes it from Close.
-	_, cancel := context.WithCancel(context.Background()) //nolint:gosec // stored cancellation is the owned cleanup path
-	supervisor := &Supervisor{cancel: cancel}
+	supervisor := newSupervisor(dependencies.Clock, dependencies.Random)
 	sdk := mcpsdk.NewServer(
 		&mcpsdk.Implementation{Name: "moneyflow", Version: version.Version},
 		&mcpsdk.ServerOptions{Logger: dependencies.Logger},
@@ -82,16 +72,5 @@ func (server *Server) Close(ctx context.Context) error {
 	if server == nil || server.supervisor == nil {
 		return nil
 	}
-	server.supervisor.once.Do(server.supervisor.cancel)
-	done := make(chan struct{})
-	go func() {
-		server.supervisor.wait.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return server.supervisor.Close(ctx)
 }

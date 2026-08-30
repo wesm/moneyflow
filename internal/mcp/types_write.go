@@ -34,6 +34,12 @@ type BatchVersionInput struct {
 	BatchVersion string `json:"batch_version"`
 }
 
+// StopReconcileInput starts one revision- and batch-version-checked reconciliation.
+type StopReconcileInput struct {
+	ExpectedRevision string `json:"expected_revision"`
+	BatchVersion     string `json:"batch_version"`
+}
+
 // ReconcileStatusInput selects one process-local reconciliation attempt.
 type ReconcileStatusInput struct {
 	AttemptID string `json:"attempt_id,omitempty"`
@@ -42,6 +48,8 @@ type ReconcileStatusInput struct {
 // ConfirmReconcileInput confirms one process-local reconciliation candidate.
 type ConfirmReconcileInput struct {
 	AttemptID         string `json:"attempt_id"`
+	ExpectedRevision  string `json:"expected_revision"`
+	BatchVersion      string `json:"batch_version"`
 	ConfirmationToken string `json:"confirmation_token"`
 }
 
@@ -61,4 +69,32 @@ type MutationDocument struct {
 	Changes              []MutationChangeDocument `json:"changes"`
 	Pending              PendingDocument          `json:"pending"`
 	SelectionDisposition string                   `json:"selection_disposition"`
+}
+
+// CommitDocument distinguishes local completion from an accepted background provider write.
+type CommitDocument struct {
+	Header
+	Completed        bool                `json:"completed"`
+	BackgroundActive bool                `json:"background_active"`
+	Write            WriteStatusDocument `json:"write"`
+}
+
+// BatchControlDocument is one authoritative counts-only write-control result.
+type BatchControlDocument struct {
+	Header
+	BackgroundActive bool                `json:"background_active"`
+	Write            WriteStatusDocument `json:"write"`
+}
+
+// AttemptDocument is one credential-blind process-local reconciliation snapshot.
+type AttemptDocument struct {
+	Header
+	AttemptID         string              `json:"attempt_id"`
+	State             string              `json:"state"`
+	Code              string              `json:"code,omitempty"`
+	Generation        string              `json:"generation"`
+	StartedAt         string              `json:"started_at"`
+	FinishedAt        string              `json:"finished_at,omitempty"`
+	Write             WriteStatusDocument `json:"write"`
+	ConfirmationToken string              `json:"confirmation_token,omitempty"`
 }

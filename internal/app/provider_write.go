@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -21,6 +22,7 @@ const (
 
 // ProviderWriteStatus is the credential-blind, counts-only write projection shared by renderers.
 type ProviderWriteStatus struct {
+	BatchID          string
 	Phase            store.WriteBatchPhase
 	ResumeTarget     store.WriteResumeTarget
 	Version          uint64
@@ -41,6 +43,7 @@ type ProviderWriteStatus struct {
 
 // ProviderWriteReconcileRequest preserves renderer state while abandoning a failed batch.
 type ProviderWriteReconcileRequest struct {
+	ExpectedRevision  uint64
 	ExpectedVersion   uint64
 	ConfirmationToken string
 	State             ViewState
@@ -57,6 +60,51 @@ type ProviderWriteResult struct {
 	SelectionDisposition SelectionDisposition
 	Projection           WebProjection
 	ConfirmationToken    string
+}
+
+// ProviderWriteExecution is one process-local reservation for an already-authorized durable
+// write transition. Run or Release consumes it exactly once.
+type ProviderWriteExecution struct {
+	mu       sync.Mutex
+	service  *Service
+	runtime  *providerRuntimeState
+	consumed bool
+}
+
+// Run advances the reserved durable batch until it completes or parks.
+func (execution *ProviderWriteExecution) Run(ctx context.Context) (ProviderWriteStatus, error) {
+	if execution == nil || execution.service == nil || execution.runtime == nil {
+		return ProviderWriteStatus{}, newAppError(
+			AppInvalidOperation, 0, errors.New("provider write execution is unavailable"),
+		)
+	}
+	execution.mu.Lock()
+	if execution.consumed {
+		execution.mu.Unlock()
+		return ProviderWriteStatus{}, newAppError(
+			AppInvalidOperation, execution.service.Revision(),
+			errors.New("provider write execution was already consumed"),
+		)
+	}
+	execution.consumed = true
+	execution.mu.Unlock()
+	defer execution.runtime.endProviderWriteRun()
+	return execution.service.runProviderWriteOwned(ctx, execution.runtime)
+}
+
+// Release consumes a reservation without starting provider work.
+func (execution *ProviderWriteExecution) Release() {
+	if execution == nil || execution.runtime == nil {
+		return
+	}
+	execution.mu.Lock()
+	if execution.consumed {
+		execution.mu.Unlock()
+		return
+	}
+	execution.consumed = true
+	execution.mu.Unlock()
+	execution.runtime.endProviderWriteRun()
 }
 
 type providerWriteConfirmation struct {
@@ -99,7 +147,8 @@ func providerWriteStatusFromState(state store.ProviderState) ProviderWriteStatus
 		return ProviderWriteStatus{Generation: state.Refresh.Generation}
 	}
 	status := ProviderWriteStatus{
-		Phase: state.Write.Phase, ResumeTarget: state.Write.ResumeTarget,
+		BatchID: state.Write.ID,
+		Phase:   state.Write.Phase, ResumeTarget: state.Write.ResumeTarget,
 		Version: state.Write.Version, Generation: state.Refresh.Generation,
 		AttentionClass: state.Write.AttentionClass, AttentionReason: state.Write.AttentionReason,
 		Total: state.Write.TotalItems, Completed: state.Write.CompletedItems,
@@ -194,17 +243,117 @@ func (service *Service) prepareProviderWrite(
 	}), prepared.Revision, nil
 }
 
-// RunProviderWrite advances one durable batch until it completes or reaches a parked phase.
-func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStatus, error) {
+// ReserveProviderWriteExecution performs the authoritative resume transition and reserves the
+// single process-local worker without performing provider I/O. A nil execution means another
+// local worker already owns the reservation.
+func (service *Service) ReserveProviderWriteExecution(
+	ctx context.Context,
+	expectedVersion uint64,
+) (ProviderWriteStatus, *ProviderWriteExecution, error) {
 	runtime, err := service.requireProviderRuntime()
 	if err != nil {
-		return ProviderWriteStatus{}, err
+		return ProviderWriteStatus{}, nil, err
 	}
 	if !runtime.beginProviderWriteRun() {
-		return service.writeStatus(ctx, nil)
+		status, statusErr := service.writeStatus(ctx, nil)
+		return status, nil, statusErr
 	}
-	defer runtime.endProviderWriteRun()
-	return service.runProviderWriteOwned(ctx, runtime)
+	reserved := true
+	defer func() {
+		if reserved {
+			runtime.endProviderWriteRun()
+		}
+	}()
+
+	writeState, err := service.profile.ProviderWriteState(ctx)
+	if err != nil || writeState.Batch == nil {
+		status, statusErr := service.writeStatus(ctx, err)
+		return status, nil, statusErr
+	}
+	batch := writeState.Batch.Clone()
+	if expectedVersion != 0 && batch.Version != expectedVersion {
+		status, statusErr := service.writeStatus(ctx, provider.NewError(provider.CodeWriteStale))
+		return status, nil, statusErr
+	}
+	providerState, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return ProviderWriteStatus{}, nil, mapAppError(err, service.Revision())
+	}
+	now := runtime.now().UTC().Truncate(time.Millisecond)
+	leaseOwned := providerState.Lease != nil &&
+		providerState.Lease.OwnerID == runtime.instanceID &&
+		providerState.Lease.Kind == store.ProviderOperationWrite &&
+		providerState.Lease.ExpiresAt.After(now)
+	allowAttemptedRetry := providerWritePhaseAllowsAttemptedRetry(batch)
+	activeOwned := leaseOwned && (batch.Phase == store.WritePhaseWriting ||
+		(batch.Phase == store.WritePhaseReconciling &&
+			batch.ResumeTarget == store.WriteResumeWriting))
+	transitionRequired := !activeOwned
+	if batch.Phase == store.WritePhaseAttentionRequired &&
+		batch.AttentionClass != store.WriteAttentionRetryable {
+		status, statusErr := service.writeStatus(
+			ctx, provider.NewError(provider.CodeWriteAttentionRequired),
+		)
+		return status, nil, statusErr
+	}
+	if batch.ResumeTarget != store.WriteResumeWriting {
+		status, statusErr := service.writeStatus(
+			ctx, provider.NewError(provider.CodeWriteAttentionRequired),
+		)
+		return status, nil, statusErr
+	}
+	if transitionRequired {
+		resumed, resumeErr := service.profile.ResumeProviderWrite(
+			ctx, store.ResumeProviderWriteRequest{
+				BatchID: batch.ID, ExpectedVersion: batch.Version,
+				Lease: store.ProviderOperationLease{
+					OwnerID: runtime.instanceID, Renderer: runtime.renderer,
+					Kind:      store.ProviderOperationWrite,
+					ExpiresAt: now.Add(runtime.leaseDuration),
+				},
+				ObservedAt: now,
+			},
+		)
+		if resumeErr != nil {
+			status, statusErr := service.writeStatus(
+				ctx, mapAppError(resumeErr, service.Revision()),
+			)
+			return status, nil, statusErr
+		}
+		batch = resumed
+		providerState.Lease = &store.ProviderOperationLease{
+			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
+			Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),
+		}
+		if _, exhausted := firstExhaustedPendingWriteItem(writeState.Items); exhausted &&
+			!allowAttemptedRetry {
+			status, parkErr := service.parkProviderWriteFailure(
+				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			)
+			return status, nil, parkErr
+		}
+		if _, attempted := firstAttemptedPendingUpdateItem(writeState.Items); attempted &&
+			!allowAttemptedRetry {
+			status, parkErr := service.parkProviderWriteFailure(
+				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+			)
+			return status, nil, parkErr
+		}
+	}
+	providerState.Write = &batch
+	status := providerWriteStatusFromState(providerState)
+	execution := &ProviderWriteExecution{service: service, runtime: runtime}
+	reserved = false
+	return status, execution, nil
+}
+
+// RunProviderWrite advances one durable batch until it completes or reaches a parked phase.
+func (service *Service) RunProviderWrite(ctx context.Context) (ProviderWriteStatus, error) {
+	status, execution, err := service.ReserveProviderWriteExecution(ctx, 0)
+	if err != nil || execution == nil {
+		return status, err
+	}
+	return execution.Run(ctx)
 }
 
 func (service *Service) runProviderWriteOwned(
@@ -973,49 +1122,11 @@ func (service *Service) ResumeProviderWrite(
 	ctx context.Context,
 	expectedVersion uint64,
 ) (ProviderWriteStatus, error) {
-	runtime, err := service.requireProviderRuntime()
-	if err != nil {
-		return ProviderWriteStatus{}, err
+	status, execution, err := service.ReserveProviderWriteExecution(ctx, expectedVersion)
+	if err != nil || execution == nil {
+		return status, err
 	}
-	if !runtime.beginProviderWriteRun() {
-		return service.writeStatus(ctx, nil)
-	}
-	defer runtime.endProviderWriteRun()
-	state, err := service.profile.ProviderWriteState(ctx)
-	if err != nil || state.Batch == nil {
-		return service.writeStatus(ctx, err)
-	}
-	if state.Batch.Phase == store.WritePhaseAttentionRequired &&
-		state.Batch.AttentionClass != store.WriteAttentionRetryable {
-		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteAttentionRequired))
-	}
-	if state.Batch.ResumeTarget != store.WriteResumeWriting {
-		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteAttentionRequired))
-	}
-	now := runtime.now().UTC().Truncate(time.Millisecond)
-	allowAttemptedRetry := providerWritePhaseAllowsAttemptedRetry(*state.Batch)
-	resumed, err := service.profile.ResumeProviderWrite(ctx, store.ResumeProviderWriteRequest{
-		BatchID: state.Batch.ID, ExpectedVersion: expectedVersion,
-		Lease: store.ProviderOperationLease{
-			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
-			Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),
-		},
-		ObservedAt: now,
-	})
-	if err != nil {
-		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
-	}
-	if _, exhausted := firstExhaustedPendingWriteItem(state.Items); exhausted && !allowAttemptedRetry {
-		return service.parkProviderWriteFailure(
-			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
-		)
-	}
-	if _, attempted := firstAttemptedPendingUpdateItem(state.Items); attempted && !allowAttemptedRetry {
-		return service.parkProviderWriteFailure(
-			ctx, runtime, resumed, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
-		)
-	}
-	return service.runProviderWriteOwned(ctx, runtime)
+	return execution.Run(ctx)
 }
 
 func providerWritePhaseAllowsAttemptedRetry(batch store.WriteBatch) bool {
@@ -1032,6 +1143,16 @@ func (service *Service) StopAndReconcileProviderWrite(
 	ctx context.Context,
 	request ProviderWriteReconcileRequest,
 ) (ProviderWriteResult, error) {
+	if request.ExpectedRevision != 0 {
+		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
+			return ProviderWriteResult{}, refreshErr
+		}
+		if request.ExpectedRevision != service.Revision() {
+			return ProviderWriteResult{}, newAppError(
+				AppRevisionConflict, service.Revision(), errors.New("reconcile revision is stale"),
+			)
+		}
+	}
 	runtime, err := service.requireProviderRuntime()
 	if err != nil {
 		return ProviderWriteResult{}, err
@@ -1127,6 +1248,17 @@ func (service *Service) ConfirmProviderWriteReconcile(
 	ctx context.Context,
 	request ProviderWriteReconcileRequest,
 ) (ProviderWriteResult, error) {
+	if request.ExpectedRevision != 0 {
+		if _, refreshErr := service.Refresh(ctx); refreshErr != nil {
+			return ProviderWriteResult{}, refreshErr
+		}
+		if request.ExpectedRevision != service.Revision() {
+			return ProviderWriteResult{}, newAppError(
+				AppRevisionConflict, service.Revision(),
+				errors.New("reconcile confirmation revision is stale"),
+			)
+		}
+	}
 	runtime, err := service.requireProviderRuntime()
 	if err != nil {
 		return ProviderWriteResult{}, err
