@@ -198,6 +198,7 @@ func validFoldPlan(t *testing.T) store.FoldPlan {
 		},
 		Categories: []domain.Category{
 			{ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID, Label: "Uncategorized", CollisionKey: "uncategorized", Protected: true},
+			{ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID, Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true},
 			{ID: "category_food", GroupID: "group_living", Label: "Food", CollisionKey: "food"},
 		},
 		Transactions: []domain.TransactionRecord{{

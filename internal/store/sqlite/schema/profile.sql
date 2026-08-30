@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 10);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 11);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -79,6 +79,13 @@ INSERT INTO categories(
     'Uncategorized', 'uncategorized', 0, 1, NULL
 );
 
+INSERT INTO categories(
+    id, group_id, label, collision_key, retired, protected, merge_destination_id
+) VALUES (
+    'category_system_split', 'group_system_uncategorized',
+    'Split', 'split', 0, 1, NULL
+);
+
 CREATE TABLE transactions (
     id TEXT PRIMARY KEY CHECK(id <> ''),
     provider TEXT NOT NULL CHECK(provider <> ''),
@@ -106,6 +113,25 @@ CREATE INDEX transactions_account ON transactions(account_id);
 CREATE INDEX transactions_merchant ON transactions(merchant_id);
 CREATE INDEX transactions_category ON transactions(category_id);
 CREATE INDEX transactions_date ON transactions(transaction_date);
+
+CREATE TABLE ynab_transaction_splits (
+    parent_transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL CHECK(typeof(position) = 'integer' AND position >= 0),
+    external_id TEXT NOT NULL CHECK(external_id <> ''),
+    amount_milliunits INTEGER NOT NULL CHECK(typeof(amount_milliunits) = 'integer'),
+    amount_minor INTEGER NOT NULL CHECK(typeof(amount_minor) = 'integer'),
+    memo TEXT NOT NULL,
+    payee_external_id TEXT NOT NULL,
+    payee_label TEXT NOT NULL,
+    category_external_id TEXT NOT NULL,
+    category_label TEXT NOT NULL,
+    transfer_account_external_id TEXT NOT NULL,
+    transfer_transaction_external_id TEXT NOT NULL,
+    PRIMARY KEY(parent_transaction_id, position),
+    UNIQUE(external_id)
+) STRICT;
+
+CREATE INDEX ynab_transaction_splits_parent ON ynab_transaction_splits(parent_transaction_id);
 
 CREATE TABLE external_identities (
     entity_type TEXT NOT NULL CHECK(entity_type IN ('account', 'merchant', 'group', 'category', 'transaction')),
@@ -186,6 +212,7 @@ CREATE TABLE provider_refresh_state (
         'provider_snapshot_unstable', 'provider_refresh_in_progress',
         'provider_deletion_confirmation_required', 'provider_confirmation_invalid',
         'provider_refresh_stale', 'provider_rate_limited', 'provider_unavailable',
+        'provider_money_mismatch',
         'provider_data_invalid'
     )),
     imported_transactions INTEGER NOT NULL CHECK(

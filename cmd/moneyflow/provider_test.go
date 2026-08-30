@@ -723,7 +723,8 @@ func TestOpenMonarchCommandBuildsRuntimeWithBoundMoneyInterpretation(t *testing.
 		require.NoError(t, err)
 		return MonarchCommandRuntime{
 			Connector: &fakeMonarchConnector{}, Sessions: sessions, Credentials: vault,
-			Source: &commandProviderSource{}, InstanceID: "cli-test", Now: func() time.Time { return now },
+			ReadSource: &commandProviderSource{}, WriteSource: &commandProviderSource{},
+			InstanceID: "cli-test", Now: func() time.Time { return now },
 		}, nil
 	}}
 	opened, _, err := openMonarchCommand(context.Background(), streams, monarch.ImportConfig{})
@@ -811,10 +812,15 @@ func TestProviderReconnectRejectsDifferentMoneyInterpretationAfterDisconnect(t *
 	assert.Equal(t, uint64(1), state.Refresh.Generation)
 }
 
+type commandSource interface {
+	provider.ReaderSource
+	provider.WriterSource
+}
+
 func executeProviderCommand(
 	t *testing.T,
 	connector provider.Connector,
-	source provider.Source,
+	source commandSource,
 	prompt PromptFunc,
 	args ...string,
 ) (string, string, error) {
@@ -827,7 +833,7 @@ func executeProviderCommand(
 func executeProviderCommandRaw(
 	t *testing.T,
 	connector provider.Connector,
-	source provider.Source,
+	source commandSource,
 	prompt PromptFunc,
 	args ...string,
 ) (string, string, error) {
@@ -856,7 +862,8 @@ func executeProviderCommandRaw(
 			}
 			return MonarchCommandRuntime{
 				Connector: connector, Sessions: sessions, Credentials: credentials,
-				Source: source, InstanceID: "cli-test", Now: func() time.Time {
+				ReadSource: source, WriteSource: source,
+				InstanceID: "cli-test", Now: func() time.Time {
 					return now
 				},
 			}, nil
@@ -959,26 +966,20 @@ func (source *commandProviderSource) Changed(previous provider.SessionFingerprin
 
 type commandProviderReader commandProviderSource
 
-func (reader *commandProviderReader) ProbeIdentity(
-	context.Context,
-) (provider.ProfileIdentity, error) {
-	source := (*commandProviderSource)(reader)
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	return source.identity, nil
-}
-
 func (reader *commandProviderReader) FetchSnapshot(
 	_ context.Context,
 	progress provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	source := (*commandProviderSource)(reader)
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: 1, Total: 1, Attempt: 1})
 	}
-	return source.snapshot.Clone(), source.fetchErr
+	return provider.SnapshotResult{
+		Identity: source.identity,
+		Snapshot: source.snapshot.Clone(),
+	}, source.fetchErr
 }
 
 type recordingPrompt struct {
@@ -1107,7 +1108,8 @@ func newProviderBoundServiceForCommand(
 		snapshot: commandProviderSnapshot(t, now),
 	}
 	err = service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, WriteSource: source,
+		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "cli", InstanceID: "seed-cli",
 		Now: func() time.Time { return now }, Random: &commandRandomReader{},
 	})

@@ -39,7 +39,8 @@ type MonarchCommandRuntime struct {
 	Connector   provider.Connector
 	Sessions    MonarchSessionStore
 	Credentials MonarchCredentialVault
-	Source      provider.Source
+	ReadSource  provider.ReaderSource
+	WriteSource provider.WriterSource
 	InstanceID  string
 	Now         func() time.Time
 }
@@ -151,15 +152,19 @@ func commandOnboardingRuntime(
 			}
 			return runtime.Connector, nil
 		},
-		NewSource: func(config monarch.ImportConfig) (provider.Source, error) {
+		NewSources: func(config monarch.ImportConfig) (
+			provider.ReaderSource,
+			provider.WriterSource,
+			error,
+		) {
 			runtime, runtimeErr := factory(paths, config)
 			if runtimeErr != nil {
-				return nil, runtimeErr
+				return nil, nil, runtimeErr
 			}
-			if runtime.Source == nil {
-				return nil, errors.New("monarch source is unavailable")
+			if runtime.ReadSource == nil || runtime.WriteSource == nil {
+				return nil, nil, errors.New("monarch source is unavailable")
 			}
-			return runtime.Source, nil
+			return runtime.ReadSource, runtime.WriteSource, nil
 		},
 	}, nil
 }
@@ -295,7 +300,7 @@ func openMonarchCommand(
 		return OpenedProfile{}, MonarchCommandRuntime{}, err
 	}
 	if runtime.Connector == nil || runtime.Sessions == nil || runtime.Credentials == nil ||
-		runtime.Source == nil ||
+		runtime.ReadSource == nil || runtime.WriteSource == nil ||
 		runtime.InstanceID == "" {
 		_ = opened.Close()
 		return OpenedProfile{}, MonarchCommandRuntime{}, errors.New("monarch command dependencies are incomplete")
@@ -338,7 +343,7 @@ func defaultMonarchCommandFactory(
 	}
 	return MonarchCommandRuntime{
 		Connector: connector, Sessions: sessions, Credentials: credentials,
-		Source: source, InstanceID: instanceID, Now: time.Now,
+		ReadSource: source, WriteSource: source, InstanceID: instanceID, Now: time.Now,
 	}, nil
 }
 
@@ -380,7 +385,7 @@ func configureOpenedMonarchProvider(
 	if err != nil {
 		return err
 	}
-	if runtime.Source == nil {
+	if runtime.ReadSource == nil || runtime.WriteSource == nil {
 		return errors.New("monarch renderer source is unavailable")
 	}
 	if production {
@@ -390,7 +395,7 @@ func configureOpenedMonarchProvider(
 		}
 	}
 	return opened.Service.ConfigureProvider(app.ProviderRuntime{
-		Source: runtime.Source, Provider: "monarch",
+		ReadSource: runtime.ReadSource, WriteSource: runtime.WriteSource, Provider: "monarch",
 		Currency: importConfig.Currency, Scale: importConfig.Scale, Renderer: renderer,
 		InstanceID: runtime.InstanceID,
 	})

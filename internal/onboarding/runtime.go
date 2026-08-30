@@ -42,7 +42,7 @@ type Runtime struct {
 	Sessions     SessionStore
 	Credentials  CredentialVault
 	NewConnector func(monarch.ImportConfig) (provider.Connector, error)
-	NewSource    func(monarch.ImportConfig) (provider.Source, error)
+	NewSources   func(monarch.ImportConfig) (provider.ReaderSource, provider.WriterSource, error)
 	InstanceID   string
 	Now          func() time.Time
 }

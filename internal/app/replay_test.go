@@ -328,6 +328,10 @@ func replayProfile(t *testing.T) domain.CommittedProfile {
 				ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
 				Label: "Uncategorized", CollisionKey: "uncategorized", Protected: true,
 			},
+			{
+				ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID,
+				Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true,
+			},
 		},
 		Transactions: []domain.TransactionRecord{
 			{

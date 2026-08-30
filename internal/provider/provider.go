@@ -52,10 +52,15 @@ type Connector interface {
 	Validate(context.Context, Session) (ProfileIdentity, error)
 }
 
-// Reader probes identity and fetches one complete read-only snapshot.
+// SnapshotResult binds one complete read-only snapshot to the remote identity observed with it.
+type SnapshotResult struct {
+	Identity ProfileIdentity
+	Snapshot domain.ImportSnapshot
+}
+
+// Reader fetches one complete read-only snapshot and its stable remote identity.
 type Reader interface {
-	ProbeIdentity(context.Context) (ProfileIdentity, error)
-	FetchSnapshot(context.Context, ProgressFunc) (domain.ImportSnapshot, error)
+	FetchSnapshot(context.Context, ProgressFunc) (SnapshotResult, error)
 }
 
 // Optional preserves the difference between an omitted field and its zero value.
@@ -102,9 +107,19 @@ type Writer interface {
 // SessionFingerprint is an opaque session-file generation fingerprint.
 type SessionFingerprint string
 
-// Source opens readers and detects an atomically replaced session file.
-type Source interface {
-	Reader(context.Context, bool) (Reader, SessionFingerprint, error)
-	Writer(context.Context, bool) (Writer, SessionFingerprint, error)
+// SourceState detects an atomically replaced provider credential or session file.
+type SourceState interface {
 	Changed(SessionFingerprint) (bool, error)
+}
+
+// ReaderSource opens provider readers and observes their persisted session generation.
+type ReaderSource interface {
+	SourceState
+	Reader(context.Context, bool) (Reader, SessionFingerprint, error)
+}
+
+// WriterSource opens provider writers and observes their persisted session generation.
+type WriterSource interface {
+	SourceState
+	Writer(context.Context, bool) (Writer, SessionFingerprint, error)
 }

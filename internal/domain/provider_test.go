@@ -44,6 +44,35 @@ func TestImportSnapshotAllowsProtectedUncategorizedReferences(t *testing.T) {
 	require.NoError(t, snapshot.Validate())
 }
 
+func TestImportSnapshotValidatesSplitSystemCategoryAndStableSplitOrder(t *testing.T) {
+	t.Parallel()
+	snapshot := validImportSnapshot(t)
+	snapshot.Transactions[0].CategoryExternalID = ""
+	snapshot.Transactions[0].SystemCategoryID = SplitCategoryID
+	snapshot.Splits = []ImportTransactionSplit{
+		{ExternalID: "split-a", ParentTransactionExternalID: "transaction_a", Position: 0,
+			SourceAmount: -1000, SourceScale: 3, Amount: Money{Minor: -100, Currency: "USD", Scale: 2}},
+		{ExternalID: "split-b", ParentTransactionExternalID: "transaction_a", Position: 1,
+			SourceAmount: -11340, SourceScale: 3, Amount: Money{Minor: -1134, Currency: "USD", Scale: 2}},
+	}
+	require.NoError(t, snapshot.Validate())
+
+	clone := snapshot.Clone()
+	clone.Splits[0].Memo = "changed"
+	assert.Empty(t, snapshot.Splits[0].Memo)
+
+	mutual := snapshot.Clone()
+	mutual.Transactions[0].CategoryExternalID = "category_a"
+	assert.ErrorContains(t, mutual.Validate(), "mutually exclusive")
+	unknown := snapshot.Clone()
+	unknown.Transactions[0].SystemCategoryID = "category_system_other"
+	assert.ErrorContains(t, unknown.Validate(), "invalid system category")
+	unsorted := snapshot.Clone()
+	unsorted.Splits[0], unsorted.Splits[1] = unsorted.Splits[1], unsorted.Splits[0]
+	unsorted.Splits[0].Position, unsorted.Splits[1].Position = 0, 1
+	assert.ErrorContains(t, unsorted.Validate(), "stable order")
+}
+
 func TestImportSnapshotRejectsDuplicateExternalIdentities(t *testing.T) {
 	t.Parallel()
 

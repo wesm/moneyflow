@@ -318,8 +318,13 @@ func (runtimes *syntheticRuntimes) runtime(paths home.Paths) (onboarding.Runtime
 		NewConnector: func(config monarch.ImportConfig) (provider.Connector, error) {
 			return &syntheticConnector{profile: profile, config: config}, nil
 		},
-		NewSource: func(monarch.ImportConfig) (provider.Source, error) {
-			return &syntheticSource{profile: profile}, nil
+		NewSources: func(monarch.ImportConfig) (
+			provider.ReaderSource,
+			provider.WriterSource,
+			error,
+		) {
+			source := &syntheticSource{profile: profile}
+			return source, source, nil
 		},
 		InstanceID: "webtestserver", Now: time.Now,
 	}, nil
@@ -507,19 +512,10 @@ func (writer *syntheticWriter) DeleteTransaction(
 	return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
 }
 
-func (reader *syntheticReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	reader.profile.mu.Lock()
-	defer reader.profile.mu.Unlock()
-	if reader.profile.expired {
-		return provider.ProfileIdentity{}, provider.NewError(provider.CodeReconnectRequired)
-	}
-	return syntheticIdentity(reader.profile), nil
-}
-
 func (reader *syntheticReader) FetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	reader.profile.mu.Lock()
 	expired := reader.profile.expired
 	root := reader.profile.root
@@ -529,20 +525,24 @@ func (reader *syntheticReader) FetchSnapshot(
 	}
 	reader.profile.mu.Unlock()
 	if expired {
-		return domain.ImportSnapshot{}, provider.NewError(provider.CodeReconnectRequired)
+		return provider.SnapshotResult{}, provider.NewError(provider.CodeReconnectRequired)
 	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: 2, Total: 4, Attempt: 1, Pass: 1})
 	}
 	select {
 	case <-ctx.Done():
-		return domain.ImportSnapshot{}, ctx.Err()
+		return provider.SnapshotResult{}, ctx.Err()
 	case <-time.After(900 * time.Millisecond):
 	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: 4, Total: 4, Attempt: 1, Pass: 1})
 	}
-	return syntheticSnapshot(root, hidden)
+	snapshot, err := syntheticSnapshot(root, hidden)
+	return provider.SnapshotResult{
+		Identity: syntheticIdentity(reader.profile),
+		Snapshot: snapshot,
+	}, err
 }
 
 func syntheticIdentity(profile *syntheticProfile) provider.ProfileIdentity {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -25,7 +26,8 @@ const (
 
 // ProviderRuntime supplies the process-local dependencies for provider refresh orchestration.
 type ProviderRuntime struct {
-	Source            provider.Source
+	ReadSource        provider.ReaderSource
+	WriteSource       provider.WriterSource
 	Provider          string
 	Currency          domain.Currency
 	Scale             uint8
@@ -42,7 +44,8 @@ type ProviderRuntime struct {
 
 type providerRuntimeState struct {
 	mu                  sync.Mutex
-	source              provider.Source
+	readSource          provider.ReaderSource
+	writeSource         provider.WriterSource
 	provider            string
 	currency            domain.Currency
 	scale               uint8
@@ -148,7 +151,7 @@ func (service *Service) ProviderConnection(ctx context.Context) (ProviderConnect
 
 // ConfigureProvider installs process-local provider dependencies without reading the network.
 func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
-	if runtime.Source == nil || runtime.Provider == "" ||
+	if runtime.ReadSource == nil || runtime.Provider == "" ||
 		strings.TrimSpace(runtime.Provider) != runtime.Provider {
 		return errors.New("configure provider: source or provider is invalid")
 	}
@@ -189,7 +192,8 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 	service.interactions.Lock()
 	defer service.interactions.Unlock()
 	configured := &providerRuntimeState{
-		source: runtime.Source, provider: runtime.Provider,
+		readSource: runtime.ReadSource, writeSource: runtime.WriteSource,
+		provider: runtime.Provider,
 		currency: runtime.Currency, scale: runtime.Scale, renderer: runtime.Renderer,
 		instanceID: runtime.InstanceID, now: runtime.Now, random: runtime.Random,
 		leaseDuration: runtime.LeaseDuration, heartbeatInterval: runtime.HeartbeatInterval,
@@ -458,22 +462,19 @@ func (service *Service) fetchProviderCandidate(
 	ctx context.Context,
 	runtime *providerRuntimeState,
 ) (domain.ImportSnapshot, provider.ProfileIdentity, provider.SessionFingerprint, error) {
-	reader, fingerprint, err := runtime.source.Reader(ctx, runtime.takeForceReload())
+	reader, fingerprint, err := runtime.readSource.Reader(ctx, runtime.takeForceReload())
 	if err != nil {
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, normalizeProviderError(err)
 	}
-	identity, err := reader.ProbeIdentity(ctx)
-	if err != nil {
-		return service.retryProviderAfterSessionReload(ctx, runtime, fingerprint, err)
-	}
 	progress := service.providerProgressCallback(ctx, runtime)
-	candidate, err := reader.FetchSnapshot(ctx, progress)
+	result, err := reader.FetchSnapshot(ctx, progress)
 	if err != nil {
 		return service.retryProviderAfterSessionReload(ctx, runtime, fingerprint, err)
 	}
+	candidate := result.Snapshot
+	identity := result.Identity
 	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
-		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint,
-			provider.NewError(provider.CodeDataInvalid)
+		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint, err
 	}
 	runtime.setFingerprint(fingerprint, false)
 	return candidate, identity, fingerprint, nil
@@ -559,27 +560,22 @@ func (service *Service) retryProviderAfterSessionReload(
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint,
 			normalizeProviderError(failure)
 	}
-	reader, replacement, err := runtime.source.Reader(ctx, true)
+	reader, replacement, err := runtime.readSource.Reader(ctx, true)
 	if err != nil {
 		runtime.setFingerprint(fingerprint, true)
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, fingerprint,
 			provider.NewError(provider.CodeReconnectRequired)
 	}
-	identity, err := reader.ProbeIdentity(ctx)
+	result, err := reader.FetchSnapshot(ctx, service.providerProgressCallback(ctx, runtime))
 	if err != nil {
 		runtime.setFingerprint(replacement, true)
 		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement,
 			normalizeProviderError(err)
 	}
-	candidate, err := reader.FetchSnapshot(ctx, service.providerProgressCallback(ctx, runtime))
-	if err != nil {
-		runtime.setFingerprint(replacement, true)
-		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement,
-			normalizeProviderError(err)
-	}
+	candidate := result.Snapshot
+	identity := result.Identity
 	if err = normalizeProviderSnapshot(&candidate, runtime.currency, runtime.scale); err != nil {
-		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement,
-			provider.NewError(provider.CodeDataInvalid)
+		return domain.ImportSnapshot{}, provider.ProfileIdentity{}, replacement, err
 	}
 	runtime.setFingerprint(replacement, false)
 	return candidate, identity, replacement, nil
@@ -595,10 +591,13 @@ func normalizeProviderSnapshot(
 	candidate.ObservedAt = candidate.ObservedAt.UTC().Truncate(time.Millisecond)
 	for _, transaction := range candidate.Transactions {
 		if transaction.Amount.Currency != currency || transaction.Amount.Scale != scale {
-			return errors.New("provider snapshot money interpretation does not match its runtime")
+			return provider.NewError(provider.CodeMoneyMismatch)
 		}
 	}
-	return candidate.Validate()
+	if err := candidate.Validate(); err != nil {
+		return provider.NewError(provider.CodeDataInvalid)
+	}
+	return nil
 }
 
 func (service *Service) providerProgressCallback(
@@ -788,15 +787,20 @@ func buildProviderRefreshPlan(
 	if err != nil {
 		return store.RefreshPlan{}, nil, err
 	}
+	ynabSplits, err := buildYNABSplitPlan(providerName, inputs.Candidate, identities.Committed)
+	if err != nil {
+		return store.RefreshPlan{}, nil, err
+	}
 	_, removedTransactions := providerRemovalCounts(
 		inputs.Snapshot.Committed,
 		inputs.Candidate,
 		providerName,
 	)
-	return store.RefreshPlan{
+	plan := store.RefreshPlan{
 		Committed: identities.Committed, Effective: replayed.Effective,
 		Journal: rebased.Journal, Cursor: rebased.Cursor, KnownDrills: known,
 		Allocations: identities.Allocations, Lineage: identities.Lineage,
+		YNABSplits: ynabSplits,
 		Summary: store.RefreshSummary{
 			ImportedAccounts:        len(inputs.Candidate.Accounts),
 			ImportedMerchants:       len(inputs.Candidate.Merchants),
@@ -810,7 +814,57 @@ func buildProviderRefreshPlan(
 			RebasedHideTargets:      rebased.Summary.RebasedHideTargets,
 			DiscardedRedoOperations: rebased.Summary.DiscardedRedoOperations,
 		},
-	}, rebased.Details, nil
+	}
+	plan.SemanticChange = !reflect.DeepEqual(inputs.Snapshot.Committed, plan.Committed) ||
+		!logicalSliceEqual(inputs.Snapshot.Journal, plan.Journal) ||
+		inputs.Snapshot.Cursor != plan.Cursor ||
+		!logicalSliceEqual(inputs.Snapshot.KnownDrills, plan.KnownDrills) ||
+		!logicalSliceEqual(inputs.Allocations, plan.Allocations) ||
+		!logicalSliceEqual(inputs.Lineage, plan.Lineage) ||
+		!logicalSliceEqual(inputs.YNABSplits, plan.YNABSplits)
+	return plan, rebased.Details, nil
+}
+
+func logicalSliceEqual[T any](left, right []T) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(left, right)
+}
+
+func buildYNABSplitPlan(
+	providerName string,
+	candidate domain.ImportSnapshot,
+	committed domain.CommittedProfile,
+) ([]store.YNABTransactionSplit, error) {
+	if providerName != "ynab" {
+		if len(candidate.Splits) != 0 {
+			return nil, errors.New("plan provider refresh: non-YNAB candidate contains split details")
+		}
+		return nil, nil
+	}
+	parents := make(map[string]domain.EntityID, len(committed.Transactions))
+	for _, transaction := range committed.Transactions {
+		if transaction.Provider == providerName {
+			parents[transaction.ProviderID] = transaction.ID
+		}
+	}
+	result := make([]store.YNABTransactionSplit, 0, len(candidate.Splits))
+	for _, split := range candidate.Splits {
+		parentID, ok := parents[split.ParentTransactionExternalID]
+		if !ok {
+			return nil, errors.New("plan provider refresh: YNAB split parent is not materialized")
+		}
+		result = append(result, store.YNABTransactionSplit{
+			ParentTransactionID: parentID, Position: split.Position, ExternalID: split.ExternalID,
+			AmountMilliunits: split.SourceAmount, AmountMinor: split.Amount.Minor, Memo: split.Memo,
+			PayeeExternalID: split.PayeeExternalID, PayeeLabel: split.PayeeLabel,
+			CategoryExternalID: split.CategoryExternalID, CategoryLabel: split.CategoryLabel,
+			TransferAccountExternalID:     split.TransferAccountExternalID,
+			TransferTransactionExternalID: split.TransferTransactionExternalID,
+		})
+	}
+	return result, nil
 }
 
 // BuildProviderRefreshPlanReference runs the complete deterministic provider refresh planner.

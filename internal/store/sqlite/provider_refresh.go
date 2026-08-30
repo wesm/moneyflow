@@ -73,11 +73,11 @@ func (profile *profile) ApplyProviderRefresh(
 	if err = snapshot.Validate(); err != nil {
 		return store.RefreshCommit{}, store.NewError(store.CodeStoreCorrupt, err)
 	}
-	binding, err := loadProviderBinding(ctx, connection)
+	currentBinding, err := loadProviderBinding(ctx, connection)
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
-	binding, err = resolveRefreshBinding(ctx, connection, binding, request.Binding)
+	binding, err := resolveRefreshBinding(ctx, connection, currentBinding, request.Binding)
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
@@ -89,12 +89,17 @@ func (profile *profile) ApplyProviderRefresh(
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
+	ynabSplits, err := loadYNABTransactionSplits(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
 	inputs := store.RefreshInputs{
 		Snapshot: snapshot.Clone(), Binding: cloneProviderBinding(binding), Refresh: refresh,
 		Allocations: append([]store.LabelAllocation(nil), allocations...),
 		Lineage:     append([]store.ProviderIdentityLineage(nil), lineage...),
 		Candidate:   request.Candidate.Clone(), ProposedIDs: cloneEntityIDMap(request.ProposedIDs),
 		ProposedSuffixes: cloneStringMap(request.ProposedSuffixes), ObservedAt: request.ObservedAt,
+		YNABSplits: append([]store.YNABTransactionSplit(nil), ynabSplits...),
 	}
 	plan, err := planner(inputs)
 	if err != nil {
@@ -112,6 +117,40 @@ func (profile *profile) ApplyProviderRefresh(
 			err,
 		)
 	}
+	semanticChange := currentBinding == nil ||
+		!reflect.DeepEqual(snapshot.Committed, plan.Committed) ||
+		!refreshSliceEqual(snapshot.Journal, plan.Journal) || snapshot.Cursor != plan.Cursor ||
+		!refreshSliceEqual(snapshot.KnownDrills, plan.KnownDrills) ||
+		!refreshSliceEqual(allocations, plan.Allocations) ||
+		!refreshSliceEqual(lineage, plan.Lineage) ||
+		!refreshSliceEqual(ynabSplits, plan.YNABSplits)
+	if semanticChange != plan.SemanticChange {
+		return store.RefreshCommit{}, store.NewInvalidOperationError(
+			store.InvalidOperationRefreshPlan,
+			errors.New("refresh semantic-change flag does not match authoritative comparison"),
+		)
+	}
+	if !semanticChange {
+		if err = updateRefreshSuccess(
+			ctx, connection, refresh.Generation, refresh.Generation, request.ObservedAt, plan.Summary,
+		); err != nil {
+			return store.RefreshCommit{}, err
+		}
+		if _, err = connection.ExecContext(ctx, `
+			DELETE FROM provider_operation_lease
+			WHERE singleton = 1 AND owner_id = ? AND operation_kind = 'refresh'`,
+			request.LeaseOwnerID,
+		); err != nil {
+			return store.RefreshCommit{}, mapDriverError(err, store.CodeStoreError)
+		}
+		if err = finish(true); err != nil {
+			return store.RefreshCommit{}, err
+		}
+		return store.RefreshCommit{
+			Revision: snapshot.Revision, Generation: refresh.Generation,
+			Summary: plan.Summary, SemanticChange: false,
+		}, nil
+	}
 
 	if err = applyProviderCommitted(
 		ctx, connection, snapshot.Committed, plan.Committed,
@@ -126,6 +165,9 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, err
 	}
 	if err = replaceProviderIdentityLineage(ctx, connection, plan.Lineage); err != nil {
+		return store.RefreshCommit{}, err
+	}
+	if err = replaceYNABTransactionSplits(ctx, connection, plan.YNABSplits); err != nil {
 		return store.RefreshCommit{}, err
 	}
 	if err = persistRefreshBinding(ctx, connection, binding); err != nil {
@@ -164,6 +206,7 @@ func (profile *profile) ApplyProviderRefresh(
 	}
 	return store.RefreshCommit{
 		Revision: nextRevision, Generation: nextGeneration, Summary: plan.Summary,
+		SemanticChange: true,
 	}, nil
 }
 
@@ -328,6 +371,9 @@ func validateRefreshPlan(
 	); err != nil {
 		return err
 	}
+	if err = validateYNABSplitPlan(binding, candidate, plan.Committed, plan.YNABSplits); err != nil {
+		return err
+	}
 	if err = validateRefreshSummary(plan.Summary); err != nil {
 		return err
 	}
@@ -339,6 +385,113 @@ func validateRefreshPlan(
 		return errors.New("refresh imported counts do not match candidate")
 	}
 	return validateLabelAllocations(plan.Allocations)
+}
+
+func loadYNABTransactionSplits(
+	ctx context.Context,
+	queryer snapshotQueryer,
+) ([]store.YNABTransactionSplit, error) {
+	rows, err := queryer.QueryContext(ctx, `
+		SELECT parent_transaction_id, position, external_id, amount_milliunits, amount_minor,
+			memo, payee_external_id, payee_label, category_external_id, category_label,
+			transfer_account_external_id, transfer_transaction_external_id
+		FROM ynab_transaction_splits ORDER BY parent_transaction_id, position`)
+	if err != nil {
+		return nil, loadFailure(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var result []store.YNABTransactionSplit
+	for rows.Next() {
+		var split store.YNABTransactionSplit
+		if err = rows.Scan(
+			&split.ParentTransactionID, &split.Position, &split.ExternalID,
+			&split.AmountMilliunits, &split.AmountMinor, &split.Memo,
+			&split.PayeeExternalID, &split.PayeeLabel,
+			&split.CategoryExternalID, &split.CategoryLabel,
+			&split.TransferAccountExternalID, &split.TransferTransactionExternalID,
+		); err != nil {
+			return nil, loadFailure(err)
+		}
+		result = append(result, split)
+	}
+	return result, loadRowsError(rows)
+}
+
+func validateYNABSplitPlan(
+	binding *store.ProviderBinding,
+	candidate domain.ImportSnapshot,
+	committed domain.CommittedProfile,
+	splits []store.YNABTransactionSplit,
+) error {
+	if binding == nil {
+		return errors.New("refresh split plan requires a binding")
+	}
+	if binding.Kind != "ynab" {
+		if len(candidate.Splits) != 0 || len(splits) != 0 {
+			return errors.New("non-YNAB refresh contains split rows")
+		}
+		return nil
+	}
+	parents := make(map[string]domain.EntityID, len(committed.Transactions))
+	for _, transaction := range committed.Transactions {
+		if transaction.Provider == binding.Kind {
+			parents[transaction.ProviderID] = transaction.ID
+		}
+	}
+	if len(splits) != len(candidate.Splits) {
+		return errors.New("YNAB split plan does not completely replace the candidate")
+	}
+	seen := make(map[string]struct{}, len(splits))
+	positions := make(map[domain.EntityID]int)
+	for index, split := range splits {
+		candidateSplit := candidate.Splits[index]
+		parentID, ok := parents[candidateSplit.ParentTransactionExternalID]
+		if !ok || split.ParentTransactionID != parentID || split.Position != positions[parentID] ||
+			split.Position != candidateSplit.Position || split.ExternalID != candidateSplit.ExternalID ||
+			split.AmountMilliunits != candidateSplit.SourceAmount ||
+			split.AmountMinor != candidateSplit.Amount.Minor || split.Memo != candidateSplit.Memo ||
+			split.PayeeExternalID != candidateSplit.PayeeExternalID ||
+			split.PayeeLabel != candidateSplit.PayeeLabel ||
+			split.CategoryExternalID != candidateSplit.CategoryExternalID ||
+			split.CategoryLabel != candidateSplit.CategoryLabel ||
+			split.TransferAccountExternalID != candidateSplit.TransferAccountExternalID ||
+			split.TransferTransactionExternalID != candidateSplit.TransferTransactionExternalID {
+			return errors.New("YNAB split plan does not match the candidate")
+		}
+		if _, duplicate := seen[split.ExternalID]; duplicate {
+			return errors.New("YNAB split plan contains a duplicate external identity")
+		}
+		seen[split.ExternalID] = struct{}{}
+		positions[parentID]++
+	}
+	return nil
+}
+
+func replaceYNABTransactionSplits(
+	ctx context.Context,
+	connection *sql.Conn,
+	splits []store.YNABTransactionSplit,
+) error {
+	if _, err := connection.ExecContext(ctx, "DELETE FROM ynab_transaction_splits"); err != nil {
+		return mapDriverError(err, store.CodeStoreError)
+	}
+	for _, split := range splits {
+		if _, err := connection.ExecContext(ctx, `
+			INSERT INTO ynab_transaction_splits(
+				parent_transaction_id, position, external_id, amount_milliunits, amount_minor,
+				memo, payee_external_id, payee_label, category_external_id, category_label,
+				transfer_account_external_id, transfer_transaction_external_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			split.ParentTransactionID, split.Position, split.ExternalID,
+			split.AmountMilliunits, split.AmountMinor, split.Memo,
+			split.PayeeExternalID, split.PayeeLabel,
+			split.CategoryExternalID, split.CategoryLabel,
+			split.TransferAccountExternalID, split.TransferTransactionExternalID,
+		); err != nil {
+			return mapDriverError(err, store.CodeStoreError)
+		}
+	}
+	return nil
 }
 
 func requireDurableEntityIDs(before, after domain.CommittedProfile) error {
@@ -586,7 +739,9 @@ func validateCandidateMaterialization(
 		merchantID, merchantErr := resolve(domain.EntityKindMerchant, imported.MerchantExternalID)
 		categoryID := domain.UncategorizedCategoryID
 		var categoryErr error
-		if imported.CategoryExternalID != "" {
+		if imported.SystemCategoryID != "" {
+			categoryID = imported.SystemCategoryID
+		} else if imported.CategoryExternalID != "" {
 			categoryID, categoryErr = resolve(
 				domain.EntityKindCategory,
 				imported.CategoryExternalID,
@@ -1159,6 +1314,13 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return clone
 }
 
+func refreshSliceEqual[T any](left, right []T) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	return reflect.DeepEqual(left, right)
+}
+
 func cloneRefreshPlan(plan store.RefreshPlan) store.RefreshPlan {
 	plan.Committed = plan.Committed.Clone()
 	plan.Effective = plan.Effective.Clone()
@@ -1170,6 +1332,7 @@ func cloneRefreshPlan(plan store.RefreshPlan) store.RefreshPlan {
 	plan.KnownDrills = append([]domain.DrillIdentity(nil), plan.KnownDrills...)
 	plan.Allocations = append([]store.LabelAllocation(nil), plan.Allocations...)
 	plan.Lineage = append([]store.ProviderIdentityLineage(nil), plan.Lineage...)
+	plan.YNABSplits = append([]store.YNABTransactionSplit(nil), plan.YNABSplits...)
 	for index := range plan.Allocations {
 		if plan.Allocations[index].ProviderLabel == "" {
 			plan.Allocations[index].ProviderLabel = plan.Allocations[index].DisplayLabel
@@ -1214,7 +1377,14 @@ func CanonicalRefreshPlan(plan store.RefreshPlan) ([]byte, error) {
 		}
 		return strings.Compare(a.ExternalID, b.ExternalID)
 	})
+	slices.SortFunc(plan.YNABSplits, func(a, b store.YNABTransactionSplit) int {
+		if order := strings.Compare(string(a.ParentTransactionID), string(b.ParentTransactionID)); order != 0 {
+			return order
+		}
+		return a.Position - b.Position
+	})
 	plan.Effective = domain.CommittedProfile{}
+	plan.SemanticChange = false
 	plan.Summary = store.RefreshSummary{
 		ImportedTransactions: plan.Summary.ImportedTransactions,
 		RemovedTransactions:  plan.Summary.RemovedTransactions,

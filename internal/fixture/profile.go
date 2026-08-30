@@ -27,11 +27,9 @@ func CommittedProfile(transactions []domain.Transaction) (domain.CommittedProfil
 			CollisionKey: "uncategorized", Protected: true,
 		},
 	}
-	categories := map[domain.EntityID]domain.Category{
-		domain.UncategorizedCategoryID: {
-			ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
-			Label: "Uncategorized", CollisionKey: "uncategorized", Protected: true,
-		},
+	categories := make(map[domain.EntityID]domain.Category)
+	for _, category := range domain.ProtectedCategories() {
+		categories[category.ID] = category
 	}
 	records := make([]domain.TransactionRecord, 0, len(transactions))
 	external := make(map[string]domain.ExternalIdentity)

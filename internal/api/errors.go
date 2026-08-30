@@ -50,6 +50,8 @@ const (
 	CodeProviderRateLimited ErrorCode = "provider_rate_limited"
 	// CodeProviderUnavailable reports exhausted transient provider failures.
 	CodeProviderUnavailable ErrorCode = "provider_unavailable"
+	// CodeProviderMoneyMismatch rejects a remote currency or scale outside the profile binding.
+	CodeProviderMoneyMismatch ErrorCode = "provider_money_mismatch"
 	// CodeProviderDataInvalid rejects provider data that violates domain invariants.
 	CodeProviderDataInvalid ErrorCode = "provider_data_invalid"
 	// CodeProfileNotFound reports an absent local profile.

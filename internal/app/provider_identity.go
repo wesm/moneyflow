@@ -289,7 +289,7 @@ func (planner *identityPlanner) planDimensions() error {
 					ID: localID, Label: label, CollisionKey: collisionKey,
 				}
 			case domain.EntityKindCategory:
-				if localID == domain.UncategorizedCategoryID {
+				if localID == domain.UncategorizedCategoryID || localID == domain.SplitCategoryID {
 					return errors.New("plan provider identities: provider category uses protected local ID")
 				}
 				parentID := domain.UncategorizedGroupID
@@ -337,7 +337,9 @@ func (planner *identityPlanner) planTransactions() error {
 			return err
 		}
 		categoryID := domain.UncategorizedCategoryID
-		if imported.CategoryExternalID != "" {
+		if imported.SystemCategoryID != "" {
+			categoryID = imported.SystemCategoryID
+		} else if imported.CategoryExternalID != "" {
 			categoryID, err = planner.resolveExistingIdentity(
 				domain.EntityKindCategory, imported.CategoryExternalID,
 			)

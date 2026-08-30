@@ -249,8 +249,9 @@ func TestProviderWriteHeartbeatRenewsLeaseDuringSlowRequest(t *testing.T) {
 			}, nil
 		},
 	}
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		ReadSource: source, WriteSource: source,
 		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-heartbeat", Now: clock,
 		Random: &incrementingReader{}, LeaseDuration: 60 * time.Millisecond,
@@ -325,8 +326,9 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 			}, nil
 		},
 	}
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		ReadSource: source, WriteSource: source,
 		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-heartbeat-loss", Now: clock,
 		Random: &incrementingReader{}, LeaseDuration: 20 * time.Millisecond,
@@ -408,8 +410,9 @@ func TestProviderWriteHeartbeatErrorWithLiveLeaseNeverResendsAttemptedItem(t *te
 			return provider.TransactionUpdateResult{}, ctx.Err()
 		},
 	}
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		ReadSource: source, WriteSource: source,
 		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "web", InstanceID: "instance-live-lease", Now: func() time.Time { return now },
 		Random: &incrementingReader{}, LeaseDuration: time.Minute,
@@ -538,8 +541,9 @@ func TestProviderWriteStatusTreatsExpiredLeaseAsOwnerless(t *testing.T) {
 	}
 	writer := &scriptedProviderWriter{identity: reader.identity}
 	clock := now
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		ReadSource: source, WriteSource: source,
 		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "web", InstanceID: "instance-expired", Now: func() time.Time { return clock },
 		Random: &incrementingReader{}, LeaseDuration: time.Minute,
@@ -843,7 +847,8 @@ func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	sleeps := 0
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, WriteSource: source,
+		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-retry", Now: func() time.Time { return now },
 		Random: &incrementingReader{},
 		Sleep: func(context.Context, time.Duration) error {
@@ -1430,8 +1435,9 @@ func TestProviderWriteDeleteUnknownOutcomeUsesBoundedResendBudget(t *testing.T) 
 		},
 	}
 	sleeps := 0
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source:   &writeProviderSource{fakeProviderSource: reader, writer: writer},
+		ReadSource: source, WriteSource: source,
 		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-delete-retry", Now: func() time.Time { return now },
 		Random: &incrementingReader{}, Sleep: func(context.Context, time.Duration) error {

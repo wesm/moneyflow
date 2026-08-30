@@ -106,7 +106,7 @@ func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) 
 				snapshot: providerSnapshot(t, current, 30), fingerprint: "session-a",
 			}
 			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-				Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+				ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 				Renderer: "tui", InstanceID: "instance-a",
 				Now: func() time.Time { return current }, Random: &incrementingReader{},
 				ConfirmationTTL: time.Minute,
@@ -126,7 +126,9 @@ func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) 
 			} else {
 				other, otherErr := app.NewProfileService(ctx, profileHandle)
 				require.NoError(t, otherErr)
-				source.setSnapshot(providerSnapshot(t, current, 30))
+				changed := providerSnapshot(t, current, 30)
+				changed.Transactions[0].Notes = "provider change"
+				source.setSnapshot(changed)
 				configureProviderRefreshService(t, other, source, current, "instance-b")
 				_, otherErr = other.RefreshProvider(ctx, app.ProviderRefreshRequest{
 					Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),

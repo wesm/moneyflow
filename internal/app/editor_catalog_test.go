@@ -22,9 +22,10 @@ func TestEditorCatalogReturnsSortedActiveDetachedChoices(t *testing.T) {
 	require.NotEmpty(t, catalog.Merchants)
 	require.NotEmpty(t, catalog.Categories)
 	require.NotEmpty(t, catalog.Groups)
-	assert.Equal(t, domain.UncategorizedCategoryID, catalog.Categories[0].ID)
+	assert.Equal(t, domain.SplitCategoryID, catalog.Categories[0].ID)
 	assert.True(t, catalog.Categories[0].Protected)
-	for _, values := range [][]app.EditorChoice{catalog.Merchants, catalog.Categories[1:], catalog.Groups} {
+	assert.Equal(t, domain.UncategorizedCategoryID, catalog.Categories[1].ID)
+	for _, values := range [][]app.EditorChoice{catalog.Merchants, catalog.Categories[2:], catalog.Groups} {
 		for index := 1; index < len(values); index++ {
 			assert.LessOrEqual(t, values[index-1].Label, values[index].Label)
 		}

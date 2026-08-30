@@ -12,7 +12,7 @@ import (
 	"github.com/wesm/moneyflow/internal/store"
 )
 
-func TestProviderRefreshRandomizedPlansMatchReopenedCommittedState(t *testing.T) {
+func TestProviderRefreshReferenceMatchesOptimized(t *testing.T) {
 	t.Parallel()
 
 	for seed := 1; seed <= 8; seed++ {

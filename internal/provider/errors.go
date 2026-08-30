@@ -31,6 +31,7 @@ const (
 const (
 	CodeReconnectRequired            ErrorCode = "provider_reconnect_required"
 	CodeIdentityMismatch             ErrorCode = "provider_identity_mismatch"
+	CodeMoneyMismatch                ErrorCode = "provider_money_mismatch"
 	CodeSnapshotUnstable             ErrorCode = "provider_snapshot_unstable"
 	CodeRefreshInProgress            ErrorCode = "provider_refresh_in_progress"
 	CodeDeletionConfirmationRequired ErrorCode = "provider_deletion_confirmation_required"
@@ -62,6 +63,7 @@ const (
 var errorDetails = map[ErrorCode]string{
 	CodeReconnectRequired:            "reconnect through the CLI",
 	CodeIdentityMismatch:             "the remote profile does not match this local profile",
+	CodeMoneyMismatch:                "the remote currency or scale does not match this profile",
 	CodeSnapshotUnstable:             "the provider snapshot changed while it was read",
 	CodeRefreshInProgress:            "another process is refreshing this profile",
 	CodeDeletionConfirmationRequired: "confirm the proposed remote removals",
@@ -101,6 +103,7 @@ var dataInvalidDetails = map[DataInvalidReason]string{
 var errorCodes = []ErrorCode{
 	CodeReconnectRequired,
 	CodeIdentityMismatch,
+	CodeMoneyMismatch,
 	CodeSnapshotUnstable,
 	CodeRefreshInProgress,
 	CodeDeletionConfirmationRequired,

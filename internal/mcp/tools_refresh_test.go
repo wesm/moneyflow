@@ -54,7 +54,7 @@ func TestRefreshToolReturnsPromptlyAndRecoversLostResponse(t *testing.T) {
 		return status["state"] == "completed"
 	}, time.Second, time.Millisecond)
 	terminal := callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
-	assert.Equal(t, "2", terminal["generation"])
+	assert.Equal(t, "1", terminal["generation"])
 	assert.Empty(t, terminal["confirmation_token"])
 }
 
@@ -188,7 +188,7 @@ func refreshTestService(t *testing.T, transactionCount int) (*app.Service, *refr
 	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
 	source := &refreshTestSource{snapshot: refreshTestSnapshot(t, now, transactionCount)}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
 		Random: cryptorand.Reader,
 	}))
@@ -238,11 +238,10 @@ func (source *refreshTestSource) fetchCalls() int {
 
 type refreshTestReader refreshTestSource
 
-func (*refreshTestReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	return provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-a"}, nil
-}
-
-func (reader *refreshTestReader) FetchSnapshot(ctx context.Context, progress provider.ProgressFunc) (domain.ImportSnapshot, error) {
+func (reader *refreshTestReader) FetchSnapshot(
+	ctx context.Context,
+	progress provider.ProgressFunc,
+) (provider.SnapshotResult, error) {
 	source := (*refreshTestSource)(reader)
 	source.mu.Lock()
 	snapshot := source.snapshot.Clone()
@@ -254,14 +253,17 @@ func (reader *refreshTestReader) FetchSnapshot(ctx context.Context, progress pro
 		close(started)
 		select {
 		case <-ctx.Done():
-			return domain.ImportSnapshot{}, ctx.Err()
+			return provider.SnapshotResult{}, ctx.Err()
 		case <-release:
 		}
 	}
 	if progress != nil {
 		progress(provider.Progress{Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
-	return snapshot, nil
+	return provider.SnapshotResult{
+		Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-a"},
+		Snapshot: snapshot,
+	}, nil
 }
 
 func refreshTestSnapshot(t *testing.T, observedAt time.Time, count int) domain.ImportSnapshot {

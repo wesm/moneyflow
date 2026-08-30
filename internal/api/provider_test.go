@@ -199,7 +199,8 @@ func newProviderAPIFixture(t testing.TB, basePath string, count int) providerAPI
 		snapshot: apiProviderSnapshot(t, now, count), fingerprint: "session-a",
 	}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, WriteSource: source,
+		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "web", InstanceID: "instance-web",
 		Now: func() time.Time { return now }, Random: &apiIncrementingReader{},
 	}))
@@ -318,20 +319,14 @@ func (source *apiProviderSource) blockNextFetch(started, release chan struct{}) 
 
 type apiProviderReader apiProviderSource
 
-func (reader *apiProviderReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	source := (*apiProviderSource)(reader)
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	return source.identity, nil
-}
-
 func (reader *apiProviderReader) FetchSnapshot(
 	_ context.Context,
 	progress provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	source := (*apiProviderSource)(reader)
 	source.mu.Lock()
 	snapshot := source.snapshot.Clone()
+	identity := source.identity
 	started := source.fetchStarted
 	release := source.fetchRelease
 	source.fetchStarted = nil
@@ -344,7 +339,7 @@ func (reader *apiProviderReader) FetchSnapshot(
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
-	return snapshot, nil
+	return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, nil
 }
 
 type apiIncrementingReader struct {

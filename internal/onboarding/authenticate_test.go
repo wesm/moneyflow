@@ -119,7 +119,13 @@ func newAuthenticationCoordinator(
 				NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
 					return connector, nil
 				},
-				NewSource:  func(monarch.ImportConfig) (provider.Source, error) { return pendingProviderSource{}, nil },
+				NewSources: func(monarch.ImportConfig) (
+					provider.ReaderSource,
+					provider.WriterSource,
+					error,
+				) {
+					return pendingProviderSource{}, pendingProviderSource{}, nil
+				},
 				InstanceID: "provider-instance",
 				Now:        func() time.Time { return time.Unix(59, 0).UTC() },
 			}, nil

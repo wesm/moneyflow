@@ -28,6 +28,12 @@ const (
 	UncategorizedGroupID EntityID = "group_system_uncategorized"
 	// UncategorizedCategoryID is the protected fallback category.
 	UncategorizedCategoryID EntityID = "category_system_uncategorized"
+	// SplitCategoryID is the protected visible category for split parents.
+	SplitCategoryID EntityID = "category_system_split"
+	// SplitLabel is the immutable protected split-category label.
+	SplitLabel = "Split"
+	// SplitCollisionKey is the immutable protected split-category collision key.
+	SplitCollisionKey = "split"
 	// UncategorizedLabel is the immutable display label for both protected sentinels.
 	UncategorizedLabel = "Uncategorized"
 	// UncategorizedCollisionKey is the immutable collision key for both protected sentinels.
@@ -70,6 +76,20 @@ type Category struct {
 	Protected        bool
 	Retired          bool
 	MergeDestination *EntityID
+}
+
+// ProtectedCategories returns detached definitions for every installed system category.
+func ProtectedCategories() []Category {
+	return []Category{
+		{
+			ID: UncategorizedCategoryID, GroupID: UncategorizedGroupID,
+			Label: UncategorizedLabel, CollisionKey: UncategorizedCollisionKey, Protected: true,
+		},
+		{
+			ID: SplitCategoryID, GroupID: UncategorizedGroupID,
+			Label: SplitLabel, CollisionKey: SplitCollisionKey, Protected: true,
+		},
+	}
 }
 
 // TransactionRecord stores one committed transaction using only stable local references.

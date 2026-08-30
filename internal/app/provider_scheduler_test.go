@@ -126,6 +126,7 @@ func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {
 	for _, code := range []provider.ErrorCode{
 		provider.CodeReconnectRequired,
 		provider.CodeIdentityMismatch,
+		provider.CodeMoneyMismatch,
 		provider.CodeDeletionConfirmationRequired,
 		provider.CodeConfirmationInvalid,
 		provider.CodeDataInvalid,

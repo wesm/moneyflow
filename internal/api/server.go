@@ -538,7 +538,7 @@ func problemFromError(err error) *Problem {
 		case app.AppProviderSnapshotUnstable, app.AppProviderRefreshInProgress,
 			app.AppProviderRateLimited, app.AppProviderUnavailable:
 			status = http.StatusServiceUnavailable
-		case app.AppProviderDataInvalid:
+		case app.AppProviderMoneyMismatch, app.AppProviderDataInvalid:
 			status = http.StatusUnprocessableEntity
 		case app.AppProviderWriteInProgress, app.AppProviderWriteNotEligible:
 			status = http.StatusServiceUnavailable

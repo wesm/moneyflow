@@ -61,7 +61,7 @@ func TestCategoryEditorAssignsExistingCategory(t *testing.T) {
 	require.NotEmpty(t, destination.ID)
 
 	model = press(t, model, keyRune('c'))
-	assert.Equal(t, domain.UncategorizedCategoryID, model.category.choices[0].ID)
+	assert.Equal(t, domain.SplitCategoryID, model.category.choices[0].ID)
 	model = typeText(t, model, destination.Label)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)

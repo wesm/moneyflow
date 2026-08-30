@@ -252,11 +252,7 @@ func seedTestProfile(t *testing.T, paths home.Paths) {
 			ID: domain.UncategorizedGroupID, Label: domain.UncategorizedLabel,
 			CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
 		}},
-		Categories: []domain.Category{{
-			ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
-			Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey,
-			Protected: true,
-		}},
+		Categories: domain.ProtectedCategories(),
 	})
 	require.NoError(t, err)
 	require.NoError(t, handle.Close())

@@ -36,6 +36,7 @@ const (
 	AppProviderRefreshStale                 AppErrorCode = "provider_refresh_stale"
 	AppProviderRateLimited                  AppErrorCode = "provider_rate_limited"
 	AppProviderUnavailable                  AppErrorCode = "provider_unavailable"
+	AppProviderMoneyMismatch                AppErrorCode = "provider_money_mismatch"
 	AppProviderDataInvalid                  AppErrorCode = "provider_data_invalid"
 	AppProviderWriteInProgress              AppErrorCode = "provider_write_in_progress"
 	AppProviderWriteAttentionRequired       AppErrorCode = "provider_write_attention_required"
@@ -68,6 +69,7 @@ var appErrorDetails = map[AppErrorCode]string{
 	AppProviderRefreshStale:                 "A newer provider refresh already committed.",
 	AppProviderRateLimited:                  "The provider rate limit prevented refresh.",
 	AppProviderUnavailable:                  "The provider is temporarily unavailable.",
+	AppProviderMoneyMismatch:                "The provider currency or scale does not match this profile.",
 	AppProviderDataInvalid:                  "The provider returned invalid data.",
 	AppProviderWriteInProgress:              "Another process is writing this profile.",
 	AppProviderWriteAttentionRequired:       "The provider write requires attention.",

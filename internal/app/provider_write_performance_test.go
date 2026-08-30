@@ -152,6 +152,8 @@ func providerWritePerformanceInput(
 			{ID: "category-b", GroupID: "group-performance", Label: "Category B", CollisionKey: "category b"},
 			{ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
 				Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey, Protected: true},
+			{ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID,
+				Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true},
 		},
 	}
 	profile.ExternalIdentities = []domain.ExternalIdentity{

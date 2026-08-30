@@ -346,11 +346,7 @@ func emptyProviderProfile() domain.CommittedProfile {
 			ID: domain.UncategorizedGroupID, Label: domain.UncategorizedLabel,
 			CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
 		}},
-		Categories: []domain.Category{{
-			ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
-			Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey,
-			Protected: true,
-		}},
+		Categories: domain.ProtectedCategories(),
 	}
 }
 

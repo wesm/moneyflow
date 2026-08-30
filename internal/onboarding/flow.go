@@ -72,7 +72,7 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	runtime, err := coordinator.runtimeFactory(opened.Paths)
 	if err != nil || runtime.Sessions == nil || runtime.Credentials == nil ||
-		runtime.NewConnector == nil || runtime.NewSource == nil ||
+		runtime.NewConnector == nil || runtime.NewSources == nil ||
 		strings.TrimSpace(runtime.InstanceID) == "" {
 		_ = providerLock.Release()
 		_ = opened.Close()

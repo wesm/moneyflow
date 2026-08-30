@@ -74,13 +74,13 @@ type profileStateQueryer interface {
 }
 
 func profilePopulated(ctx context.Context, connection profileStateQueryer) (bool, error) {
-	var revision, cursor, rowCount, sentinelGroups, sentinelCategories int64
+	var revision, cursor, rowCount, sentinelGroups, sentinelCategories, splitCategories int64
 	err := connection.QueryRowContext(ctx, `
 		SELECT revision, journal_cursor,
 			EXISTS(SELECT 1 FROM accounts) +
 			EXISTS(SELECT 1 FROM merchants) +
 			EXISTS(SELECT 1 FROM category_groups WHERE id <> ?) +
-			EXISTS(SELECT 1 FROM categories WHERE id <> ?) +
+			EXISTS(SELECT 1 FROM categories WHERE id NOT IN (?, ?)) +
 			EXISTS(SELECT 1 FROM transactions) +
 			EXISTS(SELECT 1 FROM external_identities) +
 			EXISTS(SELECT 1 FROM known_drills) +
@@ -95,16 +95,23 @@ func profilePopulated(ctx context.Context, connection profileStateQueryer) (bool
 			(SELECT count(*) FROM categories
 			 WHERE id = ? AND group_id = ? AND label = 'Uncategorized'
 			   AND collision_key = 'uncategorized' AND retired = 0 AND protected = 1
+			   AND merge_destination_id IS NULL),
+			(SELECT count(*) FROM categories
+			 WHERE id = ? AND group_id = ? AND label = 'Split'
+			   AND collision_key = 'split' AND retired = 0 AND protected = 1
 			   AND merge_destination_id IS NULL)
 		FROM profile_state WHERE singleton = 1`,
 		domain.UncategorizedGroupID,
 		domain.UncategorizedCategoryID,
+		domain.SplitCategoryID,
 		domain.UncategorizedGroupID,
 		domain.UncategorizedCategoryID,
 		domain.UncategorizedGroupID,
-	).Scan(&revision, &cursor, &rowCount, &sentinelGroups, &sentinelCategories)
+		domain.SplitCategoryID,
+		domain.UncategorizedGroupID,
+	).Scan(&revision, &cursor, &rowCount, &sentinelGroups, &sentinelCategories, &splitCategories)
 	return revision != 0 || cursor != 0 || rowCount != 0 ||
-		sentinelGroups != 1 || sentinelCategories != 1, err
+		sentinelGroups != 1 || sentinelCategories != 1 || splitCategories != 1, err
 }
 
 func insertSeed(
@@ -142,7 +149,7 @@ func insertSeed(
 		}
 	}
 	for _, category := range profile.Categories {
-		if category.ID == domain.UncategorizedCategoryID {
+		if category.ID == domain.UncategorizedCategoryID || category.ID == domain.SplitCategoryID {
 			continue
 		}
 		if _, err = statements.category.ExecContext(ctx,

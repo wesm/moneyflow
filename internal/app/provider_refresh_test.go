@@ -61,7 +61,7 @@ func TestMCPRendererIsAcceptedForExplicitProviderWork(t *testing.T) {
 		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
 	}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "mcp", InstanceID: "mcp-instance", Now: func() time.Time { return now },
 	}))
 	started := make(chan struct{})
@@ -125,6 +125,26 @@ func TestProviderRefreshImportsBindsAndValidatesIdentityEveryTime(t *testing.T) 
 	require.NoError(t, stateErr)
 	assert.Equal(t, uint64(1), providerState.Refresh.Generation)
 	assert.Equal(t, 2, source.probeCalls())
+}
+
+func TestProviderRefreshRejectsRemoteMoneyInterpretationMismatch(t *testing.T) {
+	t.Parallel()
+
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 18, 5, 0, 0, time.UTC)
+	snapshot := providerSnapshot(t, now, 1)
+	snapshot.Transactions[0].Amount.Currency = "EUR"
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: snapshot, fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+
+	_, err := service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	assertProviderAppCode(t, err, provider.CodeMoneyMismatch)
+	assert.Equal(t, uint64(0), service.Revision())
 }
 
 func TestProviderRefreshFoldsMonarchUncategorizedShapesIntoSQLite(t *testing.T) {
@@ -251,7 +271,7 @@ func TestProviderRefreshFetchDoesNotHoldSQLiteTransaction(t *testing.T) {
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, uint64(3), result.Revision)
+	assert.Equal(t, uint64(2), result.Revision)
 	persisted, err := profileHandle.Load(ctx)
 	require.NoError(t, err)
 	require.Len(t, persisted.Journal, 1)
@@ -429,7 +449,7 @@ func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *t
 			return nil
 		})
 		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-			Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 			Renderer: "tui", InstanceID: "instance-a",
 			Now: clock, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
 			HeartbeatInterval: 15 * time.Millisecond,
@@ -482,7 +502,7 @@ func TestProviderRefreshHeartbeatRenewsWithoutProgressAndCancelsOnLeaseLoss(t *t
 			return fetchContext.Err()
 		})
 		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-			Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 			Renderer: "tui", InstanceID: "instance-a",
 			Now: time.Now, Random: &incrementingReader{}, LeaseDuration: 90 * time.Millisecond,
 			HeartbeatInterval: 15 * time.Millisecond,
@@ -565,17 +585,21 @@ func newProviderRefreshService(t *testing.T) (*app.Service, store.Profile) {
 func configureProviderRefreshService(
 	t *testing.T,
 	service *app.Service,
-	source provider.Source,
+	source provider.ReaderSource,
 	now time.Time,
 	instanceID string,
 ) {
 	t.Helper()
 	clock := func() time.Time { return now }
-	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+	runtime := app.ProviderRuntime{
+		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: instanceID,
 		Now: clock, Random: &incrementingReader{},
-	}))
+	}
+	if writeSource, ok := source.(provider.WriterSource); ok {
+		runtime.WriteSource = writeSource
+	}
+	require.NoError(t, service.ConfigureProvider(runtime))
 }
 
 func providerSnapshot(t *testing.T, observedAt time.Time, count int) domain.ImportSnapshot {
@@ -754,22 +778,19 @@ func (source *fakeProviderSource) reloadCalls() int {
 
 type fakeProviderReader fakeProviderSource
 
-func (reader *fakeProviderReader) ProbeIdentity(
-	context.Context,
-) (provider.ProfileIdentity, error) {
-	source := (*fakeProviderSource)(reader)
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	source.probes++
-	return source.identity, source.probeErr
-}
-
 func (reader *fakeProviderReader) FetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	source := (*fakeProviderSource)(reader)
 	source.mu.Lock()
+	source.probes++
+	identity := source.identity
+	probeErr := source.probeErr
+	if probeErr != nil {
+		source.mu.Unlock()
+		return provider.SnapshotResult{}, probeErr
+	}
 	hook := source.fetchHook
 	source.fetchHook = nil
 	contextHook := source.fetchContextHook
@@ -780,18 +801,18 @@ func (reader *fakeProviderReader) FetchSnapshot(
 	source.mu.Unlock()
 	if hook != nil {
 		if hookErr := hook(); hookErr != nil {
-			return domain.ImportSnapshot{}, hookErr
+			return provider.SnapshotResult{}, hookErr
 		}
 	}
 	if contextHook != nil {
 		if hookErr := contextHook(ctx); hookErr != nil {
-			return domain.ImportSnapshot{}, hookErr
+			return provider.SnapshotResult{}, hookErr
 		}
 	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "all", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
-	return snapshot, err
+	return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, err
 }
 
 type incrementingReader struct {

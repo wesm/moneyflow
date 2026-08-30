@@ -167,10 +167,7 @@ func validAmazonStoreState(t *testing.T) store.AmazonImportState {
 			ID: domain.UncategorizedGroupID, Label: domain.UncategorizedLabel,
 			CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
 		}},
-		Categories: []domain.Category{{
-			ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
-			Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
-		}},
+		Categories: domain.ProtectedCategories(),
 		Transactions: []domain.TransactionRecord{{
 			ID: "transaction-a", Provider: "amazon", ProviderID: "amazon_item_aaaaaaaaaaaaaaaaaaaaaaaaaa",
 			AccountID: "account-a", MerchantID: "merchant-a", CategoryID: domain.UncategorizedCategoryID,

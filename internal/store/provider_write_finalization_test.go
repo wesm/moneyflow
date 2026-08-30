@@ -30,6 +30,8 @@ func TestBuildProviderWriteFinalizationKeepsDeletedTransactionIdentityTombstone(
 			{ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
 				Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey,
 				Protected: true},
+			{ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID,
+				Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true},
 		},
 		Transactions: []domain.TransactionRecord{{
 			ID: "transaction-a", ProviderID: "provider-transaction-a", Provider: "monarch",

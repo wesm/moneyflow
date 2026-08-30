@@ -78,6 +78,10 @@ func (profile *profile) ReconcileProviderWrite(
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
+	ynabSplits, err := loadYNABTransactionSplits(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
 	base := snapshot.Clone()
 	base.Journal = nil
 	base.Cursor = 0
@@ -87,6 +91,7 @@ func (profile *profile) ReconcileProviderWrite(
 		Lineage:     append([]store.ProviderIdentityLineage(nil), lineage...),
 		Candidate:   request.Candidate.Clone(), ProposedIDs: cloneEntityIDMap(request.ProposedIDs),
 		ProposedSuffixes: cloneStringMap(request.ProposedSuffixes), ObservedAt: request.ObservedAt,
+		YNABSplits: append([]store.YNABTransactionSplit(nil), ynabSplits...),
 	})
 	if err != nil {
 		return store.RefreshCommit{}, store.NewInvalidOperationError(
@@ -111,6 +116,9 @@ func (profile *profile) ReconcileProviderWrite(
 		return store.RefreshCommit{}, err
 	}
 	if err = replaceProviderIdentityLineage(ctx, connection, plan.Lineage); err != nil {
+		return store.RefreshCommit{}, err
+	}
+	if err = replaceYNABTransactionSplits(ctx, connection, plan.YNABSplits); err != nil {
 		return store.RefreshCommit{}, err
 	}
 	if _, err = connection.ExecContext(
@@ -149,5 +157,6 @@ func (profile *profile) ReconcileProviderWrite(
 	}
 	return store.RefreshCommit{
 		Revision: nextRevision, Generation: nextGeneration, Summary: plan.Summary,
+		SemanticChange: true,
 	}, nil
 }

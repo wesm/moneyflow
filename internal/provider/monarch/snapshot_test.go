@@ -22,7 +22,7 @@ func TestSnapshotFetchesBothPartitionsAndExcludesPendingAfterIntegrity(t *testin
 	server := newSnapshotServer(t, snapshotScenario{})
 	client := newSnapshotClient(t, server)
 	var progress []provider.Progress
-	snapshot, err := client.FetchSnapshot(context.Background(), func(update provider.Progress) {
+	snapshot, err := client.fetchSnapshot(context.Background(), func(update provider.Progress) {
 		progress = append(progress, update)
 	})
 	require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestSnapshotCanonicalizesObservationTimeToMilliseconds(t *testing.T) {
 	observedAt := time.Date(2026, time.August, 15, 17, 0, 0, 123_456_789, time.UTC)
 	client.options.Now = func() time.Time { return observedAt }
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, observedAt.Truncate(time.Millisecond), snapshot.ObservedAt)
 }
@@ -70,7 +70,7 @@ func TestSnapshotUsesInlineMerchantForHiddenOnlyTransaction(t *testing.T) {
 	})
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Contains(t, snapshot.Merchants, domain.ImportEntity{
 		Kind: domain.EntityKindMerchant, ExternalID: "merchant-hidden-only",
@@ -93,7 +93,7 @@ func TestSnapshotUsesInlineAccountForHiddenOnlyTransaction(t *testing.T) {
 	})
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Contains(t, snapshot.Accounts, domain.ImportEntity{
 		Kind: domain.EntityKindAccount, ExternalID: "account-hidden-only",
@@ -140,7 +140,7 @@ func TestSnapshotRetriesConflictingInlineIdentityLabels(t *testing.T) {
 			server := newSnapshotServer(t, scenario)
 			client := newSnapshotClient(t, server)
 
-			_, err := client.FetchSnapshot(context.Background(), nil)
+			_, err := client.fetchSnapshot(context.Background(), nil)
 			assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 			assert.Equal(t, 3, server.CompleteScans())
 		})
@@ -154,7 +154,7 @@ func TestSnapshotMapsUngroupedCategoryToProtectedGroup(t *testing.T) {
 	server := newSnapshotServer(t, snapshotScenario{Categories: []Category{category}})
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshot.Validate())
 	assert.Equal(t, "", snapshot.Categories[0].ParentExternalID)
@@ -171,7 +171,7 @@ func TestSnapshotMapsMissingTransactionCategoryToProtectedCategory(t *testing.T)
 	})
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	require.NoError(t, snapshot.Validate())
 	require.Len(t, snapshot.Transactions, 1)
@@ -192,7 +192,7 @@ func TestSnapshotCanonicalizesProviderControlCharactersInLabels(t *testing.T) {
 			}}})
 			client := newSnapshotClient(t, server)
 
-			snapshot, err := client.FetchSnapshot(context.Background(), nil)
+			snapshot, err := client.fetchSnapshot(context.Background(), nil)
 			require.NoError(t, err)
 			require.Len(t, snapshot.Groups, 1)
 			assert.Equal(t, "Example Group", snapshot.Groups[0].Label)
@@ -219,7 +219,7 @@ func TestSnapshotRejectsInvalidMoneyWithoutRetry(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
 	reason, ok := provider.DataInvalidReasonOf(err)
 	require.True(t, ok)
@@ -237,7 +237,7 @@ func TestSnapshotRejectsDuplicateEntityIDsWithoutRetry(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
 	reason, ok := provider.DataInvalidReasonOf(err)
 	require.True(t, ok)
@@ -255,7 +255,7 @@ func TestSnapshotReportsMissingTransactionIdentityWithoutValues(t *testing.T) {
 	})
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
 	reason, ok := provider.DataInvalidReasonOf(err)
 	require.True(t, ok)
@@ -272,7 +272,7 @@ func TestSnapshotRetriesMissingCategoryGroup(t *testing.T) {
 	server := newSnapshotServer(t, snapshotScenario{Categories: []Category{category}})
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Equal(t, 3, server.CompleteScans())
 }
@@ -289,7 +289,7 @@ func TestSnapshotRetriesRelationshipRace(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 4, server.CompleteScans())
 }
@@ -306,7 +306,7 @@ func TestSnapshotPersistentRelationshipRaceExhaustsThreeAttempts(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Equal(t, 3, server.CompleteScans())
 }
@@ -322,7 +322,7 @@ func TestPendingRowsParticipateInPartitionIntegrity(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Equal(t, 3, server.CompleteScans())
 }
@@ -341,7 +341,7 @@ func TestSnapshotCancellationStopsRetryBackoff(t *testing.T) {
 		return context.Canceled
 	}
 
-	_, err := client.FetchSnapshot(ctx, nil)
+	_, err := client.fetchSnapshot(ctx, nil)
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, 1, server.CompleteScans())
 }
@@ -354,7 +354,7 @@ func TestSnapshotRequiresExplicitMoneyFormat(t *testing.T) {
 	client, err := NewClient(options, "session-token", "device-a")
 	require.NoError(t, err)
 
-	_, err = client.FetchSnapshot(context.Background(), nil)
+	_, err = client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeDataInvalid)
 }
 

@@ -61,7 +61,7 @@ func TestWriteParquetIsPhysicallyDeterministic(t *testing.T) {
 	require.NoError(t, WriteParquet(&second, document))
 	assert.Equal(t, first.Bytes(), second.Bytes())
 	digest := sha256.Sum256(first.Bytes())
-	assert.Equal(t, "06dc4a59900139dc6c3ee3d36bbf0b280ba15ae1e492e0c81cef8e3b51363f7b", hex.EncodeToString(digest[:]))
+	assert.Equal(t, "5c9998be943723222c18aa8b62674ebd341fe5323076dd7f484bfe8b77d5396e", hex.EncodeToString(digest[:]))
 }
 
 func TestWriteFilePublishesParquet(t *testing.T) {

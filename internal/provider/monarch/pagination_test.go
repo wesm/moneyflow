@@ -30,7 +30,7 @@ func TestPaginationCountChangeRestartsCompleteSnapshot(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.Transactions, len(visible)+1)
 	assert.Equal(t, 3, server.CompleteScans())
@@ -56,7 +56,7 @@ func TestPaginationCountDecreaseRestartsCompleteSnapshot(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.Transactions, len(visible)+1)
 	assert.Equal(t, 3, server.CompleteScans())
@@ -71,7 +71,7 @@ func TestPaginationDuplicateTransactionIDExhaustsAttempts(t *testing.T) {
 	}})
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Equal(t, 3, server.CompleteScans())
 }
@@ -88,7 +88,7 @@ func TestHiddenFlipBetweenPartitionsRestartsWholeAttempt(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 3, server.CompleteScans())
 }
@@ -102,7 +102,7 @@ func TestPaginationIntegrityFailureCannotReturnPartialRows(t *testing.T) {
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	assertProviderCode(t, err, provider.CodeSnapshotUnstable)
 	assert.Empty(t, snapshot.Transactions)
 	assert.Equal(t, 3, server.CompleteScans())
@@ -128,7 +128,7 @@ func TestSameCardinalityPaginationChurnRequiresMatchingCompleteScans(t *testing.
 	server := newSnapshotServer(t, scenario)
 	client := newSnapshotClient(t, server)
 
-	snapshot, err := client.FetchSnapshot(context.Background(), nil)
+	snapshot, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Len(t, snapshot.Transactions, len(visible)+1)
 	assert.Equal(t, 4, server.CompleteScans())
@@ -147,7 +147,7 @@ func TestEntityListChangesRequireMatchingCompleteScans(t *testing.T) {
 	})
 	client := newSnapshotClient(t, server)
 
-	_, err := client.FetchSnapshot(context.Background(), nil)
+	_, err := client.fetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, 4, server.CompleteScans())
 }

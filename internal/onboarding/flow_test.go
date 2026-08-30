@@ -152,7 +152,13 @@ func TestExpiredStableAttemptReleasesProfileAndProviderLock(t *testing.T) {
 				NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
 					return &fakeConnector{identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"}}, nil
 				},
-				NewSource:  func(monarch.ImportConfig) (provider.Source, error) { return pendingProviderSource{}, nil },
+				NewSources: func(monarch.ImportConfig) (
+					provider.ReaderSource,
+					provider.WriterSource,
+					error,
+				) {
+					return pendingProviderSource{}, pendingProviderSource{}, nil
+				},
 				InstanceID: "provider-instance", Now: clock.Now,
 			}, nil
 		},
@@ -235,7 +241,13 @@ func newFlowCoordinator(
 				NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
 					return connector, nil
 				},
-				NewSource:  func(monarch.ImportConfig) (provider.Source, error) { return pendingProviderSource{}, nil },
+				NewSources: func(monarch.ImportConfig) (
+					provider.ReaderSource,
+					provider.WriterSource,
+					error,
+				) {
+					return pendingProviderSource{}, pendingProviderSource{}, nil
+				},
 				InstanceID: "provider-instance", Now: time.Now,
 			}, nil
 		},
@@ -434,7 +446,7 @@ func newFlowOpenedProfile(t *testing.T, kind flowProfileKind) OpenedProfile {
 	case flowProfileBound:
 		source := newTestBoundSource(t)
 		require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-			Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+			ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
 			Renderer: "cli", InstanceID: "binding-instance",
 		}))
 		_, refreshErr := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
@@ -487,15 +499,14 @@ func (*testBoundSource) Changed(provider.SessionFingerprint) (bool, error) { ret
 
 type testBoundReader testBoundSource
 
-func (*testBoundReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	return provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"}, nil
-}
-
 func (reader *testBoundReader) FetchSnapshot(
 	context.Context,
 	provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
-	return reader.snapshot.Clone(), nil
+) (provider.SnapshotResult, error) {
+	return provider.SnapshotResult{
+		Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		Snapshot: reader.snapshot.Clone(),
+	}, nil
 }
 
 type pendingProviderSource struct{}
@@ -520,14 +531,10 @@ func (pendingProviderSource) Changed(provider.SessionFingerprint) (bool, error) 
 
 type pendingProviderReader struct{}
 
-func (pendingProviderReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	return provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"}, nil
-}
-
 func (pendingProviderReader) FetchSnapshot(
 	ctx context.Context,
 	_ provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	<-ctx.Done()
-	return domain.ImportSnapshot{}, ctx.Err()
+	return provider.SnapshotResult{}, ctx.Err()
 }

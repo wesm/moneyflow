@@ -270,18 +270,37 @@ type RefreshInputs struct {
 	ProposedIDs      map[string]domain.EntityID
 	ProposedSuffixes map[string]string
 	ObservedAt       time.Time
+	YNABSplits       []YNABTransactionSplit
+}
+
+// YNABTransactionSplit is one provider-owned split row attached to a committed parent transaction.
+type YNABTransactionSplit struct {
+	ParentTransactionID           domain.EntityID
+	Position                      int
+	ExternalID                    string
+	AmountMilliunits              int64
+	AmountMinor                   int64
+	Memo                          string
+	PayeeExternalID               string
+	PayeeLabel                    string
+	CategoryExternalID            string
+	CategoryLabel                 string
+	TransferAccountExternalID     string
+	TransferTransactionExternalID string
 }
 
 // RefreshPlan is the complete logical state produced by one pure refresh calculation.
 type RefreshPlan struct {
-	Committed   domain.CommittedProfile
-	Effective   domain.CommittedProfile
-	Journal     []domain.Operation
-	Cursor      int
-	KnownDrills []domain.DrillIdentity
-	Allocations []LabelAllocation
-	Lineage     []ProviderIdentityLineage
-	Summary     RefreshSummary
+	Committed      domain.CommittedProfile
+	Effective      domain.CommittedProfile
+	Journal        []domain.Operation
+	Cursor         int
+	KnownDrills    []domain.DrillIdentity
+	Allocations    []LabelAllocation
+	Lineage        []ProviderIdentityLineage
+	Summary        RefreshSummary
+	YNABSplits     []YNABTransactionSplit
+	SemanticChange bool
 }
 
 // RefreshSummary contains counts safe for durable status and logs.
@@ -315,9 +334,10 @@ type AtomicRefreshRequest struct {
 
 // RefreshCommit reports the two semantic versions and counts committed by a refresh.
 type RefreshCommit struct {
-	Revision   uint64
-	Generation uint64
-	Summary    RefreshSummary
+	Revision       uint64
+	Generation     uint64
+	Summary        RefreshSummary
+	SemanticChange bool
 }
 
 // RefreshApplier is the narrow atomic provider-fold capability.

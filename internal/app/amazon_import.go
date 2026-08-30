@@ -213,10 +213,7 @@ func initializeAmazonTaxonomy(
 		ID: domain.UncategorizedGroupID, Label: domain.UncategorizedLabel,
 		CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
 	}}
-	committed.Categories = []domain.Category{{
-		ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
-		Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey, Protected: true,
-	}}
+	committed.Categories = domain.ProtectedCategories()
 	if clone == nil {
 		return committed, nil
 	}

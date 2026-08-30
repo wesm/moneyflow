@@ -18,7 +18,7 @@ const snapshotRetryDelay = 25 * time.Millisecond
 
 var _ provider.Reader = (*Client)(nil)
 
-// ProbeIdentity returns the household-scoped subscription identity for profile binding.
+// ProbeIdentity returns the household-scoped subscription identity for profile binding and writes.
 func (client *Client) ProbeIdentity(ctx context.Context) (provider.ProfileIdentity, error) {
 	subscription, err := client.GetSubscriptionDetails(ctx)
 	if err != nil {
@@ -32,6 +32,21 @@ func (client *Client) ProbeIdentity(ctx context.Context) (provider.ProfileIdenti
 
 // FetchSnapshot reads and validates one complete posted-transaction snapshot.
 func (client *Client) FetchSnapshot(
+	ctx context.Context,
+	progress provider.ProgressFunc,
+) (provider.SnapshotResult, error) {
+	identity, err := client.ProbeIdentity(ctx)
+	if err != nil {
+		return provider.SnapshotResult{}, err
+	}
+	snapshot, err := client.fetchSnapshot(ctx, progress)
+	if err != nil {
+		return provider.SnapshotResult{}, err
+	}
+	return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, nil
+}
+
+func (client *Client) fetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
 ) (domain.ImportSnapshot, error) {

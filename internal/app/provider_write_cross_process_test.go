@@ -136,7 +136,8 @@ func TestWriteLeaseHandsOffBetweenTUIAndWeb(t *testing.T) {
 	webService, err := app.NewProfileService(ctx, webHandle)
 	require.NoError(t, err)
 	require.NoError(t, webService.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, WriteSource: source,
+		Provider: "monarch", Currency: "USD", Scale: 2,
 		Renderer: "web", InstanceID: "web-process", Now: func() time.Time { return now },
 		Random: &incrementingReader{},
 	}))

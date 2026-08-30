@@ -49,6 +49,26 @@ func TestProviderPackagesDoNotImportStore(t *testing.T) {
 	})
 }
 
+func TestCredentialVaultAndYNABDependencyBoundaries(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	providerDir := filepath.Dir(filename)
+	internalDir := filepath.Dir(providerDir)
+	assertNoInternalImport(t, filepath.Join(internalDir, "credentialvault"), func(_ string, imported string) bool {
+		return !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/provider")
+	})
+	assertNoInternalImport(t, filepath.Join(providerDir, "ynab"), func(_ string, imported string) bool {
+		for _, forbidden := range []string{"store", "api", "tui", "web", "mcp"} {
+			if importsPackageTree(imported, "github.com/wesm/moneyflow/internal/"+forbidden) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	t.Parallel()
 

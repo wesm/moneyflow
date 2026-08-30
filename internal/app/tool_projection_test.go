@@ -71,7 +71,7 @@ func TestToolCatalogAndAccountProjectionAreBoundedAndDetached(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, catalog.GroupTotal)
 	assert.Len(t, catalog.Groups, 1)
-	assert.Equal(t, 3, catalog.CategoryTotal)
+	assert.Equal(t, 4, catalog.CategoryTotal)
 	assert.Len(t, catalog.Categories, 1)
 	assert.Equal(t, 2, catalog.MerchantTotal)
 	assert.Len(t, catalog.Merchants, 1)

@@ -154,6 +154,10 @@ func validCommittedProfile(t *testing.T) CommittedProfile {
 				ID: UncategorizedCategoryID, GroupID: UncategorizedGroupID, Label: "Uncategorized",
 				CollisionKey: "uncategorized", Protected: true,
 			},
+			{
+				ID: SplitCategoryID, GroupID: UncategorizedGroupID, Label: SplitLabel,
+				CollisionKey: SplitCollisionKey, Protected: true,
+			},
 			{ID: "category_food", GroupID: "group_living", Label: "Food", CollisionKey: "food"},
 		},
 		Transactions: []TransactionRecord{{

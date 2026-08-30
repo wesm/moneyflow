@@ -468,7 +468,7 @@ func newProviderModelFromSnapshot(
 
 func newPristineProviderModel(
 	t testing.TB,
-	source provider.Source,
+	source provider.ReaderSource,
 	now time.Time,
 ) Model {
 	t.Helper()
@@ -480,11 +480,16 @@ func newPristineProviderModel(
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
 	service, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)
-	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+	runtime := app.ProviderRuntime{
+		ReadSource: source,
+		Provider:   "monarch", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-tui",
 		Now: func() time.Time { return now }, Random: &tuiIncrementingReader{},
-	}))
+	}
+	if writeSource, ok := source.(provider.WriterSource); ok {
+		runtime.WriteSource = writeSource
+	}
+	require.NoError(t, service.ConfigureProvider(runtime))
 	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
@@ -596,29 +601,28 @@ func (source *tuiProviderSource) setFingerprint(fingerprint provider.SessionFing
 
 type tuiProviderReader tuiProviderSource
 
-func (reader *tuiProviderReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	source := (*tuiProviderSource)(reader)
-	source.mu.Lock()
-	defer source.mu.Unlock()
-	return source.identity, source.probeErr
-}
-
 func (reader *tuiProviderReader) FetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	source := (*tuiProviderSource)(reader)
 	source.mu.Lock()
 	fetch := source.fetch
 	snapshot := source.snapshot.Clone()
+	identity := source.identity
+	probeErr := source.probeErr
 	source.mu.Unlock()
+	if probeErr != nil {
+		return provider.SnapshotResult{}, probeErr
+	}
 	if fetch != nil {
-		return fetch(ctx, progress)
+		snapshot, err := fetch(ctx, progress)
+		return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, err
 	}
 	if progress != nil {
 		progress(provider.Progress{Partition: "visible", Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
-	return snapshot, nil
+	return provider.SnapshotResult{Identity: identity, Snapshot: snapshot}, nil
 }
 
 type tuiIncrementingReader struct {

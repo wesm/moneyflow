@@ -136,7 +136,9 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 	}
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
-			status.SessionChanged, _ = runtime.source.Changed(runtime.currentFingerprint())
+			if runtime.writeSource != nil {
+				status.SessionChanged, _ = runtime.writeSource.Changed(runtime.currentFingerprint())
+			}
 		}
 	}
 	return status, nil
@@ -182,6 +184,10 @@ func (service *Service) prepareProviderWrite(
 	runtime, err := service.requireProviderRuntime()
 	if err != nil {
 		return ProviderWriteStatus{}, snapshot.Revision, err
+	}
+	if runtime.writeSource == nil {
+		return ProviderWriteStatus{}, snapshot.Revision,
+			provider.NewError(provider.CodeWriteUnsupported)
 	}
 	state, err := service.consistentProviderState(ctx)
 	if err != nil {
@@ -409,7 +415,10 @@ func (service *Service) runProviderWriteOwned(
 		return service.writeStatus(ctx, providerErrorForWritePhase(batch.Phase))
 	}
 
-	writer, fingerprint, err := runtime.source.Writer(ctx, runtime.takeForceReload())
+	if runtime.writeSource == nil {
+		return service.writeStatus(ctx, provider.NewError(provider.CodeWriteUnsupported))
+	}
+	writer, fingerprint, err := runtime.writeSource.Writer(ctx, runtime.takeForceReload())
 	if err != nil {
 		return service.parkProviderWriteFailure(ctx, runtime, batch, fingerprint, err)
 	}
@@ -897,7 +906,11 @@ func (service *Service) reloadProviderWriter(
 	if !ok || code != provider.CodeReconnectRequired {
 		return nil, fingerprint, provider.ProfileIdentity{}, normalizeProviderError(failure)
 	}
-	writer, replacement, err := runtime.source.Writer(ctx, true)
+	if runtime.writeSource == nil {
+		return nil, fingerprint, provider.ProfileIdentity{},
+			provider.NewError(provider.CodeWriteUnsupported)
+	}
+	writer, replacement, err := runtime.writeSource.Writer(ctx, true)
 	if err != nil {
 		return nil, replacement, provider.ProfileIdentity{}, normalizeProviderError(err)
 	}

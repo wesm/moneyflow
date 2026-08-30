@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	profilereplay "github.com/wesm/moneyflow/internal/replay"
 	"github.com/wesm/moneyflow/internal/store"
@@ -63,6 +65,82 @@ func TestProviderRefreshFoldsCommittedAndEffectiveStateAtomically(t *testing.T) 
 	assert.Equal(t, now, state.Refresh.LastSuccess)
 	assert.Equal(t, len(candidate.Transactions), state.Refresh.ImportedTransactions)
 	assert.Nil(t, state.Lease)
+}
+
+func TestYNABRefreshPersistsSplitsAndUnchangedRefreshDoesNotChurnRevision(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profileStore, err := Open(ctx, temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	date, err := domain.ParseDate("2026-08-30")
+	require.NoError(t, err)
+	candidate := domain.ImportSnapshot{
+		ObservedAt: now,
+		Accounts: []domain.ImportEntity{{
+			Kind: domain.EntityKindAccount, ExternalID: "account-a", Label: "Budget Account",
+		}},
+		Merchants: []domain.ImportEntity{{
+			Kind: domain.EntityKindMerchant, ExternalID: "payee-a", Label: "Example Payee",
+		}},
+		Transactions: []domain.ImportTransaction{{
+			ExternalID: "transaction-a", AccountExternalID: "account-a",
+			MerchantExternalID: "payee-a", SystemCategoryID: domain.SplitCategoryID,
+			Date: date, Amount: domain.Money{Minor: -3000, Currency: "USD", Scale: 2},
+		}},
+		Splits: []domain.ImportTransactionSplit{
+			{ExternalID: "split-a", ParentTransactionExternalID: "transaction-a", Position: 0,
+				SourceAmount: -10000, SourceScale: 3,
+				Amount: domain.Money{Minor: -1000, Currency: "USD", Scale: 2}},
+			{ExternalID: "split-b", ParentTransactionExternalID: "transaction-a", Position: 1,
+				SourceAmount: -20000, SourceScale: 3,
+				Amount: domain.Money{Minor: -2000, Currency: "USD", Scale: 2}},
+		},
+	}
+	binding := store.ProviderBinding{
+		Kind: "ynab", Namespace: "ynab", RemoteProfileID: "plan-a",
+		Currency: "USD", Scale: 2, BoundAt: now,
+	}
+	proposed := map[string]domain.EntityID{
+		app.ProviderIdentityKey("ynab", domain.EntityKindAccount, "account-a"):         "account-local",
+		app.ProviderIdentityKey("ynab", domain.EntityKindMerchant, "payee-a"):          "merchant-local",
+		app.ProviderIdentityKey("ynab", domain.EntityKindTransaction, "transaction-a"): "transaction-local",
+	}
+	apply := func(expected uint64, owner string, observedAt time.Time) store.RefreshCommit {
+		candidate.ObservedAt = observedAt
+		acquireProviderRefreshLease(t, profile, owner, observedAt)
+		commit, applyErr := profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+			ExpectedGeneration: expected, LeaseOwnerID: owner, Binding: &binding,
+			Candidate: candidate, ProposedIDs: proposed, ObservedAt: observedAt,
+		}, app.BuildProviderRefreshPlanReference)
+		require.NoError(t, applyErr)
+		return commit
+	}
+
+	first := apply(0, "ynab-first", now)
+	assert.True(t, first.SemanticChange)
+	assert.Equal(t, uint64(1), first.Revision)
+	assert.Equal(t, uint64(1), first.Generation)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 1)
+	assert.Equal(t, domain.SplitCategoryID, loaded.Committed.Transactions[0].CategoryID)
+	splits, err := loadYNABTransactionSplits(ctx, profile.database)
+	require.NoError(t, err)
+	require.Len(t, splits, 2)
+	assert.Equal(t, domain.EntityID("transaction-local"), splits[0].ParentTransactionID)
+	assert.Equal(t, int64(-10000), splits[0].AmountMilliunits)
+
+	later := now.Add(time.Hour)
+	second := apply(1, "ynab-second", later)
+	assert.False(t, second.SemanticChange)
+	assert.Equal(t, first.Revision, second.Revision)
+	assert.Equal(t, first.Generation, second.Generation)
+	state, err := profile.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, later, state.Refresh.LastSuccess)
 }
 
 func TestProviderRefreshConcurrentGenerationCASAllowsExactlyOneFold(t *testing.T) {
@@ -227,6 +305,7 @@ func TestProviderRefreshAtJournalCeilingMayShrinkJournal(t *testing.T) {
 		plan.Summary.RemovedOperations = rebased.Summary.RemovedOperations
 		plan.Summary.RemovedTargets = rebased.Summary.RemovedTargets
 		plan.Summary.RetainedOperations = rebased.Summary.RetainedOperations
+		plan.SemanticChange = true
 		return plan, planErr
 	})
 	require.NoErrorf(t, err, "cause: %v", errors.Unwrap(err))
@@ -281,6 +360,8 @@ func TestProviderRefreshCanonicalLogicalStateMatchesReopen(t *testing.T) {
 			RemovedTransactions:  providerState.Refresh.RemovedTransactions,
 		},
 	}
+	reopenedPlan.YNABSplits, err = loadYNABTransactionSplits(ctx, reopened.database)
+	require.NoError(t, err)
 	want, err := CanonicalRefreshPlan(planned)
 	require.NoError(t, err)
 	got, err := CanonicalRefreshPlan(reopenedPlan)
@@ -311,7 +392,7 @@ func passthroughRefreshPlanner(inputs store.RefreshInputs) (store.RefreshPlan, e
 	if err != nil {
 		return store.RefreshPlan{}, err
 	}
-	return store.RefreshPlan{
+	plan := store.RefreshPlan{
 		Committed:   committed,
 		Effective:   replayed.Effective,
 		Journal:     rebased.Journal,
@@ -319,7 +400,15 @@ func passthroughRefreshPlanner(inputs store.RefreshInputs) (store.RefreshPlan, e
 		KnownDrills: inputs.Snapshot.KnownDrills,
 		Allocations: allocations,
 		Summary:     refreshCandidateSummary(inputs.Candidate),
-	}, nil
+	}
+	plan.SemanticChange = !reflect.DeepEqual(inputs.Snapshot.Committed, plan.Committed) ||
+		!refreshSliceEqual(inputs.Snapshot.Journal, plan.Journal) ||
+		inputs.Snapshot.Cursor != plan.Cursor ||
+		!refreshSliceEqual(inputs.Snapshot.KnownDrills, plan.KnownDrills) ||
+		!refreshSliceEqual(inputs.Allocations, plan.Allocations) ||
+		!refreshSliceEqual(inputs.Lineage, plan.Lineage) ||
+		!refreshSliceEqual(inputs.YNABSplits, plan.YNABSplits)
+	return plan, nil
 }
 
 func materializeRefreshCandidate(

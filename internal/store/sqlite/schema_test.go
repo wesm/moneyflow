@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
@@ -21,6 +22,7 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 	requiredTables := []string{
 		"schema_metadata", "profile_state", "accounts", "merchants", "category_groups",
 		"categories", "transactions", "external_identities", "known_drills",
+		"ynab_transaction_splits",
 		"journal_operations", "operation_payloads", "operation_targets",
 		"provider_binding", "provider_refresh_state", "provider_operation_lease",
 		"provider_label_allocations", "provider_identity_lineage", "provider_write_batches",
@@ -38,18 +40,40 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 
 	assertColumnType(t, profile.database, "transactions", "amount_minor", "INTEGER")
 	assertColumnType(t, profile.database, "transactions", "scale", "INTEGER")
+	assertColumnType(t, profile.database, "ynab_transaction_splits", "amount_milliunits", "INTEGER")
+	assertColumnType(t, profile.database, "ynab_transaction_splits", "amount_minor", "INTEGER")
 	var realMoneyColumns int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(), `
 		SELECT count(*) FROM pragma_table_info('transactions')
 		WHERE lower(name) LIKE '%amount%' AND upper(type) = 'REAL'`).Scan(&realMoneyColumns))
 	assert.Zero(t, realMoneyColumns)
 
-	for _, table := range []string{"categories", "transactions", "journal_operations", "operation_payloads", "operation_targets"} {
+	for _, table := range []string{"categories", "transactions", "ynab_transaction_splits", "journal_operations", "operation_payloads", "operation_targets"} {
 		var count int
 		require.NoError(t, profile.database.QueryRowContext(context.Background(),
 			"SELECT count(*) FROM pragma_foreign_key_list(?)", table).Scan(&count))
 		assert.Positive(t, count, table)
 	}
+}
+
+func TestSchemaVersionElevenInstallsProtectedSplitCategory(t *testing.T) {
+	t.Parallel()
+
+	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	profile := profileStore.(*profile)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	assert.Equal(t, 11, CurrentSchemaVersion)
+	var version int
+	require.NoError(t, profile.database.QueryRowContext(context.Background(),
+		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
+	assert.Equal(t, 11, version)
+	loaded, err := profile.Load(context.Background())
+	require.NoError(t, err)
+	assert.Contains(t, loaded.Committed.Categories, domain.Category{
+		ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID,
+		Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true,
+	})
 }
 
 func TestSchemaInstallsProviderWriteObjects(t *testing.T) {

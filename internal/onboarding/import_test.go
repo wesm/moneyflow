@@ -137,9 +137,14 @@ func TestSavedSessionResumesImportWithoutCredentialVault(t *testing.T) {
 	assert.Zero(t, connector.connectCalls)
 }
 
+type importProviderSource interface {
+	provider.ReaderSource
+	provider.WriterSource
+}
+
 func newImportCoordinator(
 	t *testing.T,
-	source provider.Source,
+	source importProviderSource,
 	vault *fakeCredentialVault,
 ) (*Coordinator, Snapshot, *fakeConnector, OpenedProfile) {
 	t.Helper()
@@ -160,7 +165,13 @@ func newImportCoordinator(
 				NewConnector: func(monarch.ImportConfig) (provider.Connector, error) {
 					return connector, nil
 				},
-				NewSource:  func(monarch.ImportConfig) (provider.Source, error) { return source, nil },
+				NewSources: func(monarch.ImportConfig) (
+					provider.ReaderSource,
+					provider.WriterSource,
+					error,
+				) {
+					return source, source, nil
+				},
 				InstanceID: "provider-instance", Now: time.Now,
 			}, nil
 		},
@@ -230,14 +241,10 @@ func (source *importTestSource) fetchExited() bool {
 
 type importTestReader importTestSource
 
-func (*importTestReader) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
-	return provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"}, nil
-}
-
 func (reader *importTestReader) FetchSnapshot(
 	ctx context.Context,
 	observe provider.ProgressFunc,
-) (domain.ImportSnapshot, error) {
+) (provider.SnapshotResult, error) {
 	source := (*importTestSource)(reader)
 	source.mu.Lock()
 	source.fetchCalls++
@@ -268,11 +275,14 @@ func (reader *importTestReader) FetchSnapshot(
 			source.mu.Lock()
 			source.exited = true
 			source.mu.Unlock()
-			return domain.ImportSnapshot{}, ctx.Err()
+			return provider.SnapshotResult{}, ctx.Err()
 		}
 	}
 	source.mu.Lock()
 	source.exited = true
 	source.mu.Unlock()
-	return snapshot, fetchErr
+	return provider.SnapshotResult{
+		Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		Snapshot: snapshot,
+	}, fetchErr
 }

@@ -65,15 +65,15 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 	if !ok {
 		return
 	}
-	source, err := runtime.NewSource(config)
-	if err != nil || source == nil {
+	readSource, writeSource, err := runtime.NewSources(config)
+	if err != nil || readSource == nil {
 		coordinator.importFailure(attemptID, err)
 		return
 	}
 	if monthToDate {
 		today := runtime.Now()
 		first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
-		ranger, supported := source.(transactionRanger)
+		ranger, supported := readSource.(transactionRanger)
 		if !supported || ranger.SetTransactionRange(
 			first.Format(time.DateOnly), today.Format(time.DateOnly),
 		) != nil {
@@ -86,7 +86,8 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 	}
 	startedAt := coordinator.now()
 	if err = opened.Service.ConfigureProvider(app.ProviderRuntime{
-		Source: source, Provider: "monarch", Currency: config.Currency, Scale: config.Scale,
+		ReadSource: readSource, WriteSource: writeSource,
+		Provider: "monarch", Currency: config.Currency, Scale: config.Scale,
 		Renderer: renderer, InstanceID: runtime.InstanceID, Now: runtime.Now,
 		Progress: func(update provider.Progress) {
 			coordinator.observeProgress(attemptID, startedAt, update)

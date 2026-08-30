@@ -398,6 +398,8 @@ func providerWriteProfile(t testing.TB) domain.ProfileSnapshot {
 				{ID: "category_b", GroupID: "group_a", Label: "Category B", CollisionKey: "category b"},
 				{ID: domain.UncategorizedCategoryID, GroupID: domain.UncategorizedGroupID,
 					Label: domain.UncategorizedLabel, CollisionKey: domain.UncategorizedCollisionKey, Protected: true},
+				{ID: domain.SplitCategoryID, GroupID: domain.UncategorizedGroupID,
+					Label: domain.SplitLabel, CollisionKey: domain.SplitCollisionKey, Protected: true},
 			},
 			Transactions: []domain.TransactionRecord{
 				{ID: "transaction_a", ProviderID: "2", Provider: "monarch", AccountID: "account_a",

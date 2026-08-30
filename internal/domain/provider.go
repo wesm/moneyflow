@@ -23,11 +23,30 @@ type ImportTransaction struct {
 	MerchantExternalID string
 	// CategoryExternalID is empty only when the protected Uncategorized category applies.
 	CategoryExternalID string
-	Date               Date
-	Amount             Money
-	Notes              string
-	Hidden             bool
-	Pending            bool
+	// SystemCategoryID selects one installed protected category instead of a provider category.
+	SystemCategoryID EntityID
+	Date             Date
+	Amount           Money
+	Notes            string
+	Hidden           bool
+	Pending          bool
+}
+
+// ImportTransactionSplit is one provider-owned split detail attached to a visible parent row.
+type ImportTransactionSplit struct {
+	ExternalID                    string
+	ParentTransactionExternalID   string
+	Position                      int
+	SourceAmount                  int64
+	SourceScale                   uint8
+	Amount                        Money
+	Memo                          string
+	PayeeExternalID               string
+	PayeeLabel                    string
+	CategoryExternalID            string
+	CategoryLabel                 string
+	TransferAccountExternalID     string
+	TransferTransactionExternalID string
 }
 
 // ImportSnapshot is one complete provider observation ready for identity mapping and persistence.
@@ -38,6 +57,7 @@ type ImportSnapshot struct {
 	Groups       []ImportEntity
 	Categories   []ImportEntity
 	Transactions []ImportTransaction
+	Splits       []ImportTransactionSplit
 	ObservedAt   time.Time
 }
 
@@ -48,6 +68,7 @@ func (snapshot ImportSnapshot) Clone() ImportSnapshot {
 	snapshot.Groups = append([]ImportEntity(nil), snapshot.Groups...)
 	snapshot.Categories = append([]ImportEntity(nil), snapshot.Categories...)
 	snapshot.Transactions = append([]ImportTransaction(nil), snapshot.Transactions...)
+	snapshot.Splits = append([]ImportTransactionSplit(nil), snapshot.Splits...)
 	return snapshot
 }
 
@@ -112,6 +133,34 @@ func (snapshot ImportSnapshot) Validate() error {
 			}
 		}
 	}
+	splits := make(map[string]struct{}, len(snapshot.Splits))
+	positions := make(map[string]int)
+	lastExternalID := make(map[string]string)
+	for index, split := range snapshot.Splits {
+		if split.ExternalID == "" || strings.TrimSpace(split.ExternalID) != split.ExternalID ||
+			split.ParentTransactionExternalID == "" || split.Position < 0 || split.SourceScale != 3 ||
+			!validCurrency(split.Amount.Currency) || split.Amount.Scale > 9 {
+			return fmt.Errorf("validate import snapshot: split[%d] is invalid", index)
+		}
+		if _, ok := transactions[split.ParentTransactionExternalID]; !ok {
+			return fmt.Errorf("validate import snapshot: split[%d] references unknown parent", index)
+		}
+		if _, duplicate := splits[split.ExternalID]; duplicate {
+			return fmt.Errorf("validate import snapshot: duplicate split identity %q", split.ExternalID)
+		}
+		splits[split.ExternalID] = struct{}{}
+		if split.Position != positions[split.ParentTransactionExternalID] {
+			return fmt.Errorf("validate import snapshot: split[%d] position is not contiguous", index)
+		}
+		if split.Position > 0 && strings.Compare(
+			split.ExternalID,
+			lastExternalID[split.ParentTransactionExternalID],
+		) <= 0 {
+			return fmt.Errorf("validate import snapshot: split[%d] is not in stable order", index)
+		}
+		lastExternalID[split.ParentTransactionExternalID] = split.ExternalID
+		positions[split.ParentTransactionExternalID]++
+	}
 	return nil
 }
 
@@ -157,6 +206,12 @@ func validateImportTransaction(transaction ImportTransaction) error {
 		if value == "" || strings.TrimSpace(value) != value {
 			return fmt.Errorf("invalid %s", name)
 		}
+	}
+	if transaction.CategoryExternalID != "" && transaction.SystemCategoryID != "" {
+		return errors.New("category and system category are mutually exclusive")
+	}
+	if transaction.SystemCategoryID != "" && transaction.SystemCategoryID != SplitCategoryID {
+		return errors.New("invalid system category")
 	}
 	if transaction.CategoryExternalID != "" &&
 		strings.TrimSpace(transaction.CategoryExternalID) != transaction.CategoryExternalID {

@@ -442,6 +442,7 @@ func validProviderStatusCode(code string) bool {
 		"provider_snapshot_unstable", "provider_refresh_in_progress",
 		"provider_deletion_confirmation_required", "provider_confirmation_invalid",
 		"provider_refresh_stale", "provider_rate_limited", "provider_unavailable",
+		"provider_money_mismatch",
 		"provider_data_invalid":
 		return true
 	default:

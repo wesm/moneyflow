@@ -138,7 +138,8 @@ type Source struct {
 	fingerprint provider.SessionFingerprint
 }
 
-var _ provider.Source = (*Source)(nil)
+var _ provider.ReaderSource = (*Source)(nil)
+var _ provider.WriterSource = (*Source)(nil)
 
 // NewSource constructs a session-backed client source.
 func NewSource(options Options, store *SessionStore) (*Source, error) {

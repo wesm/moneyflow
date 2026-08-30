@@ -30,6 +30,7 @@ func TestProviderErrorCodesAreCompleteAndUnique(t *testing.T) {
 	want := []provider.ErrorCode{
 		provider.CodeReconnectRequired,
 		provider.CodeIdentityMismatch,
+		provider.CodeMoneyMismatch,
 		provider.CodeSnapshotUnstable,
 		provider.CodeRefreshInProgress,
 		provider.CodeDeletionConfirmationRequired,

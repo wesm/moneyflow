@@ -177,6 +177,11 @@ func (profile CommittedProfile) Validate() error {
 		category.Label != UncategorizedLabel || category.CollisionKey != UncategorizedCollisionKey {
 		return errors.New("validate profile: protected Uncategorized category is missing or invalid")
 	}
+	if category, ok := categories[SplitCategoryID]; !ok || !category.Protected ||
+		category.Retired || category.GroupID != UncategorizedGroupID ||
+		category.Label != SplitLabel || category.CollisionKey != SplitCollisionKey {
+		return errors.New("validate profile: protected Split category is missing or invalid")
+	}
 	if err := validateActiveCollisions("account", profile.Accounts, func(value Account) (string, bool) { return value.CollisionKey, value.Retired }); err != nil {
 		return err
 	}

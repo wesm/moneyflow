@@ -69,6 +69,7 @@ func TestProblemMapsPersistentFailuresToStableSafeEnvelopes(t *testing.T) {
 		{app.AppProviderRefreshStale, http.StatusConflict},
 		{app.AppProviderRateLimited, http.StatusServiceUnavailable},
 		{app.AppProviderUnavailable, http.StatusServiceUnavailable},
+		{app.AppProviderMoneyMismatch, http.StatusUnprocessableEntity},
 		{app.AppProviderDataInvalid, http.StatusUnprocessableEntity},
 	}
 	for _, test := range tests {

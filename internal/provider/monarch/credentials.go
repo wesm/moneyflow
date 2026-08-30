@@ -2,33 +2,23 @@ package monarch
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	cryptorand "crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/argon2"
-
+	"github.com/wesm/moneyflow/internal/credentialvault"
 	"github.com/wesm/moneyflow/internal/home"
 )
 
 const (
-	credentialVaultVersion   = uint16(1)
 	credentialPayloadVersion = uint16(1)
 	credentialVaultFilename  = "credentials.enc"
 	credentialVaultMaxBytes  = int64(16 << 10)
-	credentialVaultSaltBytes = 16
-	credentialVaultKeyBytes  = 32
-	credentialVaultKDF       = "argon2id"
-	credentialVaultCipher    = "aes-256-gcm" //nolint:gosec // public algorithm identifier.
 )
 
 var (
@@ -47,16 +37,6 @@ type credentialKDFParameters struct {
 
 var defaultCredentialKDFParameters = credentialKDFParameters{
 	Time: 3, MemoryKiB: 64 * 1024, Parallelism: 4,
-}
-
-type credentialEnvelope struct {
-	Version    uint16                  `json:"version"`
-	KDF        string                  `json:"kdf"`
-	KDFParams  credentialKDFParameters `json:"kdf_parameters"`
-	Cipher     string                  `json:"cipher"`
-	Salt       string                  `json:"salt"`
-	Nonce      string                  `json:"nonce"`
-	Ciphertext string                  `json:"ciphertext"`
 }
 
 type credentialPayload struct {
@@ -93,9 +73,7 @@ func (credentials StoredCredentials) Validate() error {
 
 // CredentialVault persists password-encrypted Monarch credentials outside SQLite and sessions.
 type CredentialVault struct {
-	path   string
-	random io.Reader
-	kdf    credentialKDFParameters
+	sealed *credentialvault.Vault
 }
 
 // NewCredentialVault resolves the fixed provider credential path below a Go v2 profile root.
@@ -119,28 +97,25 @@ func newCredentialVault(
 	if err != nil {
 		return nil, fmt.Errorf("create monarch credential vault: %w", err)
 	}
-	return &CredentialVault{
-		path: filepath.Join(providerDirectory, credentialVaultFilename), random: random, kdf: kdf,
-	}, nil
+	sealed, err := credentialvault.New(
+		filepath.Join(providerDirectory, credentialVaultFilename),
+		credentialVaultAAD,
+		credentialvault.Options{
+			Random: random, Time: kdf.Time, MemoryKiB: kdf.MemoryKiB,
+			Parallelism: kdf.Parallelism, MaxBytes: credentialVaultMaxBytes,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create monarch credential vault: %w", err)
+	}
+	return &CredentialVault{sealed: sealed}, nil
 }
 
 // Path returns the fixed encrypted credential path for diagnostics and hardened file operations.
-func (vault *CredentialVault) Path() string { return vault.path }
+func (vault *CredentialVault) Path() string { return vault.sealed.Path() }
 
 // Exists reports whether an encrypted credential file is present without following links.
-func (vault *CredentialVault) Exists() (bool, error) {
-	info, err := os.Lstat(vault.path) //nolint:gosec // fixed caller-owned profile path.
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("inspect monarch credential vault: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return false, errors.New("inspect monarch credential vault: target is not a regular file")
-	}
-	return true, nil
-}
+func (vault *CredentialVault) Exists() (bool, error) { return vault.sealed.Exists() }
 
 // Save encrypts credentials with a user-provided account password and atomically replaces the vault.
 func (vault *CredentialVault) Save(credentials StoredCredentials, accountPassword []byte) error {
@@ -150,24 +125,6 @@ func (vault *CredentialVault) Save(credentials StoredCredentials, accountPasswor
 	if len(accountPassword) == 0 {
 		return errors.New("save monarch credentials: account password is empty")
 	}
-	salt := make([]byte, credentialVaultSaltBytes)
-	if _, err := io.ReadFull(vault.random, salt); err != nil {
-		return errors.New("save monarch credentials: create salt")
-	}
-	key := vault.deriveKey(accountPassword, salt)
-	defer clear(key)
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return errors.New("save monarch credentials: create cipher")
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return errors.New("save monarch credentials: create authenticated cipher")
-	}
-	nonce := make([]byte, aead.NonceSize())
-	if _, err = io.ReadFull(vault.random, nonce); err != nil {
-		return errors.New("save monarch credentials: create nonce")
-	}
 	payload, err := json.Marshal(credentialPayload{ //nolint:gosec // encrypted immediately below.
 		Version: credentialPayloadVersion, Email: credentials.Email,
 		Password: credentials.Password, TOTPSecret: credentials.TOTPSecret,
@@ -176,23 +133,7 @@ func (vault *CredentialVault) Save(credentials StoredCredentials, accountPasswor
 		return errors.New("save monarch credentials: encode credentials")
 	}
 	defer clear(payload)
-	ciphertext := aead.Seal(nil, nonce, payload, credentialVaultAAD)
-	envelope := credentialEnvelope{
-		Version: credentialVaultVersion, KDF: credentialVaultKDF, KDFParams: vault.kdf,
-		Cipher:     credentialVaultCipher,
-		Salt:       base64.RawStdEncoding.EncodeToString(salt),
-		Nonce:      base64.RawStdEncoding.EncodeToString(nonce),
-		Ciphertext: base64.RawStdEncoding.EncodeToString(ciphertext),
-	}
-	encoded, err := json.Marshal(envelope)
-	if err != nil {
-		return errors.New("save monarch credentials: encode vault")
-	}
-	encoded = append(encoded, '\n')
-	if int64(len(encoded)) > credentialVaultMaxBytes {
-		return errors.New("save monarch credentials: encoded vault exceeds maximum size")
-	}
-	if err = home.WritePrivateFile(vault.path, encoded); err != nil {
+	if err = vault.sealed.Seal(payload, accountPassword); err != nil {
 		return fmt.Errorf("save monarch credentials: %w", err)
 	}
 	return nil
@@ -203,39 +144,12 @@ func (vault *CredentialVault) Load(accountPassword []byte) (StoredCredentials, e
 	if len(accountPassword) == 0 {
 		return StoredCredentials{}, errors.New("load monarch credentials: account password is empty")
 	}
-	contents, err := home.ReadPrivateFile(vault.path, credentialVaultMaxBytes)
+	plaintext, err := vault.sealed.Open(accountPassword)
 	if err != nil {
+		if errors.Is(err, credentialvault.ErrUnlock) {
+			return StoredCredentials{}, ErrCredentialUnlock
+		}
 		return StoredCredentials{}, err
-	}
-	envelope, err := vault.decodeEnvelope(contents)
-	if err != nil {
-		return StoredCredentials{}, err
-	}
-	salt, err := base64.RawStdEncoding.DecodeString(envelope.Salt)
-	if err != nil || len(salt) != credentialVaultSaltBytes {
-		return StoredCredentials{}, ErrCredentialUnlock
-	}
-	nonce, err := base64.RawStdEncoding.DecodeString(envelope.Nonce)
-	if err != nil {
-		return StoredCredentials{}, ErrCredentialUnlock
-	}
-	ciphertext, err := base64.RawStdEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		return StoredCredentials{}, ErrCredentialUnlock
-	}
-	key := vault.deriveKey(accountPassword, salt)
-	defer clear(key)
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return StoredCredentials{}, ErrCredentialUnlock
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil || len(nonce) != aead.NonceSize() {
-		return StoredCredentials{}, ErrCredentialUnlock
-	}
-	plaintext, err := aead.Open(nil, nonce, ciphertext, credentialVaultAAD)
-	if err != nil {
-		return StoredCredentials{}, ErrCredentialUnlock
 	}
 	defer clear(plaintext)
 	var payload credentialPayload
@@ -254,32 +168,7 @@ func (vault *CredentialVault) Load(accountPassword []byte) (StoredCredentials, e
 	return credentials, nil
 }
 
-func (vault *CredentialVault) decodeEnvelope(contents []byte) (credentialEnvelope, error) {
-	var envelope credentialEnvelope
-	decoder := json.NewDecoder(bytes.NewReader(contents))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&envelope); err != nil || requireJSONEOF(decoder) != nil {
-		return credentialEnvelope{}, ErrCredentialUnlock
-	}
-	if envelope.Version != credentialVaultVersion || envelope.KDF != credentialVaultKDF ||
-		envelope.KDFParams != vault.kdf || envelope.Cipher != credentialVaultCipher {
-		return credentialEnvelope{}, ErrCredentialUnlock
-	}
-	return envelope, nil
-}
-
-func (vault *CredentialVault) deriveKey(accountPassword []byte, salt []byte) []byte {
-	return argon2.IDKey(
-		accountPassword,
-		salt,
-		vault.kdf.Time,
-		vault.kdf.MemoryKiB,
-		vault.kdf.Parallelism,
-		credentialVaultKeyBytes,
-	)
-}
-
 // Delete removes only the encrypted credential vault.
 func (vault *CredentialVault) Delete() error {
-	return home.RemovePrivateFile(vault.path)
+	return vault.sealed.Delete()
 }

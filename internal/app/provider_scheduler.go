@@ -25,6 +25,7 @@ func ProviderErrorRetryClass(code provider.ErrorCode) ProviderRetryClass {
 		provider.CodeUnavailable, provider.CodeRefreshInProgress:
 		return ProviderBoundedRetry
 	case provider.CodeReconnectRequired, provider.CodeIdentityMismatch,
+		provider.CodeMoneyMismatch,
 		provider.CodeDeletionConfirmationRequired, provider.CodeConfirmationInvalid,
 		provider.CodeDataInvalid, provider.CodeWriteInProgress,
 		provider.CodeWriteAttentionRequired, provider.CodeWriteStale,
@@ -79,7 +80,7 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 	runtime.mu.Unlock()
 	healed := false
 	if parked {
-		changed, changeErr := runtime.source.Changed(fingerprint)
+		changed, changeErr := runtime.readSource.Changed(fingerprint)
 		if changeErr == nil && changed {
 			runtime.mu.Lock()
 			runtime.parkedReconnect = false

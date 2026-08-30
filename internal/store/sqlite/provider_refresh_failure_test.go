@@ -196,6 +196,7 @@ func failureRefreshPlanner(table string) store.RefreshPlanner {
 			}
 			plan.Effective = replayed.Effective
 		}
+		plan.SemanticChange = true
 		return plan, nil
 	}
 }
