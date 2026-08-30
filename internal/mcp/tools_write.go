@@ -274,9 +274,10 @@ func categoryMutationDocument(
 	state := mutationDetailState()
 	request := app.MutationRequest{
 		Action: app.ActionEditCategory, ExpectedRevision: expected, State: state,
-		Selection: selection,
-		Input:     app.EditInput{Scope: app.EditScopeTransactions, DestinationID: destination},
-		Window:    app.WindowRequest{Limit: maxCategoryMutationTargets},
+		Selection:      selection,
+		Input:          app.EditInput{Scope: app.EditScopeTransactions, DestinationID: destination},
+		Window:         app.WindowRequest{Limit: maxCategoryMutationTargets},
+		OmitProjection: !dryRun,
 	}
 	preview, err := service.PreviewMutation(ctx, request)
 	if err != nil {

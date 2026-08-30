@@ -48,11 +48,14 @@ type EditInput struct {
 type MutationRequest struct {
 	Action           ActionID
 	ExpectedRevision uint64
-	State            ViewState
-	Selection        SelectionValue
-	Target           *RowTarget
-	Input            EditInput
-	Window           WindowRequest
+	// OmitProjection lets non-rendering adapters receive the authoritative mutation result without
+	// paying to rebuild a view they already previewed. TUI and web leave it false.
+	OmitProjection bool
+	State          ViewState
+	Selection      SelectionValue
+	Target         *RowTarget
+	Input          EditInput
+	Window         WindowRequest
 }
 
 // ResolvedTargets are stable local identities fixed at operation-creation time.

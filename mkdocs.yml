@@ -121,6 +121,7 @@ nav:
     - Exporting Transactions: guide/export.md
     - SimpleFIN: guide/simplefin.md
     - SimpleFIN CLI Reference: guide/simplefin-cli.md
+    - MCP Server: guide/mcp.md
   - Configuration:
     - Themes: config/themes.md
     - Categories: categories.md

@@ -24,6 +24,37 @@ func ResolveTargets(
 	if err := request.State.Validate(); err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
+	selectionValue := request.Selection
+	if selectionValue == "" {
+		selectionValue = EmptySelection()
+	}
+	document, err := decodeSelection(selectionValue)
+	if err != nil {
+		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
+	}
+	payload := document.payload()
+	selection, explicitErr := resolveExplicitSelectionPayload(request.State.Current, payload)
+	if explicitErr == nil && len(selection.IDs) > 0 && selection.Kind == IdentityTransaction {
+		resolved, resolveErr := resolveExactTransactionSelection(snapshot.Effective, selection)
+		if document.Revision == nil || *document.Revision != snapshot.Revision {
+			refreshed := EmptySelection()
+			if resolveErr == nil {
+				refreshed, err = BindSelectionRevision(selectionValue, snapshot.Revision)
+				if err != nil {
+					return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
+				}
+			}
+			return ResolvedTargets{}, staleSelectionError(
+				snapshot.Revision, refreshed,
+				errors.New("selection was defined at another profile revision"),
+			)
+		}
+		if resolveErr != nil {
+			return ResolvedTargets{}, resolveErr
+		}
+		resolved.FromSelection = true
+		return resolved, nil
+	}
 	if err := snapshot.Effective.Validate(); err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
@@ -35,15 +66,7 @@ func ResolveTargets(
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
-	selectionValue := request.Selection
-	if selectionValue == "" {
-		selectionValue = EmptySelection()
-	}
-	document, err := decodeSelection(selectionValue)
-	if err != nil {
-		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
-	}
-	selection, err := service.resolveSelectionPayload(request.State.Current, document.payload())
+	selection, err = service.resolveSelectionPayload(request.State.Current, payload)
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidTarget, err)
 	}
@@ -83,6 +106,49 @@ func ResolveTargets(
 		request.State.Current,
 		request.Target,
 	)
+}
+
+func resolveExplicitSelectionPayload(
+	state AnalyticalState,
+	payload selectionPayload,
+) (SelectionSnapshot, error) {
+	if payload.Base != selectionBaseExplicit {
+		return SelectionSnapshot{}, errors.New("selection is not explicit")
+	}
+	kind := identityKindForState(state)
+	if payload.Kind != kind && !payload.isUniversalEmpty() {
+		return SelectionSnapshot{}, invalidSelection(errors.New("selection kind does not match result"))
+	}
+	ids := identitySliceSet(payload.IDs)
+	for _, identity := range payload.Exclude {
+		delete(ids, identity)
+	}
+	for _, identity := range payload.Include {
+		ids[identity] = struct{}{}
+	}
+	return SelectionSnapshot{Kind: kind, IDs: ids}, nil
+}
+
+func resolveExactTransactionSelection(
+	profile domain.CommittedProfile,
+	selection SelectionSnapshot,
+) (ResolvedTargets, error) {
+	identities := sortedIdentitySet(selection.IDs)
+	available := make(map[string]struct{}, len(profile.Transactions))
+	for _, transaction := range profile.Transactions {
+		available[string(transaction.ID)] = struct{}{}
+	}
+	resolved := ResolvedTargets{TransactionIDs: make([]domain.EntityID, len(identities))}
+	for index, identity := range identities {
+		if _, ok := available[identity]; !ok {
+			return ResolvedTargets{}, mutationError(
+				MutationInvalidTarget,
+				errors.New("selected transaction does not exist"),
+			)
+		}
+		resolved.TransactionIDs[index] = domain.EntityID(identity)
+	}
+	return resolved, nil
 }
 
 func resolveSelectionTargets(

@@ -115,6 +115,44 @@ func TestProfileServiceMutateUndoRedoReviewAndCommit(t *testing.T) {
 	).CategoryID)
 }
 
+func TestProfileServiceCategoryAppendCanSkipProjectionWithoutSkippingEffectiveState(t *testing.T) {
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	selection, err := app.NewExplicitTransactionSelection(
+		[]domain.EntityID{"transaction_a"}, 5,
+	)
+	require.NoError(t, err)
+	result, err := service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: 5, OmitProjection: true,
+		State: detailViewState(), Selection: selection,
+		Input: app.EditInput{
+			Scope: app.EditScopeTransactions, DestinationID: "category_b",
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(6), result.Revision)
+	assert.Zero(t, result.Projection.Revision)
+	assert.Equal(t, 1, profile.loadCalls, "successful append should not reload the full profile")
+
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	reference, err := app.Replay(loaded)
+	require.NoError(t, err)
+	expected, err := reference.Effective.MaterializeTransactions()
+	require.NoError(t, err)
+	projection, err := service.ProjectView(
+		detailViewState(), app.EmptySelection(), app.WindowRequest{Limit: 20},
+	)
+	require.NoError(t, err)
+	require.Len(t, projection.DetailRows, len(expected))
+	for _, transaction := range expected {
+		actual := detailTransactionByID(t, projection.DetailRows, transaction.ID)
+		assert.Equal(t, transaction, actual)
+	}
+}
+
 func TestUndoCreationReturnsSuccessfulParentProjection(t *testing.T) {
 	t.Parallel()
 

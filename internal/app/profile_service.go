@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -214,7 +216,7 @@ func (service *Service) Mutate(
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return MutationResult{}, err
 	}
-	snapshot, err := service.effectiveSnapshot()
+	snapshot, err := service.effectiveSnapshotReadOnly()
 	if err != nil {
 		return MutationResult{}, mapAppError(err, service.Revision())
 	}
@@ -255,14 +257,122 @@ func (service *Service) Mutate(
 	if err != nil {
 		return MutationResult{}, service.refreshAfterFailure(ctx, err, snapshot.Revision)
 	}
-	if err = service.reloadExpected(ctx, next); err != nil {
+	if plan.Mode == MutationAppend &&
+		(plan.Operation.Type == domain.OperationCategoryAssign ||
+			plan.Operation.Type == domain.OperationCategoryCreate) {
+		if err = service.installIncrementalCategoryAppend(snapshot, plan.Operation, next); err != nil {
+			if err = service.reloadExpected(ctx, next); err != nil {
+				return MutationResult{}, err
+			}
+		}
+	} else if err = service.reloadExpected(ctx, next); err != nil {
 		return MutationResult{}, err
 	}
 	selection := request.Selection
 	if selection == "" || plan.SelectionDisposition == SelectionCleared {
 		selection = EmptySelection()
 	}
+	if request.OmitProjection {
+		current, snapshotErr := service.effectiveSnapshotReadOnly()
+		if snapshotErr != nil {
+			return MutationResult{}, mapAppError(snapshotErr, next)
+		}
+		return MutationResult{
+			Revision: next, State: plan.State.Clone(), Selection: selection,
+			SelectionDisposition: plan.SelectionDisposition,
+			Pending:              pendingSummary(current),
+		}, nil
+	}
 	return service.mutationResult(plan.State, selection, plan.SelectionDisposition, request.Window)
+}
+
+func (service *Service) installIncrementalCategoryAppend(
+	snapshot EffectiveSnapshot,
+	operation domain.Operation,
+	nextRevision uint64,
+) error {
+	category, found := domain.Category{}, false
+	nextEffective := snapshot.Effective
+	nextEffective.Transactions = append(
+		[]domain.TransactionRecord(nil), snapshot.Effective.Transactions...,
+	)
+	switch operation.Type {
+	case domain.OperationCategoryAssign:
+		category, found = categoryWithID(snapshot.Effective, operation.Reassign.DestinationID)
+	case domain.OperationCategoryCreate:
+		category = domain.Category{
+			ID: operation.Create.EntityID, GroupID: operation.Create.ParentID,
+			Label: operation.Create.Label, CollisionKey: operation.Create.CollisionKey,
+		}
+		found = true
+		nextEffective.Categories = append(
+			append([]domain.Category(nil), snapshot.Effective.Categories...), category,
+		)
+		slices.SortFunc(nextEffective.Categories, func(left, right domain.Category) int {
+			return strings.Compare(string(left.ID), string(right.ID))
+		})
+	default:
+		return errors.New("incremental append is not a category assignment")
+	}
+	group, groupFound := groupWithID(nextEffective, category.GroupID)
+	if !found || category.Retired || !groupFound || group.Retired {
+		return errors.New("incremental append category is missing or retired")
+	}
+	targets := make(map[domain.EntityID]struct{}, len(operation.Targets))
+	for _, target := range operation.Targets {
+		targets[target] = struct{}{}
+	}
+	updated := 0
+	for index := range nextEffective.Transactions {
+		if _, ok := targets[nextEffective.Transactions[index].ID]; ok {
+			nextEffective.Transactions[index].CategoryID = category.ID
+			updated++
+		}
+	}
+	if updated != len(targets) {
+		return errors.New("incremental append target is missing")
+	}
+
+	active := make([]domain.Operation, snapshot.Cursor, snapshot.Cursor+1)
+	for index := range snapshot.Cursor {
+		active[index] = snapshot.Journal[index].Clone()
+	}
+	stored := operation.Clone()
+	if len(active) == 0 {
+		stored.Sequence = 1
+	} else {
+		stored.Sequence = active[len(active)-1].Sequence + 1
+	}
+	active = append(active, stored)
+	nextSnapshot := snapshot
+	nextSnapshot.Revision = nextRevision
+	nextSnapshot.Cursor = len(active)
+	nextSnapshot.Effective = nextEffective
+	nextSnapshot.Journal = active
+
+	service.mu.Lock()
+	transactions := append([]domain.Transaction(nil), service.transactions...)
+	for index := range transactions {
+		if _, ok := targets[domain.EntityID(transactions[index].ID)]; ok {
+			transactions[index] = transactions[index].Clone()
+			transactions[index].Category = domain.CategoryRef{
+				ID: string(category.ID), Name: category.Label,
+				GroupID: string(group.ID), Group: group.Label,
+			}
+		}
+	}
+	pending := make(map[string]struct{}, len(service.localPending)+len(targets))
+	for id := range service.localPending {
+		pending[id] = struct{}{}
+	}
+	for target := range targets {
+		pending[string(target)] = struct{}{}
+	}
+	service.snapshot = &nextSnapshot
+	service.transactions = transactions
+	service.localPending = pending
+	service.mu.Unlock()
+	return nil
 }
 
 func buildMutationPlan(
@@ -524,6 +634,20 @@ func pendingSummary(snapshot EffectiveSnapshot) PendingSummary {
 
 func affectedTransactionIDs(snapshot EffectiveSnapshot) map[domain.EntityID]struct{} {
 	result := make(map[domain.EntityID]struct{})
+	direct := true
+	for _, operation := range snapshot.Journal[:snapshot.Cursor] {
+		if !operationHasExactTransactionTargets(operation) {
+			direct = false
+			break
+		}
+		for _, target := range operation.Targets {
+			result[target] = struct{}{}
+		}
+	}
+	if direct {
+		return result
+	}
+	clear(result)
 	state := snapshot.Committed.Clone()
 	for _, operation := range snapshot.Journal[:snapshot.Cursor] {
 		for _, id := range affectedByOperation(state, operation) {
@@ -535,6 +659,39 @@ func affectedTransactionIDs(snapshot EffectiveSnapshot) map[domain.EntityID]stru
 		}
 	}
 	return result
+}
+
+func operationHasExactTransactionTargets(operation domain.Operation) bool {
+	switch operation.Type {
+	case domain.OperationMerchantReassign,
+		domain.OperationCategoryAssign,
+		domain.OperationTransactionHide,
+		domain.OperationTransactionDelete:
+		return true
+	case domain.OperationCategoryCreate:
+		if operation.Create == nil {
+			return false
+		}
+		for _, target := range operation.Targets {
+			if target == operation.Create.EntityID {
+				return false
+			}
+		}
+		return true
+	case domain.OperationMerchantLabel,
+		domain.OperationMerchantMerge,
+		domain.OperationCategoryLabel,
+		domain.OperationCategoryMove,
+		domain.OperationCategoryMerge,
+		domain.OperationCategoryDelete,
+		domain.OperationGroupCreate,
+		domain.OperationGroupLabel,
+		domain.OperationGroupMerge,
+		domain.OperationGroupDelete:
+		return false
+	default:
+		return false
+	}
 }
 
 func affectedByOperation(

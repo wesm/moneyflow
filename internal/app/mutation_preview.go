@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"sort"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -37,7 +36,7 @@ func (service *Service) PreviewMutation(
 	if _, err := service.refreshLocked(ctx); err != nil {
 		return MutationPreview{}, err
 	}
-	snapshot, err := service.effectiveSnapshot()
+	snapshot, err := service.effectiveSnapshotReadOnly()
 	if err != nil {
 		return MutationPreview{}, mapAppError(err, service.Revision())
 	}
@@ -72,13 +71,7 @@ func (service *Service) PreviewMutation(
 	if err != nil {
 		return MutationPreview{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
-	operation := plan.Operation.Clone()
-	operation.Sequence = int64(len(snapshot.Journal) + 1)
-	after, err := ApplyOperation(snapshot.Effective, operation)
-	if err != nil {
-		return MutationPreview{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
-	}
-	rows, err := mutationPreviewRows(snapshot.Effective, after, operation.Targets)
+	rows, err := service.categoryMutationPreviewRows(snapshot.Effective, plan.Operation)
 	if err != nil {
 		return MutationPreview{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
 	}
@@ -92,38 +85,69 @@ func (service *Service) PreviewMutation(
 	}, nil
 }
 
-func mutationPreviewRows(
-	beforeProfile domain.CommittedProfile,
-	afterProfile domain.CommittedProfile,
-	targets []domain.EntityID,
+func (service *Service) effectiveSnapshotReadOnly() (EffectiveSnapshot, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	if service.snapshot == nil {
+		return EffectiveSnapshot{}, errors.New("profile service has no snapshot")
+	}
+	// Snapshot values are immutable after publication. Interaction serialization prevents a
+	// semantic reload while this preview is being planned, so a shallow view avoids copying the
+	// complete profile for a read-only operation.
+	return *service.snapshot, nil
+}
+
+func (service *Service) categoryMutationPreviewRows(
+	profile domain.CommittedProfile,
+	operation domain.Operation,
 ) ([]MutationPreviewRow, error) {
-	before, err := beforeProfile.MaterializeTransactions()
-	if err != nil {
-		return nil, err
+	var category domain.Category
+	var found bool
+	switch operation.Type {
+	case domain.OperationCategoryAssign:
+		category, found = categoryWithID(profile, operation.Reassign.DestinationID)
+	case domain.OperationCategoryCreate:
+		category = domain.Category{
+			ID: operation.Create.EntityID, GroupID: operation.Create.ParentID,
+			Label: operation.Create.Label, CollisionKey: operation.Create.CollisionKey,
+		}
+		found = true
+	default:
+		return nil, errors.New("mutation preview operation is not a category assignment")
 	}
-	after, err := afterProfile.MaterializeTransactions()
-	if err != nil {
-		return nil, err
+	group, groupFound := groupWithID(profile, category.GroupID)
+	if !found || category.Retired || !groupFound || group.Retired {
+		return nil, errors.New("mutation preview category is missing or retired")
 	}
-	beforeByID := make(map[domain.EntityID]domain.Transaction, len(before))
-	for _, transaction := range before {
-		beforeByID[domain.EntityID(transaction.ID)] = transaction
+	targets := make(map[string]struct{}, len(operation.Targets))
+	for _, target := range operation.Targets {
+		targets[string(target)] = struct{}{}
 	}
-	afterByID := make(map[domain.EntityID]domain.Transaction, len(after))
-	for _, transaction := range after {
-		afterByID[domain.EntityID(transaction.ID)] = transaction
+	beforeByID := make(map[string]domain.Transaction, len(targets))
+	service.mu.RLock()
+	for _, transaction := range service.transactions {
+		if _, ok := targets[transaction.ID]; ok {
+			beforeByID[transaction.ID] = transaction.Clone()
+		}
 	}
-	ids := append([]domain.EntityID(nil), targets...)
-	sort.Slice(ids, func(left, right int) bool { return ids[left] < ids[right] })
-	rows := make([]MutationPreviewRow, 0, len(ids))
-	for _, id := range ids {
-		beforeTransaction, beforeOK := beforeByID[id]
-		afterTransaction, afterOK := afterByID[id]
-		if !beforeOK || !afterOK {
+	service.mu.RUnlock()
+	rows := make([]MutationPreviewRow, 0, len(operation.Targets))
+	for _, target := range operation.Targets {
+		before, ok := beforeByID[string(target)]
+		if !ok {
 			return nil, errors.New("mutation preview target is missing")
 		}
+		after := before.Clone()
+		after.Category = domain.CategoryRef{
+			ID: string(category.ID), Name: category.Label,
+			GroupID: string(group.ID), Group: group.Label,
+		}
+		validated, err := domain.NewTransaction(after)
+		if err != nil {
+			return nil, err
+		}
 		rows = append(rows, MutationPreviewRow{
-			TransactionID: id, Before: beforeTransaction.Clone(), After: afterTransaction.Clone(),
+			TransactionID: target, Before: before, After: validated,
 		})
 	}
 	return rows, nil

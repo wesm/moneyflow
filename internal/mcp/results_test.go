@@ -79,6 +79,20 @@ func TestToolResultReplacesOversizedSuccessWithBoundedFailure(t *testing.T) {
 	assert.LessOrEqual(t, resultContentBytes(t, result), MaxResponseContentBytes)
 }
 
+func TestToolResultKeepsSuccessBelowCombinedResponseCeiling(t *testing.T) {
+	document := struct {
+		Header
+		Value string `json:"value"`
+	}{
+		Header: NewHeader(StatusOK, 9),
+		Value:  strings.Repeat("x", MaxResponseContentBytes/2-1_024),
+	}
+	result, err := ToolResult(document, false)
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	assert.LessOrEqual(t, resultContentBytes(t, result), MaxResponseContentBytes)
+}
+
 func TestToolResultPreservesSpecificCodeWhenErrorDetailIsOversized(t *testing.T) {
 	document := ErrorDocument{
 		Header: NewHeader(StatusError, 11), Code: "invalid_target",

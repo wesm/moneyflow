@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-export test-go-quick test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -42,6 +42,13 @@ test-provider: web-embed
 test-provider-write: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test ./internal/app ./internal/store/sqlite ./internal/provider/... ./internal/api ./internal/replay -run 'Test(RefreshAndWrite|WriteLease|ConcurrentProvider|ProviderWrite|ResponseAdjusted|IndexedReplay|RenderersAndWritePlanner|MonarchPorts|UpdateTransaction)' -count=1
 	go test ./internal/app -run '^TestProviderWrite(Planning|Finalization)Performance100K$$' -count=1
+
+test-mcp: web-embed
+	MONEYFLOW_SKIP_PERF=1 go test ./internal/mcp ./cmd/moneyflow -count=1
+	MONEYFLOW_SKIP_PERF=1 go test ./internal/provider -run '^TestMCPDependencyBoundary$$' -count=1
+	CGO_ENABLED=0 MONEYFLOW_SKIP_PERF=1 go test ./internal/mcp ./cmd/moneyflow -run '^TestMCPCommandDefaultsToStdioAndPassesWritePolicy$$' -count=1
+	MONEYFLOW_SKIP_PERF=1 go test -race ./internal/mcp ./cmd/moneyflow -run 'Test(MCP|HTTP|TokenStore|Supervisor|RunMCP)' -count=1
+	go test ./internal/mcp -run '^TestMCPPerformance100K$$' -count=1
 
 monarch-live-test:
 	@if [ "$$MONEYFLOW_MONARCH_LIVE" != "1" ]; then printf '%s\n' 'Set MONEYFLOW_MONARCH_LIVE=1 to opt in.' >&2; exit 2; fi
@@ -87,6 +94,7 @@ verify-go:
 	$(MAKE) test-store
 	$(MAKE) test-provider
 	$(MAKE) test-provider-write
+	$(MAKE) test-mcp
 	$(MAKE) vet
 	$(MAKE) lint
 	$(MAKE) parity
