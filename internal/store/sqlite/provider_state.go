@@ -372,7 +372,8 @@ func validateLease(lease store.ProviderOperationLease, observedAt time.Time) err
 	if err := validateLeaseOwner(lease.OwnerID); err != nil {
 		return err
 	}
-	if lease.Renderer != "cli" && lease.Renderer != "tui" && lease.Renderer != "web" {
+	if lease.Renderer != "cli" && lease.Renderer != "tui" &&
+		lease.Renderer != "web" && lease.Renderer != "mcp" {
 		return errors.New("refresh lease renderer is invalid")
 	}
 	if err := validateProviderOperationKind(lease.Kind); err != nil {

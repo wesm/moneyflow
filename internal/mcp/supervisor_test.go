@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,6 +97,94 @@ func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing
 	assert.Equal(t, uint64(9), terminal.Write.Version)
 	assert.Empty(t, terminal.ConfirmationToken)
 	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorRefreshAttemptIsRecoverableAndSingleFlight(t *testing.T) {
+	now := time.Date(2026, time.August, 29, 13, 2, 0, 0, time.UTC)
+	supervisor := newSupervisor(func() time.Time { return now }, strings.NewReader(strings.Repeat("f", 128)))
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var runs atomic.Int32
+	attempt, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
+		runs.Add(1)
+		close(started)
+		select {
+		case <-ctx.Done():
+			return app.ProviderRefreshResult{}, ctx.Err()
+		case <-release:
+			return app.ProviderRefreshResult{
+				Revision: 11, Generation: 7,
+				Status: app.ProviderStatus{Fetched: 40, Total: 40},
+			}, nil
+		}
+	})
+	require.NoError(t, err)
+	<-started
+	duplicate, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		runs.Add(1)
+		return app.ProviderRefreshResult{}, nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, attempt.ID, duplicate.ID)
+	assert.Equal(t, int32(1), runs.Load())
+	recovered, err := supervisor.RefreshStatus("")
+	require.NoError(t, err)
+	assert.Equal(t, attempt.ID, recovered.ID)
+	assert.Equal(t, AttemptRunning, recovered.State)
+
+	close(release)
+	require.Eventually(t, func() bool {
+		current, statusErr := supervisor.RefreshStatus(attempt.ID)
+		return statusErr == nil && current.State == AttemptCompleted
+	}, time.Second, time.Millisecond)
+	terminal, err := supervisor.RefreshStatus(attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(11), terminal.Revision)
+	assert.Equal(t, uint64(7), terminal.Generation)
+	assert.Equal(t, 40, terminal.Refresh.Fetched)
+	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("d", 128)))
+	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		return app.ProviderRefreshResult{
+			Revision: 4, Generation: 2,
+			Status: app.ProviderStatus{ConfirmationToken: "refresh-confirmation"},
+		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 4}
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		status, statusErr := supervisor.RefreshStatus(attempt.ID)
+		return statusErr == nil && status.State == AttemptConfirmationRequired
+	}, time.Second, time.Millisecond)
+	assert.ErrorIs(t, supervisor.BeginRefreshConfirmation(attempt.ID, "wrong"), ErrAttemptNotFound)
+	require.NoError(t, supervisor.BeginRefreshConfirmation(attempt.ID, "refresh-confirmation"))
+	reserved, err := supervisor.RefreshStatus(attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, AttemptRunning, reserved.State)
+	assert.Empty(t, reserved.ConfirmationToken)
+	require.NoError(t, supervisor.FinishRefresh(attempt.ID, app.ProviderRefreshResult{
+		Revision: 5, Generation: 3,
+	}, nil))
+	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("x", 128)))
+	stopped := make(chan struct{})
+	_, err := supervisor.StartRefresh(func(ctx context.Context) (app.ProviderRefreshResult, error) {
+		<-ctx.Done()
+		close(stopped)
+		return app.ProviderRefreshResult{}, ctx.Err()
+	})
+	require.NoError(t, err)
+	require.NoError(t, supervisor.Close(context.Background()))
+	<-stopped
+	status, err := supervisor.RefreshStatus("")
+	require.NoError(t, err)
+	assert.Equal(t, AttemptFailed, status.State)
+	assert.Equal(t, "mcp_server_closed", status.Code)
 }
 
 func TestSupervisorShutdownCancelsAndWaitsForWork(t *testing.T) {

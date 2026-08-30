@@ -51,6 +51,43 @@ func TestProviderDeletionThresholdBoundaries(t *testing.T) {
 	}
 }
 
+func TestMCPRendererIsAcceptedForExplicitProviderWork(t *testing.T) {
+	t.Parallel()
+
+	service, profile := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 29, 15, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		Source: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		Renderer: "mcp", InstanceID: "mcp-instance", Now: func() time.Time { return now },
+	}))
+	started := make(chan struct{})
+	release := make(chan struct{})
+	source.setFetchHook(func() error {
+		close(started)
+		<-release
+		return nil
+	})
+	result := make(chan error, 1)
+	go func() {
+		_, refreshErr := service.RefreshProvider(context.Background(), app.ProviderRefreshRequest{
+			Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		})
+		result <- refreshErr
+	}()
+	<-started
+	state, err := profile.ProviderState(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, state.Lease)
+	assert.Equal(t, "mcp", state.Lease.Renderer)
+	assert.Equal(t, uint64(0), service.Revision())
+	close(release)
+	require.NoError(t, <-result)
+}
+
 func TestProviderRefreshImportsBindsAndValidatesIdentityEveryTime(t *testing.T) {
 	t.Parallel()
 

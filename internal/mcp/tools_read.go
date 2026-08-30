@@ -64,17 +64,124 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 			return CommitStatusDocument{Header: NewHeader(StatusOK, account.Revision), Write: writeStatusDocument(account.Write)}, nil
 		})
 	registerTool(server, "refresh_data", "Start one explicit provider refresh when available.", false,
-		func(context.Context, EmptyInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "Provider refresh supervision is not available for this profile."), nil
+		func(ctx context.Context, _ EmptyInput) (any, error) {
+			return refreshDataDocument(ctx, server)
 		})
 	registerTool(server, "get_refresh_status", "Return process-local provider refresh status.", true,
-		func(context.Context, RefreshStatusInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "No MCP refresh attempt is active."), nil
+		func(_ context.Context, input RefreshStatusInput) (any, error) {
+			return refreshStatusDocument(server, input)
 		})
 	registerTool(server, "confirm_refresh_deletions", "Confirm one process-local provider deletion candidate.", false,
-		func(context.Context, ConfirmRefreshInput) (any, error) {
-			return capabilityUnavailable(dependencies.Service, "No MCP refresh confirmation is available."), nil
+		func(ctx context.Context, input ConfirmRefreshInput) (any, error) {
+			return confirmRefreshDocument(ctx, server, input)
 		})
+}
+
+func refreshDataDocument(ctx context.Context, server *Server) (any, error) {
+	connection, err := server.service.ProviderConnection(ctx)
+	if err != nil || !connection.Bound {
+		return capabilityUnavailable(server.service, "This local profile has no provider to refresh."), nil
+	}
+	if connection.Kind != "monarch" {
+		return capabilityUnavailable(
+			server.service,
+			"Amazon import requires the TUI, web, or provider import command.",
+		), nil
+	}
+	for _, capability := range server.service.Capabilities() {
+		if capability.Action == app.ActionRefreshProvider && !capability.Available {
+			return capabilityUnavailable(server.service, capability.Reason), nil
+		}
+	}
+	attempt, err := server.supervisor.StartRefresh(
+		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
+			return server.service.RefreshProvider(workerContext, app.ProviderRefreshRequest{
+				Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+				Window: app.WindowRequest{Limit: 1},
+			})
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return refreshAttemptDocument(attempt, server.service.Revision(), false), nil
+}
+
+func refreshStatusDocument(server *Server, input RefreshStatusInput) (any, error) {
+	attempt, err := server.supervisor.RefreshStatus(input.AttemptID)
+	if err != nil {
+		if errors.Is(err, ErrAttemptNotFound) {
+			return attemptNotFoundDocument(server.service.Revision()), nil
+		}
+		return nil, err
+	}
+	return refreshAttemptDocument(attempt, server.service.Revision(), true), nil
+}
+
+func confirmRefreshDocument(
+	ctx context.Context,
+	server *Server,
+	input ConfirmRefreshInput,
+) (any, error) {
+	if err := server.supervisor.BeginRefreshConfirmation(
+		input.AttemptID, input.ConfirmationToken,
+	); err != nil {
+		return confirmationInvalidDocument(server.service.Revision()), nil
+	}
+	result, confirmErr := server.service.ConfirmProviderRefresh(ctx, app.ProviderRefreshRequest{
+		Manual: true, ConfirmationToken: input.ConfirmationToken,
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+		Window: app.WindowRequest{Limit: 1},
+	})
+	if finishErr := server.supervisor.FinishRefresh(input.AttemptID, result, confirmErr); finishErr != nil {
+		return nil, finishErr
+	}
+	if confirmErr != nil {
+		return nil, confirmErr
+	}
+	attempt, err := server.supervisor.RefreshStatus(input.AttemptID)
+	if err != nil {
+		return nil, err
+	}
+	return refreshAttemptDocument(attempt, server.service.Revision(), false), nil
+}
+
+func refreshAttemptDocument(
+	status AttemptStatus,
+	currentRevision uint64,
+	includeToken bool,
+) RefreshAttemptDocument {
+	revision := status.Revision
+	if revision == 0 {
+		revision = currentRevision
+	}
+	document := RefreshAttemptDocument{
+		Header: NewHeader(StatusOK, revision), AttemptID: status.ID,
+		State: string(status.State), Code: status.Code,
+		Generation: strconv.FormatUint(status.Generation, 10),
+		StartedAt:  formatOptionalTime(status.StartedAt), FinishedAt: formatOptionalTime(status.FinishedAt),
+		Guidance: refreshAttemptGuidance(status), Provider: providerStatusDocument(status.Refresh),
+		Summary: refreshSummaryDocument(status.Refresh),
+	}
+	if includeToken {
+		document.ConfirmationToken = status.ConfirmationToken
+	}
+	return document
+}
+
+func refreshAttemptGuidance(status AttemptStatus) string {
+	switch status.State {
+	case AttemptReconnectRequired:
+		return "Reconnect Monarch through the command line, then start a new refresh."
+	case AttemptConfirmationRequired:
+		return "Review the removal counts and confirm this process-local candidate if they are expected."
+	case AttemptFailed:
+		return "Resolve the reported provider condition before starting a new refresh."
+	case AttemptRunning, AttemptCompleted:
+		return ""
+	default:
+		return ""
+	}
 }
 
 func registerTool[Input any](

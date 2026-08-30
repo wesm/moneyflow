@@ -156,7 +156,8 @@ func (service *Service) ConfigureProvider(runtime ProviderRuntime) error {
 		runtime.Scale > 9 {
 		return errors.New("configure provider: money interpretation is invalid")
 	}
-	if runtime.Renderer != "cli" && runtime.Renderer != "tui" && runtime.Renderer != "web" {
+	if runtime.Renderer != "cli" && runtime.Renderer != "tui" &&
+		runtime.Renderer != "web" && runtime.Renderer != "mcp" {
 		return errors.New("configure provider: renderer is invalid")
 	}
 	if runtime.InstanceID == "" || strings.TrimSpace(runtime.InstanceID) != runtime.InstanceID ||

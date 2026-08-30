@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 9);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 10);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -203,7 +203,7 @@ INSERT INTO provider_refresh_state(
 CREATE TABLE provider_operation_lease (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
     owner_id TEXT NOT NULL CHECK(owner_id <> ''),
-    renderer TEXT NOT NULL CHECK(renderer IN ('cli', 'tui', 'web')),
+    renderer TEXT NOT NULL CHECK(renderer IN ('cli', 'tui', 'web', 'mcp')),
     operation_kind TEXT NOT NULL CHECK(operation_kind IN ('refresh', 'write', 'reconcile')),
     expires_at_unix_ms INTEGER NOT NULL CHECK(
         typeof(expires_at_unix_ms) = 'integer' AND expires_at_unix_ms >= 0

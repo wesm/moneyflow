@@ -197,6 +197,34 @@ type ProviderStatusDocument struct {
 	Total        int    `json:"total"`
 }
 
+type RefreshSummaryDocument struct {
+	ImportedAccounts        int `json:"imported_accounts"`
+	ImportedMerchants       int `json:"imported_merchants"`
+	ImportedGroups          int `json:"imported_groups"`
+	ImportedCategories      int `json:"imported_categories"`
+	ImportedTransactions    int `json:"imported_transactions"`
+	RemovedTransactions     int `json:"removed_transactions"`
+	RemovedOperations       int `json:"removed_operations"`
+	RemovedTargets          int `json:"removed_targets"`
+	RetainedOperations      int `json:"retained_operations"`
+	RebasedHideTargets      int `json:"rebased_hide_targets"`
+	DiscardedRedoOperations int `json:"discarded_redo_operations"`
+}
+
+type RefreshAttemptDocument struct {
+	Header
+	AttemptID         string                 `json:"attempt_id"`
+	State             string                 `json:"state"`
+	Code              string                 `json:"code,omitempty"`
+	Generation        string                 `json:"generation"`
+	StartedAt         string                 `json:"started_at"`
+	FinishedAt        string                 `json:"finished_at,omitempty"`
+	Guidance          string                 `json:"guidance,omitempty"`
+	Provider          ProviderStatusDocument `json:"provider"`
+	Summary           RefreshSummaryDocument `json:"summary"`
+	ConfirmationToken string                 `json:"confirmation_token,omitempty"`
+}
+
 type WriteStatusDocument struct {
 	BatchID    string `json:"batch_id,omitempty"`
 	Phase      string `json:"phase,omitempty"`
@@ -329,6 +357,18 @@ func providerStatusDocument(status app.ProviderStatus) ProviderStatusDocument {
 		Code: string(status.Code), Generation: strconv.FormatUint(status.Generation, 10),
 		LastSuccess: formatOptionalTime(status.LastSuccess), NextEligible: formatOptionalTime(status.NextEligible),
 		Fetched: status.Fetched, Total: status.Total,
+	}
+}
+
+func refreshSummaryDocument(status app.ProviderStatus) RefreshSummaryDocument {
+	summary := status.Summary
+	return RefreshSummaryDocument{
+		ImportedAccounts: summary.ImportedAccounts, ImportedMerchants: summary.ImportedMerchants,
+		ImportedGroups: summary.ImportedGroups, ImportedCategories: summary.ImportedCategories,
+		ImportedTransactions: summary.ImportedTransactions, RemovedTransactions: summary.RemovedTransactions,
+		RemovedOperations: summary.RemovedOperations, RemovedTargets: summary.RemovedTargets,
+		RetainedOperations: summary.RetainedOperations, RebasedHideTargets: summary.RebasedHideTargets,
+		DiscardedRedoOperations: summary.DiscardedRedoOperations,
 	}
 }
 
