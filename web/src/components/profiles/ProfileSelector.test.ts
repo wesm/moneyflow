@@ -12,7 +12,7 @@ describe('profile selector', () => {
     await fireEvent.keyDown(window, { key: 'a' })
     expect(screen.getByRole('heading', { name: 'Choose a provider' })).not.toBeNull()
     await fireEvent.keyDown(window, { key: 'y' })
-    expect(screen.getByRole('status').textContent).toContain('YNAB is not available in Go yet.')
+    expect(screen.getByRole('heading', { name: 'Name this profile' })).not.toBeNull()
   })
 
   it('supports arrows, Home, Enter, d/a/n, Escape, and q without hiding local statuses', async () => {
@@ -43,6 +43,29 @@ describe('profile selector', () => {
     expect(screen.getByRole('heading', { name: 'Open this profile offline?' })).not.toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Open Offline' }))
     expect(props.onopen).toHaveBeenCalledWith('profile_bbbbbbbbbbbbbbbbbbbbbbbbbb')
+  })
+
+  it('offers unlock or offline open for a locally ready YNAB profile', async () => {
+    const props = syntheticCatalogProps()
+    props.profiles = [
+      {
+        ...props.profiles[0]!,
+        display_name: 'Example YNAB',
+        provider_kind: 'ynab',
+        status: 'ready',
+      },
+    ]
+    render(ProfileSelector, { props })
+
+    await fireEvent.click(screen.getByRole('button', { name: /Example YNAB/ }))
+    expect(screen.getByRole('heading', { name: 'Unlock YNAB or open offline?' })).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Offline' }))
+    expect(props.onopen).toHaveBeenCalledWith('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa')
+    cleanup()
+    render(ProfileSelector, { props })
+    await fireEvent.click(screen.getByRole('button', { name: /Example YNAB/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Unlock YNAB' }))
+    expect(props.onsetup).toHaveBeenCalledWith('profile_aaaaaaaaaaaaaaaaaaaaaaaaaa')
   })
 
   it('never offers Recreate for profiles that require a newer Moneyflow', async () => {

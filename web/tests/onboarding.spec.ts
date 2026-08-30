@@ -55,3 +55,46 @@ test('canceling a newly added profile leaves no orphan in the catalog', async ({
     await server.stop()
   }
 })
+
+test('@smoke YNAB setup masks secrets, selects a budget, and opens the profile', async ({
+  page,
+}) => {
+  const server = await startOnboardingE2EServer('/moneyflow/')
+  try {
+    await page.goto(server.url)
+    await page.getByRole('button', { name: /Add profile/ }).click()
+    await page.getByRole('button', { name: /YNAB, available/ }).click()
+    await page.getByLabel('Profile name').fill('YNAB Profile')
+    await page.getByRole('button', { name: 'Create profile' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Connect YNAB' })).toBeVisible()
+    const token = page.getByLabel('YNAB personal access token')
+    await expect(token).toHaveAttribute('type', 'password')
+    await token.fill('synthetic-token')
+    await page.getByLabel('Moneyflow account password', { exact: true }).fill('vault-password')
+    await page.getByLabel('Confirm Moneyflow account password').fill('vault-password')
+    await page.getByRole('button', { name: 'Connect' }).click()
+
+    await expect(page.getByRole('heading', { name: 'Choose a YNAB budget' })).toBeVisible()
+    await page.getByRole('button', { name: /Example Budget/ }).press('Enter')
+    await expect(page.getByRole('heading', { name: 'Confirm import settings' })).toBeVisible()
+    await expect(page.getByLabel('Currency')).toHaveValue('USD')
+    await expect(page.getByLabel('Currency')).toHaveAttribute('readonly', '')
+    await expect(page.getByLabel('Minor-unit scale')).toHaveValue('2')
+    await page.getByRole('button', { name: 'Continue with USD / 2' }).press('Enter')
+
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    await expect(page).toHaveURL(/\/moneyflow\/p\/profile_[a-z2-7]{26}\/(?:\?v=1)?$/)
+    await expect(page.getByRole('row', { name: /Example Payee/ })).toBeVisible()
+    await expect(page).not.toHaveURL(/synthetic-token|vault-password/)
+    const browserStorage = await page.evaluate(() => ({
+      local: JSON.stringify(localStorage),
+      session: JSON.stringify(sessionStorage),
+      history: JSON.stringify(history.state),
+    }))
+    expect(JSON.stringify(browserStorage)).not.toContain('synthetic-token')
+    expect(JSON.stringify(browserStorage)).not.toContain('vault-password')
+  } finally {
+    await server.stop()
+  }
+})

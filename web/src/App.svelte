@@ -67,7 +67,7 @@
 
   async function canonicalID(
     selector: string,
-    providerKind?: 'monarch' | 'amazon' | 'local',
+    providerKind?: 'monarch' | 'ynab' | 'amazon' | 'local',
   ): Promise<string | undefined> {
     if (!catalog) return selector
     const profile = catalog.state.profiles.find(
@@ -95,7 +95,7 @@
   }
 
   async function setup(selector: string): Promise<void> {
-    const id = await canonicalID(selector, 'monarch')
+    const id = await canonicalID(selector)
     if (!id) return
     onboarding?.destroy()
     if (createdOnboardingProfileID !== id) createdOnboardingProfileID = undefined
@@ -170,11 +170,13 @@
 
   async function createProfile(
     name: string,
-    provider: 'monarch' | 'amazon' | 'local',
+    provider: 'monarch' | 'ynab' | 'amazon' | 'local',
   ): Promise<ProfileSummary | undefined> {
     if (!catalog) return undefined
     const created = await catalog.create(name, provider)
-    if (provider === 'monarch' && created?.id) createdOnboardingProfileID = created.id
+    if ((provider === 'monarch' || provider === 'ynab') && created?.id) {
+      createdOnboardingProfileID = created.id
+    }
     if (provider === 'amazon' && created?.id) createdAmazonProfileID = created.id
     return created
   }

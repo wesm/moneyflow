@@ -9,18 +9,18 @@
   import { onMount } from 'svelte'
 
   interface Props {
-    onselect: (provider: 'monarch' | 'amazon' | 'local') => void
+    onselect: (provider: 'monarch' | 'ynab' | 'amazon' | 'local') => void
     onback: () => void
   }
 
   let { onselect, onback }: Props = $props()
-  let announcement = $state('Monarch and Amazon order-history import are available.')
+  let announcement = $state('Monarch, YNAB, and Amazon order-history import are available.')
   let active = $state(0)
   let list = $state<HTMLElement | undefined>()
   const providers = [
     { key: 'monarch', name: 'Monarch Money', shortcut: 'm', available: true },
     { key: 'amazon', name: 'Amazon orders', shortcut: 'a', available: true },
-    { key: 'ynab', name: 'YNAB', shortcut: 'y', available: false },
+    { key: 'ynab', name: 'YNAB', shortcut: 'y', available: true },
     { key: 'simplefin', name: 'SimpleFIN', shortcut: 's', available: false },
     { key: 'local', name: 'Local only', shortcut: 'l', available: true },
   ] as const
@@ -30,7 +30,10 @@
     const provider = providers[index]!
     if (
       provider.available &&
-      (provider.key === 'monarch' || provider.key === 'amazon' || provider.key === 'local')
+      (provider.key === 'monarch' ||
+        provider.key === 'ynab' ||
+        provider.key === 'amazon' ||
+        provider.key === 'local')
     ) {
       onselect(provider.key)
       return

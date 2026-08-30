@@ -16,6 +16,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
 func TestOnboardingStatusIsCredentialBlind(t *testing.T) {
@@ -59,6 +60,112 @@ func TestOnboardingStatusIsCredentialBlind(t *testing.T) {
 		assert.NotContains(t, status.Body.String(), secret)
 		assert.NotContains(t, submitted.Body.String(), secret)
 	}
+}
+
+func TestYNABOnboardingPublishesOpaqueChoicesAndMapsCredentialUnion(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{providerKind: "ynab"}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot OnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+
+	token := "synthetic-ynab-token" //nolint:gosec // synthetic test credential.
+	accountPassword := "synthetic-account-password"
+	submitPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/submit")
+	require.NoError(t, err)
+	submitted := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+		ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: snapshot.StateVersion,
+		Action: onboarding.ActionSubmitCredentials,
+		YNABCredentials: &OnboardingYNABCredentialsInput{
+			AccessToken: token, AccountPassword: accountPassword, Confirmation: accountPassword,
+		},
+	})
+	require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
+	require.NotNil(t, coordinator.lastSubmit.YNABCredentials)
+	assert.Equal(t, []byte(token), coordinator.lastSubmit.YNABCredentials.AccessToken)
+	assert.Nil(t, coordinator.lastSubmit.MonarchCredentials)
+	assert.NotContains(t, submitted.Body.String(), token)
+	assert.NotContains(t, submitted.Body.String(), accountPassword)
+
+	coordinator.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: snapshot.AttemptID,
+		ProfileID: testProfileID, StateVersion: 3,
+		State: onboarding.StateRemoteProfileRequired, ProviderKind: "ynab",
+		RemoteProfiles: []onboarding.RemoteProfileChoice{{
+			ChoiceID: "choice_opaque", DisplayName: "Example Budget",
+			LastModified: "2026-08-01T00:00:00Z",
+		}},
+	}
+	statusPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/status")
+	require.NoError(t, err)
+	status := requestServer(t, server, http.MethodGet, statusPath, nil)
+	require.Equal(t, http.StatusOK, status.Code, status.Body.String())
+	assert.Contains(t, status.Body.String(), "choice_opaque")
+	assert.Contains(t, status.Body.String(), "Example Budget")
+	assert.NotContains(t, status.Body.String(), "plan-private")
+}
+
+func TestOnboardingStartUsesCatalogProviderKind(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), Onboarding: coordinator,
+		Catalog: &apiCatalogFake{entries: []profilecatalog.Entry{{
+			Key: testProfileID, ID: testProfileID, DisplayName: "Example YNAB",
+			ProviderKind: "ynab", Status: profilecatalog.StatusSetupIncomplete,
+		}}},
+		Evictor: &apiEvictorFake{}, BasePath: "/", Version: "test",
+	})
+	require.NoError(t, err)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	assert.Equal(t, "ynab", coordinator.lastStart.ProviderKind)
+}
+
+func TestOnboardingRejectsProtocolOneAndCrossProviderCredentialFields(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{providerKind: "ynab"}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	versionOne := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: 1,
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, versionOne.Code)
+
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot OnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+	submitPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/submit")
+	require.NoError(t, err)
+	wrongUnion := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+		ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: snapshot.StateVersion,
+		Action: onboarding.ActionSubmitCredentials,
+		Credentials: &OnboardingCredentialsInput{
+			Email: "user@example.test", Password: "synthetic", TOTPSecret: "SYNTHETIC",
+			AccountPassword: "vault", Confirmation: "vault",
+		},
+		YNABCredentials: &OnboardingYNABCredentialsInput{
+			AccessToken: "synthetic", AccountPassword: "vault", Confirmation: "vault",
+		},
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, wrongUnion.Code)
+	assert.Zero(t, coordinator.submits.Load())
 }
 
 func TestOnboardingMutationRejectsAnotherProfileToken(t *testing.T) {
@@ -193,6 +300,10 @@ type apiOnboardingFake struct {
 	takeFailures     atomic.Int32
 	closes           atomic.Int32
 	profileCancels   atomic.Int32
+	submits          atomic.Int32
+	providerKind     string
+	lastStart        onboarding.StartRequest
+	lastSubmit       onboarding.SubmitRequest
 }
 
 func (coordinator *apiOnboardingFake) Start(
@@ -200,10 +311,18 @@ func (coordinator *apiOnboardingFake) Start(
 	request onboarding.StartRequest,
 ) (onboarding.Snapshot, error) {
 	coordinator.starts.Add(1)
+	coordinator.lastStart = request
+	providerKind := coordinator.providerKind
+	if providerKind == "" {
+		providerKind = request.ProviderKind
+	}
+	if providerKind == "" {
+		providerKind = "monarch"
+	}
 	coordinator.snapshot = onboarding.Snapshot{
 		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
 		ProfileID: request.ProfileID, StateVersion: 1,
-		State: onboarding.StateCredentialsRequired, ProviderKind: "monarch",
+		State: onboarding.StateCredentialsRequired, ProviderKind: providerKind,
 	}
 	return coordinator.snapshot, nil
 }
@@ -222,6 +341,8 @@ func (coordinator *apiOnboardingFake) Submit(
 	_ context.Context,
 	request onboarding.SubmitRequest,
 ) (onboarding.Snapshot, error) {
+	coordinator.submits.Add(1)
+	coordinator.lastSubmit = request
 	coordinator.snapshot.StateVersion = request.ExpectedStateVersion + 1
 	coordinator.snapshot.State = onboarding.StateAuthenticating
 	return coordinator.snapshot, nil

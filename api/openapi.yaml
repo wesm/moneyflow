@@ -976,6 +976,19 @@ components:
         - pass
         - elapsed_ms
       type: object
+    OnboardingRemoteProfileResponse:
+      additionalProperties: false
+      properties:
+        choice_id:
+          type: string
+        display_name:
+          type: string
+        last_modified:
+          type: string
+      required:
+        - choice_id
+        - display_name
+      type: object
     OnboardingSettingsInput:
       additionalProperties: false
       properties:
@@ -1024,6 +1037,12 @@ components:
           type: integer
         provider_kind:
           type: string
+        remote_profiles:
+          items:
+            $ref: "#/components/schemas/OnboardingRemoteProfileResponse"
+          type:
+            - array
+            - "null"
         settings:
           $ref: "#/components/schemas/OnboardingSettingsInput"
         state:
@@ -1055,10 +1074,15 @@ components:
           format: int32
           minimum: 0
           type: integer
+        remote_profile_choice_id:
+          maxLength: 128
+          type: string
         settings:
           $ref: "#/components/schemas/OnboardingSettingsInput"
         unlock:
           $ref: "#/components/schemas/OnboardingUnlockInput"
+        ynab_credentials:
+          $ref: "#/components/schemas/OnboardingYNABCredentialsInput"
       required:
         - protocol_version
         - expected_state_version
@@ -1072,6 +1096,23 @@ components:
           type: string
       required:
         - account_password
+      type: object
+    OnboardingYNABCredentialsInput:
+      additionalProperties: false
+      properties:
+        access_token:
+          maxLength: 4096
+          type: string
+        account_password:
+          maxLength: 4096
+          type: string
+        confirmation:
+          maxLength: 4096
+          type: string
+      required:
+        - access_token
+        - account_password
+        - confirmation
       type: object
     PendingSummary:
       additionalProperties: false
@@ -1152,6 +1193,7 @@ components:
         provider_kind:
           enum:
             - monarch
+            - ynab
             - amazon
             - local
           type: string
@@ -1205,6 +1247,7 @@ components:
         provider_kind:
           enum:
             - monarch
+            - ynab
             - amazon
             - local
           type: string

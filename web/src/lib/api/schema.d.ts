@@ -1004,6 +1004,11 @@ export interface components {
       /** Format: int64 */
       total: number
     }
+    OnboardingRemoteProfileResponse: {
+      choice_id: string
+      display_name: string
+      last_modified?: string
+    }
     OnboardingSettingsInput: {
       currency: string
       /** Format: int32 */
@@ -1023,6 +1028,7 @@ export interface components {
       /** Format: int32 */
       protocol_version: number
       provider_kind: string
+      remote_profiles?: components['schemas']['OnboardingRemoteProfileResponse'][] | null
       settings?: components['schemas']['OnboardingSettingsInput']
       state: string
       /** Format: int64 */
@@ -1035,11 +1041,18 @@ export interface components {
       expected_state_version: number
       /** Format: int32 */
       protocol_version: number
+      remote_profile_choice_id?: string
       settings?: components['schemas']['OnboardingSettingsInput']
       unlock?: components['schemas']['OnboardingUnlockInput']
+      ynab_credentials?: components['schemas']['OnboardingYNABCredentialsInput']
     }
     OnboardingUnlockInput: {
       account_password: string
+    }
+    OnboardingYNABCredentialsInput: {
+      access_token: string
+      account_password: string
+      confirmation: string
     }
     PendingSummary: {
       /** Format: int64 */
@@ -1078,7 +1091,7 @@ export interface components {
     ProfileActivateBody: {
       key: string
       /** @enum {string} */
-      provider_kind?: 'monarch' | 'amazon' | 'local'
+      provider_kind?: 'monarch' | 'ynab' | 'amazon' | 'local'
       version: string
     }
     ProfileCancelBody: {
@@ -1095,7 +1108,7 @@ export interface components {
     ProfileCreateBody: {
       display_name: string
       /** @enum {string} */
-      provider_kind: 'monarch' | 'amazon' | 'local'
+      provider_kind: 'monarch' | 'ynab' | 'amazon' | 'local'
       version: string
     }
     ProfileResponse: {

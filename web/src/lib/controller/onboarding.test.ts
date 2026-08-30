@@ -18,7 +18,7 @@ describe('onboarding controller', () => {
       profileID,
       'attempt_synthetic',
       expect.objectContaining({
-        protocol_version: 1,
+        protocol_version: 2,
         expected_state_version: 1,
         action: 'confirm_settings',
         settings: { currency: 'USD', scale: 2 },
@@ -42,6 +42,49 @@ describe('onboarding controller', () => {
     expect(JSON.stringify(controller.state)).not.toContain('synthetic-secret')
     expect(JSON.stringify(controller.state)).not.toContain('vault-secret')
     expect(transport.submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('submits YNAB secrets and opaque budget choices through protocol v2', async () => {
+    const choices = status('remote_profile_required', {
+      provider_kind: 'ynab',
+      remote_profiles: [{ choice_id: 'choice_opaque', display_name: 'Example Budget' }],
+    })
+    const transport = stubTransport(choices)
+    const controller = createOnboardingController({ profileID, transport })
+
+    await controller.start()
+    await controller.submitYNABCredentials({
+      access_token: 'synthetic-token',
+      account_password: 'vault-secret',
+      confirmation: 'vault-secret',
+    })
+    await controller.selectRemoteProfile('choice_opaque')
+
+    expect(transport.submit).toHaveBeenNthCalledWith(
+      1,
+      profileID,
+      'attempt_synthetic',
+      expect.objectContaining({
+        protocol_version: 2,
+        action: 'submit_credentials',
+        ynab_credentials: {
+          access_token: 'synthetic-token',
+          account_password: 'vault-secret',
+          confirmation: 'vault-secret',
+        },
+      }),
+    )
+    expect(transport.submit).toHaveBeenNthCalledWith(
+      2,
+      profileID,
+      'attempt_synthetic',
+      expect.objectContaining({
+        action: 'select_remote_profile',
+        remote_profile_choice_id: 'choice_opaque',
+      }),
+    )
+    expect(JSON.stringify(controller.state)).not.toContain('synthetic-token')
+    expect(JSON.stringify(controller.state)).not.toContain('vault-secret')
   })
 
   it('polls running jobs and exposes counts and elapsed time only', async () => {
@@ -245,7 +288,7 @@ describe('onboarding controller', () => {
 
 function status(state: string, overrides: Partial<OnboardingStatus> = {}): OnboardingStatus {
   return {
-    protocol_version: 1,
+    protocol_version: 2,
     attempt_id: 'attempt_synthetic',
     profile_id: profileID,
     state_version: 1,

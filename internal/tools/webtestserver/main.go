@@ -29,6 +29,7 @@ import (
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 	"github.com/wesm/moneyflow/internal/version"
 	webserver "github.com/wesm/moneyflow/internal/web"
@@ -276,13 +277,14 @@ type syntheticRuntimes struct {
 }
 
 type syntheticProfile struct {
-	mu          sync.Mutex
-	root        string
-	session     *monarch.Session
-	credentials *monarch.StoredCredentials
-	vaultKey    string
-	expired     bool
-	hidden      map[string]bool
+	mu              sync.Mutex
+	root            string
+	session         *monarch.Session
+	credentials     *monarch.StoredCredentials
+	ynabCredentials *ynab.StoredCredentials
+	vaultKey        string
+	expired         bool
+	hidden          map[string]bool
 }
 
 func newSyntheticRuntimes() *syntheticRuntimes {
@@ -301,13 +303,17 @@ func (runtimes *syntheticRuntimes) forRoot(root string) *syntheticProfile {
 }
 
 func (runtimes *syntheticRuntimes) sessionPresent(root, providerKind string) (bool, error) {
-	if providerKind != "monarch" {
-		return false, nil
-	}
 	profile := runtimes.forRoot(root)
 	profile.mu.Lock()
 	defer profile.mu.Unlock()
-	return profile.session != nil, nil
+	switch providerKind {
+	case "monarch":
+		return profile.session != nil, nil
+	case "ynab":
+		return profile.ynabCredentials != nil, nil
+	default:
+		return false, nil
+	}
 }
 
 func (runtimes *syntheticRuntimes) runtime(paths home.Paths) (onboarding.Runtime, error) {
@@ -326,8 +332,142 @@ func (runtimes *syntheticRuntimes) runtime(paths home.Paths) (onboarding.Runtime
 			source := &syntheticSource{profile: profile}
 			return source, source, nil
 		},
+		YNABVault: &syntheticYNABVault{profile: profile},
+		NewYNABClient: func(token []byte) (onboarding.YNABPlanClient, error) {
+			if string(token) != "synthetic-token" {
+				return nil, provider.NewError(provider.CodeReconnectRequired)
+			}
+			return &syntheticYNABClient{profile: profile}, nil
+		},
+		NewYNABSource: func(
+			_ ynab.StoredCredentials,
+			initial *provider.SnapshotResult,
+		) (provider.ReaderSource, error) {
+			if initial == nil {
+				return nil, errors.New("synthetic YNAB source requires an initial snapshot")
+			}
+			result := *initial
+			result.Snapshot = initial.Snapshot.Clone()
+			return &syntheticYNABSource{result: result}, nil
+		},
 		InstanceID: "webtestserver", Now: time.Now,
 	}, nil
+}
+
+type syntheticYNABVault struct{ profile *syntheticProfile }
+
+func (vault *syntheticYNABVault) Exists() (bool, error) {
+	vault.profile.mu.Lock()
+	defer vault.profile.mu.Unlock()
+	return vault.profile.ynabCredentials != nil, nil
+}
+
+func (vault *syntheticYNABVault) Load(password []byte) (ynab.StoredCredentials, error) {
+	vault.profile.mu.Lock()
+	defer vault.profile.mu.Unlock()
+	if vault.profile.ynabCredentials == nil || string(password) != vault.profile.vaultKey {
+		return ynab.StoredCredentials{}, ynab.ErrCredentialUnlock
+	}
+	return *vault.profile.ynabCredentials, nil
+}
+
+func (vault *syntheticYNABVault) Save(
+	credentials ynab.StoredCredentials,
+	password []byte,
+) error {
+	if err := credentials.Validate(); err != nil {
+		return err
+	}
+	vault.profile.mu.Lock()
+	defer vault.profile.mu.Unlock()
+	credentialsCopy := credentials
+	vault.profile.ynabCredentials = &credentialsCopy
+	vault.profile.vaultKey = string(password)
+	return nil
+}
+
+func (vault *syntheticYNABVault) Delete() error {
+	vault.profile.mu.Lock()
+	defer vault.profile.mu.Unlock()
+	vault.profile.ynabCredentials = nil
+	return nil
+}
+
+type syntheticYNABClient struct{ profile *syntheticProfile }
+
+func (client *syntheticYNABClient) ListPlans(context.Context) ([]ynab.PlanSummary, error) {
+	profileKey := filepath.Base(client.profile.root)
+	return []ynab.PlanSummary{
+		{ID: "plan-example-" + profileKey, Name: "Example Budget", LastModifiedOn: "2026-08-30T00:00:00Z"},
+		{ID: "plan-second-" + profileKey, Name: "Second Budget", LastModifiedOn: "2026-08-29T00:00:00Z"},
+	}, nil
+}
+
+func (client *syntheticYNABClient) FetchPlan(
+	_ context.Context,
+	planID string,
+) (ynab.PlanDocument, error) {
+	profileKey := filepath.Base(client.profile.root)
+	if planID != "plan-example-"+profileKey && planID != "plan-second-"+profileKey {
+		return ynab.PlanDocument{}, provider.NewError(provider.CodeIdentityMismatch)
+	}
+	return syntheticYNABPlan(planID), nil
+}
+
+type syntheticYNABSource struct{ result provider.SnapshotResult }
+
+func (source *syntheticYNABSource) Reader(
+	context.Context,
+	bool,
+) (provider.Reader, provider.SessionFingerprint, error) {
+	result := source.result
+	result.Snapshot = source.result.Snapshot.Clone()
+	return syntheticYNABReader{result: result}, "synthetic-ynab-vault", nil
+}
+
+func (*syntheticYNABSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
+
+type syntheticYNABReader struct{ result provider.SnapshotResult }
+
+func (reader syntheticYNABReader) FetchSnapshot(
+	_ context.Context,
+	progress provider.ProgressFunc,
+) (provider.SnapshotResult, error) {
+	if progress != nil {
+		progress(provider.Progress{
+			Partition: "all", Fetched: len(reader.result.Snapshot.Transactions),
+			Total: len(reader.result.Snapshot.Transactions), Attempt: 1,
+		})
+	}
+	result := reader.result
+	result.Snapshot = reader.result.Snapshot.Clone()
+	return result, nil
+}
+
+func syntheticYNABPlan(planID string) ynab.PlanDocument {
+	no, yes := false, true
+	return ynab.PlanDocument{
+		ID: planID, Name: "Example Budget",
+		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
+		Accounts: []ynab.Account{{
+			ID: "ynab-account", Name: "Account Name", Type: "checking",
+			OnBudget: &yes, Closed: &no, Deleted: &no,
+		}},
+		Payees: []ynab.Payee{{ID: "ynab-payee", Name: "Example Payee", Deleted: &no}},
+		CategoryGroups: []ynab.CategoryGroup{{
+			ID: "ynab-group", Name: "Example Group", Hidden: &no, Deleted: &no,
+		}},
+		Categories: []ynab.Category{{
+			ID: "ynab-category", CategoryGroupID: "ynab-group",
+			Name: "Example Category", Hidden: &no, Deleted: &no,
+		}},
+		Transactions: []ynab.Transaction{{
+			ID: "ynab-transaction", Date: "2026-08-30", Amount: -12340,
+			Cleared: "cleared", Approved: &yes, AccountID: "ynab-account",
+			PayeeID: "ynab-payee", CategoryID: "ynab-category", Deleted: &no,
+		}},
+		Subtransactions: []ynab.Subtransaction{}, ServerKnowledge: 1,
+	}
 }
 
 func (runtimes *syntheticRuntimes) expire(profileID string) bool {

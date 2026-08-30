@@ -15,9 +15,11 @@
   function providerLabel(provider: string): string {
     return provider === 'monarch'
       ? 'Monarch Money'
-      : provider === 'amazon'
-        ? 'Amazon orders'
-        : 'Local profile'
+      : provider === 'ynab'
+        ? 'YNAB'
+        : provider === 'amazon'
+          ? 'Amazon orders'
+          : 'Local profile'
   }
 
   function inputTarget(target: EventTarget | null): boolean {
@@ -46,7 +48,7 @@
     onrecover: (profileID: string, confirmed: boolean) => Promise<void> | void
     oncreate: (
       name: string,
-      provider: 'monarch' | 'amazon' | 'local',
+      provider: 'monarch' | 'ynab' | 'amazon' | 'local',
     ) => Promise<ProfileSummary | undefined> | ProfileSummary | undefined
     ondemo: () => void
     onexit: () => void
@@ -66,11 +68,11 @@
     ondemo,
     onexit,
   }: Props = $props()
-  type View = 'list' | 'provider' | 'name' | 'recovery' | 'guidance' | 'local'
+  type View = 'list' | 'provider' | 'name' | 'recovery' | 'guidance' | 'local' | 'ynab-ready'
   let view = $state<View>('list')
   let active = $state(0)
   let selected = $state<ProfileSummary | undefined>()
-  let provider = $state<'monarch' | 'amazon' | 'local'>('monarch')
+  let provider = $state<'monarch' | 'ynab' | 'amazon' | 'local'>('monarch')
   let profileList = $state<HTMLElement | undefined>()
   let wasLoading = $state(false)
   const entries = $derived([
@@ -128,6 +130,10 @@
   function selectProfile(profile: ProfileSummary): void {
     selected = profile
     if (profile.status === 'ready') {
+      if (profile.provider_kind === 'ynab') {
+        view = 'ynab-ready'
+        return
+      }
       onopen(profile.id ?? profile.key)
       return
     }
@@ -218,6 +224,24 @@
           <Button tone="info" surface="solid" onclick={() => selected?.id && onopen(selected.id)}>
             Open Offline
           </Button>
+        </div>
+      </section>
+    {:else if view === 'ynab-ready' && selected}
+      <section class="profile-panel" aria-labelledby="ynab-ready-title">
+        <p class="moneyflow-eyebrow">{selected.display_name}</p>
+        <h1 id="ynab-ready-title">Unlock YNAB or open offline?</h1>
+        <p>
+          Unlock the local credential vault to refresh, or browse committed data without network
+          access.
+        </p>
+        <div class="profile-actions">
+          <Button onclick={back}>Back</Button>
+          <Button onclick={() => onopen(selected?.id ?? selected?.key ?? '')}>Open Offline</Button>
+          <Button
+            tone="info"
+            surface="solid"
+            onclick={() => onsetup(selected?.id ?? selected?.key ?? '')}>Unlock YNAB</Button
+          >
         </div>
       </section>
     {:else}

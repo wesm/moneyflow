@@ -67,6 +67,57 @@ describe('onboarding wizard', () => {
     expect(controller.reauthenticate).toHaveBeenCalledTimes(1)
   })
 
+  it('uses masked YNAB inputs, selects a budget by keyboard, and confirms derived money', async () => {
+    const controller = stubController('credentials_required', {
+      snapshot: { ...snapshot('credentials_required'), provider_kind: 'ynab' },
+    })
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+
+    const token = screen.getByLabelText('YNAB personal access token') as HTMLInputElement
+    expect(token.type).toBe('password')
+    await fireEvent.input(token, { target: { value: 'synthetic-token' } })
+    await fireEvent.input(screen.getByLabelText('Moneyflow account password'), {
+      target: { value: 'vault-secret' },
+    })
+    await fireEvent.input(screen.getByLabelText('Confirm Moneyflow account password'), {
+      target: { value: 'vault-secret' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: 'Connect' }))
+    expect(controller.submitYNABCredentials).toHaveBeenCalledWith({
+      access_token: 'synthetic-token',
+      account_password: 'vault-secret',
+      confirmation: 'vault-secret',
+    })
+    expect(token.value).toBe('')
+
+    cleanup()
+    controller.state.snapshot = {
+      ...snapshot('remote_profile_required'),
+      provider_kind: 'ynab',
+      remote_profiles: [
+        { choice_id: 'choice_alpha', display_name: 'Alpha Budget' },
+        { choice_id: 'choice_beta', display_name: 'Beta Budget' },
+      ],
+    }
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+    const beta = screen.getByRole('button', { name: /Beta Budget/ })
+    await fireEvent.click(beta)
+    expect(controller.selectRemoteProfile).toHaveBeenCalledWith('choice_beta')
+
+    cleanup()
+    controller.state.snapshot = {
+      ...snapshot('settings_required'),
+      provider_kind: 'ynab',
+      settings: { currency: 'EUR', scale: 2 },
+    }
+    render(OnboardingWizard, { controller, oncomplete: vi.fn(), oncancel: vi.fn() })
+    const currency = screen.getByLabelText('Currency') as HTMLInputElement
+    expect(currency.readOnly).toBe(true)
+    expect(currency.value).toBe('EUR')
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue with EUR / 2' }))
+    expect(controller.confirmSettings).toHaveBeenCalledWith('EUR', 2)
+  })
+
   it('waits for the canceled coordinator state before leaving the wizard', async () => {
     const oncancel = vi.fn()
     const controller = stubController('settings_required')
@@ -95,7 +146,7 @@ describe('onboarding wizard', () => {
 
 function snapshot(state: string) {
   return {
-    protocol_version: 1,
+    protocol_version: 2,
     attempt_id: 'attempt_synthetic',
     profile_id: 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa',
     state_version: 1,
@@ -120,6 +171,8 @@ function stubController(
     confirmSettings: vi.fn(async () => undefined),
     unlock: vi.fn(async () => undefined),
     submitCredentials: vi.fn(async () => undefined),
+    submitYNABCredentials: vi.fn(async () => undefined),
+    selectRemoteProfile: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
     reauthenticate: vi.fn(async () => undefined),
     cancel: vi.fn(async () => undefined),

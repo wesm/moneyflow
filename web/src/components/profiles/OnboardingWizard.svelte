@@ -3,15 +3,15 @@
 
   type Progress = NonNullable<OnboardingStatus['progress']>
 
-  function progressTitle(phase: string | undefined): string {
-    if (phase === 'verifying') return 'Verifying Monarch data'
-    if (phase === 'folding' || phase === 'importing') return 'Importing Monarch data'
-    return 'Fetching Monarch data'
+  function progressTitle(phase: string | undefined, provider: string): string {
+    if (phase === 'verifying') return `Verifying ${provider} data`
+    if (phase === 'folding' || phase === 'importing') return `Importing ${provider} data`
+    return `Fetching ${provider} data`
   }
 
-  function progressDescription(progress: Progress | undefined): string {
+  function progressDescription(progress: Progress | undefined, provider: string): string {
     if (!progress) return 'Preparing the provider import.'
-    return `${progressTitle(progress.phase)}: ${progress.fetched.toLocaleString()} of ${progress.total.toLocaleString()} ${progress.partition || 'transactions'}.`
+    return `${progressTitle(progress.phase, provider)}: ${progress.fetched.toLocaleString()} of ${progress.total.toLocaleString()} ${progress.partition || 'transactions'}.`
   }
 
   function formatElapsed(milliseconds: number): string {
@@ -41,10 +41,12 @@
   let password = $state('')
   let totpSecret = $state('')
   let confirmation = $state('')
+  let accessToken = $state('')
   let validation = $state('')
   const snapshot = $derived(controller.state.snapshot)
   const problem = $derived(controller.state.problem)
   const progress = $derived(snapshot?.progress)
+  const providerName = $derived(snapshot?.provider_kind === 'ynab' ? 'YNAB' : 'Monarch')
 
   $effect(() => {
     if (snapshot?.settings) {
@@ -118,6 +120,30 @@
     confirmation = ''
   }
 
+  async function submitYNABCredentials(): Promise<void> {
+    if (!accessToken || !accountPassword) {
+      validation = 'Complete every credential field.'
+      return
+    }
+    if (accountPassword !== confirmation) {
+      validation = 'Moneyflow account passwords do not match.'
+      return
+    }
+    const submitted = {
+      access_token: accessToken,
+      account_password: accountPassword,
+      confirmation,
+    }
+    accessToken = ''
+    accountPassword = ''
+    confirmation = ''
+    validation = ''
+    await controller.submitYNABCredentials(submitted)
+    accessToken = ''
+    accountPassword = ''
+    confirmation = ''
+  }
+
   async function cancel(): Promise<void> {
     await controller.cancel()
   }
@@ -130,7 +156,7 @@
   </TopBar>
   <main class="profile-main" aria-label="Profile onboarding">
     <section class="profile-panel" aria-labelledby="onboarding-title">
-      <p class="moneyflow-eyebrow">Monarch Money</p>
+      <p class="moneyflow-eyebrow">{providerName}</p>
       {#if problem}
         <h1 id="onboarding-title">Profile setup was interrupted</h1>
         <Card
@@ -147,7 +173,7 @@
       {:else if !snapshot || ['inspect', 'validate_session'].includes(snapshot.state)}
         <h1 id="onboarding-title">Checking saved session</h1>
         <div class="onboarding-working">
-          <Spinner label="Checking saved Monarch session" />
+          <Spinner label={`Checking saved ${providerName} credentials`} />
           <p>Looking for a reusable encrypted session before asking for credentials.</p>
         </div>
       {:else if snapshot.state === 'settings_required'}
@@ -161,9 +187,21 @@
           }}
         >
           <label for="onboarding-currency">Currency</label>
-          <TextInput id="onboarding-currency" bind:value={currency} block autocomplete="off" />
+          <TextInput
+            id="onboarding-currency"
+            bind:value={currency}
+            block
+            readonly={snapshot.provider_kind === 'ynab'}
+            autocomplete="off"
+          />
           <label for="onboarding-scale">Minor-unit scale</label>
-          <TextInput id="onboarding-scale" bind:value={scale} block autocomplete="off" />
+          <TextInput
+            id="onboarding-scale"
+            bind:value={scale}
+            block
+            readonly={snapshot.provider_kind === 'ynab'}
+            autocomplete="off"
+          />
           {#if validation}<p role="alert" class="editing-error">{validation}</p>{/if}
           <div class="profile-actions">
             <Button type="button" onclick={() => void cancel()}>Cancel</Button><Button
@@ -176,7 +214,7 @@
       {:else if snapshot.state === 'unlock_required'}
         <h1 id="onboarding-title">Unlock saved credentials</h1>
         <p>
-          Enter the Moneyflow account password used to protect the local Monarch credential vault.
+          Enter the Moneyflow account password used to protect the local {providerName} credential vault.
         </p>
         <form
           class="profile-form"
@@ -200,6 +238,53 @@
               type="submit"
               tone="info"
               surface="solid">Unlock</Button
+            >
+          </div>
+        </form>
+      {:else if snapshot.state === 'credentials_required' && snapshot.provider_kind === 'ynab'}
+        <h1 id="onboarding-title">Connect YNAB</h1>
+        <p>
+          The token is sent only to this Moneyflow server and saved only in the encrypted local
+          vault.
+        </p>
+        <form
+          class="profile-form"
+          onsubmit={(event) => {
+            event.preventDefault()
+            void submitYNABCredentials()
+          }}
+        >
+          <label for="onboarding-ynab-token">YNAB personal access token</label>
+          <TextInput
+            id="onboarding-ynab-token"
+            type="password"
+            bind:value={accessToken}
+            block
+            autofocus
+            autocomplete="off"
+          />
+          <label for="onboarding-account-password">Moneyflow account password</label>
+          <TextInput
+            id="onboarding-account-password"
+            type="password"
+            bind:value={accountPassword}
+            block
+            autocomplete="new-password"
+          />
+          <label for="onboarding-confirmation">Confirm Moneyflow account password</label>
+          <TextInput
+            id="onboarding-confirmation"
+            type="password"
+            bind:value={confirmation}
+            block
+            autocomplete="new-password"
+          />
+          {#if validation}<p role="alert" class="editing-error">{validation}</p>{/if}
+          <div class="profile-actions">
+            <Button type="button" onclick={() => void cancel()}>Cancel</Button><Button
+              type="submit"
+              tone="info"
+              surface="solid">Connect</Button
             >
           </div>
         </form>
@@ -266,16 +351,29 @@
             >
           </div>
         </form>
+      {:else if snapshot.state === 'remote_profile_required'}
+        <h1 id="onboarding-title">Choose a YNAB budget</h1>
+        <p>Choose the budget this Moneyflow profile will remain bound to.</p>
+        <div class="profile-list" role="list">
+          {#each snapshot.remote_profiles ?? [] as choice (choice.choice_id)}
+            <Card
+              title={choice.display_name}
+              meta={choice.last_modified ? `Updated ${choice.last_modified}` : 'Available'}
+              onclick={() => void controller.selectRemoteProfile(choice.choice_id)}
+            />
+          {/each}
+        </div>
+        <div class="profile-actions"><Button onclick={() => void cancel()}>Cancel</Button></div>
       {:else if ['authenticating', 'importing'].includes(snapshot.state)}
         <h1 id="onboarding-title">
           {snapshot.state === 'authenticating'
-            ? 'Authenticating with Monarch'
-            : progressTitle(progress?.phase)}
+            ? `Authenticating with ${providerName}`
+            : progressTitle(progress?.phase, providerName)}
         </h1>
         <div class="onboarding-working">
           <Spinner label="Provider setup in progress" />
           <p>
-            {progressDescription(progress)}
+            {progressDescription(progress, providerName)}
           </p>
         </div>
         <Button onclick={() => void cancel()}>Cancel</Button>
@@ -290,8 +388,10 @@
             >{/if}
         </div>
       {:else if snapshot.state === 'identity_mismatch'}
-        <h1 id="onboarding-title">Different Monarch account</h1>
-        <p>This profile is bound to a different Monarch account. Local data was not changed.</p>
+        <h1 id="onboarding-title">Different {providerName} account</h1>
+        <p>
+          This profile is bound to a different {providerName} account. Local data was not changed.
+        </p>
         <div class="profile-actions">
           <Button onclick={() => void cancel()}>Cancel</Button><Button
             tone="info"

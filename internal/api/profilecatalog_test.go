@@ -46,6 +46,19 @@ func TestProfileCatalogListsLocalStatusAndCreatesWithCatalogAuthority(t *testing
 	assert.Equal(t, http.StatusForbidden, wrongScope.Code)
 }
 
+func TestProfileCatalogAcceptsYNABCreation(t *testing.T) {
+	t.Parallel()
+	catalog := &apiCatalogFake{}
+	server := newCatalogAPIServer(t, catalog, &apiEvictorFake{})
+	created := requestScopedMutation(t, server, CatalogMutationScope, "/api/v1/profiles", ProfileCreateBody{
+		Version: ProfileCatalogSchemaVersion, DisplayName: "Example YNAB", ProviderKind: "ynab",
+	})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var response ProfileResponse
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &response))
+	assert.Equal(t, "ynab", response.Profile.ProviderKind)
+}
+
 func TestProfileCatalogActivationUsesCatalogAuthorityAndReturnsCanonicalIdentity(t *testing.T) {
 	t.Parallel()
 	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"

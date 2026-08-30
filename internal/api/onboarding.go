@@ -37,14 +37,23 @@ type OnboardingCredentialsInput struct {
 	Confirmation    string `json:"confirmation" maxLength:"4096"`
 }
 
+// OnboardingYNABCredentialsInput contains one transient YNAB token and vault setup secrets.
+type OnboardingYNABCredentialsInput struct {
+	AccessToken     string `json:"access_token" maxLength:"4096"`
+	AccountPassword string `json:"account_password" maxLength:"4096"`
+	Confirmation    string `json:"confirmation" maxLength:"4096"`
+}
+
 // OnboardingSubmitBody applies one exact versioned coordinator transition.
 type OnboardingSubmitBody struct {
-	ProtocolVersion      uint16                      `json:"protocol_version"`
-	ExpectedStateVersion uint64                      `json:"expected_state_version"`
-	Action               onboarding.ActionType       `json:"action"`
-	Settings             *OnboardingSettingsInput    `json:"settings,omitempty"`
-	Unlock               *OnboardingUnlockInput      `json:"unlock,omitempty"`
-	Credentials          *OnboardingCredentialsInput `json:"credentials,omitempty"`
+	ProtocolVersion       uint16                          `json:"protocol_version"`
+	ExpectedStateVersion  uint64                          `json:"expected_state_version"`
+	Action                onboarding.ActionType           `json:"action"`
+	Settings              *OnboardingSettingsInput        `json:"settings,omitempty"`
+	Unlock                *OnboardingUnlockInput          `json:"unlock,omitempty"`
+	Credentials           *OnboardingCredentialsInput     `json:"credentials,omitempty"`
+	YNABCredentials       *OnboardingYNABCredentialsInput `json:"ynab_credentials,omitempty"`
+	RemoteProfileChoiceID string                          `json:"remote_profile_choice_id,omitempty" maxLength:"128"`
 }
 
 // OnboardingCancelBody cancels one exact versioned coordinator state.
@@ -72,17 +81,25 @@ type OnboardingFailureResponse struct {
 	CanReenter bool   `json:"can_reenter"`
 }
 
+// OnboardingRemoteProfileResponse is an attempt-scoped provider choice without remote identity.
+type OnboardingRemoteProfileResponse struct {
+	ChoiceID     string `json:"choice_id"`
+	DisplayName  string `json:"display_name"`
+	LastModified string `json:"last_modified,omitempty"`
+}
+
 // OnboardingStatusResponse is the complete credential-blind browser state.
 type OnboardingStatusResponse struct {
-	ProtocolVersion uint16                      `json:"protocol_version"`
-	AttemptID       string                      `json:"attempt_id"`
-	ProfileID       string                      `json:"profile_id"`
-	StateVersion    uint64                      `json:"state_version"`
-	State           onboarding.State            `json:"state"`
-	ProviderKind    string                      `json:"provider_kind"`
-	Settings        *OnboardingSettingsInput    `json:"settings,omitempty"`
-	Progress        *OnboardingProgressResponse `json:"progress,omitempty"`
-	Failure         *OnboardingFailureResponse  `json:"failure,omitempty"`
+	ProtocolVersion uint16                            `json:"protocol_version"`
+	AttemptID       string                            `json:"attempt_id"`
+	ProfileID       string                            `json:"profile_id"`
+	StateVersion    uint64                            `json:"state_version"`
+	State           onboarding.State                  `json:"state"`
+	ProviderKind    string                            `json:"provider_kind"`
+	Settings        *OnboardingSettingsInput          `json:"settings,omitempty"`
+	Progress        *OnboardingProgressResponse       `json:"progress,omitempty"`
+	Failure         *OnboardingFailureResponse        `json:"failure,omitempty"`
+	RemoteProfiles  []OnboardingRemoteProfileResponse `json:"remote_profiles,omitempty"`
 }
 
 type onboardingStartInput struct {
@@ -117,8 +134,13 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 		if input.Body.ProtocolVersion != onboarding.ProtocolVersion {
 			return nil, invalidOnboardingVersion()
 		}
+		providerKind, err := onboardingProviderKind(ctx, config.Catalog, input.ProfileID)
+		if err != nil {
+			return nil, err
+		}
 		request := onboarding.StartRequest{
 			ProfileID: input.ProfileID, Renderer: "web", MonthToDate: input.Body.MonthToDate,
+			ProviderKind: providerKind,
 		}
 		if input.Body.Settings != nil {
 			request.Settings = &onboarding.SettingsInput{
@@ -148,6 +170,10 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 			ProfileID: input.ProfileID, AttemptID: input.AttemptID,
 			ExpectedStateVersion: input.Body.ExpectedStateVersion, Action: input.Body.Action,
 		}
+		if input.Body.Credentials != nil && input.Body.YNABCredentials != nil {
+			defer input.Body.clearSecrets()
+			return nil, invalidOnboardingInput()
+		}
 		if input.Body.Settings != nil {
 			request.Settings = &onboarding.SettingsInput{
 				Currency: domain.Currency(input.Body.Settings.Currency), Scale: input.Body.Settings.Scale,
@@ -167,6 +193,14 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 				Confirmation:    []byte(input.Body.Credentials.Confirmation),
 			}
 		}
+		if input.Body.YNABCredentials != nil {
+			request.YNABCredentials = &onboarding.YNABCredentialInput{
+				AccessToken:     []byte(input.Body.YNABCredentials.AccessToken),
+				AccountPassword: []byte(input.Body.YNABCredentials.AccountPassword),
+				Confirmation:    []byte(input.Body.YNABCredentials.Confirmation),
+			}
+		}
+		request.RemoteProfileChoiceID = input.Body.RemoteProfileChoiceID
 		defer input.Body.clearSecrets()
 		snapshot, err := config.Onboarding.Submit(ctx, request)
 		if err != nil {
@@ -216,6 +250,30 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 	})
 }
 
+func onboardingProviderKind(
+	ctx context.Context,
+	catalog ProfileCatalog,
+	profileID string,
+) (string, error) {
+	if catalog == nil {
+		return "monarch", nil
+	}
+	entries, err := catalog.List(ctx)
+	if err != nil {
+		return "", problemFromCatalogError(err)
+	}
+	for _, entry := range entries {
+		if entry.ID != profileID {
+			continue
+		}
+		if entry.ProviderKind != "monarch" && entry.ProviderKind != "ynab" {
+			return "", invalidOnboardingInput()
+		}
+		return entry.ProviderKind, nil
+	}
+	return "", invalidOnboardingInput()
+}
+
 func onboardingUnavailable() *Problem {
 	return newProblem(
 		http.StatusServiceUnavailable, "service_unavailable",
@@ -236,6 +294,11 @@ func (body *OnboardingSubmitBody) clearSecrets() {
 		body.Credentials.TOTPSecret = ""
 		body.Credentials.AccountPassword = ""
 		body.Credentials.Confirmation = ""
+	}
+	if body.YNABCredentials != nil {
+		body.YNABCredentials.AccessToken = ""
+		body.YNABCredentials.AccountPassword = ""
+		body.YNABCredentials.Confirmation = ""
 	}
 }
 
@@ -319,7 +382,23 @@ func onboardingSnapshotToWire(snapshot onboarding.Snapshot) OnboardingStatusResp
 			CanRetry: snapshot.Failure.CanRetry, CanReenter: snapshot.Failure.CanReenter,
 		}
 	}
+	if len(snapshot.RemoteProfiles) > 0 {
+		response.RemoteProfiles = make([]OnboardingRemoteProfileResponse, len(snapshot.RemoteProfiles))
+		for index, choice := range snapshot.RemoteProfiles {
+			response.RemoteProfiles[index] = OnboardingRemoteProfileResponse{
+				ChoiceID: choice.ChoiceID, DisplayName: choice.DisplayName,
+				LastModified: choice.LastModified,
+			}
+		}
+	}
 	return response
+}
+
+func invalidOnboardingInput() *Problem {
+	return newProblem(
+		http.StatusUnprocessableEntity, string(onboarding.CodeCredentialInputInvalid),
+		"The submitted onboarding input is invalid.",
+	)
 }
 
 func invalidOnboardingVersion() *Problem {

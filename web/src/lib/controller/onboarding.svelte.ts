@@ -7,6 +7,7 @@ import { apiURL } from './base-path'
 export type OnboardingStatus = components['schemas']['OnboardingStatusResponse']
 export type OnboardingSettings = components['schemas']['OnboardingSettingsInput']
 export type OnboardingCredentials = components['schemas']['OnboardingCredentialsInput']
+export type OnboardingYNABCredentials = components['schemas']['OnboardingYNABCredentialsInput']
 type OnboardingStartBody = components['schemas']['OnboardingStartBody']
 type OnboardingSubmitBody = components['schemas']['OnboardingSubmitBody']
 type OnboardingCancelBody = components['schemas']['OnboardingCancelBody']
@@ -39,6 +40,8 @@ export interface OnboardingController {
   confirmSettings(currency: string, scale: number): Promise<void>
   unlock(accountPassword: string): Promise<void>
   submitCredentials(credentials: OnboardingCredentials): Promise<void>
+  submitYNABCredentials(credentials: OnboardingYNABCredentials): Promise<void>
+  selectRemoteProfile(choiceID: string): Promise<void>
   retry(): Promise<void>
   restart(): Promise<void>
   reauthenticate(): Promise<void>
@@ -174,7 +177,7 @@ export function createOnboardingController(options: {
     await apply(
       () =>
         options.transport.start(options.profileID, {
-          protocol_version: 1,
+          protocol_version: 2,
           month_to_date: false,
           ...(settings ? { settings } : {}),
         }),
@@ -184,14 +187,17 @@ export function createOnboardingController(options: {
 
   async function submit(
     action: string,
-    payload: Pick<OnboardingSubmitBody, 'settings' | 'unlock' | 'credentials'> = {},
+    payload: Pick<
+      OnboardingSubmitBody,
+      'settings' | 'unlock' | 'credentials' | 'ynab_credentials' | 'remote_profile_choice_id'
+    > = {},
   ): Promise<void> {
     const snapshot = state.snapshot
     if (!snapshot) return
     await apply(
       () =>
         options.transport.submit(options.profileID, snapshot.attempt_id, {
-          protocol_version: 1,
+          protocol_version: 2,
           expected_state_version: snapshot.state_version,
           action,
           ...payload,
@@ -237,7 +243,7 @@ export function createOnboardingController(options: {
     await apply(
       () =>
         options.transport.cancel(options.profileID, snapshot.attempt_id, {
-          protocol_version: 1,
+          protocol_version: 2,
           expected_state_version: snapshot.state_version,
         }),
       'Canceling provider setup…',
@@ -255,6 +261,10 @@ export function createOnboardingController(options: {
     unlock: (accountPassword) =>
       submit('unlock', { unlock: { account_password: accountPassword } }),
     submitCredentials: (credentials) => submit('submit_credentials', { credentials }),
+    submitYNABCredentials: (credentials) =>
+      submit('submit_credentials', { ynab_credentials: credentials }),
+    selectRemoteProfile: (choiceID) =>
+      submit('select_remote_profile', { remote_profile_choice_id: choiceID }),
     retry: () => submit('retry'),
     restart: () => start(state.snapshot?.settings),
     reauthenticate: () => submit('reauthenticate'),
@@ -276,17 +286,19 @@ function pageVisible(): boolean {
 }
 
 function announcementFor(snapshot: OnboardingStatus): string {
+  const provider = snapshot.provider_kind === 'ynab' ? 'YNAB' : 'Monarch'
   const names: Record<string, string> = {
     inspect: 'Inspecting profile…',
     validate_session: 'Checking saved session…',
     settings_required: 'Confirm import settings.',
-    unlock_required: 'Unlock saved Monarch credentials.',
-    credentials_required: 'Enter Monarch credentials.',
-    authenticating: 'Authenticating with Monarch…',
-    importing: 'Importing Monarch data…',
-    complete: 'Monarch setup complete.',
+    unlock_required: `Unlock saved ${provider} credentials.`,
+    credentials_required: `Enter ${provider} credentials.`,
+    remote_profile_required: 'Choose a YNAB budget.',
+    authenticating: `Authenticating with ${provider}…`,
+    importing: `Importing ${provider} data…`,
+    complete: `${provider} setup complete.`,
     local_only: 'This profile can be opened offline.',
-    identity_mismatch: 'This profile is bound to a different Monarch account.',
+    identity_mismatch: `This profile is bound to a different ${provider} account.`,
     failed: snapshot.failure?.message ?? 'Provider setup failed.',
     canceled: 'Provider setup canceled.',
   }
@@ -296,7 +308,7 @@ function announcementFor(snapshot: OnboardingStatus): string {
 function isStatus(value: unknown): value is OnboardingStatus {
   return (
     isRecord(value) &&
-    value.protocol_version === 1 &&
+    value.protocol_version === 2 &&
     typeof value.attempt_id === 'string' &&
     typeof value.profile_id === 'string' &&
     typeof value.state_version === 'number' &&
