@@ -86,6 +86,24 @@ func TestAmazonImportLockIsIndependentExclusiveAndSequential(t *testing.T) {
 	assert.FileExists(t, filepath.Join(root, "amazon-import.lock"))
 }
 
+func TestMCPHTTPTokenLockIsIndependentExclusiveAndSequential(t *testing.T) {
+	root := t.TempDir()
+	profile, err := TryLock(root, LockProfile, LockShared)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Release()) })
+
+	token, err := TryLockExisting(root, LockMCPHTTPToken, LockExclusive)
+	require.NoError(t, err)
+	_, err = TryLockExisting(root, LockMCPHTTPToken, LockExclusive)
+	assert.ErrorIs(t, err, ErrLockBusy)
+	require.NoError(t, token.Release())
+
+	token, err = TryLockExisting(root, LockMCPHTTPToken, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, token.Release())
+	assert.FileExists(t, filepath.Join(root, "mcp-http-token.lock"))
+}
+
 func TestCatalogLockRejectsInvalidNameAndMode(t *testing.T) {
 	root := t.TempDir()
 	_, err := TryLock(root, LockName(99), LockExclusive)
@@ -178,6 +196,34 @@ func TestExportLockReleasedWhenProcessDies(t *testing.T) {
 	require.NoError(t, lock.Release())
 }
 
+func TestMCPHTTPTokenLockReleasedWhenProcessDies(t *testing.T) {
+	root := t.TempDir()
+	command := lockHelperCommandForName(t, root, "hold", "mcp-http-token")
+	stdin, err := command.StdinPipe()
+	require.NoError(t, err)
+	stdout, err := command.StdoutPipe()
+	require.NoError(t, err)
+	command.Stderr = os.Stderr
+	require.NoError(t, command.Start())
+
+	reader := bufio.NewReader(stdout)
+	line, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "locked\n", line)
+	_, err = TryLockExisting(root, LockMCPHTTPToken, LockExclusive)
+	require.ErrorIs(t, err, ErrLockBusy)
+
+	require.NoError(t, command.Process.Kill())
+	require.NoError(t, stdin.Close())
+	err = command.Wait()
+	var exitError *exec.ExitError
+	require.True(t, errors.As(err, &exitError))
+
+	lock, err := TryLockExisting(root, LockMCPHTTPToken, LockExclusive)
+	require.NoError(t, err)
+	require.NoError(t, lock.Release())
+}
+
 func TestLockHelperProcess(t *testing.T) {
 	if os.Getenv(lockHelperEnvironment) == "" {
 		t.Skip("helper process")
@@ -190,6 +236,8 @@ func TestLockHelperProcess(t *testing.T) {
 		name = LockExport
 	case "amazon-import":
 		name = LockAmazonImport
+	case "mcp-http-token":
+		name = LockMCPHTTPToken
 	}
 	lock, err := TryLock(root, name, LockExclusive)
 	if errors.Is(err, ErrLockBusy) {

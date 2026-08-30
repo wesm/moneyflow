@@ -21,6 +21,8 @@ const (
 	LockExport
 	// LockAmazonImport serializes Amazon import execution for one profile.
 	LockAmazonImport
+	// LockMCPHTTPToken serializes creation and rotation of one profile-scoped MCP bearer token.
+	LockMCPHTTPToken
 )
 
 // LockMode controls whether other readers may hold the same lock concurrently.
@@ -166,6 +168,8 @@ func lockFilename(name LockName) (string, error) {
 		return "export.lock", nil
 	case LockAmazonImport:
 		return "amazon-import.lock", nil
+	case LockMCPHTTPToken:
+		return "mcp-http-token.lock", nil
 	default:
 		return "", errors.New("acquire home lock: invalid lock name")
 	}

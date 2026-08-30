@@ -10,15 +10,13 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
 	"runtime"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/httpsecurity"
 	"github.com/wesm/moneyflow/internal/version"
 	webserver "github.com/wesm/moneyflow/internal/web"
 )
@@ -42,8 +40,6 @@ type WebOptions struct {
 	ExternalURL string
 	Open        bool
 }
-
-var dnsLabelPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 
 func newWebCommand(streams IOStreams) *cobra.Command {
 	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
@@ -109,43 +105,11 @@ func newWebCommand(streams IOStreams) *cobra.Command {
 }
 
 func validateWebListen(address string) (string, error) {
-	if strings.ContainsAny(address, "/?#\\\x00\r\n") {
-		return "", errors.New("listen address must contain only a host and port")
-	}
-	host, portText, err := net.SplitHostPort(address)
-	if err != nil {
-		return "", fmt.Errorf("invalid listen address: %w", err)
-	}
-	if host == "" {
-		return "", errors.New("listen host is required")
-	}
-	port, err := strconv.Atoi(portText)
-	if err != nil || port < 1 || port > 65535 {
-		return "", errors.New("listen port must be between 1 and 65535")
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsUnspecified() {
-			return "", errors.New("wildcard listen addresses are forbidden")
-		}
-		return host, nil
-	}
-	if len(host) > 253 {
-		return "", errors.New("listen host is not a valid IP address or DNS name")
-	}
-	for _, label := range strings.Split(host, ".") {
-		if len(label) > 63 || !dnsLabelPattern.MatchString(label) {
-			return "", errors.New("listen host is not a valid IP address or DNS name")
-		}
-	}
-	return host, nil
+	return httpsecurity.ValidateListen(address, false)
 }
 
 func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return httpsecurity.IsLoopbackHost(host)
 }
 
 func runWeb(

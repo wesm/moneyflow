@@ -31,6 +31,8 @@ type IOStreams struct {
 	RunTUI   tuiRunner
 	RunWeb   WebRunner
 	BuildWeb WebDependencyBuilder
+	RunMCP   MCPRunner
+	BuildMCP MCPDependencyBuilder
 	// OpenProfile owns persistent and demo SQLite lifecycle at the command boundary.
 	OpenProfile ProfileOpener
 	// OpenMonarch and Prompt are provider lifecycle seams overridden in tests.
@@ -54,6 +56,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 		Example: "  moneyflow tui --demo\n" +
 			"  moneyflow provider connect monarch --currency USD --scale 2\n" +
 			"  moneyflow web --open=false\n" +
+			"  moneyflow mcp --profile Household\n" +
 			"  moneyflow version",
 		Args:          cobra.NoArgs,
 		SilenceErrors: true,
@@ -83,6 +86,7 @@ func newRootCommand(streams IOStreams) *cobra.Command {
 	})
 	command.AddCommand(newOpenAPICommand(streams))
 	command.AddCommand(newWebCommand(streams))
+	command.AddCommand(newMCPCommand(streams))
 	command.AddCommand(newProviderCommand(streams))
 	return command
 }

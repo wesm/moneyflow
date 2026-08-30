@@ -40,6 +40,7 @@ func TestRootCommandHelp(t *testing.T) {
 	assert.Contains(t, stdout, "Portable personal-finance analysis")
 	assert.Contains(t, stdout, "moneyflow tui --demo")
 	assert.Contains(t, stdout, "moneyflow provider connect monarch")
+	assert.Contains(t, stdout, "moneyflow mcp --profile Household")
 	assert.Contains(t, stdout, "moneyflow version")
 }
 

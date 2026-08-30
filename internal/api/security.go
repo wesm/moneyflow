@@ -10,14 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/httpsecurity"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
 
@@ -37,112 +34,14 @@ var (
 	ErrTokenExpired = errors.New("mutation token expired")
 	// ErrInvalidMutationToken identifies every other token validation failure.
 	ErrInvalidMutationToken = errors.New("mutation token invalid")
-	originDNSLabelPattern   = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
 )
 
 // OriginConfig contains the one canonical browser URL and normalized mount path.
-type OriginConfig struct {
-	Canonical *url.URL
-	BasePath  string
-}
-
-// Origin returns the serialized scheme and authority used by the Origin header.
-func (config OriginConfig) Origin() string {
-	if config.Canonical == nil {
-		return ""
-	}
-	return config.Canonical.Scheme + "://" + config.Canonical.Host
-}
+type OriginConfig = httpsecurity.OriginConfig
 
 // ResolveOrigin validates the listener, external URL, and exact base-path relationship.
 func ResolveOrigin(listen string, basePath string, externalURL string) (OriginConfig, error) {
-	normalized, err := NormalizeBasePath(basePath)
-	if err != nil {
-		return OriginConfig{}, fmt.Errorf("resolve origin: %w", err)
-	}
-	if externalURL == "" {
-		if err = validateOriginAuthority(listen); err != nil {
-			return OriginConfig{}, fmt.Errorf("resolve origin: listener: %w", err)
-		}
-		canonical, parseErr := url.Parse("http://" + listen + normalized)
-		if parseErr != nil {
-			return OriginConfig{}, fmt.Errorf("resolve origin: listener URL: %w", parseErr)
-		}
-		canonicalizeOrigin(canonical)
-		return OriginConfig{Canonical: canonical, BasePath: normalized}, nil
-	}
-	canonical, err := url.Parse(externalURL)
-	if err != nil {
-		return OriginConfig{}, fmt.Errorf("resolve origin: external URL: %w", err)
-	}
-	if canonical.Scheme != "http" && canonical.Scheme != "https" {
-		return OriginConfig{}, errors.New("resolve origin: external URL must use http or https")
-	}
-	if canonical.User != nil || canonical.RawQuery != "" || canonical.ForceQuery || canonical.Fragment != "" {
-		return OriginConfig{}, errors.New("resolve origin: external URL contains unsupported components")
-	}
-	if err = validateOriginAuthority(canonical.Host); err != nil {
-		return OriginConfig{}, fmt.Errorf("resolve origin: external URL: %w", err)
-	}
-	externalPath, err := NormalizeBasePath(canonical.EscapedPath())
-	if err != nil || externalPath != normalized {
-		return OriginConfig{}, errors.New("resolve origin: external URL path must equal base path")
-	}
-	canonical.Path = normalized
-	canonical.RawPath = ""
-	canonicalizeOrigin(canonical)
-	return OriginConfig{Canonical: canonical, BasePath: normalized}, nil
-}
-
-func canonicalizeOrigin(value *url.URL) {
-	value.Scheme = strings.ToLower(value.Scheme)
-	host := strings.ToLower(value.Hostname())
-	port := value.Port()
-	if (value.Scheme == "http" && port == "80") || (value.Scheme == "https" && port == "443") {
-		port = ""
-	}
-	if port != "" {
-		value.Host = net.JoinHostPort(host, port)
-	} else if strings.Contains(host, ":") {
-		value.Host = "[" + host + "]"
-	} else {
-		value.Host = host
-	}
-}
-
-func validateOriginAuthority(authority string) error {
-	if authority == "" || strings.ContainsAny(authority, "/?#@\x00\r\n") {
-		return errors.New("origin authority is invalid")
-	}
-	host := authority
-	if parsedHost, portText, err := net.SplitHostPort(authority); err == nil {
-		host = parsedHost
-		port, portErr := strconv.Atoi(portText)
-		if portErr != nil || port < 1 || port > 65535 {
-			return errors.New("origin authority has an invalid port")
-		}
-	} else if strings.Contains(authority, ":") && net.ParseIP(strings.Trim(authority, "[]")) == nil {
-		return errors.New("origin authority has an invalid port")
-	}
-	host = strings.Trim(host, "[]")
-	if host == "" || strings.Contains(host, "*") {
-		return errors.New("origin host is invalid")
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsUnspecified() {
-			return errors.New("wildcard origin hosts are forbidden")
-		}
-		return nil
-	}
-	if len(host) > 253 {
-		return errors.New("origin host is invalid")
-	}
-	for _, label := range strings.Split(host, ".") {
-		if len(label) > 63 || !originDNSLabelPattern.MatchString(label) {
-			return errors.New("origin host is invalid")
-		}
-	}
-	return nil
+	return httpsecurity.ResolveOrigin(listen, basePath, externalURL)
 }
 
 // IssuedMutationToken includes the opaque value and public refresh deadline.
