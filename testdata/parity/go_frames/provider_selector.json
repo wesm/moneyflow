@@ -2662,35 +2662,7 @@
         "background": "#121826"
       },
       {
-        "glyph": "N",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "a",
+        "glyph": "A",
         "display_width": 1,
         "repeat": 1,
         "foreground": "#e6edf3",
@@ -2755,77 +2727,7 @@
       {
         "glyph": " ",
         "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "i",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "n",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "G",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "o",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "y",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "e",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": "t",
-        "display_width": 1,
-        "repeat": 1,
-        "foreground": "#e6edf3",
-        "background": "#121826"
-      },
-      {
-        "glyph": " ",
-        "display_width": 1,
-        "repeat": 59,
+        "repeat": 73,
         "foreground": "#e6edf3",
         "background": "#0e1626"
       },

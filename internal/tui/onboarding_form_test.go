@@ -97,6 +97,80 @@ func TestCredentialFormTabAndShiftTabMoveFocus(t *testing.T) {
 	assert.Zero(t, form.focused)
 }
 
+func TestYNABCredentialSubmitClearsEverySecretField(t *testing.T) {
+	t.Parallel()
+	form, _ := newYNABCredentialForm()
+	form.token.SetValue("temporary-ynab-token")
+	form.accountPassword.SetValue("temporary-account-password")
+	form.confirmation.SetValue("temporary-account-password")
+
+	snapshot := formSnapshot(onboarding.StateCredentialsRequired)
+	snapshot.ProviderKind = "ynab"
+	request, ok := form.submit(snapshot)
+	require.True(t, ok)
+	assert.Equal(t, onboarding.ActionSubmitCredentials, request.Action)
+	assert.Equal(t, []byte("temporary-ynab-token"), request.YNABCredentials.AccessToken)
+	assert.Equal(t, []byte("temporary-account-password"), request.YNABCredentials.AccountPassword)
+	assert.Empty(t, form.token.Value())
+	assert.Empty(t, form.accountPassword.Value())
+	assert.Empty(t, form.confirmation.Value())
+	assert.NotContains(t, fmt.Sprintf("%#v", form), "temporary-ynab-token")
+	assert.NotContains(t, fmt.Sprintf("%#v", form), "temporary-account-password")
+}
+
+func TestYNABRemoteProfileFormSelectsOpaqueChoiceByKeyboard(t *testing.T) {
+	t.Parallel()
+	snapshot := formSnapshot(onboarding.StateRemoteProfileRequired)
+	snapshot.ProviderKind = "ynab"
+	snapshot.RemoteProfiles = []onboarding.RemoteProfileChoice{
+		{ChoiceID: "choice_alpha", DisplayName: "Alpha Budget"},
+		{ChoiceID: "choice_beta", DisplayName: "Beta Budget"},
+	}
+	form := newRemoteProfileForm(snapshot.RemoteProfiles)
+	form, submit := form.update(keyMessage("down"))
+	assert.False(t, submit)
+	assert.Equal(t, 1, form.cursor)
+	form, submit = form.update(keyMessage("enter"))
+	require.True(t, submit)
+	request, ok := form.submit(snapshot)
+	require.True(t, ok)
+	assert.Equal(t, onboarding.ActionSelectRemoteProfile, request.Action)
+	assert.Equal(t, "choice_beta", request.RemoteProfileChoiceID)
+}
+
+func TestYNABSettingsAreReadOnlyAndConfirmDerivedMoney(t *testing.T) {
+	t.Parallel()
+	snapshot := formSnapshot(onboarding.StateSettingsRequired)
+	snapshot.ProviderKind = "ynab"
+	snapshot.Settings = &onboarding.Settings{Currency: "EUR", Scale: 2}
+	form, _ := newSettingsFormForSnapshot(snapshot)
+	assert.True(t, form.readonly)
+	assert.Equal(t, "EUR", form.currency.Value())
+	form, _, _ = form.update(keyMessage("x"))
+	assert.Equal(t, "EUR", form.currency.Value())
+	request, ok := form.submit(snapshot)
+	require.True(t, ok)
+	assert.Equal(t, domain.Currency("EUR"), request.Settings.Currency)
+	assert.Equal(t, uint8(2), request.Settings.Scale)
+}
+
+func TestYNABCredentialPreviewMasksSecretsAndPublishesStableFieldIDs(t *testing.T) {
+	t.Parallel()
+	preview, err := PopulatedOnboardingPreviewForTest(
+		"ynab_credential_setup", 100, 30, false,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "ynab-token-input", preview.Semantics.Focus)
+	assert.Equal(t, []string{
+		"ynab-token-input", "ynab-encrypt-pass-input", "ynab-confirm-pass-input",
+	}, preview.Semantics.Fields)
+	rendered := strings.Join(preview.Screen.Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "••••")
+	for _, secret := range preview.SecretValues {
+		assert.NotContains(t, rendered, secret)
+	}
+}
+
 func TestShellStartsOnboardingAndRendersSettingsForm(t *testing.T) {
 	t.Parallel()
 	dependencies, state := fakeShellDependencies(t)

@@ -119,6 +119,8 @@ type Shell struct {
 	settings        settingsForm
 	unlock          unlockForm
 	credentials     credentialForm
+	ynabCredentials ynabCredentialForm
+	remoteProfile   remoteProfileForm
 	amazon          amazonImportState
 	canceling       bool
 	cancelQueued    bool
@@ -525,7 +527,8 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if selection.back {
 				shell.invalidateShellRequests()
 				shell.screen = shellSelector
-			} else if selection.provider == providerMonarch || selection.provider == providerAmazon {
+			} else if selection.provider == providerMonarch || selection.provider == providerAmazon ||
+				selection.provider == providerYNAB {
 				shell.pendingProvider = selection.provider
 				shell.screen = shellName
 				shell.name, _ = newProfileNameState()
@@ -548,9 +551,14 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if name != "" {
 				shell.name.busy = true
 				guard := shell.beginShellRequest(shellName, "")
-				providerKind := "monarch"
-				if shell.pendingProvider == providerAmazon {
+				var providerKind string
+				switch shell.pendingProvider {
+				case providerAmazon:
 					providerKind = "amazon"
+				case providerYNAB:
+					providerKind = "ynab"
+				default:
+					providerKind = "monarch"
 				}
 				return shell, func() tea.Msg {
 					entry, err := shell.dependencies.Profiles.Create(shell.ctx, profilecatalog.CreateRequest{
@@ -749,9 +757,11 @@ func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 	guard := shell.beginShellRequest(shellOnboarding, selector)
 	return func() tea.Msg {
 		if entry.ID == "" {
-			activated, err := shell.dependencies.Profiles.ActivateForProvider(
-				shell.ctx, selector, "monarch",
-			)
+			providerKind := entry.ProviderKind
+			if providerKind == "" {
+				providerKind = "monarch"
+			}
+			activated, err := shell.dependencies.Profiles.ActivateForProvider(shell.ctx, selector, providerKind)
 			if err != nil {
 				return shellOnboardingSnapshotMsg{start: &guard, err: err}
 			}
@@ -860,7 +870,8 @@ func (shell Shell) cancelOnboarding() (tea.Model, tea.Cmd) {
 	}
 	shell.canceling = true
 	shell.cancelQueued = true
-	shell.status = "Cancellation requested; waiting for Monarch work to stop…"
+	shell.status = "Cancellation requested; waiting for " +
+		onboardingProviderName(shell.snapshot.ProviderKind) + " work to stop…"
 	request := onboarding.CancelRequest{
 		ProfileID: shell.snapshot.ProfileID, AttemptID: shell.snapshot.AttemptID,
 		ExpectedStateVersion: shell.snapshot.StateVersion,
@@ -949,6 +960,10 @@ func (shell Shell) startFinanceReconnect() (tea.Model, tea.Cmd) {
 			break
 		}
 	}
+	providerName := providerLabel(entry.ProviderKind)
+	if providerName == "Unknown" {
+		providerName = "provider"
+	}
 	if err := shell.Close(); err != nil {
 		shell.status = "The profile could not be closed for reconnect."
 		shell.err = err
@@ -960,7 +975,7 @@ func (shell Shell) startFinanceReconnect() (tea.Model, tea.Cmd) {
 	shell.haveSnapshot = false
 	shell.canceling = false
 	shell.cancelQueued = false
-	shell.status = "Reconnect Monarch to continue refreshing this profile."
+	shell.status = "Reconnect " + providerName + " to continue refreshing this profile."
 	return shell, shell.beginOnboarding(entry)
 }
 
@@ -1016,7 +1031,7 @@ func (shell *Shell) applyOnboardingSnapshot(snapshot onboarding.Snapshot) {
 	shell.status = ""
 	switch snapshot.State {
 	case onboarding.StateSettingsRequired:
-		shell.settings, _ = newSettingsForm()
+		shell.settings, _ = newSettingsFormForSnapshot(snapshot)
 		if snapshot.Failure != nil {
 			shell.settings.status = snapshot.Failure.Message
 		}
@@ -1026,9 +1041,21 @@ func (shell *Shell) applyOnboardingSnapshot(snapshot onboarding.Snapshot) {
 			shell.unlock.status = snapshot.Failure.Message
 		}
 	case onboarding.StateCredentialsRequired:
-		shell.credentials, _ = newCredentialForm()
+		if snapshot.ProviderKind == "ynab" {
+			shell.ynabCredentials, _ = newYNABCredentialForm()
+			if snapshot.Failure != nil {
+				shell.ynabCredentials.status = snapshot.Failure.Message
+			}
+		} else {
+			shell.credentials, _ = newCredentialForm()
+			if snapshot.Failure != nil {
+				shell.credentials.status = snapshot.Failure.Message
+			}
+		}
+	case onboarding.StateRemoteProfileRequired:
+		shell.remoteProfile = newRemoteProfileForm(snapshot.RemoteProfiles)
 		if snapshot.Failure != nil {
-			shell.credentials.status = snapshot.Failure.Message
+			shell.remoteProfile.status = snapshot.Failure.Message
 		}
 	default:
 		if snapshot.Failure != nil {
@@ -1067,6 +1094,19 @@ func (shell Shell) routeOnboardingKey(message tea.KeyPressMsg) (tea.Model, tea.C
 		}
 		return shell, shell.submitOnboarding(request)
 	case onboarding.StateCredentialsRequired:
+		if shell.snapshot.ProviderKind == "ynab" {
+			var submit bool
+			var command tea.Cmd
+			shell.ynabCredentials, submit, command = shell.ynabCredentials.update(message)
+			if !submit {
+				return shell, command
+			}
+			request, ok := shell.ynabCredentials.submit(shell.snapshot)
+			if !ok {
+				return shell, nil
+			}
+			return shell, shell.submitOnboarding(request)
+		}
 		var submit bool
 		var command tea.Cmd
 		shell.credentials, submit, command = shell.credentials.update(message)
@@ -1074,6 +1114,17 @@ func (shell Shell) routeOnboardingKey(message tea.KeyPressMsg) (tea.Model, tea.C
 			return shell, command
 		}
 		request, ok := shell.credentials.submit(shell.snapshot)
+		if !ok {
+			return shell, nil
+		}
+		return shell, shell.submitOnboarding(request)
+	case onboarding.StateRemoteProfileRequired:
+		var submit bool
+		shell.remoteProfile, submit = shell.remoteProfile.update(message)
+		if !submit {
+			return shell, nil
+		}
+		request, ok := shell.remoteProfile.submit(shell.snapshot)
 		if !ok {
 			return shell, nil
 		}

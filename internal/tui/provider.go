@@ -267,7 +267,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		model.status = "Provider write complete; provider refresh is due."
 	}
 	if message.status.Code != "" {
-		model.status = providerStatusMessage(message.status)
+		model.status = providerStatusMessage(message.status, model.profileKind)
 	} else if previousCode == provider.CodeReconnectRequired {
 		model.status = "Provider session replaced; normal refresh scheduling resumed."
 	}
@@ -335,10 +335,11 @@ func providerSuccessMessage(status app.ProviderStatus) string {
 	)
 }
 
-func providerStatusMessage(status app.ProviderStatus) string {
+func providerStatusMessage(status app.ProviderStatus, profileKind string) string {
 	switch status.Code {
 	case provider.CodeReconnectRequired:
-		return "Reconnect Monarch to continue refreshing this profile."
+		return "Reconnect " + onboardingProviderName(profileKind) +
+			" to continue refreshing this profile."
 	case provider.CodeDeletionConfirmationRequired:
 		if status.OwnerRenderer != "" {
 			return fmt.Sprintf(

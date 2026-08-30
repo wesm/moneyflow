@@ -132,3 +132,17 @@ func TestOnboardingProgressRendersAuthenticationVerificationRetryAndCancelWait(t
 	canceling.canceling = true
 	assert.Contains(t, canceling.View(), "Cancellation requested; waiting for Monarch work to stop")
 }
+
+func TestYNABOnboardingProgressUsesProviderSpecificLabels(t *testing.T) {
+	t.Parallel()
+	snapshot := onboarding.Snapshot{
+		ProviderKind: "ynab", State: onboarding.StateImporting,
+		Progress: &onboarding.Progress{Phase: "fetching", Fetched: 120, Total: 240},
+	}
+	view := progressState(snapshot).View()
+	assert.Contains(t, view, "Fetching YNAB data")
+	assert.Contains(t, view, "120 of 240")
+	state := progressState(snapshot)
+	state.canceling = true
+	assert.Contains(t, state.View(), "waiting for YNAB work to stop")
+}

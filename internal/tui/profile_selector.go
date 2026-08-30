@@ -79,10 +79,15 @@ func (selector *profileSelectorState) replace(entries []profilecatalog.Entry) {
 func (selector profileSelectorState) rows() []profileSelectorRow {
 	rows := make([]profileSelectorRow, 0, len(selector.entries)+3)
 	for _, entry := range selector.entries {
+		action := selectorActionForStatus(entry.Status)
+		status := profileStatusLabel(entry.Status)
+		if entry.ProviderKind == "ynab" && entry.Status == profilecatalog.StatusReady {
+			action = selectorOnboarding
+			status = "Ready · Enter Unlock · o Offline"
+		}
 		rows = append(rows, profileSelectorRow{
 			label: entry.DisplayName, meta: providerLabel(entry.ProviderKind),
-			status: profileStatusLabel(entry.Status), entry: entry,
-			action: selectorActionForStatus(entry.Status),
+			status: status, entry: entry, action: action,
 		})
 	}
 	rows = append(rows,
@@ -114,6 +119,11 @@ func (selector *profileSelectorState) update(message tea.KeyPressMsg) profileSel
 	case "enter":
 		row := rows[selector.cursor]
 		return profileSelection{action: row.action, entry: row.entry}
+	case "o":
+		row := rows[selector.cursor]
+		if row.entry.ProviderKind == "ynab" && row.entry.Status == profilecatalog.StatusReady {
+			return profileSelection{action: selectorOpen, entry: row.entry}
+		}
 	}
 	return profileSelection{}
 }
@@ -162,6 +172,8 @@ func providerLabel(kind string) string {
 		return "Monarch"
 	case "local":
 		return "Local"
+	case "ynab":
+		return "YNAB"
 	case "":
 		return "Unknown"
 	default:

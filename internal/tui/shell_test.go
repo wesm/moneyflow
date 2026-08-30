@@ -401,6 +401,70 @@ func TestShellClosesCompletedProfileReturnedAfterCancellation(t *testing.T) {
 	assert.Equal(t, 1, state.closes)
 }
 
+func TestYNABReadyProfileOffersUnlockAndOfflineOpen(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	entry := profilecatalog.Entry{
+		Key: "profile_yyyyyyyyyyyyyyyyyyyyyyyyyy", ID: "profile_yyyyyyyyyyyyyyyyyyyyyyyyyy",
+		DisplayName: "Example YNAB", ProviderKind: "ynab", Status: profilecatalog.StatusReady,
+	}
+	dependencies.Catalog = fakeCatalogView{entries: []profilecatalog.Entry{entry}}
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+
+	updated, unlockCommand := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	assert.Equal(t, shellOnboarding, shell.screen)
+	require.NotNil(t, unlockCommand)
+
+	shell, err = NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	updated, openCommand := shell.Update(keyMessage("o"))
+	shell = updated.(Shell)
+	require.NotNil(t, openCommand)
+	shell = updateShell(t, shell, openCommand())
+	assert.Equal(t, shellFinance, shell.screen)
+	assert.Equal(t, 1, state.opens)
+}
+
+func TestShellRoutesYNABCredentialsAndRemoteChoice(t *testing.T) {
+	t.Parallel()
+	dependencies, state := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	shell.screen = shellOnboarding
+	credentials := formSnapshot(onboarding.StateCredentialsRequired)
+	credentials.ProviderKind = "ynab"
+	shell.applyOnboardingSnapshot(credentials)
+	shell.ynabCredentials.token.SetValue("temporary-token")
+	shell.ynabCredentials.accountPassword.SetValue("account-secret")
+	shell.ynabCredentials.confirmation.SetValue("account-secret")
+	shell.ynabCredentials.focused = 2
+
+	updated, command := shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+	shell = updateShell(t, shell, command())
+	require.NotNil(t, state.lastSubmit.YNABCredentials)
+	assert.Equal(t, onboarding.ActionSubmitCredentials, state.lastSubmit.Action)
+	assert.Empty(t, shell.ynabCredentials.token.Value())
+
+	choices := formSnapshot(onboarding.StateRemoteProfileRequired)
+	choices.ProviderKind = "ynab"
+	choices.RemoteProfiles = []onboarding.RemoteProfileChoice{
+		{ChoiceID: "choice_alpha", DisplayName: "Alpha Budget"},
+		{ChoiceID: "choice_beta", DisplayName: "Beta Budget"},
+	}
+	shell.applyOnboardingSnapshot(choices)
+	updated, _ = shell.Update(keyMessage("down"))
+	shell = updated.(Shell)
+	updated, command = shell.Update(keyMessage("enter"))
+	shell = updated.(Shell)
+	require.NotNil(t, command)
+	shell = updateShell(t, shell, command())
+	assert.Equal(t, "choice_beta", state.lastSubmit.RemoteProfileChoiceID)
+}
+
 func (state *fakeShellState) TakeOpenedProfile(
 	context.Context,
 	onboarding.StatusRequest,

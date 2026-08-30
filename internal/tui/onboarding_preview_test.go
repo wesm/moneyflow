@@ -108,6 +108,47 @@ func onboardingPreviewForTest(
 		if populate {
 			shell.unlock = typeUnlockPreviewValue(shell.unlock, "fake-account-password")
 		}
+	case "ynab_credential_setup":
+		shell.screen = shellOnboarding
+		shell.haveSnapshot = true
+		shell.snapshot = onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion,
+			State:           onboarding.StateCredentialsRequired, ProviderKind: "ynab",
+		}
+		shell.ynabCredentials, _ = newYNABCredentialForm()
+		if populate {
+			values := []string{"fake-ynab-token", "fake-account-password", "fake-account-password"}
+			for index, value := range values {
+				shell.ynabCredentials = typeYNABCredentialPreviewValue(shell.ynabCredentials, value)
+				if index < len(values)-1 {
+					shell.ynabCredentials, _, _ = shell.ynabCredentials.update(keyMessage("tab"))
+				}
+			}
+			for range len(values) - 1 {
+				shell.ynabCredentials, _, _ = shell.ynabCredentials.update(keyMessage("shift+tab"))
+			}
+		}
+	case "ynab_budget_selector":
+		shell.screen = shellOnboarding
+		shell.haveSnapshot = true
+		shell.snapshot = onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion,
+			State:           onboarding.StateRemoteProfileRequired, ProviderKind: "ynab",
+			RemoteProfiles: []onboarding.RemoteProfileChoice{
+				{ChoiceID: "choice_alpha", DisplayName: "Example Budget", LastModified: "2026-08-01T00:00:00Z"},
+				{ChoiceID: "choice_beta", DisplayName: "Household Budget", LastModified: "2026-08-02T00:00:00Z"},
+			},
+		}
+		shell.remoteProfile = newRemoteProfileForm(shell.snapshot.RemoteProfiles)
+	case "ynab_settings":
+		shell.screen = shellOnboarding
+		shell.haveSnapshot = true
+		shell.snapshot = onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion,
+			State:           onboarding.StateSettingsRequired, ProviderKind: "ynab",
+			Settings: &onboarding.Settings{Currency: "USD", Scale: 2},
+		}
+		shell.settings, _ = newSettingsFormForSnapshot(shell.snapshot)
 	default:
 		return OnboardingPreview{}, errors.New("unknown onboarding preview")
 	}
@@ -126,6 +167,8 @@ func onboardingPreviewForTest(
 			}
 		case "credential_unlock":
 			preview.SecretValues = []string{"fake-account-password"}
+		case "ynab_credential_setup":
+			preview.SecretValues = []string{"fake-ynab-token", "fake-account-password"}
 		}
 	}
 	return preview, nil
@@ -150,11 +193,23 @@ func onboardingPreviewSemantics(shell Shell) OnboardingPreviewSemantics {
 	case shellOnboarding:
 		switch shell.snapshot.State {
 		case onboarding.StateCredentialsRequired:
+			if shell.snapshot.ProviderKind == "ynab" {
+				fields, focus := shell.ynabCredentials.semanticFields()
+				return OnboardingPreviewSemantics{Focus: focus, Fields: fields}
+			}
 			fields, focus := shell.credentials.semanticFields()
 			return OnboardingPreviewSemantics{Focus: focus, Fields: fields}
 		case onboarding.StateUnlockRequired:
 			fields, focus := shell.unlock.semanticFields()
 			return OnboardingPreviewSemantics{Focus: focus, Fields: fields}
+		case onboarding.StateRemoteProfileRequired:
+			return OnboardingPreviewSemantics{Focus: "ynab-budget-list", Fields: []string{"ynab-budget-list"}}
+		case onboarding.StateSettingsRequired:
+			if shell.snapshot.ProviderKind == "ynab" {
+				return OnboardingPreviewSemantics{
+					Focus: "ynab-money-confirmation", Fields: []string{"ynab-money-confirmation"},
+				}
+			}
 		}
 	}
 	return OnboardingPreviewSemantics{}
@@ -168,6 +223,13 @@ func typeCredentialPreviewValue(form credentialForm, value string) credentialFor
 }
 
 func typeUnlockPreviewValue(form unlockForm, value string) unlockForm {
+	for _, character := range value {
+		form, _, _ = form.update(keyMessage(string(character)))
+	}
+	return form
+}
+
+func typeYNABCredentialPreviewValue(form ynabCredentialForm, value string) ynabCredentialForm {
 	for _, character := range value {
 		form, _, _ = form.update(keyMessage(string(character)))
 	}

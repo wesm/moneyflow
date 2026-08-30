@@ -18,11 +18,16 @@ var credentialSemanticFields = [...]string{
 	"email-input", "password-input", "mfa-input", "encrypt-pass-input", "confirm-pass-input",
 }
 
+var ynabCredentialSemanticFields = [...]string{
+	"ynab-token-input", "ynab-encrypt-pass-input", "ynab-confirm-pass-input",
+}
+
 type settingsForm struct {
 	currency textinput.Model
 	scale    textinput.Model
 	focused  int
 	status   string
+	readonly bool
 }
 
 func newSettingsForm() (settingsForm, tea.Cmd) {
@@ -36,6 +41,19 @@ func newSettingsForm() (settingsForm, tea.Cmd) {
 	scale.SetWidth(8)
 	form := settingsForm{currency: currency, scale: scale}
 	return form, form.currency.Focus()
+}
+
+func newSettingsFormForSnapshot(snapshot onboarding.Snapshot) (settingsForm, tea.Cmd) {
+	form, command := newSettingsForm()
+	if snapshot.ProviderKind != "ynab" || snapshot.Settings == nil {
+		return form, command
+	}
+	form.currency.SetValue(string(snapshot.Settings.Currency))
+	form.scale.SetValue(strconv.Itoa(int(snapshot.Settings.Scale)))
+	form.currency.Blur()
+	form.scale.Blur()
+	form.readonly = true
+	return form, nil
 }
 
 func (form *settingsForm) submit(snapshot onboarding.Snapshot) (onboarding.SubmitRequest, bool) {
@@ -54,6 +72,12 @@ func (form *settingsForm) submit(snapshot onboarding.Snapshot) (onboarding.Submi
 }
 
 func (form settingsForm) update(message tea.KeyPressMsg) (settingsForm, *onboarding.SubmitRequest, tea.Cmd) {
+	if form.readonly {
+		if message.Keystroke() == "enter" {
+			return form, &onboarding.SubmitRequest{}, nil
+		}
+		return form, nil, nil
+	}
 	if message.Keystroke() == "tab" || message.Keystroke() == "shift+tab" ||
 		message.Keystroke() == "up" || message.Keystroke() == "down" {
 		step := 1
@@ -73,6 +97,155 @@ func (form settingsForm) update(message tea.KeyPressMsg) (settingsForm, *onboard
 		form.scale, command = form.scale.Update(message)
 	}
 	return form, nil, command
+}
+
+type ynabCredentialForm struct {
+	token           secretInput
+	accountPassword secretInput
+	confirmation    secretInput
+	focused         int
+	status          string
+}
+
+func newYNABCredentialForm() (ynabCredentialForm, tea.Cmd) {
+	token, _ := newSecretInput("YNAB personal access token")
+	accountPassword, _ := newSecretInput("Moneyflow account password")
+	confirmation, _ := newSecretInput("Confirm Moneyflow account password")
+	form := ynabCredentialForm{
+		token: token, accountPassword: accountPassword, confirmation: confirmation,
+	}
+	return form, form.focus()
+}
+
+func (form *ynabCredentialForm) submit(snapshot onboarding.Snapshot) (onboarding.SubmitRequest, bool) {
+	token := []byte(form.token.Value())
+	accountPassword := []byte(form.accountPassword.Value())
+	confirmation := []byte(form.confirmation.Value())
+	form.clearSecrets()
+	if len(token) == 0 || len(accountPassword) == 0 || len(confirmation) == 0 {
+		form.status = "Complete every credential field."
+		return onboarding.SubmitRequest{}, false
+	}
+	if string(accountPassword) != string(confirmation) {
+		form.status = "Moneyflow account passwords do not match."
+		return onboarding.SubmitRequest{}, false
+	}
+	form.status = ""
+	return onboarding.SubmitRequest{
+		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSubmitCredentials,
+		YNABCredentials: &onboarding.YNABCredentialInput{
+			AccessToken: token, AccountPassword: accountPassword, Confirmation: confirmation,
+		},
+	}, true
+}
+
+func (form ynabCredentialForm) update(message tea.KeyPressMsg) (ynabCredentialForm, bool, tea.Cmd) {
+	switch message.Keystroke() {
+	case "tab", "down", "shift+tab", "up":
+		step := 1
+		if message.Keystroke() == "shift+tab" || message.Keystroke() == "up" {
+			step = -1
+		}
+		form.focused = (form.focused + step + 3) % 3
+		return form, false, form.focus()
+	case "enter":
+		if form.focused < 2 {
+			form.focused++
+			return form, false, form.focus()
+		}
+		return form, true, nil
+	}
+	var command tea.Cmd
+	switch form.focused {
+	case 0:
+		form.token, command = form.token.Update(message)
+	case 1:
+		form.accountPassword, command = form.accountPassword.Update(message)
+	default:
+		form.confirmation, command = form.confirmation.Update(message)
+	}
+	return form, false, command
+}
+
+func (form *ynabCredentialForm) focus() tea.Cmd {
+	form.token.Blur()
+	form.accountPassword.Blur()
+	form.confirmation.Blur()
+	switch form.focused {
+	case 0:
+		return form.token.Focus()
+	case 1:
+		return form.accountPassword.Focus()
+	default:
+		return form.confirmation.Focus()
+	}
+}
+
+func (form *ynabCredentialForm) clearSecrets() {
+	form.token.Clear()
+	form.accountPassword.Clear()
+	form.confirmation.Clear()
+}
+
+func (form ynabCredentialForm) GoString() string {
+	return fmt.Sprintf(
+		"tui.ynabCredentialForm{token:%#v, accountPassword:%#v, confirmation:%#v, focused:%d, status:%q}",
+		form.token, form.accountPassword, form.confirmation, form.focused, form.status,
+	)
+}
+
+func (form ynabCredentialForm) semanticFields() ([]string, string) {
+	fields := append([]string(nil), ynabCredentialSemanticFields[:]...)
+	focused := []bool{
+		form.token.Focused(), form.accountPassword.Focused(), form.confirmation.Focused(),
+	}
+	for index, active := range focused {
+		if active {
+			return fields, fields[index]
+		}
+	}
+	return fields, ""
+}
+
+type remoteProfileForm struct {
+	choices []onboarding.RemoteProfileChoice
+	cursor  int
+	status  string
+}
+
+func newRemoteProfileForm(choices []onboarding.RemoteProfileChoice) remoteProfileForm {
+	return remoteProfileForm{choices: append([]onboarding.RemoteProfileChoice(nil), choices...)}
+}
+
+func (form remoteProfileForm) update(message tea.KeyPressMsg) (remoteProfileForm, bool) {
+	if len(form.choices) == 0 {
+		return form, false
+	}
+	switch message.Keystroke() {
+	case "up", "k", "shift+tab":
+		form.cursor = (form.cursor - 1 + len(form.choices)) % len(form.choices)
+	case "down", "j", "tab":
+		form.cursor = (form.cursor + 1) % len(form.choices)
+	case "home":
+		form.cursor = 0
+	case "enter":
+		return form, true
+	}
+	return form, false
+}
+
+func (form *remoteProfileForm) submit(snapshot onboarding.Snapshot) (onboarding.SubmitRequest, bool) {
+	if form.cursor < 0 || form.cursor >= len(form.choices) {
+		form.status = "Select a YNAB budget."
+		return onboarding.SubmitRequest{}, false
+	}
+	form.status = ""
+	return onboarding.SubmitRequest{
+		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSelectRemoteProfile,
+		RemoteProfileChoiceID: form.choices[form.cursor].ChoiceID,
+	}, true
 }
 
 func (form *settingsForm) focus() tea.Cmd {

@@ -38,7 +38,8 @@ func (selector *providerSelectorState) update(message tea.KeyPressMsg) providerS
 		return providerSelection{provider: providerAmazon}
 	case "y":
 		selector.cursor = 2
-		selector.status = "YNAB is not available in Go yet."
+		selector.status = ""
+		return providerSelection{provider: providerYNAB}
 	case "s":
 		selector.cursor = 3
 		selector.status = "SimpleFIN is not available in Go yet."
@@ -54,11 +55,11 @@ func (selector *providerSelectorState) update(message tea.KeyPressMsg) providerS
 	case "esc":
 		return providerSelection{back: true}
 	case "enter":
-		if selector.focused() == providerMonarch || selector.focused() == providerAmazon {
+		if selector.focused() == providerMonarch || selector.focused() == providerAmazon ||
+			selector.focused() == providerYNAB {
 			return providerSelection{provider: selector.focused()}
 		}
 		selector.status = map[providerChoice]string{
-			providerYNAB:      "YNAB is not available in Go yet.",
 			providerSimpleFIN: "SimpleFIN is not available in Go yet.",
 		}[selector.focused()]
 	}

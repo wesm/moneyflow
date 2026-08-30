@@ -20,7 +20,8 @@ func progressState(snapshot onboarding.Snapshot) onboardingProgressState {
 
 func (state onboardingProgressState) View() string {
 	if state.canceling {
-		return "Cancellation requested; waiting for Monarch work to stop…"
+		return "Cancellation requested; waiting for " +
+			onboardingProviderName(state.snapshot.ProviderKind) + " work to stop…"
 	}
 	if state.snapshot.State == onboarding.StateFailed || state.snapshot.State == onboarding.StateIdentityMismatch {
 		return state.failureView()
@@ -50,7 +51,7 @@ func (state onboardingProgressState) View() string {
 }
 
 func (state onboardingProgressState) failureView() string {
-	message := onboardingStateMessage(state.snapshot.State)
+	message := providerOnboardingStateMessage(state.snapshot)
 	footer := "Esc Cancel"
 	if state.snapshot.Failure != nil {
 		if state.snapshot.Failure.Message != "" {
@@ -67,23 +68,24 @@ func (state onboardingProgressState) failureView() string {
 }
 
 func onboardingProgressTitle(snapshot onboarding.Snapshot) string {
+	providerName := onboardingProviderName(snapshot.ProviderKind)
 	if snapshot.Progress != nil {
 		switch snapshot.Progress.Phase {
 		case "fetching", "fetch":
-			return "Fetching Monarch data…"
+			return "Fetching " + providerName + " data…"
 		case "verifying", "verify":
-			return "Verifying Monarch data…"
+			return "Verifying " + providerName + " data…"
 		case "normalizing", "normalize":
-			return "Preparing Monarch data…"
+			return "Preparing " + providerName + " data…"
 		case "folding", "importing", "import":
-			return "Importing Monarch data…"
+			return "Importing " + providerName + " data…"
 		case "authenticating", "authenticate":
-			return "Authenticating with Monarch…"
+			return "Authenticating with " + providerName + "…"
 		case "complete":
-			return "Monarch setup is complete."
+			return providerName + " setup is complete."
 		}
 	}
-	return onboardingStateMessage(snapshot.State)
+	return providerOnboardingStateMessage(snapshot)
 }
 
 func onboardingPartitionLabel(partition string) string {

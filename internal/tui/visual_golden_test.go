@@ -173,9 +173,10 @@ func goOnlyDuplicateScenarios(initial parity.FrameScenario) []visualScenario {
 }
 
 func onboardingVisualScenarios() []visualScenario {
-	result := make([]visualScenario, 0, 6)
+	result := make([]visualScenario, 0, 9)
 	for _, screen := range []string{
 		"account_selector", "provider_selector", "credential_setup", "credential_unlock",
+		"ynab_credential_setup", "ynab_budget_selector", "ynab_settings",
 	} {
 		result = append(result, visualScenario{
 			name:             screen,

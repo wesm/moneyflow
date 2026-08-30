@@ -47,7 +47,7 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) {
 	if !shell.haveSnapshot {
 		message := shell.status
 		if message == "" {
-			message = "Checking saved Monarch session…"
+			message = "Checking saved provider credentials…"
 		}
 		frame.PutText(content.X+2, content.Y+3, message, shell.palette.Muted)
 		frame.PutText(content.X+2, content.Y+content.Height-2, "Esc Cancel", shell.palette.Muted)
@@ -55,16 +55,26 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) {
 	}
 	switch shell.snapshot.State {
 	case onboarding.StateSettingsRequired:
-		frame.PutText(content.X+2, content.Y+2, "Confirm how Moneyflow stores imported amounts.", shell.palette.Muted)
+		instruction := "Confirm how Moneyflow stores imported amounts."
+		if shell.snapshot.ProviderKind == "ynab" {
+			instruction = "Confirm the money format reported by the selected YNAB budget."
+		}
+		frame.PutText(content.X+2, content.Y+2, instruction, shell.palette.Muted)
 		frame.PutText(content.X+2, content.Y+5, "Import currency: "+shell.settings.currency.Value(), shell.palette.Heading)
 		frame.PutText(content.X+2, content.Y+7, "Minor-unit scale: "+shell.settings.scale.Value(), shell.palette.Heading)
 		frame.PutText(content.X+2, content.Y+10, shell.settings.status, shell.palette.Warning)
 	case onboarding.StateUnlockRequired:
-		frame.PutText(content.X+2, content.Y+2, "Unlock saved Monarch credentials.", shell.palette.Muted)
+		frame.PutText(content.X+2, content.Y+2, "Unlock saved "+providerLabel(shell.snapshot.ProviderKind)+" credentials.", shell.palette.Muted)
 		frame.PutText(content.X+2, content.Y+5, "Moneyflow account password: "+maskedValue(shell.unlock.password.Value()), shell.palette.Heading)
 		frame.PutText(content.X+2, content.Y+8, shell.unlock.status, shell.palette.Warning)
 	case onboarding.StateCredentialsRequired:
-		shell.renderCredentialForm(frame, content)
+		if shell.snapshot.ProviderKind == "ynab" {
+			shell.renderYNABCredentialForm(frame, content)
+		} else {
+			shell.renderCredentialForm(frame, content)
+		}
+	case onboarding.StateRemoteProfileRequired:
+		shell.renderRemoteProfileForm(frame, content)
 	default:
 		state := progressState(shell.snapshot)
 		state.canceling = shell.canceling
@@ -82,6 +92,48 @@ func (shell Shell) renderOnboarding(frame *Frame, content Rect) {
 		return
 	}
 	frame.PutText(content.X+2, content.Y+content.Height-2, "Tab/Shift+Tab Move  Enter Continue  Esc Cancel", shell.palette.Muted)
+}
+
+func (shell Shell) renderYNABCredentialForm(frame *Frame, content Rect) {
+	frame.PutText(content.X+2, content.Y+2, "Connect YNAB", shell.palette.Heading)
+	rows := []string{
+		"YNAB personal access token: " + maskedValue(shell.ynabCredentials.token.Value()),
+		"Moneyflow account password: " + maskedValue(shell.ynabCredentials.accountPassword.Value()),
+		"Confirm Moneyflow account password: " + maskedValue(shell.ynabCredentials.confirmation.Value()),
+	}
+	for index, row := range rows {
+		marker := "  "
+		if index == shell.ynabCredentials.focused {
+			marker = "› "
+		}
+		frame.PutText(content.X+2, content.Y+5+index*2, marker+row, shell.palette.Text)
+	}
+	frame.PutText(content.X+2, content.Y+12, shell.ynabCredentials.status, shell.palette.Warning)
+}
+
+func (shell Shell) renderRemoteProfileForm(frame *Frame, content Rect) {
+	frame.PutText(content.X+2, content.Y+2, "Choose a YNAB budget.", shell.palette.Muted)
+	rowCapacity := max(content.Height-8, 1)
+	start := 0
+	if shell.remoteProfile.cursor >= rowCapacity {
+		start = shell.remoteProfile.cursor - rowCapacity + 1
+	}
+	end := min(start+rowCapacity, len(shell.remoteProfile.choices))
+	for index := start; index < end; index++ {
+		choice := shell.remoteProfile.choices[index]
+		marker := "  "
+		style := shell.palette.Text
+		if index == shell.remoteProfile.cursor {
+			marker = "› "
+			style = shell.palette.Heading
+		}
+		line := marker + choice.DisplayName
+		if choice.LastModified != "" {
+			line += "  ·  Updated " + choice.LastModified
+		}
+		frame.PutText(content.X+2, content.Y+5+index, Truncate(line, content.Width-4), style)
+	}
+	frame.PutText(content.X+2, content.Y+content.Height-3, shell.remoteProfile.status, shell.palette.Warning)
 }
 
 func (shell Shell) renderCredentialForm(frame *Frame, content Rect) {
@@ -128,10 +180,44 @@ func onboardingStateMessage(state onboarding.State) string {
 	}
 }
 
+func providerOnboardingStateMessage(snapshot onboarding.Snapshot) string {
+	providerName := onboardingProviderName(snapshot.ProviderKind)
+	switch snapshot.State {
+	case onboarding.StateInspect, onboarding.StateValidateSession:
+		return "Checking saved " + providerName + " credentials…"
+	case onboarding.StateAuthenticating:
+		return "Authenticating with " + providerName + "…"
+	case onboarding.StateImporting:
+		return "Importing " + providerName + " data…"
+	case onboarding.StateComplete:
+		return providerName + " setup is complete."
+	case onboarding.StateIdentityMismatch:
+		return "This profile is bound to a different " + providerName + " account."
+	default:
+		return onboardingStateMessage(snapshot.State)
+	}
+}
+
+func onboardingProviderName(kind string) string {
+	if kind == "" {
+		return "Monarch"
+	}
+	name := providerLabel(kind)
+	if name == "Unknown" {
+		return "provider"
+	}
+	return name
+}
+
 func (shell Shell) renderProfileName(frame *Frame, content Rect) {
-	providerName := "Monarch"
-	if shell.pendingProvider == providerAmazon {
+	var providerName string
+	switch shell.pendingProvider {
+	case providerAmazon:
 		providerName = "Amazon"
+	case providerYNAB:
+		providerName = "YNAB"
+	default:
+		providerName = "Monarch"
 	}
 	frame.PutText(content.X+2, content.Y+2, "Name this "+providerName+" profile.", shell.palette.Muted)
 	value := shell.name.input.Value()
@@ -161,7 +247,11 @@ func (shell Shell) renderProfileRecovery(frame *Frame, content Rect) {
 
 func (shell Shell) renderProfileSelector(frame *Frame, content Rect) {
 	frame.PutText(content.X+2, content.Y+2, "Choose an account to load, or add a new one.", shell.palette.Muted)
-	frame.PutText(content.X+2, content.Y+3, "↑/↓ or j/k Navigate  Enter Select  a Add  d Demo  Esc/q Exit", shell.palette.Muted)
+	frame.PutText(
+		content.X+2, content.Y+3,
+		"↑/↓ or j/k Navigate  Enter Select  o Offline (YNAB)  a Add  d Demo  Esc/q Exit",
+		shell.palette.Muted,
+	)
 	rows := shell.selector.rows()
 	rowCapacity := max(content.Height-8, 1)
 	start := 0
@@ -206,7 +296,7 @@ func (shell Shell) renderProviderSelector(frame *Frame, content Rect) {
 	}{
 		{label: "Monarch Money", note: "Available"},
 		{label: "Amazon order history", note: "Available"},
-		{label: "YNAB", note: "Not available in Go yet"},
+		{label: "YNAB", note: "Available"},
 		{label: "SimpleFIN", note: "Not available in Go yet"},
 	}
 	for index, row := range rows {
