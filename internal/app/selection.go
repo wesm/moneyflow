@@ -118,6 +118,29 @@ func EmptySelection() SelectionValue {
 	return emptySelectionValue
 }
 
+// NewExplicitTransactionSelection encodes an exact transaction set without exposing the
+// selection document to renderer adapters.
+func NewExplicitTransactionSelection(
+	ids []domain.EntityID,
+	revision uint64,
+) (SelectionValue, error) {
+	identities := make([]string, len(ids))
+	for index, id := range ids {
+		identities[index] = string(id)
+	}
+	sort.Strings(identities)
+	if err := validateCanonicalIdentities(identities); err != nil {
+		return "", invalidSelection(err)
+	}
+	if len(identities) > MaxSelectionIdentities {
+		return "", tooLargeSelection(errors.New("selection contains too many identities"))
+	}
+	return encodeSelection(selectionDocument{
+		Version: 1, Kind: IdentityTransaction, Base: selectionBaseExplicit,
+		Revision: &revision, IDs: identities,
+	})
+}
+
 func decodeSelection(value SelectionValue) (selectionDocument, error) {
 	if len(value) > MaxEncodedSelectionBytes {
 		return selectionDocument{}, invalidSelection(errors.New("encoded selection exceeds limit"))

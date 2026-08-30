@@ -45,8 +45,8 @@ type Supervisor struct {
 	wait   sync.WaitGroup
 }
 
-// New validates one profile binding and constructs an empty MCP surface.
-func New(dependencies Dependencies, _ Options) (*Server, error) {
+// New validates one profile binding and constructs its configured MCP surface.
+func New(dependencies Dependencies, options Options) (*Server, error) {
 	switch {
 	case dependencies.Service == nil:
 		return nil, errors.New("new MCP server: service is nil")
@@ -71,6 +71,9 @@ func New(dependencies Dependencies, _ Options) (*Server, error) {
 	server := &Server{SDK: sdk, service: dependencies.Service, dependencies: dependencies, supervisor: supervisor}
 	registerReadTools(server, dependencies)
 	registerResources(server, dependencies)
+	if options.AllowWrite {
+		registerWriteTools(server, dependencies)
+	}
 	return server, nil
 }
 

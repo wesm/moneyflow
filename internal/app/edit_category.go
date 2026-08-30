@@ -6,46 +6,63 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
+type categoryAssignmentIntent struct {
+	operation            domain.Operation
+	selectionDisposition SelectionDisposition
+	state                ViewState
+}
+
 // BuildCategoryAssignment resolves one category-edit intent into a deterministic journal draft.
 func BuildCategoryAssignment(
 	snapshot EffectiveSnapshot,
 	request MutationRequest,
 	metadata OperationMetadata,
 ) (MutationPlan, error) {
+	intent, err := buildCategoryAssignmentIntent(snapshot, request)
+	if err != nil {
+		return MutationPlan{}, err
+	}
+	if err = validateMutationMetadata(metadata); err != nil {
+		return MutationPlan{}, mutationError(MutationInvalidOperation, err)
+	}
+	return intent.materialize(request, metadata)
+}
+
+func buildCategoryAssignmentIntent(
+	snapshot EffectiveSnapshot,
+	request MutationRequest,
+) (categoryAssignmentIntent, error) {
 	if request.Action != ActionEditCategory {
-		return MutationPlan{}, mutationError(
+		return categoryAssignmentIntent{}, mutationError(
 			MutationInvalidOperation,
 			errors.New("category builder received another action"),
 		)
 	}
 	if request.Input.Scope != EditScopeTransactions {
-		return MutationPlan{}, mutationError(
+		return categoryAssignmentIntent{}, mutationError(
 			MutationInvalidOperation,
 			errors.New("category assignment requires transaction scope"),
 		)
 	}
-	if err := validateMutationMetadata(metadata); err != nil {
-		return MutationPlan{}, mutationError(MutationInvalidOperation, err)
-	}
 	targets, err := ResolveTargets(snapshot, request)
 	if err != nil {
-		return MutationPlan{}, err
+		return categoryAssignmentIntent{}, err
 	}
 	if len(targets.TransactionIDs) == 0 {
-		return MutationPlan{}, mutationError(
+		return categoryAssignmentIntent{}, mutationError(
 			MutationInvalidOperation,
 			errors.New("category assignment has no transaction targets"),
 		)
 	}
 
-	operation := newMutationOperation(request, metadata)
+	operation := domain.Operation{}
 	operation.Targets = append([]domain.EntityID(nil), targets.TransactionIDs...)
 	destination, found := categoryWithID(snapshot.Effective, request.Input.DestinationID)
 	switch {
 	case request.Input.DestinationID == "":
 		err = errors.New("category assignment destination is empty")
 	case found && destination.Retired:
-		return MutationPlan{}, mutationError(
+		return categoryAssignmentIntent{}, mutationError(
 			MutationInvalidTarget,
 			errors.New("category assignment destination is retired"),
 		)
@@ -53,50 +70,66 @@ func BuildCategoryAssignment(
 		operation.Type = domain.OperationCategoryAssign
 		operation.Reassign = &domain.ReassignPayload{DestinationID: destination.ID}
 	default:
-		err = buildCategoryCreation(&operation, snapshot.Effective, request.Input)
+		operation.Type = domain.OperationCategoryCreate
+		operation.Create, err = buildCategoryCreation(snapshot.Effective, request.Input)
 	}
 	if err != nil {
+		return categoryAssignmentIntent{}, mutationError(MutationInvalidOperation, err)
+	}
+	return categoryAssignmentIntent{
+		operation: operation, selectionDisposition: selectionDisposition(targets),
+		state: request.State.Clone(),
+	}, nil
+}
+
+func (intent categoryAssignmentIntent) materialize(
+	request MutationRequest,
+	metadata OperationMetadata,
+) (MutationPlan, error) {
+	operation := intent.operation.Clone()
+	operation.ID = metadata.OperationID
+	operation.PayloadVersion = 1
+	operation.CreatedRevision = request.ExpectedRevision
+	operation.CreatedAt = metadata.CreatedAt
+	if err := operation.ValidateDraft(); err != nil {
 		return MutationPlan{}, mutationError(MutationInvalidOperation, err)
 	}
-	if err = operation.ValidateDraft(); err != nil {
-		return MutationPlan{}, mutationError(MutationInvalidOperation, err)
-	}
-	return mutationPlan(request, targets, operation), nil
+	return MutationPlan{
+		Mode: MutationAppend, Operation: operation,
+		SelectionDisposition: intent.selectionDisposition, State: intent.state.Clone(),
+	}, nil
 }
 
 func buildCategoryCreation(
-	operation *domain.Operation,
 	profile domain.CommittedProfile,
 	input EditInput,
-) error {
+) (*domain.CreatePayload, error) {
 	if input.DestinationID == "" || entityIDExists(profile, input.DestinationID) {
-		return errors.New("new category identity is empty or was already used")
+		return nil, errors.New("new category identity is empty or was already used")
 	}
 	if !activeGroupWithID(profile, input.GroupID) {
-		return errors.New("new category group is retired or missing")
+		return nil, errors.New("new category group is retired or missing")
 	}
 	label, err := domain.NormalizeDisplayLabel(input.Label)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	key, err := domain.CollisionKey(label)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, category := range profile.Categories {
 		if !category.Retired && category.CollisionKey == key {
-			return errors.New("new category label collides with an existing category")
+			return nil, errors.New("new category label collides with an existing category")
 		}
 	}
-	operation.Type = domain.OperationCategoryCreate
-	operation.Create = &domain.CreatePayload{
+	return &domain.CreatePayload{
 		EntityType:   string(domain.EntityKindCategory),
 		EntityID:     input.DestinationID,
 		Label:        label,
 		CollisionKey: key,
 		ParentID:     input.GroupID,
-	}
-	return nil
+	}, nil
 }
 
 func categoryWithID(
