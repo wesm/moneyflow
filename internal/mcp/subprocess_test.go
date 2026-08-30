@@ -140,45 +140,7 @@ func testMCPHTTPSubprocess(
 	require.NoError(t, err)
 	token, err := tokenStore.Reveal()
 	require.NoError(t, err)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	listenAddress := listener.Addr().String()
-	require.NoError(t, listener.Close())
-	command := exec.Command(
-		binary, "mcp", "--profile", entry.ID, "--allow-write",
-		"--transport", "streamable-http", "--listen", listenAddress,
-	) // #nosec G204 -- test-built binary, synthetic profile, and loopback listener.
-	command.Env = mcpSubprocessEnvironment(homeRoot)
-	stderr, err := command.StderrPipe()
-	require.NoError(t, err)
-	var stdout bytes.Buffer
-	command.Stdout = &stdout
-	require.NoError(t, command.Start())
-	endpoint := make(chan string, 1)
-	stderrDone := make(chan string, 1)
-	go func() {
-		var captured strings.Builder
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
-			captured.WriteString(line)
-			captured.WriteByte('\n')
-			if value, found := strings.CutPrefix(line, "Moneyflow MCP: "); found {
-				select {
-				case endpoint <- value:
-				default:
-				}
-			}
-		}
-		stderrDone <- captured.String()
-	}()
-	var serverURL string
-	select {
-	case serverURL = <-endpoint:
-	case <-time.After(5 * time.Second):
-		_ = command.Process.Kill()
-		require.FailNow(t, "MCP HTTP subprocess did not announce its endpoint")
-	}
+	command, serverURL, stdout, stderrDone := startMCPHTTPSubprocess(t, binary, homeRoot, entry)
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "http-subprocess-test", Version: "1"}, nil)
 	session, err := connectMCPHTTPClient(t.Context(), client, serverURL, token)
@@ -222,6 +184,94 @@ func testMCPHTTPSubprocess(
 	assert.NotContains(t, capturedStderr, token)
 	assert.NotContains(t, capturedStderr, rotated)
 	assertMCPStderrAllowlist(t, capturedStderr, true)
+}
+
+type mcpHTTPSubprocess struct {
+	command    *exec.Cmd
+	stdout     *bytes.Buffer
+	endpoint   chan string
+	stderrDone chan string
+}
+
+// startMCPHTTPSubprocess starts the HTTP MCP child on a reserved ephemeral port. The port is
+// reserved by binding and closing, so another process can claim it first; when the child then
+// exits with a bind failure before announcing its endpoint, a fresh port is tried.
+func startMCPHTTPSubprocess(
+	t *testing.T,
+	binary, homeRoot string,
+	entry profilecatalog.Entry,
+) (*exec.Cmd, string, *bytes.Buffer, chan string) {
+	t.Helper()
+	const attempts = 5
+	for attempt := 1; attempt <= attempts; attempt++ {
+		child := launchMCPHTTPSubprocess(t, binary, homeRoot, entry, reserveLoopbackAddress(t))
+		select {
+		case serverURL := <-child.endpoint:
+			return child.command, serverURL, child.stdout, child.stderrDone
+		case captured := <-child.stderrDone:
+			err := waitForMCPProcess(child.command, 5*time.Second)
+			if strings.Contains(captured, "address already in use") {
+				t.Logf("attempt %d lost the ephemeral port race: %v", attempt, err)
+				continue
+			}
+			require.FailNowf(t, "MCP HTTP subprocess exited before announcing", "%v\n%s", err, captured)
+		case <-time.After(5 * time.Second):
+			_ = child.command.Process.Kill()
+			require.FailNow(t, "MCP HTTP subprocess did not announce its endpoint")
+		}
+	}
+	require.FailNowf(t, "MCP HTTP subprocess never bound", "%d attempts lost the port race", attempts)
+	return nil, "", nil, nil
+}
+
+func reserveLoopbackAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := listener.Addr().String()
+	require.NoError(t, listener.Close())
+	return address
+}
+
+func launchMCPHTTPSubprocess(
+	t *testing.T,
+	binary, homeRoot string,
+	entry profilecatalog.Entry,
+	listenAddress string,
+) mcpHTTPSubprocess {
+	t.Helper()
+	command := exec.Command(
+		binary, "mcp", "--profile", entry.ID, "--allow-write",
+		"--transport", "streamable-http", "--listen", listenAddress,
+	) // #nosec G204 -- test-built binary, synthetic profile, and loopback listener.
+	command.Env = mcpSubprocessEnvironment(homeRoot)
+	stderr, err := command.StderrPipe()
+	require.NoError(t, err)
+	child := mcpHTTPSubprocess{
+		command:    command,
+		stdout:     &bytes.Buffer{},
+		endpoint:   make(chan string, 1),
+		stderrDone: make(chan string, 1),
+	}
+	command.Stdout = child.stdout
+	require.NoError(t, command.Start())
+	go func() {
+		var captured strings.Builder
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			captured.WriteString(line)
+			captured.WriteByte('\n')
+			if value, found := strings.CutPrefix(line, "Moneyflow MCP: "); found {
+				select {
+				case child.endpoint <- value:
+				default:
+				}
+			}
+		}
+		child.stderrDone <- captured.String()
+	}()
+	return child
 }
 
 func connectMCPHTTPClient(

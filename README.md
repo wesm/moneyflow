@@ -187,26 +187,7 @@ Amazon-like merchant. Press `i` for matched order details, or use `/` to search 
 names. Matching uses exact integer money, a seven-day window, and the Python-compatible exact,
 gift-card, and item passes across all compatible Amazon profiles.
 
-### MCP server preview
-
-Go v2 can serve one persistent profile through the Model Context Protocol (MCP). Standard input and
-output is the default transport, and access is read-only unless `--allow-write` is explicit:
-
-```bash
-./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID
-./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID --allow-write
-```
-
-Write-enabled tools stage ordinary Moneyflow journal operations. Review, undo, redo, and an explicit
-`commit_changes` call use the same local or Monarch commit machinery as the TUI and web UI; tools do
-not bypass review or write directly to a provider. Provider refresh is also explicit and never starts
-an MCP background scheduler.
-
-For a loopback HTTP endpoint, use `--transport streamable-http`. Moneyflow creates a profile-scoped
-bearer token and prints only its file path at startup. Reveal or rotate the value explicitly with
-`moneyflow mcp token reveal` or `moneyflow mcp token rotate`. See the
-[MCP server guide](https://moneyflow.dev/guide/mcp) for client configuration, Caddy proxying, token
-handling, and reconnect guidance.
+### Web proxy and security
 
 For a Caddy mount, preserve the request path and make `--external-url` use exactly the configured
 base path:
@@ -243,6 +224,27 @@ are never persisted. The current preview intentionally has no built-in web authe
 Python-state import, or schema migrations. If the install-only schema is incompatible, use the TUI
 recovery flow or move the complete profile directory aside; automatic migration begins only after
 the v2 format stabilizes.
+
+### MCP server preview
+
+Go v2 can serve one persistent profile through the Model Context Protocol (MCP). Standard input and
+output is the default transport, and access is read-only unless `--allow-write` is explicit:
+
+```bash
+./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID
+./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID --allow-write
+```
+
+Write-enabled tools stage ordinary Moneyflow journal operations. Review, undo, redo, and an explicit
+`commit_changes` call use the same local or Monarch commit machinery as the TUI and web UI; tools do
+not bypass review or write directly to a provider. Provider refresh is also explicit and never starts
+an MCP background scheduler.
+
+For a loopback HTTP endpoint, use `--transport streamable-http`. Moneyflow creates a profile-scoped
+bearer token and prints only its file path at startup. Reveal or rotate the value explicitly with
+`moneyflow mcp token reveal` or `moneyflow mcp token rotate`. See the
+[MCP server guide](https://moneyflow.dev/guide/mcp) for client configuration, Caddy proxying, token
+handling, and reconnect guidance.
 
 ---
 
