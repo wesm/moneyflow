@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/wesm/moneyflow/internal/amazonimport"
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/importer/amazon"
@@ -18,7 +19,7 @@ import (
 
 // WebDependencies owns the profile-neutral services shared by one web server.
 type WebDependencies struct {
-	Catalog              *profilecatalog.Catalog
+	Catalog              api.ProfileCatalog
 	Registry             *webserver.ProfileRegistry
 	Evictor              profileEvictor
 	Onboarding           *onboarding.Coordinator
@@ -140,7 +141,7 @@ func buildWebDependencies(
 		return WebDependencies{}, err
 	}
 	return WebDependencies{
-		Catalog: catalog, Registry: registry,
+		Catalog: amazonMatchingProfileLifecycle{Catalog: catalog, matcher: amazonMatcher}, Registry: registry,
 		Evictor:    amazonMatchingProfileEvictor{profileEvictor: registry, matcher: amazonMatcher},
 		Onboarding: coordinator, AmazonImports: amazonCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {

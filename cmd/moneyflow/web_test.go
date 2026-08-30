@@ -35,6 +35,8 @@ func TestBuildWebDependenciesOrdinaryStartupDoesNotOpenProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, opened)
 	assert.NotNil(t, dependencies.Catalog)
+	_, protectedRecovery := dependencies.Catalog.(amazonMatchingProfileLifecycle)
+	assert.True(t, protectedRecovery)
 	assert.NotNil(t, dependencies.Registry)
 	assert.NotNil(t, dependencies.Onboarding)
 	assert.Empty(t, dependencies.PreselectedProfileID)
