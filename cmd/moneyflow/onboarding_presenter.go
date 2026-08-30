@@ -40,18 +40,12 @@ func runCLIOnboarding(
 	command *cobra.Command,
 	streams IOStreams,
 	opened OpenedProfile,
-	importConfig monarch.ImportConfig,
-	importConfigured bool,
-	monthToDate bool,
+	runtime onboarding.Runtime,
+	request onboarding.StartRequest,
 ) (runErr error) {
 	if opened.Close == nil || opened.Service == nil || opened.Paths.Root == "" {
 		return closeOpenedProfile(opened, errors.New("opened profile is incomplete"))
 	}
-	runtime, err := commandOnboardingRuntime(opened.Paths, streams, importConfig)
-	if err != nil {
-		return closeOpenedProfile(opened, err)
-	}
-
 	var openerMu sync.Mutex
 	profileAvailable := true
 	coordinator, err := onboarding.NewCoordinator(onboarding.Config{
@@ -77,15 +71,15 @@ func runCLIOnboarding(
 	if err != nil {
 		return closeOpenedProfile(opened, err)
 	}
-	request := onboarding.StartRequest{
-		ProfileID: opened.ID, Renderer: "cli", MonthToDate: monthToDate,
+	providerName := "Monarch"
+	if request.ProviderKind == "ynab" {
+		providerName = "YNAB"
 	}
-	if importConfigured {
-		request.Settings = &onboarding.SettingsInput{
-			Currency: importConfig.Currency, Scale: importConfig.Scale,
-		}
+	checkingMessage := "Checking saved Monarch session..."
+	if request.ProviderKind == "ynab" {
+		checkingMessage = "Checking saved YNAB credentials..."
 	}
-	if _, err = fmt.Fprintln(command.ErrOrStderr(), "Checking saved Monarch session..."); err != nil {
+	if _, err = fmt.Fprintln(command.ErrOrStderr(), checkingMessage); err != nil {
 		return closeOpenedProfile(opened, err)
 	}
 	snapshot, err := coordinator.Start(command.Context(), request)
@@ -114,7 +108,7 @@ func runCLIOnboarding(
 		switch snapshot.State {
 		case onboarding.StateInspect, onboarding.StateValidateSession, onboarding.StateAuthenticating:
 			if snapshot.State == onboarding.StateAuthenticating && !announcedAuthentication {
-				if _, err = fmt.Fprintln(command.ErrOrStderr(), "Authenticating with Monarch..."); err != nil {
+				if _, err = fmt.Fprintf(command.ErrOrStderr(), "Authenticating with %s...\n", providerName); err != nil {
 					return err
 				}
 				announcedAuthentication = true
@@ -122,6 +116,8 @@ func runCLIOnboarding(
 			snapshot, err = waitForCLISnapshot(command.Context(), coordinator, snapshot)
 		case onboarding.StateSettingsRequired:
 			snapshot, err = submitCLISettings(command, streams, coordinator, snapshot)
+		case onboarding.StateRemoteProfileRequired:
+			snapshot, err = submitCLIRemoteProfile(command, streams, coordinator, snapshot)
 		case onboarding.StateUnlockRequired:
 			if snapshot.Failure != nil {
 				return cliSnapshotError(snapshot)
@@ -137,13 +133,16 @@ func runCLIOnboarding(
 		case onboarding.StateImporting, onboarding.StateComplete:
 			if !announcedImport {
 				message := "Connected with saved Monarch session."
+				if request.ProviderKind == "ynab" {
+					message = "Connected with saved YNAB credentials."
+				}
 				if authenticationSubmitted {
-					message = "Authenticated with Monarch."
+					message = "Authenticated with " + providerName + "."
 				}
 				if _, err = fmt.Fprintln(command.ErrOrStderr(), message); err != nil {
 					return err
 				}
-				if _, err = fmt.Fprintln(command.ErrOrStderr(), "Importing Monarch data..."); err != nil {
+				if _, err = fmt.Fprintf(command.ErrOrStderr(), "Importing %s data...\n", providerName); err != nil {
 					return err
 				}
 				announcedImport = true
@@ -180,15 +179,27 @@ func runCLIOnboarding(
 				word = "transaction"
 			}
 			scope := ""
-			if monthToDate {
+			if request.MonthToDate {
 				scope = " month-to-date"
 			}
-			_, summaryErr := fmt.Fprintf(
-				command.OutOrStdout(), "Imported %d posted%s %s.\n", imported, scope, word,
-			)
-			_, guidanceErr := fmt.Fprintln(
-				command.ErrOrStderr(), "Run moneyflow tui or moneyflow web to continue.",
-			)
+			var summaryErr error
+			if request.ProviderKind == "ynab" {
+				_, summaryErr = fmt.Fprintf(
+					command.OutOrStdout(), "Imported %d YNAB %s.\n", imported, word,
+				)
+			} else {
+				_, summaryErr = fmt.Fprintf(
+					command.OutOrStdout(), "Imported %d posted%s %s.\n", imported, scope, word,
+				)
+			}
+			guidance := "Run moneyflow tui or moneyflow web to continue.\n"
+			if request.ProviderKind == "ynab" {
+				guidance = fmt.Sprintf(
+					"Run moneyflow tui --profile %s or moneyflow web --profile %s to continue.\n",
+					opened.ID, opened.ID,
+				)
+			}
+			_, guidanceErr := fmt.Fprint(command.ErrOrStderr(), guidance)
 			return errors.Join(summaryErr, guidanceErr, completed.Close())
 		case onboarding.StateFailed, onboarding.StateLocalOnly,
 			onboarding.StateIdentityMismatch, onboarding.StateCanceled:
@@ -238,6 +249,29 @@ func submitCLISettings(
 	coordinator *onboarding.Coordinator,
 	snapshot onboarding.Snapshot,
 ) (onboarding.Snapshot, error) {
+	if snapshot.ProviderKind == "ynab" {
+		if snapshot.Settings == nil {
+			return snapshot, errors.New("selected YNAB budget has no money interpretation")
+		}
+		answer, err := promptCLI(command, streams, fmt.Sprintf(
+			"Use %s with minor-unit scale %d? [Y/n]",
+			snapshot.Settings.Currency, snapshot.Settings.Scale,
+		), false)
+		if err != nil {
+			return snapshot, err
+		}
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer != "" && answer != "y" && answer != "yes" {
+			return snapshot, errors.New("YNAB currency confirmation was declined")
+		}
+		return coordinator.Submit(command.Context(), onboarding.SubmitRequest{
+			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+			ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionConfirmSettings,
+			Settings: &onboarding.SettingsInput{
+				Currency: snapshot.Settings.Currency, Scale: snapshot.Settings.Scale,
+			},
+		})
+	}
 	currency, err := promptCLI(command, streams, "Import currency [USD]", false)
 	if err != nil {
 		return snapshot, err
@@ -289,6 +323,28 @@ func submitCLICredentials(
 	coordinator *onboarding.Coordinator,
 	snapshot onboarding.Snapshot,
 ) (onboarding.Snapshot, error) {
+	if snapshot.ProviderKind == "ynab" {
+		token, err := promptCLI(command, streams, "YNAB personal access token", true)
+		if err != nil {
+			return snapshot, err
+		}
+		accountPassword, err := promptCLI(command, streams, "Moneyflow account password", true)
+		if err != nil {
+			return snapshot, err
+		}
+		confirmation, err := promptCLI(command, streams, "Confirm Moneyflow account password", true)
+		if err != nil {
+			return snapshot, err
+		}
+		return coordinator.Submit(command.Context(), onboarding.SubmitRequest{
+			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+			ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSubmitCredentials,
+			YNABCredentials: &onboarding.YNABCredentialInput{
+				AccessToken: []byte(token), AccountPassword: []byte(accountPassword),
+				Confirmation: []byte(confirmation),
+			},
+		})
+	}
 	email, err := promptCLI(command, streams, "Monarch email", false)
 	if err != nil {
 		return snapshot, err
@@ -318,10 +374,42 @@ func submitCLICredentials(
 	return coordinator.Submit(command.Context(), onboarding.SubmitRequest{
 		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSubmitCredentials,
-		Credentials: &onboarding.CredentialInput{
+		MonarchCredentials: &onboarding.CredentialInput{
 			Email: []byte(email), Password: []byte(password), TOTPSecret: []byte(totp),
 			AccountPassword: []byte(accountPassword), Confirmation: []byte(confirmation),
 		},
+	})
+}
+
+func submitCLIRemoteProfile(
+	command *cobra.Command,
+	streams IOStreams,
+	coordinator *onboarding.Coordinator,
+	snapshot onboarding.Snapshot,
+) (onboarding.Snapshot, error) {
+	if len(snapshot.RemoteProfiles) == 0 {
+		return snapshot, errors.New("YNAB budget choices are unavailable")
+	}
+	if _, err := fmt.Fprintln(command.ErrOrStderr(), "Select a YNAB budget:"); err != nil {
+		return snapshot, err
+	}
+	for index, choice := range snapshot.RemoteProfiles {
+		if _, err := fmt.Fprintf(command.ErrOrStderr(), "  %d. %s\n", index+1, choice.DisplayName); err != nil {
+			return snapshot, err
+		}
+	}
+	selected, err := promptCLI(command, streams, "Budget number", false)
+	if err != nil {
+		return snapshot, err
+	}
+	index, err := strconv.Atoi(strings.TrimSpace(selected))
+	if err != nil || index < 1 || index > len(snapshot.RemoteProfiles) {
+		return snapshot, errors.New("budget number is invalid")
+	}
+	return coordinator.Submit(command.Context(), onboarding.SubmitRequest{
+		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSelectRemoteProfile,
+		RemoteProfileChoiceID: snapshot.RemoteProfiles[index-1].ChoiceID,
 	})
 }
 

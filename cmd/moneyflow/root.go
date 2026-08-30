@@ -37,6 +37,7 @@ type IOStreams struct {
 	OpenProfile ProfileOpener
 	// OpenMonarch and Prompt are provider lifecycle seams overridden in tests.
 	OpenMonarch  MonarchCommandFactory
+	OpenYNAB     YNABCommandFactory
 	ImportAmazon AmazonCommandImporter
 	Prompt       PromptFunc
 	// Listen, OpenBrowser, and SignalContext are production lifecycle seams overridden in tests.

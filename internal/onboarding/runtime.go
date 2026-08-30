@@ -10,6 +10,7 @@ import (
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/ynab"
 )
 
 // SessionStore is the provider-owned durable session surface used by onboarding.
@@ -26,6 +27,20 @@ type CredentialVault interface {
 	Save(monarch.StoredCredentials, []byte) error
 }
 
+// YNABCredentialVault is the password-protected YNAB token surface used by onboarding.
+type YNABCredentialVault interface {
+	Exists() (bool, error)
+	Load([]byte) (ynab.StoredCredentials, error)
+	Save(ynab.StoredCredentials, []byte) error
+	Delete() error
+}
+
+// YNABPlanClient is the bounded REST surface consumed during profile selection.
+type YNABPlanClient interface {
+	ListPlans(context.Context) ([]ynab.PlanSummary, error)
+	FetchPlan(context.Context, string) (ynab.PlanDocument, error)
+}
+
 // OpenedProfile owns one profile service and its exact cleanup.
 type OpenedProfile struct {
 	ID      string
@@ -39,12 +54,16 @@ type ProfileOpener func(context.Context, string) (OpenedProfile, error)
 
 // Runtime contains renderer-neutral Monarch dependencies for one profile.
 type Runtime struct {
-	Sessions     SessionStore
-	Credentials  CredentialVault
-	NewConnector func(monarch.ImportConfig) (provider.Connector, error)
-	NewSources   func(monarch.ImportConfig) (provider.ReaderSource, provider.WriterSource, error)
-	InstanceID   string
-	Now          func() time.Time
+	ProviderKind  string
+	Sessions      SessionStore
+	Credentials   CredentialVault
+	NewConnector  func(monarch.ImportConfig) (provider.Connector, error)
+	NewSources    func(monarch.ImportConfig) (provider.ReaderSource, provider.WriterSource, error)
+	YNABVault     YNABCredentialVault
+	NewYNABClient func([]byte) (YNABPlanClient, error)
+	NewYNABSource func(ynab.StoredCredentials, *provider.SnapshotResult) (provider.ReaderSource, error)
+	InstanceID    string
+	Now           func() time.Time
 }
 
 // RuntimeFactory constructs provider dependencies beneath one validated profile root.
@@ -63,6 +82,13 @@ type attemptFlow struct {
 	monthToDate     bool
 	retryState      State
 	imported        int
+	ynabToken       []byte
+	ynabPassword    []byte
+	ynabCredentials *ynab.StoredCredentials
+	ynabPlans       map[string]ynab.PlanSummary
+	ynabPlan        *ynab.PlanDocument
+	ynabSnapshot    *provider.SnapshotResult
+	ynabVaultSaved  bool
 	taken           bool
 	releaseOnce     sync.Once
 	releaseErr      error
@@ -73,6 +99,8 @@ func (flow *attemptFlow) release() error {
 		return nil
 	}
 	flow.releaseOnce.Do(func() {
+		clear(flow.ynabToken)
+		clear(flow.ynabPassword)
 		var lockErr error
 		if flow.providerLock != nil {
 			lockErr = flow.providerLock.Release()

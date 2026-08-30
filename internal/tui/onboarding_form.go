@@ -175,7 +175,7 @@ func (form *credentialForm) submit(snapshot onboarding.Snapshot) (onboarding.Sub
 	return onboarding.SubmitRequest{
 		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
 		ExpectedStateVersion: snapshot.StateVersion, Action: onboarding.ActionSubmitCredentials,
-		Credentials: &onboarding.CredentialInput{
+		MonarchCredentials: &onboarding.CredentialInput{
 			Email: []byte(email), Password: password, TOTPSecret: totp,
 			AccountPassword: accountPassword, Confirmation: confirmation,
 		},

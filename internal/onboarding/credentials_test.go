@@ -61,11 +61,11 @@ func TestCredentialInputRejectsMismatchedAccountPasswordsAndClearsSecrets(t *tes
 	)
 	started = waitForState(t, coordinator, started, StateCredentialsRequired)
 	request := credentialSubmitRequest(started)
-	request.Credentials.Confirmation = []byte("different-password")
+	request.MonarchCredentials.Confirmation = []byte("different-password")
 
 	_, err := coordinator.Submit(context.Background(), request)
 	assert.Equal(t, CodeCredentialInputInvalid, CodeOf(err))
-	for _, secret := range credentialBuffers(request.Credentials) {
+	for _, secret := range credentialBuffers(request.MonarchCredentials) {
 		assert.Equal(t, make([]byte, len(secret)), secret)
 	}
 	assert.Zero(t, connector.connectCalls)
@@ -85,8 +85,8 @@ func TestCredentialInputRejectsUnexpectedPayloadForAction(t *testing.T) {
 	_, err := coordinator.Submit(context.Background(), SubmitRequest{
 		ProfileID: testProfileID, AttemptID: started.AttemptID,
 		ExpectedStateVersion: started.StateVersion, Action: ActionSubmitCredentials,
-		Credentials: credentialSubmitRequest(started).Credentials,
-		Unlock:      &UnlockInput{AccountPassword: []byte("unexpected")},
+		MonarchCredentials: credentialSubmitRequest(started).MonarchCredentials,
+		Unlock:             &UnlockInput{AccountPassword: []byte("unexpected")},
 	})
 	assert.Equal(t, CodeCredentialInputInvalid, CodeOf(err))
 }
@@ -95,7 +95,7 @@ func credentialSubmitRequest(started Snapshot) SubmitRequest {
 	return SubmitRequest{
 		ProfileID: testProfileID, AttemptID: started.AttemptID,
 		ExpectedStateVersion: started.StateVersion, Action: ActionSubmitCredentials,
-		Credentials: &CredentialInput{
+		MonarchCredentials: &CredentialInput{
 			Email: []byte("user@example.invalid"), Password: []byte("provider-password"),
 			TOTPSecret:      []byte("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"),
 			AccountPassword: []byte("account-password"), Confirmation: []byte("account-password"),

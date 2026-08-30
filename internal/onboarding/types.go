@@ -3,25 +3,26 @@ package onboarding
 import "github.com/wesm/moneyflow/internal/domain"
 
 // ProtocolVersion is the renderer-facing onboarding state-machine version.
-const ProtocolVersion = uint16(1)
+const ProtocolVersion = uint16(2)
 
 // State identifies one stable onboarding phase.
 type State string
 
 // Stable onboarding states.
 const (
-	StateInspect             State = "inspect"
-	StateValidateSession     State = "validate_session"
-	StateSettingsRequired    State = "settings_required"
-	StateUnlockRequired      State = "unlock_required"
-	StateCredentialsRequired State = "credentials_required"
-	StateAuthenticating      State = "authenticating"
-	StateImporting           State = "importing"
-	StateComplete            State = "complete"
-	StateLocalOnly           State = "local_only"
-	StateIdentityMismatch    State = "identity_mismatch"
-	StateFailed              State = "failed"
-	StateCanceled            State = "canceled"
+	StateInspect               State = "inspect"
+	StateValidateSession       State = "validate_session"
+	StateSettingsRequired      State = "settings_required"
+	StateUnlockRequired        State = "unlock_required"
+	StateCredentialsRequired   State = "credentials_required"
+	StateRemoteProfileRequired State = "remote_profile_required"
+	StateAuthenticating        State = "authenticating"
+	StateImporting             State = "importing"
+	StateComplete              State = "complete"
+	StateLocalOnly             State = "local_only"
+	StateIdentityMismatch      State = "identity_mismatch"
+	StateFailed                State = "failed"
+	StateCanceled              State = "canceled"
 )
 
 // ActionType identifies one guarded presenter transition.
@@ -29,11 +30,12 @@ type ActionType string
 
 // Stable onboarding actions.
 const (
-	ActionConfirmSettings   ActionType = "confirm_settings"
-	ActionUnlock            ActionType = "unlock"
-	ActionSubmitCredentials ActionType = "submit_credentials" // #nosec G101 -- stable protocol action
-	ActionRetry             ActionType = "retry"
-	ActionReauthenticate    ActionType = "reauthenticate"
+	ActionConfirmSettings     ActionType = "confirm_settings"
+	ActionUnlock              ActionType = "unlock"
+	ActionSubmitCredentials   ActionType = "submit_credentials" // #nosec G101 -- stable protocol action
+	ActionSelectRemoteProfile ActionType = "select_remote_profile"
+	ActionRetry               ActionType = "retry"
+	ActionReauthenticate      ActionType = "reauthenticate"
 )
 
 // Settings is the exact money interpretation selected for import.
@@ -62,17 +64,25 @@ type Failure struct {
 	CanReenter bool   `json:"can_reenter"`
 }
 
+// RemoteProfileChoice is one attempt-scoped provider profile selection.
+type RemoteProfileChoice struct {
+	ChoiceID     string `json:"choice_id"`
+	DisplayName  string `json:"display_name"`
+	LastModified string `json:"last_modified,omitempty"`
+}
+
 // Snapshot is the complete credential-blind state visible to a presenter.
 type Snapshot struct {
-	ProtocolVersion uint16    `json:"protocol_version"`
-	AttemptID       string    `json:"attempt_id"`
-	ProfileID       string    `json:"profile_id"`
-	StateVersion    uint64    `json:"state_version"`
-	State           State     `json:"state"`
-	ProviderKind    string    `json:"provider_kind"`
-	Settings        *Settings `json:"settings,omitempty"`
-	Progress        *Progress `json:"progress,omitempty"`
-	Failure         *Failure  `json:"failure,omitempty"`
+	ProtocolVersion uint16                `json:"protocol_version"`
+	AttemptID       string                `json:"attempt_id"`
+	ProfileID       string                `json:"profile_id"`
+	StateVersion    uint64                `json:"state_version"`
+	State           State                 `json:"state"`
+	ProviderKind    string                `json:"provider_kind"`
+	Settings        *Settings             `json:"settings,omitempty"`
+	Progress        *Progress             `json:"progress,omitempty"`
+	Failure         *Failure              `json:"failure,omitempty"`
+	RemoteProfiles  []RemoteProfileChoice `json:"remote_profiles,omitempty"`
 }
 
 // SettingsInput confirms the exact import money interpretation.
@@ -95,23 +105,33 @@ type CredentialInput struct {
 	Confirmation    []byte
 }
 
+// YNABCredentialInput contains one transient personal token and vault password setup.
+type YNABCredentialInput struct {
+	AccessToken     []byte
+	AccountPassword []byte
+	Confirmation    []byte
+}
+
 // SubmitRequest applies one state-version-guarded action.
 type SubmitRequest struct {
-	ProfileID            string
-	AttemptID            string
-	ExpectedStateVersion uint64
-	Action               ActionType
-	Settings             *SettingsInput
-	Unlock               *UnlockInput
-	Credentials          *CredentialInput
+	ProfileID             string
+	AttemptID             string
+	ExpectedStateVersion  uint64
+	Action                ActionType
+	Settings              *SettingsInput
+	Unlock                *UnlockInput
+	MonarchCredentials    *CredentialInput
+	YNABCredentials       *YNABCredentialInput
+	RemoteProfileChoiceID string
 }
 
 // StartRequest starts one profile-bound onboarding attempt.
 type StartRequest struct {
-	ProfileID   string
-	Settings    *SettingsInput
-	Renderer    string
-	MonthToDate bool
+	ProfileID    string
+	ProviderKind string
+	Settings     *SettingsInput
+	Renderer     string
+	MonthToDate  bool
 }
 
 // StatusRequest reads one profile-bound onboarding attempt.

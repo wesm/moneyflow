@@ -71,9 +71,20 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 		return
 	}
 	runtime, err := coordinator.runtimeFactory(opened.Paths)
-	if err != nil || runtime.Sessions == nil || runtime.Credentials == nil ||
-		runtime.NewConnector == nil || runtime.NewSources == nil ||
-		strings.TrimSpace(runtime.InstanceID) == "" {
+	providerKind := coordinator.attemptProviderKind(attemptID)
+	if runtime.ProviderKind == "" {
+		runtime.ProviderKind = providerKind
+	}
+	validRuntime := runtime.ProviderKind == providerKind &&
+		strings.TrimSpace(runtime.InstanceID) != ""
+	if providerKind == "monarch" {
+		validRuntime = validRuntime && runtime.Sessions != nil && runtime.Credentials != nil &&
+			runtime.NewConnector != nil && runtime.NewSources != nil
+	} else {
+		validRuntime = validRuntime && runtime.YNABVault != nil &&
+			runtime.NewYNABClient != nil && runtime.NewYNABSource != nil
+	}
+	if err != nil || !validRuntime {
 		_ = providerLock.Release()
 		_ = opened.Close()
 		coordinator.fail(
@@ -96,6 +107,23 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	if !coordinator.installFlow(attemptID, opened, providerLock, runtime, connection) {
 		_ = providerLock.Release()
 		_ = opened.Close()
+		return
+	}
+	driver, driverErr := flowFor(providerKind)
+	if driverErr != nil {
+		coordinator.fail(attemptID, genericFailureCode, "The provider connection could not start.", false, false)
+		return
+	}
+	driver.Inspect(ctx, coordinator, attemptID, connection)
+}
+
+func (coordinator *Coordinator) inspectMonarch(
+	ctx context.Context,
+	attemptID string,
+	connection app.ProviderConnectionState,
+) {
+	runtime, ok := coordinator.runtimeForAttempt(attemptID)
+	if !ok {
 		return
 	}
 	if coordinator.monthToDate(attemptID) && !connection.Pristine {
@@ -209,6 +237,25 @@ func (coordinator *Coordinator) inspectAndValidate(ctx context.Context, attemptI
 	}
 	coordinator.retainValidatedSession(attemptID, session, identity)
 	coordinator.startImport(attemptID)
+}
+
+func (coordinator *Coordinator) runtimeForAttempt(attemptID string) (Runtime, bool) {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	current, ok := coordinator.attempts[attemptID]
+	if !ok || current.state == StateCanceled {
+		return Runtime{}, false
+	}
+	return current.flow.runtime, true
+}
+
+func (coordinator *Coordinator) attemptProviderKind(attemptID string) string {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	if current, ok := coordinator.attempts[attemptID]; ok {
+		return current.providerKind
+	}
+	return ""
 }
 
 func (coordinator *Coordinator) restartInspect(ctx context.Context, attemptID string) {

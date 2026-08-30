@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,4 +51,39 @@ func TestSourceFetchesBoundPlanAndDetectsVaultReplacement(t *testing.T) {
 	changed, err = source.Changed(fingerprint)
 	require.NoError(t, err)
 	assert.True(t, changed)
+}
+
+func TestSourceConsumesInitialSnapshotExactlyOnce(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"data":{"plan":{"id":"plan-a","name":"Example Budget","currency_format":{"iso_code":"USD","decimal_digits":2},"accounts":[],"payees":[],"category_groups":[],"categories":[],"transactions":[],"subtransactions":[]},"server_knowledge":1}}`))
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL + "/v1/")
+	require.NoError(t, err)
+	vault := newTestCredentialVault(t)
+	credentials := StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-a", Currency: "USD", Scale: 2} //nolint:gosec // synthetic test credential.
+	require.NoError(t, vault.Save(credentials, []byte("account-password")))
+	initial := provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-a"}}
+	source, err := NewSource(SourceOptions{
+		Client:      ClientOptions{HTTPClient: &http.Client{Timeout: time.Second}, BaseURL: baseURL},
+		Credentials: credentials, Vault: vault, Initial: &initial,
+	})
+	require.NoError(t, err)
+
+	reader, _, err := source.Reader(context.Background(), false)
+	require.NoError(t, err)
+	first, err := reader.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, initial.Identity, first.Identity)
+	assert.Zero(t, requests.Load())
+
+	reader, _, err = source.Reader(context.Background(), false)
+	require.NoError(t, err)
+	_, err = reader.FetchSnapshot(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), requests.Load())
 }

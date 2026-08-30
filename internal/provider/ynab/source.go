@@ -3,6 +3,7 @@ package ynab
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/provider"
@@ -14,12 +15,15 @@ type SourceOptions struct {
 	Credentials StoredCredentials
 	Vault       *CredentialVault
 	Now         func() time.Time
+	Initial     *provider.SnapshotResult
 }
 
 // Source creates readers from one unlocked vault payload.
 type Source struct {
 	options     SourceOptions
 	fingerprint provider.SessionFingerprint
+	initialMu   sync.Mutex
+	initial     *provider.SnapshotResult
 }
 
 // NewSource validates an unlocked runtime and captures its vault generation.
@@ -34,7 +38,13 @@ func NewSource(options SourceOptions) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Source{options: options, fingerprint: fingerprint}, nil
+	var initial *provider.SnapshotResult
+	if options.Initial != nil {
+		cloned := *options.Initial
+		cloned.Snapshot = options.Initial.Snapshot.Clone()
+		initial = &cloned
+	}
+	return &Source{options: options, fingerprint: fingerprint, initial: initial}, nil
 }
 
 // Reader returns a reader over the already unlocked access token.
@@ -46,8 +56,13 @@ func (source *Source) Reader(
 	if err != nil {
 		return nil, source.fingerprint, err
 	}
+	source.initialMu.Lock()
+	initial := source.initial
+	source.initial = nil
+	source.initialMu.Unlock()
 	return &reader{
 		client: client, planID: source.options.Credentials.PlanID, now: source.options.Now,
+		initial: initial,
 	}, source.fingerprint, nil
 }
 
@@ -61,15 +76,25 @@ func (source *Source) Changed(previous provider.SessionFingerprint) (bool, error
 }
 
 type reader struct {
-	client *Client
-	planID string
-	now    func() time.Time
+	client  *Client
+	planID  string
+	now     func() time.Time
+	initial *provider.SnapshotResult
 }
 
 func (reader *reader) FetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
+	if reader.initial != nil {
+		result := *reader.initial
+		result.Snapshot = reader.initial.Snapshot.Clone()
+		reader.initial = nil
+		if progress != nil {
+			progress(provider.Progress{Partition: "all", Fetched: len(result.Snapshot.Transactions), Total: len(result.Snapshot.Transactions), Attempt: 1})
+		}
+		return result, nil
+	}
 	plan, err := reader.client.FetchPlan(ctx, reader.planID)
 	if err != nil {
 		return provider.SnapshotResult{}, err

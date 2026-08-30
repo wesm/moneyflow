@@ -53,7 +53,7 @@ func TestCredentialSubmitClearsEverySecretField(t *testing.T) {
 	request, ok := form.submit(formSnapshot(onboarding.StateCredentialsRequired))
 	require.True(t, ok)
 	assert.Equal(t, onboarding.ActionSubmitCredentials, request.Action)
-	assert.Equal(t, []byte("user@example.com"), request.Credentials.Email)
+	assert.Equal(t, []byte("user@example.com"), request.MonarchCredentials.Email)
 	assert.Empty(t, form.password.Value())
 	assert.Empty(t, form.totp.Value())
 	assert.Empty(t, form.accountPassword.Value())

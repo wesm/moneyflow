@@ -17,6 +17,7 @@ import (
 	"github.com/wesm/moneyflow/internal/onboarding"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/monarch"
+	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
@@ -47,6 +48,9 @@ type MonarchCommandRuntime struct {
 
 // MonarchCommandFactory constructs provider dependencies for the selected private profile root.
 type MonarchCommandFactory func(home.Paths, monarch.ImportConfig) (MonarchCommandRuntime, error)
+
+// YNABCommandFactory constructs the shared onboarding runtime for one profile.
+type YNABCommandFactory func(home.Paths) (onboarding.Runtime, error)
 
 func newProviderCommand(streams IOStreams) *cobra.Command {
 	providerCommand := &cobra.Command{
@@ -88,6 +92,17 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 		&connectProfile, "profile", "", "profile name or ID",
 	)
 	connect.AddCommand(connectMonarch)
+	var connectYNABProfile string
+	connectYNAB := &cobra.Command{
+		Use:   "ynab",
+		Short: "Connect and import one YNAB profile",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runYNABConnect(command, streams, connectYNABProfile)
+		},
+	}
+	connectYNAB.Flags().StringVar(&connectYNABProfile, "profile", "", "profile name or ID")
+	connect.AddCommand(connectYNAB)
 	disconnect := &cobra.Command{
 		Use:   "disconnect",
 		Short: "Disconnect a financial provider",
@@ -106,6 +121,17 @@ func newProviderCommand(streams IOStreams) *cobra.Command {
 		&disconnectProfile, "profile", "", "profile name or ID",
 	)
 	disconnect.AddCommand(disconnectMonarch)
+	var disconnectYNABProfile string
+	disconnectYNAB := &cobra.Command{
+		Use:   "ynab",
+		Short: "Remove the local YNAB credential vault",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			return runYNABDisconnect(command, streams, disconnectYNABProfile)
+		},
+	}
+	disconnectYNAB.Flags().StringVar(&disconnectYNABProfile, "profile", "", "profile name or ID")
+	disconnect.AddCommand(disconnectYNAB)
 	importCommand := &cobra.Command{
 		Use:   "import",
 		Short: "Import provider data",
@@ -140,7 +166,7 @@ func commandOnboardingRuntime(
 		now = time.Now
 	}
 	return onboarding.Runtime{
-		Sessions: bootstrap.Sessions, Credentials: bootstrap.Credentials,
+		ProviderKind: "monarch", Sessions: bootstrap.Sessions, Credentials: bootstrap.Credentials,
 		InstanceID: bootstrap.InstanceID, Now: now,
 		NewConnector: func(config monarch.ImportConfig) (provider.Connector, error) {
 			runtime, runtimeErr := factory(paths, config)
@@ -204,13 +230,110 @@ func runMonarchConnect(
 			closeOpenedProfile(opened, errors.New("opened profile has no identity")),
 		)
 	}
-	runErr := runCLIOnboarding(
-		command, streams, opened, importConfig, importConfigured, monthToDate,
-	)
+	runtime, err := commandOnboardingRuntime(opened.Paths, streams, importConfig)
+	if err != nil {
+		return fmt.Errorf("connect Monarch: %w", closeOpenedProfile(opened, err))
+	}
+	request := onboarding.StartRequest{
+		ProfileID: opened.ID, ProviderKind: "monarch", Renderer: "cli", MonthToDate: monthToDate,
+	}
+	if importConfigured {
+		request.Settings = &onboarding.SettingsInput{
+			Currency: importConfig.Currency, Scale: importConfig.Scale,
+		}
+	}
+	runErr := runCLIOnboarding(command, streams, opened, runtime, request)
 	if runErr != nil {
 		return fmt.Errorf("connect Monarch: %w", runErr)
 	}
 	return nil
+}
+
+func runYNABConnect(command *cobra.Command, streams IOStreams, profile string) error {
+	opener := streams.OpenProfile
+	if opener == nil {
+		opener = openProfile
+	}
+	opened, err := opener(command.Context(), ProfileOptions{ProviderKind: "ynab", Profile: profile})
+	if err != nil {
+		return fmt.Errorf("connect YNAB: %w", err)
+	}
+	if opened.ID == "" {
+		return fmt.Errorf("connect YNAB: %w", closeOpenedProfile(opened, errors.New("opened profile has no identity")))
+	}
+	factory := streams.OpenYNAB
+	if factory == nil {
+		factory = defaultYNABCommandFactory
+	}
+	runtime, err := factory(opened.Paths)
+	if err != nil {
+		return fmt.Errorf("connect YNAB: %w", closeOpenedProfile(opened, err))
+	}
+	err = runCLIOnboarding(command, streams, opened, runtime, onboarding.StartRequest{
+		ProfileID: opened.ID, ProviderKind: "ynab", Renderer: "cli",
+	})
+	if err != nil {
+		return fmt.Errorf("connect YNAB: %w", err)
+	}
+	return nil
+}
+
+func defaultYNABCommandFactory(paths home.Paths) (onboarding.Runtime, error) {
+	vault, err := ynab.NewCredentialVault(paths)
+	if err != nil {
+		return onboarding.Runtime{}, err
+	}
+	instanceID, err := newProviderInstanceID("cli")
+	if err != nil {
+		return onboarding.Runtime{}, err
+	}
+	return onboarding.Runtime{
+		ProviderKind: "ynab", YNABVault: vault, InstanceID: instanceID, Now: time.Now,
+		NewYNABClient: func(token []byte) (onboarding.YNABPlanClient, error) {
+			return ynab.NewClient(ynab.ClientOptions{}, string(token))
+		},
+		NewYNABSource: func(
+			credentials ynab.StoredCredentials,
+			initial *provider.SnapshotResult,
+		) (provider.ReaderSource, error) {
+			return ynab.NewSource(ynab.SourceOptions{
+				Credentials: credentials, Vault: vault, Now: time.Now, Initial: initial,
+			})
+		},
+	}, nil
+}
+
+func runYNABDisconnect(command *cobra.Command, streams IOStreams, profile string) error {
+	paths, err := resolvePersistentPaths("", profile)
+	if err != nil {
+		return fmt.Errorf("disconnect YNAB: %w", err)
+	}
+	profileLock, err := home.TryLock(paths.Root, home.LockProfile, home.LockShared)
+	if err != nil {
+		return fmt.Errorf("disconnect YNAB: %w", err)
+	}
+	defer func() { _ = profileLock.Release() }()
+	connectLock, err := home.TryLock(paths.Root, home.LockProviderConnect, home.LockExclusive)
+	if err != nil {
+		return fmt.Errorf("disconnect YNAB: %w", err)
+	}
+	defer func() { _ = connectLock.Release() }()
+	factory := streams.OpenYNAB
+	if factory == nil {
+		factory = defaultYNABCommandFactory
+	}
+	runtime, err := factory(paths)
+	if err != nil {
+		return fmt.Errorf("disconnect YNAB: %w", err)
+	}
+	if runtime.YNABVault == nil {
+		return errors.New("disconnect YNAB: credential vault is unavailable")
+	}
+	if err = runtime.YNABVault.Delete(); err != nil {
+		return fmt.Errorf("disconnect YNAB: %w", err)
+	}
+	_, err = fmt.Fprintln(command.OutOrStdout(), "Disconnected YNAB. Profile data was preserved.")
+	return err
 }
 
 func runMonarchDisconnect(command *cobra.Command, streams IOStreams, profile string) error {

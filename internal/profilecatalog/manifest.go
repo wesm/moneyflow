@@ -227,7 +227,7 @@ func validateManifest(manifest Manifest, directory string) error {
 }
 
 func supportedProviderKind(kind string) bool {
-	return kind == "monarch" || kind == "local" || kind == "amazon"
+	return kind == "monarch" || kind == "ynab" || kind == "local" || kind == "amazon"
 }
 
 func validateVersionString(value string) error {

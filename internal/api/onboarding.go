@@ -159,7 +159,7 @@ func (server *Server) registerOnboardingEndpoints(config Config) {
 			}
 		}
 		if input.Body.Credentials != nil {
-			request.Credentials = &onboarding.CredentialInput{
+			request.MonarchCredentials = &onboarding.CredentialInput{
 				Email:           []byte(input.Body.Credentials.Email),
 				Password:        []byte(input.Body.Credentials.Password),
 				TOTPSecret:      []byte(input.Body.Credentials.TOTPSecret),

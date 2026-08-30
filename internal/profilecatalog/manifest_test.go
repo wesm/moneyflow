@@ -65,6 +65,20 @@ func TestReadManifestAcceptsAmazonProviderKind(t *testing.T) {
 	assert.Equal(t, "amazon", loaded.ProviderKind)
 }
 
+func TestReadManifestAcceptsYNABProviderKind(t *testing.T) {
+	t.Parallel()
+	directory := filepath.Join(t.TempDir(), exampleProfileID)
+	require.NoError(t, os.Mkdir(directory, 0o700))
+	manifest := validManifest()
+	manifest.ProviderKind = "ynab"
+	path := filepath.Join(directory, ManifestFilename)
+	require.NoError(t, writeManifest(path, manifest))
+
+	loaded, err := ReadManifest(path)
+	require.NoError(t, err)
+	assert.Equal(t, "ynab", loaded.ProviderKind)
+}
+
 func TestReadManifestRejectsUnknownVersionWithoutTrustingOtherFields(t *testing.T) {
 	t.Parallel()
 	path := writeManifestFixture(t,

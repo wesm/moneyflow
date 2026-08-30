@@ -148,10 +148,18 @@ func (coordinator *Coordinator) completeImport(
 }
 
 func (coordinator *Coordinator) importFailure(attemptID string, err error) {
+	providerKind := coordinator.attemptProviderKind(attemptID)
 	var appFailure *app.AppError
 	if errors.As(err, &appFailure) {
 		code := string(appFailure.Code)
 		if appFailure.Code == app.AppProviderReconnectRequired {
+			if providerKind == "ynab" {
+				coordinator.clearYNABRuntime(attemptID)
+				coordinator.setStableState(attemptID, StateCredentialsRequired, &Failure{
+					Code: code, Message: "Reconnect to YNAB to continue.", CanReenter: true,
+				})
+				return
+			}
 			coordinator.clearRetainedSession(attemptID)
 			coordinator.routeToInputWithFailure(attemptID, &Failure{
 				Code: code, Message: "Reconnect to Monarch to continue.", CanReenter: true,
@@ -166,9 +174,26 @@ func (coordinator *Coordinator) importFailure(attemptID string, err error) {
 		coordinator.fail(attemptID, code, appFailure.Detail, canRetry, false)
 		return
 	}
+	providerName := "Monarch"
+	if providerKind == "ynab" {
+		providerName = "YNAB"
+	}
 	coordinator.fail(
-		attemptID, genericFailureCode, "The Monarch import could not be completed.", true, false,
+		attemptID, genericFailureCode, "The "+providerName+" import could not be completed.", true, false,
 	)
+}
+
+func (coordinator *Coordinator) clearYNABRuntime(attemptID string) {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	if current, ok := coordinator.attempts[attemptID]; ok {
+		clear(current.flow.ynabToken)
+		clear(current.flow.ynabPassword)
+		current.flow.ynabToken = nil
+		current.flow.ynabPassword = nil
+		current.flow.ynabCredentials = nil
+		current.flow.ynabSnapshot = nil
+	}
 }
 
 func (coordinator *Coordinator) routeToInputWithFailure(

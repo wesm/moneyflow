@@ -142,7 +142,7 @@ func TestSubmitClearsCallerOwnedSecretBuffers(t *testing.T) {
 		ProfileID: testProfileID, AttemptID: started.AttemptID,
 		ExpectedStateVersion: started.StateVersion, Action: ActionUnlock,
 		Unlock: &UnlockInput{AccountPassword: accountPassword},
-		Credentials: &CredentialInput{
+		MonarchCredentials: &CredentialInput{
 			Email: email, Password: password, TOTPSecret: totp,
 			AccountPassword: accountPassword, Confirmation: confirmation,
 		},

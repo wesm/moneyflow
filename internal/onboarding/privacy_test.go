@@ -29,10 +29,10 @@ func TestCredentialFailuresExposeOnlySanitizedState(t *testing.T) {
 	connector.connectSession = nil
 	started = waitForState(t, coordinator, started, StateCredentialsRequired)
 	request := credentialSubmitRequest(started)
-	request.Credentials.Email = []byte(forbidden[0])
-	request.Credentials.Password = []byte(forbidden[1])
-	request.Credentials.AccountPassword = []byte(forbidden[2])
-	request.Credentials.Confirmation = []byte(forbidden[2])
+	request.MonarchCredentials.Email = []byte(forbidden[0])
+	request.MonarchCredentials.Password = []byte(forbidden[1])
+	request.MonarchCredentials.AccountPassword = []byte(forbidden[2])
+	request.MonarchCredentials.Confirmation = []byte(forbidden[2])
 
 	next, err := coordinator.Submit(context.Background(), request)
 	require.NoError(t, err)
@@ -45,12 +45,12 @@ func TestCredentialFailuresExposeOnlySanitizedState(t *testing.T) {
 	}
 	assert.Equal(t, genericFailureCode, failed.Failure.Code)
 	assert.Equal(t, "Authentication with Monarch failed.", failed.Failure.Message)
-	assert.Equal(t, make([]byte, len(request.Credentials.Email)), request.Credentials.Email)
-	assert.Equal(t, make([]byte, len(request.Credentials.Password)), request.Credentials.Password)
+	assert.Equal(t, make([]byte, len(request.MonarchCredentials.Email)), request.MonarchCredentials.Email)
+	assert.Equal(t, make([]byte, len(request.MonarchCredentials.Password)), request.MonarchCredentials.Password)
 	assert.Equal(
 		t,
-		make([]byte, len(request.Credentials.AccountPassword)),
-		request.Credentials.AccountPassword,
+		make([]byte, len(request.MonarchCredentials.AccountPassword)),
+		request.MonarchCredentials.AccountPassword,
 	)
 }
 
