@@ -35,6 +35,12 @@ type providerWriteExecution interface {
 	Release()
 }
 
+type providerWriteReservation func(context.Context) (
+	app.ProviderWriteStatus,
+	providerWriteExecution,
+	error,
+)
+
 // AttemptStatus is a credential-blind process-local operation snapshot.
 type AttemptStatus struct {
 	ID                string
@@ -62,7 +68,7 @@ type Supervisor struct {
 
 	mu           sync.Mutex
 	closed       bool
-	writeActive  bool
+	writeWorkers int
 	refreshNow   *AttemptStatus
 	reconcileNow *AttemptStatus
 }
@@ -72,28 +78,41 @@ func newSupervisor(clock func() time.Time, random io.Reader) *Supervisor {
 	return &Supervisor{ctx: ctx, cancel: cancel, clock: clock, random: random}
 }
 
-// StartWrite transfers one reserved execution to the server lifetime.
-func (supervisor *Supervisor) StartWrite(execution providerWriteExecution) bool {
-	if supervisor == nil || execution == nil {
-		return false
+// ReserveWrite authoritatively reserves provider work through the application and transfers any
+// resulting execution to the server lifetime. The application reservation is the single-worker
+// authority; the supervisor counter only reports workers whose teardown is still in progress.
+func (supervisor *Supervisor) ReserveWrite(
+	reserve providerWriteReservation,
+) (app.ProviderWriteStatus, bool, error) {
+	if supervisor == nil || reserve == nil {
+		return app.ProviderWriteStatus{}, false,
+			errors.New("MCP write reservation is unavailable") //nolint:revive // product name
 	}
 	supervisor.mu.Lock()
-	if supervisor.closed || supervisor.writeActive {
+	if supervisor.closed {
 		supervisor.mu.Unlock()
-		execution.Release()
-		return false
+		return app.ProviderWriteStatus{}, false, context.Canceled
 	}
-	supervisor.writeActive = true
+	status, execution, err := reserve(supervisor.ctx)
+	if err != nil {
+		supervisor.mu.Unlock()
+		return app.ProviderWriteStatus{}, false, err
+	}
+	if execution == nil {
+		supervisor.mu.Unlock()
+		return status, false, nil
+	}
+	supervisor.writeWorkers++
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	go func() {
 		defer supervisor.wait.Done()
 		_, _ = execution.Run(supervisor.ctx)
 		supervisor.mu.Lock()
-		supervisor.writeActive = false
+		supervisor.writeWorkers--
 		supervisor.mu.Unlock()
 	}()
-	return true
+	return status, true, nil
 }
 
 // WriteActive reports whether this process currently owns a provider-write execution.
@@ -103,7 +122,7 @@ func (supervisor *Supervisor) WriteActive() bool {
 	}
 	supervisor.mu.Lock()
 	defer supervisor.mu.Unlock()
-	return supervisor.writeActive
+	return supervisor.writeWorkers > 0
 }
 
 // StartRefresh starts one server-owned explicit refresh or returns the active attempt.
@@ -134,7 +153,8 @@ func (supervisor *Supervisor) StartRefresh(
 		ID: id, State: AttemptRunning,
 		StartedAt: supervisor.clock().UTC().Truncate(time.Millisecond),
 	}
-	supervisor.refreshNow = &status
+	stored := status
+	supervisor.refreshNow = &stored
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	go func() {
@@ -177,46 +197,36 @@ func (supervisor *Supervisor) RefreshStatus(id string) (AttemptStatus, error) {
 	return *supervisor.refreshNow, nil
 }
 
-// BeginRefreshConfirmation reserves the matching process-local candidate.
-func (supervisor *Supervisor) BeginRefreshConfirmation(id, token string) error {
-	if supervisor == nil {
-		return ErrAttemptNotFound
+// ConfirmRefresh consumes one matching process-local candidate and runs its authoritative fold
+// under the server lifetime. Close therefore waits for the fold instead of racing it.
+func (supervisor *Supervisor) ConfirmRefresh(
+	id string,
+	token string,
+	run func(context.Context) (app.ProviderRefreshResult, error),
+) (AttemptStatus, error) {
+	if supervisor == nil || run == nil {
+		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.mu.Lock()
-	defer supervisor.mu.Unlock()
-	if supervisor.refreshNow == nil || supervisor.refreshNow.ID != id ||
+	if supervisor.closed || supervisor.refreshNow == nil || supervisor.refreshNow.ID != id ||
 		supervisor.refreshNow.State != AttemptConfirmationRequired ||
 		supervisor.refreshNow.ConfirmationToken == "" ||
 		supervisor.refreshNow.ConfirmationToken != token {
-		return ErrAttemptNotFound
+		supervisor.mu.Unlock()
+		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.refreshNow.State = AttemptRunning
 	supervisor.refreshNow.ConfirmationToken = ""
-	return nil
-}
-
-// FinishRefresh replaces the matching attempt after an authoritative confirmation.
-func (supervisor *Supervisor) FinishRefresh(
-	id string,
-	result app.ProviderRefreshResult,
-	err error,
-) error {
-	if supervisor == nil {
-		return ErrAttemptNotFound
+	supervisor.wait.Add(1)
+	supervisor.mu.Unlock()
+	result, err := run(supervisor.ctx)
+	supervisor.finishRefresh(id, result, err)
+	supervisor.wait.Done()
+	status, statusErr := supervisor.RefreshStatus(id)
+	if statusErr != nil {
+		return AttemptStatus{}, statusErr
 	}
-	supervisor.mu.Lock()
-	defer supervisor.mu.Unlock()
-	if supervisor.refreshNow == nil || supervisor.refreshNow.ID != id {
-		return ErrAttemptNotFound
-	}
-	status := supervisor.refreshNow
-	status.Revision = result.Revision
-	status.Generation = result.Generation
-	status.Refresh = result.Status
-	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
-	status.ConfirmationToken = result.Status.ConfirmationToken
-	status.State, status.Code = attemptOutcome(err, status.ConfirmationToken)
-	return nil
+	return status, err
 }
 
 // StartReconcile starts one server-owned stop-and-reconcile attempt or returns the active one.
@@ -258,7 +268,8 @@ func (supervisor *Supervisor) StartReconcile(
 		State:     AttemptRunning,
 		StartedAt: supervisor.clock().UTC().Truncate(time.Millisecond),
 	}
-	supervisor.reconcileNow = &status
+	stored := status
+	supervisor.reconcileNow = &stored
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
 	go func() {
@@ -321,47 +332,36 @@ func (supervisor *Supervisor) ReconcileStatus(id string) (AttemptStatus, error) 
 	return *supervisor.reconcileNow, nil
 }
 
-// BeginReconcileConfirmation reserves the matching candidate while its short authoritative fold
-// runs. A concurrent start observes the same active attempt instead of replacing it.
-func (supervisor *Supervisor) BeginReconcileConfirmation(id, token string) error {
-	if supervisor == nil {
-		return ErrAttemptNotFound
+// ConfirmReconcile consumes one matching process-local candidate and runs its authoritative fold
+// under the server lifetime. A concurrent start observes the running attempt.
+func (supervisor *Supervisor) ConfirmReconcile(
+	id string,
+	token string,
+	run func(context.Context) (app.ProviderWriteResult, error),
+) (AttemptStatus, error) {
+	if supervisor == nil || run == nil {
+		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.mu.Lock()
-	defer supervisor.mu.Unlock()
-	if supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id ||
+	if supervisor.closed || supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id ||
 		supervisor.reconcileNow.State != AttemptConfirmationRequired ||
 		supervisor.reconcileNow.ConfirmationToken == "" ||
 		supervisor.reconcileNow.ConfirmationToken != token {
-		return ErrAttemptNotFound
+		supervisor.mu.Unlock()
+		return AttemptStatus{}, ErrAttemptNotFound
 	}
 	supervisor.reconcileNow.State = AttemptRunning
 	supervisor.reconcileNow.ConfirmationToken = ""
-	return nil
-}
-
-// FinishReconcile replaces the matching retained attempt after an authoritative confirmation.
-func (supervisor *Supervisor) FinishReconcile(
-	id string,
-	result app.ProviderWriteResult,
-	err error,
-) error {
-	if supervisor == nil {
-		return ErrAttemptNotFound
+	supervisor.wait.Add(1)
+	supervisor.mu.Unlock()
+	result, err := run(supervisor.ctx)
+	supervisor.finishReconcile(id, result, err)
+	supervisor.wait.Done()
+	status, statusErr := supervisor.ReconcileStatus(id)
+	if statusErr != nil {
+		return AttemptStatus{}, statusErr
 	}
-	supervisor.mu.Lock()
-	defer supervisor.mu.Unlock()
-	if supervisor.reconcileNow == nil || supervisor.reconcileNow.ID != id {
-		return ErrAttemptNotFound
-	}
-	status := supervisor.reconcileNow
-	status.Revision = result.Revision
-	status.Generation = result.Generation
-	status.Write = result.Status
-	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
-	status.ConfirmationToken = result.ConfirmationToken
-	status.State, status.Code = attemptOutcome(err, result.ConfirmationToken)
-	return nil
+	return status, err
 }
 
 // Close cancels process-owned work and waits for it or the caller deadline.

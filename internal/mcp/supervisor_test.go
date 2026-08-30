@@ -15,7 +15,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 )
 
-func TestSupervisorRunsOneWriteExecutionAndReleasesCompetitor(t *testing.T) {
+func TestSupervisorUsesApplicationReservationAsWriteAuthority(t *testing.T) {
 	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("w", 128)))
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -28,14 +28,50 @@ func TestSupervisorRunsOneWriteExecutionAndReleasesCompetitor(t *testing.T) {
 			return app.ProviderWriteStatus{}, nil
 		}
 	}}
-	assert.True(t, supervisor.StartWrite(first))
+	status, active, err := supervisor.ReserveWrite(
+		func(ctx context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
+			assert.NoError(t, ctx.Err())
+			return app.ProviderWriteStatus{Version: 3}, first, nil
+		},
+	)
+	require.NoError(t, err)
+	assert.True(t, active)
+	assert.Equal(t, uint64(3), status.Version)
 	<-started
-	second := &fakeWriteExecution{}
-	assert.False(t, supervisor.StartWrite(second))
-	assert.Equal(t, 1, second.releaseCalls)
+	status, active, err = supervisor.ReserveWrite(
+		func(context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
+			return app.ProviderWriteStatus{Version: 3}, nil, nil
+		},
+	)
+	require.NoError(t, err)
+	assert.False(t, active)
+	assert.Equal(t, uint64(3), status.Version)
 	close(release)
 	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
 	assert.Equal(t, 1, first.runCalls)
+	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorWriteReservationUsesServerContext(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("o", 128)))
+	requestContext, cancelRequest := context.WithCancel(context.Background())
+	cancelRequest()
+	assert.Error(t, requestContext.Err())
+	started := make(chan struct{})
+	execution := &fakeWriteExecution{run: func(ctx context.Context) (app.ProviderWriteStatus, error) {
+		close(started)
+		return app.ProviderWriteStatus{}, ctx.Err()
+	}}
+	_, active, err := supervisor.ReserveWrite(
+		func(ctx context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
+			assert.NoError(t, ctx.Err())
+			return app.ProviderWriteStatus{}, execution, nil
+		},
+	)
+	require.NoError(t, err)
+	assert.True(t, active)
+	<-started
+	require.Eventually(t, func() bool { return !supervisor.WriteActive() }, time.Second, time.Millisecond)
 	require.NoError(t, supervisor.Close(context.Background()))
 }
 
@@ -158,16 +194,54 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 		status, statusErr := supervisor.RefreshStatus(attempt.ID)
 		return statusErr == nil && status.State == AttemptConfirmationRequired
 	}, time.Second, time.Millisecond)
-	assert.ErrorIs(t, supervisor.BeginRefreshConfirmation(attempt.ID, "wrong"), ErrAttemptNotFound)
-	require.NoError(t, supervisor.BeginRefreshConfirmation(attempt.ID, "refresh-confirmation"))
-	reserved, err := supervisor.RefreshStatus(attempt.ID)
+	_, err = supervisor.ConfirmRefresh(attempt.ID, "wrong", func(context.Context) (app.ProviderRefreshResult, error) {
+		return app.ProviderRefreshResult{}, nil
+	})
+	assert.ErrorIs(t, err, ErrAttemptNotFound)
+	confirmed, err := supervisor.ConfirmRefresh(
+		attempt.ID, "refresh-confirmation",
+		func(ctx context.Context) (app.ProviderRefreshResult, error) {
+			assert.NoError(t, ctx.Err())
+			return app.ProviderRefreshResult{Revision: 5, Generation: 3}, nil
+		},
+	)
 	require.NoError(t, err)
-	assert.Equal(t, AttemptRunning, reserved.State)
-	assert.Empty(t, reserved.ConfirmationToken)
-	require.NoError(t, supervisor.FinishRefresh(attempt.ID, app.ProviderRefreshResult{
-		Revision: 5, Generation: 3,
-	}, nil))
+	assert.Equal(t, AttemptCompleted, confirmed.State)
+	assert.Empty(t, confirmed.ConfirmationToken)
 	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorConfirmationUsesServerLifetimeAndCloseWaits(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("z", 128)))
+	attempt, err := supervisor.StartReconcile(8, 6, func(context.Context) (app.ProviderWriteResult, error) {
+		return app.ProviderWriteResult{
+			Revision: 8, ConfirmationToken: "confirmation-z",
+		}, &app.AppError{Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 8}
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		status, statusErr := supervisor.ReconcileStatus(attempt.ID)
+		return statusErr == nil && status.State == AttemptConfirmationRequired
+	}, time.Second, time.Millisecond)
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		_, confirmErr := supervisor.ConfirmReconcile(
+			attempt.ID, "confirmation-z",
+			func(ctx context.Context) (app.ProviderWriteResult, error) {
+				close(started)
+				<-ctx.Done()
+				close(stopped)
+				return app.ProviderWriteResult{}, ctx.Err()
+			},
+		)
+		result <- confirmErr
+	}()
+	<-started
+	require.NoError(t, supervisor.Close(context.Background()))
+	<-stopped
+	assert.ErrorIs(t, <-result, context.Canceled)
 }
 
 func TestSupervisorRefreshShutdownCancelsAndWaits(t *testing.T) {
@@ -235,16 +309,18 @@ func TestSupervisorReservesOnlyMatchingReconcileConfirmation(t *testing.T) {
 		status, statusErr := supervisor.ReconcileStatus(attempt.ID)
 		return statusErr == nil && status.State == AttemptConfirmationRequired
 	}, time.Second, time.Millisecond)
-	assert.ErrorIs(t, supervisor.BeginReconcileConfirmation(attempt.ID, "wrong"), ErrAttemptNotFound)
-	require.NoError(t, supervisor.BeginReconcileConfirmation(attempt.ID, "confirmation-a"))
-	reserved, err := supervisor.ReconcileStatus(attempt.ID)
-	require.NoError(t, err)
-	assert.Equal(t, AttemptRunning, reserved.State)
-	assert.Empty(t, reserved.ConfirmationToken)
-	require.NoError(t, supervisor.FinishReconcile(attempt.ID, app.ProviderWriteResult{
-		Revision: 9, Generation: 5,
-	}, nil))
-	completed, err := supervisor.ReconcileStatus(attempt.ID)
+	_, err = supervisor.ConfirmReconcile(
+		attempt.ID, "wrong", func(context.Context) (app.ProviderWriteResult, error) {
+			return app.ProviderWriteResult{}, nil
+		},
+	)
+	assert.ErrorIs(t, err, ErrAttemptNotFound)
+	completed, err := supervisor.ConfirmReconcile(
+		attempt.ID, "confirmation-a", func(ctx context.Context) (app.ProviderWriteResult, error) {
+			assert.NoError(t, ctx.Err())
+			return app.ProviderWriteResult{Revision: 9, Generation: 5}, nil
+		},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, AttemptCompleted, completed.State)
 	assert.Empty(t, completed.ConfirmationToken)

@@ -325,20 +325,20 @@ func (service *Service) ReserveProviderWriteExecution(
 			OwnerID: runtime.instanceID, Renderer: runtime.renderer,
 			Kind: store.ProviderOperationWrite, ExpiresAt: now.Add(runtime.leaseDuration),
 		}
-		if _, exhausted := firstExhaustedPendingWriteItem(writeState.Items); exhausted &&
-			!allowAttemptedRetry {
-			status, parkErr := service.parkProviderWriteFailure(
-				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
-			)
-			return status, nil, parkErr
-		}
-		if _, attempted := firstAttemptedPendingUpdateItem(writeState.Items); attempted &&
-			!allowAttemptedRetry {
-			status, parkErr := service.parkProviderWriteFailure(
-				ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
-			)
-			return status, nil, parkErr
-		}
+	}
+	if _, exhausted := firstExhaustedPendingWriteItem(writeState.Items); exhausted &&
+		!allowAttemptedRetry {
+		status, parkErr := service.parkProviderWriteFailure(
+			ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+		)
+		return status, nil, parkErr
+	}
+	if _, attempted := firstAttemptedPendingUpdateItem(writeState.Items); attempted &&
+		!allowAttemptedRetry {
+		status, parkErr := service.parkProviderWriteFailure(
+			ctx, runtime, batch, "", provider.NewWriteFailure(provider.WriteOutcomeUnknown),
+		)
+		return status, nil, parkErr
 	}
 	providerState.Write = &batch
 	status := providerWriteStatusFromState(providerState)

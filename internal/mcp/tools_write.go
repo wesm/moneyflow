@@ -82,17 +82,20 @@ func commitChangesDocument(
 	if result.ProviderWrite == nil {
 		return document, nil
 	}
-	status, execution, reserveErr := server.service.ReserveProviderWriteExecution(
-		ctx, result.ProviderWrite.Version,
+	status, active, reserveErr := server.supervisor.ReserveWrite(
+		func(workerContext context.Context) (
+			app.ProviderWriteStatus, providerWriteExecution, error,
+		) {
+			return server.service.ReserveProviderWriteExecution(
+				workerContext, result.ProviderWrite.Version,
+			)
+		},
 	)
 	if reserveErr != nil {
 		return CommitDocument{}, reserveErr
 	}
 	document.Write = writeStatusDocument(status)
-	if execution != nil {
-		server.supervisor.StartWrite(execution)
-	}
-	document.BackgroundActive = server.supervisor.WriteActive()
+	document.BackgroundActive = active || server.supervisor.WriteActive()
 	return document, nil
 }
 
@@ -116,7 +119,7 @@ func pauseCommitDocument(
 }
 
 func resumeCommitDocument(
-	ctx context.Context,
+	_ context.Context,
 	server *Server,
 	input BatchVersionInput,
 ) (BatchControlDocument, error) {
@@ -124,16 +127,19 @@ func resumeCommitDocument(
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
-	status, execution, err := server.service.ReserveProviderWriteExecution(ctx, version)
+	status, active, err := server.supervisor.ReserveWrite(
+		func(workerContext context.Context) (
+			app.ProviderWriteStatus, providerWriteExecution, error,
+		) {
+			return server.service.ReserveProviderWriteExecution(workerContext, version)
+		},
+	)
 	if err != nil {
 		return BatchControlDocument{}, err
 	}
-	if execution != nil {
-		server.supervisor.StartWrite(execution)
-	}
 	return BatchControlDocument{
 		Header:           NewHeader(StatusOK, server.service.Revision()),
-		BackgroundActive: server.supervisor.WriteActive(), Write: writeStatusDocument(status),
+		BackgroundActive: active || server.supervisor.WriteActive(), Write: writeStatusDocument(status),
 	}, nil
 }
 
@@ -171,7 +177,7 @@ func reconcileStatusDocument(server *Server, input ReconcileStatusInput) (any, e
 }
 
 func confirmReconcileDocument(
-	ctx context.Context,
+	_ context.Context,
 	server *Server,
 	input ConfirmReconcileInput,
 ) (any, error) {
@@ -183,28 +189,24 @@ func confirmReconcileDocument(
 	if err != nil {
 		return nil, err
 	}
-	if err = server.supervisor.BeginReconcileConfirmation(
+	attempt, confirmErr := server.supervisor.ConfirmReconcile(
 		input.AttemptID, input.ConfirmationToken,
-	); err != nil {
-		return confirmationInvalidDocument(server.service.Revision()), nil
-	}
-	result, confirmErr := server.service.ConfirmProviderWriteReconcile(
-		ctx, app.ProviderWriteReconcileRequest{
-			ExpectedRevision: expected, ExpectedVersion: version,
-			ConfirmationToken: input.ConfirmationToken,
-			State:             app.DefaultViewState(), Selection: app.EmptySelection(),
-			Window: app.WindowRequest{Limit: 1},
+		func(workerContext context.Context) (app.ProviderWriteResult, error) {
+			return server.service.ConfirmProviderWriteReconcile(
+				workerContext, app.ProviderWriteReconcileRequest{
+					ExpectedRevision: expected, ExpectedVersion: version,
+					ConfirmationToken: input.ConfirmationToken,
+					State:             app.DefaultViewState(), Selection: app.EmptySelection(),
+					Window: app.WindowRequest{Limit: 1},
+				},
+			)
 		},
 	)
-	if finishErr := server.supervisor.FinishReconcile(input.AttemptID, result, confirmErr); finishErr != nil {
-		return nil, finishErr
+	if errors.Is(confirmErr, ErrAttemptNotFound) {
+		return confirmationInvalidDocument(server.service.Revision()), nil
 	}
 	if confirmErr != nil {
 		return nil, confirmErr
-	}
-	attempt, err := server.supervisor.ReconcileStatus(input.AttemptID)
-	if err != nil {
-		return nil, err
 	}
 	return attemptDocument(attempt, server.service.Revision(), false), nil
 }

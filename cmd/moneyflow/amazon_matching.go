@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/wesm/moneyflow/internal/api"
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
@@ -16,8 +17,10 @@ type catalogAmazonSources struct {
 }
 
 type amazonMatchingProfileLifecycle struct {
-	*profilecatalog.Catalog
-	matcher *app.AmazonMatchingService
+	api.ProfileCatalog
+	matcher interface {
+		InvalidateDuring(string, func() error) error
+	}
 }
 
 func (lifecycle amazonMatchingProfileLifecycle) Recreate(
@@ -27,7 +30,7 @@ func (lifecycle amazonMatchingProfileLifecycle) Recreate(
 	var result profilecatalog.RecoveryResult
 	err := lifecycle.matcher.InvalidateDuring(request.Plan.ProfileID, func() error {
 		var recreateErr error
-		result, recreateErr = lifecycle.Catalog.Recreate(ctx, request)
+		result, recreateErr = lifecycle.ProfileCatalog.Recreate(ctx, request)
 		return recreateErr
 	})
 	return result, err

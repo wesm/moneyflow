@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"sync"
@@ -41,6 +42,78 @@ func TestBuildWebDependenciesOrdinaryStartupDoesNotOpenProfile(t *testing.T) {
 	assert.NotNil(t, dependencies.Onboarding)
 	assert.Empty(t, dependencies.PreselectedProfileID)
 	require.NoError(t, dependencies.Close(context.Background()))
+}
+
+func TestBrowserRecoveryRunsInsideAmazonMatchingInvalidation(t *testing.T) {
+	profileID := "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	plan := profilecatalog.RecoveryPlan{
+		ProfileKey: profileID, ProfileID: profileID,
+		BackupPath: "/synthetic/recovery", StartedAt: time.Date(2026, 8, 29, 12, 0, 0, 0, time.UTC),
+		OriginalCode: "schema_incompatible",
+	}
+	catalog := &webRecoveryCatalog{plan: plan}
+	invalidator := &blockingRecoveryInvalidator{
+		started: make(chan struct{}), release: make(chan struct{}),
+	}
+	dependencies := testWebDependencies(t)
+	t.Cleanup(func() { require.NoError(t, dependencies.Registry.Close(context.Background())) })
+	origin, err := api.ResolveOrigin("127.0.0.1:8080", "/", "")
+	require.NoError(t, err)
+	security, err := api.NewMutationSecurity(origin, nil, nil)
+	require.NoError(t, err)
+	application, err := webserver.NewServer(webserver.ServerConfig{
+		Resolver: dependencies.Registry, BasePath: "/", Version: "test",
+		Origin: origin, Security: security,
+		Catalog: amazonMatchingProfileLifecycle{
+			ProfileCatalog: catalog, matcher: invalidator,
+		},
+		Evictor: webRecoveryEvictor{},
+	})
+	require.NoError(t, err)
+	bootstrapRequest := httptest.NewRequest(http.MethodGet, "/api/v1/bootstrap", http.NoBody)
+	bootstrapResponse := httptest.NewRecorder()
+	application.Handler().ServeHTTP(bootstrapResponse, bootstrapRequest)
+	require.Equal(t, http.StatusOK, bootstrapResponse.Code, bootstrapResponse.Body.String())
+	var bootstrap api.Bootstrap
+	require.NoError(t, json.Unmarshal(bootstrapResponse.Body.Bytes(), &bootstrap))
+
+	body, err := json.Marshal(api.RecoveryBody{
+		Version: api.ProfileCatalogSchemaVersion, Confirmed: true,
+		Plan: &api.RecoveryPlan{
+			ProfileKey: plan.ProfileKey, ProfileID: plan.ProfileID, BackupPath: plan.BackupPath,
+			StartedAt: plan.StartedAt.Format(time.RFC3339), OriginalCode: string(plan.OriginalCode),
+		},
+	})
+	require.NoError(t, err)
+	recoveryDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		request := httptest.NewRequest(
+			http.MethodPost, "/api/v1/profiles/"+profileID+"/recovery", bytes.NewReader(body),
+		)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin.Origin())
+		request.Header.Set("Sec-Fetch-Site", "same-origin")
+		request.Header.Set("X-Moneyflow-Mutation-Token", bootstrap.MutationToken)
+		response := httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, request)
+		recoveryDone <- response
+	}()
+	select {
+	case <-invalidator.started:
+	case response := <-recoveryDone:
+		t.Fatalf("browser recovery did not reach matching invalidation: %d %s", response.Code, response.Body.String())
+	case <-time.After(time.Second):
+		t.Fatal("browser recovery did not reach matching invalidation")
+	}
+	select {
+	case <-recoveryDone:
+		t.Fatal("browser recovery escaped matching invalidation")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(invalidator.release)
+	response := <-recoveryDone
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, 1, catalog.recreates)
 }
 
 func TestBuildWebDependenciesResolvesPreselectedNameWithoutOpeningService(t *testing.T) {
@@ -550,3 +623,64 @@ func testWebDependencyBuilder(t testing.TB) WebDependencyBuilder {
 		return testWebDependencies(t), nil
 	}
 }
+
+type webRecoveryCatalog struct {
+	plan      profilecatalog.RecoveryPlan
+	recreates int
+}
+
+func (catalog *webRecoveryCatalog) List(context.Context) ([]profilecatalog.Entry, error) {
+	return nil, nil
+}
+
+func (catalog *webRecoveryCatalog) Create(
+	context.Context,
+	profilecatalog.CreateRequest,
+) (profilecatalog.Entry, error) {
+	return profilecatalog.Entry{}, errors.New("unexpected create")
+}
+
+func (catalog *webRecoveryCatalog) CancelNewProfile(context.Context, string) (bool, error) {
+	return false, errors.New("unexpected cancel")
+}
+
+func (catalog *webRecoveryCatalog) ActivateForProvider(
+	context.Context,
+	string,
+	string,
+) (profilecatalog.Entry, error) {
+	return profilecatalog.Entry{}, errors.New("unexpected activation")
+}
+
+func (catalog *webRecoveryCatalog) RecoveryPlan(
+	context.Context,
+	string,
+) (profilecatalog.RecoveryPlan, error) {
+	return catalog.plan, nil
+}
+
+func (catalog *webRecoveryCatalog) Recreate(
+	_ context.Context,
+	request profilecatalog.RecoveryRequest,
+) (profilecatalog.RecoveryResult, error) {
+	catalog.recreates++
+	return profilecatalog.RecoveryResult{BackupPath: request.Plan.BackupPath}, nil
+}
+
+type blockingRecoveryInvalidator struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (invalidator *blockingRecoveryInvalidator) InvalidateDuring(
+	_ string,
+	recoverProfile func() error,
+) error {
+	close(invalidator.started)
+	<-invalidator.release
+	return recoverProfile()
+}
+
+type webRecoveryEvictor struct{}
+
+func (webRecoveryEvictor) Evict(context.Context, string) error { return nil }

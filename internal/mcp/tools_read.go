@@ -119,29 +119,25 @@ func refreshStatusDocument(server *Server, input RefreshStatusInput) (any, error
 }
 
 func confirmRefreshDocument(
-	ctx context.Context,
+	_ context.Context,
 	server *Server,
 	input ConfirmRefreshInput,
 ) (any, error) {
-	if err := server.supervisor.BeginRefreshConfirmation(
+	attempt, confirmErr := server.supervisor.ConfirmRefresh(
 		input.AttemptID, input.ConfirmationToken,
-	); err != nil {
+		func(workerContext context.Context) (app.ProviderRefreshResult, error) {
+			return server.service.ConfirmProviderRefresh(workerContext, app.ProviderRefreshRequest{
+				Manual: true, ConfirmationToken: input.ConfirmationToken,
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+				Window: app.WindowRequest{Limit: 1},
+			})
+		},
+	)
+	if errors.Is(confirmErr, ErrAttemptNotFound) {
 		return confirmationInvalidDocument(server.service.Revision()), nil
-	}
-	result, confirmErr := server.service.ConfirmProviderRefresh(ctx, app.ProviderRefreshRequest{
-		Manual: true, ConfirmationToken: input.ConfirmationToken,
-		State: app.DefaultViewState(), Selection: app.EmptySelection(),
-		Window: app.WindowRequest{Limit: 1},
-	})
-	if finishErr := server.supervisor.FinishRefresh(input.AttemptID, result, confirmErr); finishErr != nil {
-		return nil, finishErr
 	}
 	if confirmErr != nil {
 		return nil, confirmErr
-	}
-	attempt, err := server.supervisor.RefreshStatus(input.AttemptID)
-	if err != nil {
-		return nil, err
 	}
 	return refreshAttemptDocument(attempt, server.service.Revision(), false), nil
 }

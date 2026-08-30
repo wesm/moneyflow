@@ -572,7 +572,7 @@ func TestProviderWriteStatusTreatsExpiredLeaseAsOwnerless(t *testing.T) {
 	assert.Empty(t, status.OwnerRenderer)
 }
 
-func TestResumeProviderWriteParksClaimedItemAsUnknownBeforeResend(t *testing.T) {
+func TestResumeProviderWriteParksClaimedItemWithLiveLeaseBeforeResend(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -624,10 +624,6 @@ func TestResumeProviderWriteParksClaimedItemAsUnknownBeforeResend(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
-	require.NoError(t, profileHandle.ReleaseProviderOperationLease(
-		ctx, "instance-recovery", store.ProviderOperationWrite,
-	))
-
 	status, err := service.ResumeProviderWrite(ctx, writeState.Batch.Version)
 	require.Error(t, err)
 	assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)

@@ -141,7 +141,7 @@ func buildWebDependencies(
 		return WebDependencies{}, err
 	}
 	return WebDependencies{
-		Catalog: amazonMatchingProfileLifecycle{Catalog: catalog, matcher: amazonMatcher}, Registry: registry,
+		Catalog: amazonMatchingProfileLifecycle{ProfileCatalog: catalog, matcher: amazonMatcher}, Registry: registry,
 		Evictor:    amazonMatchingProfileEvictor{profileEvictor: registry, matcher: amazonMatcher},
 		Onboarding: coordinator, AmazonImports: amazonCoordinator,
 		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
