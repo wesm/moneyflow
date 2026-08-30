@@ -121,7 +121,7 @@ func newMCPTokenCommand() *cobra.Command {
 		child := &cobra.Command{
 			Use: verb, Short: short, Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
-				store, err := resolveMCPTokenStore(command.Context(), "", profile)
+				store, release, err := resolveMCPTokenStore(command.Context(), "", profile)
 				if err != nil {
 					return fmt.Errorf("%s MCP token: %w", verb, err) //nolint:revive // product name
 				}
@@ -132,7 +132,13 @@ func newMCPTokenCommand() *cobra.Command {
 					value, err = store.Reveal()
 				}
 				if err != nil {
-					return fmt.Errorf("%s MCP token: %w", verb, err) //nolint:revive // product name
+					return errors.Join(
+						fmt.Errorf("%s MCP token: %w", verb, err), //nolint:revive // product name
+						release(),
+					)
+				}
+				if err = release(); err != nil {
+					return fmt.Errorf("%s MCP token: release profile: %w", verb, err) //nolint:revive // product name
 				}
 				_, err = fmt.Fprintln(command.OutOrStdout(), value)
 				return err

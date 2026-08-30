@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/mcp"
 	"github.com/wesm/moneyflow/internal/profilecatalog"
 )
@@ -108,14 +109,29 @@ func resolveMCPProfile(
 	return catalog, entry, nil
 }
 
+// resolveMCPTokenStore resolves one profile and returns its token store together with the shared
+// profile lifecycle lock that must stay held while the token is revealed or rotated. Holding the
+// lock keeps a concurrent profile cancellation from quarantining the root mid-operation, which
+// would otherwise let token creation recreate that root as a manifest-less partial profile.
 func resolveMCPTokenStore(
 	ctx context.Context,
 	explicitHome string,
 	selector string,
-) (*mcp.TokenStore, error) {
-	_, entry, err := resolveMCPProfile(ctx, explicitHome, selector)
+) (*mcp.TokenStore, func() error, error) {
+	catalog, entry, err := resolveMCPProfile(ctx, explicitHome, selector)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return mcp.NewTokenStore(entry.Root, cryptorand.Reader)
+	lifecycle, err := home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = catalog.ValidateEntry(entry); err != nil {
+		return nil, nil, errors.Join(err, lifecycle.Release())
+	}
+	store, err := mcp.NewTokenStore(entry.Root, cryptorand.Reader)
+	if err != nil {
+		return nil, nil, errors.Join(err, lifecycle.Release())
+	}
+	return store, lifecycle.Release, nil
 }

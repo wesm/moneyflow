@@ -187,3 +187,32 @@ func eventuallyMCPStatus(t *testing.T, endpoint string) int {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+func TestMCPTokenStoreHoldsProfileLockAgainstCancellation(t *testing.T) {
+	homeRoot := t.TempDir()
+	t.Setenv("MONEYFLOW_HOME", homeRoot)
+	catalog, err := openProfileCatalog("")
+	require.NoError(t, err)
+	entry, err := catalog.Create(context.Background(), profilecatalog.CreateRequest{
+		DisplayName: "Example Profile", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+
+	store, release, err := resolveMCPTokenStore(context.Background(), "", entry.ID)
+	require.NoError(t, err)
+	require.NotNil(t, store)
+
+	removed, err := catalog.CancelNewProfile(context.Background(), entry.ID)
+	assert.Error(t, err)
+	assert.False(t, removed)
+	assert.DirExists(t, entry.Root)
+	require.NoError(t, release())
+
+	removed, err = catalog.CancelNewProfile(context.Background(), entry.ID)
+	require.NoError(t, err)
+	assert.True(t, removed)
+	assert.NoDirExists(t, entry.Root)
+	entries, err := catalog.List(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
