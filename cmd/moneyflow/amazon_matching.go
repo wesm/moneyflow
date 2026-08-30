@@ -24,8 +24,13 @@ func (lifecycle amazonMatchingProfileLifecycle) Recreate(
 	ctx context.Context,
 	request profilecatalog.RecoveryRequest,
 ) (profilecatalog.RecoveryResult, error) {
-	lifecycle.matcher.Invalidate(request.Plan.ProfileID)
-	return lifecycle.Catalog.Recreate(ctx, request)
+	var result profilecatalog.RecoveryResult
+	err := lifecycle.matcher.InvalidateDuring(request.Plan.ProfileID, func() error {
+		var recreateErr error
+		result, recreateErr = lifecycle.Catalog.Recreate(ctx, request)
+		return recreateErr
+	})
+	return result, err
 }
 
 type profileEvictor interface {

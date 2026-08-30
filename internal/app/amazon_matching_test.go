@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -209,6 +210,59 @@ func TestAmazonMatchingCacheInvalidationReloadsRecoveredProfileAtSameRevision(t 
 	require.NoError(t, err)
 	require.Len(t, projection.Result.Matches, 1)
 	assert.Equal(t, 2, service.CacheBuilds())
+	assert.Equal(t, "After recovery", projection.Result.Matches[0].FirstProduct)
+}
+
+func TestAmazonMatchingInvalidationSerializesRecoveryAgainstSourceReload(t *testing.T) {
+	directory := &fakeAmazonDirectory{sources: []AmazonSourceDescriptor{{
+		ProfileID: "profile-a", DisplayName: "Amazon", Kind: amazonProvider,
+	}}}
+	loader := &fakeAmazonLoader{states: map[string]store.AmazonMatchSourceState{
+		"profile-a": amazonSourceState(t, 1, "USD", 2, -1234),
+	}}
+	service, err := NewAmazonMatchingService(directory, loader.Load)
+	require.NoError(t, err)
+	_, _, _, err = service.loadSources(context.Background())
+	require.NoError(t, err)
+
+	recoveryStarted := make(chan struct{})
+	finishRecovery := make(chan struct{})
+	recoveryDone := make(chan error, 1)
+	go func() {
+		recoveryDone <- service.InvalidateDuring("profile-a", func() error {
+			close(recoveryStarted)
+			<-finishRecovery
+			return nil
+		})
+	}()
+	<-recoveryStarted
+
+	matchDone := make(chan AmazonMatchProjection, 1)
+	matchErrors := make(chan error, 1)
+	go func() {
+		projection, matchErr := service.Match(
+			context.Background(),
+			matchingFinanceTransaction(t, "finance", "Amazon", -1234), "", 20,
+		)
+		matchDone <- projection
+		matchErrors <- matchErr
+	}()
+	select {
+	case <-matchDone:
+		t.Fatal("matching reloaded a source while recovery was in progress")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	recovered := amazonSourceState(t, 1, "USD", 2, -1234)
+	recovered.Items[0].ProductName = "After recovery"
+	loader.mu.Lock()
+	loader.states["profile-a"] = recovered
+	loader.mu.Unlock()
+	close(finishRecovery)
+	require.NoError(t, <-recoveryDone)
+	projection := <-matchDone
+	require.NoError(t, <-matchErrors)
+	require.Len(t, projection.Result.Matches, 1)
 	assert.Equal(t, "After recovery", projection.Result.Matches[0].FirstProduct)
 }
 

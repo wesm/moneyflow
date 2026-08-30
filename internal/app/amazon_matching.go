@@ -292,11 +292,24 @@ func (service *AmazonMatchingService) evictMissing(present map[string]struct{}) 
 // recreate a database at the same semantic revision, so revision comparison alone cannot prove
 // that a cached index still belongs to the current database contents.
 func (service *AmazonMatchingService) Invalidate(profileID string) {
+	_ = service.InvalidateDuring(profileID, func() error { return nil })
+}
+
+// InvalidateDuring keeps source loading blocked while destructive lifecycle work replaces one
+// profile. The work must not call matching methods because those methods acquire the same lock.
+func (service *AmazonMatchingService) InvalidateDuring(
+	profileID string,
+	work func() error,
+) error {
 	service.loadMu.Lock()
 	defer service.loadMu.Unlock()
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	delete(service.cache, profileID)
+	service.mu.Unlock()
+	if work == nil {
+		return errors.New("amazon matching invalidation work is nil")
+	}
+	return work()
 }
 
 // CacheBuilds returns a test/diagnostic count without exposing source facts.
