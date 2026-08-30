@@ -17,6 +17,7 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	amzimport "github.com/wesm/moneyflow/internal/importer/amazon"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
@@ -96,6 +97,47 @@ func TestRefreshToolExplainsUnavailableLocalProfile(t *testing.T) {
 	result := callRefreshToolResult(t, client, "refresh_data", nil)
 	assert.True(t, result.IsError)
 	assert.Equal(t, "capability_unavailable", result.StructuredContent.(map[string]any)["code"])
+}
+
+func TestRefreshToolExplainsInteractiveAmazonImport(t *testing.T) {
+	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 29, 14, 30, 0, 0, time.UTC)
+	_, err = app.ImportAmazonProfile(t.Context(), profile, app.AmazonImportRequest{
+		Candidate:  amzimport.Candidate{Digest: strings.Repeat("a", 64)},
+		Settings:   amzimport.Settings{Currency: "USD", Scale: 2},
+		ImportedAt: now,
+	})
+	require.NoError(t, err)
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+	client, cleanup := connectRefreshTestServer(t, service)
+	defer cleanup()
+	defer func() { require.NoError(t, profile.Close()) }()
+
+	result := callRefreshToolResult(t, client, "refresh_data", nil)
+	require.True(t, result.IsError)
+	document := result.StructuredContent.(map[string]any)
+	assert.Equal(t, "capability_unavailable", document["code"])
+	assert.Contains(t, document["detail"], "Amazon import")
+}
+
+func TestRefreshToolDoesNotMaskProviderStateFailure(t *testing.T) {
+	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
+	require.NoError(t, err)
+	profile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	service, err := app.NewProfileService(t.Context(), profile)
+	require.NoError(t, err)
+	require.NoError(t, profile.Close())
+	client, cleanup := connectRefreshTestServer(t, service)
+	defer cleanup()
+
+	result := callRefreshToolResult(t, client, "refresh_data", nil)
+	require.True(t, result.IsError)
+	assert.Equal(t, "store_error", result.StructuredContent.(map[string]any)["code"])
 }
 
 func connectRefreshTestServer(t *testing.T, service *app.Service) (*mcpsdk.ClientSession, func()) {

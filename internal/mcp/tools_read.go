@@ -79,7 +79,16 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 
 func refreshDataDocument(ctx context.Context, server *Server) (any, error) {
 	connection, err := server.service.ProviderConnection(ctx)
-	if err != nil || !connection.Bound {
+	if err != nil {
+		return nil, err
+	}
+	if server.service.ProfileKind() == "amazon" {
+		return capabilityUnavailable(
+			server.service,
+			"Amazon import requires the TUI, web, or provider import command.",
+		), nil
+	}
+	if !connection.Bound {
 		return capabilityUnavailable(server.service, "This local profile has no provider to refresh."), nil
 	}
 	if connection.Kind != "monarch" {

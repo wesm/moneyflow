@@ -75,6 +75,27 @@ func TestSupervisorWriteReservationUsesServerContext(t *testing.T) {
 	require.NoError(t, supervisor.Close(context.Background()))
 }
 
+func TestSupervisorCloseCancelsBlockingWriteReservation(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("c", 128)))
+	started := make(chan struct{})
+	reservationDone := make(chan error, 1)
+	go func() {
+		_, _, err := supervisor.ReserveWrite(
+			func(ctx context.Context) (app.ProviderWriteStatus, providerWriteExecution, error) {
+				close(started)
+				<-ctx.Done()
+				return app.ProviderWriteStatus{}, nil, ctx.Err()
+			},
+		)
+		reservationDone <- err
+	}()
+	<-started
+	closeContext, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	require.NoError(t, supervisor.Close(closeContext))
+	assert.ErrorIs(t, <-reservationDone, context.Canceled)
+}
+
 func TestSupervisorReconcileAttemptIsRecoverableAndRequestIndependent(t *testing.T) {
 	now := time.Date(2026, time.August, 29, 13, 0, 0, 0, time.UTC)
 	supervisor := newSupervisor(func() time.Time { return now }, strings.NewReader(strings.Repeat("r", 128)))
@@ -208,6 +229,29 @@ func TestSupervisorRefreshConfirmationIsProcessLocal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, AttemptCompleted, confirmed.State)
 	assert.Empty(t, confirmed.ConfirmationToken)
+	require.NoError(t, supervisor.Close(context.Background()))
+}
+
+func TestSupervisorRefreshFailureKeepsAuthoritativeVersions(t *testing.T) {
+	supervisor := newSupervisor(time.Now, strings.NewReader(strings.Repeat("v", 128)))
+	attempt, err := supervisor.StartRefresh(func(context.Context) (app.ProviderRefreshResult, error) {
+		result := app.ProviderRefreshResult{
+			Status: app.ProviderStatus{Generation: 12, ConfirmationToken: "confirm-v"},
+		}
+		failure := &app.AppError{
+			Code: app.AppProviderDeletionConfirmationRequired, CurrentRevision: 9,
+		}
+		return result, failure
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		status, statusErr := supervisor.RefreshStatus(attempt.ID)
+		return statusErr == nil && status.State == AttemptConfirmationRequired
+	}, time.Second, time.Millisecond)
+	status, err := supervisor.RefreshStatus(attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(9), status.Revision)
+	assert.Equal(t, uint64(12), status.Generation)
 	require.NoError(t, supervisor.Close(context.Background()))
 }
 

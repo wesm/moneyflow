@@ -93,18 +93,36 @@ func (supervisor *Supervisor) ReserveWrite(
 		supervisor.mu.Unlock()
 		return app.ProviderWriteStatus{}, false, context.Canceled
 	}
+	// Count the reservation before releasing the mutex so Close cannot begin waiting while an
+	// untracked database call is still using the profile. The server context, not this mutex,
+	// interrupts a blocked reservation during shutdown.
+	supervisor.wait.Add(1)
+	supervisor.mu.Unlock()
 	status, execution, err := reserve(supervisor.ctx)
 	if err != nil {
-		supervisor.mu.Unlock()
+		supervisor.wait.Done()
 		return app.ProviderWriteStatus{}, false, err
 	}
+	supervisor.mu.Lock()
+	closed := supervisor.closed
 	if execution == nil {
 		supervisor.mu.Unlock()
+		supervisor.wait.Done()
+		if closed {
+			return app.ProviderWriteStatus{}, false, context.Canceled
+		}
 		return status, false, nil
+	}
+	if closed {
+		supervisor.mu.Unlock()
+		execution.Release()
+		supervisor.wait.Done()
+		return app.ProviderWriteStatus{}, false, context.Canceled
 	}
 	supervisor.writeWorkers++
 	supervisor.wait.Add(1)
 	supervisor.mu.Unlock()
+	supervisor.wait.Done()
 	go func() {
 		defer supervisor.wait.Done()
 		_, _ = execution.Run(supervisor.ctx)
@@ -178,6 +196,15 @@ func (supervisor *Supervisor) finishRefresh(
 	status := supervisor.refreshNow
 	status.Revision = result.Revision
 	status.Generation = result.Generation
+	if status.Revision == 0 {
+		var failure *app.AppError
+		if errors.As(err, &failure) {
+			status.Revision = failure.CurrentRevision
+		}
+	}
+	if status.Generation == 0 {
+		status.Generation = result.Status.Generation
+	}
 	status.Refresh = result.Status
 	status.FinishedAt = supervisor.clock().UTC().Truncate(time.Millisecond)
 	status.ConfirmationToken = result.Status.ConfirmationToken
