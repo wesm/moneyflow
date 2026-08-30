@@ -520,6 +520,7 @@ func TestRunWebHonorsExternalBasePathProfileContract(t *testing.T) {
 	mutation.Header.Set("Origin", directOrigin)
 	mutation.Header.Set("Sec-Fetch-Site", "same-origin")
 	mutation.Header.Set("X-Moneyflow-Mutation-Token", configuration.MutationToken)
+	mutation.Close = true
 	rejected, err := http.DefaultClient.Do(mutation)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, rejected.StatusCode)
@@ -564,6 +565,9 @@ func eventuallyGETAccept(t testing.TB, url, accept string) *http.Response {
 		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 		if err == nil && accept != "" {
 			request.Header.Set("Accept", accept)
+		}
+		if err == nil {
+			request.Close = true
 		}
 		var response *http.Response
 		if err == nil {

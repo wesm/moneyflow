@@ -100,6 +100,32 @@ func TestOnboardingImportsKeepMonarchAtTheCompositionBoundary(t *testing.T) {
 	assertNoInternalImport(t, filepath.Join(repoDir, "cmd"), allowed)
 }
 
+func TestOnboardingImportsKeepYNABAtTheCompositionBoundary(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	providerDir := filepath.Dir(filename)
+	internalDir := filepath.Dir(providerDir)
+	repoDir := filepath.Dir(internalDir)
+	onboardingDir := filepath.Join(internalDir, "onboarding")
+	compositionFiles := map[string]bool{
+		filepath.Join(repoDir, "cmd", "moneyflow", "provider.go"):             true,
+		filepath.Join(repoDir, "cmd", "moneyflow", "onboarding_presenter.go"): true,
+		filepath.Join(repoDir, "cmd", "moneyflow", "ynab_provider_test.go"):   true,
+		filepath.Join(internalDir, "tools", "webtestserver", "main.go"):       true,
+		filepath.Join(internalDir, "tools", "webtestserver", "main_test.go"):  true,
+	}
+	allowed := func(path, imported string) bool {
+		if !importsPackageTree(imported, "github.com/wesm/moneyflow/internal/provider/ynab") {
+			return true
+		}
+		return filepath.Dir(path) == onboardingDir || compositionFiles[path]
+	}
+	assertNoInternalImport(t, internalDir, allowed)
+	assertNoInternalImport(t, filepath.Join(repoDir, "cmd"), allowed)
+}
+
 func TestRenderersAndWritePlannerDoNotDependOnMonarchOrSQLite(t *testing.T) {
 	t.Parallel()
 

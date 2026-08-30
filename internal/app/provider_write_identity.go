@@ -16,6 +16,12 @@ func (service *Service) validateProviderMutation(
 	if state.Binding == nil {
 		return nil
 	}
+	// YNAB's read-only provider slice keeps ordinary edits in the durable journal. Commit remains
+	// unavailable until a writer runtime is installed, so no provider-specific write validation
+	// applies while staging local intent.
+	if state.Binding.Kind == "ynab" {
+		return nil
+	}
 	if state.Binding.Kind != "monarch" || !supportedMonarchStagingOperation(operation.Type) {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}

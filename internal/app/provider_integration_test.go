@@ -94,6 +94,83 @@ func TestProviderLifecycleSurvivesConcurrentEditAndProcessRestart(t *testing.T) 
 	assert.Equal(t, persisted.Revision, projection.Revision)
 }
 
+func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
+	require.NoError(t, err)
+	handle, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	service, err := app.NewProfileService(ctx, handle)
+	require.NoError(t, err)
+	now := time.Date(2026, time.August, 30, 18, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
+		snapshot: providerSnapshot(t, now, 1), fingerprint: "vault-a",
+	}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
+		ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2,
+		Renderer: "tui", InstanceID: "ynab-integration", Now: func() time.Time { return now },
+		Random: &incrementingReader{},
+	}))
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	loaded, err := handle.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, loaded.Committed.Transactions, 1)
+	target := loaded.Committed.Transactions[0].ID
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+
+	mutation, err := service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+		State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(target)},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, mutation.Pending.ActiveOperations)
+	_, err = service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: mutation.Revision, ReviewedRevision: mutation.Revision,
+		State: state, Selection: app.EmptySelection(),
+	})
+	code, ok := provider.CodeOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeWriteUnsupported, code)
+
+	source.setSnapshot(providerSnapshot(t, now.Add(time.Minute), 1))
+	refreshed, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(2), refreshed.Revision)
+	assert.Equal(t, 1, service.Pending().ActiveOperations)
+	require.NoError(t, handle.Close())
+
+	reopened, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	persisted, err := reopened.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, persisted.Journal, 1)
+	effective, err := profilereplay.Replay(persisted)
+	require.NoError(t, err)
+	require.Len(t, effective.Effective.Transactions, 1)
+	assert.Equal(t, target, effective.Effective.Transactions[0].ID)
+	assert.True(t, effective.Effective.Transactions[0].Hidden)
+
+	offline, err := app.NewProfileService(ctx, reopened)
+	require.NoError(t, err)
+	assert.Equal(t, "ynab", offline.ProfileKind())
+	projection, err := offline.ProjectView(
+		app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, persisted.Revision, projection.Revision)
+}
+
 func TestProviderRefreshRebasesPendingDeleteAndRestoresStableTransactionIdentity(t *testing.T) {
 	t.Parallel()
 

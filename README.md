@@ -105,7 +105,7 @@ reconnect, or recover a profile without leaving either application. Use `--profi
 profile name or ID only when you want to bypass the selector.
 
 The TUI date flags filter the opened SQLite profile through today. They do not narrow provider
-refreshes: Go v2 continues to reconcile the complete posted Monarch snapshot for correctness.
+refreshes: Go v2 continues to reconcile complete Monarch and YNAB snapshots for correctness.
 
 Pending edits, undo history, and redo history survive process restarts. Press `u` to undo, `U` to
 redo, `C` to manage categories, `G` to manage category groups, and `w` to review and atomically
@@ -157,6 +157,35 @@ start the resumable provider write batch. Successful remote results are recorded
 authentication, rate-limit, or reconciliation-required states remain recoverable across process
 restarts. Moneyflow imports posted transactions only; pending provider rows are used for
 snapshot-integrity checks and do not enter the local profile.
+
+### YNAB read and refresh preview
+
+Go v2 can bind one pristine profile to one YNAB budget. Choose **Add profile** and **YNAB** in
+`moneyflow tui` or `moneyflow web`; the shared wizard asks for a YNAB personal access token, a
+Moneyflow account password, and a budget when the token can access more than one. Each budget uses a
+separate Moneyflow profile. The advanced terminal workflow drives the same coordinator:
+
+```bash
+./bin/moneyflow provider connect ynab --profile "Example YNAB"
+./bin/moneyflow tui --profile "Example YNAB"
+
+# Remove only the encrypted local token; imported data remains available offline
+./bin/moneyflow provider disconnect ynab --profile "Example YNAB"
+```
+
+There is intentionally no token flag. Secret entry is masked, and the token is stored only in the
+profile's account-password-protected credential vault. A bound profile can be opened offline
+without unlocking that vault. Unlocking enables `r` for a complete manual refresh; a long-lived TUI
+or web process also checks every six hours while the runtime remains unlocked.
+
+YNAB accounts, payees, categories, transactions, and split details are normalized into the same
+exact-integer SQLite model as other providers. Tracking-account transfers remain in the committed
+snapshot but are hidden from reports. Local edits can be staged, reviewed, undone, and redone, but
+`w` remains unavailable for a YNAB profile until the separate write-back slice is implemented; the
+durable journal preserves that intent across refreshes and restarts.
+
+Huma defines Moneyflow's inbound browser API only. The outbound YNAB adapter is a small direct REST
+client over the current `/plans` endpoints; no generated YNAB SDK or Huma client sits on that path.
 
 ### Amazon import preview
 

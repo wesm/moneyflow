@@ -111,12 +111,16 @@ func (client *Client) FetchPlan(ctx context.Context, planID string) (PlanDocumen
 
 func (client *Client) getJSON(ctx context.Context, relative string, target any) error {
 	endpoint := client.baseURL.String() + relative
+	// #nosec G704 -- NewClient validates and privately owns the absolute base URL; callers supply
+	// only the fixed plans path or a PathEscape-encoded plan identity.
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return provider.NewError(provider.CodeUnavailable)
 	}
 	request.Header.Set("Authorization", "Bearer "+client.accessToken)
 	request.Header.Set("Accept", "application/json")
+	// #nosec G704 -- the request URL is constructed only through the validated client boundary
+	// above; the injected HTTP client is required for bounded transport tests.
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
