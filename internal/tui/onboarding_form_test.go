@@ -154,19 +154,33 @@ func TestYNABSettingsAreReadOnlyAndConfirmDerivedMoney(t *testing.T) {
 	assert.Equal(t, uint8(2), request.Settings.Scale)
 }
 
-func TestYNABCredentialPreviewMasksSecretsAndPublishesStableFieldIDs(t *testing.T) {
+func TestYNABCredentialFormMasksTypedSecrets(t *testing.T) {
 	t.Parallel()
-	preview, err := PopulatedOnboardingPreviewForTest(
-		"ynab_credential_setup", 100, 30, false,
-	)
+	palette, err := PaletteFor(ThemeDefault, ColorModeTrueColor)
 	require.NoError(t, err)
-	assert.Equal(t, "ynab-token-input", preview.Semantics.Focus)
-	assert.Equal(t, []string{
-		"ynab-token-input", "ynab-encrypt-pass-input", "ynab-confirm-pass-input",
-	}, preview.Semantics.Fields)
-	rendered := strings.Join(preview.Screen.Frame.PlainLines(), "\n")
+	form, _ := newYNABCredentialForm()
+	secrets := []string{"fake-ynab-token", "fake-account-password", "fake-account-password"}
+	for index, secret := range secrets {
+		for _, character := range secret {
+			form, _, _ = form.update(keyMessage(string(character)))
+		}
+		if index < len(secrets)-1 {
+			form, _, _ = form.update(keyMessage("tab"))
+		}
+	}
+	assert.True(t, form.confirmation.Focused())
+	shell := Shell{
+		options: Options{Theme: ThemeDefault, ColorMode: ColorModeTrueColor},
+		palette: palette, width: 100, height: 30, screen: shellOnboarding,
+		haveSnapshot: true, ynabCredentials: form,
+		snapshot: onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion,
+			State:           onboarding.StateCredentialsRequired, ProviderKind: "ynab",
+		},
+	}
+	rendered := strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n")
 	assert.Contains(t, rendered, "••••")
-	for _, secret := range preview.SecretValues {
+	for _, secret := range secrets {
 		assert.NotContains(t, rendered, secret)
 	}
 }

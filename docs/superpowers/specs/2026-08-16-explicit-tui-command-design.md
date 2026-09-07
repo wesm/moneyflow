@@ -1,5 +1,9 @@
 # Explicit TUI Command Design
 
+> Historical design: use the [maintained Go architecture](../../architecture/index.md)
+> for current behavior and verification. This document records an earlier slice and may contain
+> superseded constraints, schema versions, and frame-parity procedures.
+
 **Status:** Approved
 
 ## Purpose

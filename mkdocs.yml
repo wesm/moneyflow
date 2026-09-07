@@ -134,4 +134,11 @@ nav:
   - Development:
     - Developing moneyflow: development/developing.md
     - Contributing: development/contributing.md
-    - Architecture: development/architecture.md
+    - Python Architecture: development/architecture.md
+    - Go v2 Architecture:
+      - Overview: architecture/index.md
+      - State and Storage: architecture/state-and-storage.md
+      - Providers and Data Movement: architecture/providers.md
+      - Interfaces: architecture/interfaces.md
+      - Verification: architecture/verification.md
+      - Decisions: architecture/decisions.md

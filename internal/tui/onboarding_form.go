@@ -12,16 +12,6 @@ import (
 	"github.com/wesm/moneyflow/internal/onboarding"
 )
 
-const unlockSemanticField = "unlock-input"
-
-var credentialSemanticFields = [...]string{
-	"email-input", "password-input", "mfa-input", "encrypt-pass-input", "confirm-pass-input",
-}
-
-var ynabCredentialSemanticFields = [...]string{
-	"ynab-token-input", "ynab-encrypt-pass-input", "ynab-confirm-pass-input",
-}
-
 type settingsForm struct {
 	currency textinput.Model
 	scale    textinput.Model
@@ -195,19 +185,6 @@ func (form ynabCredentialForm) GoString() string {
 	)
 }
 
-func (form ynabCredentialForm) semanticFields() ([]string, string) {
-	fields := append([]string(nil), ynabCredentialSemanticFields[:]...)
-	focused := []bool{
-		form.token.Focused(), form.accountPassword.Focused(), form.confirmation.Focused(),
-	}
-	for index, active := range focused {
-		if active {
-			return fields, fields[index]
-		}
-	}
-	return fields, ""
-}
-
 type remoteProfileForm struct {
 	choices []onboarding.RemoteProfileChoice
 	cursor  int
@@ -293,14 +270,6 @@ func (form unlockForm) update(message tea.KeyPressMsg) (unlockForm, bool, tea.Cm
 
 func (form unlockForm) GoString() string {
 	return fmt.Sprintf("tui.unlockForm{password:%#v, status:%q}", form.password, form.status)
-}
-
-func (form unlockForm) semanticFields() ([]string, string) {
-	fields := []string{unlockSemanticField}
-	if form.password.Focused() {
-		return fields, unlockSemanticField
-	}
-	return fields, ""
 }
 
 type credentialForm struct {
@@ -432,18 +401,4 @@ func (form credentialForm) GoString() string {
 		form.password, form.totp, form.accountPassword,
 		form.confirmation, form.focused, form.status,
 	)
-}
-
-func (form credentialForm) semanticFields() ([]string, string) {
-	fields := append([]string(nil), credentialSemanticFields[:]...)
-	focused := []bool{
-		form.email.Focused(), form.password.Focused(), form.totp.Focused(),
-		form.accountPassword.Focused(), form.confirmation.Focused(),
-	}
-	for index, active := range focused {
-		if active {
-			return fields, fields[index]
-		}
-	}
-	return fields, ""
 }

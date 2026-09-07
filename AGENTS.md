@@ -613,6 +613,11 @@ uv run pyright moneyflow/
 
 ## Go Port Development
 
+The maintained Go architecture is in `docs/architecture/`. Update the relevant page when behavior
+or ownership changes. Completed `docs/superpowers/specs/` and `plans/` documents are historical
+decision records, not current implementation instructions. Active proposals remain separate until
+implemented; do not describe proposed provider support or schema changes as already available.
+
 The full replacement is developed on the long-lived `go-port` branch. Keep Go commands and
 packages portable across Linux, macOS, and Windows without CGO unless a later approved design
 changes that constraint.
@@ -624,17 +629,21 @@ make test-store  # Run SQLite atomicity, schema, cold-load, and 100k bulk-editin
 make test-editing-e2e # Run focused Go and Chromium editing/restart/origin journeys
 make test-race   # Run the race detector; only the performance smoke is skipped
 make lint        # Run golangci-lint with the repository configuration
-make parity      # Check Python semantic frames and Go visual frames without writes
+make parity      # Check retained Python/Go logical and application interaction contracts
 make tui-demo    # Run the Go TUI against a fresh temporary synthetic SQLite profile
 make verify-go   # Run format, tests, storage gates, vet, lint, and parity checks
 make web-demo    # Build and run a fresh temporary synthetic SQLite web profile
 make verify-web  # Run every frontend, asset, API, editing, security, and browser check
 ```
 
-Ordinary tests never update parity artifacts. Use `make parity-update-python` or
-`make parity-update-go` only for a deliberate update, then review the full artifact diff and the
-generated Go frame previews before committing it. `make web-generate` and `make web-embed` are also
-deliberate write operations. Generated browser screenshots and `internal/web/dist` are ignored
+Retain compact logical expectations and behavioral regression tests, not full Python semantic
+frames or Go cell goldens. The frame artifacts, capture harnesses, and `parity-update-*` targets
+are retired. Existing synthetic transaction inputs remain shared by demos and tests. Changes to
+logical expectations still require a deliberate, reviewed change; ordinary tests do not rewrite
+them. See `docs/architecture/verification.md` for the retained gates.
+
+`make web-generate` and `make web-embed` are deliberate write operations.
+Generated browser screenshots and `internal/web/dist` are ignored
 build outputs and must never be committed on this branch; durable visual assets belong on a
 separately managed orphan-assets branch, if retained at all. Stable frontend targets are
 `web-install`, `web-generate`,

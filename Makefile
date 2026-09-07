@@ -1,4 +1,4 @@
-.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python parity-update-go parity-update-python test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
+.PHONY: build clean fmt help install-hooks lint monarch-live-test parity parity-go parity-python test test-editing-e2e test-export test-go-quick test-mcp test-provider test-provider-e2e test-provider-write test-race test-store tui-demo verify-go verify-web vet web-assets-check web-audit web-budgets web-build web-check web-demo web-dev web-e2e web-embed web-embed-check web-generate web-install web-test
 
 GOFLAGS_TEST := -shuffle=on
 VERSION := $(shell v=$$(git describe --tags --always --dirty 2>/dev/null || printf dev); printf '%s' "$$v" | LC_ALL=C tr -c 'A-Za-z0-9._+~:-' '-')
@@ -72,21 +72,13 @@ install-hooks:
 	prek install -f
 
 parity-python:
-	uv run python -m moneyflow.parity.semantic --check
-	uv run python -m moneyflow.parity.onboarding_semantic --check
+	uv run pytest tests/parity/test_fixture.py tests/parity/test_logical.py -v
 
 parity-go:
-	go test ./internal/tui -run 'Test(PythonSemanticFrameParity|VisualGoldens)' -count=1
+	go test ./internal/analytics -run '^TestLogicalFilterStatisticsAndDetailParity$$' -count=1
+	go test ./internal/app -run '^Test(CommittedInteractionScenarios|WebInteractionCorpus)$$' -count=1
 
 parity: parity-python parity-go
-
-parity-update-python:
-	uv run python -m moneyflow.parity.semantic --update
-	uv run python -m moneyflow.parity.onboarding_semantic --update
-
-parity-update-go:
-	@printf '%s\n' 'WARNING: generated Go cell frames require explicit visual review.'
-	MONEYFLOW_UPDATE_GO_FRAMES=1 go test ./internal/tui -run TestVisualGoldens -count=1
 
 verify-go:
 	go run ./internal/tools/checkfmt cmd internal

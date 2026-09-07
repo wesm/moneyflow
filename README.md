@@ -66,6 +66,10 @@ budgets, you'll be prompted to select one. See the [YNAB setup guide](https://mo
 
 ## Go v2 SQLite Preview
 
+For development, start with the [maintained Go architecture](docs/architecture/index.md) and
+[verification guide](docs/architecture/verification.md). Historical slice plans are not the
+current architecture reference.
+
 The `go-port` branch contains the in-progress full Go replacement. Both its TUI and embedded web
 application use the same pure-Go SQLite profile and preserve the keyboard-driven refinement and
 editing workflow. Moneyflow discovers persistent profiles beneath `~/.moneyflow/v2`; set

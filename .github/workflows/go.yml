@@ -120,7 +120,7 @@ jobs:
           version: v2.12.2
 
   parity:
-    name: Python and Go parity
+    name: Logical contracts and export interoperability
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -148,5 +148,5 @@ jobs:
       - name: Run Python characterization tests
         run: uv run pytest tests/parity -v
 
-      - name: Check Python and Go artifacts
+      - name: Check retained logical and interaction contracts
         run: make parity

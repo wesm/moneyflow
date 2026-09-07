@@ -1,14 +1,9 @@
-// Package paritydata embeds the canonical synthetic corpus for the portable demo command.
+// Package paritydata embeds the synthetic transaction corpus shared by demos and logical tests.
 package paritydata
 
-import "embed"
+import _ "embed"
 
 // Transactions is the canonical synthetic transaction fixture.
 //
 //go:embed transactions.json
 var Transactions []byte
-
-// Onboarding contains the strict Python selector and credential semantic contract.
-//
-//go:embed onboarding_scenarios.json onboarding_semantic_frames/*.json
-var Onboarding embed.FS

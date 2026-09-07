@@ -1,5 +1,9 @@
 # Go Port YNAB Read, Import, and Refresh Implementation Plan
 
+> Historical implementation plan: use the [maintained Go architecture](../../architecture/index.md)
+> for current behavior and verification. This document records an earlier slice and may contain
+> superseded constraints, schema versions, and frame-parity procedures.
+>
 > **For inline execution:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement
 > this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

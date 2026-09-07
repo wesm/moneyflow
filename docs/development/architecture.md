@@ -1,5 +1,8 @@
 # Architecture
 
+This page describes the **Python distribution**. For the Go replacement, see the
+[maintained Go v2 architecture](../architecture/index.md).
+
 moneyflow's data pipeline uses a three-layer architecture: a **TUI layer**, an
 **orchestration layer**, and a **data layer**. The orchestration layer decides
 whether to serve data from a local two-tier cache or fetch from the backend API.
