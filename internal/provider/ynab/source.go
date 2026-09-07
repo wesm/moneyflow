@@ -19,7 +19,7 @@ type SourceOptions struct {
 	Initial     *provider.SnapshotResult
 }
 
-// Source creates readers from one unlocked vault payload.
+// Source creates readers and writers from one unlocked vault payload.
 type Source struct {
 	options     SourceOptions
 	fingerprint provider.SessionFingerprint
@@ -67,6 +67,22 @@ func (source *Source) Reader(
 	return &reader{
 		client: client, planID: source.options.Credentials.PlanID, now: source.options.Now,
 		initial: initial, source: source,
+	}, source.fingerprint, nil
+}
+
+// Writer never decrypts or reloads a changed vault; explicit unlock creates a new Source.
+func (source *Source) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
+	if err := source.validateVault(); err != nil {
+		return nil, source.fingerprint, err
+	}
+	client, err := NewClient(source.options.Client, source.options.Credentials.AccessToken)
+	if err != nil {
+		return nil, source.fingerprint, err
+	}
+	credentials := source.options.Credentials
+	return &transactionWriter{
+		client: client, planID: credentials.PlanID, currency: credentials.Currency, scale: credentials.Scale,
+		now: source.options.Now, validate: source.validateVault,
 	}, source.fingerprint, nil
 }
 
@@ -147,3 +163,4 @@ func (reader *reader) FetchSnapshot(
 }
 
 var _ provider.ReaderSource = (*Source)(nil)
+var _ provider.WriterSource = (*Source)(nil)

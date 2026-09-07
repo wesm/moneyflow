@@ -46,6 +46,16 @@ func TestSourceChecksMoneySettingsEvenWithoutTransactions(t *testing.T) {
 			require.NoError(t, vault.Save(credentials, []byte("account-password")))
 			source, err := NewSource(SourceOptions{Client: ClientOptions{BaseURL: base}, Credentials: credentials, Vault: vault})
 			require.NoError(t, err)
+			writer, _, err := source.Writer(context.Background(), false)
+			require.NoError(t, err)
+			_, err = writer.ProbeIdentity(context.Background())
+			if test.want == "" {
+				require.NoError(t, err)
+			} else {
+				code, ok := provider.CodeOf(err)
+				require.True(t, ok)
+				assert.Equal(t, test.want, code)
+			}
 			reader, _, err := source.Reader(context.Background(), false)
 			require.NoError(t, err)
 			result, err := reader.FetchSnapshot(context.Background(), nil)
@@ -92,12 +102,26 @@ func TestSourceFetchesBoundPlanAndDetectsVaultReplacement(t *testing.T) {
 	changed, err := source.Changed(fingerprint)
 	require.NoError(t, err)
 	assert.False(t, changed)
+	writer, writerFingerprint, err := source.Writer(context.Background(), false)
+	require.NoError(t, err)
+	assert.Equal(t, fingerprint, writerFingerprint)
+	identity, err := writer.ProbeIdentity(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, result.Identity, identity)
 	require.NoError(t, vault.Save(StoredCredentials{ //nolint:gosec // synthetic replacement.
 		AccessToken: "replacement-token", PlanID: "plan-a", Currency: "USD", Scale: 2,
 	}, []byte("account-password")))
 	changed, err = source.Changed(fingerprint)
 	require.NoError(t, err)
 	assert.True(t, changed)
+	_, _, err = source.Writer(context.Background(), true)
+	code, ok := provider.CodeOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeReconnectRequired, code)
+	_, err = writer.UpdateTransaction(context.Background(), provider.TransactionUpdate{TransactionExternalID: "txn-a", ClearCategory: true})
+	code, ok = provider.CodeOf(err)
+	require.True(t, ok)
+	assert.Equal(t, provider.CodeReconnectRequired, code)
 }
 
 func TestSourceConsumesInitialSnapshotExactlyOnce(t *testing.T) {

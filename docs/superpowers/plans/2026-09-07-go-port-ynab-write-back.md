@@ -103,7 +103,7 @@ needed; modify `client.go`, `source.go`, and their tests. Reuse existing vault a
 provider.SessionFingerprint, error)` returns a writer with `ProbeIdentity`, `UpdateTransaction`,
 and `DeleteTransaction`. Writer reads current transaction before each mutation; no adapter retry.
 
-- [ ] Test real HTTP request bodies with synthetic endpoints. Assert ID vs name, null vs omitted
+- [x] Test real HTTP request bodies with synthetic endpoints. Assert ID vs name, null vs omitted
   category, current approval true/false, and omission of amount/date/account/memo/cleared/flags/splits.
 
   ```go
@@ -115,15 +115,15 @@ and `DeleteTransaction`. Writer reads current transaction before each mutation; 
   assert.NotContains(t, patch, "amount")
   ```
 
-- [ ] Observe failing tests, then implement bounded GET/preflight plus minimal PUT, identity/money
+- [x] Observe failing tests, then implement bounded GET/preflight plus minimal PUT, identity/money
   probe, exact protected-field comparison, split comparison by external ID, and explicit nullable
   response state. A split parent's null category must not become Uncategorized.
-- [ ] Test GET failures as non-dispatched, PUT transport/5xx/malformed-success as unknown outcome,
+- [x] Test GET failures as non-dispatched, PUT transport/5xx/malformed-success as unknown outcome,
   deterministic rejection, 429 on both phases, revoked credentials, and wrong plan/transaction.
-- [ ] Implement delete preflight; transaction not-found requires accessible-plan verification.
+- [x] Implement delete preflight; transaction not-found requires accessible-plan verification.
   Test not-found at GET and DELETE, valid deletion, inaccessible plan, and transfer refusal.
-- [ ] Add seconds/date/invalid/overflow Retry-After tests with injected clock and one-hour fallback.
-- [ ] Run adapter/source/vault tests and Monarch regression suite; commit.
+- [x] Add seconds/date/invalid/overflow Retry-After tests with injected clock and one-hour fallback.
+- [x] Run adapter/source/vault tests and Monarch regression suite; commit.
 
 ## Checkpoint 4: Provider-neutral planning, worker, and finalization
 
