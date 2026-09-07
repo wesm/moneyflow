@@ -1,7 +1,9 @@
 package ynab
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,8 +13,104 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 )
+
+func TestClientImportsCategoriesFromCoherentTransactionDetails(t *testing.T) {
+	for _, scenario := range []string{"complete", "changed generation", "changed transaction", "missing transaction", "duplicate transaction", "missing split", "changed split", "conflicting labels"} {
+		t.Run(scenario, func(t *testing.T) {
+			plan := syntheticPlan()
+			plan.Transactions[0].CategoryID = "category-historical"
+			plan.Subtransactions[0].CategoryID = "category-historical"
+			encoded, err := json.Marshal(plan.Transactions)
+			require.NoError(t, err)
+			var details []map[string]any
+			decoder := json.NewDecoder(bytes.NewReader(encoded))
+			decoder.UseNumber()
+			require.NoError(t, decoder.Decode(&details))
+			for index, transaction := range plan.Transactions {
+				details[index]["subtransactions"] = []any{}
+				if transaction.CategoryID == "category-historical" {
+					details[index]["category_name"] = "Historical Category"
+				}
+				for _, split := range plan.Subtransactions {
+					if split.TransactionID != transaction.ID {
+						continue
+					}
+					encoded, err = json.Marshal(split)
+					require.NoError(t, err)
+					var child map[string]any
+					decoder = json.NewDecoder(bytes.NewReader(encoded))
+					decoder.UseNumber()
+					require.NoError(t, decoder.Decode(&child))
+					delete(child, "transaction_id")
+					if split.CategoryID == "category-historical" {
+						child["category_name"] = "Historical Category"
+						if scenario == "conflicting labels" {
+							child["category_name"] = "Other Category"
+						}
+					}
+					details[index]["subtransactions"] = append(details[index]["subtransactions"].([]any), child)
+				}
+			}
+			knowledge := plan.ServerKnowledge
+			switch scenario {
+			case "changed generation":
+				knowledge++
+			case "changed transaction":
+				details[0]["amount"] = -99900
+			case "missing transaction":
+				details = details[1:]
+			case "duplicate transaction":
+				details = append(details, details[0])
+			case "missing split":
+				details[2]["subtransactions"] = []any{}
+			case "changed split":
+				details[2]["subtransactions"].([]any)[0].(map[string]any)["amount"] = -99900
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				if request.URL.Path == "/v1/plans/plan-a/transactions" {
+					_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{"transactions": details, "server_knowledge": knowledge}})
+					return
+				}
+				_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+					"server_knowledge": plan.ServerKnowledge,
+					"plan": map[string]any{"id": plan.ID, "name": plan.Name, "currency_format": plan.CurrencyFormat,
+						"accounts": plan.Accounts, "payees": plan.Payees, "category_groups": plan.CategoryGroups,
+						"categories": plan.Categories, "transactions": plan.Transactions, "subtransactions": plan.Subtransactions},
+				}})
+			}))
+			defer server.Close()
+			base, err := url.Parse(server.URL + "/v1/")
+			require.NoError(t, err)
+			client, err := NewClient(ClientOptions{BaseURL: base}, "synthetic-token")
+			require.NoError(t, err)
+			fetched, err := client.FetchPlan(context.Background(), plan.ID)
+			if scenario != "complete" && scenario != "conflicting labels" {
+				code, ok := provider.CodeOf(err)
+				require.True(t, ok)
+				assert.Equal(t, provider.CodeSnapshotUnstable, code)
+				return
+			}
+			require.NoError(t, err)
+			snapshot, err := Normalize(fetched, time.Now())
+			if scenario == "conflicting labels" {
+				require.Error(t, err)
+				assert.Empty(t, snapshot.Transactions)
+				return
+			}
+			require.NoError(t, err)
+			assert.Len(t, snapshot.Transactions, 3)
+			assert.Equal(t, "category-historical", transactionByID(snapshot, "txn-uncleared").CategoryExternalID)
+			assert.Equal(t, int64(-1234), transactionByID(snapshot, "txn-uncleared").Amount.Minor)
+			assert.Contains(t, snapshot.Categories, domain.ImportEntity{Kind: domain.EntityKindCategory,
+				ExternalID: "category-historical", Label: "Historical Category"})
+			assert.Equal(t, "Historical Category", snapshot.Splits[1].CategoryLabel)
+		})
+	}
+}
 
 func TestClientListsAndFetchesPlansWithBearerAuthentication(t *testing.T) {
 	t.Parallel()

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -97,7 +98,7 @@ func (client *Client) FetchPlan(ctx context.Context, planID string) (PlanDocumen
 		plan.Categories == nil || plan.Transactions == nil || plan.Subtransactions == nil {
 		return PlanDocument{}, provider.NewDataInvalidError(provider.DataInvalidSnapshot)
 	}
-	return PlanDocument{
+	document := PlanDocument{
 		ID: plan.ID, Name: plan.Name, CurrencyFormat: plan.CurrencyFormat,
 		Accounts:        append([]Account(nil), (*plan.Accounts)...),
 		Payees:          append([]Payee(nil), (*plan.Payees)...),
@@ -106,7 +107,75 @@ func (client *Client) FetchPlan(ctx context.Context, planID string) (PlanDocumen
 		Transactions:    append([]Transaction(nil), (*plan.Transactions)...),
 		Subtransactions: append([]Subtransaction(nil), (*plan.Subtransactions)...),
 		ServerKnowledge: *response.Data.ServerKnowledge,
-	}, nil
+	}
+	if len(document.Transactions) != 0 {
+		if err := client.readTransactionDetails(ctx, &document); err != nil {
+			return PlanDocument{}, err
+		}
+	}
+	return document, nil
+}
+
+// Transaction details retain category names even when the category collection omits
+// their IDs. Join only matching snapshots; never mix newer transaction facts into an
+// older base that will drive deletion inference and journal replay.
+func (client *Client) readTransactionDetails(ctx context.Context, plan *PlanDocument) error {
+	var response transactionsResponse
+	if err := client.getJSON(ctx, "plans/"+url.PathEscape(plan.ID)+"/transactions", &response); err != nil {
+		return err
+	}
+	if response.Data.Transactions == nil || response.Data.ServerKnowledge == nil {
+		return invalidSnapshot()
+	}
+	if *response.Data.ServerKnowledge != plan.ServerKnowledge {
+		return provider.NewError(provider.CodeSnapshotUnstable)
+	}
+	transactions := make(map[string]int, len(plan.Transactions))
+	for index, transaction := range plan.Transactions {
+		transactions[transaction.ID] = index
+	}
+	splits := make(map[string]int, len(plan.Subtransactions))
+	for index, split := range plan.Subtransactions {
+		splits[split.ID] = index
+	}
+	for _, detail := range *response.Data.Transactions {
+		index, exists := transactions[detail.ID]
+		if !exists {
+			return provider.NewError(provider.CodeSnapshotUnstable)
+		}
+		categoryName := detail.CategoryName
+		detail.CategoryName = ""
+		base := plan.Transactions[index]
+		base.CategoryName = ""
+		if !reflect.DeepEqual(base, detail.Transaction) {
+			return provider.NewError(provider.CodeSnapshotUnstable)
+		}
+		plan.Transactions[index].CategoryName = categoryName
+		delete(transactions, detail.ID)
+		for _, child := range detail.Subtransactions {
+			index, exists := splits[child.ID]
+			if !exists {
+				return provider.NewError(provider.CodeSnapshotUnstable)
+			}
+			// Nested split rows use the enclosing transaction as their parent.
+			if child.TransactionID == "" {
+				child.TransactionID = detail.ID
+			}
+			categoryName := child.CategoryName
+			child.CategoryName = ""
+			base := plan.Subtransactions[index]
+			base.CategoryName = ""
+			if child.TransactionID != detail.ID || !reflect.DeepEqual(base, child) {
+				return provider.NewError(provider.CodeSnapshotUnstable)
+			}
+			plan.Subtransactions[index].CategoryName = categoryName
+			delete(splits, child.ID)
+		}
+	}
+	if len(transactions) != 0 || len(splits) != 0 {
+		return provider.NewError(provider.CodeSnapshotUnstable)
+	}
+	return nil
 }
 
 func (client *Client) getJSON(ctx context.Context, relative string, target any) error {

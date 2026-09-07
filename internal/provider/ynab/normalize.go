@@ -102,6 +102,37 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			ParentExternalID: category.CategoryGroupID, Label: category.Name,
 		})
 	}
+	// Python retains category identities and names from transaction details even
+	// when YNAB omits them from taxonomy. The group is unknown, not the category.
+	retainCategory := func(id, label string) error {
+		if id == "" {
+			return nil
+		}
+		if category, exists := categories[id]; exists {
+			if category.CategoryGroupID == "" && category.Name != label {
+				return provider.NewDataInvalidError(provider.DataInvalidCategoryReference)
+			}
+			return nil
+		}
+		if validateID(id) != nil || validateLabel(label) != nil {
+			return provider.NewDataInvalidError(provider.DataInvalidCategoryReference)
+		}
+		categories[id] = Category{ID: id, Name: label}
+		snapshot.Categories = append(snapshot.Categories, domain.ImportEntity{
+			Kind: domain.EntityKindCategory, ExternalID: id, Label: label,
+		})
+		return nil
+	}
+	for _, transaction := range plan.Transactions {
+		if err := retainCategory(transaction.CategoryID, transaction.CategoryName); err != nil {
+			return domain.ImportSnapshot{}, err
+		}
+	}
+	for _, split := range plan.Subtransactions {
+		if err := retainCategory(split.CategoryID, split.CategoryName); err != nil {
+			return domain.ImportSnapshot{}, err
+		}
+	}
 
 	transactions := make(map[string]Transaction)
 	for _, transaction := range plan.Transactions {

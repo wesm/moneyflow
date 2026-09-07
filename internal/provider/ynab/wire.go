@@ -58,6 +58,7 @@ type Transaction struct {
 	AccountID             string `json:"account_id"`
 	PayeeID               string `json:"payee_id"`
 	CategoryID            string `json:"category_id"`
+	CategoryName          string `json:"category_name,omitempty"`
 	TransferAccountID     string `json:"transfer_account_id"`
 	TransferTransactionID string `json:"transfer_transaction_id"`
 	Deleted               *bool  `json:"deleted"`
@@ -71,9 +72,22 @@ type Subtransaction struct {
 	Memo                  string `json:"memo"`
 	PayeeID               string `json:"payee_id"`
 	CategoryID            string `json:"category_id"`
+	CategoryName          string `json:"category_name,omitempty"`
 	TransferAccountID     string `json:"transfer_account_id"`
 	TransferTransactionID string `json:"transfer_transaction_id"`
 	Deleted               *bool  `json:"deleted"`
+}
+
+type transactionDetail struct {
+	Transaction
+	Subtransactions []Subtransaction `json:"subtransactions"`
+}
+
+type transactionsResponse struct {
+	Data struct {
+		Transactions    *[]transactionDetail `json:"transactions"`
+		ServerKnowledge *int64               `json:"server_knowledge"`
+	} `json:"data"`
 }
 
 // PlanDocument is the complete non-delta plan response consumed by normalization.

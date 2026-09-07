@@ -49,8 +49,8 @@ YNAB write-back, pushing the branch, or adding another provider.
 
 - Connect a pristine Moneyflow profile to one selected YNAB budget using a personal access token.
 - Store the token in a profile-scoped, password-encrypted vault outside SQLite.
-- Import accounts, payees, category groups, categories, transactions, and split details from one
-  coherent full-budget response.
+- Import accounts, payees, category groups, categories, transactions, and split details from a
+  coherent full-budget response joined with transaction details.
 - Preserve YNAB milliunit amounts exactly as integer Moneyflow minor units without floating-point
   arithmetic or silent rounding.
 - Import uncleared transactions and expose their provider-pending state.
@@ -126,7 +126,9 @@ The consolidated parity decisions in earlier designs remain in force. This slice
    Moneyflow account password.
 4. **Full budget export replaces many SDK calls.** Python fetches accounts, payees, categories,
    and transactions through separate SDK endpoints and caches them in process. Go uses the YNAB
-   full-budget response as one coherent refresh candidate and persists the result in SQLite.
+   full-budget response plus matching transaction details as one coherent refresh candidate and
+   persists the result in SQLite. Category names retained only on transaction details are preserved,
+   matching Python; only their unknown group uses Uncategorized.
 5. **Uncleared transactions remain visible and are explicitly pending.** This matches Python's
    mapping of `cleared == uncleared` to pending state and differs from the Monarch policy that
    omits unposted rows.
@@ -143,7 +145,7 @@ The consolidated parity decisions in earlier designs remain in force. This slice
 10. **Provider-backed commit is deferred.** Python can update and delete YNAB data. This slice
     stages and reviews edits but disables commit until the YNAB write-back contract is approved.
 11. **No generated SDK is shipped.** Python depends on the generated `ynab-python` package. Go
-    ports only the two read endpoints used by this slice, reducing binary and API surface.
+    ports only the three read endpoints used by this slice, reducing binary and API surface.
 12. **Deleted transactions are absent, not hidden rows.** Python converts a returned deleted
     transaction into a hidden transaction. YNAB documents deleted entities as delta-only, and Go
     uses complete non-delta responses, so a deleted transaction in a full response is invalid and
@@ -243,6 +245,7 @@ The read slice implements only:
 
 - `GET /plans` to validate the token and list available budgets.
 - `GET /plans/{plan_id}` to fetch one complete budget export.
+- `GET /plans/{plan_id}/transactions` to read category names retained on transaction and split details.
 
 The base URL defaults to `https://api.ynab.com/v1`. Tests inject an `httptest.Server`, clock,
 random source, and transport. The production base URL is not a user-facing flag.
@@ -257,14 +260,18 @@ Every request:
 - tolerates unknown JSON object fields for forward-compatible additive API changes; and
 - validates every field Moneyflow consumes before returning a neutral snapshot.
 
-The adapter makes one HTTP attempt. Retry policy belongs to the application scheduler, except that
+Each HTTP request makes one attempt. Retry policy belongs to the application scheduler, except that
 one bounded `Retry-After` value is carried through `provider_rate_limited` using the existing
 provider contract. No generic retry wrapper is introduced.
 
-The full-budget endpoint deliberately replaces Python's separate list calls. It returns plan
-metadata, accounts, payees, category groups and categories, transactions, subtransactions, and one
-`server_knowledge` value in a single document. The value must be a nonnegative integer and is
-discarded after validation in this slice. It is never persisted or sent as a delta cursor.
+The full-budget endpoint supplies metadata, accounts, payees, category groups and categories,
+transactions, and subtransactions. For a nonempty transaction set, the adapter also reads the
+unfiltered transaction-detail endpoint used by Python. YNAB can omit categories from its collection
+while retaining their IDs and names on transaction details; a full-budget response alone therefore
+does not preserve Python's category behavior. Both responses must have equal nonnegative
+`server_knowledge` values and identical transaction/split membership and base fields before labels
+are joined. Any disagreement rejects the candidate as `provider_snapshot_unstable`. Knowledge is
+discarded after validation; it is never persisted or sent as a delta cursor.
 
 ## Provider Error Translation
 
@@ -560,7 +567,12 @@ A nonsplit transaction with no category references the installed protected syste
 new protected system category, `category_system_split`, under the installed
 `group_system_uncategorized` group. Split is provider-neutral because later split-aware accounting
 can use it for any provider. Neither protected category participates in provider-label collision
-allocation or external-ID retirement. A nonempty unresolved category ID rejects the candidate.
+allocation or external-ID retirement. A category missing from the collection is retained with its
+provider ID and transaction-detail name, under the protected Uncategorized group because its group
+is unknown. This preserves Python's visible category and identity without guessing a group or
+discarding the transaction. All references to that missing category must supply the same valid
+label; missing or conflicting names still reject the candidate. This replaces the earlier blanket
+rejection of unresolved category IDs based on live Python characterization.
 
 The protected system identities cannot collide with an ordinary remote ID and cannot be retired
 because a provider omits them.
@@ -643,14 +655,15 @@ addressing YNAB.
 ## Complete Reconciliation
 
 Every refresh fetches `GET /plans/{bound-id}` without a date, account, category, or payee filter and
-without a delta cursor. The response is one candidate snapshot. Absence from this exhaustive
-response therefore implies remote deletion, subject to the existing plausibility guard.
+without a delta cursor, plus transaction details for nonempty plans under the coherence checks
+above. The joined responses form one candidate snapshot. Absence from this exhaustive transaction
+set therefore implies remote deletion, subject to the existing plausibility guard.
 
 The refresh sequence is:
 
 1. acquire the provider refresh lease without changing profile revision;
 2. unlock or reuse the current process's token runtime;
-3. fetch the exact bound plan ID and normalize one full-budget response outside SQLite;
+3. fetch the exact bound plan and coherent transaction details, then normalize outside SQLite;
 4. treat HTTP 404 as identity mismatch and verify the returned plan ID against the binding;
 5. compute the deletion-plausibility decision against the current committed base;
 6. enter the existing immediate store transaction;
@@ -902,7 +915,12 @@ They never contact YNAB or use the user's default profile.
 
 ### REST Adapter
 
-- `GET /plans` and `GET /plans/{id}` use the correct bearer header, paths, and one-attempt behavior.
+- Plan listing, full-plan, and transaction-detail requests use the correct bearer header, paths,
+  and one-attempt behavior.
+- Transaction details must match the full response's knowledge and exact parent/split facts;
+  missing, duplicate, or changed rows reject the candidate before normalization.
+- Categories omitted from the collection retain consistent detail labels and external identities;
+  conflicting or missing labels reject the candidate without partial import.
 - 401/403, 429 with bounded `Retry-After`, 5xx, network errors, cancellation, bad content type,
   oversized response, malformed JSON, and trailing JSON map to the specified neutral outcomes.
 - Unknown additive JSON fields are tolerated.
@@ -971,7 +989,7 @@ They never contact YNAB or use the user's default profile.
 
 ### Refresh, Rebase, and Concurrency
 
-- Full refresh uses one complete budget response and no delta cursor.
+- Full refresh uses one full-budget response plus coherent transaction details and no delta cursor.
 - The deletion threshold boundary matrix and confirmation-token invalidation matrix remain green.
 - Refresh fold refuses while a provider write batch exists.
 - The refresh-generation compare-and-swap rejects a stale candidate even if lease discipline fails.
@@ -1006,8 +1024,8 @@ temporary Moneyflow home. It never writes YNAB data and never records provider p
 - transaction IDs remain stable across two reads;
 - uncleared transactions, when the chosen budget has any, retain their IDs and cleared state;
 - split IDs, parent links, and sums are internally consistent; and
-- one full response is sufficient to join every retained account, payee, category, and group
-  reference.
+- full-plan and transaction-detail reads agree on knowledge, transaction facts, and split facts;
+  category IDs absent from the collection retain the provider-supplied transaction-detail labels.
 
 The test reports only counts and pass/fail conditions. It is never part of ordinary CI and never
 creates a committed fixture. Automated synthetic verification is committed before live dogfooding;

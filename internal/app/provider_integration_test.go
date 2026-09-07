@@ -109,6 +109,8 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 		identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
 		snapshot: providerSnapshot(t, now, 1), fingerprint: "vault-a",
 	}
+	// Transaction-detail categories can have a known label but no provider group.
+	source.snapshot.Categories[0].ParentExternalID = ""
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
 		ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "ynab-integration", Now: func() time.Time { return now },
@@ -122,6 +124,12 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, loaded.Committed.Transactions, 1)
 	target := loaded.Committed.Transactions[0].ID
+	for _, category := range loaded.Committed.Categories {
+		if category.ID == loaded.Committed.Transactions[0].CategoryID {
+			assert.Equal(t, domain.UncategorizedGroupID, category.GroupID)
+			assert.Equal(t, source.snapshot.Categories[0].Label, category.Label)
+		}
+	}
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
 
@@ -140,7 +148,9 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, provider.CodeWriteUnsupported, code)
 
-	source.setSnapshot(providerSnapshot(t, now.Add(time.Minute), 1))
+	unchanged := providerSnapshot(t, now.Add(time.Minute), 1)
+	unchanged.Categories[0].ParentExternalID = ""
+	source.setSnapshot(unchanged)
 	refreshed, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
