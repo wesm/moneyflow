@@ -69,6 +69,14 @@ Separate timing-sensitive gates from functional/race tests under noisy load usin
 supported `MONEYFLOW_SKIP_PERF` path; report which timing checks were skipped or rerun in isolation.
 Never silently relax a financial-correctness assertion to make a timing run pass.
 
+YNAB write tests drive the real HTTP adapter against synthetic servers, then the shared worker
+against temporary SQLite profiles. They cover explicit category clearing, approval/split
+preservation, transfer restrictions, quota waits, uncertain updates, failed reconciliation,
+confirmation, and stable-ID restoration. The 100k write gates run both provider kinds; YNAB
+mixes deletion and category clearing and compares application finalization with the store oracle.
+Browser workflows include YNAB unlock, `w` then Enter, and refresh after commit in all three
+engines under the existing Chromium/full and Firefox/WebKit/smoke split.
+
 Use Testify and existing test helpers. New tests should exercise an owned application behavior,
 not assert that removed files stay absent, that Makefile text contains a word, or that an upstream
 JSON/SQLite library can round-trip its own values.

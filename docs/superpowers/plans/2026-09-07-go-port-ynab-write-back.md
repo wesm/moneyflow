@@ -175,14 +175,30 @@ from the configured-service test alone.
 **Files:** shared provider write concurrency/failure/performance suites; YNAB integration tests;
 Makefile only if a necessary owned gate is missing.
 
-- [ ] Test refresh vs preparation guards, lease takeover, single-worker reservation, and heartbeat.
-- [ ] Test failed finalization then reopen without resend, stop/reconcile failure preserving the
+- [x] Test refresh vs preparation guards, lease takeover, single-worker reservation, and heartbeat.
+- [x] Test failed finalization then reopen without resend, stop/reconcile failure preserving the
   frozen prefix, successful reconcile removing all frozen intent, and deletion confirmation.
-- [ ] Cover original external-ID restoration, new-ID allocation, stale credentials, and privacy
+- [x] Cover original external-ID restoration, new-ID allocation, stale credentials, and privacy
   through real synthetic transport/service/store paths.
-- [ ] Add YNAB cases to the existing 100k planning/finalization gates; run timing separately from
+- [x] Add YNAB cases to the existing 100k planning/finalization gates; run timing separately from
   race/load-sensitive validation, retaining exact-money and state assertions.
-- [ ] Run Go verification/race, Python checks, web verification, Linux/macOS/Windows no-CGO builds,
+- [x] Run Go verification/race, Python checks, web verification, Linux/macOS/Windows no-CGO builds,
   Markdown/site build, and public-diff privacy checks. Record exact skipped timing/live gates.
-- [ ] Update living architecture, mark this plan complete, commit. Live-write characterization
-  remains a separately authorized follow-up and must not be described as already proven.
+- [ ] Complete the remaining standalone MCP unlock decision, then mark the whole plan complete.
+  Core/TUI/web changes and living architecture are committed independently; live-write
+  characterization remains a separately authorized follow-up, not an automated-test claim.
+
+Review follow-up: a synthetic new-payee response claiming an existing active local payee
+reproduced a stuck finalization after followers had been sent. The worker now rejects that
+response before persisting success and exposes reconcile-only attention. Vault replacement
+between the fresh GET and PUT/DELETE is also exercised: neither mutation dispatches.
+The official OpenAPI 1.86.0 `ExistingTransaction` references `SaveTransactionWithOptionalFields`,
+with no required account/date/amount fields; the installed SDK agrees. Minimal patches remain
+the contract, with live omission behavior still requiring disposable-target authorization.
+
+Verification: full Go checks and race tests passed; timing gates ran separately with performance
+skipping disabled. Python passed 1,839 tests with 85% coverage; type/format/lint checks passed.
+Browser runs passed 76 Chromium tests and six smoke tests each in Firefox and WebKit. Frontend
+checks, asset budgets/audit, documentation checks/site build, and Linux/macOS/Windows no-CGO
+builds passed. No live financial writes were attempted. The standalone MCP unlock decision is
+the only unfinished implementation-plan item, not a reason to leave the verified core uncommitted.

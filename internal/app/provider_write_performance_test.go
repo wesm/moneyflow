@@ -21,43 +21,65 @@ const (
 
 func TestProviderWritePlanningPerformance100K(t *testing.T) {
 	skipProviderWritePerformance(t)
-	snapshot, state, itemIDs := providerWritePerformanceInput(t)
-
-	started := time.Now()
-	plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
-		Snapshot: snapshot, ProviderState: state, ProposedBatchID: "batch-performance",
-		ProposedItemIDs: itemIDs, ObservedAt: providerWriteTime(),
-	})
-	duration := time.Since(started)
-	require.NoError(t, err)
-	require.Len(t, plan.Items, providerWritePerformanceRows)
-	t.Logf("planned %d transactions from %d operations and %d targets in %s",
-		providerWritePerformanceRows, providerWritePerformanceOperations,
-		providerWritePerformanceOperations*providerWritePerformanceTargets, duration)
-	require.Less(t, duration, time.Second)
+	for _, kind := range []string{"monarch", "ynab"} {
+		t.Run(kind, func(t *testing.T) {
+			snapshot, state, itemIDs := providerWritePerformanceInput(t, kind)
+			started := time.Now()
+			plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
+				Snapshot: snapshot, ProviderState: state, ProposedBatchID: "batch-performance",
+				ProposedItemIDs: itemIDs, ObservedAt: providerWriteTime(),
+			})
+			duration := time.Since(started)
+			require.NoError(t, err)
+			require.Len(t, plan.Items, providerWritePerformanceRows)
+			if kind == "ynab" {
+				clears := 0
+				for _, item := range plan.Items {
+					if item.ClearCategory {
+						clears++
+					}
+				}
+				require.Equal(t, providerWritePerformanceRows/2, clears)
+			}
+			t.Logf("planned %d transactions from %d operations and %d targets in %s",
+				providerWritePerformanceRows, providerWritePerformanceOperations,
+				providerWritePerformanceOperations*providerWritePerformanceTargets, duration)
+			require.Less(t, duration, time.Second)
+		})
+	}
 }
 
 func TestProviderWriteFinalizationPerformance100K(t *testing.T) {
 	skipProviderWritePerformance(t)
-	inputs := providerWritePerformanceFinalizationInput(t)
-
-	started := time.Now()
-	applicationPlan, err := app.BuildProviderWriteFinalization(inputs)
-	applicationDuration := time.Since(started)
-	require.NoError(t, err)
-	started = time.Now()
-	storePlan, err := store.BuildProviderWriteFinalization(inputs)
-	storeDuration := time.Since(started)
-	require.NoError(t, err)
-	require.Equal(t, storePlan, applicationPlan)
-	t.Logf("finalized %d transactions in %s; independent oracle in %s",
-		providerWritePerformanceRows, applicationDuration, storeDuration)
-	require.Less(t, applicationDuration, time.Second)
-	require.Less(t, storeDuration, time.Second)
+	for _, kind := range []string{"monarch", "ynab"} {
+		t.Run(kind, func(t *testing.T) {
+			inputs := providerWritePerformanceFinalizationInput(t, kind)
+			started := time.Now()
+			applicationPlan, err := app.BuildProviderWriteFinalization(inputs)
+			applicationDuration := time.Since(started)
+			require.NoError(t, err)
+			started = time.Now()
+			storePlan, err := store.BuildProviderWriteFinalization(inputs)
+			storeDuration := time.Since(started)
+			require.NoError(t, err)
+			require.Equal(t, storePlan, applicationPlan)
+			if kind == "ynab" {
+				require.Len(t, applicationPlan.Effective.Transactions, providerWritePerformanceRows/2)
+				for _, transaction := range applicationPlan.Effective.Transactions {
+					require.Equal(t, domain.UncategorizedCategoryID, transaction.CategoryID)
+					require.Equal(t, int64(-100), transaction.Amount.Minor)
+				}
+			}
+			t.Logf("finalized %d transactions in %s; independent oracle in %s",
+				providerWritePerformanceRows, applicationDuration, storeDuration)
+			require.Less(t, applicationDuration, time.Second)
+			require.Less(t, storeDuration, time.Second)
+		})
+	}
 }
 
 func BenchmarkProviderWritePlanning100K(b *testing.B) {
-	snapshot, state, itemIDs := providerWritePerformanceInput(b)
+	snapshot, state, itemIDs := providerWritePerformanceInput(b, "monarch")
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
@@ -71,7 +93,7 @@ func BenchmarkProviderWritePlanning100K(b *testing.B) {
 }
 
 func BenchmarkProviderWriteFinalization100K(b *testing.B) {
-	inputs := providerWritePerformanceFinalizationInput(b)
+	inputs := providerWritePerformanceFinalizationInput(b, "monarch")
 	b.Run("Application", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
@@ -90,9 +112,9 @@ func BenchmarkProviderWriteFinalization100K(b *testing.B) {
 	})
 }
 
-func providerWritePerformanceFinalizationInput(tb testing.TB) store.FinalizeProviderWriteInputs {
+func providerWritePerformanceFinalizationInput(tb testing.TB, kind string) store.FinalizeProviderWriteInputs {
 	tb.Helper()
-	snapshot, state, itemIDs := providerWritePerformanceInput(tb)
+	snapshot, state, itemIDs := providerWritePerformanceInput(tb, kind)
 	plan, err := app.BuildProviderWritePlan(store.PrepareProviderWriteInputs{
 		Snapshot: snapshot, ProviderState: state, ProposedBatchID: "batch-performance",
 		ProposedItemIDs: itemIDs, ObservedAt: providerWriteTime(),
@@ -101,8 +123,9 @@ func providerWritePerformanceFinalizationInput(tb testing.TB) store.FinalizeProv
 	results := make([]store.WriteResult, len(plan.Items))
 	for index, item := range plan.Items {
 		result := store.WriteResult{
-			Kind:   item.Kind,
-			ItemID: item.ID, TransactionExternalID: item.TransactionExternalID,
+			CategoryCleared: item.ClearCategory,
+			Kind:            item.Kind,
+			ItemID:          item.ID, TransactionExternalID: item.TransactionExternalID,
 			RecordedAt: providerWriteTime(),
 		}
 		if item.Kind == store.WriteItemDelete {
@@ -135,6 +158,7 @@ func providerWritePerformanceFinalizationInput(tb testing.TB) store.FinalizeProv
 
 func providerWritePerformanceInput(
 	tb testing.TB,
+	kind string,
 ) (domain.ProfileSnapshot, store.ProviderState, []string) {
 	tb.Helper()
 	date, err := domain.ParseDate("2026-08-18")
@@ -157,23 +181,23 @@ func providerWritePerformanceInput(
 		},
 	}
 	profile.ExternalIdentities = []domain.ExternalIdentity{
-		{EntityType: domain.EntityKindAccount, EntityID: "account-performance", Namespace: "monarch/account", ExternalID: "account-performance"},
-		{EntityType: domain.EntityKindMerchant, EntityID: "merchant-performance", Namespace: "monarch/merchant", ExternalID: "merchant-performance"},
-		{EntityType: domain.EntityKindGroup, EntityID: "group-performance", Namespace: "monarch/group", ExternalID: "group-performance"},
-		{EntityType: domain.EntityKindCategory, EntityID: "category-a", Namespace: "monarch/category", ExternalID: "category-a"},
-		{EntityType: domain.EntityKindCategory, EntityID: "category-b", Namespace: "monarch/category", ExternalID: "category-b"},
+		{EntityType: domain.EntityKindAccount, EntityID: "account-performance", Namespace: kind + "/account", ExternalID: "account-performance"},
+		{EntityType: domain.EntityKindMerchant, EntityID: "merchant-performance", Namespace: kind + "/merchant", ExternalID: "merchant-performance"},
+		{EntityType: domain.EntityKindGroup, EntityID: "group-performance", Namespace: kind + "/group", ExternalID: "group-performance"},
+		{EntityType: domain.EntityKindCategory, EntityID: "category-a", Namespace: kind + "/category", ExternalID: "category-a"},
+		{EntityType: domain.EntityKindCategory, EntityID: "category-b", Namespace: kind + "/category", ExternalID: "category-b"},
 	}
 	for index := range providerWritePerformanceRows {
 		id := domain.EntityID(fmt.Sprintf("transaction-%06d", index))
 		externalID := fmt.Sprintf("provider-transaction-%06d", index)
 		profile.Transactions = append(profile.Transactions, domain.TransactionRecord{
-			ID: id, ProviderID: externalID, Provider: "monarch", AccountID: "account-performance",
+			ID: id, ProviderID: externalID, Provider: kind, AccountID: "account-performance",
 			MerchantID: "merchant-performance", CategoryID: "category-a", Date: date,
 			Amount: domain.Money{Minor: -100, Currency: "USD", Scale: 2},
 		})
 		profile.ExternalIdentities = append(profile.ExternalIdentities, domain.ExternalIdentity{
 			EntityType: domain.EntityKindTransaction, EntityID: id,
-			Namespace: "monarch/transaction", ExternalID: externalID,
+			Namespace: kind + "/transaction", ExternalID: externalID,
 		})
 	}
 	snapshot := domain.ProfileSnapshot{Revision: 1, Committed: profile}
@@ -186,10 +210,14 @@ func providerWritePerformanceInput(
 			))
 		}
 		var operation domain.Operation
-		if operationIndex < providerWritePerformanceOperations-1_000 {
+		clearing := kind == "ynab" && operationIndex >= providerWritePerformanceOperations-1_000 && batch%2 == 1
+		if operationIndex < providerWritePerformanceOperations-1_000 || clearing {
 			destination := domain.EntityID("category-b")
 			if operationIndex/(providerWritePerformanceRows/providerWritePerformanceTargets)%2 == 1 {
 				destination = "category-a"
+			}
+			if clearing {
+				destination = domain.UncategorizedCategoryID
 			}
 			operation = domain.Operation{
 				ID:       fmt.Sprintf("operation-category-%05d", operationIndex),
@@ -214,11 +242,11 @@ func providerWritePerformanceInput(
 	}
 	state := store.ProviderState{
 		Binding: &store.ProviderBinding{
-			Kind: "monarch", Namespace: "monarch", RemoteProfileID: "remote-performance",
+			Kind: kind, Namespace: kind, RemoteProfileID: "remote-performance",
 			Currency: "USD", Scale: 2,
 		},
 		Allocations: []store.LabelAllocation{{
-			Kind: domain.EntityKindMerchant, Namespace: "monarch/merchant",
+			Kind: domain.EntityKindMerchant, Namespace: kind + "/merchant",
 			ExternalID: "merchant-performance", BaseCollisionKey: "merchant",
 			DisplayLabel: "Merchant", ProviderLabel: "Merchant", Unsuffixed: true,
 		}},

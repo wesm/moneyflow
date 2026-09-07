@@ -30,15 +30,16 @@ instructions. An approved proposal becomes current architecture only as its impl
 | Local/demo | Synthetic fixture or existing local SQLite state | Atomic local fold |
 | Monarch | Connect, full or explicitly scoped initial import, full refresh | Durable remote updates and deletion |
 | Amazon | Explicit CSV/file-directory import | Local commit; no outbound Amazon mutations |
-| YNAB | Connect, full import, coherent full refresh | Edits stage; provider commit is not implemented yet |
+| YNAB | Connect, full import, coherent full refresh | Durable payee/category updates and deletion after explicit unlock |
 
 SimpleFIN is implemented in Python but has no Go adapter. Split details are retained for YNAB;
 they are not independent analytical rows or editable split lines. Neither observation grants
 permission to bypass the existing capability registry.
 
-The [YNAB write-back draft](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
-is approved and being implemented. Schema 12 adds durable category-clear and transfer-restriction
-storage; the YNAB writer and target-policy activation are not implemented yet.
+The [YNAB write-back design](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
+is implemented through the shared worker and TUI/web onboarding. The standalone MCP launcher
+still opens YNAB offline; its explicit vault-unlock path remains undecided. Synthetic HTTP and
+workflow tests are not a claim of live-write characterization against an ordinary budget.
 The current installed schema is defined by `CurrentSchemaVersion` in
 [initialize.go][source-1], currently 12.
 

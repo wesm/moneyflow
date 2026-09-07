@@ -20,6 +20,7 @@ their original snapshot gates, schema versions, or now-completed non-goals.
 | Amazon data in the same v2 profile model | Avoid a parallel database and preserve edits through deterministic reimport; [Amazon](providers.md) | [Amazon](../superpowers/specs/2026-08-20-go-port-amazon-import-matching-design.md) |
 | MCP stages, then explicitly commits | Tools use durable application machinery, not direct remote writes; [MCP](interfaces.md) | [MCP](../superpowers/specs/2026-08-21-go-port-mcp-design.md) |
 | YNAB coherent reads before writes | Establish exact milliunits, split retention, and usable import first; [YNAB](providers.md) | [YNAB reads](../superpowers/specs/2026-08-30-go-port-ynab-read-refresh-design.md) |
+| YNAB writes reuse durable batches | Fresh minimal updates preserve approval and unrelated facts; exact payee IDs avoid name ambiguity; [YNAB](providers.md) | [YNAB write-back](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md) |
 
 ## Python parity: retained intent, deliberate differences
 
@@ -40,9 +41,9 @@ and batch controls. These choices are described where they run, not scattered as
 
 ## Proposals are separate
 
-The [YNAB write-back draft](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
-is approved and being implemented in checkpoints. Its remaining proposed behavior is not a claim
-about the current adapter; the overview records which boundary has landed.
+The YNAB adapter and TUI/web writer are implemented. Standalone MCP vault unlock remains a
+separate open decision; the configured-service test does not establish launcher availability.
+Synthetic request-preservation tests also do not replace separately authorized live writes.
 
 Use Git history for full implementation chronology and benchmark reports for measurements taken
 under their recorded conditions. Keep this guide current rather than adding another dated plan

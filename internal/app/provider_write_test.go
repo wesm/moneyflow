@@ -301,7 +301,11 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 	t.Parallel()
 
 	ctx := context.Background()
-	service, profileHandle := newProviderRefreshService(t)
+	_, profileHandle := newProviderRefreshService(t)
+	lost := make(chan struct{})
+	wrapped := &heartbeatErrorProfile{Profile: profileHandle, lost: lost}
+	service, err := app.NewProfileService(ctx, wrapped)
+	require.NoError(t, err)
 	base := time.Date(2026, time.August, 18, 20, 20, 0, 0, time.UTC)
 	var clockMu sync.Mutex
 	clockValue := base
@@ -335,7 +339,7 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 		Random: &incrementingReader{}, LeaseDuration: 20 * time.Millisecond,
 		HeartbeatInterval: 5 * time.Millisecond,
 	}))
-	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
@@ -365,7 +369,11 @@ func TestProviderWriteHeartbeatFailurePreservesCompletedRemoteResult(t *testing.
 	clockMu.Lock()
 	clockValue = base.Add(30 * time.Millisecond)
 	clockMu.Unlock()
-	time.Sleep(15 * time.Millisecond)
+	select {
+	case <-lost:
+	case <-time.After(5 * time.Second):
+		t.Fatal("write heartbeat did not observe the expired lease")
+	}
 	close(release)
 	require.NoError(t, <-done)
 	persisted, err := profileHandle.Load(ctx)
@@ -1765,6 +1773,7 @@ type heartbeatErrorProfile struct {
 	calls  int
 	failAt int
 	failed chan struct{}
+	lost   chan struct{}
 }
 
 type blockingWriteRenewProfile struct {
@@ -1831,7 +1840,16 @@ func (profile *heartbeatErrorProfile) RenewProviderOperationLease(
 		close(profile.failed)
 		return false, errors.New("synthetic heartbeat storage failure")
 	}
-	return profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
+	renewed, err := profile.Profile.RenewProviderOperationLease(ctx, owner, kind, expiresAt, observedAt)
+	if !renewed && kind == store.ProviderOperationWrite {
+		profile.mu.Lock()
+		if profile.lost != nil {
+			close(profile.lost)
+			profile.lost = nil
+		}
+		profile.mu.Unlock()
+	}
+	return renewed, err
 }
 
 func (writer *scriptedProviderWriter) callCount() int {

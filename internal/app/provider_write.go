@@ -441,9 +441,17 @@ func (service *Service) runProviderWriteOwned(
 	if err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
+	replayed, err := profilereplay.Replay(baselineSnapshot)
+	if err != nil {
+		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
+	}
 	baseline := providerWriteResponseBaseline{
-		transactions: transactionRecordIndex(baselineSnapshot.Committed.Transactions),
-		identities:   providerWriteIdentityIndexes(runtime.provider, baselineSnapshot.Committed.ExternalIdentities),
+		transactions:    transactionRecordIndex(baselineSnapshot.Committed.Transactions),
+		identities:      providerWriteIdentityIndexes(runtime.provider, baselineSnapshot.Committed.ExternalIdentities),
+		activeMerchants: make(map[domain.EntityID]bool, len(replayed.Effective.Merchants)),
+	}
+	for _, merchant := range replayed.Effective.Merchants {
+		baseline.activeMerchants[merchant.ID] = !merchant.Retired
 	}
 
 	for batch.Phase == store.WritePhaseWriting {
@@ -819,8 +827,9 @@ func providerTransactionUpdate(item store.WriteItem, providerKind string, state 
 }
 
 type providerWriteResponseBaseline struct {
-	transactions map[domain.EntityID]domain.TransactionRecord
-	identities   providerWriteIdentities
+	transactions    map[domain.EntityID]domain.TransactionRecord
+	identities      providerWriteIdentities
+	activeMerchants map[domain.EntityID]bool
 }
 
 func normalizeProviderWriteResult(
@@ -890,6 +899,12 @@ func normalizeProviderWriteResult(
 				result.OverrideCount++
 			}
 		case store.WriteExpectationNew:
+			// A new-name response changes identity ownership. Reject collisions before
+			// recording success or releasing followers, not later during finalization.
+			owner := baseline.identities.local(domain.EntityKindMerchant, *result.MerchantExternalID)
+			if owner != item.RequestedMerchantLocalID && baseline.activeMerchants[owner] {
+				return store.WriteResult{}, provider.NewWriteFailure(provider.WriteIdentityConflict)
+			}
 			expected := providerWriteGroupResultID(state, item.NewGroupKey)
 			if !item.GroupLeader && expected == "" {
 				return store.WriteResult{}, provider.NewWriteFailure(provider.WriteExpectationInvalid)

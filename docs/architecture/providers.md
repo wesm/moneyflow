@@ -32,8 +32,8 @@ not reconciliation with remote truth.
 
 ## Durable remote write-back
 
-Monarch currently supplies the implemented writer. The YNAB writer is
-[proposed separately](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md).
+Monarch and YNAB supply writers behind the same durable worker. YNAB is configured only after
+explicitly unlocking that process's credential vault.
 
 [Write planning][source-2] derives absolute per-transaction items
 from the reviewed effective state. Net no-ops generate no requests. Deletion supersedes updates.
@@ -100,8 +100,30 @@ remain one accounting row, with child details preserved separately and their sum
 
 The selected plan's SQLite binding is authoritative over a vault copy. Unlock uses the encrypted
 profile vault. No automatic plaintext-token persistence or process-restart unlock is provided.
-Current YNAB profiles can stage edits but cannot commit them. Do not implement the draft's hide,
-transfer, category-clear, or write-batch changes merely by treating this guide as authorization.
+
+The [transaction writer][source-12] fresh-reads a parent before each PUT or DELETE. Updates carry
+only requested payee/category fields plus the fresh approval value. Omitted category, mapped
+category, and explicit clearing are distinct. Mapped payees use IDs; a new-name leader persists
+the resulting ID before followers proceed. Response validation preserves unrelated transaction
+and split facts; ordinary payee/category overrides become counted provider truth. Unknown echoed
+identities remain provisional until the immediately due refresh.
+New-name responses that claim another active local payee's identity stop in reconcile-only
+attention before success is recorded or followers are sent.
+
+Transfers are refused using persisted provider facts, not the generic hidden flag. Ordinary
+off-budget rows remain writable. Split parents support payee changes and whole-parent deletion,
+but not category changes. Hide toggles and taxonomy administration are refused before staging
+and rechecked during preparation. Uncategorized is the protected system category.
+
+The adapter performs one attempt; the shared worker owns retries. A 429 without a usable
+Retry-After parks for one hour, capped by the common 24-hour ceiling. A possibly applied PUT is
+reconcile-only, while deletion can be resent within the attempt budget. Already-absent deletion
+is accepted only after verifying access to the bound plan.
+
+Unlock with an unfinished batch configures its writer without refreshing the frozen prefix or
+dispatching from the CLI. Bound profiles never reuse a pre-write unlock snapshot for refresh;
+fresh fetching belongs under the provider-operation lease. TUI/web ticks resume eligible work.
+Live mutation characterization requires separate permission for disposable targets.
 
 ## Amazon import and matching
 
@@ -157,3 +179,4 @@ and stale-file cleanup are tested. Export remains available offline and during p
 [source-9]: https://github.com/wesm/moneyflow/blob/go-port/internal/app/amazon_matching.go
 [source-10]: https://github.com/wesm/moneyflow/blob/go-port/internal/app/export.go
 [source-11]: https://github.com/wesm/moneyflow/tree/go-port/internal/exporter
+[source-12]: https://github.com/wesm/moneyflow/blob/go-port/internal/provider/ynab/write.go

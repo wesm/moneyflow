@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Approved; implementation in progress
+**Status:** Core and TUI/web implemented; standalone MCP unlock decision pending
 
 **Branch:** `go-port`
 

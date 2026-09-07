@@ -124,6 +124,45 @@ func TestSourceFetchesBoundPlanAndDetectsVaultReplacement(t *testing.T) {
 	assert.Equal(t, provider.CodeReconnectRequired, code)
 }
 
+func TestYNABWriterRechecksVaultAfterPreflight(t *testing.T) {
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			vault := newTestCredentialVault(t)
+			credentials := StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-a", Currency: "USD", Scale: 2} //nolint:gosec // synthetic credential.
+			require.NoError(t, vault.Save(credentials, []byte("account-password")))
+			var writes atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodGet {
+					writes.Add(1)
+					response.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				// Another process reconnects while the preflight request is in flight.
+				replacement := credentials
+				replacement.AccessToken = "synthetic-replacement"
+				require.NoError(t, vault.Save(replacement, []byte("account-password")))
+				writeTestResponse(t, response, writeTestTransaction())
+			}))
+			t.Cleanup(server.Close)
+			endpoint, err := url.Parse(server.URL + "/v1/")
+			require.NoError(t, err)
+			source, err := NewSource(SourceOptions{Client: ClientOptions{BaseURL: endpoint}, Credentials: credentials, Vault: vault})
+			require.NoError(t, err)
+			writer, _, err := source.Writer(context.Background(), false)
+			require.NoError(t, err)
+			if method == http.MethodPut {
+				_, err = writer.UpdateTransaction(context.Background(), provider.TransactionUpdate{TransactionExternalID: "txn-a", ClearCategory: true})
+			} else {
+				_, err = writer.DeleteTransaction(context.Background(), "txn-a")
+			}
+			code, ok := provider.CodeOf(err)
+			require.True(t, ok)
+			assert.Equal(t, provider.CodeReconnectRequired, code)
+			assert.Zero(t, writes.Load(), "the old token never dispatches a mutation after replacement")
+		})
+	}
+}
+
 func TestSourceConsumesInitialSnapshotExactlyOnce(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32

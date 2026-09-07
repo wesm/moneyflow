@@ -33,13 +33,106 @@ func TestYNABFinalizationAcceptsClearingAndUnrequestedMappedOverrides(t *testing
 	assert.Equal(t, domain.EntityID("merchant_b"), final.Effective.Transactions[0].MerchantID)
 }
 
+func TestYNABReconcileFailureConfirmationAndResurrectedIdentity(t *testing.T) {
+	ctx := context.Background()
+	service, profile := newProviderRefreshService(t)
+	now := providerWriteTime()
+	original := providerSnapshot(t, now, 1)
+	reader := &fakeProviderSource{identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"}, snapshot: original, fingerprint: "vault-a"}
+	writer := &scriptedProviderWriter{identity: reader.identity, update: func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteTargetNotFound)
+	}}
+	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
+	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{ReadSource: source, WriteSource: source,
+		Provider: "ynab", Currency: "USD", Scale: 2, Renderer: "tui", InstanceID: "ynab-reconcile", Now: func() time.Time { return now }}))
+	refresh := app.ProviderRefreshRequest{Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection()}
+	_, err := service.RefreshProvider(ctx, refresh)
+	require.NoError(t, err)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profile.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "clear-before-delete", Type: domain.OperationCategoryAssign, PayloadVersion: 1,
+		CreatedRevision: loaded.Revision, CreatedAt: now, Targets: []domain.EntityID{target.ID},
+		Reassign: &domain.ReassignPayload{DestinationID: domain.UncategorizedCategoryID},
+	})
+	require.NoError(t, err)
+	_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: revision, ReviewedRevision: revision, State: refresh.State, Selection: refresh.Selection})
+	require.NoError(t, err)
+	status, err := service.RunProviderWrite(ctx)
+	require.Error(t, err)
+	require.Equal(t, store.WriteAttentionTargetNotFound, status.AttentionReason)
+	frozen, err := profile.Load(ctx)
+	require.NoError(t, err)
+	reader.mu.Lock()
+	reader.fetchErr = provider.NewError(provider.CodeUnavailable)
+	reader.mu.Unlock()
+	_, err = service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedVersion: status.Version, State: refresh.State, Selection: refresh.Selection,
+	})
+	require.Error(t, err)
+	afterFailure, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, frozen.Committed, afterFailure.Committed)
+	assert.Equal(t, frozen.Journal, afterFailure.Journal)
+	assert.Equal(t, frozen.Cursor, afterFailure.Cursor)
+	reader.mu.Lock()
+	reader.fetchErr = nil
+	reader.snapshot = providerSnapshot(t, now, 0)
+	reader.mu.Unlock()
+	status, err = service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	confirmation, err := service.StopAndReconcileProviderWrite(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedVersion: status.Version, State: refresh.State, Selection: refresh.Selection,
+	})
+	assertAppCode(t, err, app.AppProviderDeletionConfirmationRequired)
+	require.NotEmpty(t, confirmation.ConfirmationToken)
+	_, err = service.ConfirmProviderWriteReconcile(ctx, app.ProviderWriteReconcileRequest{
+		ExpectedVersion: confirmation.Status.Version, ConfirmationToken: confirmation.ConfirmationToken,
+		State: refresh.State, Selection: refresh.Selection,
+	})
+	require.NoError(t, err)
+	removed, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, removed.Journal)
+	assert.Empty(t, removed.Committed.Transactions)
+	assert.Contains(t, removed.Committed.ExternalIdentities, domain.ExternalIdentity{
+		EntityType: domain.EntityKindTransaction, EntityID: target.ID, Namespace: "ynab/transaction", ExternalID: target.ProviderID,
+	})
+	reader.setSnapshot(original)
+	_, err = service.RefreshProvider(ctx, refresh)
+	require.NoError(t, err)
+	restored, err := profile.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, restored.Committed.Transactions, 1)
+	assert.Equal(t, target.ID, restored.Committed.Transactions[0].ID)
+	assert.Equal(t, target.CategoryID, restored.Committed.Transactions[0].CategoryID, "abandoned category clear does not reappear")
+	newIdentity := original.Clone()
+	newIdentity.Transactions = append(newIdentity.Transactions, original.Transactions[0])
+	newIdentity.Transactions[1].ExternalID = "transaction-new-identity"
+	reader.setSnapshot(newIdentity)
+	_, err = service.RefreshProvider(ctx, refresh)
+	require.NoError(t, err)
+	added, err := profile.Load(ctx)
+	require.NoError(t, err)
+	require.Len(t, added.Committed.Transactions, 2)
+	assert.NotEqual(t, added.Committed.Transactions[0].ID, added.Committed.Transactions[1].ID)
+	assert.Equal(t, 1, writer.callCount(), "reconciliation never retries the failed write")
+}
+
 func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
-	for _, kind := range []string{"clear", "override", "leader", "rate", "uncertain"} {
+	for _, kind := range []string{"clear", "override", "leader", "leader-collision", "rate", "uncertain"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			service, profile := newProviderRefreshService(t)
 			now := providerWriteTime()
 			reader := &fakeProviderSource{identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"}, snapshot: providerSnapshot(t, now, 3), fingerprint: "vault-a"}
+			if kind == "leader-collision" {
+				reader.snapshot.Merchants = append(reader.snapshot.Merchants, domain.ImportEntity{
+					Kind: domain.EntityKindMerchant, ExternalID: "payee-incumbent", Label: "Other Payee",
+				})
+				reader.snapshot.Transactions[2].MerchantExternalID = "payee-incumbent"
+			}
 			var mu sync.Mutex
 			var requests []provider.TransactionUpdate
 			writer := &scriptedProviderWriter{identity: reader.identity, update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
@@ -52,6 +145,10 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 				}
 				if kind == "uncertain" {
 					return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteOutcomeUnknown)
+				}
+				if kind == "leader-collision" {
+					return provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID,
+						MerchantExternalID: provider.Some("payee-incumbent"), MerchantLabel: provider.Some("New Payee")}, nil
 				}
 				if kind != "leader" {
 					assert.True(t, update.ClearCategory)
@@ -71,10 +168,18 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 			loaded, err := profile.Load(ctx)
 			require.NoError(t, err)
 			var operation domain.Operation
-			if kind != "leader" {
+			if kind != "leader" && kind != "leader-collision" {
 				operation = providerWriteOperation("category", 1, domain.OperationCategoryAssign, []domain.EntityID{loaded.Committed.Transactions[0].ID}, nil, nil, &domain.ReassignPayload{DestinationID: domain.UncategorizedCategoryID}, nil)
 			} else {
 				id := loaded.Committed.Transactions[0].MerchantID
+				if kind == "leader-collision" {
+					for _, transaction := range loaded.Committed.Transactions {
+						if transaction.ProviderID == transactionExternalID(0) {
+							id = transaction.MerchantID
+							break
+						}
+					}
+				}
 				operation = providerWriteOperation("label", 1, domain.OperationMerchantLabel, []domain.EntityID{id}, &domain.LabelPayload{EntityID: id, Label: "New Payee", CollisionKey: "new payee"}, nil, nil, nil)
 			}
 			operation.CreatedRevision = loaded.Revision
@@ -86,6 +191,16 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 			_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: revision, ReviewedRevision: revision, State: app.DefaultViewState(), Selection: app.EmptySelection()})
 			require.NoError(t, err)
 			status, runErr := service.RunProviderWrite(ctx)
+			if kind == "leader-collision" {
+				require.Error(t, runErr)
+				assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+				assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+				assert.Zero(t, status.Completed, "contradictory identity is never recorded as success")
+				assert.Equal(t, 1, writer.callCount(), "followers stay unsent")
+				_, err = service.ResumeProviderWrite(ctx, status.Version)
+				require.Error(t, err)
+				return
+			}
 			if kind == "uncertain" {
 				require.Error(t, runErr)
 				assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
