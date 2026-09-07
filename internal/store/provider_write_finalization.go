@@ -58,7 +58,7 @@ func BuildProviderWriteFinalization(
 		if !exists {
 			return FinalizeProviderWritePlan{}, errors.New("finalize provider write: transaction is missing")
 		}
-		if item.RequestedMerchantName != nil && result.MerchantExternalID != nil {
+		if (item.RequestedMerchantName != nil || providerKind == "ynab") && result.MerchantExternalID != nil {
 			if item.Expectation == WriteExpectationNew {
 				effective.ExternalIdentities, allocations, lineage, err = rotateWriteMerchantIdentity(
 					effective, effective.ExternalIdentities, allocations, lineage,
@@ -76,12 +76,15 @@ func BuildProviderWriteFinalization(
 				effective.Transactions[index].MerchantID = localID
 			}
 		}
-		if item.RequestedCategoryExternalID != nil && result.CategoryExternalID != nil {
+		if (item.RequestedCategoryExternalID != nil || item.ClearCategory || providerKind == "ynab") && result.CategoryExternalID != nil {
 			if localID := activeWriteEntityForExternal(
 				effective, providerKind, domain.EntityKindCategory, *result.CategoryExternalID,
 			); localID != "" {
 				effective.Transactions[index].CategoryID = localID
 			}
+		}
+		if providerKind == "ynab" && result.CategoryCleared {
+			effective.Transactions[index].CategoryID = domain.UncategorizedCategoryID
 		}
 		if item.RequestedHidden != nil && result.Hidden != nil {
 			effective.Transactions[index].Hidden = *result.Hidden

@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +22,114 @@ import (
 	"github.com/wesm/moneyflow/internal/provider/ynab"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+func TestYNABHTTPWriteClearAndSplitDeleteSurviveReopen(t *testing.T) {
+	for _, deleting := range []bool{false, true} {
+		t.Run(fmt.Sprintf("delete=%t", deleting), func(t *testing.T) {
+			ctx := context.Background()
+			var changed atomic.Bool
+			var writes atomic.Int32
+			parent := func() map[string]any {
+				category := any("category-example")
+				if changed.Load() || deleting {
+					category = nil
+				}
+				return map[string]any{"id": "transaction-example", "date": "2026-09-01", "amount": int64(-12340), "memo": "Example memo", "cleared": "reconciled", "approved": true, "account_id": "account-example", "payee_id": "payee-example", "category_id": category, "category_name": "Example Category", "deleted": deleting && changed.Load()}
+			}
+			children := func() []any {
+				if !deleting {
+					return []any{}
+				}
+				return []any{map[string]any{"id": "split-example", "transaction_id": "transaction-example", "amount": int64(-12340), "memo": "Example split", "payee_id": "payee-example", "category_id": "category-example", "deleted": changed.Load()}}
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				response.Header().Set("Content-Type", "application/json")
+				if request.Method != http.MethodGet {
+					writes.Add(1)
+					if deleting {
+						assert.Equal(t, http.MethodDelete, request.Method)
+					} else {
+						assert.Equal(t, http.MethodPut, request.Method)
+						var body struct {
+							Transaction map[string]any `json:"transaction"`
+						}
+						require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
+						assert.Equal(t, map[string]any{"approved": true, "category_id": nil}, body.Transaction)
+					}
+					changed.Store(true)
+				}
+				transaction := parent()
+				var data any
+				switch request.URL.Path {
+				case "/v1/plans/plan-example/transactions/transaction-example":
+					transaction["subtransactions"] = children()
+					data = map[string]any{"transaction": transaction}
+				case "/v1/plans/plan-example/transactions":
+					transaction["subtransactions"] = children()
+					data = map[string]any{"server_knowledge": 1, "transactions": []any{transaction}}
+				case "/v1/plans/plan-example":
+					data = map[string]any{"server_knowledge": 1, "plan": map[string]any{"id": "plan-example", "name": "Example Budget", "currency_format": map[string]any{"iso_code": "USD", "decimal_digits": 2},
+						"accounts":        []any{map[string]any{"id": "account-example", "name": "Example Account", "type": "checking", "on_budget": true, "closed": false, "deleted": false}},
+						"payees":          []any{map[string]any{"id": "payee-example", "name": "Example Payee", "deleted": false}},
+						"category_groups": []any{map[string]any{"id": "group-example", "name": "Example Group", "hidden": false, "deleted": false}},
+						"categories":      []any{map[string]any{"id": "category-example", "name": "Example Category", "category_group_id": "group-example", "hidden": false, "deleted": false}},
+						"transactions":    []any{transaction}, "subtransactions": children()}}
+				default:
+					t.Errorf("unexpected endpoint %s", request.URL.Path)
+				}
+				require.NoError(t, json.NewEncoder(response).Encode(map[string]any{"data": data}))
+			}))
+			t.Cleanup(server.Close)
+			base, err := url.Parse(server.URL + "/v1/")
+			require.NoError(t, err)
+			paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
+			require.NoError(t, err)
+			handle, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, handle.Close()) })
+			vault, err := ynab.NewCredentialVault(paths)
+			require.NoError(t, err)
+			credentials := ynab.StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-example", Currency: "USD", Scale: 2} //nolint:gosec // synthetic credential.
+			require.NoError(t, vault.Save(credentials, []byte("account-password")))
+			source, err := ynab.NewSource(ynab.SourceOptions{Client: ynab.ClientOptions{BaseURL: base}, Vault: vault, Credentials: credentials})
+			require.NoError(t, err)
+			service, err := app.NewProfileService(ctx, handle)
+			require.NoError(t, err)
+			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{ReadSource: source, WriteSource: source, Provider: "ynab", Currency: "USD", Scale: 2, Renderer: "tui", InstanceID: "ynab-http-write"}))
+			_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection()})
+			require.NoError(t, err)
+			before, err := handle.Load(ctx)
+			require.NoError(t, err)
+			id := before.Committed.Transactions[0].ID
+			state := app.DefaultViewState()
+			state.Current.Mode = domain.ResultModeDetail
+			request := app.MutationRequest{Action: app.ActionEditCategory, ExpectedRevision: before.Revision, State: state, Selection: app.EmptySelection(), Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(id)}, Input: app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID}}
+			if deleting {
+				request.Action = app.ActionDeleteTransaction
+				request.Input = app.EditInput{}
+			}
+			mutation, err := service.Mutate(ctx, request)
+			require.NoError(t, err)
+			_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: mutation.Revision, ReviewedRevision: mutation.Revision, State: state, Selection: app.EmptySelection()})
+			require.NoError(t, err)
+			_, err = service.RunProviderWrite(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), writes.Load())
+			require.NoError(t, handle.Close())
+			handle, err = sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+			require.NoError(t, err)
+			persisted, err := handle.Load(ctx)
+			require.NoError(t, err)
+			assert.Empty(t, persisted.Journal)
+			if deleting {
+				assert.Empty(t, persisted.Committed.Transactions)
+			} else {
+				assert.Equal(t, domain.UncategorizedCategoryID, persisted.Committed.Transactions[0].CategoryID)
+			}
+			assert.Contains(t, persisted.Committed.ExternalIdentities, domain.ExternalIdentity{EntityType: domain.EntityKindTransaction, EntityID: id, Namespace: "ynab/transaction", ExternalID: "transaction-example"})
+		})
+	}
+}
 
 // Keep the real reader, vault, service, journal, and SQLite boundary in this journey.
 // Only the remote server is synthetic, so a normalized fake cannot hide wire/fold gaps.

@@ -250,6 +250,15 @@ func TestProviderWriteDeleteItemAndAlreadyAbsentResultRoundTrip(t *testing.T) {
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
 	target := loaded.Committed.Transactions[0]
+	_, err = profile.database.ExecContext(ctx, `INSERT INTO ynab_transaction_splits
+		(parent_transaction_id, position, external_id, amount_milliunits, amount_minor,
+		memo, payee_external_id, payee_label, category_external_id, category_label,
+		transfer_account_external_id, transfer_transaction_external_id)
+		VALUES (?, 0, 'split-delete', -10000, -1000, '', '', '', '', '', '', '')`, target.ID)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `INSERT INTO provider_write_restrictions
+		(entity_type, entity_id, reason) VALUES ('transaction', ?, 'transfer')`, target.ID)
+	require.NoError(t, err)
 	revision, err := profile.Append(ctx, loaded.Revision, domain.Operation{
 		ID: "operation-delete-a", Type: domain.OperationTransactionDelete,
 		PayloadVersion: 1, CreatedRevision: loaded.Revision,
@@ -300,6 +309,20 @@ func TestProviderWriteDeleteItemAndAlreadyAbsentResultRoundTrip(t *testing.T) {
 	require.Len(t, state.Results, 1)
 	assert.Equal(t, store.WriteItemDelete, state.Results[0].Kind)
 	assert.True(t, state.Results[0].AlreadyAbsent)
+	bindProviderForRefreshTest(t, profile, now)
+	_, err = profile.database.ExecContext(ctx, `UPDATE provider_binding SET kind = 'ynab', namespace = 'ynab'`)
+	require.NoError(t, err)
+	_, err = profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
+		BatchID: batch.ID, ExpectedVersion: batch.Version, ExpectedRevision: prepared.Revision,
+		LeaseOwnerID: "owner-delete", LeaseKind: store.ProviderOperationWrite, ObservedAt: now,
+	}, store.BuildProviderWriteFinalization)
+	require.NoError(t, err)
+	splits, err := loadYNABTransactionSplits(ctx, profile.database)
+	require.NoError(t, err)
+	assert.Empty(t, splits)
+	restrictions, err := loadProviderWriteRestrictions(ctx, profile.database)
+	require.NoError(t, err)
+	assert.Empty(t, restrictions)
 }
 
 func TestProviderWriteDeleteKindAndAttemptSurviveReopen(t *testing.T) {

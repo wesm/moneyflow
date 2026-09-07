@@ -135,16 +135,16 @@ existing writer/planner/finalization integration tests plus YNAB cases.
 `BuildProviderWriteFinalization` remain entry points. Worker builds YNAB ID requests from persisted
 expectations/leader results and forwards explicit category clearing/result state.
 
-- [ ] Add failing plan tests for exact mapped ID, equal labels, clear-only update, net no-op,
+- [x] Add failing plan tests for exact mapped ID, equal labels, clear-only update, net no-op,
   delete superseding update, and chained new merchants with one bytewise-first leader.
-- [ ] Add result-fold tests for mapped/unmapped overrides, nonsplit clear vs split null,
+- [x] Add result-fold tests for mapped/unmapped overrides, nonsplit clear vs split null,
   lineage rotation, preserved split details, and deleted-parent restriction cleanup.
-- [ ] Implement kind-selected request/result policy without changing Monarch wire requests.
-- [ ] Exercise real service/store worker with fake HTTP writer through prepare, result persistence,
+- [x] Implement kind-selected request/result policy without changing Monarch wire requests.
+- [x] Exercise real service/store worker with fake HTTP writer through prepare, result persistence,
   reopen, and finalization. Assert response-adjusted committed truth against hand-built expectations.
-- [ ] Test rate-limit resume versus true crash-uncertain update, delete resend, recorded-success
+- [x] Test rate-limit resume versus true crash-uncertain update, delete resend, recorded-success
   no-resend, quota wait surviving restart, and stale batch-version rejection.
-- [ ] Run shared writer/property/cross-process regression suites and commit.
+- [x] Run shared writer/property/cross-process regression suites and commit.
 
 ## Checkpoint 5: Runtime activation and supported UI/MCP actions
 

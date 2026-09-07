@@ -437,6 +437,14 @@ func (service *Service) runProviderWriteOwned(
 		return service.parkProviderWriteFailure(ctx, runtime, batch, fingerprint, err)
 	}
 	runtime.setFingerprint(fingerprint, false)
+	baselineSnapshot, err := service.profile.Load(ctx)
+	if err != nil {
+		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
+	}
+	baseline := providerWriteResponseBaseline{
+		transactions: transactionRecordIndex(baselineSnapshot.Committed.Transactions),
+		identities:   providerWriteIdentityIndexes(runtime.provider, baselineSnapshot.Committed.ExternalIdentities),
+	}
 
 	for batch.Phase == store.WritePhaseWriting {
 		if runtime.providerWritePausePending() {
@@ -491,7 +499,7 @@ func (service *Service) runProviderWriteOwned(
 			}
 			batch = *currentState.Batch
 			normalized, normalizeErr := normalizeProviderWriteResult(
-				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, now,
+				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, baseline, now,
 			)
 			if normalizeErr != nil {
 				failed := outcome
@@ -613,6 +621,8 @@ func runProviderWriteCalls(
 	ctx context.Context,
 	writer provider.Writer,
 	items []store.WriteItem,
+	providerKind string,
+	state store.ProviderWriteState,
 ) []providerWriteOutcome {
 	results := make(chan providerWriteOutcome, len(items))
 	for _, item := range items {
@@ -621,9 +631,12 @@ func runProviderWriteCalls(
 			outcome := providerWriteOutcome{item: item}
 			switch item.Kind {
 			case store.WriteItemUpdate:
-				outcome.updateResult, outcome.err = writer.UpdateTransaction(
-					ctx, providerTransactionUpdate(item),
-				)
+				update, err := providerTransactionUpdate(item, providerKind, state)
+				if err != nil {
+					outcome.err = err
+				} else {
+					outcome.updateResult, outcome.err = writer.UpdateTransaction(ctx, update)
+				}
 			case store.WriteItemDelete:
 				outcome.deleteResult, outcome.err = writer.DeleteTransaction(
 					ctx, item.TransactionExternalID,
@@ -647,6 +660,10 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 	writer provider.Writer,
 	items []store.WriteItem,
 ) ([]providerWriteOutcome, error) {
+	state, err := service.profile.ProviderWriteState(ctx)
+	if err != nil {
+		return nil, err
+	}
 	writeContext, cancel := context.WithCancelCause(ctx)
 	heartbeatDone := make(chan error, 1)
 	stopHeartbeat := make(chan struct{})
@@ -685,7 +702,7 @@ func (service *Service) runProviderWriteCallsWithHeartbeat(
 			}
 		}
 	}()
-	outcomes := runProviderWriteCalls(writeContext, writer, items)
+	outcomes := runProviderWriteCalls(writeContext, writer, items, runtime.provider, state)
 	close(stopHeartbeat)
 	heartbeatErr := <-heartbeatDone
 	cancel(nil)
@@ -776,10 +793,21 @@ func (service *Service) ensureProviderWriteLeaseAfterHeartbeat(
 	return service.reacquireProviderWriteLease(ctx, runtime, batch)
 }
 
-func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate {
-	update := provider.TransactionUpdate{TransactionExternalID: item.TransactionExternalID}
+func providerTransactionUpdate(item store.WriteItem, providerKind string, state store.ProviderWriteState) (provider.TransactionUpdate, error) {
+	update := provider.TransactionUpdate{TransactionExternalID: item.TransactionExternalID, ClearCategory: item.ClearCategory}
 	if item.RequestedMerchantName != nil {
-		update.MerchantName = provider.Some(*item.RequestedMerchantName)
+		if providerKind == "ynab" && (item.Expectation != store.WriteExpectationNew || !item.GroupLeader) {
+			id := item.ExpectedMerchantExternalID
+			if item.Expectation == store.WriteExpectationNew {
+				id = providerWriteGroupResultID(state, item.NewGroupKey)
+			}
+			if id == "" {
+				return provider.TransactionUpdate{}, provider.NewWriteFailure(provider.WriteExpectationInvalid)
+			}
+			update.MerchantExternalID = provider.Some(id)
+		} else {
+			update.MerchantName = provider.Some(*item.RequestedMerchantName)
+		}
 	}
 	if item.RequestedCategoryExternalID != nil {
 		update.CategoryExternalID = provider.Some(*item.RequestedCategoryExternalID)
@@ -787,7 +815,12 @@ func providerTransactionUpdate(item store.WriteItem) provider.TransactionUpdate 
 	if item.RequestedHidden != nil {
 		update.Hidden = provider.Some(*item.RequestedHidden)
 	}
-	return update
+	return update, nil
+}
+
+type providerWriteResponseBaseline struct {
+	transactions map[domain.EntityID]domain.TransactionRecord
+	identities   providerWriteIdentities
 }
 
 func normalizeProviderWriteResult(
@@ -795,6 +828,7 @@ func normalizeProviderWriteResult(
 	updateResponse provider.TransactionUpdateResult,
 	deleteResponse provider.TransactionDeleteResult,
 	state store.ProviderWriteState,
+	baseline providerWriteResponseBaseline,
 	recordedAt time.Time,
 ) (store.WriteResult, error) {
 	if item.Kind == store.WriteItemDelete {
@@ -811,13 +845,17 @@ func normalizeProviderWriteResult(
 		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteExpectationInvalid)
 	}
 	response := updateResponse
+	if response.CategoryCleared && response.CategoryExternalID.Present {
+		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	}
 	if response.TransactionExternalID != item.TransactionExternalID {
 		return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
 	}
 	result := store.WriteResult{
 		Kind:   item.Kind,
 		ItemID: item.ID, TransactionExternalID: response.TransactionExternalID,
-		RecordedAt: recordedAt,
+		RecordedAt:      recordedAt,
+		CategoryCleared: response.CategoryCleared,
 	}
 	if response.MerchantExternalID.Present {
 		value := response.MerchantExternalID.Value
@@ -864,11 +902,32 @@ func normalizeProviderWriteResult(
 		}
 	}
 	if item.RequestedCategoryExternalID != nil {
-		if result.CategoryExternalID == nil {
+		if result.CategoryExternalID == nil && !result.CategoryCleared {
 			return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
 		}
-		if *result.CategoryExternalID != *item.RequestedCategoryExternalID {
+		if result.CategoryCleared || *result.CategoryExternalID != *item.RequestedCategoryExternalID {
 			result.OverrideCount++
+		}
+	}
+	if item.ClearCategory {
+		if result.CategoryExternalID == nil && !result.CategoryCleared {
+			return store.WriteResult{}, provider.NewWriteFailure(provider.WriteResponseIncomplete)
+		}
+		if !result.CategoryCleared {
+			result.OverrideCount++
+		}
+	}
+	if baseline.identities.providerKind == "ynab" {
+		before := baseline.transactions[item.TransactionID]
+		if item.RequestedMerchantName == nil && result.MerchantExternalID != nil &&
+			baseline.identities.external(domain.EntityKindMerchant, before.MerchantID) != *result.MerchantExternalID {
+			result.OverrideCount++
+		}
+		if item.RequestedCategoryExternalID == nil && !item.ClearCategory {
+			if (result.CategoryCleared && before.CategoryID != domain.UncategorizedCategoryID) ||
+				(result.CategoryExternalID != nil && baseline.identities.external(domain.EntityKindCategory, before.CategoryID) != *result.CategoryExternalID) {
+				result.OverrideCount++
+			}
 		}
 	}
 	if item.RequestedHidden != nil {
@@ -988,6 +1047,8 @@ func (service *Service) parkProviderWriteFailure(
 		nextEligible = runtime.now().UTC().Truncate(time.Millisecond).Add(retryAfter)
 	case provider.CodeIdentityMismatch:
 		reason = store.WriteAttentionRetiredIdentity
+	case provider.CodeMoneyMismatch:
+		reason = store.WriteAttentionExpectationInvalid
 	case provider.CodeWriteAttentionRequired:
 	default:
 		reason = store.WriteAttentionResponseIncomplete
@@ -1436,6 +1497,10 @@ func (runtime *providerRuntimeState) takeWriteConfirmation(
 func BuildProviderWriteFinalization(
 	inputs store.FinalizeProviderWriteInputs,
 ) (store.FinalizeProviderWritePlan, error) {
+	if inputs.ProviderState.Binding == nil {
+		return store.FinalizeProviderWritePlan{}, errors.New("finalize provider write: provider binding is missing")
+	}
+	providerKind := inputs.ProviderState.Binding.Kind
 	if inputs.WriteState.Batch == nil ||
 		inputs.WriteState.Batch.CompletedItems != inputs.WriteState.Batch.TotalItems ||
 		len(inputs.WriteState.Items) != len(inputs.WriteState.Results) {
@@ -1477,10 +1542,11 @@ func BuildProviderWriteFinalization(
 		if !exists {
 			return store.FinalizeProviderWritePlan{}, errors.New("finalize provider write: transaction is missing")
 		}
-		if item.RequestedMerchantName != nil && result.MerchantExternalID != nil {
+		if (item.RequestedMerchantName != nil || providerKind == "ynab") && result.MerchantExternalID != nil {
 			if item.Expectation == store.WriteExpectationNew {
 				effective.ExternalIdentities, allocations, lineage, err = rotateProviderMerchantIdentity(
 					effective, effective.ExternalIdentities, allocations, lineage,
+					providerKind,
 					item.RequestedMerchantLocalID, *result.MerchantExternalID,
 					stringValue(result.MerchantLabel, *item.RequestedMerchantName),
 					inputs.WriteState.Batch.Version,
@@ -1489,16 +1555,19 @@ func BuildProviderWriteFinalization(
 					return store.FinalizeProviderWritePlan{}, err
 				}
 				effective.Transactions[index].MerchantID = item.RequestedMerchantLocalID
-			} else if localID := activeMerchantForExternal(effective, *result.MerchantExternalID); localID != "" {
+			} else if localID := activeMerchantForExternal(effective, providerKind, *result.MerchantExternalID); localID != "" {
 				effective.Transactions[index].MerchantID = localID
 			}
 		}
-		if item.RequestedCategoryExternalID != nil && result.CategoryExternalID != nil {
+		if (item.RequestedCategoryExternalID != nil || item.ClearCategory || providerKind == "ynab") && result.CategoryExternalID != nil {
 			if localID := activeEntityForExternal(
-				effective, domain.EntityKindCategory, *result.CategoryExternalID,
+				effective, providerKind, domain.EntityKindCategory, *result.CategoryExternalID,
 			); localID != "" {
 				effective.Transactions[index].CategoryID = localID
 			}
+		}
+		if providerKind == "ynab" && result.CategoryCleared {
+			effective.Transactions[index].CategoryID = domain.UncategorizedCategoryID
 		}
 		if item.RequestedHidden != nil && result.Hidden != nil {
 			effective.Transactions[index].Hidden = *result.Hidden
@@ -1526,11 +1595,12 @@ func BuildProviderWriteFinalization(
 
 func activeEntityForExternal(
 	profile domain.CommittedProfile,
+	providerKind string,
 	kind domain.EntityKind,
 	externalID string,
 ) domain.EntityID {
 	for _, identity := range profile.ExternalIdentities {
-		if identity.EntityType != kind || identity.Namespace != providerNamespace("monarch", kind) ||
+		if identity.EntityType != kind || identity.Namespace != providerNamespace(providerKind, kind) ||
 			identity.ExternalID != externalID {
 			continue
 		}
@@ -1552,8 +1622,8 @@ func activeEntityForExternal(
 	return ""
 }
 
-func activeMerchantForExternal(profile domain.CommittedProfile, externalID string) domain.EntityID {
-	return activeEntityForExternal(profile, domain.EntityKindMerchant, externalID)
+func activeMerchantForExternal(profile domain.CommittedProfile, providerKind, externalID string) domain.EntityID {
+	return activeEntityForExternal(profile, providerKind, domain.EntityKindMerchant, externalID)
 }
 
 func rotateProviderMerchantIdentity(
@@ -1561,6 +1631,7 @@ func rotateProviderMerchantIdentity(
 	identities []domain.ExternalIdentity,
 	allocations []store.LabelAllocation,
 	lineage []store.ProviderIdentityLineage,
+	providerKind string,
 	localID domain.EntityID,
 	returnedExternalID string,
 	providerLabel string,
@@ -1569,10 +1640,10 @@ func rotateProviderMerchantIdentity(
 	if returnedExternalID == "" || localID == "" {
 		return nil, nil, nil, errors.New("rotate provider merchant identity: identity is empty")
 	}
-	if owner := activeMerchantForExternal(profile, returnedExternalID); owner != "" && owner != localID {
+	if owner := activeMerchantForExternal(profile, providerKind, returnedExternalID); owner != "" && owner != localID {
 		return nil, nil, nil, errors.New("rotate provider merchant identity: returned identity is active elsewhere")
 	}
-	namespace := providerNamespace("monarch", domain.EntityKindMerchant)
+	namespace := providerNamespace(providerKind, domain.EntityKindMerchant)
 	next := make([]domain.ExternalIdentity, 0, len(identities)+1)
 	foundReturned := false
 	for _, identity := range identities {
