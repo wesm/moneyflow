@@ -312,7 +312,9 @@ func stopMCPProcess(t *testing.T, command *exec.Cmd) {
 	if err := command.Process.Signal(os.Interrupt); err != nil {
 		require.NoError(t, command.Process.Kill())
 	}
-	err := waitForMCPProcess(command, 5*time.Second)
+	// Let the application's bounded graceful shutdown finish before the test
+	// kills the process. The old five-second wait was shorter than that contract.
+	err := waitForMCPProcess(command, HTTPShutdownTimeout+5*time.Second)
 	if err != nil {
 		var exitError *exec.ExitError
 		assert.ErrorAs(t, err, &exitError)

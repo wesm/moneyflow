@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,58 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 )
+
+func TestClientRequiresExplicitTransactionAndSplitAmounts(t *testing.T) {
+	for _, location := range []string{"plan parent", "plan split", "detail parent", "detail split"} {
+		for _, amount := range []string{"", `,"amount":null`, `,"amount":0`} {
+			t.Run(location+"/"+amount, func(t *testing.T) {
+				t.Parallel()
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					writer.Header().Set("Content-Type", "application/json")
+					part := "plan"
+					if strings.HasSuffix(request.URL.Path, "/transactions") {
+						part = "detail"
+					}
+					parentAmount, splitAmount := `,"amount":0`, `,"amount":0`
+					if location == part+" parent" {
+						parentAmount = amount
+					}
+					if location == part+" split" {
+						splitAmount = amount
+					}
+					parent := `{"id":"txn-a","date":"2026-08-30","cleared":"cleared","approved":true,"account_id":"account-a","deleted":false` + parentAmount
+					split := `{"id":"split-a","transaction_id":"txn-a","deleted":false` + splitAmount + `}`
+					if part == "detail" {
+						_, _ = fmt.Fprintf(writer, `{"data":{"server_knowledge":1,"transactions":[%s,"subtransactions":[%s]}]}}`, parent, split)
+						return
+					}
+					_, _ = fmt.Fprintf(writer, `{"data":{"server_knowledge":1,"plan":{
+						"id":"plan-a","name":"Example Budget","currency_format":{"iso_code":"USD","decimal_digits":2},
+						"accounts":[{"id":"account-a","name":"Account Name","type":"checking","on_budget":true,"closed":false,"deleted":false}],
+						"payees":[],"categories":[],"category_groups":[],"transactions":[%s}],"subtransactions":[%s]}}}`, parent, split)
+				}))
+				defer server.Close()
+				base, err := url.Parse(server.URL + "/v1/")
+				require.NoError(t, err)
+				client, err := NewClient(ClientOptions{BaseURL: base}, "synthetic-token")
+				require.NoError(t, err)
+				plan, err := client.FetchPlan(context.Background(), "plan-a")
+				if amount != `,"amount":0` {
+					code, ok := provider.CodeOf(err)
+					require.True(t, ok, "an absent or null amount must not become zero")
+					assert.Equal(t, provider.CodeDataInvalid, code)
+					assert.Empty(t, plan.Transactions)
+					return
+				}
+				require.NoError(t, err)
+				snapshot, err := Normalize(plan, time.Now())
+				require.NoError(t, err)
+				require.Len(t, snapshot.Transactions, 1)
+				assert.Zero(t, snapshot.Transactions[0].Amount.Minor, "explicit zero is valid money")
+			})
+		}
+	}
+}
 
 func TestClientImportsCategoriesFromCoherentTransactionDetails(t *testing.T) {
 	for _, scenario := range []string{"complete", "changed generation", "changed transaction", "missing transaction", "duplicate transaction", "missing split", "changed split", "conflicting labels"} {

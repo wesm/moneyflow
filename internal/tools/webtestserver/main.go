@@ -462,7 +462,7 @@ func syntheticYNABPlan(planID string) ynab.PlanDocument {
 			Name: "Example Category", Hidden: &no, Deleted: &no,
 		}},
 		Transactions: []ynab.Transaction{{
-			ID: "ynab-transaction", Date: "2026-08-30", Amount: -12340,
+			ID: "ynab-transaction", Date: "2026-08-30", Amount: new(int64(-12340)),
 			Cleared: "cleared", Approved: &yes, AccountID: "ynab-account",
 			PayeeID: "ynab-payee", CategoryID: "ynab-category", Deleted: &no,
 		}},

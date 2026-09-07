@@ -47,21 +47,21 @@ func syntheticYNABResponseJSON(t testing.TB, count int) []byte {
 	for index := range count {
 		transactionID := fmt.Sprintf("transaction-%06d", index)
 		transactions[index] = Transaction{
-			ID: transactionID, Date: "2026-08-30", Amount: int64(-1000 - index*10),
+			ID: transactionID, Date: "2026-08-30", Amount: new(int64(-1000 - index*10)),
 			Cleared: "cleared", Approved: &yes, AccountID: "account-example",
 			PayeeID: "payee-example", CategoryID: "category-example", Deleted: &no,
 		}
 		if index%10 == 0 {
-			transactions[index].Amount = -3000
+			transactions[index].Amount = new(int64(-3000))
 			transactions[index].CategoryID = ""
 			subtransactions = append(subtransactions,
 				Subtransaction{
 					ID: fmt.Sprintf("split-%06d-a", index), TransactionID: transactionID,
-					Amount: -1000, PayeeID: "payee-example", Deleted: &no,
+					Amount: new(int64(-1000)), PayeeID: "payee-example", Deleted: &no,
 				},
 				Subtransaction{
 					ID: fmt.Sprintf("split-%06d-b", index), TransactionID: transactionID,
-					Amount: -2000, CategoryID: "category-example", Deleted: &no,
+					Amount: new(int64(-2000)), CategoryID: "category-example", Deleted: &no,
 				},
 			)
 		}

@@ -33,11 +33,13 @@ func TestNormalizeRetainsParentAccountingAndSplitDetails(t *testing.T) {
 func TestNormalizeRejectsInvalidMemoSplitTotalAndMoney(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(*PlanDocument){
-		"memo":                func(plan *PlanDocument) { plan.Transactions[0].Memo = strings.Repeat("é", 501) },
-		"split total":         func(plan *PlanDocument) { plan.Subtransactions[0].Amount-- },
-		"money":               func(plan *PlanDocument) { plan.Transactions[0].Amount = 1 },
-		"deleted split":       func(plan *PlanDocument) { value := true; plan.Subtransactions[0].Deleted = &value },
-		"deleted transaction": func(plan *PlanDocument) { plan.Transactions[0].Deleted = new(true) },
+		"memo":                 func(plan *PlanDocument) { plan.Transactions[0].Memo = strings.Repeat("é", 501) },
+		"split total":          func(plan *PlanDocument) { (*plan.Subtransactions[0].Amount)-- },
+		"money":                func(plan *PlanDocument) { plan.Transactions[0].Amount = new(int64(1)) },
+		"missing amount":       func(plan *PlanDocument) { plan.Transactions[0].Amount = nil },
+		"missing split amount": func(plan *PlanDocument) { plan.Subtransactions[0].Amount = nil },
+		"deleted split":        func(plan *PlanDocument) { value := true; plan.Subtransactions[0].Deleted = &value },
+		"deleted transaction":  func(plan *PlanDocument) { plan.Transactions[0].Deleted = new(true) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			plan := syntheticPlan()
@@ -54,9 +56,9 @@ func TestNormalizeRejectsSplitAccumulatorOverflow(t *testing.T) {
 	for _, amount := range []int64{math.MaxInt64, math.MinInt64} {
 		plan := syntheticPlan()
 		plan.CurrencyFormat.DecimalDigits = 3
-		plan.Subtransactions[0].Amount = amount
-		plan.Subtransactions[1].Amount = amount
-		plan.Transactions[2].Amount = amount + amount
+		plan.Subtransactions[0].Amount = new(amount)
+		plan.Subtransactions[1].Amount = new(amount)
+		plan.Transactions[2].Amount = new(amount + amount)
 		_, err := Normalize(plan, time.Now())
 		code, ok := provider.CodeOf(err)
 		require.True(t, ok)
@@ -98,13 +100,13 @@ func syntheticPlan() PlanDocument {
 		CategoryGroups: []CategoryGroup{{ID: "group-a", Name: "Example Group", Hidden: &no, Deleted: &no}},
 		Categories:     []Category{{ID: "category-a", CategoryGroupID: "group-a", Name: "Example Category", Hidden: &no, Deleted: &no}},
 		Transactions: []Transaction{
-			{ID: "txn-uncleared", Date: "2026-08-28", Amount: -12340, Cleared: "uncleared", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", CategoryID: "category-a", Deleted: &no},
-			{ID: "txn-transfer", Date: "2026-08-29", Amount: -20000, Cleared: "cleared", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", TransferAccountID: "account-transfer", Deleted: &no},
-			{ID: "txn-split", Date: "2026-08-30", Amount: -30000, Cleared: "reconciled", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", Deleted: &no},
+			{ID: "txn-uncleared", Date: "2026-08-28", Amount: new(int64(-12340)), Cleared: "uncleared", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", CategoryID: "category-a", Deleted: &no},
+			{ID: "txn-transfer", Date: "2026-08-29", Amount: new(int64(-20000)), Cleared: "cleared", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", TransferAccountID: "account-transfer", Deleted: &no},
+			{ID: "txn-split", Date: "2026-08-30", Amount: new(int64(-30000)), Cleared: "reconciled", Approved: &yes, AccountID: "account-budget", PayeeID: "payee-a", Deleted: &no},
 		},
 		Subtransactions: []Subtransaction{
-			{ID: "split-b", TransactionID: "txn-split", Amount: -20000, CategoryID: "category-a", Deleted: &no},
-			{ID: "split-a", TransactionID: "txn-split", Amount: -10000, PayeeID: "payee-a", Deleted: &no},
+			{ID: "split-b", TransactionID: "txn-split", Amount: new(int64(-20000)), CategoryID: "category-a", Deleted: &no},
+			{ID: "split-a", TransactionID: "txn-split", Amount: new(int64(-10000)), PayeeID: "payee-a", Deleted: &no},
 		},
 		ServerKnowledge: 1,
 	}

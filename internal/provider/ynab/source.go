@@ -121,6 +121,13 @@ func (reader *reader) FetchSnapshot(
 	if err != nil {
 		return provider.SnapshotResult{}, err
 	}
+	// The plan declares its money interpretation even when there are no rows.
+	// Row-level checks alone would let an empty budget bypass the immutable binding.
+	credentials := reader.source.options.Credentials
+	if plan.CurrencyFormat.ISOCode != string(credentials.Currency) ||
+		plan.CurrencyFormat.DecimalDigits != int(credentials.Scale) {
+		return provider.SnapshotResult{}, provider.NewError(provider.CodeMoneyMismatch)
+	}
 	if progress != nil {
 		progress(provider.Progress{
 			Partition: "all", Fetched: len(plan.Transactions), Total: len(plan.Transactions), Attempt: 1,

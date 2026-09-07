@@ -293,6 +293,9 @@ scale differs from the immutable local binding. It is manual-action-required and
 automatically. The user-facing response explains that the budget needs a new profile with the
 correct money interpretation; it contains currency codes and scales, never amounts or labels.
 
+The reader checks the full budget's declared currency and scale even when it contains no
+transactions; row-level validation alone cannot enforce the binding for an empty budget.
+
 Every provider code belongs to exactly one scheduler class. The existing table-driven exhaustivity
 test gains the new code.
 
@@ -587,7 +590,7 @@ Each transaction requires:
 - stable external transaction ID;
 - resolvable account ID;
 - valid ISO date;
-- exactly convertible signed milliunit amount;
+- explicitly present, nonnull, exactly convertible signed milliunit amount (zero is valid);
 - a known `cleared` value; and
 - consistent payee, category, and split references.
 
@@ -613,6 +616,7 @@ stays the parent payee or Unknown Payee, and its visible category is Split. Spli
 separately aggregated, selected, edited, exported, or returned by the bounded transaction API in
 this slice.
 
+Every split requires an explicitly present, nonnull signed milliunit amount, including when zero.
 Every split in a complete non-delta response must have `deleted = false`. A deleted split rejects
 the candidate as an endpoint-contract violation. The sum of all split milliunit amounts must equal
 the parent milliunit amount exactly, using checked addition that rejects positive or negative

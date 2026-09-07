@@ -287,11 +287,12 @@ func TestProviderWriteHeartbeatRenewsLeaseDuringSlowRequest(t *testing.T) {
 	clockMu.Lock()
 	clockValue = base.Add(45 * time.Millisecond)
 	clockMu.Unlock()
-	time.Sleep(25 * time.Millisecond)
-	state, err := profileHandle.ProviderState(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, state.Lease)
-	assert.True(t, state.Lease.ExpiresAt.After(base.Add(60*time.Millisecond)))
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		state, err := profileHandle.ProviderState(ctx)
+		require.NoError(collect, err)
+		require.NotNil(collect, state.Lease)
+		assert.True(collect, state.Lease.ExpiresAt.After(base.Add(60*time.Millisecond)))
+	}, 5*time.Second, 10*time.Millisecond)
 	close(release)
 	require.NoError(t, <-done)
 }

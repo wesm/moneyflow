@@ -2,6 +2,7 @@ package ynab
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,51 @@ import (
 
 	"github.com/wesm/moneyflow/internal/provider"
 )
+
+func TestSourceChecksMoneySettingsEvenWithoutTransactions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		currency CurrencyFormat
+		want     provider.ErrorCode
+	}{
+		{"unchanged", CurrencyFormat{ISOCode: "USD", DecimalDigits: 2}, ""},
+		{"changed currency", CurrencyFormat{ISOCode: "EUR", DecimalDigits: 2}, provider.CodeMoneyMismatch},
+		{"changed scale", CurrencyFormat{ISOCode: "USD", DecimalDigits: 3}, provider.CodeMoneyMismatch},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(writer).Encode(map[string]any{"data": map[string]any{
+					"server_knowledge": 1,
+					"plan": map[string]any{"id": "plan-a", "name": "Example Budget", "currency_format": test.currency,
+						"accounts": []Account{}, "payees": []Payee{}, "category_groups": []CategoryGroup{},
+						"categories": []Category{}, "transactions": []Transaction{}, "subtransactions": []Subtransaction{}},
+				}})
+			}))
+			defer server.Close()
+			base, err := url.Parse(server.URL + "/v1/")
+			require.NoError(t, err)
+			vault := newTestCredentialVault(t)
+			credentials := StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-a", Currency: "USD", Scale: 2} //nolint:gosec // synthetic credential.
+			require.NoError(t, vault.Save(credentials, []byte("account-password")))
+			source, err := NewSource(SourceOptions{Client: ClientOptions{BaseURL: base}, Credentials: credentials, Vault: vault})
+			require.NoError(t, err)
+			reader, _, err := source.Reader(context.Background(), false)
+			require.NoError(t, err)
+			result, err := reader.FetchSnapshot(context.Background(), nil)
+			if test.want == "" {
+				require.NoError(t, err)
+				assert.Empty(t, result.Snapshot.Transactions)
+				return
+			}
+			code, ok := provider.CodeOf(err)
+			require.True(t, ok, "changed budget money settings must be rejected before reconciliation")
+			assert.Equal(t, test.want, code)
+			assert.Empty(t, result.Identity.Kind)
+		})
+	}
+}
 
 func TestSourceFetchesBoundPlanAndDetectsVaultReplacement(t *testing.T) {
 	t.Parallel()

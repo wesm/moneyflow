@@ -47,11 +47,12 @@ type Category struct {
 	Deleted         *bool  `json:"deleted"`
 }
 
-// Transaction is one parent YNAB transaction.
+// Transaction is one parent YNAB transaction. Amount is required on the wire;
+// a pointer distinguishes missing/null money from an explicitly supplied zero.
 type Transaction struct {
 	ID                    string `json:"id"`
 	Date                  string `json:"date"`
-	Amount                int64  `json:"amount"`
+	Amount                *int64 `json:"amount"`
 	Memo                  string `json:"memo"`
 	Cleared               string `json:"cleared"`
 	Approved              *bool  `json:"approved"`
@@ -64,11 +65,11 @@ type Transaction struct {
 	Deleted               *bool  `json:"deleted"`
 }
 
-// Subtransaction is one retained split detail.
+// Subtransaction is one retained split detail with a required, nonnull amount.
 type Subtransaction struct {
 	ID                    string `json:"id"`
 	TransactionID         string `json:"transaction_id"`
-	Amount                int64  `json:"amount"`
+	Amount                *int64 `json:"amount"`
 	Memo                  string `json:"memo"`
 	PayeeID               string `json:"payee_id"`
 	CategoryID            string `json:"category_id"`

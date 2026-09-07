@@ -152,7 +152,7 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 	seenSplits := make(map[string]struct{})
 	for _, split := range plan.Subtransactions {
 		if validateID(split.ID) != nil || validateID(split.TransactionID) != nil ||
-			validateMemo(split.Memo) != nil || split.Deleted == nil || *split.Deleted {
+			validateMemo(split.Memo) != nil || split.Amount == nil || split.Deleted == nil || *split.Deleted {
 			return domain.ImportSnapshot{}, invalidSnapshot()
 		}
 		if _, ok := transactions[split.TransactionID]; !ok {
@@ -172,7 +172,7 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 	}
 
 	for _, transaction := range plan.Transactions {
-		money, err := milliunitsToMoney(transaction.Amount, currency, scale)
+		money, err := milliunitsToMoney(*transaction.Amount, currency, scale)
 		if err != nil {
 			return domain.ImportSnapshot{}, err
 		}
@@ -216,12 +216,13 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
 			var total int64
 			for position, split := range children {
-				if (split.Amount > 0 && total > math.MaxInt64-split.Amount) ||
-					(split.Amount < 0 && total < math.MinInt64-split.Amount) {
+				amount := *split.Amount
+				if (amount > 0 && total > math.MaxInt64-amount) ||
+					(amount < 0 && total < math.MinInt64-amount) {
 					return domain.ImportSnapshot{}, invalidSnapshot()
 				}
-				total += split.Amount
-				splitMoney, moneyErr := milliunitsToMoney(split.Amount, currency, scale)
+				total += amount
+				splitMoney, moneyErr := milliunitsToMoney(amount, currency, scale)
 				if moneyErr != nil {
 					return domain.ImportSnapshot{}, moneyErr
 				}
@@ -234,7 +235,7 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 				}
 				snapshot.Splits = append(snapshot.Splits, domain.ImportTransactionSplit{
 					ExternalID: split.ID, ParentTransactionExternalID: transaction.ID,
-					Position: position, SourceAmount: split.Amount, SourceScale: 3,
+					Position: position, SourceAmount: amount, SourceScale: 3,
 					Amount: splitMoney, Memo: split.Memo,
 					PayeeExternalID: split.PayeeID, PayeeLabel: payeeLabel,
 					CategoryExternalID: split.CategoryID, CategoryLabel: categoryLabel,
@@ -242,7 +243,7 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 					TransferTransactionExternalID: split.TransferTransactionID,
 				})
 			}
-			if total != transaction.Amount {
+			if total != *transaction.Amount {
 				return domain.ImportSnapshot{}, invalidSnapshot()
 			}
 		}
@@ -280,7 +281,7 @@ func validateAccount(account Account) error {
 func validateTransactionWire(transaction Transaction) error {
 	if validateID(transaction.ID) != nil || validateID(transaction.AccountID) != nil ||
 		validateMemo(transaction.Memo) != nil || transaction.Cleared == "" ||
-		transaction.Approved == nil || transaction.Deleted == nil {
+		transaction.Amount == nil || transaction.Approved == nil || transaction.Deleted == nil {
 		return errors.New("invalid transaction")
 	}
 	return nil

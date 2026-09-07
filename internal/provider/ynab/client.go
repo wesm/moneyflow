@@ -108,6 +108,16 @@ func (client *Client) FetchPlan(ctx context.Context, planID string) (PlanDocumen
 		Subtransactions: append([]Subtransaction(nil), (*plan.Subtransactions)...),
 		ServerKnowledge: *response.Data.ServerKnowledge,
 	}
+	for _, transaction := range document.Transactions {
+		if transaction.Amount == nil {
+			return PlanDocument{}, invalidSnapshot()
+		}
+	}
+	for _, split := range document.Subtransactions {
+		if split.Amount == nil {
+			return PlanDocument{}, invalidSnapshot()
+		}
+	}
 	if len(document.Transactions) != 0 {
 		if err := client.readTransactionDetails(ctx, &document); err != nil {
 			return PlanDocument{}, err
@@ -139,6 +149,9 @@ func (client *Client) readTransactionDetails(ctx context.Context, plan *PlanDocu
 		splits[split.ID] = index
 	}
 	for _, detail := range *response.Data.Transactions {
+		if detail.Amount == nil {
+			return invalidSnapshot()
+		}
 		index, exists := transactions[detail.ID]
 		if !exists {
 			return provider.NewError(provider.CodeSnapshotUnstable)
@@ -153,6 +166,9 @@ func (client *Client) readTransactionDetails(ctx context.Context, plan *PlanDocu
 		plan.Transactions[index].CategoryName = categoryName
 		delete(transactions, detail.ID)
 		for _, child := range detail.Subtransactions {
+			if child.Amount == nil {
+				return invalidSnapshot()
+			}
 			index, exists := splits[child.ID]
 			if !exists {
 				return provider.NewError(provider.CodeSnapshotUnstable)

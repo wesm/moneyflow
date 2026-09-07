@@ -142,7 +142,7 @@ func assertLiveYNABSplitSums(
 	t.Helper()
 	parentAmounts := make(map[string]int64, len(plan.Transactions))
 	for _, transaction := range plan.Transactions {
-		parentAmounts[transaction.ID] = transaction.Amount
+		parentAmounts[transaction.ID] = *transaction.Amount
 	}
 	sums := make(map[string]int64)
 	for _, split := range snapshot.Splits {

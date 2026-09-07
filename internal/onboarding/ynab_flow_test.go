@@ -448,7 +448,7 @@ func testYNABPlan(planID string) ynab.PlanDocument {
 		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
 		Accounts:       []ynab.Account{{ID: "account-example", Name: "Account Name", Type: "checking", OnBudget: &yes, Closed: &no, Deleted: &no}},
 		Payees:         []ynab.Payee{{ID: "payee-example", Name: "Example Payee", Deleted: &no}},
-		Transactions: []ynab.Transaction{{ID: "transaction-example", Date: "2026-08-30", Amount: -12340,
+		Transactions: []ynab.Transaction{{ID: "transaction-example", Date: "2026-08-30", Amount: new(int64(-12340)),
 			Cleared: "cleared", Approved: &yes, AccountID: "account-example", PayeeID: "payee-example", Deleted: &no}},
 		ServerKnowledge: 1,
 	}
