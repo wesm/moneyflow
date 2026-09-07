@@ -298,20 +298,43 @@ func (coordinator *Coordinator) importYNABProfile(ctx context.Context, attemptID
 	if !ok {
 		return
 	}
-	source, err := runtime.NewYNABSource(credentials, &snapshot)
-	if err != nil || source == nil {
+	writeStatus, err := opened.Service.ProviderWriteStatus(ctx)
+	if err != nil {
+		coordinator.importFailure(attemptID, err)
+		return
+	}
+	initial := &snapshot
+	connection, err := opened.Service.ProviderConnection(ctx)
+	if err != nil {
+		coordinator.importFailure(attemptID, err)
+		return
+	}
+	if connection.Bound {
+		// Only first import may reuse the onboarding snapshot. A bound profile
+		// can be written by another process during unlock; fetch under the
+		// refresh lease so those writes cannot be undone by pre-write data.
+		initial = nil
+	}
+	readSource, writeSource, err := runtime.NewYNABSource(credentials, initial)
+	if err != nil || readSource == nil || writeSource == nil {
 		coordinator.importFailure(attemptID, err)
 		return
 	}
 	startedAt := coordinator.now()
 	if err = opened.Service.ConfigureProvider(app.ProviderRuntime{
-		ReadSource: source, Provider: "ynab", Currency: credentials.Currency, Scale: credentials.Scale,
+		ReadSource: readSource, WriteSource: writeSource, Provider: "ynab", Currency: credentials.Currency, Scale: credentials.Scale,
 		Renderer: renderer, InstanceID: runtime.InstanceID, Now: runtime.Now,
 		Progress: func(update provider.Progress) {
 			coordinator.observeProgress(attemptID, startedAt, update)
 		},
 	}); err != nil {
 		coordinator.importFailure(attemptID, err)
+		return
+	}
+	if writeStatus.Phase != "" {
+		// Unlock restores the runtime, not the frozen journal. The owning renderer
+		// resumes eligible work; CLI connection never dispatches a durable batch.
+		coordinator.completeImport(attemptID, 0, startedAt)
 		return
 	}
 	result, err := opened.Service.RefreshProvider(ctx, app.ProviderRefreshRequest{

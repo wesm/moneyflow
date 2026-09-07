@@ -12,10 +12,61 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/provider/ynab"
+	"github.com/wesm/moneyflow/internal/store"
 )
+
+func TestYNABUnlockEnablesCommitAndPreservesUnfinishedBatch(t *testing.T) {
+	ctx := context.Background()
+	opened := newYNABBoundOpenedProfile(t, "plan-example")
+	unlockProfile := func() {
+		t.Helper()
+		vault := &fakeYNABVault{exists: true, credentials: ynab.StoredCredentials{
+			AccessToken: "token-example", PlanID: "plan-example", Currency: "USD", Scale: 2,
+		}}
+		sources := &fakeYNABSourceFactory{}
+		coordinator, started := newYNABCoordinator(t, opened, vault, &fakeYNABClient{plan: testYNABPlan("plan-example")}, sources)
+		unlock := waitForStableState(t, coordinator, started)
+		require.Equal(t, StateUnlockRequired, unlock.State)
+		next, err := coordinator.Submit(ctx, SubmitRequest{
+			ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID, ExpectedStateVersion: unlock.StateVersion,
+			Action: ActionUnlock, Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+		})
+		require.NoError(t, err)
+		completed := waitForState(t, coordinator, next, StateComplete)
+		require.Equal(t, StateComplete, completed.State)
+		opened, err = coordinator.TakeOpenedProfile(ctx, StatusRequest{ProfileID: completed.ProfileID, AttemptID: completed.AttemptID})
+		require.NoError(t, err)
+		assert.False(t, sources.hadInitial, "never cache an unlock snapshot on an already-bound profile")
+	}
+	unlockProfile()
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection, err := opened.Service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.DetailRows, 1)
+	mutation, err := opened.Service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionDeleteTransaction, ExpectedRevision: projection.Revision, State: state, Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: projection.DetailRows[0].Identity},
+	})
+	require.NoError(t, err)
+	_, err = opened.Service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: mutation.Revision, ReviewedRevision: mutation.Revision, State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	before, err := opened.Service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, store.WritePhaseWriting, before.Phase)
+	unlockProfile()
+	after, err := opened.Service.ProviderWriteStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before.BatchID, after.BatchID)
+	assert.Equal(t, before.Version, after.Version)
+	assert.Zero(t, after.Completed, "CLI unlock must not dispatch writes")
+}
 
 func TestYNABProtocolVersionAndRemoteChoicesAreCredentialBlind(t *testing.T) {
 	t.Parallel()
@@ -322,24 +373,36 @@ func (client *fakeYNABClient) FetchPlan(context.Context, string) (ynab.PlanDocum
 }
 
 type fakeYNABSourceFactory struct {
-	mu     sync.Mutex
-	errors []error
-	calls  int
+	mu         sync.Mutex
+	errors     []error
+	calls      int
+	hadInitial bool
 }
 
 func (factory *fakeYNABSourceFactory) newSource(
-	_ ynab.StoredCredentials,
+	credentials ynab.StoredCredentials,
 	initial *provider.SnapshotResult,
-) (provider.ReaderSource, error) {
+) (provider.ReaderSource, provider.WriterSource, error) {
 	factory.mu.Lock()
 	index := factory.calls
 	factory.calls++
+	factory.hadInitial = initial != nil
 	var readErr error
 	if index < len(factory.errors) {
 		readErr = factory.errors[index]
 	}
 	factory.mu.Unlock()
-	return &fakeYNABReaderSource{result: *initial, readErr: readErr}, nil
+	source := &fakeYNABReaderSource{readErr: readErr}
+	if initial != nil {
+		source.result = *initial
+	} else {
+		snapshot, err := ynab.Normalize(testYNABPlan(credentials.PlanID), time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC))
+		if err != nil {
+			return nil, nil, err
+		}
+		source.result = provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: credentials.PlanID}, Snapshot: snapshot}
+	}
+	return source, source, nil
 }
 
 type fakeYNABReaderSource struct {
@@ -351,6 +414,10 @@ func (source *fakeYNABReaderSource) Reader(context.Context, bool) (provider.Read
 	return fakeYNABReader{result: source.result, err: source.readErr}, "ynab-fingerprint", nil
 }
 func (*fakeYNABReaderSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
+
+func (*fakeYNABReaderSource) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "ynab-fingerprint", provider.NewError(provider.CodeUnavailable)
+}
 
 type fakeYNABReader struct {
 	result provider.SnapshotResult

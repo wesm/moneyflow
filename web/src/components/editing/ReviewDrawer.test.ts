@@ -5,6 +5,30 @@ import { testEditingController, testReviewController } from '../../test/editing'
 
 describe('ReviewDrawer', () => {
   afterEach(cleanup)
+  it('retains one fast Enter during initial review loading, but never after closing', async () => {
+    for (const closeBeforeReady of [false, true]) {
+      let finish!: (accepted: boolean) => void
+      const ready = new Promise<boolean>((resolve) => {
+        finish = resolve
+      })
+      const editing = testEditingController()
+      const review = testReviewController({ load: vi.fn(() => ready) })
+      const view = render(ReviewDrawer, { editing, review, onclose: vi.fn() })
+      screen.getByRole('dialog', { name: 'Review pending changes' }).focus()
+      await fireEvent.keyDown(window, { key: 'Enter' })
+      await fireEvent.keyDown(window, { key: 'Enter', repeat: true })
+      expect(editing.commit).not.toHaveBeenCalled()
+      if (closeBeforeReady) view.unmount()
+      finish(true)
+      if (closeBeforeReady) {
+        await ready
+        expect(editing.commit).not.toHaveBeenCalled()
+      } else {
+        await waitFor(() => expect(editing.commit).toHaveBeenCalledTimes(1))
+        view.unmount()
+      }
+    }
+  })
   it('separates redo history, expands targets on demand, and commits the captured revision', async () => {
     const editing = testEditingController()
     const review = testReviewController()
@@ -113,7 +137,7 @@ describe('ReviewDrawer', () => {
     await fireEvent.keyDown(window, { key: 'Enter' })
 
     expect(editing.commit).toHaveBeenCalledTimes(1)
-    expect(onwrite).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onwrite).toHaveBeenCalledTimes(1))
   })
 
   it('focuses the commit action after review loading so w then Enter is deterministic', async () => {

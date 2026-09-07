@@ -179,6 +179,11 @@ func callRefreshToolResult(t *testing.T, client *mcpsdk.ClientSession, name stri
 
 func refreshTestService(t *testing.T, transactionCount int) (*app.Service, *refreshTestSource, func()) {
 	t.Helper()
+	return providerTestService(t, transactionCount, "monarch")
+}
+
+func providerTestService(t *testing.T, transactionCount int, kind string) (*app.Service, *refreshTestSource, func()) {
+	t.Helper()
 	paths, err := home.ResolveRoot(t.TempDir()+"/profile", nil, "")
 	require.NoError(t, err)
 	profile, err := sqlite.Open(t.Context(), paths, sqlite.DefaultOptions)
@@ -186,9 +191,9 @@ func refreshTestService(t *testing.T, transactionCount int) (*app.Service, *refr
 	service, err := app.NewProfileService(t.Context(), profile)
 	require.NoError(t, err)
 	now := time.Date(2026, time.August, 29, 14, 0, 0, 0, time.UTC)
-	source := &refreshTestSource{snapshot: refreshTestSnapshot(t, now, transactionCount)}
+	source := &refreshTestSource{kind: kind, snapshot: refreshTestSnapshot(t, now, transactionCount)}
 	require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{
-		ReadSource: source, Provider: "monarch", Currency: "USD", Scale: 2,
+		ReadSource: source, WriteSource: source, Provider: kind, Currency: "USD", Scale: 2,
 		Renderer: "mcp", InstanceID: "mcp-test", Now: func() time.Time { return now },
 		Random: cryptorand.Reader,
 	}))
@@ -200,6 +205,8 @@ func refreshTestService(t *testing.T, transactionCount int) (*app.Service, *refr
 }
 
 type refreshTestSource struct {
+	kind     string
+	updates  []provider.TransactionUpdate
 	mu       sync.Mutex
 	snapshot domain.ImportSnapshot
 	started  chan<- struct{}
@@ -211,8 +218,23 @@ func (source *refreshTestSource) Reader(context.Context, bool) (provider.Reader,
 	return (*refreshTestReader)(source), "session-a", nil
 }
 
-func (*refreshTestSource) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
-	return nil, "", provider.NewError(provider.CodeWriteUnsupported)
+func (source *refreshTestSource) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
+	return source, "session-a", nil
+}
+
+func (source *refreshTestSource) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
+	return provider.ProfileIdentity{Kind: source.kind, RemoteID: "subscription-a"}, nil
+}
+
+func (source *refreshTestSource) UpdateTransaction(_ context.Context, update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.updates = append(source.updates, update)
+	return provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID, CategoryExternalID: update.CategoryExternalID, CategoryCleared: update.ClearCategory}, nil
+}
+
+func (*refreshTestSource) DeleteTransaction(context.Context, string) (provider.TransactionDeleteResult, error) {
+	return provider.TransactionDeleteResult{}, provider.NewWriteFailure(provider.WriteRejected)
 }
 
 func (*refreshTestSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
@@ -261,7 +283,7 @@ func (reader *refreshTestReader) FetchSnapshot(
 		progress(provider.Progress{Fetched: len(snapshot.Transactions), Total: len(snapshot.Transactions), Attempt: 1})
 	}
 	return provider.SnapshotResult{
-		Identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-a"},
+		Identity: provider.ProfileIdentity{Kind: source.kind, RemoteID: "subscription-a"},
 		Snapshot: snapshot,
 	}, nil
 }

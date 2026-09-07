@@ -332,7 +332,12 @@
       onwrite={() => openOverlay('write')}
     />
   {:else if overlay === 'write'}
-    <WriteStatusDrawer controller={controller.providerWrite} onclose={closeOverlay} {onreconnect} />
+    <WriteStatusDrawer
+      controller={controller.providerWrite}
+      providerName={projection?.profile_kind === 'ynab' ? 'YNAB' : 'Monarch'}
+      onclose={closeOverlay}
+      {onreconnect}
+    />
   {:else if overlay === 'duplicates'}
     <DuplicateReview controller={controller.duplicates} onclose={closeOverlay} />
   {:else if overlay === 'delete' && deleteTarget}

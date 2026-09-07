@@ -10,9 +10,46 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+func TestYNABReviewWEnterAndQuotaWait(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.September, 7, 12, 0, 0, 0, time.UTC)
+	source := &tuiProviderSource{identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"},
+		snapshot: tuiProviderSnapshot(t, now, 1), fingerprint: "vault-example"}
+	source.writer = tuiProviderWriter{identity: source.identity}
+	model := newPristineProviderModel(t, source, now, "ynab")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Len(t, model.result.DetailRows, 1)
+	_, err := model.service.Mutate(ctx, app.MutationRequest{
+		Action: app.ActionEditCategory, ExpectedRevision: model.service.Revision(), State: model.session.ViewState(), Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: model.result.DetailRows[0].Transaction.ID},
+		Input:  app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID},
+	})
+	require.NoError(t, err)
+	model.refreshPreserving(model.rowIdentity(model.cursor))
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "YNAB Write")
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Empty(t, model.providerWrite.status.Phase)
+	assert.Zero(t, model.pending.ActiveOperations)
+	model.overlay = overlayProviderWrite
+	model.providerWrite.status = app.ProviderWriteStatus{Phase: store.WritePhaseRateLimited, Total: 3, Completed: 1, Remaining: 2, NextEligible: now.Add(time.Hour)}
+	model.providerWrite.startedAt = now.Add(-time.Minute)
+	model.clockAt = now
+	rendered := model.RenderScreen().Frame.RenderANSI()
+	assert.Contains(t, rendered, "13:00:00")
+	assert.Contains(t, rendered, "YNAB asked")
+	assert.NotContains(t, rendered, "remaining (estimated)")
+	assert.Empty(t, model.providerWriteEstimate())
+}
 
 func TestReviewProviderCommitStartsAsyncWriteAndPreservesFinanceState(t *testing.T) {
 	t.Parallel()
@@ -133,7 +170,10 @@ func (tuiProviderWriter) UpdateTransaction(
 	_ context.Context,
 	update provider.TransactionUpdate,
 ) (provider.TransactionUpdateResult, error) {
-	result := provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID}
+	result := provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID, CategoryCleared: update.ClearCategory}
+	if update.MerchantExternalID.Present {
+		result.MerchantExternalID = update.MerchantExternalID
+	}
 	if update.MerchantName.Present {
 		result.MerchantExternalID = provider.Some("merchant-example")
 		result.MerchantLabel = provider.Some(update.MerchantName.Value)

@@ -88,7 +88,10 @@ export function createProviderWriteController(
     setState({
       status,
       phase: phaseFor(status),
-      announcement: announcementFor(status),
+      announcement: announcementFor(
+        status,
+        options.host.current()?.profile_kind === 'ynab' ? 'YNAB' : 'Monarch',
+      ),
     })
   }
 
@@ -278,21 +281,22 @@ function phaseForProblem(code: string): ProviderWritePhase {
   return 'failed'
 }
 
-function announcementFor(status: ProviderWriteStatus): string {
+function announcementFor(status: ProviderWriteStatus, providerName: string): string {
   if (!status.phase) return 'No provider write is active.'
   if (status.phase === 'paused')
     return 'Provider write paused. Already accepted writes remain applied.'
-  if (status.phase === 'attention_required') return attentionMessage(status.reason)
-  if (status.phase === 'reconnect_required') return 'Reconnect Monarch to continue this write.'
+  if (status.phase === 'attention_required') return attentionMessage(status.reason, providerName)
+  if (status.phase === 'reconnect_required')
+    return `Reconnect ${providerName} to continue this write.`
   if (status.phase === 'rate_limited')
-    return 'Monarch rate limited this write; it will resume when eligible.'
+    return `${providerName} rate limited this write; it will resume when eligible.`
   if (status.phase === 'reconcile_confirmation_required') {
     return 'Confirm the provider reconciliation before removing local rows.'
   }
-  return 'Writing pending changes to Monarch.'
+  return `Writing pending changes to ${providerName}.`
 }
 
-function attentionMessage(reason?: string): string {
+function attentionMessage(reason: string | undefined, providerName: string): string {
   if (reason === 'provider_write_target_not_found') {
     return 'A provider target is no longer available. Stop and reconcile provider truth.'
   }
@@ -300,7 +304,7 @@ function attentionMessage(reason?: string): string {
     return 'A provider request may have succeeded. Stop and reconcile before continuing.'
   }
   if (reason === 'provider_write_unavailable_exhausted') {
-    return 'Monarch remained unavailable. Resume to retry or stop and reconcile.'
+    return `${providerName} remained unavailable. Resume to retry or stop and reconcile.`
   }
   return 'The provider write requires attention.'
 }

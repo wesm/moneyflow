@@ -5,17 +5,18 @@
 
   interface Props {
     controller: ProviderWriteController
+    providerName: string
     onclose: () => void
     onreconnect?: (() => void) | undefined
   }
 
-  let { controller, onclose, onreconnect }: Props = $props()
+  let { controller, providerName, onclose, onreconnect }: Props = $props()
   const status = $derived(controller.state.status)
 </script>
 
 <DetailDrawer
-  title="Monarch write status"
-  ariaLabel="Monarch write status"
+  title={`${providerName} write status`}
+  ariaLabel={`${providerName} write status`}
   {onclose}
   width="min(560px, 100vw)"
 >
@@ -38,9 +39,13 @@
           <dt>Provider overrides</dt>
           <dd>{status.overrides}</dd>
         </div>{/if}
+      {#if status.phase === 'rate_limited' && status.next_eligible}<div>
+          <dt>Next eligible attempt</dt>
+          <dd><time datetime={status.next_eligible}>{status.next_eligible}</time></dd>
+        </div>{/if}
     </dl>
     <p>
-      Pausing stops future provider calls. Changes already accepted by Monarch cannot be cancelled.
+      Pausing stops future provider calls. Changes already accepted by {providerName} cannot be cancelled.
     </p>
     <div class="editing-actions">
       <Button onclick={onclose}>Close</Button>
@@ -63,7 +68,7 @@
       {#if controller.can('reconnect') && onreconnect}<Button
           tone="info"
           surface="solid"
-          onclick={onreconnect}>Reconnect Monarch</Button
+          onclick={onreconnect}>Reconnect {providerName}</Button
         >{/if}
     </div>
   {/if}

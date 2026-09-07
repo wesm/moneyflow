@@ -232,7 +232,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		return providerProgressTickCommand(model.provider.timerGeneration)
 	}
 	if message.writeStatus.Phase != "" {
-		model.status = providerWriteProgressLine(message.writeStatus)
+		model.status = model.providerWriteProgressLine(message.writeStatus)
 		if model.providerWrite.running {
 			return providerProgressTickCommand(model.provider.timerGeneration)
 		}

@@ -56,7 +56,7 @@ test('canceling a newly added profile leaves no orphan in the catalog', async ({
   }
 })
 
-test('@smoke YNAB setup masks secrets, selects a budget, and opens the profile', async ({
+test('@smoke YNAB setup, category clear, w Enter, and refresh preserve committed edits', async ({
   page,
 }) => {
   const server = await startOnboardingE2EServer('/moneyflow/')
@@ -94,6 +94,25 @@ test('@smoke YNAB setup masks secrets, selects a budget, and opens the profile',
     }))
     expect(JSON.stringify(browserStorage)).not.toContain('synthetic-token')
     expect(JSON.stringify(browserStorage)).not.toContain('vault-password')
+
+    await page.keyboard.press('c')
+    const category = page.getByRole('dialog', { name: 'Change category' })
+    await category.getByRole('searchbox', { name: 'Filter categories' }).fill('Uncategorized')
+    await category.getByRole('button', { name: 'Save pending change' }).click()
+    await expect(category).toBeHidden()
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await page.keyboard.press('w')
+    await expect(page.getByRole('dialog', { name: 'Review pending changes' })).toBeVisible()
+    await page.keyboard.press('Enter')
+    const write = page.getByRole('dialog', { name: 'YNAB write status' })
+    await expect(write).toBeVisible()
+    await expect(write.getByRole('status')).toContainText('Provider write complete')
+    await expect(page.getByText(/0 pending/)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('d')
+    await expect(page.getByRole('row', { name: /Uncategorized/ })).toBeVisible()
+    await page.keyboard.press('r')
+    await expect(page.getByRole('row', { name: /Uncategorized/ })).toBeVisible()
   } finally {
     await server.stop()
   }

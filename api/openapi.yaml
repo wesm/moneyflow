@@ -1350,6 +1350,7 @@ components:
         profile_kind:
           enum:
             - monarch
+            - ynab
             - amazon
             - local
           type: string

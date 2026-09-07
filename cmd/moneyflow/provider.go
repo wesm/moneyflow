@@ -311,10 +311,14 @@ func defaultYNABCommandFactory(paths home.Paths) (onboarding.Runtime, error) {
 		NewYNABSource: func(
 			credentials ynab.StoredCredentials,
 			initial *provider.SnapshotResult,
-		) (provider.ReaderSource, error) {
-			return ynab.NewSource(ynab.SourceOptions{
+		) (provider.ReaderSource, provider.WriterSource, error) {
+			source, err := ynab.NewSource(ynab.SourceOptions{
 				Credentials: credentials, Vault: vault, Now: time.Now, Initial: initial,
 			})
+			if err != nil {
+				return nil, nil, err
+			}
+			return source, source, nil
 		},
 	}, nil
 }

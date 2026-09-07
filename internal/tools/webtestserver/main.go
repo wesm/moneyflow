@@ -282,6 +282,7 @@ type syntheticProfile struct {
 	session         *monarch.Session
 	credentials     *monarch.StoredCredentials
 	ynabCredentials *ynab.StoredCredentials
+	ynabPlan        *ynab.PlanDocument
 	vaultKey        string
 	expired         bool
 	hidden          map[string]bool
@@ -340,15 +341,11 @@ func (runtimes *syntheticRuntimes) runtime(paths home.Paths) (onboarding.Runtime
 			return &syntheticYNABClient{profile: profile}, nil
 		},
 		NewYNABSource: func(
-			_ ynab.StoredCredentials,
-			initial *provider.SnapshotResult,
-		) (provider.ReaderSource, error) {
-			if initial == nil {
-				return nil, errors.New("synthetic YNAB source requires an initial snapshot")
-			}
-			result := *initial
-			result.Snapshot = initial.Snapshot.Clone()
-			return &syntheticYNABSource{result: result}, nil
+			credentials ynab.StoredCredentials,
+			_ *provider.SnapshotResult,
+		) (provider.ReaderSource, provider.WriterSource, error) {
+			source := &syntheticYNABSource{profile: profile, planID: credentials.PlanID}
+			return source, source, nil
 		},
 		InstanceID: "webtestserver", Now: time.Now,
 	}, nil
@@ -411,21 +408,91 @@ func (client *syntheticYNABClient) FetchPlan(
 	if planID != "plan-example-"+profileKey && planID != "plan-second-"+profileKey {
 		return ynab.PlanDocument{}, provider.NewError(provider.CodeIdentityMismatch)
 	}
-	return syntheticYNABPlan(planID), nil
+	client.profile.mu.Lock()
+	defer client.profile.mu.Unlock()
+	if client.profile.ynabPlan == nil {
+		plan := syntheticYNABPlan(planID)
+		client.profile.ynabPlan = &plan
+	}
+	plan := *client.profile.ynabPlan
+	plan.Transactions = append([]ynab.Transaction(nil), plan.Transactions...)
+	plan.Payees = append([]ynab.Payee(nil), plan.Payees...)
+	return plan, nil
 }
 
-type syntheticYNABSource struct{ result provider.SnapshotResult }
+type syntheticYNABSource struct {
+	profile *syntheticProfile
+	planID  string
+}
 
 func (source *syntheticYNABSource) Reader(
-	context.Context,
-	bool,
+	ctx context.Context,
+	_ bool,
 ) (provider.Reader, provider.SessionFingerprint, error) {
-	result := source.result
-	result.Snapshot = source.result.Snapshot.Clone()
+	plan, err := (&syntheticYNABClient{profile: source.profile}).FetchPlan(ctx, source.planID)
+	if err != nil {
+		return nil, "", err
+	}
+	snapshot, err := ynab.Normalize(plan, time.Now())
+	if err != nil {
+		return nil, "", err
+	}
+	result := provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: source.planID}, Snapshot: snapshot}
 	return syntheticYNABReader{result: result}, "synthetic-ynab-vault", nil
 }
 
 func (*syntheticYNABSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
+
+func (source *syntheticYNABSource) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
+	return source, "synthetic-ynab-vault", nil
+}
+
+func (source *syntheticYNABSource) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {
+	return provider.ProfileIdentity{Kind: "ynab", RemoteID: source.planID}, nil
+}
+
+func (source *syntheticYNABSource) UpdateTransaction(_ context.Context, update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+	if update.MerchantName.Present {
+		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
+	}
+	source.profile.mu.Lock()
+	defer source.profile.mu.Unlock()
+	plan := source.profile.ynabPlan
+	for index := range plan.Transactions {
+		transaction := &plan.Transactions[index]
+		if transaction.ID != update.TransactionExternalID {
+			continue
+		}
+		if update.ClearCategory {
+			transaction.CategoryID = ""
+		} else if update.CategoryExternalID.Present {
+			transaction.CategoryID = update.CategoryExternalID.Value
+		}
+		if update.MerchantExternalID.Present {
+			transaction.PayeeID = update.MerchantExternalID.Value
+		}
+		result := provider.TransactionUpdateResult{TransactionExternalID: transaction.ID, MerchantExternalID: provider.Some(transaction.PayeeID)}
+		if transaction.CategoryID == "" {
+			result.CategoryCleared = true
+		} else {
+			result.CategoryExternalID = provider.Some(transaction.CategoryID)
+		}
+		return result, nil
+	}
+	return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteTargetNotFound)
+}
+
+func (source *syntheticYNABSource) DeleteTransaction(_ context.Context, externalID string) (provider.TransactionDeleteResult, error) {
+	source.profile.mu.Lock()
+	defer source.profile.mu.Unlock()
+	for index, transaction := range source.profile.ynabPlan.Transactions {
+		if transaction.ID == externalID {
+			source.profile.ynabPlan.Transactions = append(source.profile.ynabPlan.Transactions[:index], source.profile.ynabPlan.Transactions[index+1:]...)
+			return provider.TransactionDeleteResult{TransactionExternalID: externalID}, nil
+		}
+	}
+	return provider.TransactionDeleteResult{TransactionExternalID: externalID, AlreadyAbsent: true}, nil
+}
 
 type syntheticYNABReader struct{ result provider.SnapshotResult }
 

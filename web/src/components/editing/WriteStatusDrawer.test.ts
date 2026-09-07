@@ -10,7 +10,12 @@ describe('WriteStatusDrawer', () => {
   it('shows counts-only progress and pauses without treating close as cancel', async () => {
     const controller = testProviderWriteController()
     const onclose = vi.fn()
-    render(WriteStatusDrawer, { controller, onclose, onreconnect: vi.fn() })
+    render(WriteStatusDrawer, {
+      controller,
+      providerName: 'Monarch',
+      onclose,
+      onreconnect: vi.fn(),
+    })
 
     expect(screen.getByRole('dialog', { name: 'Monarch write status' })).not.toBeNull()
     expect(screen.getByText('2 of 5 complete')).not.toBeNull()
@@ -32,10 +37,33 @@ describe('WriteStatusDrawer', () => {
       },
       can: vi.fn((action: string) => action === 'confirm'),
     })
-    render(WriteStatusDrawer, { controller, onclose: vi.fn(), onreconnect: vi.fn() })
+    render(WriteStatusDrawer, {
+      controller,
+      providerName: 'YNAB',
+      onclose: vi.fn(),
+      onreconnect: vi.fn(),
+    })
 
     expect(screen.queryByRole('button', { name: 'Resume' })).toBeNull()
     await fireEvent.click(screen.getByRole('button', { name: 'Confirm reconciliation' }))
     expect(controller.confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the YNAB quota deadline without inventing a completion estimate', () => {
+    const controller = testProviderWriteController({
+      state: {
+        phase: 'active',
+        announcement: 'YNAB asked Moneyflow to wait.',
+        status: {
+          ...testProviderWriteController().state.status!,
+          phase: 'rate_limited',
+          next_eligible: '2026-09-07T13:00:00Z',
+        },
+      },
+    })
+    render(WriteStatusDrawer, { controller, providerName: 'YNAB', onclose: vi.fn() })
+    expect(screen.getByRole('dialog', { name: 'YNAB write status' })).not.toBeNull()
+    expect(screen.getByText('2026-09-07T13:00:00Z')).not.toBeNull()
+    expect(screen.queryByText(/Monarch/)).toBeNull()
   })
 })

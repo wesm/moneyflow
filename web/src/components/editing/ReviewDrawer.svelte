@@ -15,14 +15,27 @@
   let expanded = $state('')
   let targetOffset = $state(0)
   let commitContainer: HTMLDivElement | undefined
+  let initialLoad = true
+  let commitRequested = false
+  let mounted = true
   onMount(() => {
     void loadAndFocusCommit()
+    return () => {
+      mounted = false
+      commitRequested = false
+    }
   })
   async function loadAndFocusCommit(): Promise<void> {
-    await review.load()
+    const accepted = await review.load()
     await tick()
+    initialLoad = false
+    if (!mounted) return
     const commitButton = commitContainer?.querySelectorAll('button').item(1)
     if (commitButton && !commitButton.disabled) commitButton.focus()
+    if (accepted && commitRequested) {
+      commitRequested = false
+      await commit()
+    }
   }
   async function expand(operationID: string): Promise<void> {
     expanded = expanded === operationID ? '' : operationID
@@ -52,11 +65,20 @@
     if (
       active !== dialog &&
       active !== commitButton &&
+      !(
+        initialLoad &&
+        (active === document.body ||
+          (active instanceof HTMLElement && active.closest('[role="grid"]')))
+      ) &&
       !(active instanceof HTMLElement && active.getAttribute('aria-label') === 'Close')
     ) {
       return
     }
     event.preventDefault()
+    if (initialLoad) {
+      commitRequested = true
+      return
+    }
     void commit()
   }
 </script>

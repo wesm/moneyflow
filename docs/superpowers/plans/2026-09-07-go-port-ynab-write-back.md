@@ -155,14 +155,20 @@ and `web/tests` existing provider/editing journeys. Edit production presenters o
 **Interfaces:** Existing `ConfigureProvider` receives the now writer-capable YNAB source. Existing
 commit/review, pause/resume/reconcile APIs and action IDs remain unchanged.
 
-- [ ] Add failing service/action tests for available supported commits and truthful disabled
+- [x] Add failing service/action tests for available supported commits and truthful disabled
   hide/taxonomy/split/transfer behavior. Locked/offline runtimes must not dispatch.
-- [ ] Configure the shared writer after unlock; preserve vault fingerprint/wrong-plan checks.
-- [ ] Drive TUI `w` then Enter; exercise web review/commit and MCP write-enabled commit/status.
+- [x] Configure the shared writer after unlock; preserve vault fingerprint/wrong-plan checks.
+- [x] Drive TUI `w` then Enter; exercise web review/commit and MCP write-enabled commit/status.
   Keep read-only MCP tools and web mutation protections unchanged.
-- [ ] Test long quota waits, pause/resume, reconnect/unlock, and stop/reconcile using existing
+- [x] Test long quota waits, pause/resume, reconnect/unlock, and stop/reconcile using existing
   status fields. Provider copy must say YNAB rather than Monarch.
-- [ ] Run focused renderer/API/MCP/browser checks; commit.
+- [x] Run focused renderer/API/MCP/browser checks; commit.
+
+The configured MCP service is covered through its real SDK transport and durable worker. The
+standalone MCP launcher still opens YNAB offline: it has no vault-password input and must not
+consume protocol stdin as a password. Explicit launcher unlock needs a user decision; a separate
+TUI or CLI unlock cannot unlock an MCP process's memory. Do not claim launcher write availability
+from the configured-service test alone.
 
 ## Checkpoint 6: Recovery, portability, and performance proof
 

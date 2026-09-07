@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,8 +18,48 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/fixture"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/store"
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+func TestCommitStatusReportsQuotaDeadline(t *testing.T) {
+	deadline := time.Date(2026, time.September, 7, 13, 0, 0, 0, time.UTC)
+	status := writeStatusDocument(app.ProviderWriteStatus{Phase: store.WritePhaseRateLimited, NextEligible: deadline})
+	assert.Equal(t, "2026-09-07T13:00:00Z", status.NextEligible)
+}
+
+func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "ynab")
+	defer closeProfile()
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	state := app.DefaultViewState()
+	state.Current.Mode = domain.ResultModeDetail
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, projection.DetailRows, 1)
+	staged := callWriteTool(t, client, "update_transaction_category", map[string]any{
+		"expected_revision": strconv.FormatUint(projection.Revision, 10),
+		"transaction_id":    projection.DetailRows[0].Identity, "category_id": string(domain.UncategorizedCategoryID),
+	})
+	require.False(t, staged.IsError, "%v", staged.StructuredContent)
+	revision := staged.StructuredContent.(map[string]any)["revision"]
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	require.False(t, committed.IsError, "%v", committed.StructuredContent)
+	require.Eventually(t, func() bool {
+		status := callWriteTool(t, client, "get_commit_status", nil)
+		_, active := status.StructuredContent.(map[string]any)["write"].(map[string]any)["phase"]
+		return !active
+	}, 3*time.Second, 10*time.Millisecond)
+	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Zero(t, projection.Pending.ActiveOperations)
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	require.Len(t, source.updates, 1)
+	assert.True(t, source.updates[0].ClearCategory)
+	assert.False(t, source.updates[0].CategoryExternalID.Present)
+}
 
 func TestWriteRegistrationIsConditionalAndExact(t *testing.T) {
 	service, closeProfile := writeTestService(t, 2)

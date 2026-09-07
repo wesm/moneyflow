@@ -462,7 +462,7 @@ func newProviderModelFromSnapshot(
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
 		snapshot: snapshot, fingerprint: "session-a",
 	}
-	model := newPristineProviderModel(t, source, now)
+	model := newPristineProviderModel(t, source, now, "monarch")
 	return providerModelFixture{model: model, source: source, now: now}
 }
 
@@ -470,6 +470,7 @@ func newPristineProviderModel(
 	t testing.TB,
 	source provider.ReaderSource,
 	now time.Time,
+	kind string,
 ) Model {
 	t.Helper()
 	ctx := context.Background()
@@ -482,7 +483,7 @@ func newPristineProviderModel(
 	require.NoError(t, err)
 	runtime := app.ProviderRuntime{
 		ReadSource: source,
-		Provider:   "monarch", Currency: "USD", Scale: 2,
+		Provider:   kind, Currency: "USD", Scale: 2,
 		Renderer: "tui", InstanceID: "instance-tui",
 		Now: func() time.Time { return now }, Random: &tuiIncrementingReader{},
 	}

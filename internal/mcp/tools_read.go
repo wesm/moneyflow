@@ -177,7 +177,7 @@ func refreshAttemptDocument(
 func refreshAttemptGuidance(status AttemptStatus) string {
 	switch status.State {
 	case AttemptReconnectRequired:
-		return "Reconnect Monarch through the command line, then start a new refresh."
+		return "Unlock or reconnect this profile before starting a new refresh. A YNAB vault must be unlocked in the calling process."
 	case AttemptConfirmationRequired:
 		return "Review the removal counts and confirm this process-local candidate if they are expected."
 	case AttemptFailed:

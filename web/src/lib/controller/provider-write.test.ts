@@ -5,6 +5,17 @@ import { testProjection } from '../../test/projection'
 import { createProviderWriteController } from './provider-write'
 
 describe('provider write controller', () => {
+  it('names YNAB in write and reconnect announcements', () => {
+    const controller = createProviderWriteController({
+      transport: transportStub(),
+      host: hostStub(testProjection({ profile_kind: 'ynab' })),
+    })
+    controller.install(writeStatus({ phase: 'writing' }))
+    expect(controller.state.announcement).toContain('YNAB')
+    controller.install(writeStatus({ phase: 'reconnect_required' }))
+    expect(controller.state.announcement).toContain('YNAB')
+    expect(controller.state.announcement).not.toContain('Monarch')
+  })
   it('does not poll or resume while the document is hidden', async () => {
     const transport = transportStub({
       status: writeStatus({ phase: 'writing', actions: ['resume'] }),

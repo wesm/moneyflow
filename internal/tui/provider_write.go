@@ -98,7 +98,7 @@ func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 		return nil
 	}
 	if message.status.Phase != "" {
-		model.status = providerWriteProgressLine(message.status)
+		model.status = model.providerWriteProgressLine(message.status)
 		model.overlay = overlayProviderWrite
 		return nil
 	}
@@ -156,7 +156,7 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 	case "c":
 		if model.providerWrite.status.Phase == store.WritePhaseReconnectRequired {
 			model.provider.reconnectRequested = true
-			model.status = "Run moneyflow provider connect monarch for this profile, then return here."
+			model.status = "Reconnect " + onboardingProviderName(model.service.ProfileKind()) + " to continue this write."
 		}
 	}
 	return nil
@@ -177,7 +177,8 @@ func providerWriteCanReconcile(status app.ProviderWriteStatus) bool {
 
 func (model Model) renderProviderWrite(screen *RenderedScreen) {
 	rect := responsiveOverlayRect(model.width, model.height, 76, 20)
-	drawOverlayBox(&screen.Frame, rect, model.palette, "Monarch Write")
+	title := onboardingProviderName(model.service.ProfileKind()) + " Write"
+	drawOverlayBox(&screen.Frame, rect, model.palette, title)
 	x, width := rect.X+2, max(0, rect.Width-4)
 	status := model.providerWrite.status
 	phase := providerWritePhaseLabel(status.Phase)
@@ -185,27 +186,30 @@ func (model Model) renderProviderWrite(screen *RenderedScreen) {
 	progress := fmt.Sprintf("Progress: %d / %d complete | %d remaining", status.Completed, status.Total, status.Remaining)
 	screen.Frame.PutText(x, rect.Y+4, Truncate(progress, width), model.palette.Text)
 	screen.Frame.PutText(x, rect.Y+5, Truncate(fmt.Sprintf("Provider overrides: %d", status.Overrides), width), model.palette.Text)
-	if estimate := model.providerWriteEstimate(); estimate != "" {
+	if status.Phase == store.WritePhaseRateLimited && !status.NextEligible.IsZero() {
+		wait := "Next attempt: " + status.NextEligible.Format(time.RFC3339)
+		screen.Frame.PutText(x, rect.Y+7, Truncate(wait, width), model.palette.Muted)
+	} else if estimate := model.providerWriteEstimate(); estimate != "" {
 		screen.Frame.PutText(x, rect.Y+7, Truncate(estimate, width), model.palette.Muted)
 	}
 	if status.OwnerRenderer != "" {
 		screen.Frame.PutText(x, rect.Y+9, Truncate("Worker: "+status.OwnerRenderer, width), model.palette.Muted)
 	}
-	guidance := providerWriteGuidance(status)
+	guidance := model.providerWriteGuidance(status)
 	if guidance != "" {
 		screen.Frame.PutText(x, rect.Y+11, Truncate(guidance, width), model.palette.Warning)
 	}
 	actions := providerWriteActions(status, model.providerWrite.confirmationToken != "")
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "provider_write", Rect: rect})
-	screen.Overlay = []string{"Monarch Write", phase, progress, guidance, actions}
+	screen.Overlay = []string{title, phase, progress, guidance, actions}
 }
 
 func (model Model) providerWriteEstimate() string {
 	status := model.providerWrite.status
 	completed := status.Completed - model.providerWrite.startedCompleted
 	elapsed := model.clockAt.Sub(model.providerWrite.startedAt)
-	if completed <= 0 || elapsed < time.Second || status.Remaining <= 0 {
+	if status.Phase != store.WritePhaseWriting || completed <= 0 || elapsed < time.Second || status.Remaining <= 0 {
 		return ""
 	}
 	remaining := time.Duration(float64(elapsed) * float64(status.Remaining) / float64(completed))
@@ -225,12 +229,13 @@ func providerWritePhaseLabel(phase store.WriteBatchPhase) string {
 	return "Complete"
 }
 
-func providerWriteGuidance(status app.ProviderWriteStatus) string {
+func (model Model) providerWriteGuidance(status app.ProviderWriteStatus) string {
+	name := onboardingProviderName(model.service.ProfileKind())
 	switch status.Phase {
 	case store.WritePhaseReconnectRequired:
-		return "Reconnect Monarch before the remaining items can be sent."
+		return "Reconnect " + name + " before the remaining items can be sent."
 	case store.WritePhaseRateLimited:
-		return "Monarch asked Moneyflow to wait before continuing."
+		return name + " asked Moneyflow to wait before continuing."
 	case store.WritePhaseAttentionRequired:
 		if status.AttentionClass == store.WriteAttentionRetryable {
 			return "The write stopped after bounded retries; retry or reconcile provider truth."
@@ -269,6 +274,6 @@ func providerWriteActions(status app.ProviderWriteStatus, confirming bool) strin
 	}
 }
 
-func providerWriteProgressLine(status app.ProviderWriteStatus) string {
-	return fmt.Sprintf("Monarch write: %d of %d complete.", status.Completed, status.Total)
+func (model Model) providerWriteProgressLine(status app.ProviderWriteStatus) string {
+	return fmt.Sprintf("%s write: %d of %d complete.", onboardingProviderName(model.service.ProfileKind()), status.Completed, status.Total)
 }

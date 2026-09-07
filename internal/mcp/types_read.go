@@ -226,15 +226,16 @@ type RefreshAttemptDocument struct {
 }
 
 type WriteStatusDocument struct {
-	BatchID    string `json:"batch_id,omitempty"`
-	Phase      string `json:"phase,omitempty"`
-	Version    string `json:"version"`
-	Generation string `json:"generation"`
-	Total      int    `json:"total"`
-	Completed  int    `json:"completed"`
-	Failed     int    `json:"failed"`
-	Remaining  int    `json:"remaining"`
-	Overrides  int    `json:"overrides"`
+	NextEligible string `json:"next_eligible,omitempty"`
+	BatchID      string `json:"batch_id,omitempty"`
+	Phase        string `json:"phase,omitempty"`
+	Version      string `json:"version"`
+	Generation   string `json:"generation"`
+	Total        int    `json:"total"`
+	Completed    int    `json:"completed"`
+	Failed       int    `json:"failed"`
+	Remaining    int    `json:"remaining"`
+	Overrides    int    `json:"overrides"`
 }
 
 type AccountDocument struct {
@@ -374,8 +375,9 @@ func refreshSummaryDocument(status app.ProviderStatus) RefreshSummaryDocument {
 
 func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 	return WriteStatusDocument{
-		BatchID: status.BatchID,
-		Phase:   string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
+		NextEligible: formatOptionalTime(status.NextEligible),
+		BatchID:      status.BatchID,
+		Phase:        string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),
 		Total: status.Total, Completed: status.Completed, Failed: status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
 	}
 }

@@ -140,8 +140,18 @@ func commandYNABRuntime(vault *commandYNABVault, client *commandYNABClient) onbo
 	return onboarding.Runtime{
 		ProviderKind: "ynab", YNABVault: vault, InstanceID: "ynab-command-test", Now: time.Now,
 		NewYNABClient: func([]byte) (onboarding.YNABPlanClient, error) { return client, nil },
-		NewYNABSource: func(_ ynab.StoredCredentials, initial *provider.SnapshotResult) (provider.ReaderSource, error) {
-			return &commandYNABSource{result: *initial}, nil
+		NewYNABSource: func(credentials ynab.StoredCredentials, initial *provider.SnapshotResult) (provider.ReaderSource, provider.WriterSource, error) {
+			source := &commandYNABSource{}
+			if initial != nil {
+				source.result = *initial
+			} else {
+				snapshot, err := ynab.Normalize(client.plan, time.Now())
+				if err != nil {
+					return nil, nil, err
+				}
+				source.result = provider.SnapshotResult{Identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: credentials.PlanID}, Snapshot: snapshot}
+			}
+			return source, source, nil
 		},
 	}
 }
@@ -152,6 +162,10 @@ func (source *commandYNABSource) Reader(context.Context, bool) (provider.Reader,
 	return commandYNABReader{result: source.result}, "ynab-command-fingerprint", nil
 }
 func (*commandYNABSource) Changed(provider.SessionFingerprint) (bool, error) { return false, nil }
+
+func (*commandYNABSource) Writer(context.Context, bool) (provider.Writer, provider.SessionFingerprint, error) {
+	return nil, "ynab-command-fingerprint", provider.NewError(provider.CodeUnavailable)
+}
 
 type commandYNABReader struct{ result provider.SnapshotResult }
 

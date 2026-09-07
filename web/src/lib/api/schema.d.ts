@@ -1143,7 +1143,7 @@ export interface components {
       filters: components['schemas']['ActiveFilters']
       pending: components['schemas']['PendingSummary']
       /** @enum {string} */
-      profile_kind: 'monarch' | 'amazon' | 'local'
+      profile_kind: 'monarch' | 'ynab' | 'amazon' | 'local'
       projection_schema_version: string
       revision: string
       selection: string

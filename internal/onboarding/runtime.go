@@ -52,7 +52,7 @@ type OpenedProfile struct {
 // ProfileOpener opens one canonical profile ID under its shared lifecycle lock.
 type ProfileOpener func(context.Context, string) (OpenedProfile, error)
 
-// Runtime contains renderer-neutral Monarch dependencies for one profile.
+// Runtime contains renderer-neutral provider dependencies for one profile.
 type Runtime struct {
 	ProviderKind  string
 	Sessions      SessionStore
@@ -61,7 +61,7 @@ type Runtime struct {
 	NewSources    func(monarch.ImportConfig) (provider.ReaderSource, provider.WriterSource, error)
 	YNABVault     YNABCredentialVault
 	NewYNABClient func([]byte) (YNABPlanClient, error)
-	NewYNABSource func(ynab.StoredCredentials, *provider.SnapshotResult) (provider.ReaderSource, error)
+	NewYNABSource func(ynab.StoredCredentials, *provider.SnapshotResult) (provider.ReaderSource, provider.WriterSource, error)
 	InstanceID    string
 	Now           func() time.Time
 }

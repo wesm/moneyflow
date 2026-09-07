@@ -204,7 +204,7 @@ type Projection struct {
 	APISchemaVersion        string          `json:"api_schema_version"`
 	ProjectionSchemaVersion string          `json:"projection_schema_version"`
 	Revision                string          `json:"revision" pattern:"^[0-9]+$"`
-	ProfileKind             string          `json:"profile_kind" enum:"monarch,amazon,local"`
+	ProfileKind             string          `json:"profile_kind" enum:"monarch,ynab,amazon,local"`
 	AmazonSettings          *AmazonSettings `json:"amazon_settings,omitempty"`
 	Pending                 PendingSummary  `json:"pending"`
 	CanonicalQuery          string          `json:"canonical_query"`
