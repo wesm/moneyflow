@@ -2,6 +2,7 @@ package ynab
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -86,4 +87,66 @@ func TestSourceConsumesInitialSnapshotExactlyOnce(t *testing.T) {
 	_, err = reader.FetchSnapshot(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), requests.Load())
+}
+
+func TestSourceRejectsVaultChangesBeforeAndDuringRead(t *testing.T) {
+	for _, deletion := range []bool{false, true} {
+		for _, phase := range []string{"before-reader", "before-fetch", "during-fetch"} {
+			t.Run(fmt.Sprintf("delete=%t/%s", deletion, phase), func(t *testing.T) {
+				t.Parallel()
+				vault := newTestCredentialVault(t)
+				credentials := StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-a", Currency: "USD", Scale: 2} //nolint:gosec // synthetic credential.
+				require.NoError(t, vault.Save(credentials, []byte("account-password")))
+				changeVault := func() {
+					if deletion {
+						require.NoError(t, vault.Delete())
+					} else {
+						replacement := credentials
+						replacement.AccessToken = "synthetic-replacement"
+						require.NoError(t, vault.Save(replacement, []byte("account-password")))
+					}
+				}
+				var requests atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+					requests.Add(1)
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = writer.Write([]byte(`{"data":{"plan":{"id":"plan-a","name":"Example Budget","currency_format":{"iso_code":"USD","decimal_digits":2},"accounts":[],"payees":[],"category_groups":[],"categories":[],"transactions":[],"subtransactions":[]},"server_knowledge":1}}`))
+				}))
+				defer server.Close()
+				baseURL, err := url.Parse(server.URL + "/v1/")
+				require.NoError(t, err)
+				source, err := NewSource(SourceOptions{
+					Client:      ClientOptions{HTTPClient: &http.Client{Timeout: time.Second}, BaseURL: baseURL},
+					Credentials: credentials, Vault: vault,
+				})
+				require.NoError(t, err)
+				if phase == "before-reader" {
+					changeVault()
+				}
+				reader, fingerprint, err := source.Reader(context.Background(), false)
+				if phase != "before-reader" {
+					require.NoError(t, err)
+					if phase == "before-fetch" {
+						changeVault()
+					}
+					var result provider.SnapshotResult
+					result, err = reader.FetchSnapshot(context.Background(), func(provider.Progress) {
+						if phase == "during-fetch" {
+							changeVault()
+						}
+					})
+					assert.Empty(t, result.Identity.Kind)
+				}
+				code, ok := provider.CodeOf(err)
+				require.True(t, ok)
+				assert.Equal(t, provider.CodeReconnectRequired, code)
+				changed, err := source.Changed(fingerprint)
+				require.NoError(t, err)
+				assert.True(t, changed)
+				if phase != "during-fetch" {
+					assert.Zero(t, requests.Load())
+				}
+			})
+		}
+	}
 }

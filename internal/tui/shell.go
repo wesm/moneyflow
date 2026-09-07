@@ -774,7 +774,7 @@ func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 			}
 		}
 		snapshot, err := shell.dependencies.Onboarding.Start(shell.ctx, onboarding.StartRequest{
-			ProfileID: profileID, Renderer: "tui",
+			ProfileID: profileID, Renderer: "tui", ProviderKind: entry.ProviderKind,
 		})
 		return shellOnboardingSnapshotMsg{snapshot: snapshot, entry: &entry, start: &guard, err: err}
 	}

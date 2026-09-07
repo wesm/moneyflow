@@ -239,7 +239,8 @@ func (coordinator *Coordinator) Submit(
 		coordinator.mu.Unlock()
 		return snapshot, nil
 	}
-	if request.Action == ActionReauthenticate && current.state == StateIdentityMismatch {
+	if request.Action == ActionReauthenticate && (current.state == StateIdentityMismatch ||
+		(current.state == StateFailed && current.failure != nil && current.failure.CanReenter)) {
 		driver, driverErr := flowFor(current.providerKind)
 		if driverErr != nil {
 			coordinator.mu.Unlock()

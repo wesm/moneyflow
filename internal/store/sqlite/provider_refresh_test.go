@@ -118,6 +118,16 @@ func TestYNABRefreshPersistsSplitsAndUnchangedRefreshDoesNotChurnRevision(t *tes
 		require.NoError(t, applyErr)
 		return commit
 	}
+	// External order is the inverse of stable local parent order.
+	other := candidate.Transactions[0]
+	other.ExternalID = "transaction-z"
+	candidate.Transactions = append(candidate.Transactions, other)
+	for _, split := range slices.Clone(candidate.Splits) {
+		split.ExternalID += "-z"
+		split.ParentTransactionExternalID = other.ExternalID
+		candidate.Splits = append(candidate.Splits, split)
+	}
+	proposed[app.ProviderIdentityKey("ynab", domain.EntityKindTransaction, other.ExternalID)] = "transaction-before"
 
 	first := apply(0, "ynab-first", now)
 	assert.True(t, first.SemanticChange)
@@ -125,19 +135,19 @@ func TestYNABRefreshPersistsSplitsAndUnchangedRefreshDoesNotChurnRevision(t *tes
 	assert.Equal(t, uint64(1), first.Generation)
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
-	require.Len(t, loaded.Committed.Transactions, 1)
+	require.Len(t, loaded.Committed.Transactions, 2)
 	assert.Equal(t, domain.SplitCategoryID, loaded.Committed.Transactions[0].CategoryID)
 	splits, err := loadYNABTransactionSplits(ctx, profile.database)
 	require.NoError(t, err)
-	require.Len(t, splits, 2)
-	assert.Equal(t, domain.EntityID("transaction-local"), splits[0].ParentTransactionID)
+	require.Len(t, splits, 4)
+	assert.Equal(t, domain.EntityID("transaction-before"), splits[0].ParentTransactionID)
 	assert.Equal(t, int64(-10000), splits[0].AmountMilliunits)
 
 	later := now.Add(time.Hour)
 	second := apply(1, "ynab-second", later)
 	assert.False(t, second.SemanticChange)
 	assert.Equal(t, first.Revision, second.Revision)
-	assert.Equal(t, first.Generation, second.Generation)
+	assert.Equal(t, first.Generation+1, second.Generation)
 	state, err := profile.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, later, state.Refresh.LastSuccess)
@@ -199,6 +209,31 @@ func TestProviderRefreshConcurrentGenerationCASAllowsExactlyOneFold(t *testing.T
 	state, err := first.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(1), state.Refresh.Generation)
+}
+
+func TestProviderRefreshBindsEmptySnapshot(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	profile, err := Open(ctx, temporaryPaths(t), DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	_, acquired, err := profile.AcquireRefreshLease(ctx, store.RefreshLease{
+		OwnerID: "empty-import", Renderer: "cli", ExpiresAt: now.Add(time.Minute),
+	}, now)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	commit, err := profile.ApplyProviderRefresh(ctx, store.AtomicRefreshRequest{
+		LeaseOwnerID: "empty-import", ObservedAt: now,
+		Candidate: domain.ImportSnapshot{ObservedAt: now},
+		Binding:   &store.ProviderBinding{Kind: "ynab", Namespace: "ynab", RemoteProfileID: "empty-plan", Currency: "USD", Scale: 2, BoundAt: now},
+	}, app.BuildProviderRefreshPlanReference)
+	require.NoError(t, err)
+	assert.True(t, commit.SemanticChange)
+	state, err := profile.ProviderState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, state.Binding)
+	assert.Equal(t, "empty-plan", state.Binding.RemoteProfileID)
 }
 
 func TestProviderRefreshPlansAgainstLatestJournalInsideTransaction(t *testing.T) {

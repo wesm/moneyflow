@@ -262,6 +262,7 @@ type RefreshFailure struct {
 // RefreshInputs contains every authoritative value a refresh planner may consult.
 type RefreshInputs struct {
 	Snapshot         domain.ProfileSnapshot
+	CreatesBinding   bool
 	Binding          *ProviderBinding
 	Refresh          RefreshState
 	Allocations      []LabelAllocation

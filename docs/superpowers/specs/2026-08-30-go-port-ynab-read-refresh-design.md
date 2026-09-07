@@ -383,7 +383,9 @@ The vault fingerprint is process-local runtime state. If a CLI command atomicall
 deletes the vault, a TUI or web process notices on its bounded status tick. It clears its old YNAB
 runtime and prompts for unlock or reconnect; it never blindly retries authentication with stale
 material. A replaced encrypted vault cannot heal another process until that process receives the
-account password interactively.
+account password interactively. Reader creation and snapshot reads also check the vault fingerprint;
+a change before fetching prevents the request, and a change during the request discards its result
+before any fold. An already-sent HTTP request may finish while the process observes the change.
 
 `provider disconnect ynab` deletes only `credentials.enc`. It preserves the profile binding,
 committed data, journal, mappings, and split details. A long-lived process drops its in-memory token
@@ -441,8 +443,7 @@ For a profile with a retained vault:
 inspect
   -> unlock_required
   -> authenticating
-  -> remote_profile_required (only if unbound and multiple budgets exist)
-  -> settings_required (only if unbound and not already retained)
+  -> settings_required (only if unbound and the retained money settings changed)
   -> importing
   -> complete
 ```
@@ -456,8 +457,10 @@ inspect
 `unlock_required` asks only for the Moneyflow account password. The provider token is a password
 field in all renderers and always displays a clear input indicator without revealing characters.
 
-Authentication first calls `GET /plans`. No vault is saved until the token is valid. If one budget
-exists it is selected; otherwise the wizard shows choices. Moneyflow then fetches and holds one
+New-token authentication first calls `GET /plans`. No vault is saved until the token is valid.
+Zero budgets produces `failed` with `provider_data_invalid`, an explicit no-budgets message, and
+credential re-entry available; the profile remains unbound. One budget is selected automatically;
+multiple budgets open the chooser. Moneyflow then fetches and holds one
 complete selected-plan candidate in process memory. That candidate supplies currency and scale,
 which the user must explicitly confirm. The waiting state remains `authenticating` with bounded
 counts-only progress until the candidate is ready; no extra protocol state is introduced. There are
@@ -466,7 +469,12 @@ no free-form currency or scale fields in the YNAB wizard.
 After confirmation, the validated token and selected import configuration are saved atomically.
 The full initial import then runs. If import fails, the valid vault is retained and the pristine
 profile remains unbound. Retrying onboarding asks only for the Moneyflow account password and goes
-straight to validation and another import of the retained budget.
+straight to a full read of the retained budget, without listing budgets again. If its money settings
+are unchanged, import proceeds immediately. Changed settings on an unbound profile require explicit
+confirmation and atomic vault replacement before import; a bound profile rejects a money mismatch.
+The unlock password is retained only until that confirmation or immediate-import decision. A revoked
+token returns to credential entry. Re-entry from a failed state is accepted only when `can_reenter`
+is set, and clears the prior attempt's credential material.
 
 Cancel before the vault is durably saved rolls back a newly added empty profile, matching Python's
 Add-account behavior. Cancel or process death after vault save leaves Setup incomplete so the user
@@ -595,7 +603,8 @@ this slice.
 
 Every split in a complete non-delta response must have `deleted = false`. A deleted split rejects
 the candidate as an endpoint-contract violation. The sum of all split milliunit amounts must equal
-the parent milliunit amount exactly. Every split ID must be unique within the provider snapshot,
+the parent milliunit amount exactly, using checked addition that rejects positive or negative
+signed-integer accumulator overflow. Every split ID must be unique within the provider snapshot,
 its parent ID must resolve to exactly one returned transaction, and any nonempty payee, category,
 or transfer references must be valid. A violation rejects the full candidate.
 
@@ -650,7 +659,7 @@ The refresh sequence is:
 8. allocate local identities and sticky labels, rebase the current journal, replay effective state,
    and validate references through the closed pure callback;
 9. replace provider-owned committed rows and split details atomically;
-10. increment profile revision and refresh generation exactly once; and
+10. increment refresh generation exactly once, and profile revision only on semantic change; and
 11. record counts-only success state outside semantic revision accounting.
 
 No SQLite transaction is held during network I/O. The lease coordinates work but is never a
@@ -658,7 +667,11 @@ correctness mechanism. The generation compare-and-swap remains authoritative.
 
 An unchanged normalized candidate, unchanged mappings, unchanged split payload, and unchanged
 journal produce no semantic revision increment. Operational last-attempt and last-success fields
-may change without changing the revision.
+may change without changing the revision. Every successful fold, including a no-op, consumes a
+generation and invalidates older deletion-confirmation candidates. A competing fold based on the
+previous generation is rejected as stale. Initial binding creation is itself a semantic change.
+Split rows use stable local parent ID and position ordering for both planning and persisted reads,
+so provider array order cannot produce revision churn.
 
 ## Deletion Plausibility and Confirmation
 
@@ -922,7 +935,8 @@ They never contact YNAB or use the user's default profile.
 
 - A split parent projects as one transaction at the parent amount and Split category.
 - Every split field is retained with deterministic position and exact money.
-- Split sums must equal the parent exactly; mismatch rejects the candidate.
+- Split sums must equal the parent exactly; mismatch or positive/negative accumulator overflow
+  rejects the candidate. A deleted transaction or split in a full response also rejects it.
 - A deleted split in a complete response rejects the candidate and changes no state.
 - Duplicate split IDs, wrong parent IDs, and unresolved split references reject the candidate.
 - Refresh replacement removes obsolete split rows atomically with the parent base.
@@ -933,7 +947,8 @@ They never contact YNAB or use the user's default profile.
 
 - Zero, one, and multiple-budget onboarding flows follow the stated selection rules.
 - Attempt-scoped choice IDs cannot be reused across attempts, profiles, state versions, or processes.
-- A bound budget missing from a later list produces identity mismatch and no fallback.
+- HTTP 404 from the bound-plan request, or a mismatched returned plan ID, produces identity mismatch
+  and no fallback.
 - Binding accepts only the pristine predicate and is atomic with first import.
 - Wrong password, tamper, truncation, oversize, symlink redirection, and permissive ACL failures are
   handled through existing hardened-file behavior on Linux, macOS, and Windows.

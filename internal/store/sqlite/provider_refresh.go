@@ -94,7 +94,8 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, err
 	}
 	inputs := store.RefreshInputs{
-		Snapshot: snapshot.Clone(), Binding: cloneProviderBinding(binding), Refresh: refresh,
+		CreatesBinding: currentBinding == nil,
+		Snapshot:       snapshot.Clone(), Binding: cloneProviderBinding(binding), Refresh: refresh,
 		Allocations: append([]store.LabelAllocation(nil), allocations...),
 		Lineage:     append([]store.ProviderIdentityLineage(nil), lineage...),
 		Candidate:   request.Candidate.Clone(), ProposedIDs: cloneEntityIDMap(request.ProposedIDs),
@@ -130,9 +131,15 @@ func (profile *profile) ApplyProviderRefresh(
 			errors.New("refresh semantic-change flag does not match authoritative comparison"),
 		)
 	}
+	if refresh.Generation >= math.MaxInt64 {
+		return store.RefreshCommit{}, store.NewError(
+			store.CodeStoreCorrupt, errors.New("refresh generation is exhausted"),
+		)
+	}
+	nextGeneration := refresh.Generation + 1
 	if !semanticChange {
 		if err = updateRefreshSuccess(
-			ctx, connection, refresh.Generation, refresh.Generation, request.ObservedAt, plan.Summary,
+			ctx, connection, refresh.Generation, nextGeneration, request.ObservedAt, plan.Summary,
 		); err != nil {
 			return store.RefreshCommit{}, err
 		}
@@ -147,7 +154,7 @@ func (profile *profile) ApplyProviderRefresh(
 			return store.RefreshCommit{}, err
 		}
 		return store.RefreshCommit{
-			Revision: snapshot.Revision, Generation: refresh.Generation,
+			Revision: snapshot.Revision, Generation: nextGeneration,
 			Summary: plan.Summary, SemanticChange: false,
 		}, nil
 	}
@@ -177,13 +184,6 @@ func (profile *profile) ApplyProviderRefresh(
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
-	if refresh.Generation >= math.MaxInt64 {
-		return store.RefreshCommit{}, store.NewError(
-			store.CodeStoreCorrupt,
-			errors.New("refresh generation is exhausted"),
-		)
-	}
-	nextGeneration := refresh.Generation + 1
 	if err = updateJournalState(
 		ctx, connection, snapshot.Revision, nextRevision, plan.Cursor,
 	); err != nil {
@@ -442,9 +442,13 @@ func validateYNABSplitPlan(
 		return errors.New("YNAB split plan does not completely replace the candidate")
 	}
 	seen := make(map[string]struct{}, len(splits))
+	candidateByID := make(map[string]domain.ImportTransactionSplit, len(candidate.Splits))
+	for _, split := range candidate.Splits {
+		candidateByID[split.ExternalID] = split
+	}
 	positions := make(map[domain.EntityID]int)
-	for index, split := range splits {
-		candidateSplit := candidate.Splits[index]
+	for _, split := range splits {
+		candidateSplit := candidateByID[split.ExternalID]
 		parentID, ok := parents[candidateSplit.ParentTransactionExternalID]
 		if !ok || split.ParentTransactionID != parentID || split.Position != positions[parentID] ||
 			split.Position != candidateSplit.Position || split.ExternalID != candidateSplit.ExternalID ||

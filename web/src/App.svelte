@@ -95,7 +95,11 @@
   }
 
   async function setup(selector: string): Promise<void> {
-    const id = await canonicalID(selector)
+    const profile = catalog?.state.profiles.find(
+      (candidate) => candidate.id === selector || candidate.key === selector,
+    )
+    const kind = profile?.provider_kind === 'ynab' ? 'ynab' : 'monarch'
+    const id = await canonicalID(selector, kind)
     if (!id) return
     onboarding?.destroy()
     if (createdOnboardingProfileID !== id) createdOnboardingProfileID = undefined

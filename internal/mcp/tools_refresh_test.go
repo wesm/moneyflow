@@ -54,7 +54,7 @@ func TestRefreshToolReturnsPromptlyAndRecoversLostResponse(t *testing.T) {
 		return status["state"] == "completed"
 	}, time.Second, time.Millisecond)
 	terminal := callRefreshTool(t, client, "get_refresh_status", map[string]any{"attempt_id": attemptID})
-	assert.Equal(t, "1", terminal["generation"])
+	assert.Equal(t, "2", terminal["generation"])
 	assert.Empty(t, terminal["confirmation_token"])
 }
 

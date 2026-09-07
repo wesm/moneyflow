@@ -131,7 +131,7 @@ func (shell Shell) renderRemoteProfileForm(frame *Frame, content Rect) {
 		if choice.LastModified != "" {
 			line += "  ·  Updated " + choice.LastModified
 		}
-		frame.PutText(content.X+2, content.Y+5+index, Truncate(line, content.Width-4), style)
+		frame.PutText(content.X+2, content.Y+5+index-start, Truncate(line, content.Width-4), style)
 	}
 	frame.PutText(content.X+2, content.Y+content.Height-3, shell.remoteProfile.status, shell.palette.Warning)
 }

@@ -109,7 +109,7 @@ func (coordinator *Coordinator) authenticateYNABFromVault(
 			"The YNAB credential vault could not be opened.", true, true)
 		return
 	}
-	if !coordinator.retainYNABCredentials(attemptID, credentials, nil, true) {
+	if !coordinator.retainYNABCredentials(attemptID, credentials, accountPassword, true) {
 		return
 	}
 	coordinator.fetchYNABPlan(ctx, attemptID, credentials.PlanID)
@@ -220,13 +220,13 @@ func (coordinator *Coordinator) fetchYNABPlan(
 			return
 		}
 	}
-	if vaultSaved && (credentials.PlanID != plan.ID || credentials.Currency != settings.Currency ||
-		credentials.Scale != settings.Scale) {
-		code := provider.CodeIdentityMismatch
-		if credentials.PlanID == plan.ID {
-			code = provider.CodeMoneyMismatch
-		}
-		coordinator.failYNABProvider(attemptID, provider.NewError(code), false)
+	if vaultSaved && credentials.PlanID != plan.ID {
+		coordinator.failYNABProvider(attemptID, provider.NewError(provider.CodeIdentityMismatch), false)
+		return
+	}
+	settingsChanged := vaultSaved && (credentials.Currency != settings.Currency || credentials.Scale != settings.Scale)
+	if connection.Bound && settingsChanged {
+		coordinator.failYNABProvider(attemptID, provider.NewError(provider.CodeMoneyMismatch), false)
 		return
 	}
 	credentials.PlanID = plan.ID
@@ -246,7 +246,13 @@ func (coordinator *Coordinator) fetchYNABPlan(
 	current.flow.ynabSnapshot = &result
 	current.settings = &settings
 	coordinator.mu.Unlock()
-	if vaultSaved {
+	if vaultSaved && !settingsChanged {
+		coordinator.mu.Lock()
+		if current, exists := coordinator.attempts[attemptID]; exists {
+			clear(current.flow.ynabPassword)
+			current.flow.ynabPassword = nil
+		}
+		coordinator.mu.Unlock()
 		coordinator.startYNABImport(attemptID)
 		return
 	}
@@ -453,7 +459,15 @@ func (coordinator *Coordinator) failYNABProvider(attemptID string, err error, ca
 	message := "The YNAB request failed."
 	switch code {
 	case provider.CodeReconnectRequired:
-		message = "Reconnect to YNAB to continue."
+		coordinator.mu.Lock()
+		defer coordinator.mu.Unlock()
+		if current, exists := coordinator.attempts[attemptID]; exists && current.state != StateCanceled {
+			(ynabFlow{}).ReauthenticateLocked(current)
+			coordinator.transitionLocked(current, StateCredentialsRequired, &Failure{
+				Code: string(code), Message: "Enter a new YNAB token to reconnect.", CanReenter: true,
+			})
+		}
+		return
 	case provider.CodeIdentityMismatch:
 		message = "The YNAB budget does not match this Moneyflow profile."
 	case provider.CodeMoneyMismatch:

@@ -3,6 +3,7 @@ package ynab
 import (
 	"context"
 	"errors"
+	"os"
 	"sync"
 	"time"
 
@@ -52,6 +53,9 @@ func (source *Source) Reader(
 	context.Context,
 	bool,
 ) (provider.Reader, provider.SessionFingerprint, error) {
+	if err := source.validateVault(); err != nil {
+		return nil, source.fingerprint, err
+	}
 	client, err := NewClient(source.options.Client, source.options.Credentials.AccessToken)
 	if err != nil {
 		return nil, source.fingerprint, err
@@ -62,20 +66,32 @@ func (source *Source) Reader(
 	source.initialMu.Unlock()
 	return &reader{
 		client: client, planID: source.options.Credentials.PlanID, now: source.options.Now,
-		initial: initial,
+		initial: initial, source: source,
 	}, source.fingerprint, nil
 }
 
 // Changed reports atomic vault replacement or deletion.
 func (source *Source) Changed(previous provider.SessionFingerprint) (bool, error) {
 	fingerprint, err := source.options.Vault.Fingerprint()
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
 	if err != nil {
 		return true, err
 	}
 	return fingerprint != previous, nil
 }
 
+func (source *Source) validateVault() error {
+	changed, err := source.Changed(source.fingerprint)
+	if err != nil || changed {
+		return provider.NewError(provider.CodeReconnectRequired)
+	}
+	return nil
+}
+
 type reader struct {
+	source  *Source
 	client  *Client
 	planID  string
 	now     func() time.Time
@@ -86,12 +102,18 @@ func (reader *reader) FetchSnapshot(
 	ctx context.Context,
 	progress provider.ProgressFunc,
 ) (provider.SnapshotResult, error) {
+	if err := reader.source.validateVault(); err != nil {
+		return provider.SnapshotResult{}, err
+	}
 	if reader.initial != nil {
 		result := *reader.initial
 		result.Snapshot = reader.initial.Snapshot.Clone()
 		reader.initial = nil
 		if progress != nil {
 			progress(provider.Progress{Partition: "all", Fetched: len(result.Snapshot.Transactions), Total: len(result.Snapshot.Transactions), Attempt: 1})
+		}
+		if err := reader.source.validateVault(); err != nil {
+			return provider.SnapshotResult{}, err
 		}
 		return result, nil
 	}
@@ -106,6 +128,9 @@ func (reader *reader) FetchSnapshot(
 	}
 	snapshot, err := Normalize(plan, reader.now().UTC())
 	if err != nil {
+		return provider.SnapshotResult{}, err
+	}
+	if err := reader.source.validateVault(); err != nil {
 		return provider.SnapshotResult{}, err
 	}
 	return provider.SnapshotResult{

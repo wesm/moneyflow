@@ -66,6 +66,8 @@ YNAB flows own authentication and secret fields.
 - Modify: `cmd/moneyflow/tui_shell.go`
 - Modify: `cmd/moneyflow/web_dependencies.go`
 - Modify: `internal/tools/webtestserver/main.go`
+- Modify: `internal/tui/provider_test.go`
+- Modify: `internal/mcp/tools_refresh_test.go`
 
 **Interfaces:**
 
@@ -180,7 +182,7 @@ adapter.
 Run:
 
 ```bash
-go test ./internal/provider/... ./internal/app/... ./internal/onboarding/... ./internal/api/... ./cmd/moneyflow/... -count=1
+go test ./internal/provider/... ./internal/app/... ./internal/onboarding/... ./internal/api/... ./internal/tui ./internal/mcp ./cmd/moneyflow/... -count=1
 go test -race ./internal/provider/... ./internal/app/... -count=1
 ```
 
@@ -190,7 +192,7 @@ compile without a writer.
 - [ ] **Step 7: Commit the capability boundary**
 
 ```bash
-git add internal/provider internal/app internal/api internal/onboarding cmd/moneyflow internal/tools/webtestserver
+git add internal/provider internal/app internal/api internal/onboarding internal/tui internal/mcp cmd/moneyflow internal/tools/webtestserver
 git commit -m "refactor: split provider read and write sources"
 ```
 
@@ -310,7 +312,9 @@ imports no provider implementation and the YNAB package imports no store/API/ren
 ```bash
 go test ./internal/credentialvault ./internal/provider/monarch ./internal/provider/ynab -count=1
 go test -race ./internal/credentialvault ./internal/provider/monarch ./internal/provider/ynab -count=1
-GOOS=windows GOARCH=amd64 go test ./internal/credentialvault ./internal/provider/ynab -run '^$'
+go_cross_output=$(mktemp -d)
+GOOS=windows GOARCH=amd64 go test -c -o "$go_cross_output/vault.test.exe" ./internal/credentialvault
+GOOS=windows GOARCH=amd64 go test -c -o "$go_cross_output/ynab.test.exe" ./internal/provider/ynab
 ```
 
 Expected: all tests pass and the Windows compile-only command succeeds without CGO.
@@ -395,6 +399,7 @@ assert.Len(t, snapshot.Splits, 2)
 
 Add negative cases for missing arrays, unresolved references, unknown cleared status, duplicate IDs,
 deleted rows/splits, invalid date, rune-overlong memo, split-sum mismatch, and money overflow.
+Include positive and negative split-accumulator overflow; every sum uses checked addition.
 
 - [ ] **Step 4: Run focused tests and observe missing symbols**
 
@@ -523,7 +528,7 @@ git commit -m "feat: add exact YNAB full-plan reader"
 
 - Produces: protected `domain.SplitCategoryID`, store `YNABTransactionSplit`, and split-aware refresh plans.
 - Changes: `store.RefreshInputs` and `RefreshPlan` carry existing/planned YNAB split rows.
-- Changes: no-op refresh updates operational success state without semantic revision/generation churn.
+- Changes: no-op refresh updates operational success state and generation without semantic revision churn.
 
 - [ ] **Step 1: Write schema and protected-sentinel tests first**
 
@@ -618,8 +623,10 @@ Do not expose SQL rows to the planner and do not permit the planner to query the
 
 Add `SemanticChange bool` to `RefreshPlan` and `RefreshCommit`. It is true when committed rows,
 journal/cursor, known drills, allocations, lineage, binding, or YNAB split rows change. On false,
-update last-attempt/last-success and release the lease without incrementing profile revision or
-refresh generation. Validate that the planner's flag equals an authoritative deep comparison.
+update last-attempt/last-success and release the lease without incrementing profile revision.
+Every successful fold increments refresh generation, including no-ops, invalidating previous
+confirmation candidates and rejecting competing folds at the previous generation. Validate that the
+planner's flag equals an authoritative deep comparison, including initial binding creation.
 
 - [ ] **Step 8: Run store, property, race, and benchmark gates**
 
@@ -761,6 +768,10 @@ Reject multiple provider secret envelopes and clear every secret on all return p
 The flow performs: inspect pristine/binding, load/unlock or request token, list plans for unbound
 profiles, select one/auto-select one, fetch the complete selected plan, show derived settings,
 save the vault after confirmation, and call ordinary provider refresh with an initial binding.
+Zero plans fails with `provider_data_invalid`, a no-budgets message, and credential re-entry, without
+binding or saving a vault. A retained vault bypasses listing: fetch its exact plan and compare money
+settings. Import immediately if unchanged; if unbound and changed, reconfirm and atomically update
+the vault first. A revoked token returns to credential entry.
 
 For a bound profile, use SQLite plan/currency/scale as authority and call the exact plan directly.
 A mismatched vault returns identity or money mismatch and never rewrites SQLite.
@@ -859,6 +870,7 @@ app.ProviderRuntime{
     Currency: binding.Currency,
     Scale: binding.Scale,
     Renderer: renderer,
+    InstanceID: runtime.InstanceID,
 }
 ```
 

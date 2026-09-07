@@ -47,6 +47,26 @@ describe('Moneyflow application scaffold', () => {
     expect(controller.reset).toHaveBeenCalledTimes(1)
   })
 
+  it('activates a pristine legacy profile as Monarch when starting setup', async () => {
+    const profile = {
+      key: 'legacy',
+      id: '',
+      display_name: 'Moneyflow',
+      provider_kind: '',
+      status: 'setup_incomplete',
+    }
+    const catalog = {
+      state: { profiles: [profile], loading: false, announcement: '', problem: undefined },
+      load: vi.fn(async () => undefined),
+      canonicalID: vi.fn(async () => 'profile_aaaaaaaaaaaaaaaaaaaaaaaaaa'),
+      announce: vi.fn(),
+    } as unknown as CatalogController
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('offline')))
+    render(App, { basePath: '/moneyflow/', catalog })
+    await fireEvent.click(screen.getByRole('button', { name: /Moneyflow.*Setup incomplete/ }))
+    await vi.waitFor(() => expect(catalog.canonicalID).toHaveBeenCalledWith(profile, 'monarch'))
+  })
+
   it('rechecks the profile and provider on focus', async () => {
     const controller = stubController()
     render(App, { basePath: '/moneyflow/', controller })

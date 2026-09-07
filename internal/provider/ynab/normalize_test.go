@@ -1,6 +1,7 @@
 package ynab
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -32,10 +33,11 @@ func TestNormalizeRetainsParentAccountingAndSplitDetails(t *testing.T) {
 func TestNormalizeRejectsInvalidMemoSplitTotalAndMoney(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(*PlanDocument){
-		"memo":          func(plan *PlanDocument) { plan.Transactions[0].Memo = strings.Repeat("é", 501) },
-		"split total":   func(plan *PlanDocument) { plan.Subtransactions[0].Amount-- },
-		"money":         func(plan *PlanDocument) { plan.Transactions[0].Amount = 1 },
-		"deleted split": func(plan *PlanDocument) { value := true; plan.Subtransactions[0].Deleted = &value },
+		"memo":                func(plan *PlanDocument) { plan.Transactions[0].Memo = strings.Repeat("é", 501) },
+		"split total":         func(plan *PlanDocument) { plan.Subtransactions[0].Amount-- },
+		"money":               func(plan *PlanDocument) { plan.Transactions[0].Amount = 1 },
+		"deleted split":       func(plan *PlanDocument) { value := true; plan.Subtransactions[0].Deleted = &value },
+		"deleted transaction": func(plan *PlanDocument) { plan.Transactions[0].Deleted = new(true) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			plan := syntheticPlan()
@@ -45,6 +47,20 @@ func TestNormalizeRejectsInvalidMemoSplitTotalAndMoney(t *testing.T) {
 			assert.True(t, ok)
 			assert.Equal(t, provider.CodeDataInvalid, code)
 		})
+	}
+}
+
+func TestNormalizeRejectsSplitAccumulatorOverflow(t *testing.T) {
+	for _, amount := range []int64{math.MaxInt64, math.MinInt64} {
+		plan := syntheticPlan()
+		plan.CurrencyFormat.DecimalDigits = 3
+		plan.Subtransactions[0].Amount = amount
+		plan.Subtransactions[1].Amount = amount
+		plan.Transactions[2].Amount = amount + amount
+		_, err := Normalize(plan, time.Now())
+		code, ok := provider.CodeOf(err)
+		require.True(t, ok)
+		assert.Equal(t, provider.CodeDataInvalid, code)
 	}
 }
 

@@ -826,7 +826,7 @@ func buildProviderRefreshPlan(
 			DiscardedRedoOperations: rebased.Summary.DiscardedRedoOperations,
 		},
 	}
-	plan.SemanticChange = !reflect.DeepEqual(inputs.Snapshot.Committed, plan.Committed) ||
+	plan.SemanticChange = inputs.CreatesBinding || !reflect.DeepEqual(inputs.Snapshot.Committed, plan.Committed) ||
 		!logicalSliceEqual(inputs.Snapshot.Journal, plan.Journal) ||
 		inputs.Snapshot.Cursor != plan.Cursor ||
 		!logicalSliceEqual(inputs.Snapshot.KnownDrills, plan.KnownDrills) ||
@@ -875,6 +875,12 @@ func buildYNABSplitPlan(
 			TransferTransactionExternalID: split.TransferTransactionExternalID,
 		})
 	}
+	slices.SortFunc(result, func(a, b store.YNABTransactionSplit) int {
+		if order := strings.Compare(string(a.ParentTransactionID), string(b.ParentTransactionID)); order != 0 {
+			return order
+		}
+		return a.Position - b.Position
+	})
 	return result, nil
 }
 

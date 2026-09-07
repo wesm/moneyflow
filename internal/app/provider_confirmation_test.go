@@ -94,7 +94,7 @@ func TestProviderConfirmationRejectsWrongProcessExpiryAndGenerationChange(t *tes
 func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{"expiry", "generation"} {
+	for _, mode := range []string{"expiry", "generation", "no-op generation"} {
 		mode := mode
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
@@ -127,7 +127,9 @@ func TestProviderConfirmationExpiresAndIsInvalidatedByAnotherFold(t *testing.T) 
 				other, otherErr := app.NewProfileService(ctx, profileHandle)
 				require.NoError(t, otherErr)
 				changed := providerSnapshot(t, current, 30)
-				changed.Transactions[0].Notes = "provider change"
+				if mode == "generation" {
+					changed.Transactions[0].Notes = "provider change"
+				}
 				source.setSnapshot(changed)
 				configureProviderRefreshService(t, other, source, current, "instance-b")
 				_, otherErr = other.RefreshProvider(ctx, app.ProviderRefreshRequest{

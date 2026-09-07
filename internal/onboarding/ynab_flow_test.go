@@ -118,6 +118,68 @@ func TestYNABNoPlansFailsWithoutPersistingVault(t *testing.T) {
 	failed := waitForState(t, coordinator, next, StateFailed)
 	assert.Equal(t, string(provider.CodeDataInvalid), failed.Failure.Code)
 	assert.Zero(t, vault.saveCalls)
+	reenter, err := coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: failed.ProfileID, AttemptID: failed.AttemptID,
+		ExpectedStateVersion: failed.StateVersion, Action: ActionReauthenticate,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StateCredentialsRequired, reenter.State)
+}
+
+func TestYNABRetainedVaultReconfirmsChangedUnboundSettings(t *testing.T) {
+	t.Parallel()
+	vault := &fakeYNABVault{exists: true, credentials: ynab.StoredCredentials{
+		AccessToken: "token-example", PlanID: "plan-example", Currency: "EUR", Scale: 2,
+	}}
+	client := &fakeYNABClient{plan: testYNABPlan("plan-example")}
+	coordinator, started := newYNABFlowCoordinator(t, vault, client, nil)
+	unlock := waitForStableState(t, coordinator, started)
+	next, err := coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID,
+		ExpectedStateVersion: unlock.StateVersion, Action: ActionUnlock,
+		Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+	})
+	require.NoError(t, err)
+	settings := waitForState(t, coordinator, next, StateSettingsRequired)
+	require.Equal(t, StateSettingsRequired, settings.State)
+	assert.Zero(t, vault.saveCalls)
+	assert.Zero(t, client.listCalls)
+	next, err = coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: settings.ProfileID, AttemptID: settings.AttemptID,
+		ExpectedStateVersion: settings.StateVersion, Action: ActionConfirmSettings,
+		Settings: &SettingsInput{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	completed := waitForState(t, coordinator, next, StateComplete)
+	require.Equal(t, StateComplete, completed.State)
+	assert.Equal(t, "USD", string(vault.credentials.Currency))
+	assert.Equal(t, 1, vault.saveCalls)
+}
+
+func TestYNABRevokedRetainedTokenReturnsToCredentialEntry(t *testing.T) {
+	t.Parallel()
+	vault := &fakeYNABVault{exists: true, credentials: ynab.StoredCredentials{
+		AccessToken: "token-example", PlanID: "plan-example", Currency: "USD", Scale: 2,
+	}}
+	client := &fakeYNABClient{fetchErr: provider.NewError(provider.CodeReconnectRequired)}
+	coordinator, started := newYNABFlowCoordinator(t, vault, client, nil)
+	unlock := waitForStableState(t, coordinator, started)
+	next, err := coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID,
+		ExpectedStateVersion: unlock.StateVersion, Action: ActionUnlock,
+		Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+	})
+	require.NoError(t, err)
+	credentials := waitForState(t, coordinator, next, StateCredentialsRequired)
+	require.Equal(t, StateCredentialsRequired, credentials.State)
+	assert.False(t, credentials.Failure.CanRetry)
+	client.fetchErr = nil
+	client.plan = testYNABPlan("plan-example")
+	client.plans = []ynab.PlanSummary{{ID: "plan-example", Name: "Example Budget"}}
+	next, err = coordinator.Submit(context.Background(), ynabCredentialRequest(credentials))
+	require.NoError(t, err)
+	settings := waitForState(t, coordinator, next, StateSettingsRequired)
+	require.Equal(t, StateSettingsRequired, settings.State)
 }
 
 func TestYNABVaultBindingMismatchUsesSQLiteAuthority(t *testing.T) {
@@ -140,6 +202,27 @@ func TestYNABVaultBindingMismatchUsesSQLiteAuthority(t *testing.T) {
 	failed := waitForState(t, coordinator, next, StateFailed)
 	assert.Equal(t, string(provider.CodeIdentityMismatch), failed.Failure.Code)
 	assert.Equal(t, 0, vault.saveCalls)
+}
+
+func TestYNABBoundVaultMoneyMismatchDoesNotOfferRebinding(t *testing.T) {
+	t.Parallel()
+	opened := newYNABBoundOpenedProfile(t, "plan-bound")
+	vault := &fakeYNABVault{exists: true, credentials: ynab.StoredCredentials{
+		AccessToken: "token-example", PlanID: "plan-bound", Currency: "EUR", Scale: 2,
+	}}
+	coordinator, started := newYNABCoordinator(t, opened, vault, &fakeYNABClient{
+		plan: testYNABPlan("plan-bound"),
+	}, nil)
+	unlock := waitForStableState(t, coordinator, started)
+	next, err := coordinator.Submit(context.Background(), SubmitRequest{
+		ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID,
+		ExpectedStateVersion: unlock.StateVersion, Action: ActionUnlock,
+		Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+	})
+	require.NoError(t, err)
+	failed := waitForState(t, coordinator, next, StateFailed)
+	assert.Equal(t, string(provider.CodeMoneyMismatch), failed.Failure.Code)
+	assert.Zero(t, vault.saveCalls)
 }
 
 func TestYNABFirstImportRetryReusesSavedVaultAndSnapshot(t *testing.T) {

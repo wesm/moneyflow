@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -150,6 +152,7 @@ type fakeShellState struct {
 	onboardingSnapshot onboarding.Snapshot
 	onboardingOpened   onboarding.OpenedProfile
 	lastSubmit         onboarding.SubmitRequest
+	lastStart          onboarding.StartRequest
 	lastCancel         onboarding.CancelRequest
 	startErr           error
 	cancelStaleOnce    bool
@@ -205,6 +208,7 @@ func (state *fakeShellState) Start(
 	request onboarding.StartRequest,
 ) (onboarding.Snapshot, error) {
 	state.onboardingStarts++
+	state.lastStart = request
 	if state.startErr != nil {
 		return onboarding.Snapshot{}, state.startErr
 	}
@@ -416,6 +420,8 @@ func TestYNABReadyProfileOffersUnlockAndOfflineOpen(t *testing.T) {
 	shell = updated.(Shell)
 	assert.Equal(t, shellOnboarding, shell.screen)
 	require.NotNil(t, unlockCommand)
+	shell = updateShell(t, shell, unlockCommand())
+	assert.Equal(t, "ynab", state.lastStart.ProviderKind)
 
 	shell, err = NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
 	require.NoError(t, err)
@@ -463,6 +469,32 @@ func TestShellRoutesYNABCredentialsAndRemoteChoice(t *testing.T) {
 	require.NotNil(t, command)
 	shell = updateShell(t, shell, command())
 	assert.Equal(t, "choice_beta", state.lastSubmit.RemoteProfileChoiceID)
+}
+
+func TestYNABBudgetSelectionRemainsVisibleAfterScrolling(t *testing.T) {
+	t.Parallel()
+	dependencies, _ := fakeShellDependencies(t)
+	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	choices := formSnapshot(onboarding.StateRemoteProfileRequired)
+	choices.ProviderKind = "ynab"
+	for index := range 40 {
+		choices.RemoteProfiles = append(choices.RemoteProfiles, onboarding.RemoteProfileChoice{
+			ChoiceID: fmt.Sprintf("choice_%d", index), DisplayName: fmt.Sprintf("Budget %02d", index),
+		})
+	}
+	shell.applyOnboardingSnapshot(choices)
+	shell.remoteProfile.cursor = 39
+	frame := NewFrame(80, 24, Cell{Glyph: " "})
+	shell.renderRemoteProfileForm(&frame, Rect{Width: 80, Height: 24})
+	var visible strings.Builder
+	for y := range frame.Height() {
+		for x := range frame.Width() {
+			visible.WriteString(frame.CellAt(x, y).Glyph)
+		}
+	}
+	assert.Contains(t, visible.String(), "› Budget 39")
+	assert.NotContains(t, visible.String(), "Budget 00")
 }
 
 func (state *fakeShellState) TakeOpenedProfile(
