@@ -10,10 +10,11 @@ frame-parity artifacts and their regeneration targets have been retired.
 
 - [Current architecture decisions and provenance](../architecture/decisions.md) maps the lasting
   choices to their original specs.
-- `plans/` is implementation history, not a queue of work to rerun.
+- Completed `plans/` documents are implementation history, not a queue of work to rerun.
 - `benchmarks/` contains historical measurement evidence, not claims about every current machine.
-- [YNAB write-back](specs/2026-09-07-go-port-ynab-write-back-design.md) is an active draft under
-  review. It has not been implemented or converted into current architecture.
+- [YNAB write-back](specs/2026-09-07-go-port-ynab-write-back-design.md) is approved; its
+  [implementation plan](plans/2026-09-07-go-port-ynab-write-back.md) tracks active checkpoints.
+  The architecture overview distinguishes landed storage from the remaining writer work.
 
 Keep a proposal separate until its implementation lands. Update the maintained architecture with
 the resulting behavior, then mark the completed proposal historical. Do not let a new dated spec

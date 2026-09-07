@@ -41,8 +41,8 @@ and batch controls. These choices are described where they run, not scattered as
 ## Proposals are separate
 
 The [YNAB write-back draft](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
-remains under review and is intentionally unchanged by this documentation consolidation.
-Its proposed behavior is not a claim about the current adapter.
+is approved and being implemented in checkpoints. Its remaining proposed behavior is not a claim
+about the current adapter; the overview records which boundary has landed.
 
 Use Git history for full implementation chronology and benchmark reports for measurements taken
 under their recorded conditions. Keep this guide current rather than adding another dated plan

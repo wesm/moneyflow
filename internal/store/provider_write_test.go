@@ -67,3 +67,23 @@ func TestWriteResultKindValidation(t *testing.T) {
 		ItemID: "item-a", TransactionExternalID: "provider-a",
 	}).Validate())
 }
+
+func TestWriteCategoryClearUnion(t *testing.T) {
+	t.Parallel()
+	item := WriteItem{Kind: WriteItemUpdate, ClearCategory: true}
+	require.NoError(t, item.Validate())
+	item.RequestedCategoryExternalID = new("category-a")
+	require.Error(t, item.Validate())
+	item.RequestedCategoryExternalID = nil
+	item.Kind = WriteItemDelete
+	require.Error(t, item.Validate())
+
+	result := WriteResult{Kind: WriteItemUpdate, ItemID: "item-a",
+		TransactionExternalID: "transaction-a", CategoryCleared: true}
+	require.NoError(t, result.Validate())
+	result.CategoryExternalID = new("category-a")
+	require.Error(t, result.Validate())
+	result.CategoryExternalID = nil
+	result.Kind = WriteItemDelete
+	require.Error(t, result.Validate())
+}

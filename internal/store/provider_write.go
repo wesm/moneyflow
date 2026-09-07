@@ -152,6 +152,7 @@ type WriteItem struct {
 	RequestedMerchantLocalID    domain.EntityID
 	RequestedMerchantName       *string
 	RequestedCategoryExternalID *string
+	ClearCategory               bool
 	RequestedHidden             *bool
 	OriginatingOperationIDs     []string
 	Expectation                 WriteExpectationKind
@@ -192,6 +193,7 @@ type WriteResult struct {
 	MerchantExternalID    *string
 	MerchantLabel         *string
 	CategoryExternalID    *string
+	CategoryCleared       bool
 	Hidden                *bool
 	OverrideCount         int
 	AlreadyAbsent         bool
@@ -209,6 +211,9 @@ func (result WriteResult) Clone() WriteResult {
 
 // Validate checks the normalized result union before it reaches persistence.
 func (result WriteResult) Validate() error {
+	if result.CategoryCleared && result.CategoryExternalID != nil {
+		return errors.New("provider result cannot assign and clear category")
+	}
 	if result.ItemID == "" || result.TransactionExternalID == "" {
 		return errors.New("provider write result identity is incomplete")
 	}
@@ -219,7 +224,7 @@ func (result WriteResult) Validate() error {
 		}
 	case WriteItemDelete:
 		if result.MerchantExternalID != nil || result.MerchantLabel != nil ||
-			result.CategoryExternalID != nil || result.Hidden != nil || result.OverrideCount != 0 {
+			result.CategoryExternalID != nil || result.CategoryCleared || result.Hidden != nil || result.OverrideCount != 0 {
 			return errors.New("provider delete result contains update fields")
 		}
 	default:
@@ -466,8 +471,11 @@ func (plan PrepareProviderWritePlan) Validate(inputs PrepareProviderWriteInputs)
 
 // Validate checks the durable item union independently of transport or persistence.
 func (item WriteItem) Validate() error {
+	if item.ClearCategory && item.RequestedCategoryExternalID != nil {
+		return errors.New("provider item cannot assign and clear category")
+	}
 	hasUpdate := item.RequestedMerchantName != nil || item.RequestedCategoryExternalID != nil ||
-		item.RequestedHidden != nil
+		item.RequestedHidden != nil || item.ClearCategory
 	switch item.Kind {
 	case WriteItemDelete:
 		if hasUpdate || item.RequestedMerchantLocalID != "" || item.Expectation != "" ||

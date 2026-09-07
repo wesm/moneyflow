@@ -93,6 +93,10 @@ func (profile *profile) ApplyProviderRefresh(
 	if err != nil {
 		return store.RefreshCommit{}, err
 	}
+	restrictions, err := loadProviderWriteRestrictions(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
 	inputs := store.RefreshInputs{
 		CreatesBinding: currentBinding == nil,
 		Snapshot:       snapshot.Clone(), Binding: cloneProviderBinding(binding), Refresh: refresh,
@@ -100,7 +104,8 @@ func (profile *profile) ApplyProviderRefresh(
 		Lineage:     append([]store.ProviderIdentityLineage(nil), lineage...),
 		Candidate:   request.Candidate.Clone(), ProposedIDs: cloneEntityIDMap(request.ProposedIDs),
 		ProposedSuffixes: cloneStringMap(request.ProposedSuffixes), ObservedAt: request.ObservedAt,
-		YNABSplits: append([]store.YNABTransactionSplit(nil), ynabSplits...),
+		YNABSplits:        append([]store.YNABTransactionSplit(nil), ynabSplits...),
+		WriteRestrictions: append([]store.ProviderWriteRestriction(nil), restrictions...),
 	}
 	plan, err := planner(inputs)
 	if err != nil {
@@ -124,7 +129,8 @@ func (profile *profile) ApplyProviderRefresh(
 		!refreshSliceEqual(snapshot.KnownDrills, plan.KnownDrills) ||
 		!refreshSliceEqual(allocations, plan.Allocations) ||
 		!refreshSliceEqual(lineage, plan.Lineage) ||
-		!refreshSliceEqual(ynabSplits, plan.YNABSplits)
+		!refreshSliceEqual(ynabSplits, plan.YNABSplits) ||
+		!refreshSliceEqual(restrictions, plan.WriteRestrictions)
 	if semanticChange != plan.SemanticChange {
 		return store.RefreshCommit{}, store.NewInvalidOperationError(
 			store.InvalidOperationRefreshPlan,
@@ -172,6 +178,9 @@ func (profile *profile) ApplyProviderRefresh(
 		return store.RefreshCommit{}, err
 	}
 	if err = replaceProviderIdentityLineage(ctx, connection, plan.Lineage); err != nil {
+		return store.RefreshCommit{}, err
+	}
+	if err = replaceProviderWriteRestrictions(ctx, connection, plan.WriteRestrictions); err != nil {
 		return store.RefreshCommit{}, err
 	}
 	if err = replaceYNABTransactionSplits(ctx, connection, plan.YNABSplits); err != nil {
@@ -370,6 +379,13 @@ func validateRefreshPlan(
 		plan.Lineage,
 	); err != nil {
 		return err
+	}
+	restrictions, err := store.MapProviderWriteRestrictions(binding.Kind, candidate, plan.Committed)
+	if err != nil {
+		return err
+	}
+	if !refreshSliceEqual(restrictions, plan.WriteRestrictions) {
+		return errors.New("refresh write restrictions differ from provider facts")
 	}
 	if err = validateYNABSplitPlan(binding, candidate, plan.Committed, plan.YNABSplits); err != nil {
 		return err
@@ -1337,6 +1353,7 @@ func cloneRefreshPlan(plan store.RefreshPlan) store.RefreshPlan {
 	plan.Allocations = append([]store.LabelAllocation(nil), plan.Allocations...)
 	plan.Lineage = append([]store.ProviderIdentityLineage(nil), plan.Lineage...)
 	plan.YNABSplits = append([]store.YNABTransactionSplit(nil), plan.YNABSplits...)
+	plan.WriteRestrictions = append([]store.ProviderWriteRestriction(nil), plan.WriteRestrictions...)
 	for index := range plan.Allocations {
 		if plan.Allocations[index].ProviderLabel == "" {
 			plan.Allocations[index].ProviderLabel = plan.Allocations[index].DisplayLabel

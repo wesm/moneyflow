@@ -78,7 +78,9 @@ func Some[T any](value T) Optional[T] {
 type TransactionUpdate struct {
 	TransactionExternalID string
 	MerchantName          Optional[string]
+	MerchantExternalID    Optional[string]
 	CategoryExternalID    Optional[string]
+	ClearCategory         bool
 	Hidden                Optional[bool]
 }
 
@@ -88,6 +90,7 @@ type TransactionUpdateResult struct {
 	MerchantExternalID    Optional[string]
 	MerchantLabel         Optional[string]
 	CategoryExternalID    Optional[string]
+	CategoryCleared       bool
 	Hidden                Optional[bool]
 }
 

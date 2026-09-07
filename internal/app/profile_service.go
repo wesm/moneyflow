@@ -182,6 +182,7 @@ func cloneProviderState(state store.ProviderState) store.ProviderState {
 	}
 	state.Allocations = append([]store.LabelAllocation(nil), state.Allocations...)
 	state.Lineage = append([]store.ProviderIdentityLineage(nil), state.Lineage...)
+	state.WriteRestrictions = append([]store.ProviderWriteRestriction(nil), state.WriteRestrictions...)
 	return state
 }
 

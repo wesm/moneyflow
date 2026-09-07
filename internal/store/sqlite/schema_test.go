@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
 )
 
 func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
@@ -56,18 +58,17 @@ func TestSchemaUsesStrictConstrainedTables(t *testing.T) {
 	}
 }
 
-func TestSchemaVersionElevenInstallsProtectedSplitCategory(t *testing.T) {
+func TestCurrentSchemaInstallsProtectedSplitCategory(t *testing.T) {
 	t.Parallel()
 
 	profileStore, err := Open(context.Background(), temporaryPaths(t), DefaultOptions)
 	require.NoError(t, err)
 	profile := profileStore.(*profile)
 	t.Cleanup(func() { require.NoError(t, profile.Close()) })
-	assert.Equal(t, 11, CurrentSchemaVersion)
 	var version int
 	require.NoError(t, profile.database.QueryRowContext(context.Background(),
 		"SELECT schema_version FROM schema_metadata WHERE singleton = 1").Scan(&version))
-	assert.Equal(t, 11, version)
+	assert.Equal(t, CurrentSchemaVersion, version)
 	loaded, err := profile.Load(context.Background())
 	require.NoError(t, err)
 	assert.Contains(t, loaded.Committed.Categories, domain.Category{
@@ -168,6 +169,84 @@ func TestProviderWriteItemSchemaEnforcesUpdateDeleteUnion(t *testing.T) {
 	assert.Error(t, insert("delete", nil, nil, 1))
 	assert.Error(t, insert("update", nil, nil, 0))
 	require.NoError(t, insert("delete", nil, nil, 0))
+}
+
+func TestCategoryClearPersistsAndRejectsConflictingSQLFields(t *testing.T) {
+	t.Parallel()
+	p, prepared, _ := preparedWriteProfile(t)
+	ctx := context.Background()
+	_, err := p.database.ExecContext(ctx, `UPDATE provider_write_items SET
+		clear_category = 1, requested_hidden = NULL WHERE batch_id = ?`, prepared.Batch.ID)
+	require.NoError(t, err)
+	state, err := p.ProviderWriteState(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, state.Items)
+	item := state.Items[0]
+	assert.True(t, item.ClearCategory)
+	_, err = p.database.ExecContext(ctx, `UPDATE provider_write_items SET
+		requested_category_external_id = 'category-a' WHERE item_id = ?`, item.ID)
+	require.Error(t, err)
+	connection, err := p.database.Conn(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if connection != nil {
+			require.NoError(t, connection.Close())
+		}
+	}()
+	result := store.WriteResult{ItemID: item.ID, Kind: store.WriteItemUpdate,
+		TransactionExternalID: item.TransactionExternalID, CategoryCleared: true,
+		RecordedAt: time.Unix(1, 0)}
+	require.NoError(t, insertWriteResult(ctx, connection, result))
+	results, err := loadWriteResults(ctx, connection, prepared.Batch.ID)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].CategoryCleared)
+	_, err = connection.ExecContext(ctx, `UPDATE provider_write_results SET
+		category_external_id = 'category-a' WHERE item_id = ?`, item.ID)
+	require.Error(t, err)
+	var filename string
+	require.NoError(t, connection.QueryRowContext(ctx,
+		"SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&filename))
+	require.NoError(t, connection.Close())
+	connection = nil
+	require.NoError(t, p.Close())
+	reopened, err := sql.Open(driverName, dataSourceName(filename, DefaultOptions))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	items, err := loadWriteItems(ctx, reopened, prepared.Batch.ID)
+	require.NoError(t, err)
+	assert.True(t, items[0].ClearCategory)
+	results, err = loadWriteResults(ctx, reopened, prepared.Batch.ID)
+	require.NoError(t, err)
+	assert.True(t, results[0].CategoryCleared)
+}
+
+func TestWriteRestrictionsRejectOrphansAndFollowEntityLifecycle(t *testing.T) {
+	t.Parallel()
+	p := openSeededProfile(t, DefaultOptions)
+	ctx := context.Background()
+	loaded, err := p.Load(ctx)
+	require.NoError(t, err)
+	transaction := loaded.Committed.Transactions[0]
+	insert := func(kind string, id domain.EntityID) error {
+		_, err := p.database.ExecContext(ctx, `INSERT INTO provider_write_restrictions
+			(entity_type, entity_id, reason) VALUES (?, ?, 'transfer')`, kind, id)
+		return err
+	}
+	require.NoError(t, insert("transaction", transaction.ID))
+	require.NoError(t, insert("merchant", transaction.MerchantID))
+	require.Error(t, insert("transaction", "missing"))
+	_, err = p.database.ExecContext(ctx, `UPDATE provider_write_restrictions
+		SET entity_id = 'missing' WHERE entity_type = 'merchant'`)
+	require.Error(t, err)
+	_, err = p.database.ExecContext(ctx, "DELETE FROM transactions WHERE id = ?", transaction.ID)
+	require.NoError(t, err)
+	_, err = p.database.ExecContext(ctx, "UPDATE merchants SET retired = 1 WHERE id = ?", transaction.MerchantID)
+	require.NoError(t, err)
+	var count int
+	require.NoError(t, p.database.QueryRowContext(ctx, "SELECT count(*) FROM provider_write_restrictions").Scan(&count))
+	assert.Zero(t, count)
+	require.Error(t, insert("merchant", transaction.MerchantID))
 }
 
 func TestProviderSchemaEnforcesSingletonLeaseAndAllocationConstraints(t *testing.T) {

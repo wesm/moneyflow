@@ -107,6 +107,10 @@ in reverse order while holding lifecycle. SQLite operation leases serve network 
 recovery. Their semantics are different from process-death-released advisory locks.
 
 SQLite uses STRICT tables, integer money, WAL, bounded busy handling, and `synchronous=FULL`.
+Schema 12 distinguishes omitted category changes from explicit clearing in durable write items
+and results. Provider transfer restrictions are separate committed facts keyed by local transaction
+or merchant ID. Triggers reject missing owners and clean deleted/retired owners; refresh replaces
+the projection atomically and changes the semantic revision when restriction facts change.
 The database is not encrypted. Credentials are separately encrypted; private-directory and file
 permissions still matter. Use existing `internal/home` helpers for publication and cleanup.
 

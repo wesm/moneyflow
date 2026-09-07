@@ -49,16 +49,24 @@ type ImportTransactionSplit struct {
 	TransferTransactionExternalID string
 }
 
+// ImportWriteRestriction is a provider-owned mutation restriction before local ID mapping.
+type ImportWriteRestriction struct {
+	Kind       EntityKind
+	ExternalID string
+	Reason     string
+}
+
 // ImportSnapshot is one complete provider observation ready for identity mapping and persistence.
 // Provider adapters may inspect pending rows while checking snapshot integrity, but omit them here.
 type ImportSnapshot struct {
-	Accounts     []ImportEntity
-	Merchants    []ImportEntity
-	Groups       []ImportEntity
-	Categories   []ImportEntity
-	Transactions []ImportTransaction
-	Splits       []ImportTransactionSplit
-	ObservedAt   time.Time
+	Accounts          []ImportEntity
+	Merchants         []ImportEntity
+	Groups            []ImportEntity
+	Categories        []ImportEntity
+	Transactions      []ImportTransaction
+	Splits            []ImportTransactionSplit
+	WriteRestrictions []ImportWriteRestriction
+	ObservedAt        time.Time
 }
 
 // Clone returns a snapshot with independently owned slices.
@@ -69,6 +77,7 @@ func (snapshot ImportSnapshot) Clone() ImportSnapshot {
 	snapshot.Categories = append([]ImportEntity(nil), snapshot.Categories...)
 	snapshot.Transactions = append([]ImportTransaction(nil), snapshot.Transactions...)
 	snapshot.Splits = append([]ImportTransactionSplit(nil), snapshot.Splits...)
+	snapshot.WriteRestrictions = append([]ImportWriteRestriction(nil), snapshot.WriteRestrictions...)
 	return snapshot
 }
 
@@ -132,6 +141,20 @@ func (snapshot ImportSnapshot) Validate() error {
 				return fmt.Errorf("validate import snapshot: transaction[%d] references unknown category", index)
 			}
 		}
+	}
+	seenRestrictions := make(map[ImportWriteRestriction]struct{}, len(snapshot.WriteRestrictions))
+	for _, restriction := range snapshot.WriteRestrictions {
+		_, transactionExists := transactions[restriction.ExternalID]
+		_, merchantExists := merchants[restriction.ExternalID]
+		if restriction.Reason != "transfer" ||
+			(restriction.Kind != EntityKindTransaction || !transactionExists) &&
+				(restriction.Kind != EntityKindMerchant || !merchantExists) {
+			return errors.New("validate import snapshot: invalid write restriction")
+		}
+		if _, duplicate := seenRestrictions[restriction]; duplicate {
+			return errors.New("validate import snapshot: duplicate write restriction")
+		}
+		seenRestrictions[restriction] = struct{}{}
 	}
 	splits := make(map[string]struct{}, len(snapshot.Splits))
 	positions := make(map[string]int)

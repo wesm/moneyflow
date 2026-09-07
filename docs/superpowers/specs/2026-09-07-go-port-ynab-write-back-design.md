@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-07
 
-**Status:** Draft for review; section-level design approved
+**Status:** Approved; implementation in progress
 
 **Branch:** `go-port`
 
@@ -77,7 +77,7 @@ The current YNAB API offers transaction GET, PUT, and DELETE under
 `/plans/{plan_id}/transactions/{transaction_id}`. DELETE documents a successful response containing
 the transaction and a transaction-not-found response. This slice uses those individual-item
 endpoints, not the bulk PATCH endpoint. See the official
-[transaction API reference](https://github.com/ynab/ynab-sdk-python/blob/main/docs/TransactionsApi.md).
+[transaction API reference](https://api.ynab.com/v1#/Transactions).
 
 YNAB accepts either an existing `payee_id` or name-based resolution through `payee_name`. Existing
 split parents cannot be recategorized through `category_id`; credit-card-payment category
@@ -389,7 +389,9 @@ per-profile counter can reserve the global allowance. See
 Keep the shared concurrency ceiling of four and the one-leader rule. On 429, stop dispatching,
 settle already in-flight work, release the lease, and persist `rate_limited` plus `NextEligible`.
 Use a valid positive Retry-After bounded by the existing 24-hour maximum. If absent, invalid, or
-zero, use a one-hour YNAB fallback instead of the worker's generic one-minute fallback. Parse
+zero, use a one-hour YNAB fallback instead of the worker's generic one-minute fallback. The YNAB
+adapter attaches this delay through the existing bounded provider error; the worker remains
+provider-neutral. Parse
 delta-seconds and HTTP dates against the injected clock without duration overflow. Persist
 the same wait across restart and refuse early Resume; neither repeated Enter nor status polling
 is permission to hammer the provider. A later 429 can extend the wait.
@@ -431,6 +433,10 @@ Transfer markers travel through typed domain import/store contracts; raw YNAB DT
 store. Restriction rows do not orphan when transactions are deleted or merchants retire. Their
 installation, refresh replacement, and deletion happen in the same semantic transaction as the
 corresponding profile change.
+
+SQLite triggers reject insert/update restrictions without an active owner and remove them on
+owner deletion or merchant retirement. The store validates the complete refresh restriction
+projection before replacing it inside the same transaction.
 
 Credentials remain solely in the existing encrypted profile vault. Raw HTTP responses, tokens,
 account passwords, and retry diagnostics containing financial values are not durable batch data.

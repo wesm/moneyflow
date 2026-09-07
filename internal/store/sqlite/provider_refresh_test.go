@@ -98,6 +98,9 @@ func TestYNABRefreshPersistsSplitsAndUnchangedRefreshDoesNotChurnRevision(t *tes
 				SourceAmount: -20000, SourceScale: 3,
 				Amount: domain.Money{Minor: -2000, Currency: "USD", Scale: 2}},
 		},
+		WriteRestrictions: []domain.ImportWriteRestriction{{
+			Kind: domain.EntityKindMerchant, ExternalID: "payee-a", Reason: "transfer",
+		}},
 	}
 	binding := store.ProviderBinding{
 		Kind: "ynab", Namespace: "ynab", RemoteProfileID: "plan-a",
@@ -151,6 +154,16 @@ func TestYNABRefreshPersistsSplitsAndUnchangedRefreshDoesNotChurnRevision(t *tes
 	state, err := profile.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, later, state.Refresh.LastSuccess)
+	assert.Equal(t, []store.ProviderWriteRestriction{{
+		Kind: domain.EntityKindMerchant, EntityID: "merchant-local", Reason: "transfer",
+	}}, state.WriteRestrictions)
+	candidate.WriteRestrictions = nil
+	third := apply(2, "ynab-third", later.Add(time.Hour))
+	assert.True(t, third.SemanticChange)
+	assert.Equal(t, second.Revision+1, third.Revision)
+	state, err = profile.ProviderState(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, state.WriteRestrictions)
 }
 
 func TestProviderRefreshConcurrentGenerationCASAllowsExactlyOneFold(t *testing.T) {

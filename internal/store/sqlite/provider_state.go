@@ -46,6 +46,9 @@ func (profile *profile) ProviderState(ctx context.Context) (store.ProviderState,
 	if state.Lineage, err = loadProviderIdentityLineage(ctx, transaction); err != nil {
 		return store.ProviderState{}, err
 	}
+	if state.WriteRestrictions, err = loadProviderWriteRestrictions(ctx, transaction); err != nil {
+		return store.ProviderState{}, err
+	}
 	if state.Write, err = loadWriteBatchStatus(ctx, transaction); err != nil {
 		return store.ProviderState{}, err
 	}

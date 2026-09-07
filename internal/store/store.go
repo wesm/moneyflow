@@ -219,17 +219,25 @@ type LabelAllocation struct {
 	Unsuffixed       bool
 }
 
+// ProviderWriteRestriction is a committed mutation restriction on a stable local entity.
+type ProviderWriteRestriction struct {
+	Kind     domain.EntityKind
+	EntityID domain.EntityID
+	Reason   string
+}
+
 // ProviderState is a short-lived projection of provider metadata and pristine eligibility.
 type ProviderState struct {
-	Revision    uint64
-	Binding     *ProviderBinding
-	Refresh     RefreshState
-	Lease       *ProviderOperationLease
-	Allocations []LabelAllocation
-	Lineage     []ProviderIdentityLineage
-	Write       *WriteBatchStatus
-	LastWrite   LastWriteSummary
-	Pristine    bool
+	Revision          uint64
+	Binding           *ProviderBinding
+	Refresh           RefreshState
+	Lease             *ProviderOperationLease
+	Allocations       []LabelAllocation
+	Lineage           []ProviderIdentityLineage
+	Write             *WriteBatchStatus
+	LastWrite         LastWriteSummary
+	Pristine          bool
+	WriteRestrictions []ProviderWriteRestriction
 }
 
 // Clone returns independently owned provider state for a pure callback boundary.
@@ -244,6 +252,7 @@ func (state ProviderState) Clone() ProviderState {
 	}
 	state.Allocations = append([]LabelAllocation(nil), state.Allocations...)
 	state.Lineage = append([]ProviderIdentityLineage(nil), state.Lineage...)
+	state.WriteRestrictions = append([]ProviderWriteRestriction(nil), state.WriteRestrictions...)
 	if state.Write != nil {
 		write := state.Write.Clone()
 		state.Write = &write
@@ -261,17 +270,18 @@ type RefreshFailure struct {
 
 // RefreshInputs contains every authoritative value a refresh planner may consult.
 type RefreshInputs struct {
-	Snapshot         domain.ProfileSnapshot
-	CreatesBinding   bool
-	Binding          *ProviderBinding
-	Refresh          RefreshState
-	Allocations      []LabelAllocation
-	Lineage          []ProviderIdentityLineage
-	Candidate        domain.ImportSnapshot
-	ProposedIDs      map[string]domain.EntityID
-	ProposedSuffixes map[string]string
-	ObservedAt       time.Time
-	YNABSplits       []YNABTransactionSplit
+	Snapshot          domain.ProfileSnapshot
+	CreatesBinding    bool
+	Binding           *ProviderBinding
+	Refresh           RefreshState
+	Allocations       []LabelAllocation
+	Lineage           []ProviderIdentityLineage
+	Candidate         domain.ImportSnapshot
+	ProposedIDs       map[string]domain.EntityID
+	ProposedSuffixes  map[string]string
+	ObservedAt        time.Time
+	YNABSplits        []YNABTransactionSplit
+	WriteRestrictions []ProviderWriteRestriction
 }
 
 // YNABTransactionSplit is one provider-owned split row attached to a committed parent transaction.
@@ -292,16 +302,17 @@ type YNABTransactionSplit struct {
 
 // RefreshPlan is the complete logical state produced by one pure refresh calculation.
 type RefreshPlan struct {
-	Committed      domain.CommittedProfile
-	Effective      domain.CommittedProfile
-	Journal        []domain.Operation
-	Cursor         int
-	KnownDrills    []domain.DrillIdentity
-	Allocations    []LabelAllocation
-	Lineage        []ProviderIdentityLineage
-	Summary        RefreshSummary
-	YNABSplits     []YNABTransactionSplit
-	SemanticChange bool
+	Committed         domain.CommittedProfile
+	Effective         domain.CommittedProfile
+	Journal           []domain.Operation
+	Cursor            int
+	KnownDrills       []domain.DrillIdentity
+	Allocations       []LabelAllocation
+	Lineage           []ProviderIdentityLineage
+	Summary           RefreshSummary
+	YNABSplits        []YNABTransactionSplit
+	WriteRestrictions []ProviderWriteRestriction
+	SemanticChange    bool
 }
 
 // RefreshSummary contains counts safe for durable status and logs.

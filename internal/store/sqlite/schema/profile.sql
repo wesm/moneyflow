@@ -3,7 +3,7 @@ CREATE TABLE schema_metadata (
     schema_version INTEGER NOT NULL CHECK(typeof(schema_version) = 'integer' AND schema_version >= 0)
 ) STRICT;
 
-INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 11);
+INSERT INTO schema_metadata(singleton, schema_version) VALUES (1, 12);
 
 CREATE TABLE profile_state (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -342,6 +342,7 @@ CREATE TABLE provider_write_items (
     requested_merchant_local_id TEXT,
     requested_merchant_name TEXT,
     requested_category_external_id TEXT,
+    clear_category INTEGER NOT NULL DEFAULT 0 CHECK(clear_category IN (0, 1)),
     requested_hidden INTEGER CHECK(requested_hidden IS NULL OR requested_hidden IN (0, 1)),
     originating_operation_ids_json TEXT NOT NULL CHECK(json_valid(originating_operation_ids_json)),
     expectation_kind TEXT CHECK(
@@ -354,6 +355,7 @@ CREATE TABLE provider_write_items (
     attempt_count INTEGER NOT NULL CHECK(typeof(attempt_count) = 'integer' AND attempt_count >= 0),
     CHECK(requested_merchant_name IS NULL OR requested_merchant_name <> ''),
     CHECK(requested_category_external_id IS NULL OR requested_category_external_id <> ''),
+    CHECK(clear_category = 0 OR requested_category_external_id IS NULL),
     CHECK((expectation_kind IS NULL) = (requested_merchant_name IS NULL)),
     CHECK(expectation_kind <> 'new' OR (new_group_key IS NOT NULL AND new_group_key <> '')),
     CHECK(expectation_kind = 'new' OR new_group_key IS NULL),
@@ -365,6 +367,7 @@ CREATE TABLE provider_write_items (
             AND requested_merchant_local_id IS NULL
             AND requested_merchant_name IS NULL
             AND requested_category_external_id IS NULL
+            AND clear_category = 0
             AND requested_hidden IS NULL
             AND expectation_kind IS NULL
             AND expected_merchant_external_id IS NULL
@@ -374,6 +377,7 @@ CREATE TABLE provider_write_items (
         (item_kind = 'update'
             AND (requested_merchant_name IS NOT NULL
                 OR requested_category_external_id IS NOT NULL
+                OR clear_category = 1
                 OR requested_hidden IS NOT NULL))
     ),
     UNIQUE(batch_id, position),
@@ -389,6 +393,7 @@ CREATE TABLE provider_write_results (
     merchant_external_id TEXT,
     merchant_label TEXT,
     category_external_id TEXT,
+    category_cleared INTEGER NOT NULL DEFAULT 0 CHECK(category_cleared IN (0, 1)),
     hidden INTEGER CHECK(hidden IS NULL OR hidden IN (0, 1)),
     override_count INTEGER NOT NULL CHECK(typeof(override_count) = 'integer' AND override_count >= 0),
     already_absent INTEGER NOT NULL CHECK(already_absent IN (0, 1)),
@@ -397,8 +402,64 @@ CREATE TABLE provider_write_results (
     ),
     CHECK(merchant_external_id IS NULL OR merchant_external_id <> ''),
     CHECK(merchant_label IS NULL OR merchant_label <> ''),
-    CHECK(category_external_id IS NULL OR category_external_id <> '')
+    CHECK(category_external_id IS NULL OR category_external_id <> ''),
+    CHECK(category_cleared = 0 OR category_external_id IS NULL)
 ) STRICT;
+
+CREATE TABLE provider_write_restrictions (
+    entity_type TEXT NOT NULL CHECK(entity_type IN ('transaction', 'merchant')),
+    entity_id TEXT NOT NULL CHECK(entity_id <> ''),
+    reason TEXT NOT NULL CHECK(reason = 'transfer'),
+    PRIMARY KEY(entity_type, entity_id)
+) STRICT;
+
+CREATE TRIGGER provider_write_restriction_insert BEFORE INSERT ON provider_write_restrictions
+WHEN (NEW.entity_type = 'transaction' AND NOT EXISTS (SELECT 1 FROM transactions WHERE id = NEW.entity_id))
+    OR (NEW.entity_type = 'merchant' AND NOT EXISTS (SELECT 1 FROM merchants WHERE id = NEW.entity_id AND retired = 0))
+BEGIN
+    SELECT RAISE(ABORT, 'provider write restriction target is missing');
+END;
+
+CREATE TRIGGER provider_write_restriction_update BEFORE UPDATE ON provider_write_restrictions
+WHEN (NEW.entity_type = 'transaction' AND NOT EXISTS (SELECT 1 FROM transactions WHERE id = NEW.entity_id))
+    OR (NEW.entity_type = 'merchant' AND NOT EXISTS (SELECT 1 FROM merchants WHERE id = NEW.entity_id AND retired = 0))
+BEGIN
+    SELECT RAISE(ABORT, 'provider write restriction target is missing');
+END;
+
+CREATE TRIGGER provider_write_restriction_transaction_delete AFTER DELETE ON transactions
+BEGIN
+    DELETE FROM provider_write_restrictions WHERE entity_type = 'transaction' AND entity_id = OLD.id;
+END;
+
+CREATE TRIGGER provider_write_restriction_merchant_delete AFTER DELETE ON merchants
+BEGIN
+    DELETE FROM provider_write_restrictions WHERE entity_type = 'merchant' AND entity_id = OLD.id;
+END;
+
+CREATE TRIGGER provider_write_restriction_merchant_retire AFTER UPDATE OF retired ON merchants
+WHEN NEW.retired = 1
+BEGIN
+    DELETE FROM provider_write_restrictions WHERE entity_type = 'merchant' AND entity_id = NEW.id;
+END;
+
+CREATE TRIGGER provider_write_result_delete_insert BEFORE INSERT ON provider_write_results
+WHEN (SELECT item_kind FROM provider_write_items WHERE item_id = NEW.item_id) = 'delete'
+    AND (NEW.category_cleared = 1 OR NEW.category_external_id IS NOT NULL
+        OR NEW.merchant_external_id IS NOT NULL OR NEW.merchant_label IS NOT NULL
+        OR NEW.hidden IS NOT NULL OR NEW.override_count <> 0)
+BEGIN
+    SELECT RAISE(ABORT, 'delete result contains update fields');
+END;
+
+CREATE TRIGGER provider_write_result_delete_update BEFORE UPDATE ON provider_write_results
+WHEN (SELECT item_kind FROM provider_write_items WHERE item_id = NEW.item_id) = 'delete'
+    AND (NEW.category_cleared = 1 OR NEW.category_external_id IS NOT NULL
+        OR NEW.merchant_external_id IS NOT NULL OR NEW.merchant_label IS NOT NULL
+        OR NEW.hidden IS NOT NULL OR NEW.override_count <> 0)
+BEGIN
+    SELECT RAISE(ABORT, 'delete result contains update fields');
+END;
 
 CREATE TABLE provider_last_write_summary (
     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),

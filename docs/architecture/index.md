@@ -37,9 +37,10 @@ they are not independent analytical rows or editable split lines. Neither observ
 permission to bypass the existing capability registry.
 
 The [YNAB write-back draft](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
-is under review. Its schema 12, transfer restrictions, and YNAB writer are proposed, not installed.
+is approved and being implemented. Schema 12 adds durable category-clear and transfer-restriction
+storage; the YNAB writer and target-policy activation are not implemented yet.
 The current installed schema is defined by `CurrentSchemaVersion` in
-[initialize.go][source-1], currently 11.
+[initialize.go][source-1], currently 12.
 
 ## Ownership
 

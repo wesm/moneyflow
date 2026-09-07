@@ -802,6 +802,10 @@ func buildProviderRefreshPlan(
 	if err != nil {
 		return store.RefreshPlan{}, nil, err
 	}
+	restrictions, err := store.MapProviderWriteRestrictions(providerName, inputs.Candidate, identities.Committed)
+	if err != nil {
+		return store.RefreshPlan{}, nil, err
+	}
 	_, removedTransactions := providerRemovalCounts(
 		inputs.Snapshot.Committed,
 		inputs.Candidate,
@@ -811,7 +815,7 @@ func buildProviderRefreshPlan(
 		Committed: identities.Committed, Effective: replayed.Effective,
 		Journal: rebased.Journal, Cursor: rebased.Cursor, KnownDrills: known,
 		Allocations: identities.Allocations, Lineage: identities.Lineage,
-		YNABSplits: ynabSplits,
+		YNABSplits: ynabSplits, WriteRestrictions: restrictions,
 		Summary: store.RefreshSummary{
 			ImportedAccounts:        len(inputs.Candidate.Accounts),
 			ImportedMerchants:       len(inputs.Candidate.Merchants),
@@ -832,7 +836,8 @@ func buildProviderRefreshPlan(
 		!logicalSliceEqual(inputs.Snapshot.KnownDrills, plan.KnownDrills) ||
 		!logicalSliceEqual(inputs.Allocations, plan.Allocations) ||
 		!logicalSliceEqual(inputs.Lineage, plan.Lineage) ||
-		!logicalSliceEqual(inputs.YNABSplits, plan.YNABSplits)
+		!logicalSliceEqual(inputs.YNABSplits, plan.YNABSplits) ||
+		!logicalSliceEqual(inputs.WriteRestrictions, plan.WriteRestrictions)
 	return plan, rebased.Details, nil
 }
 

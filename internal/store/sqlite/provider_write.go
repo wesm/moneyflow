@@ -638,13 +638,13 @@ func insertWriteItem(ctx context.Context, connection *sql.Conn, batchID string, 
 		INSERT INTO provider_write_items(
 			item_id, batch_id, position, item_kind, transaction_id, transaction_external_id,
 			requested_merchant_local_id, requested_merchant_name,
-			requested_category_external_id, requested_hidden, originating_operation_ids_json,
+			requested_category_external_id, clear_category, requested_hidden, originating_operation_ids_json,
 			expectation_kind, expected_merchant_external_id, new_group_key,
 			group_leader, item_state, attempt_count
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID, batchID, item.Position, item.Kind, item.TransactionID, item.TransactionExternalID,
 		nullableText(string(item.RequestedMerchantLocalID)), nullableStringPointer(item.RequestedMerchantName),
-		nullableStringPointer(item.RequestedCategoryExternalID), nullableBoolPointer(item.RequestedHidden),
+		nullableStringPointer(item.RequestedCategoryExternalID), booleanInteger(item.ClearCategory), nullableBoolPointer(item.RequestedHidden),
 		string(originating), nullableText(string(item.Expectation)),
 		nullableText(item.ExpectedMerchantExternalID), nullableText(item.NewGroupKey),
 		booleanInteger(item.GroupLeader), item.State, item.AttemptCount); err != nil {
@@ -760,7 +760,7 @@ func loadWriteItems(
 		SELECT item_id, batch_id, position, transaction_id, transaction_external_id,
 			item_kind,
 			requested_merchant_local_id, requested_merchant_name,
-			requested_category_external_id, requested_hidden, originating_operation_ids_json,
+			requested_category_external_id, clear_category, requested_hidden, originating_operation_ids_json,
 			expectation_kind, expected_merchant_external_id, new_group_key,
 			group_leader, item_state, attempt_count
 		FROM provider_write_items WHERE batch_id = ? ORDER BY position`, batchID)
@@ -781,7 +781,7 @@ func loadClaimableWriteItems(
 		SELECT item_id, batch_id, position, transaction_id, transaction_external_id,
 			item_kind,
 			requested_merchant_local_id, requested_merchant_name,
-			requested_category_external_id, requested_hidden, originating_operation_ids_json,
+			requested_category_external_id, clear_category, requested_hidden, originating_operation_ids_json,
 			expectation_kind, expected_merchant_external_id, new_group_key,
 			group_leader, item_state, attempt_count
 		FROM provider_write_items
@@ -811,7 +811,7 @@ func scanWriteItems(rows *sql.Rows) ([]store.WriteItem, error) {
 		var leader int
 		if err := rows.Scan(
 			&item.ID, &item.BatchID, &item.Position, &item.TransactionID,
-			&item.TransactionExternalID, &item.Kind, &merchantLocalID, &merchantName, &categoryID,
+			&item.TransactionExternalID, &item.Kind, &merchantLocalID, &merchantName, &categoryID, &item.ClearCategory,
 			&hidden, &originating, &expectation, &expectedMerchant, &group,
 			&leader, &item.State, &item.AttemptCount,
 		); err != nil {
@@ -846,7 +846,7 @@ func loadWriteResults(
 ) ([]store.WriteResult, error) {
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT result.item_id, item.item_kind, result.transaction_external_id, result.merchant_external_id,
-			result.merchant_label, result.category_external_id, result.hidden,
+			result.merchant_label, result.category_external_id, result.category_cleared, result.hidden,
 			result.override_count, result.already_absent, result.recorded_at_unix_ms
 		FROM provider_write_results AS result
 		JOIN provider_write_items AS item ON item.item_id = result.item_id
@@ -863,7 +863,7 @@ func loadWriteResults(
 		var recordedAt int64
 		var alreadyAbsent int
 		if err = rows.Scan(&result.ItemID, &result.Kind, &result.TransactionExternalID, &merchantID,
-			&merchantLabel, &categoryID, &hidden, &result.OverrideCount, &alreadyAbsent, &recordedAt); err != nil {
+			&merchantLabel, &categoryID, &result.CategoryCleared, &hidden, &result.OverrideCount, &alreadyAbsent, &recordedAt); err != nil {
 			return nil, mapDriverError(err, store.CodeStoreError)
 		}
 		result.MerchantExternalID = stringPointerFromNull(merchantID)
@@ -887,10 +887,10 @@ func insertWriteResult(ctx context.Context, connection *sql.Conn, result store.W
 	if _, err := connection.ExecContext(ctx, `
 		INSERT INTO provider_write_results(
 			item_id, transaction_external_id, merchant_external_id, merchant_label,
-			category_external_id, hidden, override_count, already_absent, recorded_at_unix_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, result.ItemID, result.TransactionExternalID,
+			category_external_id, category_cleared, hidden, override_count, already_absent, recorded_at_unix_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, result.ItemID, result.TransactionExternalID,
 		nullableStringPointer(result.MerchantExternalID), nullableStringPointer(result.MerchantLabel),
-		nullableStringPointer(result.CategoryExternalID), nullableBoolPointer(result.Hidden),
+		nullableStringPointer(result.CategoryExternalID), booleanInteger(result.CategoryCleared), nullableBoolPointer(result.Hidden),
 		result.OverrideCount, booleanInteger(result.AlreadyAbsent), result.RecordedAt.UnixMilli()); err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
@@ -1003,10 +1003,14 @@ func loadProviderStateForWrite(
 	if err != nil {
 		return store.ProviderState{}, mapDriverError(err, store.CodeStoreError)
 	}
+	restrictions, err := loadProviderWriteRestrictions(ctx, queryer)
+	if err != nil {
+		return store.ProviderState{}, err
+	}
 	return store.ProviderState{
 		Revision: revision, Binding: binding, Refresh: refresh, Lease: lease,
 		Allocations: allocations, Lineage: lineage, Write: write, LastWrite: lastWrite,
-		Pristine: !populated,
+		Pristine: !populated, WriteRestrictions: restrictions,
 	}, nil
 }
 

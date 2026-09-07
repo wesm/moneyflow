@@ -20,6 +20,24 @@ func TestImportSnapshotCloneOwnsItsSlices(t *testing.T) {
 	assert.Equal(t, "", snapshot.Transactions[0].Notes)
 }
 
+func TestImportWriteRestrictionsValidateTargetsAndClone(t *testing.T) {
+	t.Parallel()
+	snapshot := validImportSnapshot(t)
+	snapshot.WriteRestrictions = []ImportWriteRestriction{{
+		Kind: EntityKindTransaction, ExternalID: snapshot.Transactions[0].ExternalID, Reason: "transfer",
+	}}
+	require.NoError(t, snapshot.Validate())
+	clone := snapshot.Clone()
+	clone.WriteRestrictions[0].ExternalID = "missing"
+	require.Error(t, clone.Validate())
+	require.NoError(t, snapshot.Validate())
+	snapshot.WriteRestrictions = append(snapshot.WriteRestrictions, snapshot.WriteRestrictions[0])
+	require.Error(t, snapshot.Validate())
+	snapshot.WriteRestrictions = snapshot.WriteRestrictions[:1]
+	snapshot.WriteRestrictions[0].Reason = "unknown"
+	require.Error(t, snapshot.Validate())
+}
+
 func TestImportSnapshotValidatesPostedAndPendingRows(t *testing.T) {
 	t.Parallel()
 
