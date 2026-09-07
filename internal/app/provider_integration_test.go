@@ -134,7 +134,8 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 	state.Current.Mode = domain.ResultModeDetail
 
 	mutation, err := service.Mutate(ctx, app.MutationRequest{
-		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+		Action: app.ActionEditCategory, ExpectedRevision: service.Revision(),
+		Input: app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID},
 		State: state, Selection: app.EmptySelection(),
 		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(target)},
 	})
@@ -151,11 +152,28 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 	unchanged := providerSnapshot(t, now.Add(time.Minute), 1)
 	unchanged.Categories[0].ParentExternalID = ""
 	source.setSnapshot(unchanged)
+	beforeRefresh, err := handle.Load(ctx)
+	require.NoError(t, err)
 	refreshed, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
-	assert.Equal(t, uint64(2), refreshed.Revision)
+	afterRefresh, err := handle.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, beforeRefresh.Committed, afterRefresh.Committed)
+	assert.Equal(t, beforeRefresh.Journal, afterRefresh.Journal)
+	// The first refreshed fold records the newly exposed Uncategorized drill.
+	assert.Len(t, afterRefresh.KnownDrills, len(beforeRefresh.KnownDrills)+1)
+	assert.Contains(t, afterRefresh.KnownDrills, domain.DrillIdentity{
+		Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2,
+		Key: string(domain.UncategorizedCategoryID),
+	})
+	assert.Equal(t, uint64(3), refreshed.Revision)
+	refreshed, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(3), refreshed.Revision, "subsequent unchanged refresh is a no-op")
 	assert.Equal(t, 1, service.Pending().ActiveOperations)
 	require.NoError(t, handle.Close())
 
@@ -169,7 +187,7 @@ func TestYNABRefreshRebasesStagedIntentAndSurvivesOfflineRestart(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, effective.Effective.Transactions, 1)
 	assert.Equal(t, target, effective.Effective.Transactions[0].ID)
-	assert.True(t, effective.Effective.Transactions[0].Hidden)
+	assert.Equal(t, domain.UncategorizedCategoryID, effective.Effective.Transactions[0].CategoryID)
 
 	offline, err := app.NewProfileService(ctx, reopened)
 	require.NoError(t, err)

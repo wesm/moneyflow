@@ -213,7 +213,8 @@ func TestYNABCapabilitiesRequireUnlockedReaderAndNeverOfferProviderCommit(t *tes
 	require.NoError(t, err)
 	unlocked := capabilitiesByAction(service.Capabilities())
 	assert.True(t, unlocked[app.ActionRefreshProvider].Available)
-	assert.True(t, unlocked[app.ActionManageCategories].Available)
+	assert.False(t, unlocked[app.ActionManageCategories].Available)
+	assert.False(t, unlocked[app.ActionToggleHidden].Available)
 
 	locked, err := app.NewProfileService(ctx, profile)
 	require.NoError(t, err)

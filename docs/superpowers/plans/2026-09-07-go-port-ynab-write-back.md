@@ -77,9 +77,9 @@ Carry slices through import clone/validation, provider state, and refresh inputs
 to `ProviderState.WriteRestrictions`. Extend existing write identity indexing with provider kind.
 One application policy serves staging and final-prefix validation; no renderer duplicates it.
 
-- [ ] Add normalization/refresh reopen tests for transfer parents, transfer-bearing children,
+- [x] Add normalization/refresh reopen tests for transfer parents, transfer-bearing children,
   transfer payees, and writable off-budget nontransfers.
-- [ ] Add failing staging/planning tables covering hide/taxonomy refusal, mixed selection rejection,
+- [x] Add failing staging/planning tables covering hide/taxonomy refusal, mixed selection rejection,
   Split assignment refusal, split-parent payee/delete acceptance, and system Uncategorized clear.
 
   ```go
@@ -88,11 +88,11 @@ One application policy serves staging and final-prefix validation; no renderer d
   assert.Equal(t, provider.CodeWriteUnsupported, code)
   ```
 
-- [ ] Implement kind-selected supported operations and exact-ID indexing. Preserve Monarch's
+- [x] Implement kind-selected supported operations and exact-ID indexing. Preserve Monarch's
   label-collision checks; YNAB active mapped destinations are addressable despite equal labels.
-- [ ] Cover effective membership sweeps, pending-created destinations, vacuous operations after
+- [x] Cover effective membership sweeps, pending-created destinations, vacuous operations after
   deletion, and existing retired/alias label rules with literal expected items.
-- [ ] Run normalize, refresh, app planning/property tests; commit.
+- [x] Run normalize, refresh, app planning/property tests; commit.
 
 ## Checkpoint 3: Single-attempt YNAB HTTP writer
 

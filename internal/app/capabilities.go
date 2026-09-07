@@ -95,6 +95,11 @@ func (service *Service) capabilitiesForSnapshot(snapshot EffectiveSnapshot) []Ca
 		setCapability(result, ActionManageCategories, false, unavailableMonarchTaxonomy)
 		setCapability(result, ActionManageGroups, false, unavailableMonarchTaxonomy)
 	}
+	if bound && providerState.Binding != nil && providerState.Binding.Kind == "ynab" {
+		setCapability(result, ActionManageCategories, false, "Manage YNAB categories and groups in YNAB.")
+		setCapability(result, ActionManageGroups, false, "Manage YNAB categories and groups in YNAB.")
+		setCapability(result, ActionToggleHidden, false, "YNAB visibility is derived from transfers and account settings.")
+	}
 	refresh := Capability{Action: ActionRefreshProvider, Available: bound && configured}
 	switch {
 	case profileKind == amazonProvider:

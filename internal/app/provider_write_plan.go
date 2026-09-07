@@ -21,7 +21,7 @@ func BuildProviderWritePlan(inputs store.PrepareProviderWriteInputs) (store.Prep
 	if err != nil {
 		return store.PrepareProviderWritePlan{}, err
 	}
-	if inputs.ProviderState.Binding == nil || inputs.ProviderState.Binding.Kind != "monarch" {
+	if !supportsTransactionWriter(inputs.ProviderState.Binding) {
 		return store.PrepareProviderWritePlan{}, provider.NewError(provider.CodeWriteUnsupported)
 	}
 	operations := replayed.Journal[:replayed.Cursor]
@@ -54,7 +54,7 @@ func CountProviderWriteItems(inputs store.PrepareProviderWriteInputs) (int, erro
 	if err != nil {
 		return 0, err
 	}
-	if inputs.ProviderState.Binding == nil || inputs.ProviderState.Binding.Kind != "monarch" {
+	if !supportsTransactionWriter(inputs.ProviderState.Binding) {
 		return 0, provider.NewError(provider.CodeWriteUnsupported)
 	}
 	items, _, err := planAbsoluteWriteItems(
@@ -90,11 +90,11 @@ func planAbsoluteWriteItems(
 	if batchID == "" {
 		return nil, nil, errors.New("provider write plan: batch ID is empty")
 	}
-	attributions, err := providerWriteAttributions(committed, operations)
+	attributions, err := providerWriteAttributions(committed, operations, state)
 	if err != nil {
 		return nil, nil, err
 	}
-	identities := providerWriteIdentityIndexes(committed.ExternalIdentities)
+	identities := providerWriteIdentityIndexes(state.Binding.Kind, committed.ExternalIdentities)
 	allocations := providerWriteAllocationIndex(state.Allocations)
 	committedTransactions := transactionRecordIndex(committed.Transactions)
 	effectiveTransactions := transactionRecordIndex(effective.Transactions)
@@ -140,7 +140,8 @@ func planAbsoluteWriteItems(
 				return nil, nil, err
 			}
 		}
-		if categoryChanged && identities.external(domain.EntityKindCategory, transaction.CategoryID) == "" {
+		if categoryChanged && identities.external(domain.EntityKindCategory, transaction.CategoryID) == "" &&
+			(state.Binding.Kind != "ynab" || transaction.CategoryID != domain.UncategorizedCategoryID) {
 			return nil, nil, provider.NewError(provider.CodeWriteUnsupported)
 		}
 		plans = append(plans, plan)
@@ -190,9 +191,13 @@ func planAbsoluteWriteItems(
 			}
 		}
 		if before.CategoryID != plan.transaction.CategoryID {
-			item.RequestedCategoryExternalID = stringPointer(
-				identities.external(domain.EntityKindCategory, plan.transaction.CategoryID),
-			)
+			if state.Binding.Kind == "ynab" && plan.transaction.CategoryID == domain.UncategorizedCategoryID {
+				item.ClearCategory = true
+			} else {
+				item.RequestedCategoryExternalID = stringPointer(
+					identities.external(domain.EntityKindCategory, plan.transaction.CategoryID),
+				)
+			}
 		}
 		if before.Hidden != plan.transaction.Hidden {
 			item.RequestedHidden = boolPointer(plan.transaction.Hidden)
@@ -206,7 +211,9 @@ func planAbsoluteWriteItems(
 func providerWriteAttributions(
 	committed domain.CommittedProfile,
 	operations []domain.Operation,
+	state store.ProviderState,
 ) (map[domain.EntityID][]string, error) {
+	policy := newYNABWritePolicy(committed, state.WriteRestrictions)
 	attributions := make(map[domain.EntityID][]string)
 	currentMerchant := make(map[domain.EntityID]domain.EntityID, len(committed.Transactions))
 	merchantMembers := make(map[domain.EntityID]map[domain.EntityID]struct{})
@@ -224,6 +231,25 @@ func providerWriteAttributions(
 	for index, operation := range operations {
 		if !supportedMonarchWriteOperation(operation.Type) {
 			return nil, provider.NewError(provider.CodeWriteUnsupported)
+		}
+		if state.Binding.Kind == "ynab" {
+			targets := operation.Targets
+			var source domain.EntityID
+			switch operation.Type {
+			case domain.OperationMerchantLabel:
+				source = operation.Label.EntityID
+			case domain.OperationMerchantMerge:
+				source = operation.Merge.SourceID
+			}
+			if source != "" {
+				targets = make([]domain.EntityID, 0, len(merchantMembers[source]))
+				for id := range merchantMembers[source] {
+					targets = append(targets, id)
+				}
+			}
+			if err := policy.validate(operation, targets); err != nil {
+				return nil, err
+			}
 		}
 		operationOrder[operation.ID] = index
 		switch operation.Type {
@@ -321,6 +347,10 @@ func supportedMonarchWriteOperation(kind domain.OperationType) bool {
 	}
 }
 
+func supportsTransactionWriter(binding *store.ProviderBinding) bool {
+	return binding != nil && (binding.Kind == "monarch" || binding.Kind == "ynab")
+}
+
 func planProviderMerchantWrite(
 	plan *providerWriteTransactionPlan,
 	transaction domain.TransactionRecord,
@@ -370,11 +400,11 @@ func planProviderMerchantWrite(
 	if merchantExternalID == "" {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
-	allocation, exists := allocations[externalIdentityKey("monarch/merchant", merchantExternalID)]
+	allocation, exists := allocations[externalIdentityKey(providerNamespace(identities.providerKind, domain.EntityKindMerchant), merchantExternalID)]
 	if !exists || allocation.ProviderLabel == "" {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
-	if providerLabelHasActiveCollision(allocation.ProviderLabel, merchantExternalID, allocations, identities) {
+	if identities.providerKind == "monarch" && providerLabelHasActiveCollision(allocation.ProviderLabel, merchantExternalID, allocations, identities) {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
 	plan.merchantName = allocation.ProviderLabel
@@ -483,14 +513,15 @@ func providerWriteGroups(items []store.WriteItem) []store.WriteItemGroup {
 }
 
 type providerWriteIdentities struct {
-	byLocal    map[string]string
-	byExternal map[string]domain.EntityID
+	providerKind string
+	byLocal      map[string]string
+	byExternal   map[string]domain.EntityID
 }
 
-func providerWriteIdentityIndexes(values []domain.ExternalIdentity) providerWriteIdentities {
-	result := providerWriteIdentities{byLocal: make(map[string]string), byExternal: make(map[string]domain.EntityID)}
+func providerWriteIdentityIndexes(providerKind string, values []domain.ExternalIdentity) providerWriteIdentities {
+	result := providerWriteIdentities{providerKind: providerKind, byLocal: make(map[string]string), byExternal: make(map[string]domain.EntityID)}
 	for _, value := range values {
-		if value.Namespace != providerNamespace("monarch", value.EntityType) {
+		if value.Namespace != providerNamespace(providerKind, value.EntityType) {
 			continue
 		}
 		result.byLocal[string(value.EntityType)+"\x00"+string(value.EntityID)] = value.ExternalID

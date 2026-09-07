@@ -56,6 +56,14 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			return domain.ImportSnapshot{}, invalidSnapshot()
 		}
 		payees[payee.ID] = payee
+		if payee.TransferAccountID != "" {
+			if _, exists := accounts[payee.TransferAccountID]; !exists {
+				return domain.ImportSnapshot{}, invalidSnapshot()
+			}
+			snapshot.WriteRestrictions = append(snapshot.WriteRestrictions, domain.ImportWriteRestriction{
+				Kind: domain.EntityKindMerchant, ExternalID: payee.ID, Reason: "transfer",
+			})
+		}
 		snapshot.Merchants = append(snapshot.Merchants, domain.ImportEntity{
 			Kind: domain.EntityKindMerchant, ExternalID: payee.ID, Label: payee.Name,
 		})
@@ -210,12 +218,14 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			Hidden:  transaction.TransferAccountID != "" || !*accounts[transaction.AccountID].OnBudget,
 		}
 		children := splitsByParent[transaction.ID]
+		transfer := transaction.TransferAccountID != "" || transaction.TransferTransactionID != "" || payees[merchantID].TransferAccountID != ""
 		if len(children) > 0 {
 			imported.CategoryExternalID = ""
 			imported.SystemCategoryID = domain.SplitCategoryID
 			sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
 			var total int64
 			for position, split := range children {
+				transfer = transfer || split.TransferAccountID != "" || split.TransferTransactionID != "" || payees[split.PayeeID].TransferAccountID != ""
 				amount := *split.Amount
 				if (amount > 0 && total > math.MaxInt64-amount) ||
 					(amount < 0 && total < math.MinInt64-amount) {
@@ -248,6 +258,11 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			}
 		}
 		snapshot.Transactions = append(snapshot.Transactions, imported)
+		if transfer {
+			snapshot.WriteRestrictions = append(snapshot.WriteRestrictions, domain.ImportWriteRestriction{
+				Kind: domain.EntityKindTransaction, ExternalID: transaction.ID, Reason: "transfer",
+			})
+		}
 	}
 	sortImportSnapshot(&snapshot)
 	if err := snapshot.Validate(); err != nil {
@@ -257,6 +272,12 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 }
 
 func sortImportSnapshot(snapshot *domain.ImportSnapshot) {
+	sort.Slice(snapshot.WriteRestrictions, func(i, j int) bool {
+		if snapshot.WriteRestrictions[i].Kind != snapshot.WriteRestrictions[j].Kind {
+			return snapshot.WriteRestrictions[i].Kind < snapshot.WriteRestrictions[j].Kind
+		}
+		return snapshot.WriteRestrictions[i].ExternalID < snapshot.WriteRestrictions[j].ExternalID
+	})
 	sort.Slice(snapshot.Accounts, func(i, j int) bool { return snapshot.Accounts[i].ExternalID < snapshot.Accounts[j].ExternalID })
 	sort.Slice(snapshot.Merchants, func(i, j int) bool { return snapshot.Merchants[i].ExternalID < snapshot.Merchants[j].ExternalID })
 	sort.Slice(snapshot.Groups, func(i, j int) bool { return snapshot.Groups[i].ExternalID < snapshot.Groups[j].ExternalID })

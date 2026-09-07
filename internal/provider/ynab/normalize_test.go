@@ -30,6 +30,21 @@ func TestNormalizeRetainsParentAccountingAndSplitDetails(t *testing.T) {
 	assert.Equal(t, int64(-1000), snapshot.Splits[0].Amount.Minor)
 }
 
+func TestNormalizeRecordsTransferRestrictionsWithoutRestrictingOffBudget(t *testing.T) {
+	plan := syntheticPlan()
+	plan.Payees = append(plan.Payees, Payee{ID: "payee-transfer", Name: "Transfer Payee", Deleted: new(false), TransferAccountID: "account-transfer"})
+	plan.Accounts[0].OnBudget = new(false)
+	plan.Subtransactions[0].TransferAccountID = "account-transfer"
+	snapshot, err := Normalize(plan, time.Now())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []domain.ImportWriteRestriction{
+		{Kind: domain.EntityKindMerchant, ExternalID: "payee-transfer", Reason: "transfer"},
+		{Kind: domain.EntityKindTransaction, ExternalID: "txn-transfer", Reason: "transfer"},
+		{Kind: domain.EntityKindTransaction, ExternalID: "txn-split", Reason: "transfer"},
+	}, snapshot.WriteRestrictions)
+	assert.True(t, transactionByID(snapshot, "txn-uncleared").Hidden)
+}
+
 func TestNormalizeRejectsInvalidMemoSplitTotalAndMoney(t *testing.T) {
 	t.Parallel()
 	for name, mutate := range map[string]func(*PlanDocument){

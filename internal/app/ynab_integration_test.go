@@ -98,7 +98,8 @@ func TestYNABHTTPRefreshPreservesJournalThroughFailureAndOfflineRestart(t *testi
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
 	_, err = service.Mutate(ctx, app.MutationRequest{
-		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(),
+		Action: app.ActionEditCategory, ExpectedRevision: service.Revision(),
+		Input: app.EditInput{Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID},
 		State: state, Selection: app.EmptySelection(),
 		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(target)},
 	})
@@ -144,8 +145,7 @@ func TestYNABHTTPRefreshPreservesJournalThroughFailureAndOfflineRestart(t *testi
 	assert.Equal(t, "ynab", offline.ProfileKind())
 	assert.Equal(t, int64(-1234), info.Transaction.Amount.Minor)
 	assert.Equal(t, "Updated memo", info.Transaction.Notes)
-	assert.Equal(t, "Historical Category", info.Transaction.Category.Name)
 	assert.False(t, info.Transaction.Pending, "posting is a provider fact, separate from local edit markers")
-	assert.True(t, info.Transaction.Hidden, "staged hide must survive refresh and process restart")
+	assert.Equal(t, string(domain.UncategorizedCategoryID), info.Transaction.Category.ID, "staged category clear must survive refresh and process restart")
 	assert.Equal(t, 1, offline.Pending().ActiveOperations)
 }

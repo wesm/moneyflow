@@ -25,9 +25,10 @@ type Account struct {
 
 // Payee is one YNAB payee.
 type Payee struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Deleted *bool  `json:"deleted"`
+	TransferAccountID string `json:"transfer_account_id"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Deleted           *bool  `json:"deleted"`
 }
 
 // CategoryGroup is one YNAB category group.

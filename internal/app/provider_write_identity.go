@@ -16,19 +16,22 @@ func (service *Service) validateProviderMutation(
 	if state.Binding == nil {
 		return nil
 	}
-	// YNAB's read-only provider slice keeps ordinary edits in the durable journal. Commit remains
-	// unavailable until a writer runtime is installed, so no provider-specific write validation
-	// applies while staging local intent.
 	if state.Binding.Kind == "ynab" {
-		return nil
+		policy := newYNABWritePolicy(snapshot.Committed, state.WriteRestrictions)
+		if err := policy.validate(operation, providerOperationTransactionTargets(snapshot.Effective, operation)); err != nil {
+			return err
+		}
 	}
-	if state.Binding.Kind != "monarch" || !supportedMonarchStagingOperation(operation.Type) {
+	if (state.Binding.Kind != "monarch" && state.Binding.Kind != "ynab") || !supportedMonarchStagingOperation(operation.Type) {
 		return provider.NewError(provider.CodeWriteUnsupported)
 	}
-	identities := providerWriteIdentityIndexes(snapshot.Committed.ExternalIdentities)
+	identities := providerWriteIdentityIndexes(state.Binding.Kind, snapshot.Committed.ExternalIdentities)
 	allocations := providerWriteAllocationIndex(state.Allocations)
 	switch operation.Type {
 	case domain.OperationCategoryAssign:
+		if state.Binding.Kind == "ynab" && operation.Reassign.DestinationID == domain.UncategorizedCategoryID {
+			return nil
+		}
 		if identities.external(domain.EntityKindCategory, operation.Reassign.DestinationID) == "" {
 			return provider.NewError(provider.CodeWriteUnsupported)
 		}
