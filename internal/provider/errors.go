@@ -24,6 +24,7 @@ const (
 	DataInvalidTransactionID     DataInvalidReason = "transaction_identity"
 	DataInvalidTransactionDate   DataInvalidReason = "transaction_date"
 	DataInvalidTransactionAmount DataInvalidReason = "transaction_amount"
+	DataInvalidCategoryReference DataInvalidReason = "category_reference"
 	DataInvalidSnapshot          DataInvalidReason = "snapshot"
 )
 
@@ -97,6 +98,7 @@ var dataInvalidDetails = map[DataInvalidReason]string{
 	DataInvalidTransactionID:     "A transaction has a missing or malformed stable identity.",
 	DataInvalidTransactionDate:   "A transaction has an invalid date.",
 	DataInvalidTransactionAmount: "A transaction amount cannot be represented at the configured currency scale.",
+	DataInvalidCategoryReference: "The provider omitted a category referenced by a transaction. Check the category in the provider before retrying.",
 	DataInvalidSnapshot:          "The normalized provider snapshot violates the import contract.",
 }
 

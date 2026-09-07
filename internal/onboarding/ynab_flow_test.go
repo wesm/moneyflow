@@ -108,6 +108,25 @@ func TestYNABMultiplePlansExposeOpaqueChoicesAndRejectUnknownChoice(t *testing.T
 	assert.Zero(t, client.fetchCalls)
 }
 
+func TestYNABMissingCategoryExplainsRefusalWithoutSavingCredentials(t *testing.T) {
+	t.Parallel()
+	vault := &fakeYNABVault{}
+	plan := testYNABPlan("plan-example")
+	plan.Transactions[0].CategoryID = "category-not-returned"
+	client := &fakeYNABClient{
+		plans: []ynab.PlanSummary{{ID: plan.ID, Name: "Example Budget"}}, plan: plan,
+	}
+	coordinator, started := newYNABFlowCoordinator(t, vault, client, nil)
+	credentials := waitForStableState(t, coordinator, started)
+	next, err := coordinator.Submit(context.Background(), ynabCredentialRequest(credentials))
+	require.NoError(t, err)
+	failed := waitForState(t, coordinator, next, StateFailed)
+	assert.Equal(t, string(provider.CodeDataInvalid), failed.Failure.Code)
+	assert.Contains(t, failed.Failure.Message, "category")
+	assert.NotContains(t, failed.Failure.Message, "category-not-returned")
+	assert.Zero(t, vault.saveCalls)
+}
+
 func TestYNABNoPlansFailsWithoutPersistingVault(t *testing.T) {
 	t.Parallel()
 	vault := &fakeYNABVault{}

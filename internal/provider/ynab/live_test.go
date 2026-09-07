@@ -10,6 +10,7 @@ import (
 
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/provider"
 )
 
 func TestLiveYNABReadOnlySnapshot(t *testing.T) {
@@ -57,6 +58,9 @@ func TestLiveYNABReadOnlySnapshot(t *testing.T) {
 		t.Fatal("YNAB budget identity changed across complete reads")
 	}
 	first, err := Normalize(firstPlan, time.Now().UTC())
+	if reason, ok := provider.DataInvalidReasonOf(err); ok {
+		t.Log(provider.DataInvalidDetail(reason))
+	}
 	require.NoError(t, err)
 	second, err := Normalize(secondPlan, time.Now().UTC())
 	require.NoError(t, err)

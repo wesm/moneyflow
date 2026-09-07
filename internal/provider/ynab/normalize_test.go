@@ -64,6 +64,27 @@ func TestNormalizeRejectsSplitAccumulatorOverflow(t *testing.T) {
 	}
 }
 
+func TestNormalizeExplainsMissingCategoryWithoutReturningPartialData(t *testing.T) {
+	for _, split := range []bool{false, true} {
+		t.Run(map[bool]string{false: "transaction", true: "split"}[split], func(t *testing.T) {
+			plan := syntheticPlan()
+			if split {
+				plan.Subtransactions[0].CategoryID = "category-not-returned"
+			} else {
+				plan.Transactions[0].CategoryID = "category-not-returned"
+			}
+			snapshot, err := Normalize(plan, time.Now())
+			require.Error(t, err)
+			assert.Empty(t, snapshot.Transactions)
+			reason, ok := provider.DataInvalidReasonOf(err)
+			require.True(t, ok)
+			assert.Equal(t, provider.DataInvalidReason("category_reference"), reason)
+			assert.Contains(t, provider.DataInvalidDetail(reason), "category")
+			assert.NotContains(t, provider.DataInvalidDetail(reason), "category-not-returned")
+		})
+	}
+}
+
 func syntheticPlan() PlanDocument {
 	no, yes := false, true
 	return PlanDocument{

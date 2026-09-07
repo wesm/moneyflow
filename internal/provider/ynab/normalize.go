@@ -135,7 +135,7 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 			split.PayeeID, split.CategoryID, split.TransferAccountID,
 			payees, categories, accounts,
 		); err != nil {
-			return domain.ImportSnapshot{}, invalidSnapshot()
+			return domain.ImportSnapshot{}, err
 		}
 		splitsByParent[split.TransactionID] = append(splitsByParent[split.TransactionID], split)
 	}
@@ -158,14 +158,14 @@ func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, 
 		categoryID := transaction.CategoryID
 		if categoryID != "" {
 			if _, ok := categories[categoryID]; !ok {
-				return domain.ImportSnapshot{}, invalidSnapshot()
+				return domain.ImportSnapshot{}, provider.NewDataInvalidError(provider.DataInvalidCategoryReference)
 			}
 		}
 		if err = validateOptionalReferences(
 			transaction.PayeeID, transaction.CategoryID, transaction.TransferAccountID,
 			payees, categories, accounts,
 		); err != nil {
-			return domain.ImportSnapshot{}, invalidSnapshot()
+			return domain.ImportSnapshot{}, err
 		}
 		cleared := transaction.Cleared
 		if cleared != "cleared" && cleared != "uncleared" && cleared != "reconciled" {
@@ -263,26 +263,26 @@ func validateOptionalReferences(
 ) error {
 	if payeeID != "" {
 		if validateID(payeeID) != nil {
-			return errors.New("invalid payee")
+			return invalidSnapshot()
 		}
 		if _, ok := payees[payeeID]; !ok {
-			return errors.New("unknown payee")
+			return invalidSnapshot()
 		}
 	}
 	if categoryID != "" {
 		if validateID(categoryID) != nil {
-			return errors.New("invalid category")
+			return invalidSnapshot()
 		}
 		if _, ok := categories[categoryID]; !ok {
-			return errors.New("unknown category")
+			return provider.NewDataInvalidError(provider.DataInvalidCategoryReference)
 		}
 	}
 	if transferAccountID != "" {
 		if validateID(transferAccountID) != nil {
-			return errors.New("invalid transfer account")
+			return invalidSnapshot()
 		}
 		if _, ok := accounts[transferAccountID]; !ok {
-			return errors.New("unknown transfer account")
+			return invalidSnapshot()
 		}
 	}
 	return nil

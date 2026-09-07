@@ -478,6 +478,9 @@ func (coordinator *Coordinator) failYNABProvider(attemptID string, err error, ca
 		message = "YNAB is temporarily unavailable."
 	case provider.CodeDataInvalid:
 		message = "YNAB returned data that Moneyflow could not use."
+		if reason, known := provider.DataInvalidReasonOf(err); known {
+			message += " " + provider.DataInvalidDetail(reason)
+		}
 	}
 	coordinator.fail(attemptID, string(code), message, canRetry, code == provider.CodeIdentityMismatch)
 }
