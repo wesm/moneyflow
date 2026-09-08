@@ -13,7 +13,7 @@ features = ["navigation.sections", "navigation.top", "content.code.copy"]
 font = false
 
 [project.theme.palette]
-scheme = "default"
+scheme = "slate"
 primary = "custom"
 accent = "custom"
 
