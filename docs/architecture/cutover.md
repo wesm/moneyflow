@@ -32,6 +32,37 @@ This is a bounded release checklist, not an exhaustive request for new features.
 lines and new charts are separate enhancements unless a required cutover workflow depends on them.
 Do not infer that preserving split details means split editing already exists.
 
+## Functional differences to track
+
+This bounded source audit was checked at `70f453e`. It supplements the release gates above;
+it is not an exhaustive certification of every Python workflow. Keep missing functions separate
+from deliberate changes and missing validation evidence.
+
+| Classification | Difference and evidence | User impact / next action |
+| --- | --- | --- |
+| Missing provider | Python has a SimpleFIN backend; the [Go provider matrix](index.md#current-functional-boundary) has no SimpleFIN adapter. | SimpleFIN users still need Python. Port it or explicitly exclude it from the initial replacement release. |
+| Legacy CLI utilities | Python exposes `categories dump` and `categories audit` in [its CLI][python-cli]; [Go command registration][go-root] has no equivalent commands. | Go's SQLite taxonomy management is not the same YAML-config workflow. Decide whether these utilities are needed or document the replacement workflow. |
+| Deliberate input scope | [Monarch snapshot normalization][monarch-snapshot] validates pending bank rows but imports only posted transactions. | Pending bank activity visible in Python is not shown in Go. Document this exclusion rather than presenting it as identical coverage. |
+| Deliberate MCP contract | [The MCP guide](../guide/mcp.md) documents read-only defaults, staged edits, explicit commit, and exact-money values. | Python MCP clients must adapt to the new contract; direct provider writes and JSON float money are not compatibility targets. |
+| Provider restrictions | [Provider policies](providers.md) restrict writable taxonomy and YNAB transfer/split/hide operations. | Publish restrictions per provider. Do not label every refusal a regression: Python's YNAB hide argument is ignored rather than implemented. |
+| Transition and delivery | No Python-profile import or released Go launcher is established by the repository build. | Preserve original data and use preview instructions until the data-continuity and installed-release gates above pass. |
+| Validation, not missing code | Automated provider and renderer tests do not establish live-write or daily-use approval. | Record authorized live and installed-client sign-off separately; do not mark implemented workflows absent merely because sign-off remains open. |
+
+Audit user-reachable behavior, not helper names. For example, Python's account-deletion helper
+supports canceled onboarding; its existence alone does not prove the selector exposes general
+profile deletion. New editable split lines or visualizations must not become invented parity gates.
+
+## Legacy documentation plan
+
+The approved direction is a Go-first homepage, walkthrough, and Zensical documentation, with a
+frozen Python archive planned at `/legacy/v1/`. That archive is **not published yet**. It will
+describe Python `0.11.1` and pin installation examples to that version, so a future Python launcher
+cannot silently replace the documented application. See the [website design][website-design].
+
+The archive is a fallback for users who still need Python, not a second maintained implementation
+or a migration mechanism. Retaining archival documentation must not keep Python application code,
+its screenshot generator, or its dependency graph in the current site's build.
+
 ## Suggested order
 
 1. Close the MCP gaps that prevent daily use and validate the provider workflows already built.
@@ -70,3 +101,7 @@ work must update those workflows; do not point users at an unshipped version as 
 [go-ci]: https://github.com/wesm/moneyflow/blob/go-port/.github/workflows/go.yml
 [docs-ci]: https://github.com/wesm/moneyflow/blob/go-port/.github/workflows/docs.yml
 [mcp-write]: https://github.com/wesm/moneyflow/blob/go-port/internal/mcp/tools_write.go
+[python-cli]: https://github.com/wesm/moneyflow/blob/70f453e/moneyflow/cli.py
+[go-root]: https://github.com/wesm/moneyflow/blob/70f453e/cmd/moneyflow/root.go
+[monarch-snapshot]: https://github.com/wesm/moneyflow/blob/70f453e/internal/provider/monarch/snapshot.go
+[website-design]: https://github.com/wesm/moneyflow/blob/go-port/docs/superpowers/specs/2026-09-08-go-first-website-design.md
