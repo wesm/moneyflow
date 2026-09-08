@@ -23,6 +23,13 @@ type SearchTransactionsInput struct {
 }
 
 type GetTransactionsInput struct {
+	TransactionFilterInput
+	Offset int  `json:"offset,omitempty"`
+	Limit  *int `json:"limit,omitempty"`
+}
+
+// TransactionFilterInput is shared by transaction reads and committed exports.
+type TransactionFilterInput struct {
 	StartDate     string `json:"start_date,omitempty"`
 	EndDate       string `json:"end_date,omitempty"`
 	CategoryID    string `json:"category_id,omitempty"`
@@ -33,8 +40,6 @@ type GetTransactionsInput struct {
 	Currency      string `json:"currency,omitempty"`
 	Scale         *uint8 `json:"scale,omitempty"`
 	IncludeHidden *bool  `json:"include_hidden,omitempty"`
-	Offset        int    `json:"offset,omitempty"`
-	Limit         *int   `json:"limit,omitempty"`
 }
 
 type SpendingSummaryInput struct {

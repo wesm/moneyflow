@@ -166,6 +166,9 @@ func TestCaptureExportValidatesRequest(t *testing.T) {
 		{name: "full query", mutate: func(request *app.ExportRequest) {
 			request.CanonicalQuery = "v=1"
 		}},
+		{name: "full scope with transaction filter", mutate: func(request *app.ExportRequest) {
+			request.TransactionFilter = &app.TransactionFilter{MerchantSubstring: "Merchant A"}
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

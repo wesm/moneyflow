@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/analytics"
@@ -14,13 +15,13 @@ import (
 // ExportDocumentSchemaVersion identifies the lossless renderer-neutral export document.
 const ExportDocumentSchemaVersion = 2
 
-// ExportScope selects the complete committed profile or its analytical transaction subset.
+// ExportScope selects the complete committed profile or a filtered transaction subset.
 type ExportScope string
 
 const (
 	// ExportScopeFull includes every committed transaction.
 	ExportScopeFull ExportScope = "full"
-	// ExportScopeFiltered applies the current analytical transaction predicates.
+	// ExportScopeFiltered applies analytical or tool transaction predicates.
 	ExportScopeFiltered ExportScope = "filtered"
 )
 
@@ -36,11 +37,14 @@ type ExportPreview struct {
 
 // ExportRequest contains the validated renderer intent and injected document identity.
 type ExportRequest struct {
-	Scope          ExportScope
-	State          ViewState
-	CanonicalQuery string
-	ExportedAt     time.Time
-	AppVersion     string
+	Scope ExportScope
+	State ViewState
+	// TransactionFilter selects tool predicates instead of analytical ViewState predicates.
+	// It is valid only for filtered scope and resolves against committed taxonomy.
+	TransactionFilter *TransactionFilter
+	CanonicalQuery    string
+	ExportedAt        time.Time
+	AppVersion        string
 }
 
 // ExportMetadata records the exact committed frame represented by one document.
@@ -94,6 +98,16 @@ func (service *Service) PreviewExport(
 	ctx context.Context,
 	state ViewState,
 ) (ExportPreview, error) {
+	return service.previewExport(ctx, state, nil)
+}
+
+// PreviewTransactionExport counts committed rows using the same predicates as TransactionWindow.
+// It does not take the export execution lock or impose collection pagination.
+func (service *Service) PreviewTransactionExport(ctx context.Context, filter TransactionFilter) (ExportPreview, error) {
+	return service.previewExport(ctx, DefaultViewState(), &filter)
+}
+
+func (service *Service) previewExport(ctx context.Context, state ViewState, filter *TransactionFilter) (ExportPreview, error) {
 	if err := state.Validate(); err != nil {
 		return ExportPreview{}, newAppError(AppExportInvalid, service.Revision(), err)
 	}
@@ -105,7 +119,7 @@ func (service *Service) PreviewExport(
 	if err != nil {
 		return ExportPreview{}, newAppError(AppExportFailed, snapshot.Revision, err)
 	}
-	filtered, err := analytics.Filter(committed, analyticalQuerySpec(state.Current))
+	filtered, err := selectExportTransactions(committed, snapshot.Committed, state, filter)
 	if err != nil {
 		return ExportPreview{}, newAppError(AppExportInvalid, snapshot.Revision, err)
 	}
@@ -134,7 +148,7 @@ func (service *Service) CaptureExport(
 	}
 	selected := committed
 	if request.Scope == ExportScopeFiltered {
-		selected, err = analytics.Filter(committed, analyticalQuerySpec(request.State.Current))
+		selected, err = selectExportTransactions(committed, snapshot.Committed, request.State, request.TransactionFilter)
 		if err != nil {
 			return ExportDocument{}, newAppError(AppExportInvalid, snapshot.Revision, err)
 		}
@@ -162,6 +176,27 @@ func (service *Service) CaptureExport(
 	}, nil
 }
 
+func selectExportTransactions(rows []domain.Transaction, committed domain.CommittedProfile, state ViewState, filter *TransactionFilter) ([]domain.Transaction, error) {
+	if filter == nil {
+		return analytics.Filter(rows, analyticalQuerySpec(state.Current))
+	}
+	if err := validateTransactionFilter(*filter); err != nil {
+		return nil, err
+	}
+	categoryID, err := resolveToolCategory(*filter, &committed)
+	if err != nil {
+		return nil, err
+	}
+	selected := make([]domain.Transaction, 0, len(rows))
+	query, merchant := strings.ToLower(filter.LiteralQuery), strings.ToLower(filter.MerchantSubstring)
+	for _, row := range rows {
+		if matchesToolTransaction(row, *filter, categoryID, query, merchant) {
+			selected = append(selected, row)
+		}
+	}
+	return selected, nil
+}
+
 func (service *Service) exportSnapshot(
 	ctx context.Context,
 ) (EffectiveSnapshot, bool, error) {
@@ -178,6 +213,9 @@ func (service *Service) exportSnapshot(
 }
 
 func validateExportRequest(request ExportRequest) error {
+	if request.TransactionFilter != nil && request.Scope != ExportScopeFiltered {
+		return errors.New("transaction filters require filtered export scope")
+	}
 	if request.Scope != ExportScopeFull && request.Scope != ExportScopeFiltered {
 		return errors.New("export scope is invalid")
 	}

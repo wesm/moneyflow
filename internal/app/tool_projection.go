@@ -12,7 +12,7 @@ import (
 // MaxToolRows is the largest collection window exposed to renderer adapters.
 const MaxToolRows = 1_000
 
-// TransactionFilter selects one detached effective-transaction projection.
+// TransactionFilter selects rows from an effective projection or committed export.
 type TransactionFilter struct {
 	StartDate         *domain.Date
 	EndDate           *domain.Date
@@ -177,7 +177,11 @@ func (service *Service) TransactionWindow(
 	if err = validateTransactionFilter(filter); err != nil {
 		return TransactionWindow{}, newAppError(AppInvalidOperation, state.revision, err)
 	}
-	categoryID, err := resolveToolCategory(filter, state.snapshot)
+	var taxonomy *domain.CommittedProfile
+	if state.snapshot != nil {
+		taxonomy = &state.snapshot.Effective
+	}
+	categoryID, err := resolveToolCategory(filter, taxonomy)
 	if err != nil {
 		return TransactionWindow{}, newAppError(AppInvalidTarget, state.revision, err)
 	}
@@ -432,10 +436,10 @@ func validateTransactionFilter(filter TransactionFilter) error {
 	return nil
 }
 
-func resolveToolCategory(filter TransactionFilter, snapshot *EffectiveSnapshot) (domain.EntityID, error) {
+func resolveToolCategory(filter TransactionFilter, profile *domain.CommittedProfile) (domain.EntityID, error) {
 	if filter.CategoryID != "" {
-		if snapshot != nil {
-			for _, category := range snapshot.Effective.Categories {
+		if profile != nil {
+			for _, category := range profile.Categories {
 				if category.ID == filter.CategoryID && !category.Retired {
 					return filter.CategoryID, nil
 				}
@@ -447,7 +451,7 @@ func resolveToolCategory(filter TransactionFilter, snapshot *EffectiveSnapshot) 
 	if filter.CategoryLabel == "" {
 		return "", nil
 	}
-	if snapshot == nil {
+	if profile == nil {
 		return "", errors.New("category labels require a durable profile")
 	}
 	key, err := domain.CollisionKey(filter.CategoryLabel)
@@ -455,7 +459,7 @@ func resolveToolCategory(filter TransactionFilter, snapshot *EffectiveSnapshot) 
 		return "", err
 	}
 	var result domain.EntityID
-	for _, category := range snapshot.Effective.Categories {
+	for _, category := range profile.Categories {
 		if category.Retired || category.CollisionKey != key {
 			continue
 		}

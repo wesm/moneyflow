@@ -36,7 +36,7 @@ func registerResources(server *Server, dependencies Dependencies) {
 	})
 	addResource(server, resourceRecent, "Recent Moneyflow transactions", "Recent effective transactions", func(ctx context.Context) (any, error) {
 		includeHidden := true
-		return getTransactionsDocument(ctx, dependencies.Service, GetTransactionsInput{IncludeHidden: &includeHidden, Limit: intPointer(50)})
+		return getTransactionsDocument(ctx, dependencies.Service, GetTransactionsInput{TransactionFilterInput: TransactionFilterInput{IncludeHidden: &includeHidden}, Limit: intPointer(50)})
 	})
 }
 

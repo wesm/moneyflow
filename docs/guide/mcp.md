@@ -182,7 +182,7 @@ and reloads provider truth; it does not undo remote writes that already succeede
 
 ## Server-side export
 
-`preview_export` takes no arguments and reports the full committed transaction count, revision,
+`preview_export` defaults to the full committed profile and reports its transaction count, revision,
 excluded pending-operation count, and inactive redo-operation count. It creates no file and does
 not acquire the export execution lock. Its counts describe that preview, not a frozen snapshot.
 
@@ -192,16 +192,43 @@ Call `export_transactions` with no arguments for Parquet, or select an explicit 
 {"format": "csv"}
 ```
 
-Supported formats are `parquet`, `csv`, and `sqlite`. This first MCP export tool always exports
-the **full committed profile**, including hidden transactions. For a filtered export, use TUI/web.
+Supported formats are `parquet`, `csv`, and `sqlite`. The default is the **full committed profile**,
+including hidden transactions. Both tools also accept `scope: "filtered"` and a `filter` object:
+
+```json
+{
+  "scope": "filtered",
+  "filter": {
+    "start_date": "2026-01-01",
+    "end_date": "2026-12-31",
+    "merchant": "Example Merchant",
+    "include_hidden": false
+  }
+}
+```
+
+Use that input for `preview_export`; add `"format": "csv"` to use it for `export_transactions`.
+Filters have the same meaning as `get_transactions`: inclusive dates, case-insensitive literal
+merchant substring, `category_id` or normalized `category_label` (not both), exact `min_amount` /
+`max_amount` strings with their required `currency` and `scale`, and `include_hidden` (default true).
+All supplied predicates must match. There is no `offset` or `limit`: the file contains every matching
+committed row, including results beyond the transaction-read window. An empty filter object matches
+the whole committed profile. Filtered scope requires the object; full scope rejects any filter object
+instead of silently ignoring it.
+
 Pending edits, including pending deletions, are excluded: the file can differ from MCP's effective
 transaction reads. The result's `excluded_pending_operations` makes that difference explicit.
+Category IDs and labels resolve against committed taxonomy too: a pending rename does not change
+which label an export accepts. Commit first when you need those changes in the file.
 
 The file is created in the selected profile's `exports/` directory on the machine running the
 MCP server. The result contains `location: "server"`, `path`, `filename`, `format`, `size_bytes`,
 `transaction_count`, and the captured `revision` and journal exclusion counts. Execution captures
 the then-current committed revision; the result and file metadata are authoritative, even if an
 earlier preview showed different counts. It does not send the financial dataset in the tool reply.
+For filtered exports, the file's `canonical_query` metadata records the filter as deterministic
+JSON tagged `mcp_transactions_v1`, not as a TUI/web analytical URL. Filter text stays in the exported
+file, not diagnostic logs.
 
 **HTTP clients receive a server-side path, not a download or an MCP attachment.** Retrieve the file
 on that machine or use the web application's download workflow. Callers cannot select arbitrary
@@ -213,7 +240,8 @@ provider write batch. They do not refresh providers, modify the profile revision
 edits. `export_transactions` still has a non-read-only MCP annotation because it creates a file;
 read-only access here means no user-intent editing, not a ban on export files.
 
-An empty profile returns `export_empty` from execution; a held export lock returns `export_busy`.
+An empty profile or empty filtered result returns `export_empty` from execution; preview reports zero.
+A held export lock returns `export_busy`.
 Invalid formats and filesystem failures return `export_invalid` and `export_failed`. Cancellation
 observed before publication leaves no published export (`export_cancelled` if a response can still
 be delivered). If a reply is lost after publication,

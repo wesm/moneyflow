@@ -235,7 +235,7 @@ func searchTransactionsDocument(ctx context.Context, service *app.Service, input
 }
 
 func getTransactionsDocument(ctx context.Context, service *app.Service, input GetTransactionsInput) (TransactionWindowDocument, error) {
-	filter, err := transactionFilter(input)
+	filter, err := transactionFilter(input.TransactionFilterInput)
 	if err != nil {
 		return TransactionWindowDocument{}, newAppInputError(service.Revision(), err)
 	}
@@ -247,7 +247,7 @@ func getTransactionsDocument(ctx context.Context, service *app.Service, input Ge
 	return transactionWindowDocument(window), nil
 }
 
-func transactionFilter(input GetTransactionsInput) (app.TransactionFilter, error) {
+func transactionFilter(input TransactionFilterInput) (app.TransactionFilter, error) {
 	filter := app.TransactionFilter{
 		CategoryID: domain.EntityID(input.CategoryID), CategoryLabel: input.CategoryLabel,
 		MerchantSubstring: input.Merchant, IncludeHidden: true,

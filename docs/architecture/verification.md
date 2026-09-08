@@ -101,6 +101,9 @@ MCP export tests drive the real SDK and exporter, including stdio and authentica
 calls. They check committed-only rows after staged deletion, exact negative CSV amounts, execution
 revision and exclusion metadata, format dispatch, lock-free preview, export contention, empty/error
 results, cancellation cleanup, and export without running or altering an unfinished provider batch.
+Filtered export cases cover inclusive date/amount bounds, literal merchant matching, category ID/label,
+committed taxonomy despite pending renames, visibility, invalid combinations, empty results, recorded
+filter metadata, and complete output beyond the transaction-read window.
 
 Use Testify and existing test helpers. New tests should exercise an owned application behavior,
 not assert that removed files stay absent, that Makefile text contains a word, or that an upstream

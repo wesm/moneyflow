@@ -96,6 +96,154 @@ func TestMCPExportFormatsAndReadOnlyRegistration(t *testing.T) {
 	assert.Equal(t, uint64(1), service.Revision())
 }
 
+func TestMCPFilteredExportUsesCommittedPredicatesAndCompleteResult(t *testing.T) {
+	service, closeProfile := writeTestService(t, 3)
+	defer closeProfile()
+	selection, err := app.NewExplicitTransactionSelection([]domain.EntityID{"transaction_000"}, service.Revision())
+	require.NoError(t, err)
+	_, err = service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionToggleHidden, ExpectedRevision: service.Revision(), State: mutationDetailState(),
+		Selection: selection, OmitProjection: true,
+	})
+	require.NoError(t, err)
+	_, err = service.Commit(t.Context(), app.CommitRequest{ExpectedRevision: service.Revision(), ReviewedRevision: service.Revision(), State: mutationDetailState(), Selection: app.EmptySelection()})
+	require.NoError(t, err)
+	selection, err = app.NewExplicitTransactionSelection([]domain.EntityID{"transaction_000"}, service.Revision())
+	require.NoError(t, err)
+	_, err = service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionDeleteTransaction, ExpectedRevision: service.Revision(), State: mutationDetailState(),
+		Selection: selection, OmitProjection: true,
+	})
+	require.NoError(t, err)
+	client, root := connectExportTestServer(t, service)
+	for _, test := range []struct {
+		name   string
+		filter map[string]any
+		ids    []string
+	}{
+		{"all", map[string]any{}, []string{"transaction_000", "transaction_001", "transaction_002"}},
+		{"inclusive dates", map[string]any{"start_date": "2026-08-29", "end_date": "2026-08-29"}, []string{"transaction_000", "transaction_001", "transaction_002"}},
+		{"after dates", map[string]any{"start_date": "2026-08-30"}, nil},
+		{"before dates", map[string]any{"end_date": "2026-08-28"}, nil},
+		{"category id", map[string]any{"category_id": "category_a"}, []string{"transaction_000", "transaction_001"}},
+		{"category label", map[string]any{"category_label": "CATEGORY A"}, []string{"transaction_000", "transaction_001"}},
+		{"merchant literal", map[string]any{"merchant": "EXAMPLE MER"}, []string{"transaction_000", "transaction_001", "transaction_002"}},
+		{"merchant not regex", map[string]any{"merchant": "Example.*"}, nil},
+		{"inclusive amounts", map[string]any{"min_amount": "-1.00", "max_amount": "-1.00", "currency": "USD", "scale": 2}, []string{"transaction_000", "transaction_001", "transaction_002"}},
+		{"below amounts", map[string]any{"max_amount": "-1.01", "currency": "USD", "scale": 2}, nil},
+		{"above amounts", map[string]any{"min_amount": "-0.99", "currency": "USD", "scale": 2}, nil},
+		{"money partition", map[string]any{"min_amount": "-1.00", "currency": "EUR", "scale": 2}, nil},
+		{"visible category", map[string]any{"include_hidden": false, "category_id": "category_a"}, []string{"transaction_001"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			args := map[string]any{"scope": "filtered", "filter": test.filter}
+			preview := callWriteTool(t, client, "preview_export", args)
+			require.False(t, preview.IsError, "%v", preview.StructuredContent)
+			assert.Equal(t, "filtered", preview.StructuredContent.(map[string]any)["scope"])
+			assert.Equal(t, float64(len(test.ids)), preview.StructuredContent.(map[string]any)["transaction_count"])
+			args["format"] = "csv"
+			result := callWriteTool(t, client, "export_transactions", args)
+			if len(test.ids) == 0 {
+				require.True(t, result.IsError)
+				assert.Equal(t, "export_empty", result.StructuredContent.(map[string]any)["code"])
+				return
+			}
+			require.False(t, result.IsError, "%v", result.StructuredContent)
+			document := result.StructuredContent.(map[string]any)
+			assert.Equal(t, float64(len(test.ids)), document["transaction_count"])
+			assert.Equal(t, float64(1), document["excluded_pending_operations"])
+			path := document["path"].(string)
+			require.Equal(t, filepath.Join(root, "exports"), filepath.Dir(path))
+			contents, readErr := os.ReadFile(path) // #nosec G304 -- path checked against this test's temporary export directory.
+			require.NoError(t, readErr)
+			assert.Contains(t, string(contents), "# scope: filtered\n")
+			assert.Contains(t, string(contents), "mcp_transactions_v1")
+			if test.name == "category id" {
+				assert.Contains(t, string(contents), `# canonical_query: {"kind":"mcp_transactions_v1","filter":{"category_id":"category_a","include_hidden":true}}`)
+			}
+			reader := csv.NewReader(strings.NewReader(string(contents)))
+			reader.Comment = '#'
+			records, readErr := reader.ReadAll()
+			require.NoError(t, readErr)
+			var ids []string
+			for _, record := range records[1:] {
+				ids = append(ids, record[slices.Index(records[0], "transaction_id")])
+				assert.Equal(t, "-1.00", record[slices.Index(records[0], "amount")])
+			}
+			assert.Equal(t, test.ids, ids)
+		})
+	}
+	assert.Equal(t, uint64(4), service.Revision())
+}
+
+func TestMCPFilteredExportRejectsInvalidSelectionBeforeWriting(t *testing.T) {
+	service, closeProfile := writeTestService(t, 3)
+	defer closeProfile()
+	client, root := connectExportTestServer(t, service)
+	for _, args := range []map[string]any{
+		{"scope": "unknown"},
+		{"filter": map[string]any{"merchant": "Example"}},
+		{"scope": "full", "filter": map[string]any{}},
+		{"scope": "filtered"},
+		{"scope": "filtered", "filter": map[string]any{"start_date": "invalid"}},
+		{"scope": "filtered", "filter": map[string]any{"start_date": "2026-08-30", "end_date": "2026-08-29"}},
+		{"scope": "filtered", "filter": map[string]any{"category_id": "category_a", "category_label": "Category A"}},
+		{"scope": "filtered", "filter": map[string]any{"category_id": "missing"}},
+		{"scope": "filtered", "filter": map[string]any{"min_amount": "-1.00"}},
+		{"scope": "filtered", "filter": map[string]any{"min_amount": "1.00", "max_amount": "-1.00", "currency": "USD", "scale": 2}},
+	} {
+		for _, tool := range []string{"preview_export", "export_transactions"} {
+			result := callWriteTool(t, client, tool, args)
+			require.True(t, result.IsError, "%s must reject %v", tool, args)
+		}
+	}
+	files, err := filepath.Glob(filepath.Join(root, "exports", "*-export.*"))
+	require.NoError(t, err)
+	assert.Empty(t, files)
+	assert.Equal(t, uint64(1), service.Revision())
+}
+
+func TestMCPFilteredExportResolvesCommittedTaxonomy(t *testing.T) {
+	service, closeProfile := writeTestService(t, 3)
+	defer closeProfile()
+	_, err := service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionManageCategories, ExpectedRevision: service.Revision(), State: mutationDetailState(), Selection: app.EmptySelection(),
+		Input: app.EditInput{Taxonomy: app.TaxonomyRename, EntityID: "category_a", Label: "Pending Category"}, OmitProjection: true,
+	})
+	require.NoError(t, err)
+	client, _ := connectExportTestServer(t, service)
+	for _, tool := range []string{"preview_export", "export_transactions"} {
+		committed := callWriteTool(t, client, tool, map[string]any{"scope": "filtered", "filter": map[string]any{"category_label": "Category A"}})
+		require.False(t, committed.IsError, "%v", committed.StructuredContent)
+		assert.Equal(t, float64(2), committed.StructuredContent.(map[string]any)["transaction_count"])
+		pending := callWriteTool(t, client, tool, map[string]any{"scope": "filtered", "filter": map[string]any{"category_label": "Pending Category"}})
+		require.True(t, pending.IsError)
+	}
+	read := callWriteTool(t, client, "get_transactions", map[string]any{"category_label": "Pending Category", "limit": 1})
+	require.False(t, read.IsError)
+	assert.Equal(t, float64(2), read.StructuredContent.(map[string]any)["total"])
+}
+
+func TestMCPFilteredExportIsNotCappedByTransactionWindow(t *testing.T) {
+	service, closeProfile := writeTestService(t, 1002)
+	defer closeProfile()
+	client, root := connectExportTestServer(t, service)
+	result := callWriteTool(t, client, "export_transactions", map[string]any{"scope": "filtered", "filter": map[string]any{"category_id": "category_a"}, "format": "csv"})
+	require.False(t, result.IsError, "%v", result.StructuredContent)
+	document := result.StructuredContent.(map[string]any)
+	assert.Equal(t, float64(1001), document["transaction_count"])
+	path := document["path"].(string)
+	require.Equal(t, filepath.Join(root, "exports"), filepath.Dir(path))
+	contents, err := os.ReadFile(path) // #nosec G304 -- path checked against this test's temporary export directory.
+	require.NoError(t, err)
+	reader := csv.NewReader(strings.NewReader(string(contents)))
+	reader.Comment = '#'
+	records, err := reader.ReadAll()
+	require.NoError(t, err)
+	require.Len(t, records, 1002)
+	assert.Equal(t, "transaction_999", records[len(records)-1][slices.Index(records[0], "transaction_id")])
+}
+
 func TestMCPExportBusyPreviewAndSafeFailure(t *testing.T) {
 	service, closeProfile := writeTestService(t, 1)
 	defer closeProfile()

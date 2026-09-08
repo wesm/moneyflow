@@ -99,15 +99,21 @@ revision check. Other MCP mutations and batch controls require nonzero revisions
 must never activate the application's optional reconciliation-check bypass. Authoritative checks
 remain in the ordinary application/store path. No provider taxonomy API or schema change is involved.
 
-`preview_export` and `export_transactions` reuse `Service.PreviewExport`, `Service.CaptureExport`,
-and `internal/exporter.WriteFile`. They export the full committed profile with no provider I/O,
+`preview_export` and `export_transactions` reuse `Service.PreviewExport`,
+`Service.PreviewTransactionExport`, `Service.CaptureExport`, and `internal/exporter.WriteFile`.
+They default to full committed scope; explicit filtered scope shares the transaction-read input
+parser and application predicates without pagination. Category resolution uses committed taxonomy,
+not pending renames or creates. The optional application `TransactionFilter` replaces analytical
+`ViewState` predicates for that request; existing TUI/web callers continue using `ViewState`.
+Filtered MCP metadata records deterministic JSON tagged `mcp_transactions_v1` in `canonical_query`,
+distinct from analytical URL encoding. Full scope rejects filter input. No provider I/O runs,
 including during an unfinished batch. Preview has no filesystem side effects or export lock;
 execution captures the current revision under the export lock and atomically publishes a private
 Parquet (default), CSV, or SQLite file. The bounded reply identifies a server-side path, captured
 revision, size, row count, and journal exclusion counts; it is not an attachment or a download.
 No caller-supplied path is accepted. Both tools are registered without `--allow-write`, but file
 creation carries a non-read-only protocol hint. Only the calling client's result may contain the
-export path, not diagnostics. Filtered exports and browser downloads remain separate UI flows.
+export path, not diagnostics. Browser downloads remain a separate web UI flow.
 
 The MCP launcher opens YNAB offline by default. `--unlock` reads the existing vault password from
 the controlling terminal, not protocol stdin/stdout, and configures that process's reader/writer.
