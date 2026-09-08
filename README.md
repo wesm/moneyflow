@@ -66,6 +66,10 @@ budgets, you'll be prompted to select one. See the [YNAB setup guide](https://mo
 
 ## Go v2 SQLite Preview
 
+Start with the [Go application quick start](docs/getting-started/go.md), including the MCP-first
+workflow. The [Python retirement checklist](docs/architecture/cutover.md) separates remaining
+release blockers from optional UI improvements.
+
 For development, start with the [maintained Go architecture](docs/architecture/index.md) and
 [verification guide](docs/architecture/verification.md). Historical slice plans are not the
 current architecture reference.

@@ -1,5 +1,9 @@
 # Installation
 
+!!! info "Python release instructions"
+    This page installs the Python application, not the Go replacement. For `go-port`, use the
+    [Go application quick start](go.md). The thin Python launcher for Go is not shipped yet.
+
 moneyflow can be installed in multiple ways depending on your preference.
 
 ## Quick Install

@@ -12,6 +12,8 @@ instructions. An approved proposal becomes current architecture only as its impl
 
 ## Reading map
 
+- [Python retirement](cutover.md): remaining release gates and the boundary between personal
+  cutover and full product replacement.
 - [State, accounting, and storage](state-and-storage.md): money, identities, journal, revision
   checks, profiles, recovery, and local commit.
 - [Providers and data movement](providers.md): refresh, durable write-back, Monarch, YNAB,

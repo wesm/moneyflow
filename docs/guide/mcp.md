@@ -4,6 +4,10 @@ The Go v2 preview can expose one persistent Moneyflow profile through the Model 
 (MCP). It uses the same application service, exact integer money, pending journal, revision checks,
 and provider lifecycle as the TUI and web UI.
 
+This guide describes the Go binary, not the Python `moneyflow-mcp` entry point. Start with the
+[Go quick start](../getting-started/go.md) to build the binary and create a profile. The Go
+application is the replacement target; the Python package is not yet a binary launcher.
+
 MCP access is read-only by default. Moneyflow does not refresh providers on a schedule or resume an
 ownerless provider write batch merely because an MCP process is running.
 
@@ -71,10 +75,24 @@ Write-enabled tools follow this workflow:
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed.
 4. Call `commit_changes` with the exact reviewed revision.
 
+Use the current `expected_revision` for staging/undo/redo. Commit takes both `expected_revision`
+and `reviewed_revision`; use the revision from the review, not an earlier search. On a revision
+conflict, read the current state and review again instead of automatically resending the edit.
+
+The current edit tools change categories only. Merchant rename/reassignment, hide toggles,
+transaction deletion, taxonomy management, and export still require TUI/web; `--allow-write`
+does not expose every action available in those interfaces.
+
 Local and Amazon profiles fold the reviewed journal atomically. Monarch and unlocked YNAB profiles prepare the same
 durable provider write batch used by the TUI and web UI. `get_commit_status`, `pause_commit`,
 `resume_commit`, `stop_and_reconcile`, `get_reconcile_status`, and `confirm_reconcile` expose only
 bounded status and control operations. MCP tools never bypass the durable provider writer.
+
+An accepted commit response may mean a batch is running, not that all writes have completed.
+Poll `get_commit_status` and inspect its phase. After a server restart, inspect that durable
+status and explicitly resume eligible work; startup alone does not resume it. Use the current
+batch version for controls. `stop_and_reconcile` abandons the failed and unsent frozen intent
+and reloads provider truth; it does not undo remote writes that already succeeded.
 
 ## Explicit Provider Refresh
 

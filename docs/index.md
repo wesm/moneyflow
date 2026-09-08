@@ -1,5 +1,11 @@
 # moneyflow
 
+!!! info "Go replacement"
+    Developing or using the `go-port` branch? Start with the
+    [Go application guide](getting-started/go.md) and [MCP setup](guide/mcp.md).
+    The installation examples below still describe the released Python application.
+    The [retirement checklist](architecture/cutover.md) tracks what remains before Go replaces it.
+
 [![PyPI version](https://img.shields.io/pypi/v/moneyflow?color=blue)](https://pypi.org/project/moneyflow/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

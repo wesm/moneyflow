@@ -108,6 +108,7 @@ nav:
     - Quick Start: getting-started/quickstart.md
     - Changelog: reference/changelog.md
   - Getting Started:
+    - Go Application: getting-started/go.md
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
   - User Guide:
@@ -142,3 +143,4 @@ nav:
       - Interfaces: architecture/interfaces.md
       - Verification: architecture/verification.md
       - Decisions: architecture/decisions.md
+      - Python Retirement: architecture/cutover.md

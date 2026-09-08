@@ -1,5 +1,9 @@
 # Quick Start
 
+!!! info "Python release instructions"
+    These commands and screenshots describe Python. For the Go TUI, web UI, and MCP server, use
+    the [Go application quick start](go.md); bare Go `moneyflow` prints help rather than opening a TUI.
+
 Get up and running with moneyflow in 5 minutes.
 
 ---
