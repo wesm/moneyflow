@@ -94,8 +94,10 @@ provider validation. Both dry run and staging use that planner. The shared repla
 transaction changes and a separately bounded, stable-ID-ordered entity diff, including creation
 and retirement with no transaction rows. Each MCP list is capped at 100 with full counts; the
 mutation is not truncated. Preview IDs are provisional, and only the staged result's ID should
-be reused. Pristine profiles accept revision zero; authoritative revision checks remain in the
-ordinary application/store path. No provider taxonomy API or schema change is involved.
+be reused. Taxonomy creation on pristine profiles accepts revision zero with an exact application
+revision check. Other MCP mutations and batch controls require nonzero revisions/versions: zero
+must never activate the application's optional reconciliation-check bypass. Authoritative checks
+remain in the ordinary application/store path. No provider taxonomy API or schema change is involved.
 
 `preview_export` and `export_transactions` reuse `Service.PreviewExport`, `Service.CaptureExport`,
 and `internal/exporter.WriteFile`. They export the full committed profile with no provider I/O,

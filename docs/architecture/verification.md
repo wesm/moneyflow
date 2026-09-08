@@ -93,6 +93,10 @@ creation, staged parent/category creation, undo/redo, and Amazon local commit ac
 The stdio subprocess also creates and commits a group. Provider profiles reject taxonomy changes
 in both dry-run and staging paths.
 
+Reconciliation tool tests reject zero revisions and batch versions against real unfinished write
+batches and process-local confirmation candidates. Rejections leave the batch, revision, provider
+fetch count, and confirmation token unchanged; valid follow-up requests still complete.
+
 MCP export tests drive the real SDK and exporter, including stdio and authenticated HTTP subprocess
 calls. They check committed-only rows after staged deletion, exact negative CSV amounts, execution
 revision and exclusion metadata, format dispatch, lock-free preview, export contention, empty/error

@@ -385,7 +385,9 @@ func mutationPreviewDocument(
 
 func parseMutationRevision(service *app.Service, value string) (uint64, error) {
 	revision, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
+	// Reconciliation interprets zero as an omitted revision check. Never let an
+	// MCP batch control opt out of the expected revision/version contract.
+	if err != nil || revision == 0 {
 		return 0, newAppInputError(service.Revision(), errors.New("expected revision is invalid"))
 	}
 	return revision, nil

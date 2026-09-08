@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"strconv"
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -44,9 +45,11 @@ func registerTaxonomyTools(server *Server, dependencies Dependencies) {
 }
 
 func taxonomyMutationDocument(ctx context.Context, service *app.Service, input TaxonomyInput, action app.ActionID, entityID, parentID string) (MutationDocument, error) {
-	expected, err := parseMutationRevision(service, input.ExpectedRevision)
+	// Only taxonomy needs revision zero, to create entities in a pristine local
+	// profile. PreviewMutation and Mutate compare it exactly, never as a sentinel.
+	expected, err := strconv.ParseUint(input.ExpectedRevision, 10, 64)
 	if err != nil {
-		return MutationDocument{}, err
+		return MutationDocument{}, newAppInputError(service.Revision(), errors.New("expected revision is invalid"))
 	}
 	if err = validateTaxonomyToolInput(input, action, entityID, parentID); err != nil {
 		return MutationDocument{}, newAppInputError(service.Revision(), err)
