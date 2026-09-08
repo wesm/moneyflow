@@ -17,6 +17,19 @@ build: web-embed
 help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
+.PHONY: docs-build docs-check docs-test docs-serve
+docs-build:
+	bun docs/tools/site.ts build
+
+docs-check:
+	bun docs/tools/site.ts check
+
+docs-test:
+	bun test docs/tools/site.test.ts
+
+docs-serve:
+	bun docs/tools/site.ts serve
+
 test: web-embed
 	MONEYFLOW_SKIP_PERF=1 go test $(GOFLAGS_TEST) ./...
 	go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$$' -count=1

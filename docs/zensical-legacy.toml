@@ -1,0 +1,31 @@
+[project]
+site_name = "Moneyflow · Legacy Python v1"
+site_url = "https://moneyflow.dev/legacy/v1/"
+site_description = "Frozen Python 0.11.1 documentation. Moneyflow development continues in Go."
+docs_dir = ".site-work/legacy/pages"
+site_dir = ".site-work/legacy/site"
+extra_css = ["stylesheets/site.css"]
+
+[project.theme]
+variant = "modern"
+custom_dir = "legacy/overrides"
+features = ["navigation.sections", "navigation.top", "content.code.copy"]
+font = false
+
+[project.theme.palette]
+scheme = "default"
+primary = "custom"
+accent = "custom"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+"pymdownx.superfences" = {}
+"pymdownx.details" = {}
+"pymdownx.tabbed" = { alternate_style = true }
+"pymdownx.keys" = {}
+
+[project.extra]
+homepage = "/"

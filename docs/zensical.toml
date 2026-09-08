@@ -1,0 +1,53 @@
+[project]
+site_name = "Moneyflow"
+site_url = "https://moneyflow.dev/docs/"
+site_description = "Local-first transaction analysis and refinement through a terminal, browser, or MCP client."
+docs_dir = ".site-work/current/pages"
+site_dir = ".site-work/current/site"
+repo_url = "https://github.com/wesm/moneyflow"
+repo_name = "wesm/moneyflow"
+edit_uri = "edit/go-port/docs/"
+extra_css = ["stylesheets/site.css"]
+nav = [
+  { "Start" = [{ "Overview" = "index.md" }, { "Quick start" = "getting-started/go.md" }, { "Python transition and limitations" = "getting-started/python-transition.md" }] },
+  { "Workflows" = [
+    { "Navigation and search" = "guide/navigation.md" },
+    { "Filters and time" = "guide/filters.md" },
+    { "Editing, duplicates and recovery" = "guide/editing.md" },
+    { "Export" = "guide/export.md" },
+  ] },
+  { "Interfaces" = [{ "TUI quick start" = "getting-started/go.md" }, { "Web" = "guide/web.md" }, { "MCP" = "guide/mcp.md" }] },
+  { "Providers" = [{ "Monarch" = "guide/monarch.md" }, { "YNAB" = "guide/ynab.md" }, { "Amazon" = "guide/amazon-mode.md" }] },
+  { "Reference" = [{ "Commands and configuration" = "reference/cli.md" }, { "Troubleshooting" = "reference/troubleshooting.md" }] },
+  { "Architecture" = [
+    { "Overview" = "architecture/index.md" },
+    { "State and storage" = "architecture/state-and-storage.md" },
+    { "Providers" = "architecture/providers.md" },
+    { "Interfaces" = "architecture/interfaces.md" },
+    { "Verification" = "architecture/verification.md" },
+    { "Decisions" = "architecture/decisions.md" },
+    { "Cutover" = "architecture/cutover.md" },
+    { "Website and publishing" = "architecture/website.md" },
+  ] },
+]
+
+[project.theme]
+variant = "modern"
+custom_dir = "overrides"
+features = ["navigation.sections", "navigation.top", "content.code.copy"]
+font = false
+
+[project.theme.palette]
+scheme = "default"
+primary = "custom"
+accent = "custom"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+tables = {}
+"pymdownx.superfences" = {}
+"pymdownx.details" = {}
+
+[project.extra]
+homepage = "/"

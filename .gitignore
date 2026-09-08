@@ -49,6 +49,7 @@ htmlcov/
 # macOS
 .DS_Store
 site/
+docs/.site-work/
 
 # Generated documentation assets
 docs/assets/screenshots/*.svg

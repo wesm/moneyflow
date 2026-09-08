@@ -26,7 +26,7 @@ characterization, and a cross-compiled binary is not an installation test on tha
 | Release delivery | `pyproject.toml` still launches Python; `PUBLISHING.md`, release scripts, and `flake.nix` still package it. Go CI builds the binary. | Ship and install Go artifacts with embedded web assets on the supported platforms; update release channels and implement/test the thin Python launcher if retained. |
 | User workflows | Automated TUI/API/browser journeys exist; that does not establish day-to-day usability. | Sign off onboarding, editing, commit/recovery, export, and reconnect through TUI, web, and MCP, including the private proxy deployment. Visual polish alone need not block this. |
 | Full provider coverage | SimpleFIN remains Python-only. | Port SimpleFIN or explicitly announce that v2 does not replace that part of v1. It need not block a personal Monarch/YNAB/Amazon cutover. |
-| Documentation and build independence | The Go quick start and MCP guide describe Go; much of the public guide and deployment setup remains Python-oriented. | Make Go the default install/operating guide, replace Python-specific instructions and screenshot generation, and remove production/test imports of the retired package. |
+| Documentation and build independence | The combined Go-first website and frozen Python archive build through a separate docs environment. Production publication is not yet authorized; remaining Python application/test imports are a separate retirement task. | Publish the reviewed site, finish release instructions when artifacts ship, and remove production/test imports of the retired package. |
 
 This is a bounded release checklist, not an exhaustive request for new features. Editable split
 lines and new charts are separate enhancements unless a required cutover workflow depends on them.
@@ -54,10 +54,10 @@ profile deletion. New editable split lines or visualizations must not become inv
 
 ## Legacy documentation plan
 
-The approved direction is a Go-first homepage, walkthrough, and Zensical documentation, with a
-frozen Python archive planned at `/legacy/v1/`. That archive is **not published yet**. It will
-describe Python `0.11.1` and pin installation examples to that version, so a future Python launcher
-cannot silently replace the documented application. See the [website design][website-design].
+The combined site builds a Go-first homepage, walkthrough, and Zensical documentation, with a
+frozen Python archive at `/legacy/v1/`. That archive is **not published yet**. It describes Python
+`0.11.1` and pins installation examples to that version, so a future Python launcher cannot silently
+replace the documented application. See [website operation](website.md) and the [website design][website-design].
 
 The archive is a fallback for users who still need Python, not a second maintained implementation
 or a migration mechanism. Retaining archival documentation must not keep Python application code,
@@ -83,9 +83,10 @@ executable oracle. Remove the Python characterization runners only after their o
 covered. Independent format readback can remain a separate test dependency; Zensical can remain a
 documentation dependency. Neither requires retaining the Python Moneyflow application.
 
-The current documentation workflows still generate Python screenshots and deploy from `stable`.
-A successful local Zensical build does not publish the `go-port` guide to moneyflow.dev. Release
-work must update those workflows; do not point users at an unshipped version as if it were live.
+The `go-port` workflows build the combined site without Python screenshots or application imports;
+deployment is manual. The old workflow on `stable` must still be disabled before first publication.
+A successful local build does not publish the site to moneyflow.dev. Do not point users at an
+unshipped version as if it were live.
 
 ## Evidence to revisit
 

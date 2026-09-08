@@ -5,7 +5,8 @@ Update these pages when implementation changes. They describe the running applic
 eventual Python-deprecation goal or every feature proposed during the port.
 
 The Python distribution still exists. Its separate
-[architecture guide](../development/architecture.md) describes Python, not Go.
+[architecture guide](https://github.com/wesm/moneyflow/blob/v0.11.1/docs/development/architecture.md)
+describes Python, not Go.
 Completed [slice specs and plans](../superpowers/README.md) are decision history. They contain
 superseded restrictions, schema numbers, and test procedures; do not use them as current operating
 instructions. An approved proposal becomes current architecture only as its implementation lands.

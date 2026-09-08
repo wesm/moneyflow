@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The workflow — Moneyflow</title>
+    <meta
+      name="description"
+      content="Connect, explore, refine, review and commit with Moneyflow's shared terminal, web and MCP workflows."
+    />
+    <link rel="canonical" href="https://moneyflow.dev/guide/" />
+    <link rel="stylesheet" href="/styles/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <div class="wrap nav">
+        <a class="brand" href="/">moneyflow<span>.</span></a>
+        <nav aria-label="Main">
+          <a href="/guide/" aria-current="page">Walkthrough</a
+          ><a href="/docs/">Docs</a
+          ><a href="https://github.com/wesm/moneyflow/tree/go-port">GitHub ↗</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" class="wrap">
+      <div class="guide-head">
+        <p class="eyebrow">The Moneyflow workflow</p>
+        <h1>Less clicking around.<br />More <em>understanding.</em></h1>
+        <p class="lede">
+          Start broad. Find the rows that matter. Make the change deliberately.
+        </p>
+      </div>
+      <section class="step" aria-labelledby="connect">
+        <span class="number">01</span>
+        <div>
+          <h2 id="connect">Choose your starting point.</h2>
+          <p>
+            Try a disposable demo first. Then add a profile for Monarch, YNAB or
+            Amazon through the selector.
+          </p>
+          <p>
+            Each profile owns its data and durable pending work. Switching
+            interfaces does not create another copy of your edits.
+          </p>
+          <a href="/docs/getting-started/go/">Quick start →</a>
+        </div>
+        <aside>
+          <strong>Start locally</strong>
+          <pre><code>./bin/moneyflow tui --demo
+./bin/moneyflow web --demo</code></pre>
+          <p>
+            Demo edits disappear when the process exits. Real profiles persist.
+          </p>
+        </aside>
+      </section>
+      <section class="step" aria-labelledby="explore">
+        <span class="number">02</span>
+        <div>
+          <h2 id="explore">Ask a smaller question.</h2>
+          <p>
+            Group by merchant, category, account or time with <kbd>g</kbd>.
+            Drill with Enter, search with <kbd>/</kbd>, and return with Esc.
+          </p>
+          <p>
+            On a transaction, <kbd>i</kbd> opens details. Use that context
+            before treating an unfamiliar amount as a mistake.
+          </p>
+          <a href="/docs/guide/navigation/">Navigation and search →</a>
+        </div>
+        <aside>
+          <strong>Prefer an assistant?</strong>
+          <p>
+            Use MCP to search transactions and inspect returned IDs. Its search
+            is literal and includes notes; the TUI/web search is a regular
+            expression over merchant and category names.
+          </p>
+          <a href="/docs/guide/mcp/">MCP setup and tool reference →</a>
+        </aside>
+      </section>
+      <section class="step" aria-labelledby="refine">
+        <span class="number">03</span>
+        <div>
+          <h2 id="refine">Select. Then stage.</h2>
+          <p>
+            Space selects rows. Change a category with <kbd>c</kbd> or a
+            merchant with <kbd>m</kbd>. A bulk change is one undo unit, not a
+            pile of unrelated keystrokes.
+          </p>
+          <p>
+            Use <kbd>u</kbd> to undo and <kbd>U</kbd> to redo. Provider-specific
+            availability tells you which changes can actually be committed.
+          </p>
+        </div>
+        <aside>
+          <strong>MCP follows the same boundary</strong>
+          <p>
+            Enable write tools explicitly. Preview using <code>dry_run</code>,
+            then stage against the current revision. Reading data does not
+            authorize a provider write.
+          </p>
+          <p>Pending edits are shared, durable and reviewable.</p>
+        </aside>
+      </section>
+      <section class="step" aria-labelledby="review">
+        <span class="number">04</span>
+        <div>
+          <h2 id="review">Review before it leaves the journal.</h2>
+          <p>
+            Press <kbd>w</kbd> to review and Enter to begin the commit. A
+            changed revision asks you to review again instead of applying a
+            stale decision.
+          </p>
+          <p>
+            In MCP, call <code>review_changes</code>, then
+            <code>commit_changes</code> for that revision and poll
+            <code>get_commit_status</code>.
+          </p>
+          <a href="/docs/guide/editing/">Editing and recovery →</a>
+        </div>
+        <aside>
+          <strong>A remote commit is a process</strong>
+          <p>
+            A provider batch can pause for rate limits, reconnect or attention.
+            Follow it to completion. Stop and reconcile keeps remote successes
+            and abandons failed or unsent intent.
+          </p>
+          <p>Local and Amazon commits stay local.</p>
+        </aside>
+      </section>
+      <section class="step" aria-labelledby="export">
+        <span class="number">05</span>
+        <div>
+          <h2 id="export">Keep an exact record.</h2>
+          <p>
+            Export Parquet, CSV or SQLite with <kbd>E</kbd>, or use MCP's export
+            tools. Choose the full profile or a filtered committed subset.
+          </p>
+          <p>
+            Exports exclude pending edits. The file metadata records what was
+            captured, so “what I see” and “what I exported” need not be
+            confused.
+          </p>
+          <a href="/docs/guide/export/">Export semantics →</a>
+        </div>
+        <aside>
+          <strong>Coming from Python?</strong>
+          <p>
+            The Go preview is the future application, not yet a drop-in data
+            migration. Preserve your original profiles.
+          </p>
+          <a href="/docs/getting-started/python-transition/"
+            >Limitations and transition guidance →</a
+          >
+        </aside>
+      </section>
+      <section class="cta">
+        <h2>Try the loop with synthetic data.</h2>
+        <p>Build the Go preview and explore without connecting a provider.</p>
+        <a class="button" href="/docs/getting-started/go/">Get started</a>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap footer-inner">
+        <span>Moneyflow · Open source · MIT</span
+        ><span
+          ><a href="/docs/">Documentation</a> ·
+          <a href="/legacy/v1/">Legacy Python v1</a></span
+        >
+      </div>
+    </footer>
+  </body>
+</html>

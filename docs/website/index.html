@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moneyflow — make sense of your transactions</title>
+    <meta
+      name="description"
+      content="Local-first transaction analysis and refinement. Use a terminal, browser or MCP client with one Go application."
+    />
+    <link rel="canonical" href="https://moneyflow.dev/" />
+    <link rel="stylesheet" href="/styles/site.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <div class="wrap nav">
+        <a class="brand" href="/">moneyflow<span>.</span></a>
+        <nav aria-label="Main">
+          <a href="/guide/">Walkthrough</a><a href="/docs/">Docs</a
+          ><a href="https://github.com/wesm/moneyflow/tree/go-port">GitHub ↗</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main" class="wrap">
+      <section class="hero" aria-labelledby="intro">
+        <div>
+          <p class="eyebrow">Local-first personal finance · Go preview</p>
+          <h1 id="intro">
+            Your transactions.<br />A clearer <em>picture.</em>
+          </h1>
+          <p class="lede">
+            Explore the details. Refine the messy parts. Review what changes
+            before you commit it.
+          </p>
+          <div class="actions">
+            <a class="button" href="/docs/getting-started/go/"
+              >Try the Go preview</a
+            ><a href="/guide/">See the workflow →</a>
+          </div>
+          <p class="note">
+            Terminal, browser and MCP. One application, one set of profiles.
+          </p>
+        </div>
+        <div>
+          <div
+            class="terminal"
+            aria-label="Illustrative keyboard workflow using synthetic data"
+          >
+            <div class="terminal-bar">
+              <span>moneyflow / review</span><span>synthetic example</span>
+            </div>
+            <pre>Merchant                 Count      Amount
+─────────────────────────────────────────
+<span class="selected">› Example Market             4     $124.50</span>
+  Sample Transit             8      $32.00
+  Demo Books                 2      $46.00
+
+  / search    Space select    c category
+
+<span class="selected">  4 transactions selected</span>
+  Review the change. Then commit.</pre>
+          </div>
+          <p class="terminal-caption">
+            Illustration of the workflow, not an application screenshot.
+          </p>
+        </div>
+      </section>
+      <section class="band" aria-labelledby="interfaces">
+        <div class="section-intro">
+          <div>
+            <p class="eyebrow">Work your way</p>
+            <h2 id="interfaces">
+              Three interfaces.<br />The same underlying work.
+            </h2>
+          </div>
+          <p>
+            Switch how you interact, not how your data behaves. Profiles,
+            pending edits and commit status belong to the application.
+          </p>
+        </div>
+        <div class="cards">
+          <article class="card">
+            <span class="number">01 / TERMINAL</span>
+            <h3>Keep your hands on the keys.</h3>
+            <p>
+              Group, drill, search and refine a selection. Review the result
+              with <kbd>w</kbd>, then commit with Enter.
+            </p>
+            <a href="/docs/guide/navigation/">Learn the keys →</a>
+          </article>
+          <article class="card">
+            <span class="number">02 / BROWSER</span>
+            <h3>Bring the workflow to a tab.</h3>
+            <p>
+              Use shared profiles and keyboard-driven transitions. Serve
+              privately on your own machine or behind your trusted proxy.
+            </p>
+            <a href="/docs/guide/web/">Set up the web UI →</a>
+          </article>
+          <article class="card">
+            <span class="number">03 / MCP</span>
+            <h3>Give your assistant a precise interface.</h3>
+            <p>
+              Search, inspect, preview and stage changes. Explicit review and
+              commit keep reading separate from writing.
+            </p>
+            <a href="/docs/guide/mcp/">Connect an MCP client →</a>
+          </article>
+        </div>
+      </section>
+      <section class="band" aria-labelledby="workflow">
+        <p class="eyebrow">A deliberate loop</p>
+        <h2 id="workflow">From a broad question to a reviewed change.</h2>
+        <div class="flow">
+          <article>
+            <span class="number">01</span>
+            <h3>Explore</h3>
+            <p>
+              Start with merchants, categories, accounts or time. Drill into
+              what needs attention.
+            </p>
+          </article>
+          <article>
+            <span class="number">02</span>
+            <h3>Refine</h3>
+            <p>
+              Search and select the exact rows. Make a bulk change without
+              losing its undo grouping.
+            </p>
+          </article>
+          <article>
+            <span class="number">03</span>
+            <h3>Review</h3>
+            <p>
+              Pending edits survive restart. Inspect them before they become a
+              commit.
+            </p>
+          </article>
+          <article>
+            <span class="number">04</span>
+            <h3>Commit</h3>
+            <p>
+              Apply local changes or follow a durable provider batch through
+              completion and recovery.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="band" aria-labelledby="providers">
+        <p class="eyebrow">Your data, locally available</p>
+        <h2 id="providers">Connect a provider. Or import your orders.</h2>
+        <div class="provider">
+          <strong>Monarch Money</strong>
+          <p>
+            Posted transactions, refresh and supported edits with durable
+            write-back.
+          </p>
+          <a href="/docs/guide/monarch/">Monarch guide</a>
+        </div>
+        <div class="provider">
+          <strong>YNAB</strong>
+          <p>
+            Plan imports, payee/category edits and deletion, with explicit
+            provider restrictions.
+          </p>
+          <a href="/docs/guide/ynab/">YNAB guide</a>
+        </div>
+        <div class="provider">
+          <strong>Amazon</strong>
+          <p>
+            Order-history CSV imports, local categorization and cross-profile
+            matching.
+          </p>
+          <a href="/docs/guide/amazon-mode/">Amazon guide</a>
+        </div>
+        <p class="note">
+          SimpleFIN remains Python-only.
+          <a href="/docs/getting-started/python-transition/"
+            >Read the current gaps and transition guidance.</a
+          >
+        </p>
+      </section>
+      <section class="cta" aria-labelledby="try">
+        <p class="eyebrow">Start with a demo</p>
+        <h2 id="try">Explore before you connect.</h2>
+        <p>
+          Build the preview, then try a temporary synthetic profile. No account
+          required.
+        </p>
+        <pre><code>./bin/moneyflow tui --demo</code></pre>
+        <a class="button" href="/docs/getting-started/go/"
+          >Build and get started</a
+        >
+        <p class="note">
+          Go release packaging and Python-profile migration are still cutover
+          work. Current PyPI installs the legacy Python app.
+        </p>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap footer-inner">
+        <span>Moneyflow · Open source · MIT</span
+        ><span
+          ><a href="/docs/architecture/cutover/">Cutover status</a> ·
+          <a href="/legacy/v1/">Legacy Python v1</a> ·
+          <a href="https://github.com/wesm/moneyflow">Source</a></span
+        >
+      </div>
+    </footer>
+  </body>
+</html>

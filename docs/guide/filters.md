@@ -1,58 +1,24 @@
-# Filters
+# Filters and time
 
-Press `f` to open the filter settings modal.
+Press `f` to inspect the available analytical filters and `/` to search. These project the whole
+matching result, not only the visible window. Hidden-state filtering changes what you see; it
+does not change the provider's hidden flag.
 
-![Filter settings modal](../assets/screenshots/filter-modal.svg)
+TUI startup can set a time range:
 
-## Available Filters
+```bash
+./bin/moneyflow tui --profile "Example Profile" --year 2026
+./bin/moneyflow tui --demo --mtd
+```
 
-### Show Transfers
+Use the current command's `--help` for mutually exclusive time options. In the view, `t` changes
+time granularity, Enter drills into a period, Left/Right move between periods and `a` clears
+time selection.
 
-**Default**: Off (transfers excluded)
+Search in TUI/web is case-insensitive regular-expression matching of merchant/category names.
+[MCP search](mcp.md) uses literal matching and can include notes; do not translate a browser
+regular expression into an MCP search expecting the same interpretation.
 
-Transfer transactions (e.g., "Transfer to Savings") are typically internal movements between your accounts,
-not income or expenses. By default, moneyflow excludes them from all views.
-
-Toggle this filter to:
-
-- **On**: Include transfer transactions in all views
-- **Off**: Exclude transfer transactions (recommended for spending analysis)
-
-### Show Hidden Transactions
-
-**Default**: On (hidden transactions shown)
-
-Transactions can be marked as "hidden from reports" (press `h` on any transaction). This is useful for:
-
-- One-time purchases you want to exclude from spending trends
-- Reimbursed expenses
-- Corrections or duplicates
-
-**Behavior**:
-
-- **Detail views**: Always show hidden transactions (so you can review and unhide them)
-- **Aggregate views**: Respect this filter setting
-  - **On**: Include hidden transactions in counts and totals
-  - **Off**: Exclude hidden transactions from aggregate calculations
-
-Hidden transactions are marked with an `H` indicator in the detail view.
-
-## Applying Filters
-
-1. Press `f` to open the filter modal
-2. Use arrow keys to navigate options
-3. Press `Space` or `Enter` to toggle filters
-4. Press `Enter` to apply changes
-
-The status bar shows your current filter settings:
-
-- "transfers excluded" or "transfers shown"
-- "hidden shown" or "hidden excluded"
-
-## Advanced Filtering
-
-More advanced filtering capabilities (by amount range, date range, merchant patterns, etc.)
-are planned for future releases.
-
-For now, use [Search](navigation.md#search) to filter by text matching,
-and [Time Navigation](navigation.md#time-as-an-aggregate-dimension) to filter by date.
+Filtered exports use these analytical predicates against **committed** rows. A pending hide,
+rename, recategorization or deletion can therefore make an export differ from the visible view.
+See [export](export.md) before using it for reconciliation.

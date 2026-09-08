@@ -409,44 +409,35 @@ uv run ruff check --fix moneyflow/ tests/
 
 ### Working with Documentation
 
-The project uses [Zensical](https://zensical.org) (modern theme) for documentation.
-Zensical is built by the Material for MkDocs team and reads the existing `mkdocs.yml`
-configuration natively.
+The current website combines static homepage/walkthrough pages and two Zensical builds:
+current Go documentation at `/docs/` and frozen Python v1 documentation at `/legacy/v1/`.
+Use the separate locked environment in `docs/`, not the application dependency graph.
 
 **Starting the docs server:**
 
 ```bash
 # Serve docs locally with live reload (default: http://localhost:8000)
-uv run zensical serve
+make docs-serve
 ```
 
 **Building the site (no server):**
 
 ```bash
-uv run zensical build   # output written to site/
+make docs-test
+make docs-build   # combined output written to ignored site/
+make docs-check   # built links, fragments, assets, canonical/robots metadata
 ```
 
-**Generating/regenerating screenshots:**
+The loopback preview serves the combined output and does not watch source files; rebuild after
+edits. Public sources are selected by `docs/site-manifest.json`, not recursive copying of docs.
+See `docs/architecture/website.md` for the archive manifest and deployment checklist.
 
-```bash
-# Generate all screenshots
-uv run python scripts/generate_screenshots.py
+Do not regenerate Python screenshots for the site. The frozen archive records unavailable images
+with notices. Generated screenshots and distributions remain ignored; durable visual assets require
+the separately managed orphan-assets branch. Root `mkdocs.yml` belongs to the unreplaced Python
+release scripts and is not the current site's configuration.
 
-# Generate only specific screenshots (by filename filter)
-uv run python scripts/generate_screenshots.py --filter amazon-matching
-
-# IMPORTANT: After regenerating, restart the docs server for changes to appear
-```
-
-**Known Issues:**
-
-- **Stale screenshots/images**: If docs show old images after regenerating, delete the
-  `site/` directory and rebuild, then hard refresh the browser (`Cmd+Shift+R` /
-  `Ctrl+Shift+R`).
-
-- **HTML img tags need different paths**: When using `<img>` tags in markdown (for tables),
-  paths resolve relative to the page URL, not the source file. Use `../../assets/` for
-  pages in subdirectories like `guide/navigation.md`.
+Publication is separate from building. Never dispatch the deployment workflow without authorization.
 
 ### Configuration
 

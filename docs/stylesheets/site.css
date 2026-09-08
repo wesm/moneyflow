@@ -1,0 +1,18 @@
+:root {
+  --md-primary-fg-color: #174d45;
+  --md-accent-fg-color: #206e61;
+}
+.md-banner {
+  background: #123830;
+  color: #fff;
+}
+.md-banner a,
+.md-banner .md-typeset a {
+  color: #fff;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.md-typeset a:focus-visible {
+  outline: 3px solid #b36a19;
+  outline-offset: 3px;
+}
