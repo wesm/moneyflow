@@ -73,14 +73,15 @@ A normal MCP session is:
 1. Inspect profile/provider status and call `refresh_data` when you want fresh provider data.
    Poll `get_refresh_status` until that attempt finishes.
 2. Search transactions and inspect categories. Use exact IDs returned by tools.
-3. Preview a category change with `dry_run`, then stage it with the current revision.
+3. Preview a category/merchant edit, hide toggle, or deletion with `dry_run`, then stage it with
+   the current revision.
 4. Read `review_changes`. Commit only the revision you reviewed with `commit_changes`.
 5. Poll `get_commit_status`; a background batch is not complete just because the tool returned.
    Follow any pause, reconnect, or reconciliation guidance before issuing more writes.
 
-MCP currently stages category edits, not merchant edits, hide toggles, or transaction deletion.
-Those workflows remain in TUI/web. See the [MCP guide](../guide/mcp.md) for tool limits and restart
-recovery. MCP does not run the TUI/web six-hour refresh scheduler.
+MCP targets the 2026-07-28 protocol. See the [MCP guide](../guide/mcp.md) for editing tools,
+limits, and restart recovery. Export and taxonomy management remain in TUI/web. MCP does not
+run the TUI/web six-hour refresh scheduler.
 
 ## Keyboard workflows and provider limits
 

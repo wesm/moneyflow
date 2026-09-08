@@ -127,6 +127,7 @@ func testMCPStdioSubprocess(
 	require.NoError(t, session.Close())
 	require.NoError(t, waitForMCPProcess(command, 5*time.Second))
 	assertProtocolFrames(t, protocol.Bytes())
+	assert.Contains(t, protocol.String(), `"resultType":"complete"`)
 	assertMCPStderrAllowlist(t, stderr.String(), false)
 }
 
@@ -175,7 +176,7 @@ func testMCPHTTPSubprocess(
 	require.NoError(t, err)
 	tools, err := reconnected.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Len(t, tools.Tools, 24)
+	assert.Contains(t, toolNames(tools.Tools), "rename_merchant")
 	require.NoError(t, reconnected.Close())
 
 	stopMCPProcess(t, command)

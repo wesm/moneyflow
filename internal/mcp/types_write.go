@@ -55,9 +55,9 @@ type ConfirmReconcileInput struct {
 
 // MutationChangeDocument reports one exact transaction before and after an edit.
 type MutationChangeDocument struct {
-	TransactionID string              `json:"transaction_id"`
-	Before        TransactionDocument `json:"before"`
-	After         TransactionDocument `json:"after"`
+	TransactionID string               `json:"transaction_id"`
+	Before        TransactionDocument  `json:"before"`
+	After         *TransactionDocument `json:"after"`
 }
 
 // MutationDocument is the bounded structured result of one edit or cursor mutation.

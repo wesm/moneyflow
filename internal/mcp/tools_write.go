@@ -10,9 +10,8 @@ import (
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
-const maxCategoryMutationTargets = 100
-
 func registerWriteTools(server *Server, dependencies Dependencies) {
+	registerTransactionEditTools(server, dependencies)
 	registerTool(server, "update_transaction_category", "Stage one exact transaction category change.", false,
 		func(ctx context.Context, input UpdateTransactionCategoryInput) (any, error) {
 			return categoryMutationDocument(ctx, dependencies.Service, []string{input.TransactionID}, input.ExpectedRevision, input.CategoryID, input.CategoryLabel, input.DryRun)
@@ -252,48 +251,18 @@ func categoryMutationDocument(
 	categoryLabel string,
 	dryRun bool,
 ) (MutationDocument, error) {
-	expected, err := parseMutationRevision(service, expectedText)
+	request, err := transactionEditRequest(service, TransactionEditInput{
+		ExpectedRevision: expectedText, TransactionIDs: transactionIDs, DryRun: dryRun,
+	}, app.ActionEditCategory)
 	if err != nil {
 		return MutationDocument{}, err
 	}
-	if len(transactionIDs) < 1 || len(transactionIDs) > maxCategoryMutationTargets {
-		return MutationDocument{}, newAppInputError(service.Revision(), errors.New("transaction batch is out of range"))
-	}
-	ids := make([]domain.EntityID, len(transactionIDs))
-	for index, value := range transactionIDs {
-		ids[index] = domain.EntityID(value)
-	}
-	selection, err := app.NewExplicitTransactionSelection(ids, expected)
-	if err != nil {
-		return MutationDocument{}, newAppInputError(service.Revision(), err)
-	}
-	destination, err := resolveMutationCategory(ctx, service, expected, categoryID, categoryLabel)
+	destination, err := resolveMutationCategory(ctx, service, request.ExpectedRevision, categoryID, categoryLabel)
 	if err != nil {
 		return MutationDocument{}, err
 	}
-	state := mutationDetailState()
-	request := app.MutationRequest{
-		Action: app.ActionEditCategory, ExpectedRevision: expected, State: state,
-		Selection:      selection,
-		Input:          app.EditInput{Scope: app.EditScopeTransactions, DestinationID: destination},
-		Window:         app.WindowRequest{Limit: maxCategoryMutationTargets},
-		OmitProjection: !dryRun,
-	}
-	preview, err := service.PreviewMutation(ctx, request)
-	if err != nil {
-		return MutationDocument{}, err
-	}
-	if dryRun {
-		return mutationPreviewDocument(preview, true, preview.Pending), nil
-	}
-	result, err := service.Mutate(ctx, request)
-	if err != nil {
-		return MutationDocument{}, err
-	}
-	document := mutationPreviewDocument(preview, false, result.Pending)
-	document.Header = NewHeader(StatusOK, result.Revision)
-	document.SelectionDisposition = string(result.SelectionDisposition)
-	return document, nil
+	request.Input = app.EditInput{Scope: app.EditScopeTransactions, DestinationID: destination}
+	return executeEditDocument(ctx, service, request, dryRun)
 }
 
 func cursorMutationDocument(
@@ -388,9 +357,13 @@ func mutationPreviewDocument(
 		SelectionDisposition: string(preview.SelectionDisposition),
 	}
 	for _, row := range preview.Rows {
+		var after *TransactionDocument
+		if !row.Deleted {
+			after = new(transactionDocument(row.After))
+		}
 		document.Changes = append(document.Changes, MutationChangeDocument{
 			TransactionID: string(row.TransactionID),
-			Before:        transactionDocument(row.Before), After: transactionDocument(row.After),
+			Before:        transactionDocument(row.Before), After: after,
 		})
 	}
 	return document

@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +20,54 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/httpsecurity"
 )
+
+func TestHTTP20260728DiscoveryAndProfileRead(t *testing.T) {
+	handler, token, _, cleanup := newHTTPTestHandler(t, "127.0.0.1:8081")
+	defer cleanup()
+	for _, test := range []struct {
+		method string
+		name   string
+		params string
+	}{
+		{"server/discover", "", `{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`},
+		{"tools/call", "get_account_info", `{"name":"get_account_info","arguments":{},"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`},
+		{"resources/read", "moneyflow://account", `{"uri":"moneyflow://account","_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`},
+		{"tools/list", "", `{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}`},
+	} {
+		t.Run(test.method, func(t *testing.T) {
+			body := `{"jsonrpc":"2.0","id":1,"method":"` + test.method + `","params":` + test.params + `}`
+			request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8081/mcp/", strings.NewReader(body))
+			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Accept", "application/json, text/event-stream")
+			request.Header.Set("Mcp-Method", test.method)
+			request.Header.Set("Mcp-Protocol-Version", "2026-07-28")
+			if test.name != "" {
+				request.Header.Set("Mcp-Name", test.name)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var envelope struct {
+				Result map[string]any `json:"result"`
+				Error  any            `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+			require.Nil(t, envelope.Error, response.Body.String())
+			assert.Equal(t, "complete", envelope.Result["resultType"])
+			assert.Empty(t, response.Header().Get("Mcp-Session-Id"))
+			assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+			if test.method == "resources/read" || test.method == "tools/list" {
+				assert.Equal(t, "private", envelope.Result["cacheScope"])
+				assert.Equal(t, float64(0), envelope.Result["ttlMs"])
+			}
+			if test.method == "tools/call" {
+				assert.NotEqual(t, true, envelope.Result["isError"])
+				require.NotNil(t, envelope.Result["structuredContent"])
+			}
+		})
+	}
+}
 
 func TestHTTPHandlerRejectsBeforeReadingBody(t *testing.T) {
 	handler, _, _, cleanup := newHTTPTestHandler(t, "127.0.0.1:8081")

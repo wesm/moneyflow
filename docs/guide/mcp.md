@@ -11,6 +11,17 @@ application is the replacement target; the Python package is not yet a binary la
 MCP access is read-only by default. Moneyflow does not refresh providers on a schedule or resume an
 ownerless provider write batch merely because an MCP process is running.
 
+## Protocol contract
+
+Moneyflow targets the [2026-07-28 MCP contract][mcp-spec] using the official Go SDK v1.7.0.
+Current clients use `server/discover` and per-request protocol metadata over stdio or HTTP.
+HTTP clients also send `Mcp-Protocol-Version`, `Mcp-Method`, and the operation's `Mcp-Name`
+where required. The SDK handles protocol negotiation; Moneyflow adds no separate legacy adapter.
+
+Profile tool/resource metadata uses private cache scope with zero lifetime. HTTP responses remain
+`no-store`. Moneyflow's structured financial documents retain their independent `version: "1"`;
+that value is not the MCP protocol date.
+
 ## Standard Input and Output
 
 Build Moneyflow and select a profile by its exact display name or opaque profile ID:
@@ -69,7 +80,7 @@ Enable staged editing explicitly:
 
 Write-enabled tools follow this workflow:
 
-1. Call `update_transaction_category` or `batch_update_category` with `dry_run: true` to validate
+1. Call an editing tool below with `dry_run: true` to validate
    targets and inspect the bounded preview without changing the journal.
 2. Call the same tool without `dry_run` to stage one ordinary revision-checked journal operation.
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed.
@@ -79,9 +90,31 @@ Use the current `expected_revision` for staging/undo/redo. Commit takes both `ex
 and `reviewed_revision`; use the revision from the review, not an earlier search. On a revision
 conflict, read the current state and review again instead of automatically resending the edit.
 
-The current edit tools change categories only. Merchant rename/reassignment, hide toggles,
-transaction deletion, taxonomy management, and export still require TUI/web; `--allow-write`
-does not expose every action available in those interfaces.
+### Editing tools
+
+| Tool | Targets and effect |
+| --- | --- |
+| `update_transaction_category` | One `transaction_id`, with a category ID or name. |
+| `batch_update_category` | `transaction_ids`, with a category ID or name. |
+| `reassign_transactions_merchant` | `transaction_ids`, with exactly one of existing `merchant_id` or `new_merchant_label`. |
+| `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
+| `toggle_transactions_hidden` | `transaction_ids`; toggle hidden state or cancel their pending hide toggles, matching the TUI. |
+| `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
+
+All take `expected_revision` and optional `dry_run`. Transaction-ID arrays contain 1–100 unique
+IDs. Invalid or unsupported targets reject the whole operation; nothing is partially staged.
+A whole-merchant rename can affect more than 100 transactions: `affected_count` reports the full
+count, while `changes` previews at most 100. Use the review's target windows for larger operations.
+
+A deletion preview has `after: null`. A dry-run new merchant's ID is provisional; use the ID
+returned by the actual staged operation for later edits. Dry runs leave the profile unchanged.
+Never blindly resend a hide toggle: read the current revision and pending state first.
+
+Provider restrictions apply to previews and staging. YNAB refuses hide and transfer edits;
+merchant ambiguity and other provider restrictions follow the same rules as TUI/web.
+Taxonomy management and export still use TUI/web.
+
+### Commit and recovery
 
 Local and Amazon profiles fold the reviewed journal atomically. Monarch and unlocked YNAB profiles prepare the same
 durable provider write batch used by the TUI and web UI. `get_commit_status`, `pause_commit`,
@@ -173,9 +206,11 @@ Direct requests to the loopback listener are rejected while `--external-url` is 
 - One MCP process serves one explicit persistent profile. It never creates a profile implicitly.
 - Transaction windows are bounded to 1,000 rows.
 - Combined structured and text tool content is bounded to 8 MiB.
-- Batch category staging accepts at most 100 exact transaction IDs and is atomic.
+- Transaction batch staging accepts at most 100 exact transaction IDs and is atomic.
 - HTTP request bodies are bounded to 1 MiB.
 - Process-local refresh and reconciliation confirmation tokens do not survive server restart.
 
 Use `moneyflow tui` or `moneyflow web` for profile creation, provider onboarding, interactive Amazon
 imports, and visual review of large edit batches.
+
+[mcp-spec]: https://modelcontextprotocol.io/specification/2026-07-28

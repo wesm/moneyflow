@@ -76,12 +76,12 @@ func TestWriteRegistrationIsConditionalAndExact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"batch_update_category", "commit_changes", "confirm_reconcile",
-		"confirm_refresh_deletions", "get_account_info", "get_amazon_order_details",
+		"confirm_refresh_deletions", "delete_transactions", "get_account_info", "get_amazon_order_details",
 		"get_categories", "get_commit_status", "get_merchants", "get_reconcile_status",
 		"get_refresh_status", "get_spending_summary", "get_transaction_details",
 		"get_transactions", "get_uncategorized_transactions", "pause_commit",
-		"redo_changes", "refresh_data", "resume_commit", "review_changes",
-		"search_transactions", "stop_and_reconcile", "undo_changes",
+		"reassign_transactions_merchant", "redo_changes", "refresh_data", "rename_merchant", "resume_commit", "review_changes",
+		"search_transactions", "stop_and_reconcile", "toggle_transactions_hidden", "undo_changes",
 		"update_transaction_category",
 	}, toolNames(tools.Tools))
 }
@@ -278,7 +278,7 @@ func connectWriteTestServer(
 	require.NoError(t, err)
 	return clientSession, func() {
 		require.NoError(t, clientSession.Close())
-		require.NoError(t, serverSession.Wait())
+		require.NoError(t, serverSession.Close())
 		require.NoError(t, server.Close(context.Background()))
 	}
 }

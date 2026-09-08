@@ -192,7 +192,7 @@ func connectReadTestServer(t *testing.T, service *app.Service) (*mcpsdk.ClientSe
 	require.NoError(t, err)
 	cleanup := func() {
 		require.NoError(t, clientSession.Close())
-		require.NoError(t, serverSession.Wait())
+		require.NoError(t, serverSession.Close())
 		require.NoError(t, server.Close(context.Background()))
 	}
 	return clientSession, cleanup

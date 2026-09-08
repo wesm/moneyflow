@@ -58,6 +58,7 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 		&mcpsdk.Implementation{Name: "moneyflow", Version: version.Version},
 		&mcpsdk.ServerOptions{Logger: dependencies.Logger},
 	)
+	sdk.AddReceivingMiddleware(privateProfileCache)
 	server := &Server{SDK: sdk, service: dependencies.Service, dependencies: dependencies, supervisor: supervisor}
 	registerReadTools(server, dependencies)
 	registerResources(server, dependencies)
@@ -65,6 +66,31 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 		registerWriteTools(server, dependencies)
 	}
 	return server, nil
+}
+
+// Cacheable protocol results describe this profile, never a publicly reusable
+// resource. Revalidate on every call, including when the client uses stdio.
+func privateProfileCache(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
+	return func(ctx context.Context, method string, request mcpsdk.Request) (mcpsdk.Result, error) {
+		result, err := next(ctx, method, request)
+		if err != nil {
+			return result, err
+		}
+		cache := mcpsdk.Cacheable{TTLMs: 0, CacheScope: "private"}
+		switch value := result.(type) {
+		case *mcpsdk.ListToolsResult:
+			value.Cacheable = cache
+		case *mcpsdk.ListResourcesResult:
+			value.Cacheable = cache
+		case *mcpsdk.ListResourceTemplatesResult:
+			value.Cacheable = cache
+		case *mcpsdk.ReadResourceResult:
+			value.Cacheable = cache
+		case *mcpsdk.ListPromptsResult:
+			value.Cacheable = cache
+		}
+		return result, nil
+	}
 }
 
 // Close cancels process-owned work and waits for it or the caller deadline.

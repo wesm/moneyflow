@@ -77,6 +77,12 @@ mixes deletion and category clearing and compares application finalization with 
 Browser workflows include YNAB unlock, `w` then Enter, and refresh after commit in all three
 engines under the existing Chromium/full and Firefox/WebKit/smoke split.
 
+MCP tests exercise the 2026-07-28 discovery, tool-call, resource, and private-cache contracts through
+the actual HTTP handler and SDK, plus the real stdio subprocess. Editing tests use temporary SQLite
+profiles to compare preview and staging, cover atomic invalid batches and revision conflicts,
+explicit merchant merges, bounded whole-merchant previews, hide cancellation, deletion/undo,
+YNAB restrictions, and durable intent after a provider deletion failure. No live writes are implied.
+
 Use Testify and existing test helpers. New tests should exercise an owned application behavior,
 not assert that removed files stay absent, that Makefile text contains a word, or that an upstream
 JSON/SQLite library can round-trip its own values.

@@ -71,10 +71,22 @@ one profile per server. Stdio keeps protocol output on stdout and diagnostics on
 Streamable HTTP is deliberately stateless, with an exact endpoint, bearer token, canonical Host,
 and optional Origin validation. This is distinct from the browser mutation-token model.
 
+The SDK is pinned to v1.7.0 for the MCP 2026-07-28 contract: discovery, per-request metadata,
+and complete-result envelopes. The Moneyflow document version remains independent. Receiving
+middleware marks profile lists/resources private with zero cache lifetime; the outer HTTP writer
+retains `no-store` even when the SDK sets transport cache headers.
+
 Read-only is the default. `--allow-write` adds staging tools, explicit commit, undo/redo, and batch
 controls; it does not permit direct provider mutations. Dry run validates without appending.
 Read tools return exact money strings/minor units, not JSON floats. Literal search includes notes,
 preserving Python MCP's search behavior without altering the TUI's regex search.
+
+Category and merchant assignment, whole-merchant rename/explicit merge, hide cancellation, and
+transaction deletion reuse the application mutation planner and provider checks. Transaction batches
+are atomic and bounded to 100 unique IDs. Whole-merchant edits report the full affected count with
+a bounded preview. Shared replay produces merchant/delete previews; hide cancellation removes the
+parity of all originating active toggles. Deleted rows have `after: null`. Export and taxonomy
+management are not MCP tools yet.
 
 The MCP launcher opens YNAB offline by default. `--unlock` reads the existing vault password from
 the controlling terminal, not protocol stdin/stdout, and configures that process's reader/writer.

@@ -156,7 +156,9 @@ func connectRefreshTestServer(t *testing.T, service *app.Service) (*mcpsdk.Clien
 	require.NoError(t, err)
 	return clientSession, func() {
 		require.NoError(t, clientSession.Close())
-		require.NoError(t, serverSession.Wait())
+		// Close joins the server after deliberate peer shutdown. Wait additionally
+		// reports transport read errors, including the in-memory pipe closing.
+		require.NoError(t, serverSession.Close())
 		require.NoError(t, server.Close(context.Background()))
 	}
 }

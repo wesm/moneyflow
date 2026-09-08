@@ -13,6 +13,7 @@ type MutationPreviewRow struct {
 	TransactionID domain.EntityID
 	Before        domain.Transaction
 	After         domain.Transaction
+	Deleted       bool
 }
 
 // MutationPreview is a bounded, side-effect-free projection of one validated mutation.
@@ -25,7 +26,7 @@ type MutationPreview struct {
 	Pending              PendingSummary
 }
 
-// PreviewMutation validates and projects one category mutation without allocating operation
+// PreviewMutation validates and projects one supported mutation without allocating operation
 // identity or changing durable or transient service state.
 func (service *Service) PreviewMutation(
 	ctx context.Context,
@@ -47,6 +48,9 @@ func (service *Service) PreviewMutation(
 	}
 	if err = service.validateProviderWriteIdle(); err != nil {
 		return MutationPreview{}, mapAppError(err, snapshot.Revision)
+	}
+	if request.Action == ActionEditMerchant || request.Action == ActionToggleHidden || request.Action == ActionDeleteTransaction {
+		return previewTransactionMutation(service, snapshot, request)
 	}
 	if request.Action != ActionEditCategory {
 		return MutationPreview{}, newAppError(

@@ -129,6 +129,26 @@ func mcpResponseHeaders(next http.Handler) http.Handler {
 		response.Header().Set("Referrer-Policy", "no-referrer")
 		response.Header().Del("Access-Control-Allow-Origin")
 		response.Header().Del("Access-Control-Allow-Credentials")
-		next.ServeHTTP(response, request)
+		next.ServeHTTP(&privateMCPResponse{ResponseWriter: response}, request)
 	})
+}
+
+// The SDK sets its own cache header. Apply the profile's no-store policy when
+// headers actually leave the process, including SDK-generated responses.
+type privateMCPResponse struct {
+	http.ResponseWriter
+}
+
+func (response *privateMCPResponse) WriteHeader(status int) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.ResponseWriter.WriteHeader(status)
+}
+
+func (response *privateMCPResponse) Write(body []byte) (int, error) {
+	response.Header().Set("Cache-Control", "no-store")
+	return response.ResponseWriter.Write(body)
+}
+
+func (response *privateMCPResponse) Unwrap() http.ResponseWriter {
+	return response.ResponseWriter
 }
