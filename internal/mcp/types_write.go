@@ -69,6 +69,9 @@ type MutationDocument struct {
 	Changes              []MutationChangeDocument `json:"changes"`
 	Pending              PendingDocument          `json:"pending"`
 	SelectionDisposition string                   `json:"selection_disposition"`
+	EntityID             string                   `json:"entity_id,omitempty"`
+	EntityWindow         *CollectionWindow        `json:"entity_window,omitempty"`
+	EntityChanges        []TaxonomyChangeDocument `json:"entity_changes,omitempty"`
 }
 
 // CommitDocument distinguishes local completion from an accepted background provider write.

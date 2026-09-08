@@ -126,6 +126,22 @@ func testMCPStdioSubprocess(
 	})
 	require.NoError(t, err)
 	assert.False(t, dryRun.IsError)
+	for _, dry := range []bool{true, false} {
+		group, callErr := session.CallTool(t.Context(), &mcpsdk.CallToolParams{
+			Name: "manage_category_group", Arguments: map[string]any{
+				"expected_revision": "1", "action": "create", "label": "MCP Example Group", "dry_run": dry,
+			},
+		})
+		require.NoError(t, callErr)
+		require.False(t, group.IsError, "%v", group.StructuredContent)
+		assert.NotEmpty(t, group.StructuredContent.(map[string]any)["entity_id"])
+	}
+	committed, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{
+		Name: "commit_changes", Arguments: map[string]any{"expected_revision": "2", "reviewed_revision": "2"},
+	})
+	require.NoError(t, err)
+	require.False(t, committed.IsError)
+	assert.Equal(t, true, committed.StructuredContent.(map[string]any)["completed"])
 	exported, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "export_transactions"})
 	require.NoError(t, err)
 	require.False(t, exported.IsError, "%v", exported.StructuredContent)

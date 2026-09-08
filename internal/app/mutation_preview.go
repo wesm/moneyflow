@@ -24,6 +24,7 @@ type MutationPreview struct {
 	Rows                 []MutationPreviewRow
 	SelectionDisposition SelectionDisposition
 	Pending              PendingSummary
+	Taxonomy             *TaxonomyPreview
 }
 
 // PreviewMutation validates and projects one supported mutation without allocating operation
@@ -49,7 +50,8 @@ func (service *Service) PreviewMutation(
 	if err = service.validateProviderWriteIdle(); err != nil {
 		return MutationPreview{}, mapAppError(err, snapshot.Revision)
 	}
-	if request.Action == ActionEditMerchant || request.Action == ActionToggleHidden || request.Action == ActionDeleteTransaction {
+	if request.Action == ActionEditMerchant || request.Action == ActionToggleHidden || request.Action == ActionDeleteTransaction ||
+		request.Action == ActionManageCategories || request.Action == ActionManageGroups {
 		return previewTransactionMutation(service, snapshot, request)
 	}
 	if request.Action != ActionEditCategory {

@@ -85,8 +85,17 @@ Category and merchant assignment, whole-merchant rename/explicit merge, hide can
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches
 are atomic and bounded to 100 unique IDs. Whole-merchant edits report the full affected count with
 a bounded preview. Shared replay produces merchant/delete previews; hide cancellation removes the
-parity of all originating active toggles. Deleted rows have `after: null`. Taxonomy management
-is not an MCP tool yet.
+parity of all originating active toggles. Deleted rows have `after: null`.
+
+`manage_category` and `manage_category_group` expose the existing C/G operations on local/Amazon
+profiles. The MCP adapter checks action-specific input fields and allocates new local entity IDs;
+the application taxonomy planner owns identity, collision, protected-entity, reassignment, and
+provider validation. Both dry run and staging use that planner. The shared replay preview reports
+transaction changes and a separately bounded, stable-ID-ordered entity diff, including creation
+and retirement with no transaction rows. Each MCP list is capped at 100 with full counts; the
+mutation is not truncated. Preview IDs are provisional, and only the staged result's ID should
+be reused. Pristine profiles accept revision zero; authoritative revision checks remain in the
+ordinary application/store path. No provider taxonomy API or schema change is involved.
 
 `preview_export` and `export_transactions` reuse `Service.PreviewExport`, `Service.CaptureExport`,
 and `internal/exporter.WriteFile`. They export the full committed profile with no provider I/O,

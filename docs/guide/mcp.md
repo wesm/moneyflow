@@ -100,6 +100,8 @@ conflict, read the current state and review again instead of automatically resen
 | `rename_merchant` | Whole `merchant_id` and `new_label`; a collision requires the explicit `merge_destination_id`. |
 | `toggle_transactions_hidden` | `transaction_ids`; toggle hidden state or cancel their pending hide toggles, matching the TUI. |
 | `delete_transactions` | `transaction_ids`; stage undoable deletion, without sending a provider request. |
+| `manage_category` | Create, rename, move, merge, or delete a category on a local/Amazon profile. |
+| `manage_category_group` | Create, rename, merge, or delete a category group on a local/Amazon profile. |
 
 All take `expected_revision` and optional `dry_run`. Transaction-ID arrays contain 1–100 unique
 IDs. Invalid or unsupported targets reject the whole operation; nothing is partially staged.
@@ -112,7 +114,58 @@ Never blindly resend a hide toggle: read the current revision and pending state 
 
 Provider restrictions apply to previews and staging. YNAB refuses hide and transfer edits;
 merchant ambiguity and other provider restrictions follow the same rules as TUI/web.
-Taxonomy management still uses TUI/web.
+Monarch and YNAB taxonomy management stays in the provider application, including when accessed
+through MCP.
+
+### Categories and groups
+
+Use `get_categories` to obtain stable category/group IDs and the current revision. Both management
+tools require `--allow-write`, `expected_revision`, and an `action`. They stage one operation;
+they never commit automatically. Revision `"0"` is valid for a pristine local profile.
+
+| Action | `manage_category` fields | `manage_category_group` fields |
+| --- | --- | --- |
+| `create` | `label`, `group_id` for the parent | `label` |
+| `rename` | `category_id`, `label` | `group_id`, `label` |
+| `move` | `category_id`, `destination_id` of the new group | Not supported |
+| `merge` | `category_id`, `destination_id` of the surviving category | `group_id`, `destination_id` of the surviving group |
+| `delete` | `category_id`, `replacement_id` when it has transactions | `group_id`, `replacement_id` when it has categories |
+
+Delete replacement IDs refer to the same entity kind as the source. Category merge/delete
+reassigns its transactions; group merge/delete moves its categories. Neither deletes transactions.
+An empty category/group can be deleted without a replacement. Protected system entities cannot
+be changed, and a colliding rename is rejected: use an explicit merge instead. Fields unrelated
+to the chosen action are rejected rather than ignored.
+
+For example, preview a category move (replace the example IDs and revision with values from
+`get_categories`):
+
+```json
+{
+  "expected_revision": "7",
+  "action": "move",
+  "category_id": "category_example",
+  "destination_id": "group_example",
+  "dry_run": true
+}
+```
+
+Call `manage_category` with that input, inspect the preview, then set `dry_run` to `false` to stage
+the move against the same revision. A concurrent edit causes `revision_conflict`; read again
+instead of blindly retrying. Review and explicitly commit the returned revision as usual.
+
+Results include the subject `entity_id`, `entity_changes` with before/after state, and an
+`entity_window` with the full affected-entity count. New entities have `before: null`; merged or
+deleted entities have `after.retired: true`. The separate `affected_count` and `changes` describe
+transactions, including hidden rows. Each preview list contains at most 100 entries; this limits
+the response, not the operation. Entity changes are ordered bytewise by stable ID. Use the catalog
+and review windows to inspect larger operations.
+
+Creating an empty category/group correctly reports zero affected transactions and one new entity.
+Create accepts no caller-supplied subject ID. IDs shown by `dry_run` are provisional and are not
+reserved; use the actual staged result's `entity_id` for subsequent calls. A group created by one
+call can immediately be used as the parent of a staged category. Undo/redo and local commit behave
+the same as C/G in the TUI, including on Amazon profiles.
 
 ### Commit and recovery
 

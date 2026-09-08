@@ -71,6 +71,17 @@ func previewTransactionMutation(service *Service, snapshot EffectiveSnapshot, re
 	if err != nil {
 		return MutationPreview{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
 	}
+	if request.Action == ActionManageCategories || request.Action == ActionManageGroups {
+		// Taxonomy targets are entities; their affected transactions are current
+		// members, including hidden rows, rather than the entity IDs themselves.
+		clear(ids)
+		for _, row := range beforeRows {
+			if (request.Action == ActionManageCategories && row.Category.ID == string(request.Input.EntityID)) ||
+				(request.Action == ActionManageGroups && row.Category.GroupID == string(request.Input.EntityID)) {
+				ids[domain.EntityID(row.ID)] = true
+			}
+		}
+	}
 	afterRows, err := after.MaterializeTransactions()
 	if err != nil {
 		return MutationPreview{}, newAppError(AppStoreCorrupt, snapshot.Revision, err)
@@ -94,8 +105,12 @@ func previewTransactionMutation(service *Service, snapshot EffectiveSnapshot, re
 		}
 		index++
 	}
-	return MutationPreview{
+	preview := MutationPreview{
 		Revision: snapshot.Revision, AffectedCount: len(ids), Window: resultWindow,
 		Rows: rows, SelectionDisposition: plan.SelectionDisposition, Pending: pendingSummary(snapshot),
-	}, nil
+	}
+	if request.Action == ActionManageCategories || request.Action == ActionManageGroups {
+		preview.Taxonomy = previewTaxonomyChanges(snapshot.Effective, after, request.Input.EntityID, window)
+	}
+	return preview, nil
 }

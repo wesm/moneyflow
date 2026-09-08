@@ -12,6 +12,7 @@ import (
 
 func registerWriteTools(server *Server, dependencies Dependencies) {
 	registerTransactionEditTools(server, dependencies)
+	registerTaxonomyTools(server, dependencies)
 	registerTool(server, "update_transaction_category", "Stage one exact transaction category change.", false,
 		func(ctx context.Context, input UpdateTransactionCategoryInput) (any, error) {
 			return categoryMutationDocument(ctx, dependencies.Service, []string{input.TransactionID}, input.ExpectedRevision, input.CategoryID, input.CategoryLabel, input.DryRun)
@@ -366,12 +367,25 @@ func mutationPreviewDocument(
 			Before:        transactionDocument(row.Before), After: after,
 		})
 	}
+	if taxonomy := preview.Taxonomy; taxonomy != nil {
+		document.EntityID = string(taxonomy.EntityID)
+		document.EntityWindow = &CollectionWindow{Total: taxonomy.AffectedCount, Offset: taxonomy.Window.Offset,
+			Limit: taxonomy.Window.Limit, Returned: len(taxonomy.Changes)}
+		for _, change := range taxonomy.Changes {
+			var before *TaxonomyEntityDocument
+			if change.Before != nil {
+				before = new(taxonomyEntityDocument(*change.Before))
+			}
+			document.EntityChanges = append(document.EntityChanges, TaxonomyChangeDocument{
+				Kind: string(change.Kind), EntityID: string(change.EntityID), Before: before, After: taxonomyEntityDocument(change.After)})
+		}
+	}
 	return document
 }
 
 func parseMutationRevision(service *app.Service, value string) (uint64, error) {
 	revision, err := strconv.ParseUint(value, 10, 64)
-	if err != nil || revision == 0 {
+	if err != nil {
 		return 0, newAppInputError(service.Revision(), errors.New("expected revision is invalid"))
 	}
 	return revision, nil
