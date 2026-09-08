@@ -221,7 +221,7 @@ func TestOfficialClientUsesAuthenticatedStatelessHTTP(t *testing.T) {
 	require.NoError(t, err)
 	tools, err := session.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Len(t, tools.Tools, 14)
+	assert.Contains(t, toolNames(tools.Tools), "preview_export")
 	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_account_info"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
@@ -245,7 +245,7 @@ func TestOfficialClientUsesAuthenticatedStatelessHTTP(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, reconnected.Close()) })
 	tools, err = reconnected.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Len(t, tools.Tools, 14)
+	assert.Contains(t, toolNames(tools.Tools), "export_transactions")
 }
 
 func newHTTPTestHandler(

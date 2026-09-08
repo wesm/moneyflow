@@ -80,8 +80,9 @@ A normal MCP session is:
    Follow any pause, reconnect, or reconciliation guidance before issuing more writes.
 
 MCP targets the 2026-07-28 protocol. See the [MCP guide](../guide/mcp.md) for editing tools,
-limits, and restart recovery. Export and taxonomy management remain in TUI/web. MCP does not
-run the TUI/web six-hour refresh scheduler.
+limits, and restart recovery. `preview_export` and `export_transactions` export the full committed
+profile to a file on the server; HTTP clients do not receive a download. Filtered export and taxonomy
+management remain in TUI/web. MCP does not run the TUI/web six-hour refresh scheduler.
 
 ## Keyboard workflows and provider limits
 

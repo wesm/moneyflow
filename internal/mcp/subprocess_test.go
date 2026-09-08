@@ -33,7 +33,7 @@ func TestMCPSubprocessInteroperability(t *testing.T) {
 	}
 	binary, homeRoot, entry, transactionID, categoryID := buildMCPSubprocessFixture(t)
 	t.Run("stdio", func(t *testing.T) {
-		testMCPStdioSubprocess(t, binary, homeRoot, entry.ID, transactionID, categoryID)
+		testMCPStdioSubprocess(t, binary, homeRoot, entry, transactionID, categoryID)
 	})
 	t.Run("http token rotation", func(t *testing.T) {
 		testMCPHTTPSubprocess(t, binary, homeRoot, entry)
@@ -89,10 +89,12 @@ func buildMCPSubprocessFixture(
 
 func testMCPStdioSubprocess(
 	t *testing.T,
-	binary, homeRoot, profileID, transactionID, categoryID string,
+	binary, homeRoot string,
+	entry profilecatalog.Entry,
+	transactionID, categoryID string,
 ) {
 	t.Helper()
-	command := exec.Command(binary, "mcp", "--profile", profileID, "--allow-write") // #nosec G204 -- test-built binary and synthetic profile.
+	command := exec.Command(binary, "mcp", "--profile", entry.ID, "--allow-write") // #nosec G204 -- test-built binary and synthetic profile.
 	command.Env = mcpSubprocessEnvironment(homeRoot)
 	stdout, err := command.StdoutPipe()
 	require.NoError(t, err)
@@ -124,6 +126,12 @@ func testMCPStdioSubprocess(
 	})
 	require.NoError(t, err)
 	assert.False(t, dryRun.IsError)
+	exported, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "export_transactions"})
+	require.NoError(t, err)
+	require.False(t, exported.IsError, "%v", exported.StructuredContent)
+	exportPath := exported.StructuredContent.(map[string]any)["path"].(string)
+	assert.Equal(t, filepath.Join(entry.Root, "exports"), filepath.Dir(exportPath))
+	assert.FileExists(t, exportPath)
 	require.NoError(t, session.Close())
 	require.NoError(t, waitForMCPProcess(command, 5*time.Second))
 	assertProtocolFrames(t, protocol.Bytes())
@@ -152,6 +160,12 @@ func testMCPHTTPSubprocess(
 	result, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_account_info"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+	exported, err := session.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "export_transactions", Arguments: map[string]any{"format": "csv"}})
+	require.NoError(t, err)
+	require.False(t, exported.IsError, "%v", exported.StructuredContent)
+	exportPath := exported.StructuredContent.(map[string]any)["path"].(string)
+	assert.Equal(t, filepath.Join(entry.Root, "exports"), filepath.Dir(exportPath))
+	assert.FileExists(t, exportPath)
 	require.NoError(t, session.Close())
 
 	rotate := exec.Command(binary, "mcp", "token", "rotate", "--profile", entry.ID) // #nosec G204 -- test-built binary and synthetic profile.

@@ -85,8 +85,18 @@ Category and merchant assignment, whole-merchant rename/explicit merge, hide can
 transaction deletion reuse the application mutation planner and provider checks. Transaction batches
 are atomic and bounded to 100 unique IDs. Whole-merchant edits report the full affected count with
 a bounded preview. Shared replay produces merchant/delete previews; hide cancellation removes the
-parity of all originating active toggles. Deleted rows have `after: null`. Export and taxonomy
-management are not MCP tools yet.
+parity of all originating active toggles. Deleted rows have `after: null`. Taxonomy management
+is not an MCP tool yet.
+
+`preview_export` and `export_transactions` reuse `Service.PreviewExport`, `Service.CaptureExport`,
+and `internal/exporter.WriteFile`. They export the full committed profile with no provider I/O,
+including during an unfinished batch. Preview has no filesystem side effects or export lock;
+execution captures the current revision under the export lock and atomically publishes a private
+Parquet (default), CSV, or SQLite file. The bounded reply identifies a server-side path, captured
+revision, size, row count, and journal exclusion counts; it is not an attachment or a download.
+No caller-supplied path is accepted. Both tools are registered without `--allow-write`, but file
+creation carries a non-read-only protocol hint. Only the calling client's result may contain the
+export path, not diagnostics. Filtered exports and browser downloads remain separate UI flows.
 
 The MCP launcher opens YNAB offline by default. `--unlock` reads the existing vault password from
 the controlling terminal, not protocol stdin/stdout, and configures that process's reader/writer.

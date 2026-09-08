@@ -83,6 +83,11 @@ profiles to compare preview and staging, cover atomic invalid batches and revisi
 explicit merchant merges, bounded whole-merchant previews, hide cancellation, deletion/undo,
 YNAB restrictions, and durable intent after a provider deletion failure. No live writes are implied.
 
+MCP export tests drive the real SDK and exporter, including stdio and authenticated HTTP subprocess
+calls. They check committed-only rows after staged deletion, exact negative CSV amounts, execution
+revision and exclusion metadata, format dispatch, lock-free preview, export contention, empty/error
+results, cancellation cleanup, and export without running or altering an unfinished provider batch.
+
 Use Testify and existing test helpers. New tests should exercise an owned application behavior,
 not assert that removed files stay absent, that Makefile text contains a word, or that an upstream
 JSON/SQLite library can round-trip its own values.

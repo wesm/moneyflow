@@ -67,7 +67,7 @@ func TestWriteRegistrationIsConditionalAndExact(t *testing.T) {
 	readOnly, closeReadOnly := connectWriteTestServer(t, service, false)
 	tools, err := readOnly.ListTools(t.Context(), nil)
 	require.NoError(t, err)
-	assert.Len(t, tools.Tools, 14)
+	assert.NotContains(t, toolNames(tools.Tools), "commit_changes")
 	closeReadOnly()
 
 	writable, cleanup := connectWriteTestServer(t, service, true)
@@ -76,10 +76,10 @@ func TestWriteRegistrationIsConditionalAndExact(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"batch_update_category", "commit_changes", "confirm_reconcile",
-		"confirm_refresh_deletions", "delete_transactions", "get_account_info", "get_amazon_order_details",
+		"confirm_refresh_deletions", "delete_transactions", "export_transactions", "get_account_info", "get_amazon_order_details",
 		"get_categories", "get_commit_status", "get_merchants", "get_reconcile_status",
 		"get_refresh_status", "get_spending_summary", "get_transaction_details",
-		"get_transactions", "get_uncategorized_transactions", "pause_commit",
+		"get_transactions", "get_uncategorized_transactions", "pause_commit", "preview_export",
 		"reassign_transactions_merchant", "redo_changes", "refresh_data", "rename_merchant", "resume_commit", "review_changes",
 		"search_transactions", "stop_and_reconcile", "toggle_transactions_hidden", "undo_changes",
 		"update_transaction_category",

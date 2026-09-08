@@ -69,7 +69,7 @@ onboarding wizard. Missing vaults, incorrect passwords, and mismatched plan bind
 ## Read and Write Policy
 
 The default server registers account, transaction, spending, taxonomy, merchant, Amazon-match,
-review, provider-status, and explicit-refresh reads. Results use exact decimal strings plus signed
+review, provider-status, explicit-refresh, and export tools. Results use exact decimal strings plus signed
 integer minor units; they do not expose floating-point money.
 
 Enable staged editing explicitly:
@@ -112,7 +112,7 @@ Never blindly resend a hide toggle: read the current revision and pending state 
 
 Provider restrictions apply to previews and staging. YNAB refuses hide and transfer edits;
 merchant ambiguity and other provider restrictions follow the same rules as TUI/web.
-Taxonomy management and export still use TUI/web.
+Taxonomy management still uses TUI/web.
 
 ### Commit and recovery
 
@@ -126,6 +126,46 @@ Poll `get_commit_status` and inspect its phase. After a server restart, inspect 
 status and explicitly resume eligible work; startup alone does not resume it. Use the current
 batch version for controls. `stop_and_reconcile` abandons the failed and unsent frozen intent
 and reloads provider truth; it does not undo remote writes that already succeeded.
+
+## Server-side export
+
+`preview_export` takes no arguments and reports the full committed transaction count, revision,
+excluded pending-operation count, and inactive redo-operation count. It creates no file and does
+not acquire the export execution lock. Its counts describe that preview, not a frozen snapshot.
+
+Call `export_transactions` with no arguments for Parquet, or select an explicit format:
+
+```json
+{"format": "csv"}
+```
+
+Supported formats are `parquet`, `csv`, and `sqlite`. This first MCP export tool always exports
+the **full committed profile**, including hidden transactions. For a filtered export, use TUI/web.
+Pending edits, including pending deletions, are excluded: the file can differ from MCP's effective
+transaction reads. The result's `excluded_pending_operations` makes that difference explicit.
+
+The file is created in the selected profile's `exports/` directory on the machine running the
+MCP server. The result contains `location: "server"`, `path`, `filename`, `format`, `size_bytes`,
+`transaction_count`, and the captured `revision` and journal exclusion counts. Execution captures
+the then-current committed revision; the result and file metadata are authoritative, even if an
+earlier preview showed different counts. It does not send the financial dataset in the tool reply.
+
+**HTTP clients receive a server-side path, not a download or an MCP attachment.** Retrieve the file
+on that machine or use the web application's download workflow. Callers cannot select arbitrary
+output paths. Files use the existing private, atomic, no-overwrite publication path; repeated
+exports create distinct filenames. Paths are user-facing results, never diagnostic log fields.
+
+Both export tools are available without `--allow-write`, offline, during reconnect, and during a
+provider write batch. They do not refresh providers, modify the profile revision, or commit staged
+edits. `export_transactions` still has a non-read-only MCP annotation because it creates a file;
+read-only access here means no user-intent editing, not a ban on export files.
+
+An empty profile returns `export_empty` from execution; a held export lock returns `export_busy`.
+Invalid formats and filesystem failures return `export_invalid` and `export_failed`. Cancellation
+observed before publication leaves no published export (`export_cancelled` if a response can still
+be delivered). If a reply is lost after publication,
+the file remains; check the server's exports directory before retrying. These are transaction
+exports, not restorable profile backups containing credentials or journal history.
 
 ## Explicit Provider Refresh
 

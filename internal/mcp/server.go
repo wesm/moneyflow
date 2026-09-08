@@ -61,6 +61,7 @@ func New(dependencies Dependencies, options Options) (*Server, error) {
 	sdk.AddReceivingMiddleware(privateProfileCache)
 	server := &Server{SDK: sdk, service: dependencies.Service, dependencies: dependencies, supervisor: supervisor}
 	registerReadTools(server, dependencies)
+	registerExportTools(server, dependencies)
 	registerResources(server, dependencies)
 	if options.AllowWrite {
 		registerWriteTools(server, dependencies)
