@@ -37,8 +37,8 @@ they are not independent analytical rows or editable split lines. Neither observ
 permission to bypass the existing capability registry.
 
 The [YNAB write-back design](../superpowers/specs/2026-09-07-go-port-ynab-write-back-design.md)
-is implemented through the shared worker and TUI/web onboarding. The standalone MCP launcher
-still opens YNAB offline; its explicit vault-unlock path remains undecided. Synthetic HTTP and
+is implemented through the shared worker, TUI/web onboarding, and explicit MCP `--unlock`.
+MCP unlock configures the runtime without automatic network work. Synthetic HTTP and
 workflow tests are not a claim of live-write characterization against an ordinary budget.
 The current installed schema is defined by `CurrentSchemaVersion` in
 [initialize.go][source-1], currently 12.

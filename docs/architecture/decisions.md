@@ -41,8 +41,8 @@ and batch controls. These choices are described where they run, not scattered as
 
 ## Proposals are separate
 
-The YNAB adapter and TUI/web writer are implemented. Standalone MCP vault unlock remains a
-separate open decision; the configured-service test does not establish launcher availability.
+The YNAB adapter and TUI/web writer are implemented. MCP's explicit `--unlock` uses the controlling
+terminal and keeps runtime activation separate from write authorization and network operations.
 Synthetic request-preservation tests also do not replace separately authorized live writes.
 
 Use Git history for full implementation chronology and benchmark reports for measurements taken

@@ -91,10 +91,10 @@ func refreshDataDocument(ctx context.Context, server *Server) (any, error) {
 	if !connection.Bound {
 		return capabilityUnavailable(server.service, "This local profile has no provider to refresh."), nil
 	}
-	if connection.Kind != "monarch" {
+	if connection.Kind != "monarch" && connection.Kind != "ynab" {
 		return capabilityUnavailable(
 			server.service,
-			"Amazon import requires the TUI, web, or provider import command.",
+			"This provider has no MCP refresh operation.",
 		), nil
 	}
 	for _, capability := range server.service.Capabilities() {

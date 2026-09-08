@@ -76,10 +76,14 @@ controls; it does not permit direct provider mutations. Dry run validates withou
 Read tools return exact money strings/minor units, not JSON floats. Literal search includes notes,
 preserving Python MCP's search behavior without altering the TUI's regex search.
 
-The configured MCP service supports YNAB commit/status, including quota deadlines. The standalone
-launcher currently opens YNAB offline even with `--allow-write`: it has no vault-password input.
-Unlocking a separate TUI or CLI process does not unlock it. An explicit MCP launcher unlock path
-needs a separate decision; protocol stdin/stdout must never become a password prompt.
+The MCP launcher opens YNAB offline by default. `--unlock` reads the existing vault password from
+the controlling terminal, not protocol stdin/stdout, and configures that process's reader/writer.
+It does not fetch, refresh, or resume a batch at startup. `--allow-write` separately registers edit
+tools; unlock alone still permits explicit refresh under the read-only contract. Wrong passwords,
+missing vaults, or binding mismatches stop startup and release the profile. Restart or vault
+replacement requires explicit unlock again. A separate TUI/CLI unlock does not unlock MCP memory.
+Headless clients without a controlling terminal must use an HTTP server started and unlocked from
+a terminal, or retain offline access. Passwords never travel in tool parameters or environment flags.
 
 Commit/refresh calls use the bounded supervisor and expose status/resume rather than holding a
 tool call open until a many-minute provider operation finishes. MCP has no automatic freshness

@@ -32,6 +32,25 @@ A typical MCP client configuration uses the standard-input/output transport:
 Moneyflow writes protocol frames only to standard output. Counts-only diagnostics use standard
 error and never contain transaction labels, notes, search text, provider identifiers, or tokens.
 
+### Unlocking YNAB
+
+YNAB opens offline by default. Add `--unlock` to unlock its existing credential vault for this
+MCP process. The masked password prompt uses the controlling terminal, never MCP stdin/stdout.
+Unlocking does not enable edit tools, fetch data, or resume a pending batch. Add `--allow-write`
+separately when you want staged edits and commits.
+
+GUI-launched stdio clients often have no controlling terminal. In that case, start the HTTP
+server yourself in a terminal and connect your client to its authenticated endpoint:
+
+```bash
+./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID --unlock --allow-write --transport streamable-http
+```
+
+Follow the HTTP token setup below. No password belongs in the client configuration or tool
+arguments. Restarting the server or replacing its vault requires another explicit unlock.
+Connect an unbound profile with `moneyflow provider connect ynab` first; `--unlock` is not an
+onboarding wizard. Missing vaults, incorrect passwords, and mismatched plan bindings stop startup.
+
 ## Read and Write Policy
 
 The default server registers account, transaction, spending, taxonomy, merchant, Amazon-match,
@@ -52,14 +71,14 @@ Write-enabled tools follow this workflow:
 3. Use `review_changes`, `undo_changes`, or `redo_changes` as needed.
 4. Call `commit_changes` with the exact reviewed revision.
 
-Local and Amazon profiles fold the reviewed journal atomically. Monarch profiles prepare the same
+Local and Amazon profiles fold the reviewed journal atomically. Monarch and unlocked YNAB profiles prepare the same
 durable provider write batch used by the TUI and web UI. `get_commit_status`, `pause_commit`,
 `resume_commit`, `stop_and_reconcile`, `get_reconcile_status`, and `confirm_reconcile` expose only
-bounded status and control operations. An MCP request never writes directly to Monarch.
+bounded status and control operations. MCP tools never bypass the durable provider writer.
 
 ## Explicit Provider Refresh
 
-`refresh_data` is available in read-only and write-enabled modes for a bound Monarch profile. It
+`refresh_data` is available in read-only and write-enabled modes for a bound Monarch or unlocked YNAB profile. It
 starts one explicit refresh and returns a process-local attempt ID. Poll `get_refresh_status` for
 completion. If the deletion guard requires confirmation, retrieve the process-local token from the
 matching status result and call `confirm_refresh_deletions`.
@@ -74,8 +93,9 @@ If Monarch authentication expires, reconnect from a terminal:
 ./bin/moneyflow provider connect monarch --profile PROFILE_NAME_OR_ID
 ```
 
-Then start a new explicit refresh or resume the durable write batch. The MCP process does not prompt
-for account passwords, provider passwords, or verification codes.
+Then start a new explicit refresh or resume the durable write batch. MCP tools never prompt for
+passwords or verification codes. YNAB vault unlocking happens only before server startup with
+the explicit `--unlock` flag.
 
 ## Authenticated HTTP
 

@@ -268,6 +268,18 @@ output is the default transport, and access is read-only unless `--allow-write` 
 ./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID --allow-write
 ```
 
+For YNAB, add `--unlock` to read the existing vault password through your terminal. Unlock does
+not imply `--allow-write`, refresh data, or resume edits automatically. Without it, YNAB opens
+offline. GUI-launched stdio clients may have no controlling terminal; start an unlocked HTTP
+server from a terminal instead and configure the client for its authenticated endpoint:
+
+```bash
+./bin/moneyflow mcp --profile PROFILE_NAME_OR_ID --unlock --allow-write --transport streamable-http
+```
+
+The password is never read from MCP stdin or sent through tool calls. Restarting the server or
+replacing its vault requires another explicit unlock.
+
 Write-enabled tools stage ordinary Moneyflow journal operations. Review, undo, redo, and an explicit
 `commit_changes` call use the same local or Monarch commit machinery as the TUI and web UI; tools do
 not bypass review or write directly to a provider. Provider refresh is also explicit and never starts

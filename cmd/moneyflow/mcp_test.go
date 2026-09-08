@@ -27,11 +27,11 @@ func TestMCPCommandDefaultsToStdioAndPassesWritePolicy(t *testing.T) {
 	streams.BuildMCP = func(
 		_ context.Context,
 		options ProfileOptions,
-		write bool,
+		access MCPOptions,
 		_ IOStreams,
 	) (MCPDependencies, error) {
 		built = options
-		allowWrite = write
+		allowWrite = access.AllowWrite
 		return MCPDependencies{}, nil
 	}
 	streams.RunMCP = func(_ context.Context, _ MCPDependencies, options MCPOptions, _ IOStreams) error {
@@ -50,7 +50,7 @@ func TestMCPCommandDefaultsToStdioAndPassesWritePolicy(t *testing.T) {
 func TestMCPCommandHTTPDefaultsAndStdioFlagRejection(t *testing.T) {
 	var received MCPOptions
 	streams := IOStreams{In: strings.NewReader(""), Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
-	streams.BuildMCP = func(context.Context, ProfileOptions, bool, IOStreams) (MCPDependencies, error) {
+	streams.BuildMCP = func(context.Context, ProfileOptions, MCPOptions, IOStreams) (MCPDependencies, error) {
 		return MCPDependencies{}, nil
 	}
 	streams.RunMCP = func(_ context.Context, _ MCPDependencies, options MCPOptions, _ IOStreams) error {
@@ -84,7 +84,7 @@ func TestMCPTokenRevealAndRotateDoNotStartServer(t *testing.T) {
 	var stdout bytes.Buffer
 	streams := IOStreams{
 		In: strings.NewReader(""), Out: &stdout, Err: &bytes.Buffer{},
-		BuildMCP: func(context.Context, ProfileOptions, bool, IOStreams) (MCPDependencies, error) {
+		BuildMCP: func(context.Context, ProfileOptions, MCPOptions, IOStreams) (MCPDependencies, error) {
 			started = true
 			return MCPDependencies{}, nil
 		},
@@ -131,7 +131,7 @@ func TestMCPReadsBoundYNABProfileOfflineWithoutUnlockingVault(t *testing.T) {
 
 	dependencies, err := buildMCPDependencies(context.Background(), ProfileOptions{
 		ExplicitHome: root, Profile: entry.ID,
-	}, false, IOStreams{})
+	}, MCPOptions{}, IOStreams{})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, dependencies.Close(context.Background())) })
 	assert.NotNil(t, dependencies.Server)

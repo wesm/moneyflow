@@ -24,6 +24,8 @@ const (
 
 // MCPOptions contains the explicitly bounded MCP transport configuration.
 type MCPOptions struct {
+	AllowWrite  bool
+	Unlock      bool
 	Transport   string
 	Listen      string
 	BasePath    string
@@ -38,7 +40,6 @@ func newMCPCommand(streams IOStreams) *cobra.Command {
 		Transport: MCPTransportStdio, Listen: "127.0.0.1:8081", BasePath: "/mcp/",
 	}
 	var profile string
-	var allowWrite bool
 	command := &cobra.Command{
 		Use:   "mcp",
 		Short: "Serve one profile through the Model Context Protocol",
@@ -72,7 +73,7 @@ func newMCPCommand(streams IOStreams) *cobra.Command {
 				builder = buildMCPDependencies
 			}
 			dependencies, err := builder(
-				command.Context(), ProfileOptions{Profile: profile}, allowWrite, streams,
+				command.Context(), ProfileOptions{Profile: profile}, options, streams,
 			)
 			if err != nil {
 				return fmt.Errorf("start MCP: %w", err) //nolint:revive // product name
@@ -92,7 +93,8 @@ func newMCPCommand(streams IOStreams) *cobra.Command {
 	}
 	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
 	command.Flags().StringVar(&options.Transport, "transport", options.Transport, "stdio or streamable-http")
-	command.Flags().BoolVar(&allowWrite, "allow-write", false, "register staged editing tools")
+	command.Flags().BoolVar(&options.AllowWrite, "allow-write", false, "register staged editing tools")
+	command.Flags().BoolVar(&options.Unlock, "unlock", false, "unlock the YNAB vault through the controlling terminal (does not imply --allow-write)")
 	command.Flags().StringVar(&options.Listen, "listen", options.Listen, "loopback host and port")
 	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "exact HTTP endpoint path")
 	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical URL through a trusted proxy")

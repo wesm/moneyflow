@@ -31,14 +31,14 @@ func (dependencies MCPDependencies) Close(ctx context.Context) error {
 type MCPDependencyBuilder func(
 	context.Context,
 	ProfileOptions,
-	bool,
+	MCPOptions,
 	IOStreams,
 ) (MCPDependencies, error)
 
 func buildMCPDependencies(
 	ctx context.Context,
 	options ProfileOptions,
-	allowWrite bool,
+	mcpOptions MCPOptions,
 	streams IOStreams,
 ) (MCPDependencies, error) {
 	catalog, entry, err := resolveMCPProfile(ctx, options.ExplicitHome, options.Profile)
@@ -55,7 +55,12 @@ func buildMCPDependencies(
 	if err != nil {
 		return MCPDependencies{}, err
 	}
-	if err = configureOpenedProvider(ctx, opened, streams, "mcp"); err != nil {
+	if mcpOptions.Unlock {
+		err = unlockMCPProvider(ctx, opened, streams)
+	} else {
+		err = configureOpenedProvider(ctx, opened, streams, "mcp")
+	}
+	if err != nil {
 		return MCPDependencies{}, closeOpenedProfile(opened, err)
 	}
 	matcher, err := newCatalogAmazonMatcher(catalog)
@@ -71,7 +76,7 @@ func buildMCPDependencies(
 		Service: opened.Service, ProfileID: opened.ID, ProfileName: entry.DisplayName,
 		ProfileRoot: opened.Paths.Root, Clock: time.Now, Random: cryptorand.Reader,
 		Logger: newMCPLogger(streams.Err),
-	}, mcp.Options{AllowWrite: allowWrite})
+	}, mcp.Options{AllowWrite: mcpOptions.AllowWrite})
 	if err != nil {
 		return MCPDependencies{}, closeOpenedProfile(opened, err)
 	}
