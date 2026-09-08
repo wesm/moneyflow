@@ -61,6 +61,7 @@ func (source *Source) Reader(
 		return nil, source.fingerprint, err
 	}
 	source.initialMu.Lock()
+	client.validate = source.validateVault
 	initial := source.initial
 	source.initial = nil
 	source.initialMu.Unlock()
@@ -141,7 +142,7 @@ func (reader *reader) FetchSnapshot(
 	// Row-level checks alone would let an empty budget bypass the immutable binding.
 	credentials := reader.source.options.Credentials
 	if plan.CurrencyFormat.ISOCode != string(credentials.Currency) ||
-		plan.CurrencyFormat.DecimalDigits != int(credentials.Scale) {
+		*plan.CurrencyFormat.DecimalDigits != int(credentials.Scale) {
 		return provider.SnapshotResult{}, provider.NewError(provider.CodeMoneyMismatch)
 	}
 	if progress != nil {

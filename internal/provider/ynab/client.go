@@ -33,6 +33,7 @@ type Client struct {
 	baseURL      *url.URL
 	accessToken  string
 	maxBodyBytes int64
+	validate     func() error
 }
 
 // NewClient constructs a direct REST reader without exposing the token in errors.
@@ -93,7 +94,7 @@ func (client *Client) FetchPlan(ctx context.Context, planID string) (PlanDocumen
 	if plan.ID != planID {
 		return PlanDocument{}, provider.NewError(provider.CodeIdentityMismatch)
 	}
-	if response.Data.ServerKnowledge == nil || *response.Data.ServerKnowledge < 0 ||
+	if plan.CurrencyFormat.DecimalDigits == nil || response.Data.ServerKnowledge == nil || *response.Data.ServerKnowledge < 0 ||
 		plan.Accounts == nil || plan.Payees == nil || plan.CategoryGroups == nil ||
 		plan.Categories == nil || plan.Transactions == nil || plan.Subtransactions == nil {
 		return PlanDocument{}, provider.NewDataInvalidError(provider.DataInvalidSnapshot)
@@ -195,6 +196,11 @@ func (client *Client) readTransactionDetails(ctx context.Context, plan *PlanDocu
 }
 
 func (client *Client) getJSON(ctx context.Context, relative string, target any) error {
+	if client.validate != nil {
+		if err := client.validate(); err != nil {
+			return err
+		}
+	}
 	endpoint := client.baseURL.String() + relative
 	// #nosec G704 -- NewClient validates and privately owns the absolute base URL; callers supply
 	// only the fixed plans path or a PathEscape-encoded plan identity.

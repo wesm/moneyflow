@@ -75,6 +75,11 @@ func (writer *transactionWriter) UpdateTransaction(ctx context.Context, update p
 	if before.transfer() || (len(before.children) > 0 && (update.ClearCategory || update.CategoryExternalID.Present)) {
 		return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
 	}
+	if update.MerchantExternalID.Present {
+		if err = writer.validateDestinationPayee(ctx, update.MerchantExternalID.Value); err != nil {
+			return provider.TransactionUpdateResult{}, err
+		}
+	}
 	patch["approved"] = *before.transaction.Approved
 	var response writeTransactionResponse
 	if err = writer.requestJSON(ctx, http.MethodPut, writer.transactionPath(update.TransactionExternalID), map[string]any{"transaction": patch}, &response, writer.transactionLimit()); err != nil {
@@ -106,6 +111,28 @@ func (writer *transactionWriter) UpdateTransaction(ctx context.Context, update p
 		result.CategoryCleared = true
 	}
 	return result, nil
+}
+
+func (writer *transactionWriter) validateDestinationPayee(ctx context.Context, id string) error {
+	var response struct {
+		Data struct {
+			Payee Payee `json:"payee"`
+		} `json:"data"`
+	}
+	if err := writer.requestJSON(ctx, http.MethodGet, "plans/"+url.PathEscape(writer.planID)+"/payees/"+url.PathEscape(id), nil, &response, writer.transactionLimit()); err != nil {
+		return err
+	}
+	payee := response.Data.Payee
+	if payee.ID != id || payee.Deleted == nil {
+		return provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	}
+	if *payee.Deleted {
+		return provider.NewWriteFailure(provider.WriteTargetNotFound)
+	}
+	if payee.TransferAccountID != "" {
+		return provider.NewWriteFailure(provider.WriteRejected)
+	}
+	return nil
 }
 
 func ynabUpdatePatch(update provider.TransactionUpdate) (map[string]any, error) {

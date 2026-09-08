@@ -69,7 +69,7 @@ func syntheticYNABResponseJSON(t testing.TB, count int) []byte {
 	var response planResponse
 	response.Data.Plan.ID = "plan-performance"
 	response.Data.Plan.Name = "Example Budget"
-	response.Data.Plan.CurrencyFormat = CurrencyFormat{ISOCode: "USD", DecimalDigits: 2}
+	response.Data.Plan.CurrencyFormat = CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)}
 	accounts := []Account{{
 		ID: "account-example", Name: "Account Name", Type: "checking",
 		OnBudget: &yes, Closed: &no, Deleted: &no,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +175,7 @@ func TestYNABMissingCategoryExplainsRefusalWithoutSavingCredentials(t *testing.T
 	failed := waitForState(t, coordinator, next, StateFailed)
 	assert.Equal(t, string(provider.CodeDataInvalid), failed.Failure.Code)
 	assert.Contains(t, failed.Failure.Message, "category")
+	assert.Contains(t, failed.Failure.Message, "restart setup")
 	assert.NotContains(t, failed.Failure.Message, "category-not-returned")
 	assert.Zero(t, vault.saveCalls)
 }
@@ -224,6 +226,35 @@ func TestYNABRetainedVaultReconfirmsChangedUnboundSettings(t *testing.T) {
 	require.Equal(t, StateComplete, completed.State)
 	assert.Equal(t, "USD", string(vault.credentials.Currency))
 	assert.Equal(t, 1, vault.saveCalls)
+}
+
+func TestYNABRetainedVaultSaveFailureRequiresReentry(t *testing.T) {
+	vault := &fakeYNABVault{exists: true, saveErr: errors.New("synthetic save failure"), credentials: ynab.StoredCredentials{
+		AccessToken: "token-example", PlanID: "plan-example", Currency: "EUR", Scale: 2,
+	}}
+	client := &fakeYNABClient{plan: testYNABPlan("plan-example")}
+	coordinator, started := newYNABFlowCoordinator(t, vault, client, nil)
+	unlock := waitForStableState(t, coordinator, started)
+	next, err := coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: unlock.ProfileID, AttemptID: unlock.AttemptID, ExpectedStateVersion: unlock.StateVersion,
+		Action: ActionUnlock, Unlock: &UnlockInput{AccountPassword: []byte("account-password")},
+	})
+	require.NoError(t, err)
+	settings := waitForState(t, coordinator, next, StateSettingsRequired)
+	next, err = coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: settings.ProfileID, AttemptID: settings.AttemptID, ExpectedStateVersion: settings.StateVersion,
+		Action: ActionConfirmSettings, Settings: &SettingsInput{Currency: "USD", Scale: 2},
+	})
+	require.NoError(t, err)
+	failed := waitForState(t, coordinator, next, StateFailed)
+	require.NotNil(t, failed.Failure)
+	assert.False(t, failed.Failure.CanRetry, "retry must not skip a failed vault save")
+	assert.True(t, failed.Failure.CanReenter)
+	assert.Equal(t, "EUR", string(vault.credentials.Currency))
+	_, err = coordinator.Submit(t.Context(), SubmitRequest{
+		ProfileID: failed.ProfileID, AttemptID: failed.AttemptID, ExpectedStateVersion: failed.StateVersion, Action: ActionRetry,
+	})
+	require.Error(t, err)
 }
 
 func TestYNABRevokedRetainedTokenReturnsToCredentialEntry(t *testing.T) {
@@ -343,6 +374,9 @@ func (vault *fakeYNABVault) Save(credentials ynab.StoredCredentials, _ []byte) e
 	vault.mu.Lock()
 	defer vault.mu.Unlock()
 	vault.saveCalls++
+	if vault.saveErr != nil {
+		return vault.saveErr
+	}
 	vault.credentials = credentials
 	vault.exists = vault.saveErr == nil
 	return vault.saveErr
@@ -512,7 +546,7 @@ func testYNABPlan(planID string) ynab.PlanDocument {
 	no, yes := false, true
 	return ynab.PlanDocument{
 		ID: planID, Name: "Example Budget",
-		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
+		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)},
 		Accounts:       []ynab.Account{{ID: "account-example", Name: "Account Name", Type: "checking", OnBudget: &yes, Closed: &no, Deleted: &no}},
 		Payees:         []ynab.Payee{{ID: "payee-example", Name: "Example Payee", Deleted: &no}},
 		Transactions: []ynab.Transaction{{ID: "transaction-example", Date: "2026-08-30", Amount: new(int64(-12340)),

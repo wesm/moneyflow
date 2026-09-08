@@ -55,6 +55,11 @@ func TestYNABUpdateSendsOnlyRequestedFieldsAndFreshApproval(t *testing.T) {
 			var methods []string
 			adapter := newTestTransactionWriter(t, func(response http.ResponseWriter, request *http.Request) {
 				methods = append(methods, request.Method)
+				if request.URL.Path == "/v1/plans/plan-a/payees/payee-b" {
+					response.Header().Set("Content-Type", "application/json")
+					_, _ = response.Write([]byte(`{"data":{"payee":{"id":"payee-b","name":"Example Payee","deleted":false,"transfer_account_id":null}}}`))
+					return
+				}
 				assert.Equal(t, "/v1/plans/plan-a/transactions/txn-a", request.URL.Path)
 				assert.Equal(t, "Bearer synthetic-token", request.Header.Get("Authorization"))
 				transaction := writeTestTransaction()
@@ -77,8 +82,58 @@ func TestYNABUpdateSendsOnlyRequestedFieldsAndFreshApproval(t *testing.T) {
 			update.TransactionExternalID = "txn-a"
 			result, err := adapter.UpdateTransaction(context.Background(), update)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"GET", "PUT"}, methods)
+			if test.update.MerchantExternalID.Present {
+				assert.Equal(t, []string{"GET", "GET", "PUT"}, methods)
+			} else {
+				assert.Equal(t, []string{"GET", "PUT"}, methods)
+			}
 			assert.Equal(t, test.update.ClearCategory, result.CategoryCleared)
+		})
+	}
+}
+
+func TestYNABDestinationPayeePreflight(t *testing.T) {
+	for _, scenario := range []string{"ordinary", "transfer", "deleted", "missing", "wrong identity", "malformed"} {
+		t.Run(scenario, func(t *testing.T) {
+			var paths []string
+			writes := 0
+			adapter := newTestTransactionWriter(t, func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/v1/plans/plan-a/payees/payee-b" {
+					if scenario == "missing" {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+					payee := map[string]any{"id": "payee-b", "name": "Example Payee", "deleted": scenario == "deleted", "transfer_account_id": nil}
+					if scenario == "transfer" {
+						payee["transfer_account_id"] = "account-b"
+					}
+					if scenario == "wrong identity" {
+						payee["id"] = "payee-other"
+					}
+					if scenario == "malformed" {
+						delete(payee, "deleted")
+					}
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"payee": payee}}))
+					return
+				}
+				transaction := writeTestTransaction()
+				if r.Method == http.MethodPut {
+					writes++
+					transaction["payee_id"] = "payee-b"
+				}
+				writeTestResponse(t, w, transaction)
+			})
+			_, err := adapter.UpdateTransaction(t.Context(), provider.TransactionUpdate{TransactionExternalID: "txn-a", MerchantExternalID: provider.Some("payee-b")})
+			if scenario == "ordinary" {
+				require.NoError(t, err)
+				assert.Equal(t, 1, writes)
+				assert.Equal(t, []string{"/v1/plans/plan-a/transactions/txn-a", "/v1/plans/plan-a/payees/payee-b", "/v1/plans/plan-a/transactions/txn-a"}, paths)
+			} else {
+				require.Error(t, err)
+				assert.Zero(t, writes)
+			}
 		})
 	}
 }
@@ -121,6 +176,11 @@ func TestYNABUpdatePreservationAndExplicitResultCategory(t *testing.T) {
 func TestYNABUpdateSplitsCompareByIdentityAndKeepSplitNull(t *testing.T) {
 	for _, changed := range []bool{false, true} {
 		adapter := newTestTransactionWriter(t, func(response http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/v1/plans/plan-a/payees/payee-b" {
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write([]byte(`{"data":{"payee":{"id":"payee-b","name":"Example Payee","deleted":false,"transfer_account_id":null}}}`))
+				return
+			}
 			transaction := writeTestTransaction()
 			transaction["amount"], transaction["category_id"] = int64(-30000), nil
 			children := []any{map[string]any{"id": "split-a", "transaction_id": "txn-a", "amount": int64(-10000), "deleted": false, "memo": nil}, map[string]any{"id": "split-b", "transaction_id": "txn-a", "amount": int64(-20000), "deleted": false, "memo": nil}}

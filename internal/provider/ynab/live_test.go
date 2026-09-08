@@ -85,7 +85,7 @@ func TestLiveYNABReadOnlySnapshot(t *testing.T) {
 func assertLiveYNABMoney(t testing.TB, plan PlanDocument) {
 	t.Helper()
 	if !domain.IsValidCurrency(domain.Currency(plan.CurrencyFormat.ISOCode)) ||
-		plan.CurrencyFormat.DecimalDigits < 0 || plan.CurrencyFormat.DecimalDigits > 9 {
+		plan.CurrencyFormat.DecimalDigits == nil || *plan.CurrencyFormat.DecimalDigits < 0 || *plan.CurrencyFormat.DecimalDigits > 9 {
 		t.Fatal("YNAB returned an invalid currency or minor-unit scale")
 	}
 }

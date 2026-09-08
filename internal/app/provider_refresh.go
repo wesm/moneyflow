@@ -71,6 +71,7 @@ type providerRuntimeState struct {
 }
 
 type providerConfirmation struct {
+	fingerprint        provider.SessionFingerprint
 	owner              string
 	expiresAt          time.Time
 	generation         uint64
@@ -324,6 +325,7 @@ func (service *Service) RefreshProvider(
 	if ProviderDeletionConfirmationRequired(existing, removed) {
 		token, tokenErr := service.parkProviderConfirmation(
 			runtime,
+			fingerprint,
 			providerState.Refresh.Generation,
 			candidate,
 			proposedIDs,
@@ -359,6 +361,7 @@ func (service *Service) RefreshProvider(
 		ctx,
 		runtime,
 		providerState,
+		fingerprint,
 		candidate,
 		proposedIDs,
 		proposedSuffixes,
@@ -428,6 +431,7 @@ func (service *Service) ConfirmProviderRefresh(
 		ctx,
 		runtime,
 		providerState,
+		confirmation.fingerprint,
 		confirmation.candidate,
 		confirmation.proposedIDs,
 		confirmation.proposedSuffixes,
@@ -694,6 +698,7 @@ func (service *Service) foldProviderCandidate(
 	ctx context.Context,
 	runtime *providerRuntimeState,
 	providerState store.ProviderState,
+	fingerprint provider.SessionFingerprint,
 	candidate domain.ImportSnapshot,
 	proposedIDs map[string]domain.EntityID,
 	proposedSuffixes map[string]string,
@@ -701,6 +706,11 @@ func (service *Service) foldProviderCandidate(
 	request ProviderRefreshRequest,
 	selectionBefore SelectionSnapshot,
 ) (ProviderRefreshResult, error) {
+	// A candidate can outlive its credential file, especially while awaiting
+	// deletion confirmation. Validate its own generation, not the latest fetch's.
+	if changed, err := runtime.readSource.Changed(fingerprint); err != nil || changed {
+		return service.failProviderRefresh(ctx, runtime, providerState, runtime.now(), fingerprint, provider.NewError(provider.CodeReconnectRequired))
+	}
 	binding := providerState.Binding
 	if binding == nil {
 		binding = &store.ProviderBinding{
@@ -1017,6 +1027,7 @@ func proposedProviderMaterial(
 
 func (service *Service) parkProviderConfirmation(
 	runtime *providerRuntimeState,
+	fingerprint provider.SessionFingerprint,
 	generation uint64,
 	candidate domain.ImportSnapshot,
 	proposedIDs map[string]domain.EntityID,
@@ -1038,7 +1049,8 @@ func (service *Service) parkProviderConfirmation(
 		}
 	}
 	runtime.confirmations[token] = providerConfirmation{
-		owner: runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
+		fingerprint: fingerprint,
+		owner:       runtime.instanceID, expiresAt: now.Add(runtime.confirmationTTL),
 		generation: generation, candidate: candidate.Clone(),
 		proposedIDs:      cloneProviderIDs(proposedIDs),
 		proposedSuffixes: cloneProviderStrings(proposedSuffixes),

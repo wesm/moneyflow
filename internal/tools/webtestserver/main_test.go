@@ -44,7 +44,7 @@ func TestSyntheticRuntimeExercisesYNABBudgetSelectionAndImport(t *testing.T) {
 	plan, err := client.FetchPlan(context.Background(), plans[0].ID)
 	require.NoError(t, err)
 	assert.Equal(t, "USD", plan.CurrencyFormat.ISOCode)
-	assert.Equal(t, 2, plan.CurrencyFormat.DecimalDigits)
+	assert.Equal(t, 2, *plan.CurrencyFormat.DecimalDigits)
 
 	credentials := ynab.StoredCredentials{
 		AccessToken: "synthetic-token", PlanID: plan.ID, Currency: "USD", Scale: 2,

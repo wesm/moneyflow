@@ -177,7 +177,7 @@ func commandYNABPlan(planID string) ynab.PlanDocument {
 	no, yes := false, true
 	return ynab.PlanDocument{
 		ID: planID, Name: "Example Budget",
-		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
+		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)},
 		Accounts:       []ynab.Account{{ID: "account-example", Name: "Account Name", Type: "checking", OnBudget: &yes, Closed: &no, Deleted: &no}},
 		Payees:         []ynab.Payee{{ID: "payee-example", Name: "Example Payee", Deleted: &no}},
 		Transactions: []ynab.Transaction{{ID: "transaction-example", Date: "2026-08-30", Amount: new(int64(-12340)),

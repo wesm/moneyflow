@@ -70,7 +70,7 @@ func TestNormalizeRejectsInvalidMemoSplitTotalAndMoney(t *testing.T) {
 func TestNormalizeRejectsSplitAccumulatorOverflow(t *testing.T) {
 	for _, amount := range []int64{math.MaxInt64, math.MinInt64} {
 		plan := syntheticPlan()
-		plan.CurrencyFormat.DecimalDigits = 3
+		plan.CurrencyFormat.DecimalDigits = new(3)
 		plan.Subtransactions[0].Amount = new(amount)
 		plan.Subtransactions[1].Amount = new(amount)
 		plan.Transactions[2].Amount = new(amount + amount)
@@ -106,7 +106,7 @@ func syntheticPlan() PlanDocument {
 	no, yes := false, true
 	return PlanDocument{
 		ID: "plan-a", Name: "Example Budget",
-		CurrencyFormat: CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
+		CurrencyFormat: CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)},
 		Accounts: []Account{
 			{ID: "account-budget", Name: "Budget Account", Type: "checking", OnBudget: &yes, Closed: &no, Deleted: &no},
 			{ID: "account-transfer", Name: "Transfer Account", Type: "savings", OnBudget: &yes, Closed: &no, Deleted: &no},

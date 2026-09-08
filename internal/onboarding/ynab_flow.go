@@ -208,7 +208,7 @@ func (coordinator *Coordinator) fetchYNABPlan(
 	settings := Settings{
 		Currency: domain.Currency(plan.CurrencyFormat.ISOCode),
 		// Normalize above rejects decimal digits outside the exact uint8 range 0..9.
-		Scale: uint8(plan.CurrencyFormat.DecimalDigits), // #nosec G115
+		Scale: uint8(*plan.CurrencyFormat.DecimalDigits), // #nosec G115
 	}
 	if connection.Bound {
 		if connection.RemoteProfileID != plan.ID {
@@ -267,7 +267,7 @@ func (coordinator *Coordinator) confirmAndImportYNAB(ctx context.Context, attemp
 	defer clear(password)
 	if err := runtime.YNABVault.Save(credentials, password); err != nil {
 		coordinator.fail(attemptID, genericFailureCode,
-			"The YNAB credential vault could not be saved.", true, true)
+			"The YNAB credential vault could not be saved. Re-enter credentials to try saving again.", false, true)
 		return
 	}
 	coordinator.mu.Lock()
@@ -503,6 +503,9 @@ func (coordinator *Coordinator) failYNABProvider(attemptID string, err error, ca
 		message = "YNAB returned data that Moneyflow could not use."
 		if reason, known := provider.DataInvalidReasonOf(err); known {
 			message += " " + provider.DataInvalidDetail(reason)
+		}
+		if !canRetry {
+			message += " Cancel and restart setup after correcting the provider data."
 		}
 	}
 	coordinator.fail(attemptID, string(code), message, canRetry, code == provider.CodeIdentityMismatch)

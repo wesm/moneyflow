@@ -51,6 +51,46 @@ func TestProviderDeletionThresholdBoundaries(t *testing.T) {
 	}
 }
 
+func TestProviderRefreshRejectsChangedCandidateCredentials(t *testing.T) {
+	for _, confirmed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ordinary", true: "confirmed"}[confirmed], func(t *testing.T) {
+			service, profile := newProviderRefreshService(t)
+			now := providerWriteTime()
+			source := &fakeProviderSource{identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"}, snapshot: providerSnapshot(t, now, 3), fingerprint: "vault-a"}
+			require.NoError(t, service.ConfigureProvider(app.ProviderRuntime{ReadSource: source, Provider: "ynab", Currency: "USD", Scale: 2, Renderer: "mcp", InstanceID: "refresh-example", Now: func() time.Time { return now }}))
+			request := app.ProviderRefreshRequest{Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection()}
+			_, err := service.RefreshProvider(t.Context(), request)
+			require.NoError(t, err)
+			before, err := profile.Load(t.Context())
+			require.NoError(t, err)
+			if confirmed {
+				source.setSnapshot(providerSnapshot(t, now, 0))
+				parked, parkErr := service.RefreshProvider(t.Context(), request)
+				assertProviderAppCode(t, parkErr, provider.CodeDeletionConfirmationRequired)
+				source.setFingerprint("vault-b")
+				request.ConfirmationToken = parked.Status.ConfirmationToken
+				_, err = service.ConfirmProviderRefresh(t.Context(), request)
+			} else {
+				source.setSnapshot(providerSnapshot(t, now, 4))
+				source.setFetchHook(func() error { source.setFingerprint("vault-b"); return nil })
+				_, err = service.RefreshProvider(t.Context(), request)
+			}
+			assertProviderAppCode(t, err, provider.CodeReconnectRequired)
+			after, err := profile.Load(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, before, after)
+			state, err := profile.ProviderState(t.Context())
+			require.NoError(t, err)
+			assert.Nil(t, state.Lease)
+			assert.Equal(t, uint64(1), state.Refresh.Generation)
+			if confirmed {
+				_, err = service.ConfirmProviderRefresh(t.Context(), request)
+				assertProviderAppCode(t, err, provider.CodeConfirmationInvalid)
+			}
+		})
+	}
+}
+
 func TestMCPRendererIsAcceptedForExplicitProviderWork(t *testing.T) {
 	t.Parallel()
 

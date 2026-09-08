@@ -10,12 +10,18 @@ import (
 
 	"github.com/charmbracelet/x/term"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/home"
 	"github.com/wesm/moneyflow/internal/provider"
 )
 
 // unlockMCPProvider only installs an unlocked runtime. Network work belongs to
 // explicit MCP tools, never to server startup or an automatic scheduler.
 func unlockMCPProvider(ctx context.Context, opened OpenedProfile, streams IOStreams) error {
+	connectLock, err := home.TryLock(opened.Paths.Root, home.LockProviderConnect, home.LockExclusive)
+	if err != nil {
+		return fmt.Errorf("unlock YNAB: another connection attempt may be active: %w", err)
+	}
+	defer func() { _ = connectLock.Release() }()
 	connection, err := opened.Service.ProviderConnection(ctx)
 	if err != nil {
 		return err

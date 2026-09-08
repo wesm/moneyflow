@@ -24,6 +24,9 @@ removals are at least 25 and 10%, when at least 1,000 disappear, or when at leas
 disappear. Integrity failures cannot be overridden by confirmation. Tokens identify process-local
 candidates and are bound to the checked refresh generation. Confirmation folds the candidate
 against the current journal, not a precomputed stale rebase.
+Ordinary and confirmed folds recheck the candidate's captured credential fingerprint before
+entering the store. A changed or removed credential file refuses the fold, releases the lease,
+and requires reconnect; a consumed confirmation cannot be reused.
 
 The standing six-hour cadence applies to configured network providers in long-lived TUI/web
 processes. MCP refresh is explicit. Amazon has no network refresh scheduler. Read-only MCP refresh
@@ -93,24 +96,33 @@ The full `/plans/{id}` response is joined with transaction detail under matching
 and transaction/split facts. Categories missing from taxonomy can be retained from consistent
 detail labels; do not reject usable data merely because the collection omitted a category.
 
-Import rejects absent/null amounts rather than inventing zero. Budget currency/scale is checked
+Import rejects absent/null amounts and decimal digits rather than inventing zero. Budget currency/scale is checked
 even when the budget has no transactions. Conversion from milliunits is exact. Uncleared rows
 retain provider-pending status; transfers and off-budget rows supply hidden state. Split parents
 remain one accounting row, with child details preserved separately and their sum validated.
 
 The selected plan's SQLite binding is authoritative over a vault copy. Unlock uses the encrypted
 profile vault. No automatic plaintext-token persistence or process-restart unlock is provided.
+Readers check the captured vault fingerprint before each HTTP request, including the second
+transaction-detail request. A failed onboarding vault save requires credential re-entry; retry
+cannot bypass saving and bind new settings against an old vault.
 
 The [transaction writer][source-12] fresh-reads a parent before each PUT or DELETE. Updates carry
-only requested payee/category fields plus the fresh approval value. Omitted category, mapped
+only requested payee/category fields plus the fresh approval value. YNAB's
+[ExistingTransaction schema](https://api.ynab.com/papi/open_api_spec.yaml) inherits optional fields;
+account, date, and amount are deliberately not rewritten. Omitted category, mapped
 category, and explicit clearing are distinct. Mapped payees use IDs; a new-name leader persists
 the resulting ID before followers proceed. Response validation preserves unrelated transaction
 and split facts; ordinary payee/category overrides become counted provider truth. Unknown echoed
 identities remain provisional until the immediately due refresh.
-New-name responses that claim another active local payee's identity stop in reconcile-only
-attention before success is recorded or followers are sent.
+New-name responses that claim another active local payee's identity, including an identity just
+claimed by another group in the batch, stop in reconcile-only attention before the conflicting
+success is recorded or followers are sent.
 
-Transfers are refused using persisted provider facts, not the generic hidden flag. Ordinary
+Transfers are refused using persisted provider facts, not the generic hidden flag.
+ID-addressed payee edits also fresh-read the destination payee before PUT and reject transfer,
+deleted, missing, or malformed destinations. Vault validation runs before that read and the PUT.
+These preflights cannot eliminate a provider-side change after the final GET. Ordinary
 off-budget rows remain writable. Split parents support payee changes and whole-parent deletion,
 but not category changes. Hide toggles and taxonomy administration are refused before staging
 and rechecked during preparation. Uncategorized is the protected system category.

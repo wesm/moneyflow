@@ -10,7 +10,7 @@ type PlanSummary struct {
 // CurrencyFormat is the exact money interpretation declared by one YNAB plan.
 type CurrencyFormat struct {
 	ISOCode       string `json:"iso_code"`
-	DecimalDigits int    `json:"decimal_digits"`
+	DecimalDigits *int   `json:"decimal_digits"`
 }
 
 // Account is one YNAB plan account.

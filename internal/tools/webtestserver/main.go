@@ -515,7 +515,7 @@ func syntheticYNABPlan(planID string) ynab.PlanDocument {
 	no, yes := false, true
 	return ynab.PlanDocument{
 		ID: planID, Name: "Example Budget",
-		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: 2},
+		CurrencyFormat: ynab.CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)},
 		Accounts: []ynab.Account{{
 			ID: "ynab-account", Name: "Account Name", Type: "checking",
 			OnBudget: &yes, Closed: &no, Deleted: &no,

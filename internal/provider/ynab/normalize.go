@@ -20,11 +20,11 @@ const (
 // Normalize converts one complete YNAB plan into the provider-neutral snapshot contract.
 func Normalize(plan PlanDocument, observedAt time.Time) (domain.ImportSnapshot, error) {
 	currency := domain.Currency(plan.CurrencyFormat.ISOCode)
-	if !domain.IsValidCurrency(currency) || plan.CurrencyFormat.DecimalDigits < 0 ||
-		plan.CurrencyFormat.DecimalDigits > 9 {
+	if !domain.IsValidCurrency(currency) || plan.CurrencyFormat.DecimalDigits == nil || *plan.CurrencyFormat.DecimalDigits < 0 ||
+		*plan.CurrencyFormat.DecimalDigits > 9 {
 		return domain.ImportSnapshot{}, provider.NewError(provider.CodeMoneyMismatch)
 	}
-	scale := uint8(plan.CurrencyFormat.DecimalDigits)
+	scale := uint8(*plan.CurrencyFormat.DecimalDigits)
 	snapshot := domain.ImportSnapshot{ObservedAt: observedAt}
 
 	accounts := make(map[string]Account)

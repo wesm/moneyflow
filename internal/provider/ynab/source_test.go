@@ -23,9 +23,9 @@ func TestSourceChecksMoneySettingsEvenWithoutTransactions(t *testing.T) {
 		currency CurrencyFormat
 		want     provider.ErrorCode
 	}{
-		{"unchanged", CurrencyFormat{ISOCode: "USD", DecimalDigits: 2}, ""},
-		{"changed currency", CurrencyFormat{ISOCode: "EUR", DecimalDigits: 2}, provider.CodeMoneyMismatch},
-		{"changed scale", CurrencyFormat{ISOCode: "USD", DecimalDigits: 3}, provider.CodeMoneyMismatch},
+		{"unchanged", CurrencyFormat{ISOCode: "USD", DecimalDigits: new(2)}, ""},
+		{"changed currency", CurrencyFormat{ISOCode: "EUR", DecimalDigits: new(2)}, provider.CodeMoneyMismatch},
+		{"changed scale", CurrencyFormat{ISOCode: "USD", DecimalDigits: new(3)}, provider.CodeMoneyMismatch},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -257,5 +257,49 @@ func TestSourceRejectsVaultChangesBeforeAndDuringRead(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSourceDoesNotSendDetailsAfterVaultChange(t *testing.T) {
+	for _, deletion := range []bool{false, true} {
+		t.Run(fmt.Sprint(deletion), func(t *testing.T) {
+			vault := newTestCredentialVault(t)
+			credentials := StoredCredentials{AccessToken: "synthetic-token", PlanID: "plan-a", Currency: "USD", Scale: 2} //nolint:gosec // synthetic fixture.
+			require.NoError(t, vault.Save(credentials, []byte("account-password")))
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				if r.URL.Path != "/plans/plan-a" {
+					http.Error(w, "unexpected second request", http.StatusServiceUnavailable)
+					return
+				}
+				if deletion {
+					require.NoError(t, vault.Delete())
+				} else {
+					replacement := credentials
+					replacement.AccessToken = "replacement-token"
+					require.NoError(t, vault.Save(replacement, []byte("account-password")))
+				}
+				plan := syntheticPlan()
+				plan.ID = "plan-a"
+				w.Header().Set("Content-Type", "application/json")
+				require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"plan": map[string]any{
+					"id": plan.ID, "currency_format": plan.CurrencyFormat, "accounts": plan.Accounts, "payees": plan.Payees,
+					"category_groups": plan.CategoryGroups, "categories": plan.Categories, "transactions": plan.Transactions, "subtransactions": plan.Subtransactions,
+				}, "server_knowledge": 1}}))
+			}))
+			defer server.Close()
+			endpoint, err := url.Parse(server.URL + "/")
+			require.NoError(t, err)
+			source, err := NewSource(SourceOptions{Client: ClientOptions{BaseURL: endpoint}, Credentials: credentials, Vault: vault})
+			require.NoError(t, err)
+			reader, _, err := source.Reader(t.Context(), false)
+			require.NoError(t, err)
+			_, err = reader.FetchSnapshot(t.Context(), nil)
+			code, ok := provider.CodeOf(err)
+			require.True(t, ok)
+			assert.Equal(t, provider.CodeReconnectRequired, code)
+			assert.Equal(t, int32(1), requests.Load())
+		})
 	}
 }

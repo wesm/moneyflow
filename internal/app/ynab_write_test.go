@@ -121,13 +121,13 @@ func TestYNABReconcileFailureConfirmationAndResurrectedIdentity(t *testing.T) {
 }
 
 func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
-	for _, kind := range []string{"clear", "override", "leader", "leader-collision", "rate", "uncertain"} {
+	for _, kind := range []string{"clear", "override", "leader", "leader-collision", "cross-group-collision", "rate", "uncertain"} {
 		t.Run(kind, func(t *testing.T) {
 			ctx := context.Background()
 			service, profile := newProviderRefreshService(t)
 			now := providerWriteTime()
 			reader := &fakeProviderSource{identity: provider.ProfileIdentity{Kind: "ynab", RemoteID: "plan-example"}, snapshot: providerSnapshot(t, now, 3), fingerprint: "vault-a"}
-			if kind == "leader-collision" {
+			if kind == "leader-collision" || kind == "cross-group-collision" {
 				reader.snapshot.Merchants = append(reader.snapshot.Merchants, domain.ImportEntity{
 					Kind: domain.EntityKindMerchant, ExternalID: "payee-incumbent", Label: "Other Payee",
 				})
@@ -150,7 +150,7 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 					return provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID,
 						MerchantExternalID: provider.Some("payee-incumbent"), MerchantLabel: provider.Some("New Payee")}, nil
 				}
-				if kind != "leader" {
+				if kind != "leader" && kind != "cross-group-collision" {
 					assert.True(t, update.ClearCategory)
 					assert.False(t, update.CategoryExternalID.Present)
 					if kind == "override" {
@@ -168,11 +168,11 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 			loaded, err := profile.Load(ctx)
 			require.NoError(t, err)
 			var operation domain.Operation
-			if kind != "leader" && kind != "leader-collision" {
+			if kind != "leader" && kind != "leader-collision" && kind != "cross-group-collision" {
 				operation = providerWriteOperation("category", 1, domain.OperationCategoryAssign, []domain.EntityID{loaded.Committed.Transactions[0].ID}, nil, nil, &domain.ReassignPayload{DestinationID: domain.UncategorizedCategoryID}, nil)
 			} else {
 				id := loaded.Committed.Transactions[0].MerchantID
-				if kind == "leader-collision" {
+				if kind == "leader-collision" || kind == "cross-group-collision" {
 					for _, transaction := range loaded.Committed.Transactions {
 						if transaction.ProviderID == transactionExternalID(0) {
 							id = transaction.MerchantID
@@ -186,11 +186,31 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 			operation.Sequence = 0
 			revision, err := profile.Append(ctx, loaded.Revision, operation)
 			require.NoError(t, err)
+			if kind == "cross-group-collision" {
+				var other domain.EntityID
+				for _, transaction := range loaded.Committed.Transactions {
+					if transaction.ProviderID == transactionExternalID(2) {
+						other = transaction.MerchantID
+					}
+				}
+				second := providerWriteOperation("other-label", 1, domain.OperationMerchantLabel, []domain.EntityID{other}, &domain.LabelPayload{EntityID: other, Label: "Another Payee", CollisionKey: "another payee"}, nil, nil, nil)
+				second.CreatedRevision, second.Sequence = revision, 0
+				revision, err = profile.Append(ctx, revision, second)
+				require.NoError(t, err)
+			}
 			_, err = service.Refresh(ctx)
 			require.NoError(t, err)
 			_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: revision, ReviewedRevision: revision, State: app.DefaultViewState(), Selection: app.EmptySelection()})
 			require.NoError(t, err)
 			status, runErr := service.RunProviderWrite(ctx)
+			if kind == "cross-group-collision" {
+				require.Error(t, runErr)
+				assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)
+				assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+				assert.Equal(t, 1, status.Completed, "only the first group may own the returned identity")
+				assert.Equal(t, 2, writer.callCount(), "followers must stay unsent after conflicting leaders")
+				return
+			}
 			if kind == "leader-collision" {
 				require.Error(t, runErr)
 				assert.Equal(t, store.WritePhaseAttentionRequired, status.Phase)

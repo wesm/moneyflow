@@ -76,6 +76,9 @@ confirmation, and stable-ID restoration. The 100k write gates run both provider 
 mixes deletion and category clearing and compares application finalization with the store oracle.
 Browser workflows include YNAB unlock, `w` then Enter, and refresh after commit in all three
 engines under the existing Chromium/full and Firefox/WebKit/smoke split.
+Review regressions also cover missing/null zero-scale declarations, vault replacement between
+read requests and before ordinary/confirmed folds, failed vault-save re-entry, MCP unlock lock
+contention, live destination-payee rejection before PUT, and cross-group returned-ID conflicts.
 
 MCP tests exercise the 2026-07-28 discovery, tool-call, resource, and private-cache contracts through
 the actual HTTP handler and SDK, plus the real stdio subprocess. Editing tests use temporary SQLite

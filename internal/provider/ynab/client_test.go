@@ -19,6 +19,32 @@ import (
 	"github.com/wesm/moneyflow/internal/provider"
 )
 
+func TestClientRequiresExplicitZeroScale(t *testing.T) {
+	for _, digits := range []string{"", `,"decimal_digits":null`, `,"decimal_digits":0`} {
+		t.Run(digits, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"data":{"server_knowledge":1,"plan":{"id":"plan-a","currency_format":{"iso_code":"JPY"%s},"accounts":[],"payees":[],"category_groups":[],"categories":[],"transactions":[],"subtransactions":[]}}}`, digits)
+			}))
+			defer server.Close()
+			base, err := url.Parse(server.URL + "/")
+			require.NoError(t, err)
+			client, err := NewClient(ClientOptions{BaseURL: base}, "synthetic-token")
+			require.NoError(t, err)
+			plan, err := client.FetchPlan(t.Context(), "plan-a")
+			if digits == `,"decimal_digits":0` {
+				require.NoError(t, err)
+				_, err = Normalize(plan, time.Now())
+				require.NoError(t, err)
+			} else {
+				code, ok := provider.CodeOf(err)
+				require.True(t, ok)
+				assert.Equal(t, provider.CodeDataInvalid, code)
+			}
+		})
+	}
+}
+
 func TestClientRequiresExplicitTransactionAndSplitAmounts(t *testing.T) {
 	for _, location := range []string{"plan parent", "plan split", "detail parent", "detail split"} {
 		for _, amount := range []string{"", `,"amount":null`, `,"amount":0`} {

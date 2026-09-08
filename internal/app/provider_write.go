@@ -905,6 +905,19 @@ func normalizeProviderWriteResult(
 			if owner != item.RequestedMerchantLocalID && baseline.activeMerchants[owner] {
 				return store.WriteResult{}, provider.NewWriteFailure(provider.WriteIdentityConflict)
 			}
+			// Earlier results may have claimed an identity absent from the baseline,
+			// including a leader from another group in this same concurrent request set.
+			claimed := make(map[string]bool)
+			for _, prior := range state.Results {
+				if prior.MerchantExternalID != nil && *prior.MerchantExternalID == *result.MerchantExternalID {
+					claimed[prior.ItemID] = true
+				}
+			}
+			for _, prior := range state.Items {
+				if claimed[prior.ID] && prior.RequestedMerchantLocalID != "" && prior.RequestedMerchantLocalID != item.RequestedMerchantLocalID {
+					return store.WriteResult{}, provider.NewWriteFailure(provider.WriteIdentityConflict)
+				}
+			}
 			expected := providerWriteGroupResultID(state, item.NewGroupKey)
 			if !item.GroupLeader && expected == "" {
 				return store.WriteResult{}, provider.NewWriteFailure(provider.WriteExpectationInvalid)

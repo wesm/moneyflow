@@ -100,6 +100,8 @@ export path, not diagnostics. Filtered exports and browser downloads remain sepa
 
 The MCP launcher opens YNAB offline by default. `--unlock` reads the existing vault password from
 the controlling terminal, not protocol stdin/stdout, and configures that process's reader/writer.
+It holds the provider-connect lock from inspection through runtime configuration so a concurrent
+reconnect cannot pair an old decrypted token with a replacement vault's fingerprint.
 It does not fetch, refresh, or resume a batch at startup. `--allow-write` separately registers edit
 tools; unlock alone still permits explicit refresh under the read-only contract. Wrong passwords,
 missing vaults, or binding mismatches stop startup and release the profile. Restart or vault

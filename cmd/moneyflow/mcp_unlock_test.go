@@ -27,7 +27,7 @@ import (
 )
 
 func TestMCPUnlockRefusalClosesProfileWithoutStartingServer(t *testing.T) {
-	for _, reason := range []string{"wrong-password", "wrong-plan", "wrong-money", "missing-vault", "canceled", "local-profile"} {
+	for _, reason := range []string{"wrong-password", "wrong-plan", "wrong-money", "missing-vault", "canceled", "local-profile", "connect-busy"} {
 		t.Run(reason, func(t *testing.T) {
 			root := t.TempDir()
 			t.Setenv("MONEYFLOW_HOME", root)
@@ -57,6 +57,11 @@ func TestMCPUnlockRefusalClosesProfileWithoutStartingServer(t *testing.T) {
 				require.NoError(t, vault.Save(credentials, []byte("example-password")))
 			}
 			var stdout, stderr bytes.Buffer
+			if reason == "connect-busy" {
+				lock, lockErr := home.TryLock(entry.Root, home.LockProviderConnect, home.LockExclusive)
+				require.NoError(t, lockErr)
+				defer func() { require.NoError(t, lock.Release()) }()
+			}
 			started, prompted := false, false
 			command := newRootCommand(IOStreams{In: strings.NewReader("do not consume protocol input"), Out: &stdout, Err: &stderr,
 				Prompt: func(context.Context, string, bool) (string, error) {
@@ -91,7 +96,7 @@ func TestMCPUnlockRefusalClosesProfileWithoutStartingServer(t *testing.T) {
 				require.True(t, ok)
 				assert.Equal(t, provider.CodeMoneyMismatch, code)
 			}
-			if reason == "missing-vault" || reason == "local-profile" {
+			if reason == "missing-vault" || reason == "local-profile" || reason == "connect-busy" {
 				assert.False(t, prompted)
 			}
 			lock, lockErr := home.TryLockExisting(entry.Root, home.LockProfile, home.LockExclusive)
