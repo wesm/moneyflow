@@ -203,6 +203,20 @@ async function build() {
     recursive: true,
   });
   await stagePages(resolve(docs, "website"), output, manifest.static);
+  await command(["make", "docs-screenshots"]);
+  await stagePages(
+    resolve(docs, ".screenshots"),
+    resolve(output, "screenshots"),
+    [
+      "tui-browse.svg",
+      "tui-detail.svg",
+      "tui-category.svg",
+      "tui-review.svg",
+      "tui-export.svg",
+      "web-browse.png",
+      "web-review.png",
+    ],
+  );
   await cp(resolve(docs, "CNAME"), resolve(output, "CNAME"));
   await writeFile(resolve(output, ".nojekyll"), "");
   for (const [route, destination] of Object.entries(manifest.redirects)) {

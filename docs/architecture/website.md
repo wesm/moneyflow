@@ -6,12 +6,18 @@ routes, not routes served by the financial web application.
 
 ## Build and inspect
 
-From the repository root, with Bun and uv installed:
+From the repository root, with Go, Bun, uv, tmux and Freeze 0.2.2 installed:
 
 ```bash
+make web-install
+# Install the capture tool locally, without replacing a global binary.
+GOBIN="$PWD/bin" go install github.com/charmbracelet/freeze@v0.2.2
+export FREEZE_BIN="$PWD/bin/freeze"
+cd web && bunx playwright install chromium && cd ..
 make docs-test
 make docs-build
 make docs-check
+make docs-browser-test
 make docs-serve
 ```
 
@@ -29,6 +35,28 @@ the historical specs or plans. Current edit links point to `go-port`.
 The built checker resolves same-site links, fragments, assets and canonical URLs. Archive pages
 must carry `noindex`. Inspect representative pages in a browser too: a passing link checker does
 not prove that a responsive layout or keyboard focus is usable.
+
+## Real application captures
+
+The homepage and walkthrough use real Go application captures, not illustrations. Every site build
+runs `make docs-screenshots`: it builds the current binary, opens `moneyflow tui --demo` in an
+isolated tmux server, and turns its ANSI terminal output into SVG using
+[Freeze](https://github.com/charmbracelet/freeze). The captures retain the application's text,
+colors and layout. Freeze embeds the terminal font. Browser images are high-resolution PNGs
+captured with Playwright from `moneyflow web --demo`, using the existing isolated browser-test
+server helper. Both renderers use the existing embedded synthetic fixture and temporary SQLite
+profiles; no live profile or provider is involved.
+
+The sequence shows merchant totals, a drill into transactions, selecting two rows, changing their
+category, reviewing the pending change, and opening export. It never commits or writes an export.
+The website lightbox supports keyboard activation, Escape, a Close button and focus restoration;
+image links still open directly without JavaScript. The original SVG or PNG remains available for
+full-resolution inspection.
+
+Capture runs require macOS or Linux (tmux); CI uses Linux. Generated SVGs and PNGs live in ignored
+`docs/.screenshots/` and are copied into `site/screenshots/`. They are rebuilt rather than committed
+on `go-port`. If durable assets are retained later, they belong on a separately managed orphan
+assets branch. There is no Python screenshot generator or parity-golden update in this pipeline.
 
 ## Archive provenance
 

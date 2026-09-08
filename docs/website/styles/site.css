@@ -92,11 +92,14 @@ nav a[aria-current] {
   color: var(--accent);
 }
 .hero {
-  padding: 90px 0 80px;
+  padding: 70px 0 70px;
   display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 60px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
   align-items: center;
+}
+.hero > div {
+  max-width: 900px;
 }
 h1 {
   font-size: clamp(42px, 5.2vw, 66px);
@@ -155,40 +158,92 @@ p {
   color: var(--muted);
   margin-top: 18px;
 }
-.terminal {
-  background: #192f27;
-  color: #e0ede4;
+.capture {
+  margin: 36px 0 0;
+  min-width: 0;
+}
+.capture a {
+  display: block;
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 12px 18px 0 #0b1411;
   overflow: hidden;
+  background: #121826;
+  box-shadow: 0 18px 50px #0003;
+  cursor: zoom-in;
 }
-.terminal-bar {
-  padding: 14px 22px;
-  border-bottom: 1px solid #396050;
-  font:
-    12px ui-monospace,
-    monospace;
-  color: #b6cec0;
-  display: flex;
-  justify-content: space-between;
+.capture a:hover {
+  border-color: var(--accent);
 }
-.terminal pre {
-  margin: 0;
-  padding: 24px;
-  font:
-    13px/1.9 ui-monospace,
-    monospace;
-  overflow: auto;
-  color: #e0ede4;
+.capture img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
-.terminal .selected {
-  color: #fae19e;
-}
-.terminal-caption {
-  font-size: 12px;
+.capture figcaption {
+  margin-top: 14px;
+  font-size: 14px;
   color: var(--muted);
-  margin: 26px 0 0;
+}
+.capture figcaption span {
+  color: var(--accent);
+  white-space: nowrap;
+}
+.hero-capture {
+  margin: 0;
+}
+.step .capture {
+  grid-column: 2 / -1;
+  margin: 0;
+}
+.lightbox {
+  width: min(1600px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.lightbox::backdrop {
+  background: #000d;
+}
+.lightbox-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.lightbox-toolbar p {
+  flex: 1;
+  margin: 0;
+}
+.lightbox-toolbar a,
+.lightbox-toolbar button {
+  flex-shrink: 0;
+}
+.lightbox button {
+  padding: 8px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+.lightbox button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.lightbox-image {
+  overflow: auto;
+}
+.lightbox img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 section.band {
   padding: 70px 0;
@@ -368,9 +423,11 @@ kbd {
   .cta {
     padding: 24px;
   }
-  .terminal pre {
-    font-size: 11px;
-    padding: 16px;
+  .lightbox-toolbar {
+    flex-wrap: wrap;
+  }
+  .lightbox-toolbar p {
+    flex-basis: 100%;
   }
   .provider {
     grid-template-columns: 1fr;
@@ -384,6 +441,9 @@ kbd {
     gap: 8px;
   }
   .step aside {
+    grid-column: 1;
+  }
+  .step .capture {
     grid-column: 1;
   }
 }

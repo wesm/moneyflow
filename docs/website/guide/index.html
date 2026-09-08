@@ -10,6 +10,7 @@
     />
     <link rel="canonical" href="https://moneyflow.dev/guide/" />
     <link rel="stylesheet" href="/styles/site.css" />
+    <script src="/scripts/lightbox.js" defer></script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -53,6 +54,18 @@
             Demo edits disappear when the process exits. Real profiles persist.
           </p>
         </aside>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/web-browse.png"
+            ><img
+              src="/screenshots/web-browse.png"
+              alt="Browse the same synthetic demo in the Go web application"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            Start in the browser or terminal. Every image here comes from the
+            running Go application. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="step" aria-labelledby="explore">
         <span class="number">02</span>
@@ -77,6 +90,18 @@
           </p>
           <a href="/docs/guide/mcp/">MCP setup and tool reference →</a>
         </aside>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/tui-detail.svg"
+            ><img
+              src="/screenshots/tui-detail.svg"
+              alt="Drill into Example Grocer to inspect individual demo transactions"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            Enter opens the transactions behind an aggregate. Esc takes you
+            back. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="step" aria-labelledby="refine">
         <span class="number">03</span>
@@ -101,6 +126,18 @@
           </p>
           <p>Pending edits are shared, durable and reviewable.</p>
         </aside>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/tui-category.svg"
+            ><img
+              src="/screenshots/tui-category.svg"
+              alt="Choose a category for two selected demo transactions in the terminal"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            Space, ↓, Space, then c: one category change for the selection.
+            <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="step" aria-labelledby="review">
         <span class="number">04</span>
@@ -127,6 +164,30 @@
           </p>
           <p>Local and Amazon commits stay local.</p>
         </aside>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/tui-review.svg"
+            ><img
+              src="/screenshots/tui-review.svg"
+              alt="Review the staged category change and affected demo transactions before committing"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            Nothing was committed to make this capture. The change is still
+            staged. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/web-review.png"
+            ><img
+              src="/screenshots/web-review.png"
+              alt="Review the same two-transaction category change in the Go web application"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            The same workflow in a browser: inspect the pending change before
+            committing. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="step" aria-labelledby="export">
         <span class="number">05</span>
@@ -153,6 +214,18 @@
             >Limitations and transition guidance →</a
           >
         </aside>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/tui-export.svg"
+            ><img
+              src="/screenshots/tui-export.svg"
+              alt="The terminal export chooser with format, scope and pending-edit guidance"
+              loading="lazy"
+          /></a>
+          <figcaption>
+            Export committed data, with the pending-edit boundary shown in the
+            chooser. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="cta">
         <h2>Try the loop with synthetic data.</h2>

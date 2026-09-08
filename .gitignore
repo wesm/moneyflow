@@ -50,6 +50,7 @@ htmlcov/
 .DS_Store
 site/
 docs/.site-work/
+docs/.screenshots/
 
 # Generated documentation assets
 docs/assets/screenshots/*.svg

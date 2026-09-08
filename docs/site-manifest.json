@@ -24,7 +24,12 @@
     "reference/troubleshooting.md",
     "architecture/website.md"
   ],
-  "static": ["index.html", "guide/index.html", "styles/site.css"],
+  "static": [
+    "index.html",
+    "guide/index.html",
+    "styles/site.css",
+    "scripts/lightbox.js"
+  ],
   "redirects": {
     "categories": "/legacy/v1/categories/",
     "config/advanced": "/legacy/v1/config/advanced/",

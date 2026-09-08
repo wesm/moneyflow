@@ -416,7 +416,7 @@ Use the separate locked environment in `docs/`, not the application dependency g
 **Starting the docs server:**
 
 ```bash
-# Serve docs locally with live reload (default: http://localhost:8000)
+# Build and serve the complete site at http://127.0.0.1:8000/ (rebuild after edits)
 make docs-serve
 ```
 
@@ -426,11 +426,17 @@ make docs-serve
 make docs-test
 make docs-build   # combined output written to ignored site/
 make docs-check   # built links, fragments, assets, canonical/robots metadata
+make docs-browser-test # screenshot lightbox keyboard and image-loading checks
 ```
 
 The loopback preview serves the combined output and does not watch source files; rebuild after
 edits. Public sources are selected by `docs/site-manifest.json`, not recursive copying of docs.
 See `docs/architecture/website.md` for the archive manifest and deployment checklist.
+
+The website build also builds the real Go application and captures its TUI and web demo workflows.
+Install tmux, Freeze 0.2.2 and Playwright Chromium as documented in that page. `make docs-screenshots`
+regenerates only the captures, into ignored `docs/.screenshots/`. Do not replace these with invented
+terminal output or mock application screenshots.
 
 Do not regenerate Python screenshots for the site. The frozen archive records unavailable images
 with notices. Generated screenshots and distributions remain ignored; durable visual assets require

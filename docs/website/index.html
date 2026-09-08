@@ -10,6 +10,7 @@
     />
     <link rel="canonical" href="https://moneyflow.dev/" />
     <link rel="stylesheet" href="/styles/site.css" />
+    <script src="/scripts/lightbox.js" defer></script>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
@@ -42,29 +43,18 @@
             Terminal, browser and MCP. One application, one set of profiles.
           </p>
         </div>
-        <div>
-          <div
-            class="terminal"
-            aria-label="Illustrative keyboard workflow using synthetic data"
-          >
-            <div class="terminal-bar">
-              <span>moneyflow / review</span><span>synthetic example</span>
-            </div>
-            <pre>Merchant                 Count      Amount
-─────────────────────────────────────────
-<span class="selected">› Example Market             4     $124.50</span>
-  Sample Transit             8      $32.00
-  Demo Books                 2      $46.00
-
-  / search    Space select    c category
-
-<span class="selected">  4 transactions selected</span>
-  Review the change. Then commit.</pre>
-          </div>
-          <p class="terminal-caption">
-            Illustration of the workflow, not an application screenshot.
-          </p>
-        </div>
+        <figure class="capture hero-capture">
+          <a data-lightbox href="/screenshots/tui-browse.svg">
+            <img
+              src="/screenshots/tui-browse.svg"
+              alt="The Go terminal application, grouped by merchant on synthetic demo data"
+              fetchpriority="high"
+            />
+          </a>
+          <figcaption>
+            Real application. Demo data. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
       </section>
       <section class="band" aria-labelledby="interfaces">
         <div class="section-intro">
@@ -79,6 +69,19 @@
             pending edits and commit status belong to the application.
           </p>
         </div>
+        <figure class="capture">
+          <a data-lightbox href="/screenshots/web-browse.png">
+            <img
+              src="/screenshots/web-browse.png"
+              alt="The Go web application with merchant totals and charts on demo data"
+              loading="lazy"
+            />
+          </a>
+          <figcaption>
+            The browser interface, running locally with
+            <code>moneyflow web --demo</code>. <span>Click to enlarge ↗</span>
+          </figcaption>
+        </figure>
         <div class="cards">
           <article class="card">
             <span class="number">01 / TERMINAL</span>

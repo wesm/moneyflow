@@ -17,7 +17,7 @@ build: web-embed
 help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
-.PHONY: docs-build docs-check docs-test docs-serve
+.PHONY: docs-build docs-check docs-test docs-serve docs-screenshots docs-browser-test
 docs-build:
 	bun docs/tools/site.ts build
 
@@ -26,6 +26,12 @@ docs-check:
 
 docs-test:
 	bun test docs/tools/site.test.ts
+
+docs-browser-test:
+	bun test docs/tools/browser.test.ts
+
+docs-screenshots: build
+	cd web && bun ../docs/tools/capture.ts
 
 docs-serve:
 	bun docs/tools/site.ts serve
