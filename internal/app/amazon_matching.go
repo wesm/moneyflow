@@ -1,0 +1,332 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"maps"
+	"slices"
+	"strings"
+	"sync"
+
+	"github.com/wesm/moneyflow/internal/analytics"
+	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
+)
+
+// AmazonSourceDescriptor is one catalog entry without financial contents.
+type AmazonSourceDescriptor struct {
+	ProfileID   string
+	DisplayName string
+	Kind        string
+}
+
+// AmazonSourceDirectory lists current catalog entries for matching.
+type AmazonSourceDirectory interface {
+	ListAmazonSources(context.Context) ([]AmazonSourceDescriptor, error)
+}
+
+// AmazonSourceLoader probes one source revision and returns data only when it changed.
+type AmazonSourceLoader func(
+	context.Context,
+	AmazonSourceDescriptor,
+	uint64,
+) (*store.AmazonMatchSourceState, func() error, error)
+
+// AmazonMatchProjection contains one result plus counts-only source diagnostics.
+type AmazonMatchProjection struct {
+	Qualified    bool
+	Result       analytics.AmazonMatchResult
+	Skipped      map[string]int
+	ProfileNames map[string]string
+}
+
+// AmazonMatchInput is one transaction plus its provider-owned merchant label.
+type AmazonMatchInput struct {
+	Transaction              domain.Transaction
+	RawProviderMerchantLabel string
+}
+
+type amazonCachedSource struct {
+	revision uint64
+	index    analytics.AmazonOrderIndex
+}
+
+// AmazonMatchingService owns immutable source indexes shared by every renderer.
+type AmazonMatchingService struct {
+	directory AmazonSourceDirectory
+	loader    AmazonSourceLoader
+
+	loadMu sync.Mutex
+	mu     sync.Mutex
+	cache  map[string]amazonCachedSource
+	builds int
+}
+
+// NewAmazonMatchingService validates and creates one cross-profile matcher.
+func NewAmazonMatchingService(
+	directory AmazonSourceDirectory,
+	loader AmazonSourceLoader,
+) (*AmazonMatchingService, error) {
+	if directory == nil || loader == nil {
+		return nil, errors.New("create Amazon matching service: dependencies are incomplete")
+	}
+	return &AmazonMatchingService{
+		directory: directory, loader: loader, cache: make(map[string]amazonCachedSource),
+	}, nil
+}
+
+// Match qualifies one finance transaction and evaluates all compatible source profiles.
+func (service *AmazonMatchingService) Match(
+	ctx context.Context,
+	transaction domain.Transaction,
+	rawProviderMerchantLabel string,
+	limit int,
+) (AmazonMatchProjection, error) {
+	results, err := service.MatchBatch(ctx, []AmazonMatchInput{{
+		Transaction: transaction, RawProviderMerchantLabel: rawProviderMerchantLabel,
+	}}, limit)
+	if err != nil {
+		return AmazonMatchProjection{}, err
+	}
+	return results[0], nil
+}
+
+// MatchBatch loads each source snapshot once and evaluates a bounded transaction batch.
+func (service *AmazonMatchingService) MatchBatch(
+	ctx context.Context,
+	inputs []AmazonMatchInput,
+	limit int,
+) ([]AmazonMatchProjection, error) {
+	results := make([]AmazonMatchProjection, len(inputs))
+	qualified := false
+	for index, input := range inputs {
+		results[index].Qualified = isAmazonMerchantLabel(input.Transaction.Merchant.Name) ||
+			isAmazonMerchantLabel(input.RawProviderMerchantLabel)
+		results[index].Skipped = make(map[string]int)
+		qualified = qualified || results[index].Qualified
+	}
+	if !qualified {
+		return results, nil
+	}
+	sources, profileNames, skipped, err := service.loadSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for position, input := range inputs {
+		if !results[position].Qualified {
+			continue
+		}
+		for reason, count := range skipped {
+			results[position].Skipped[reason] = count
+		}
+		results[position].ProfileNames = maps.Clone(profileNames)
+		for _, source := range sources {
+			if source.Currency != input.Transaction.Amount.Currency ||
+				source.Scale != input.Transaction.Amount.Scale {
+				results[position].Skipped["money_mismatch"]++
+			}
+		}
+		results[position].Result, err = analytics.MatchAmazonOrders(input.Transaction, sources, limit)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return results, nil
+}
+
+func (service *AmazonMatchingService) loadSources(
+	ctx context.Context,
+) ([]analytics.AmazonOrderIndex, map[string]string, map[string]int, error) {
+	// Serialize probes and loads so an earlier, slower load cannot overwrite a later revision.
+	// This also lets a recreated profile legitimately replace the cache with a lower revision.
+	service.loadMu.Lock()
+	defer service.loadMu.Unlock()
+
+	skipped := make(map[string]int)
+	descriptors, err := service.directory.ListAmazonSources(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	profileNames := make(map[string]string, len(descriptors))
+	slices.SortFunc(descriptors, func(left, right AmazonSourceDescriptor) int {
+		return strings.Compare(left.ProfileID, right.ProfileID)
+	})
+	present := make(map[string]struct{}, len(descriptors))
+	sources := make([]analytics.AmazonOrderIndex, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		present[descriptor.ProfileID] = struct{}{}
+		profileNames[descriptor.ProfileID] = descriptor.DisplayName
+		if profileNames[descriptor.ProfileID] == "" {
+			profileNames[descriptor.ProfileID] = descriptor.ProfileID
+		}
+		if descriptor.Kind != amazonProvider {
+			skipped["not_amazon"]++
+			continue
+		}
+		knownRevision := service.cachedRevision(descriptor.ProfileID)
+		state, closeSource, loadErr := service.loader(ctx, descriptor, knownRevision)
+		if loadErr != nil {
+			skipped["source_unavailable"]++
+			continue
+		}
+		if closeSource == nil {
+			skipped["source_unavailable"]++
+			continue
+		}
+		closeErr := closeSource()
+		if closeErr != nil {
+			skipped["source_unavailable"]++
+			continue
+		}
+		if state == nil {
+			cached, ok := service.cachedIndex(descriptor.ProfileID, knownRevision)
+			if !ok {
+				skipped["source_unavailable"]++
+				continue
+			}
+			sources = append(sources, cached)
+			continue
+		}
+		index, indexErr := service.indexSource(descriptor.ProfileID, *state)
+		if indexErr != nil {
+			return nil, nil, nil, indexErr
+		}
+		sources = append(sources, index)
+	}
+	service.evictMissing(present)
+	return sources, profileNames, skipped, nil
+}
+
+func (service *AmazonMatchingService) cachedRevision(profileID string) uint64 {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.cache[profileID].revision
+}
+
+func (service *AmazonMatchingService) cachedIndex(
+	profileID string,
+	minimumRevision uint64,
+) (analytics.AmazonOrderIndex, bool) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	cached, ok := service.cache[profileID]
+	if !ok || cached.revision < minimumRevision {
+		return analytics.AmazonOrderIndex{}, false
+	}
+	return cached.index, true
+}
+
+// ProductMatches reports whether one bounded canonical match contains a raw product substring.
+func (service *AmazonMatchingService) ProductMatches(
+	ctx context.Context,
+	transaction domain.Transaction,
+	rawProviderMerchantLabel string,
+	query string,
+) (bool, error) {
+	projection, err := service.Match(ctx, transaction, rawProviderMerchantLabel, 20)
+	if err != nil || !projection.Qualified {
+		return false, err
+	}
+	query = strings.ToLower(query)
+	for _, match := range projection.Result.Matches {
+		for _, item := range match.Items {
+			if strings.Contains(strings.ToLower(item.ProductName), query) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// indexSource builds the immutable order index for one revision at most once.
+func (service *AmazonMatchingService) indexSource(
+	profileID string,
+	state store.AmazonMatchSourceState,
+) (analytics.AmazonOrderIndex, error) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if cached, ok := service.cache[profileID]; ok && cached.revision == state.Revision {
+		return cached.index, nil
+	}
+	items := make([]analytics.AmazonMatchItem, 0, len(state.Items))
+	for _, item := range state.Items {
+		if item.Retired {
+			continue
+		}
+		unitPrice := item.UnitPriceMinor
+		if unitPrice != nil {
+			value := *unitPrice
+			unitPrice = &value
+		}
+		items = append(items, analytics.AmazonMatchItem{
+			LocalTransactionID: item.LocalTransactionID, OrderID: item.OrderID,
+			ProductName: item.ProductName, Date: item.OrderDate, AmountMinor: item.AmountMinor,
+			ASIN: item.ASIN, Quantity: item.Quantity, OrderStatus: item.OrderStatus,
+			ShipmentStatus: item.ShipmentStatus, UnitPriceMinor: unitPrice,
+		})
+	}
+	source := analytics.AmazonMatchSource{
+		ProfileID: profileID, Revision: state.Revision,
+		Currency: state.Settings.Currency, Scale: state.Settings.Scale, Items: items,
+	}
+	index, err := analytics.IndexAmazonOrders(source)
+	if err != nil {
+		return analytics.AmazonOrderIndex{}, err
+	}
+	service.cache[profileID] = amazonCachedSource{revision: state.Revision, index: index}
+	service.builds++
+	return index, nil
+}
+
+func (service *AmazonMatchingService) evictMissing(present map[string]struct{}) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	for profileID := range service.cache {
+		if _, ok := present[profileID]; !ok {
+			delete(service.cache, profileID)
+		}
+	}
+}
+
+// Invalidate drops one source index before destructive profile lifecycle work. Recovery can
+// recreate a database at the same semantic revision, so revision comparison alone cannot prove
+// that a cached index still belongs to the current database contents.
+func (service *AmazonMatchingService) Invalidate(profileID string) {
+	_ = service.InvalidateDuring(profileID, func() error { return nil })
+}
+
+// InvalidateDuring keeps source loading blocked while destructive lifecycle work replaces one
+// profile. The work must not call matching methods because those methods acquire the same lock.
+func (service *AmazonMatchingService) InvalidateDuring(
+	profileID string,
+	work func() error,
+) error {
+	service.loadMu.Lock()
+	defer service.loadMu.Unlock()
+	service.mu.Lock()
+	delete(service.cache, profileID)
+	service.mu.Unlock()
+	if work == nil {
+		return errors.New("amazon matching invalidation work is nil")
+	}
+	return work()
+}
+
+// CacheBuilds returns a test/diagnostic count without exposing source facts.
+func (service *AmazonMatchingService) CacheBuilds() int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return service.builds
+}
+
+// CacheSize returns the number of immutable profile/revision indexes.
+func (service *AmazonMatchingService) CacheSize() int {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	return len(service.cache)
+}
+
+func isAmazonMerchantLabel(label string) bool {
+	lowered := strings.ToLower(label)
+	return strings.Contains(lowered, "amazon") || strings.Contains(lowered, "amzn")
+}

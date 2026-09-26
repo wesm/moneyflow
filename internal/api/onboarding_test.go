@@ -1,0 +1,438 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
+)
+
+func TestOnboardingStatusIsCredentialBlind(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot OnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+
+	secrets := []string{
+		"user@example.com", "synthetic-provider-password", "JBSWY3DPEHPK3PXP",
+		"synthetic-account-password",
+	}
+	submitPath, err := ProfileAPIPath(
+		"/", testProfileID, "onboarding/"+snapshot.AttemptID+"/submit",
+	)
+	require.NoError(t, err)
+	submitted := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+		ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: snapshot.StateVersion,
+		Action: onboarding.ActionSubmitCredentials,
+		Credentials: &OnboardingCredentialsInput{
+			Email: secrets[0], Password: secrets[1], TOTPSecret: secrets[2],
+			AccountPassword: secrets[3], Confirmation: secrets[3],
+		},
+	})
+	require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
+
+	statusPath, err := ProfileAPIPath(
+		"/", testProfileID, "onboarding/"+snapshot.AttemptID+"/status",
+	)
+	require.NoError(t, err)
+	status := requestServer(t, server, http.MethodGet, statusPath, nil)
+	require.Equal(t, http.StatusOK, status.Code, status.Body.String())
+	for _, secret := range secrets {
+		assert.NotContains(t, status.Body.String(), secret)
+		assert.NotContains(t, submitted.Body.String(), secret)
+	}
+}
+
+func TestYNABOnboardingPublishesOpaqueChoicesAndMapsCredentialUnion(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{providerKind: "ynab"}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot OnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+
+	token := "synthetic-ynab-token" //nolint:gosec // synthetic test credential.
+	accountPassword := "synthetic-account-password"
+	submitPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/submit")
+	require.NoError(t, err)
+	submitted := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+		ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: snapshot.StateVersion,
+		Action: onboarding.ActionSubmitCredentials,
+		YNABCredentials: &OnboardingYNABCredentialsInput{
+			AccessToken: token, AccountPassword: accountPassword, Confirmation: accountPassword,
+		},
+	})
+	require.Equal(t, http.StatusOK, submitted.Code, submitted.Body.String())
+	require.NotNil(t, coordinator.lastSubmit.YNABCredentials)
+	assert.Equal(t, []byte(token), coordinator.lastSubmit.YNABCredentials.AccessToken)
+	assert.Nil(t, coordinator.lastSubmit.MonarchCredentials)
+	assert.NotContains(t, submitted.Body.String(), token)
+	assert.NotContains(t, submitted.Body.String(), accountPassword)
+
+	coordinator.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: snapshot.AttemptID,
+		ProfileID: testProfileID, StateVersion: 3,
+		State: onboarding.StateRemoteProfileRequired, ProviderKind: "ynab",
+		RemoteProfiles: []onboarding.RemoteProfileChoice{{
+			ChoiceID: "choice_opaque", DisplayName: "Example Budget",
+			LastModified: "2026-08-01T00:00:00Z",
+		}},
+	}
+	statusPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/status")
+	require.NoError(t, err)
+	status := requestServer(t, server, http.MethodGet, statusPath, nil)
+	require.Equal(t, http.StatusOK, status.Code, status.Body.String())
+	assert.Contains(t, status.Body.String(), "choice_opaque")
+	assert.Contains(t, status.Body.String(), "Example Budget")
+	assert.NotContains(t, status.Body.String(), "plan-private")
+}
+
+func TestOnboardingStartUsesCatalogProviderKind(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), Onboarding: coordinator,
+		Catalog: &apiCatalogFake{entries: []profilecatalog.Entry{{
+			Key: testProfileID, ID: testProfileID, DisplayName: "Example YNAB",
+			ProviderKind: "ynab", Status: profilecatalog.StatusSetupIncomplete,
+		}}},
+		Evictor: &apiEvictorFake{}, BasePath: "/", Version: "test",
+	})
+	require.NoError(t, err)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	assert.Equal(t, "ynab", coordinator.lastStart.ProviderKind)
+}
+
+func TestOnboardingRejectsProtocolOneAndCrossProviderCredentialFields(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{providerKind: "ynab"}
+	server := newOnboardingAPIServer(t, coordinator)
+	startPath, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	versionOne := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: 1,
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, versionOne.Code)
+
+	started := requestScopedMutation(t, server, testProfileID, startPath, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	require.Equal(t, http.StatusOK, started.Code, started.Body.String())
+	var snapshot OnboardingStatusResponse
+	require.NoError(t, json.Unmarshal(started.Body.Bytes(), &snapshot))
+	submitPath, err := ProfileAPIPath("/", testProfileID, "onboarding/"+snapshot.AttemptID+"/submit")
+	require.NoError(t, err)
+	wrongUnion := requestScopedMutation(t, server, testProfileID, submitPath, OnboardingSubmitBody{
+		ProtocolVersion: onboarding.ProtocolVersion, ExpectedStateVersion: snapshot.StateVersion,
+		Action: onboarding.ActionSubmitCredentials,
+		Credentials: &OnboardingCredentialsInput{
+			Email: "user@example.test", Password: "synthetic", TOTPSecret: "SYNTHETIC",
+			AccountPassword: "vault", Confirmation: "vault",
+		},
+		YNABCredentials: &OnboardingYNABCredentialsInput{
+			AccessToken: "synthetic", AccountPassword: "vault", Confirmation: "vault",
+		},
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, wrongUnion.Code)
+	assert.Zero(t, coordinator.submits.Load())
+}
+
+func TestOnboardingMutationRejectsAnotherProfileToken(t *testing.T) {
+	t.Parallel()
+	server := newOnboardingAPIServer(t, &apiOnboardingFake{})
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/start")
+	require.NoError(t, err)
+	response := requestScopedMutation(t, server, otherProfileID, path, OnboardingStartBody{
+		ProtocolVersion: onboarding.ProtocolVersion,
+	})
+	assert.Equal(t, http.StatusForbidden, response.Code)
+}
+
+func TestOnboardingMutationRejectsEncodedProfileNamespaceBeforeDispatch(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{}
+	server := newOnboardingAPIServer(t, coordinator)
+	response := requestServer(
+		t,
+		server,
+		http.MethodPost,
+		"/api/v1/%70rofiles/"+testProfileID+"/onboarding/start",
+		strings.NewReader(`{"protocol_version":1,"month_to_date":false}`),
+	)
+	assert.Equal(t, http.StatusNotFound, response.Code, response.Body.String())
+	assert.Zero(t, coordinator.starts.Load())
+}
+
+func TestOnboardingStatusMapsStaleAndExpiredAttemptsWithoutRawErrors(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		code   onboarding.Code
+		status int
+	}{
+		{name: "stale", code: onboarding.CodeOnboardingStale, status: http.StatusConflict},
+		{name: "expired", code: onboarding.CodeOnboardingExpired, status: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := newOnboardingAPIServer(t, &apiOnboardingFake{
+				statusErr: errors.Join(onboarding.ErrorForCode(test.code), errors.New("raw-secret")),
+			})
+			path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+			require.NoError(t, err)
+			response := requestServer(t, server, http.MethodGet, path, nil)
+			assert.Equal(t, test.status, response.Code)
+			assert.Contains(t, response.Body.String(), string(test.code))
+			assert.NotContains(t, response.Body.String(), "raw-secret")
+		})
+	}
+}
+
+func TestCompletedOnboardingProfileLeaseIsTakenAndReleasedOnce(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{snapshot: onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: testProfileID, StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}}
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+	for range 2 {
+		response := requestServer(t, server, http.MethodGet, path, nil)
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	}
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}
+
+func TestCompletedOnboardingWaitsForOneReleaseAndPreservesReleaseFailure(t *testing.T) {
+	t.Parallel()
+	closeStarted := make(chan struct{})
+	continueClose := make(chan struct{})
+	coordinator := &apiOnboardingFake{
+		snapshot: onboarding.Snapshot{
+			ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+			ProfileID: testProfileID, StateVersion: 7,
+			State: onboarding.StateComplete, ProviderKind: "monarch",
+		},
+		closeStarted:  closeStarted,
+		continueClose: continueClose,
+		closeErr:      errors.New("synthetic release failure"),
+	}
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
+	select {
+	case <-closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("completed onboarding did not start releasing its lease")
+	}
+	go func() { responses <- requestServer(t, server, http.MethodGet, path, nil) }()
+	select {
+	case <-responses:
+		t.Fatal("concurrent completion returned before the profile lease was released")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(continueClose)
+	for range 2 {
+		response := <-responses
+		assert.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+	}
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}
+
+func newOnboardingAPIServer(t testing.TB, coordinator OnboardingCoordinator) *Server {
+	t.Helper()
+	service, err := app.NewService(nil)
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), Onboarding: coordinator,
+		BasePath: "/", Version: "test",
+	})
+	require.NoError(t, err)
+	return server
+}
+
+type apiOnboardingFake struct {
+	snapshot         onboarding.Snapshot
+	statusErr        error
+	closeErr         error
+	closeStarted     chan struct{}
+	continueClose    chan struct{}
+	honorTakeContext bool
+	calls            *[]string
+	starts           atomic.Int32
+	takes            atomic.Int32
+	takeFailures     atomic.Int32
+	closes           atomic.Int32
+	profileCancels   atomic.Int32
+	submits          atomic.Int32
+	providerKind     string
+	lastStart        onboarding.StartRequest
+	lastSubmit       onboarding.SubmitRequest
+}
+
+func (coordinator *apiOnboardingFake) Start(
+	_ context.Context,
+	request onboarding.StartRequest,
+) (onboarding.Snapshot, error) {
+	coordinator.starts.Add(1)
+	coordinator.lastStart = request
+	providerKind := coordinator.providerKind
+	if providerKind == "" {
+		providerKind = request.ProviderKind
+	}
+	if providerKind == "" {
+		providerKind = "monarch"
+	}
+	coordinator.snapshot = onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: request.ProfileID, StateVersion: 1,
+		State: onboarding.StateCredentialsRequired, ProviderKind: providerKind,
+	}
+	return coordinator.snapshot, nil
+}
+
+func (coordinator *apiOnboardingFake) Status(
+	context.Context,
+	onboarding.StatusRequest,
+) (onboarding.Snapshot, error) {
+	if coordinator.statusErr != nil {
+		return onboarding.Snapshot{}, coordinator.statusErr
+	}
+	return coordinator.snapshot, nil
+}
+
+func (coordinator *apiOnboardingFake) Submit(
+	_ context.Context,
+	request onboarding.SubmitRequest,
+) (onboarding.Snapshot, error) {
+	coordinator.submits.Add(1)
+	coordinator.lastSubmit = request
+	coordinator.snapshot.StateVersion = request.ExpectedStateVersion + 1
+	coordinator.snapshot.State = onboarding.StateAuthenticating
+	return coordinator.snapshot, nil
+}
+
+func (coordinator *apiOnboardingFake) Cancel(
+	_ context.Context,
+	request onboarding.CancelRequest,
+) (onboarding.Snapshot, error) {
+	coordinator.snapshot.StateVersion = request.ExpectedStateVersion + 1
+	coordinator.snapshot.State = onboarding.StateCanceled
+	return coordinator.snapshot, nil
+}
+
+func (coordinator *apiOnboardingFake) CancelProfile(context.Context, string) error {
+	coordinator.profileCancels.Add(1)
+	if coordinator.calls != nil {
+		*coordinator.calls = append(*coordinator.calls, "cancel_onboarding")
+	}
+	return nil
+}
+
+func (coordinator *apiOnboardingFake) TakeOpenedProfile(
+	ctx context.Context,
+	_ onboarding.StatusRequest,
+) (onboarding.OpenedProfile, error) {
+	if coordinator.honorTakeContext {
+		if err := ctx.Err(); err != nil {
+			return onboarding.OpenedProfile{}, err
+		}
+	}
+	coordinator.takes.Add(1)
+	if coordinator.takeFailures.Load() > 0 {
+		coordinator.takeFailures.Add(-1)
+		return onboarding.OpenedProfile{}, onboarding.ErrorForCode(onboarding.CodeOnboardingStale)
+	}
+	return onboarding.OpenedProfile{Close: func() error {
+		coordinator.closes.Add(1)
+		if coordinator.closeStarted != nil {
+			close(coordinator.closeStarted)
+		}
+		if coordinator.continueClose != nil {
+			<-coordinator.continueClose
+		}
+		return coordinator.closeErr
+	}}, nil
+}
+
+func TestCompletedOnboardingTransfersOwnershipDespiteCanceledRequest(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{snapshot: onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: testProfileID, StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}, honorTakeContext: true}
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodGet, path, http.NoBody).WithContext(canceled)
+	first := httptest.NewRecorder()
+	server.Handler().ServeHTTP(first, request)
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+
+	response := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	assert.Equal(t, int32(1), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}
+
+func TestCompletedOnboardingRetriesTakeAfterFailureBeforeOwnershipTransfer(t *testing.T) {
+	t.Parallel()
+	coordinator := &apiOnboardingFake{snapshot: onboarding.Snapshot{
+		ProtocolVersion: onboarding.ProtocolVersion, AttemptID: "attempt_example",
+		ProfileID: testProfileID, StateVersion: 7,
+		State: onboarding.StateComplete, ProviderKind: "monarch",
+	}}
+	coordinator.takeFailures.Store(1)
+	server := newOnboardingAPIServer(t, coordinator)
+	path, err := ProfileAPIPath("/", testProfileID, "onboarding/attempt_example/status")
+	require.NoError(t, err)
+
+	first := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusConflict, first.Code, first.Body.String())
+	assert.Contains(t, first.Body.String(), string(onboarding.CodeOnboardingStale))
+	second := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	third := requestServer(t, server, http.MethodGet, path, nil)
+	require.Equal(t, http.StatusOK, third.Code, third.Body.String())
+	assert.Equal(t, int32(2), coordinator.takes.Load())
+	assert.Equal(t, int32(1), coordinator.closes.Load())
+}

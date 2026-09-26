@@ -1,0 +1,770 @@
+package app
+
+import (
+	"context"
+	"crypto/rand"
+	"errors"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/wesm/moneyflow/internal/domain"
+	profilereplay "github.com/wesm/moneyflow/internal/replay"
+	"github.com/wesm/moneyflow/internal/store"
+)
+
+// PendingSummary reports bounded profile-global journal state.
+type PendingSummary struct {
+	ActiveOperations     int
+	InactiveOperations   int
+	AffectedTransactions int
+}
+
+// MutationResult is the canonical renderer-neutral result of one persistent interaction.
+type MutationResult struct {
+	Revision             uint64
+	Affected             int
+	State                ViewState
+	Selection            SelectionValue
+	SelectionDisposition SelectionDisposition
+	Pending              PendingSummary
+	Capabilities         []Capability
+	Projection           WebProjection
+	ProviderWrite        *ProviderWriteStatus
+}
+
+// CommitRequest confirms one previously reviewed profile revision.
+type CommitRequest struct {
+	ExpectedRevision uint64
+	ReviewedRevision uint64
+	State            ViewState
+	Selection        SelectionValue
+	Window           WindowRequest
+}
+
+// NewProfileService loads and validates one durable profile into an immutable replay cache.
+func NewProfileService(ctx context.Context, profile store.Profile) (*Service, error) {
+	if profile == nil {
+		return nil, newAppError(AppInvalidOperation, 0, errors.New("profile is nil"))
+	}
+	service := &Service{profile: profile}
+	if err := service.reloadLocked(ctx); err != nil {
+		return nil, err
+	}
+	return service, nil
+}
+
+// Revision returns the revision of the immutable cached snapshot.
+func (service *Service) Revision() uint64 {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	if service.snapshot == nil {
+		return 0
+	}
+	return service.snapshot.Revision
+}
+
+// ProfileKind returns the renderer-neutral profile kind discovered from durable state.
+func (service *Service) ProfileKind() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.profileKind
+}
+
+// AmazonSettings returns the immutable money settings for an Amazon profile.
+func (service *Service) AmazonSettings(_ context.Context) (*store.AmazonSettings, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	revision := uint64(0)
+	if service.snapshot != nil {
+		revision = service.snapshot.Revision
+	}
+	if service.profile == nil {
+		return nil, newAppError(AppInvalidOperation, revision, errors.New("amazon settings require a durable profile"))
+	}
+	if service.amazonSettings == nil {
+		return nil, newAppError(AppInvalidOperation, revision, errors.New("amazon settings are unavailable"))
+	}
+	settings := *service.amazonSettings
+	return &settings, nil
+}
+
+// Refresh checks the cheap revision row before replacing the complete immutable cache.
+func (service *Service) Refresh(ctx context.Context) (bool, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	return service.refreshLocked(ctx)
+}
+
+func (service *Service) refreshLocked(ctx context.Context) (bool, error) {
+	if service.profile == nil {
+		return false, nil
+	}
+	current, err := service.profile.CurrentRevision(ctx)
+	if err != nil {
+		return false, mapAppError(err, service.Revision())
+	}
+	if current == service.Revision() {
+		return false, nil
+	}
+	if err = service.reloadLocked(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (service *Service) reloadLocked(ctx context.Context) error {
+	loaded, err := service.profile.Load(ctx)
+	if err != nil {
+		return mapAppError(err, service.Revision())
+	}
+	replayed, err := Replay(loaded)
+	if err != nil {
+		return newAppError(AppStoreCorrupt, loaded.Revision, err)
+	}
+	transactions, err := replayed.Effective.MaterializeTransactions()
+	if err != nil {
+		return newAppError(AppStoreCorrupt, loaded.Revision, err)
+	}
+	committedTransactions, err := replayed.Committed.MaterializeTransactions()
+	if err != nil {
+		return newAppError(AppStoreCorrupt, loaded.Revision, err)
+	}
+	localPending := make(map[string]struct{})
+	for id := range affectedTransactionIDs(replayed) {
+		localPending[string(id)] = struct{}{}
+	}
+	providerState, err := service.profile.ProviderState(ctx)
+	if err != nil {
+		return mapAppError(err, loaded.Revision)
+	}
+	amazonState, err := service.profile.LoadAmazonState(ctx)
+	if err != nil {
+		return mapAppError(err, loaded.Revision)
+	}
+	csvSettings, err := service.profile.LoadCSVSettings(ctx)
+	if err != nil {
+		return mapAppError(err, loaded.Revision)
+	}
+	profileKind := "local"
+	if providerState.Binding != nil {
+		profileKind = providerState.Binding.Kind
+	} else if amazonState.Settings != nil {
+		profileKind = amazonProvider
+	} else if csvSettings != nil {
+		profileKind = "csv"
+	}
+	service.mu.Lock()
+	service.snapshot = cloneEffectiveSnapshot(replayed)
+	service.transactions = transactions
+	service.committedTransactions = committedTransactions
+	service.localPending = localPending
+	service.providerBound = providerState.Binding != nil
+	service.providerState = cloneProviderState(providerState)
+	service.profileKind = profileKind
+	service.amazonSettings = cloneAmazonSettings(amazonState.Settings)
+	service.mu.Unlock()
+	return nil
+}
+
+func cloneAmazonSettings(settings *store.AmazonSettings) *store.AmazonSettings {
+	if settings == nil {
+		return nil
+	}
+	clone := *settings
+	return &clone
+}
+
+func cloneProviderState(state store.ProviderState) store.ProviderState {
+	if state.Binding != nil {
+		binding := *state.Binding
+		state.Binding = &binding
+	}
+	if state.Lease != nil {
+		lease := *state.Lease
+		state.Lease = &lease
+	}
+	if state.Write != nil {
+		batch := *state.Write
+		state.Write = &batch
+	}
+	state.Allocations = append([]store.LabelAllocation(nil), state.Allocations...)
+	state.Lineage = append([]store.ProviderIdentityLineage(nil), state.Lineage...)
+	state.WriteRestrictions = append([]store.ProviderWriteRestriction(nil), state.WriteRestrictions...)
+	return state
+}
+
+func cloneEffectiveSnapshot(snapshot EffectiveSnapshot) *EffectiveSnapshot {
+	clone := snapshot
+	clone.Committed = snapshot.Committed.Clone()
+	clone.Effective = snapshot.Effective.Clone()
+	clone.Journal = make([]domain.Operation, len(snapshot.Journal))
+	for index := range snapshot.Journal {
+		clone.Journal[index] = snapshot.Journal[index].Clone()
+	}
+	clone.KnownDrills = append([]domain.DrillIdentity(nil), snapshot.KnownDrills...)
+	return &clone
+}
+
+func (service *Service) effectiveSnapshot() (EffectiveSnapshot, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	if service.snapshot == nil {
+		return EffectiveSnapshot{}, errors.New("profile service has no snapshot")
+	}
+	return *cloneEffectiveSnapshot(*service.snapshot), nil
+}
+
+// Mutate builds and applies one exact renderer-neutral operation.
+func (service *Service) Mutate(
+	ctx context.Context,
+	request MutationRequest,
+) (MutationResult, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return MutationResult{}, err
+	}
+	snapshot, err := service.effectiveSnapshotReadOnly()
+	if err != nil {
+		return MutationResult{}, mapAppError(err, service.Revision())
+	}
+	if request.ExpectedRevision != snapshot.Revision {
+		return MutationResult{}, newAppError(
+			AppRevisionConflict, snapshot.Revision, errors.New("mutation revision is stale"),
+		)
+	}
+	operationID, err := domain.NewOperationID(rand.Reader)
+	if err != nil {
+		return MutationResult{}, newAppError(AppStoreError, snapshot.Revision, err)
+	}
+	metadata := OperationMetadata{
+		OperationID: operationID,
+		CreatedAt:   time.Now().UTC().Truncate(time.Millisecond),
+	}
+	plan, err := service.planMutationLocked(snapshot, request, metadata)
+	if err != nil {
+		return MutationResult{}, mapAppError(err, snapshot.Revision)
+	}
+	var next uint64
+	if plan.Mode == MutationCancelHide {
+		next, err = service.profile.CancelHide(
+			ctx, request.ExpectedRevision, plan.CancelHideTargets,
+		)
+	} else {
+		next, err = service.profile.Append(ctx, request.ExpectedRevision, plan.Operation)
+	}
+	if err != nil {
+		return MutationResult{}, service.refreshAfterFailure(ctx, err, snapshot.Revision)
+	}
+	if plan.Mode == MutationAppend &&
+		(plan.Operation.Type == domain.OperationCategoryAssign ||
+			plan.Operation.Type == domain.OperationCategoryCreate) {
+		if err = service.installIncrementalCategoryAppend(snapshot, plan.Operation, next); err != nil {
+			if err = service.reloadExpected(ctx, next); err != nil {
+				return MutationResult{}, err
+			}
+		}
+	} else if err = service.reloadExpected(ctx, next); err != nil {
+		return MutationResult{}, err
+	}
+	selection := request.Selection
+	if selection == "" || plan.SelectionDisposition == SelectionCleared {
+		selection = EmptySelection()
+	}
+	if request.OmitProjection {
+		current, snapshotErr := service.effectiveSnapshotReadOnly()
+		if snapshotErr != nil {
+			return MutationResult{}, mapAppError(snapshotErr, next)
+		}
+		return MutationResult{
+			Revision: next, State: plan.State.Clone(), Selection: selection,
+			SelectionDisposition: plan.SelectionDisposition,
+			Pending:              pendingSummary(current),
+		}, nil
+	}
+	return service.mutationResult(plan.State, selection, plan.SelectionDisposition, request.Window)
+}
+
+func (service *Service) planMutationLocked(
+	snapshot EffectiveSnapshot,
+	request MutationRequest,
+	metadata OperationMetadata,
+) (MutationPlan, error) {
+	if request.ExpectedRevision != snapshot.Revision {
+		return MutationPlan{}, mutationError(
+			MutationRevisionConflict, errors.New("mutation revision is stale"),
+		)
+	}
+	if err := service.validateProviderWriteIdle(); err != nil {
+		return MutationPlan{}, err
+	}
+	plan, err := buildMutationPlan(snapshot, request, metadata)
+	if err != nil {
+		return MutationPlan{}, err
+	}
+	if plan.Mode != MutationCancelHide {
+		if err = service.validateProviderMutation(snapshot, plan.Operation); err != nil {
+			return MutationPlan{}, err
+		}
+	}
+	return plan, nil
+}
+
+func (service *Service) installIncrementalCategoryAppend(
+	snapshot EffectiveSnapshot,
+	operation domain.Operation,
+	nextRevision uint64,
+) error {
+	category, found := domain.Category{}, false
+	nextEffective := snapshot.Effective
+	nextEffective.Transactions = append(
+		[]domain.TransactionRecord(nil), snapshot.Effective.Transactions...,
+	)
+	switch operation.Type {
+	case domain.OperationCategoryAssign:
+		category, found = categoryWithID(snapshot.Effective, operation.Reassign.DestinationID)
+	case domain.OperationCategoryCreate:
+		category = domain.Category{
+			ID: operation.Create.EntityID, GroupID: operation.Create.ParentID,
+			Label: operation.Create.Label, CollisionKey: operation.Create.CollisionKey,
+		}
+		found = true
+		nextEffective.Categories = append(
+			append([]domain.Category(nil), snapshot.Effective.Categories...), category,
+		)
+		slices.SortFunc(nextEffective.Categories, func(left, right domain.Category) int {
+			return strings.Compare(string(left.ID), string(right.ID))
+		})
+	default:
+		return errors.New("incremental append is not a category assignment")
+	}
+	group, groupFound := groupWithID(nextEffective, category.GroupID)
+	if !found || category.Retired || !groupFound || group.Retired {
+		return errors.New("incremental append category is missing or retired")
+	}
+	targets := make(map[domain.EntityID]struct{}, len(operation.Targets))
+	for _, target := range operation.Targets {
+		targets[target] = struct{}{}
+	}
+	updated := 0
+	for index := range nextEffective.Transactions {
+		if _, ok := targets[nextEffective.Transactions[index].ID]; ok {
+			nextEffective.Transactions[index].CategoryID = category.ID
+			updated++
+		}
+	}
+	if updated != len(targets) {
+		return errors.New("incremental append target is missing")
+	}
+
+	active := make([]domain.Operation, snapshot.Cursor, snapshot.Cursor+1)
+	for index := range snapshot.Cursor {
+		active[index] = snapshot.Journal[index].Clone()
+	}
+	stored := operation.Clone()
+	if len(active) == 0 {
+		stored.Sequence = 1
+	} else {
+		stored.Sequence = active[len(active)-1].Sequence + 1
+	}
+	active = append(active, stored)
+	nextSnapshot := snapshot
+	nextSnapshot.Revision = nextRevision
+	nextSnapshot.Cursor = len(active)
+	nextSnapshot.Effective = nextEffective
+	nextSnapshot.Journal = active
+
+	service.mu.Lock()
+	transactions := append([]domain.Transaction(nil), service.transactions...)
+	for index := range transactions {
+		if _, ok := targets[domain.EntityID(transactions[index].ID)]; ok {
+			transactions[index] = transactions[index].Clone()
+			transactions[index].Category = domain.CategoryRef{
+				ID: string(category.ID), Name: category.Label,
+				GroupID: string(group.ID), Group: group.Label,
+			}
+		}
+	}
+	pending := make(map[string]struct{}, len(service.localPending)+len(targets))
+	for id := range service.localPending {
+		pending[id] = struct{}{}
+	}
+	for target := range targets {
+		pending[string(target)] = struct{}{}
+	}
+	service.snapshot = &nextSnapshot
+	service.transactions = transactions
+	service.localPending = pending
+	service.mu.Unlock()
+	return nil
+}
+
+func buildMutationPlan(
+	snapshot EffectiveSnapshot,
+	request MutationRequest,
+	metadata OperationMetadata,
+) (MutationPlan, error) {
+	switch request.Action {
+	case ActionEditMerchant:
+		return BuildMerchantOperation(snapshot, request, metadata)
+	case ActionEditCategory:
+		return BuildCategoryAssignment(snapshot, request, metadata)
+	case ActionManageCategories, ActionManageGroups:
+		return BuildTaxonomyOperation(snapshot, request, metadata)
+	case ActionToggleHidden:
+		return BuildHideMutation(snapshot, request, metadata)
+	case ActionDeleteTransaction:
+		return BuildDeleteMutation(snapshot, request, metadata)
+	default:
+		return MutationPlan{}, mutationError(
+			MutationInvalidOperation, errors.New("action is not a persistent mutation"),
+		)
+	}
+}
+
+// Undo moves the active-count cursor back by one operation.
+func (service *Service) Undo(ctx context.Context, expected uint64) (MutationResult, error) {
+	return service.UndoInteraction(
+		ctx, expected, DefaultViewState(), EmptySelection(), WindowRequest{},
+	)
+}
+
+// UndoInteraction moves the cursor and projects the caller's exact analytical context.
+func (service *Service) UndoInteraction(
+	ctx context.Context,
+	expected uint64,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	return service.moveCursor(ctx, expected, -1, state, selection, window)
+}
+
+// Redo moves the active-count cursor forward by one operation.
+func (service *Service) Redo(ctx context.Context, expected uint64) (MutationResult, error) {
+	return service.RedoInteraction(
+		ctx, expected, DefaultViewState(), EmptySelection(), WindowRequest{},
+	)
+}
+
+// RedoInteraction moves the cursor and projects the caller's exact analytical context.
+func (service *Service) RedoInteraction(
+	ctx context.Context,
+	expected uint64,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	return service.moveCursor(ctx, expected, 1, state, selection, window)
+}
+
+func (service *Service) moveCursor(
+	ctx context.Context,
+	expected uint64,
+	direction int,
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return MutationResult{}, err
+	}
+	current := service.Revision()
+	if expected != current {
+		return MutationResult{}, newAppError(
+			AppRevisionConflict, current, errors.New("cursor revision is stale"),
+		)
+	}
+	if service.providerWriteActive() {
+		return MutationResult{}, newAppError(
+			AppProviderWriteInProgress, current, errors.New("provider write batch is unfinished"),
+		)
+	}
+	if _, err := service.projectViewLocked(state, selection, window); err != nil {
+		return MutationResult{}, newAppError(AppInvalidOperation, current, err)
+	}
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return MutationResult{}, mapAppError(err, current)
+	}
+	operationIndex := snapshot.Cursor
+	if direction < 0 {
+		operationIndex--
+	}
+	if operationIndex < 0 || operationIndex >= len(snapshot.Journal) {
+		return MutationResult{}, newAppError(
+			AppInvalidOperation, current, errors.New("cursor cannot move past the journal boundary"),
+		)
+	}
+	before := snapshot.Committed.Clone()
+	for _, operation := range snapshot.Journal[:operationIndex] {
+		before, err = ApplyOperation(before, operation)
+		if err != nil {
+			return MutationResult{}, mapAppError(err, current)
+		}
+	}
+	affected := len(affectedByOperation(before, snapshot.Journal[operationIndex]))
+	next, err := service.profile.MoveCursor(ctx, expected, direction)
+	if err != nil {
+		return MutationResult{}, service.refreshAfterFailure(ctx, err, current)
+	}
+	if err = service.reloadExpected(ctx, next); err != nil {
+		return MutationResult{}, err
+	}
+	result, err := service.cursorMutationResult(state, selection, window)
+	result.Affected = affected
+	return result, err
+}
+
+func (service *Service) cursorMutationResult(
+	state ViewState,
+	selection SelectionValue,
+	window WindowRequest,
+) (MutationResult, error) {
+	result, err := service.mutationResult(state, selection, SelectionPreserved, window)
+	if err == nil {
+		return result, nil
+	}
+	recovery := state.Clone()
+	for len(recovery.Returns) > 0 {
+		last := len(recovery.Returns) - 1
+		recovery.Current = recovery.Returns[last].State.Clone()
+		recovery.Returns = recovery.Returns[:last]
+		result, recoveryErr := service.mutationResult(
+			recovery, selection, SelectionPreserved, window,
+		)
+		if recoveryErr == nil {
+			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			return result, nil
+		}
+	}
+	for len(recovery.Current.Drilldowns) > 0 {
+		recovery.Current.Drilldowns = recovery.Current.Drilldowns[:len(recovery.Current.Drilldowns)-1]
+		result, recoveryErr := service.mutationResult(
+			recovery, selection, SelectionPreserved, window,
+		)
+		if recoveryErr == nil {
+			result.Projection.Status = "The previous view target is unavailable; returned to its parent."
+			return result, nil
+		}
+	}
+	result, recoveryErr := service.mutationResult(
+		DefaultViewState(), EmptySelection(), SelectionCleared, window,
+	)
+	if recoveryErr != nil {
+		return MutationResult{}, recoveryErr
+	}
+	result.Projection.Status = "The previous view target is unavailable; returned to the main view."
+	return result, nil
+}
+
+// Commit folds the exact reviewed active prefix and permanently discards its redo tail.
+func (service *Service) Commit(
+	ctx context.Context,
+	request CommitRequest,
+) (MutationResult, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
+	if _, err := service.refreshLocked(ctx); err != nil {
+		return MutationResult{}, err
+	}
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return MutationResult{}, mapAppError(err, service.Revision())
+	}
+	if request.ExpectedRevision != snapshot.Revision ||
+		request.ReviewedRevision != snapshot.Revision {
+		return MutationResult{}, newAppError(
+			AppRevisionConflict, snapshot.Revision, errors.New("commit review is stale"),
+		)
+	}
+	service.mu.RLock()
+	localCommit := service.providerState.Binding == nil || service.providerState.Binding.Kind == "simplefin"
+	service.mu.RUnlock()
+	if !localCommit {
+		status, _, prepareErr := service.prepareProviderWrite(ctx, snapshot, request)
+		if prepareErr != nil {
+			return MutationResult{}, prepareErr
+		}
+		state := request.State
+		if err := state.Validate(); err != nil {
+			state = DefaultViewState()
+		}
+		selection := request.Selection
+		if selection == "" {
+			selection = EmptySelection()
+		}
+		result, resultErr := service.mutationResult(
+			state, selection, SelectionPreserved, request.Window,
+		)
+		if resultErr != nil {
+			return MutationResult{}, resultErr
+		}
+		if status.Phase != "" {
+			result.ProviderWrite = &status
+			result.Projection.Status = "Writing pending changes to the provider."
+		} else {
+			result.Projection.Status = "No provider changes needed; pending changes cleared."
+		}
+		return result, nil
+	}
+	plan, err := BuildFoldPlan(snapshot, request.ReviewedRevision)
+	if err != nil {
+		return MutationResult{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
+	}
+	next, err := service.profile.Fold(ctx, request.ExpectedRevision, plan)
+	if err != nil {
+		return MutationResult{}, service.refreshAfterFailure(ctx, err, snapshot.Revision)
+	}
+	if err = service.reloadExpected(ctx, next); err != nil {
+		return MutationResult{}, err
+	}
+	state := request.State
+	if err := state.Validate(); err != nil {
+		state = DefaultViewState()
+	}
+	selection := request.Selection
+	if selection == "" {
+		selection = EmptySelection()
+	}
+	return service.mutationResult(state, selection, SelectionPreserved, request.Window)
+}
+
+func (service *Service) reloadExpected(ctx context.Context, minimum uint64) error {
+	if err := service.reloadLocked(ctx); err != nil {
+		return err
+	}
+	if service.Revision() < minimum {
+		return newAppError(
+			AppStoreError, service.Revision(), errors.New("store returned an unavailable revision"),
+		)
+	}
+	return nil
+}
+
+func (service *Service) refreshAfterFailure(
+	ctx context.Context,
+	failure error,
+	reliableRevision uint64,
+) error {
+	var storage *store.Error
+	if errors.As(failure, &storage) && storage.Code == store.CodeRevisionConflict {
+		_ = service.reloadLocked(ctx)
+		reliableRevision = service.Revision()
+	}
+	return mapAppError(failure, reliableRevision)
+}
+
+func (service *Service) mutationResult(
+	state ViewState,
+	selection SelectionValue,
+	disposition SelectionDisposition,
+	window WindowRequest,
+) (MutationResult, error) {
+	snapshot, err := service.effectiveSnapshot()
+	if err != nil {
+		return MutationResult{}, mapAppError(err, service.Revision())
+	}
+	projection, err := service.projectViewLocked(state, selection, window)
+	if err != nil {
+		return MutationResult{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
+	}
+	return MutationResult{
+		Revision: snapshot.Revision, State: state.Clone(), Selection: selection,
+		SelectionDisposition: disposition, Pending: pendingSummary(snapshot),
+		Capabilities: service.capabilitiesForStateSnapshot(snapshot, state), Projection: projection,
+	}, nil
+}
+
+func pendingSummary(snapshot EffectiveSnapshot) PendingSummary {
+	return PendingSummary{
+		ActiveOperations:     snapshot.Cursor,
+		InactiveOperations:   len(snapshot.Journal) - snapshot.Cursor,
+		AffectedTransactions: len(affectedTransactionIDs(snapshot)),
+	}
+}
+
+func affectedTransactionIDs(snapshot EffectiveSnapshot) map[domain.EntityID]struct{} {
+	result := make(map[domain.EntityID]struct{})
+	direct := true
+	for _, operation := range snapshot.Journal[:snapshot.Cursor] {
+		if !operationHasExactTransactionTargets(operation) {
+			direct = false
+			break
+		}
+		for _, target := range operation.Targets {
+			result[target] = struct{}{}
+		}
+	}
+	if direct {
+		return result
+	}
+	clear(result)
+	state := snapshot.Committed.Clone()
+	for _, operation := range snapshot.Journal[:snapshot.Cursor] {
+		for _, id := range affectedByOperation(state, operation) {
+			result[id] = struct{}{}
+		}
+		next, err := ApplyOperation(state, operation)
+		if err == nil {
+			state = next
+		}
+	}
+	return result
+}
+
+func operationHasExactTransactionTargets(operation domain.Operation) bool {
+	switch operation.Type {
+	case domain.OperationMerchantReassign,
+		domain.OperationCategoryAssign,
+		domain.OperationTransactionHide,
+		domain.OperationTransactionDelete:
+		return true
+	case domain.OperationCategoryCreate:
+		if operation.Create == nil {
+			return false
+		}
+		for _, target := range operation.Targets {
+			if target == operation.Create.EntityID {
+				return false
+			}
+		}
+		return true
+	case domain.OperationMerchantLabel,
+		domain.OperationMerchantMerge,
+		domain.OperationCategoryLabel,
+		domain.OperationCategoryMove,
+		domain.OperationCategoryMerge,
+		domain.OperationCategoryDelete,
+		domain.OperationGroupCreate,
+		domain.OperationGroupLabel,
+		domain.OperationGroupMerge,
+		domain.OperationGroupDelete:
+		return false
+	default:
+		return false
+	}
+}
+
+func affectedByOperation(
+	profile domain.CommittedProfile,
+	operation domain.Operation,
+) []domain.EntityID {
+	var result []domain.EntityID
+	visitAffectedByOperation(profile, operation, func(id domain.EntityID) bool {
+		result = append(result, id)
+		return true
+	})
+	return result
+}
+
+func visitAffectedByOperation(
+	profile domain.CommittedProfile,
+	operation domain.Operation,
+	visit func(domain.EntityID) bool,
+) {
+	profilereplay.VisitAffectedByOperation(profile, operation, visit)
+}

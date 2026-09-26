@@ -1,76 +1,42 @@
-# Advanced Configuration
+# Paths and web access
 
-## Category Customization
+Use `MONEYFLOW_HOME` to choose the profile catalog. Keep it separate from Python data.
+Use `--profile` with an exact name or profile ID to bypass the selector.
+See [storage](caching.md) for the directory layout and backups.
 
-Customize the category hierarchy to match your finance platform or workflow preferences.
-
-**📁 Configuration file:** `~/.moneyflow/config.yaml`
-
-**Quick commands:**
+## Serve the browser application
 
 ```bash
-moneyflow categories dump              # View current hierarchy (YAML format)
-moneyflow categories dump --format=readable  # View with counts
+moneyflow web --open=false
 ```
 
-**Features:**
+The default listener is loopback. The web application has no built-in user authentication.
+For access from another machine, restrict the network or put an authenticated TLS reverse
+proxy in front of it. Do not expose it directly to the public Internet.
 
-- Add custom categories from your finance platform
-- Rename groups or categories
-- Reorganize categories into different groups
-- Create custom groups
-
-**Built-in defaults**: The included categories were chosen to ease integration with Monarch Money but work well for
-most personal finance platforms.
-
-**See:** [Category Configuration Guide](../categories.md) for complete documentation.
-
-## Data Caching
-
-Transaction data is cached locally by default for fast startup. The cache is encrypted with the same key as your
-credentials.
-
-**Cache behavior:**
-
-- First run: Downloads all transactions from your backend
-- Subsequent runs: Uses cached data instantly
-- Cache auto-refreshes when you make edits that sync to the backend
-
-**Options:**
+For a path-preserving Caddy mount:
 
 ```bash
-moneyflow --refresh            # Force refresh from API (ignore cache)
-moneyflow --no-cache           # Disable caching entirely for this session
+moneyflow web --open=false --listen 127.0.0.1:8080 --base-path /moneyflow/ --external-url https://moneyflow.example.invalid/moneyflow/
 ```
 
-**See:** [Caching Guide](caching.md) for details on cache location and management.
-
-## Configuration Directory
-
-All moneyflow configuration is stored in `~/.moneyflow/`:
-
-```text
-~/.moneyflow/
-├── config.yaml        # Application configuration (categories, settings, etc.) - optional
-├── credentials.enc    # Encrypted credentials (when encryption is enabled)
-├── credentials.json   # Plaintext credentials (when encryption is disabled)
-├── salt               # Encryption salt
-├── merchants.json     # Merchant name cache
-├── cache/             # Encrypted transaction cache (Monarch/YNAB)
-├── profiles/          # Per-account profile directories
-│   └── <profile-id>/
-│       ├── credentials.enc    # Encrypted credentials for this account
-│       ├── credentials.json   # Plaintext credentials (when encryption is disabled)
-│       ├── salt               # Encryption salt
-│       ├── config.yaml        # Profile-specific configuration
-│       ├── merchants.json     # Per-profile merchant cache
-│       ├── simplefin.db       # SimpleFIN local SQLite database
-│       ├── last_update.json   # Last refresh timestamp
-│       └── cache/             # Per-profile transaction cache (Monarch/YNAB)
-└── moneyflow.log      # Application logs
+```caddyfile
+moneyflow.example.invalid {
+    handle /moneyflow/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+}
 ```
 
-**Security note:** `credentials.enc` is encrypted with AES-128 but still contains
-sensitive material and should be kept private. `credentials.json` is plaintext —
-restrict file permissions (0600 is set automatically) and avoid backing it up to
-untrusted locations.
+Replace the example host. Configure authentication or network access controls separately.
+Preserve the full path; do not use a proxy rule that strips `/moneyflow/`.
+With `--external-url`, mutations must use that canonical origin. Direct listener reads
+remain available for diagnostics.
+
+Omit query strings from proxy access logs: URLs can contain financial search and filter values.
+[MCP HTTP](../guide/mcp.md#authenticated-http) has separate bearer-token and loopback requirements.
+
+## What configuration is not carried forward?
+
+Go does not read Python's category YAML, encrypted cache, or default-provider settings.
+Use the profile selector and [transition guide](../getting-started/transition.md).

@@ -1,0 +1,75 @@
+package onboarding
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/provider"
+)
+
+func TestCredentialFailuresExposeOnlySanitizedState(t *testing.T) {
+	forbidden := []string{
+		"private-user@example.invalid",
+		"provider-password-private",
+		"account-password-private",
+		"Sensitive Profile Label",
+		"/private/example/profile-root",
+	}
+	rawFailure := errors.New(strings.Join(forbidden, " | "))
+	coordinator, started, connector, _ := newAuthenticationCoordinator(
+		t, flowProfilePristine, &fakeCredentialVault{},
+	)
+	connector.connectErr = rawFailure
+	connector.connectSession = nil
+	started = waitForState(t, coordinator, started, StateCredentialsRequired)
+	request := credentialSubmitRequest(started)
+	request.MonarchCredentials.Email = []byte(forbidden[0])
+	request.MonarchCredentials.Password = []byte(forbidden[1])
+	request.MonarchCredentials.AccountPassword = []byte(forbidden[2])
+	request.MonarchCredentials.Confirmation = []byte(forbidden[2])
+
+	next, err := coordinator.Submit(context.Background(), request)
+	require.NoError(t, err)
+	failed := waitForState(t, coordinator, next, StateCredentialsRequired)
+	encoded, err := json.Marshal(failed)
+	require.NoError(t, err)
+	visible := string(encoded)
+	for _, value := range forbidden {
+		assert.NotContains(t, visible, value)
+	}
+	assert.Equal(t, genericFailureCode, failed.Failure.Code)
+	assert.Equal(t, "Authentication with Monarch failed.", failed.Failure.Message)
+	assert.Equal(t, make([]byte, len(request.MonarchCredentials.Email)), request.MonarchCredentials.Email)
+	assert.Equal(t, make([]byte, len(request.MonarchCredentials.Password)), request.MonarchCredentials.Password)
+	assert.Equal(
+		t,
+		make([]byte, len(request.MonarchCredentials.AccountPassword)),
+		request.MonarchCredentials.AccountPassword,
+	)
+}
+
+func TestProviderFailureCauseDoesNotEnterSnapshot(t *testing.T) {
+	forbidden := []string{"credential-private-value", "/private/example/profile-root"}
+	coordinator, started := newFlowCoordinator(
+		t,
+		flowProfilePristine,
+		&fakeSessionStore{loadErr: errors.New(strings.Join(forbidden, " "))},
+		&fakeCredentialVault{},
+		&fakeConnector{identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "remote"}},
+		&SettingsInput{Currency: "USD", Scale: 2},
+	)
+	failed := waitForStableState(t, coordinator, started)
+	require.NotNil(t, failed.Failure)
+	encoded, err := json.Marshal(failed)
+	require.NoError(t, err)
+	for _, value := range forbidden {
+		assert.NotContains(t, string(encoded), value)
+		assert.NotContains(t, failed.Failure.Message, value)
+	}
+}

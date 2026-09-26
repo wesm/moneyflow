@@ -1,229 +1,76 @@
-# Developing moneyflow
+# Develop Moneyflow
 
-This guide covers the essential development workflow for contributing to moneyflow.
+Use Go 1.26.3, Bun 1.3.14, and Make. The application has no Python or CGO requirement.
+Python and uv are needed only for the [documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
-## Quick Start
-
-```bash
-# Clone repository
-git clone https://github.com/wesm/moneyflow.git
-cd moneyflow
-
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install dependencies (creates .venv)
-uv sync
-
-# Run the app in demo mode
-uv run moneyflow --demo
-
-# Run tests
-uv run pytest -v
-
-# Run type checker
-uv run pyright moneyflow/
-```
-
-## Development Environment
-
-### Standard Environment (uv)
-
-**Required:**
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) - Package manager
-
-**Optional:**
-
-- VS Code or PyCharm with Python extension
-
-### Nix Environment (Alternative)
-
-If you use Nix, you can set up a complete development environment with one command:
+On Unix, set a private temporary directory for tests and demos before running the commands
+below. Moneyflow rejects profile paths beneath group- or world-writable ancestors,
+including the usual `/tmp`, even when the profile directory itself is private.
 
 ```bash
-# Clone repository
-git clone https://github.com/wesm/moneyflow.git
-cd moneyflow
-
-# Enter Nix development shell (includes Python, uv, and all dependencies)
-nix develop
-
-# Inside the Nix shell, use uv as normal
-uv sync
-uv run moneyflow --demo
-uv run pytest -v
+export GOTOOLCHAIN=go1.26.3
+export TMPDIR="$(mktemp -d "$HOME/moneyflow-dev.XXXXXX")"
 ```
 
-The Nix flake provides:
+Keep this setting in the current shell. Do not change permissions on `/tmp` or disable
+profile checks. Tests clean up their fixtures; after all commands finish, remove the
+directory with `rmdir "$TMPDIR"` if it is empty, then `unset TMPDIR`.
 
-- Python 3.11 with all runtime dependencies
-- Development tools: pytest, ruff, pyright
-- uv for package management
-- All dependencies pinned for reproducibility
-
-**Benefits:**
-
-- No need to install Python or uv separately
-- Reproducible environment across machines
-- Automatic cleanup when exiting the shell
-
-**Run without entering shell:**
+## Build and try a change
 
 ```bash
-# Run tests directly
-nix develop -c uv run pytest -v
-
-# Run the app
-nix develop -c uv run moneyflow --demo
-
-# Or build and run the package
-nix build
-./result/bin/moneyflow --demo
+make web-install
+make build
+make tui-demo
 ```
 
-## Development Workflow
+`make web-demo` runs the browser demo. Both use temporary synthetic profiles, not personal data.
+The binary is `bin/moneyflow` or `bin/moneyflow.exe` on Windows.
 
-### Working on Documentation
+## Verify behavior
 
-To preview documentation changes locally with live reload:
+Write a failing test before changing application behavior. Keep fixtures synthetic.
+If PowerShell is on `PATH`, it must run successfully: the installer tests exercise it.
+A version-manager shim without a selected version is not a working installation.
 
 ```bash
-# Serve docs with live reload (auto-refreshes on file changes)
-uv run zensical serve
-
-# Then open http://localhost:8000 in your browser
-# Edit files in docs/ and see changes instantly
+make verify-go
+make test-race
+make verify-web
 ```
 
-### Before Starting Work
+`verify-go` checks formatting, Go tests, storage gates, provider workflows, vet, and lint.
+`verify-web` checks the generated API, types, formatting, lint,
+unit tests, dependency audit, assets, and browser journeys.
+
+Install the pinned Playwright browsers when needed:
 
 ```bash
-git pull
-uv sync
-uv run pytest -v  # Ensure clean starting point
+bun run --cwd web playwright install --with-deps chromium firefox webkit
 ```
 
-### Making Changes
+For Amazon-specific work:
 
 ```bash
-# Make your changes
-
-# Run all code quality checks
-uv run pytest -v                          # Tests must pass
-uv run pyright moneyflow/                 # Type checking
-uv run ruff format --check moneyflow/ tests/  # Code formatting
-uv run ruff check moneyflow/ tests/       # Linting
-
-# Auto-fix formatting and linting issues
-uv run ruff format moneyflow/ tests/
-uv run ruff check --fix moneyflow/ tests/
-
-# Commit (only if all checks pass)
-git add -A
-git commit -m "your message"
+make test-amazon
+make test-amazon-e2e
 ```
 
-### Running Tests
+These cover imports, repeated imports, local edits, matching, search, and user-facing flows.
+They use synthetic data and local services, not a real Amazon or bank account.
 
-```bash
-# All tests
-uv run pytest -v
+If host load makes a performance gate unreliable, rerun correctness checks with
+`MONEYFLOW_SKIP_PERF=1` and disclose the exact timing failure. Do not change the threshold
+just to obtain a passing build.
 
-# Specific file
-uv run pytest tests/test_data_manager.py -v
+## Work with generated files
 
-# Stop on first failure
-uv run pytest -x
+Use `make web-generate` when the API contract changes and review the generated diff.
+`make web-embed` builds ignored frontend assets needed by Go embedding.
+Do not commit `internal/web/dist` or browser screenshots.
 
-# With coverage
-uv run pytest --cov --cov-report=html
-open htmlcov/index.html
+## Send a change
 
-# Integration tests (Textual)
-uv run pytest -m integration tests/integration -v -o addopts=
-```
-
-## CI/CD
-
-Tests run automatically on every push and pull request:
-
-- Python 3.11, 3.12 compatibility
-- Full test suite
-- Type checking with pyright
-
-See `.github/workflows/test.yml` for details.
-
-## Release Process
-
-```bash
-# Preview the release flow
-./scripts/release.sh 0.x.y --dry-run
-
-# Run the release
-./scripts/release.sh 0.x.y
-```
-
-The release script automatically:
-
-- Generates and previews a deterministic changelog from commit subjects
-- Runs all tests
-- Runs type checking (pyright)
-- Checks code formatting (ruff format)
-- Runs linter (ruff check)
-- Updates version in pyproject.toml and mkdocs.yml
-- Updates uv.lock
-- Creates the version bump commit and release tag
-- Tests the built package locally
-- Prompts for TestPyPI and PyPI publishing
-- Pushes the release commit and tag atomically immediately before production PyPI upload
-
-This ensures releases never have failing tests or code quality issues.
-
-Post-publish docs automation updates the `stable` branch, so it is opt-in:
-
-```bash
-./scripts/release.sh 0.x.y --post-publish
-```
-
-It only runs after production PyPI publishing succeeds in the same release run.
-For a manual-publish workflow outside `release.sh`, push the existing release
-commit/tag and run post-publish directly:
-
-```bash
-git push --atomic origin HEAD refs/tags/v0.x.y:refs/tags/v0.x.y
-./scripts/post-publish.sh v0.x.y
-```
-
-## Troubleshooting
-
-**Tests fail after `git pull`:**
-
-```bash
-uv sync  # Sync dependencies
-```
-
-**Import errors or stale cache:**
-
-```bash
-# Clear Python cache
-find . -type d -name __pycache__ -exec rm -rf {} +
-
-# Reinstall dependencies
-uv sync --reinstall
-```
-
-**Module not found errors:**
-
-```bash
-# Ensure you're using uv run
-uv run pytest -v  # Correct
-pytest -v         # Wrong - won't find modules
-```
-
-## Getting Help
-
-- **Bugs**: [Open an issue](https://github.com/wesm/moneyflow/issues)
-- **Questions**: [Start a discussion](https://github.com/wesm/moneyflow/discussions)
-- **Contributing**: See [Contributing Guide](contributing.md)
+Follow [AGENTS.md](https://github.com/wesm/moneyflow/blob/main/AGENTS.md) for repository instructions and
+[contributing](contributing.md) for bug reports and review scope.
+Use the [release guide](releases.md) for packaging; building does not publish anything.

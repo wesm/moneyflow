@@ -1,0 +1,160 @@
+name: Go Release
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+      - name: Select version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=0.0.0-rc.0
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]
+            [[ "$(git cat-file -t "$GITHUB_REF")" == tag ]]
+            version=${GITHUB_REF_NAME#v}
+            if [[ "$version" != *-rc.* ]]; then
+              git merge-base --is-ancestor HEAD origin/main
+            fi
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+      - name: Build and check embedded application
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          make web-install web-embed-check
+          make web-check web-test
+          MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
+          go vet ./...
+          shellcheck scripts/release-build.sh scripts/install.sh
+      - name: Package all six targets
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: bash scripts/release-build.sh "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-assets
+          path: dist/release/
+          if-no-files-found: error
+
+  smoke:
+    name: Packaged ${{ matrix.target }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, target: linux_amd64 }
+          - { runner: ubuntu-24.04-arm, target: linux_arm64 }
+          - { runner: macos-15-intel, target: darwin_amd64 }
+          - { runner: macos-15, target: darwin_arm64 }
+          - { runner: windows-latest, target: windows_amd64 }
+          - { runner: windows-11-arm, target: windows_arm64 }
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_VERSION: ${{ needs.build.outputs.version }}
+      RELEASE_TARGET: ${{ matrix.target }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: dist/release
+      - name: Extract Unix archive
+        if: runner.os != 'Windows'
+        run: |
+          mkdir dist/extracted
+          tar -xzf "dist/release/moneyflow_${RELEASE_VERSION}_${RELEASE_TARGET}.tar.gz" -C dist/extracted
+      - name: Extract Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive "dist/release/moneyflow_${env:RELEASE_VERSION}_${env:RELEASE_TARGET}.zip" dist/extracted
+      - name: Test shipped binary and installers
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          binary=moneyflow
+          if [[ "$RUNNER_OS" == Windows ]]; then binary=moneyflow.exe; fi
+          export MONEYFLOW_RELEASE_TEST_BINARY="$GITHUB_WORKSPACE/dist/extracted/$binary"
+          export MONEYFLOW_RELEASE_TEST_VERSION="v$RELEASE_VERSION"
+          export MONEYFLOW_MCP_TEST_BINARY="$MONEYFLOW_RELEASE_TEST_BINARY"
+          go test ./scripts -count=1 -v
+          go test ./internal/mcp -run '^TestMCPSubprocessInteroperability$' -count=1 -v
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-assets
+          path: assets
+      - name: Verify checksums and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd assets && sha256sum -c SHA256SUMS)
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-rc.* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$GITHUB_REF_NAME" assets/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+            --title "$GITHUB_REF_NAME" --notes-from-tag "${flags[@]}"
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  docs:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.')
+    needs: publish
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: write
+    with:
+      release_tag: ${{ github.ref_name }}

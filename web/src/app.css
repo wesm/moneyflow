@@ -1,0 +1,502 @@
+@import '@kenn-io/kit-ui/theme.css';
+@import '@kenn-io/kit-ui/themes.css';
+@import '@kenn-io/kit-ui/fonts.css';
+
+:root {
+  --moneyflow-positive: var(--accent-green);
+  --moneyflow-negative: var(--accent-red);
+  --moneyflow-focus: var(--accent-blue);
+}
+
+:root:not(.dark) {
+  /* The kit default muted ink is decorative-grade; Moneyflow uses it for readable status text. */
+  --text-muted: var(--text-secondary);
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.moneyflow-app {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.moneyflow-brand {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label, 0.02em);
+}
+
+.moneyflow-main {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+}
+
+.profile-main {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  place-items: start center;
+  padding: clamp(var(--space-4), 5vw, var(--space-8));
+}
+
+.profile-panel {
+  width: min(42rem, 100%);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.profile-panel > h1,
+.profile-panel > p {
+  margin: 0;
+}
+
+.profile-panel > p:not(.moneyflow-eyebrow) {
+  color: var(--text-secondary);
+}
+
+.profile-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.profile-list .kit-card {
+  width: 100%;
+}
+
+.profile-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.profile-form label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.onboarding-working {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+
+.onboarding-working p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.moneyflow-loading,
+.moneyflow-loaded,
+.moneyflow-message {
+  max-width: 32rem;
+}
+
+.moneyflow-loading h1,
+.moneyflow-loading p,
+.moneyflow-loaded h1,
+.moneyflow-loaded p,
+.moneyflow-message h1,
+.moneyflow-message p {
+  margin: 0;
+}
+
+.moneyflow-loading h1,
+.moneyflow-loaded h1,
+.moneyflow-message h1 {
+  margin-block: var(--space-2);
+  font-size: var(--font-size-xl);
+}
+
+.moneyflow-loading p:last-child,
+.moneyflow-loaded p:last-child,
+.moneyflow-message p,
+.moneyflow-eyebrow {
+  color: var(--text-muted);
+}
+
+.app-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell__main {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+.app-shell__table {
+  min-width: 0;
+  min-height: 0;
+}
+.app-shell__main > aside {
+  min-width: 0;
+  min-height: 0;
+}
+.refinement-bar {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.refinement-bar__trail {
+  display: flex;
+  gap: var(--space-2);
+  color: var(--text-primary);
+}
+.finance-grid {
+  height: 100%;
+  overflow: auto;
+  outline: none;
+  font-size: var(--font-size-sm);
+}
+.finance-grid:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+.finance-grid__header,
+.finance-grid [role='row'] {
+  min-width: 48rem;
+  display: grid;
+  grid-template-columns: 7rem 10rem minmax(10rem, 1fr) minmax(10rem, 1fr) 9rem;
+  min-height: 34px;
+  align-items: center;
+}
+.finance-grid__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-default);
+  font-weight: var(--font-weight-semibold);
+}
+.finance-grid--aggregate [role='row'] {
+  grid-template-columns: minmax(14rem, 1fr) 5rem repeat(3, 9rem);
+}
+.finance-grid [role='columnheader'],
+.finance-grid [role='gridcell'] {
+  padding: var(--space-3) var(--space-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finance-grid [role='row'] {
+  border-bottom: 1px solid var(--border-muted);
+}
+.finance-grid:has([role='columnheader']:nth-child(6)) [role='row'],
+.finance-grid:has([role='columnheader']:nth-child(6)) .finance-grid__header {
+  grid-template-columns: 7rem 10rem minmax(10rem, 1fr) minmax(10rem, 1fr) minmax(12rem, 1fr) 9rem;
+}
+
+.table-detail-button {
+  max-width: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.table-detail-button:hover,
+.table-detail-button:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+.finance-grid__row--active {
+  background: var(--bg-surface-hover);
+  box-shadow: inset 3px 0 var(--moneyflow-focus);
+}
+.finance-grid__row--hidden {
+  opacity: var(--opacity-disabled);
+}
+
+.finance-grid__row--pending {
+  box-shadow: inset 3px 0 0 var(--moneyflow-focus);
+}
+
+.pending-marker {
+  margin-left: var(--space-2);
+  padding: 1px 5px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.editing-form {
+  display: grid;
+  gap: var(--space-3);
+  min-width: min(420px, calc(100vw - 64px));
+}
+
+.editing-form select {
+  min-height: 30px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+.editing-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.editing-error {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.review-list button {
+  width: 100%;
+  padding: var(--space-2);
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-default);
+}
+
+.review-list button span {
+  display: block;
+  color: var(--text-secondary);
+}
+
+.review-redo {
+  margin-top: var(--space-5);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-default);
+}
+
+.review-paging {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kit-space-2);
+  justify-content: space-between;
+  margin-block: var(--kit-space-2);
+}
+.finance-grid .money {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.overlay-form {
+  display: flex;
+  min-width: min(28rem, calc(100vw - 6rem));
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.overlay-label {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+.overlay-status {
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.overlay-status--error {
+  color: var(--accent-red);
+}
+.help-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-6);
+  overflow: auto;
+}
+.help-groups h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+.help-list {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  list-style: none;
+}
+.help-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+}
+.help-list li > :first-child {
+  flex: 1;
+}
+.help-list__unavailable {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.visualization-rail {
+  height: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  overflow: auto;
+}
+
+/* Live projection updates must not restart the drawer entrance outside the viewport. */
+.kit-detail-drawer {
+  animation: none !important;
+}
+.visualization-rail > h2,
+.chart-partition h3 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--font-size-sm);
+}
+.chart-description {
+  margin: 0 0 var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.chart-partition + .chart-partition {
+  margin-top: var(--space-7);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border-muted);
+}
+.layer-chart {
+  max-width: 100%;
+  color: var(--moneyflow-focus);
+  overflow: hidden;
+}
+.layer-chart svg {
+  max-width: 100%;
+}
+.chart-marks {
+  display: flex;
+  margin-top: var(--space-4);
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.chart-mark {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.chart-mark:hover {
+  background: var(--bg-surface-hover);
+}
+.chart-mark:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
+}
+.chart-mark--active {
+  border-color: var(--moneyflow-focus);
+  box-shadow: inset 3px 0 var(--moneyflow-focus);
+  color: var(--text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+.detail-summary {
+  display: grid;
+  margin: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+.detail-summary > div {
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+.detail-summary dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.detail-summary dd {
+  margin: var(--space-2) 0 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+@media (max-width: 900px) {
+  .help-groups {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .app-shell__main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .detail-summary {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-mark {
+    transition: none;
+  }
+}
+
+.moneyflow-actions {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+
+.moneyflow-eyebrow {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-label, 0.06em);
+  text-transform: uppercase;
+}

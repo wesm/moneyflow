@@ -1,33 +1,16 @@
-# Contributing
+# Contribute to Moneyflow
 
-Thank you for your interest in contributing to moneyflow!
+Report bugs with reproduction steps, the Moneyflow version, and your operating system.
+Use synthetic examples. Do not attach real transactions, provider credentials, profile
+databases, or unsanitized screenshots.
 
-## Ways to Contribute
+For a code change:
 
-- Report bugs and request features via [GitHub Issues](https://github.com/wesm/moneyflow/issues)
-- Submit pull requests with bug fixes or new features
-- Improve documentation
-- Share your moneyflow workflows and tips with the community
+1. Read [AGENTS.md](https://github.com/wesm/moneyflow/blob/main/AGENTS.md) and the relevant owning guide.
+2. Set up the [Go and web development tools](developing.md).
+3. Add a focused behavior test, observe its failure, and implement the change.
+4. Run the relevant verification commands and update the owning documentation.
+5. Describe the user-visible result and any remaining limitations in the pull request.
 
-## Getting Started
-
-1. Fork the repository
-2. Clone your fork
-3. Follow the setup instructions in [Developing moneyflow](developing.md)
-4. Create a feature branch
-5. Make your changes
-6. Run tests to ensure everything works
-7. Submit a pull request
-
-## Development Guidelines
-
-See [Developing moneyflow](developing.md) for:
-
-- Development setup with uv
-- Testing requirements
-- Code quality standards
-- Git workflow
-
-## Questions?
-
-Open an issue on GitHub or start a discussion.
+Keep changes scoped. Shared behavior belongs in the application service, not duplicated
+in TUI and web. Documentation changes follow [the publishing guide](https://github.com/wesm/moneyflow/blob/main/docs/README.md).

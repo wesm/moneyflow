@@ -1,5 +1,13 @@
 # Changelog
 
+Current release notes are attached to [GitHub Releases](https://github.com/wesm/moneyflow/releases).
+The Go replacement in this checkout is newer than the historical Python entries below.
+See [moving to Go](../getting-started/transition.md) before changing applications.
+
+## Historical Python notes
+
+The entries below describe the retired Python application, not current Go behavior.
+
 ## Unreleased
 
 **New:**

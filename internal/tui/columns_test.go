@@ -1,0 +1,98 @@
+package tui
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/wesm/moneyflow/internal/domain"
+)
+
+func columnStarts(columns []Column) []int {
+	starts := make([]int, len(columns))
+	for index, column := range columns {
+		starts[index] = column.Start
+	}
+	return starts
+}
+
+func TestColumnsAggregateLayouts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		width      int
+		wantStarts []int
+	}{
+		{150, []int{1, 23, 32, 45, 58, 71, 79, 116}},
+		{120, []int{1, 23, 32, 45, 58, 71, 79, 116}},
+		{76, []int{1, 18, 27, 40, 53, 66, 74}},
+	}
+	for _, test := range tests {
+		columns := AggregateColumns(test.width, domain.DimensionMerchant, domain.SortSpec{
+			Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc,
+		})
+		assert.Equal(t, test.wantStarts, columnStarts(columns))
+		assert.Equal(t, AlignLeft, columns[1].Align)
+		assert.Equal(t, AlignRight, columns[2].Align)
+		assert.Equal(t, "In ($)", columns[2].Label)
+		assert.Equal(t, "Out ($)", columns[3].Label)
+		assert.Equal(t, "Net ($) ↓", columns[4].Label)
+		assert.LessOrEqual(t, columns[len(columns)-1].Start+columns[len(columns)-1].Width, test.width)
+	}
+}
+
+func TestColumnsDetailLayouts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		width      int
+		wantStarts []int
+	}{
+		{150, []int{1, 15, 37, 60, 84, 100}},
+		{120, []int{1, 15, 37, 60, 84, 100}},
+		{80, []int{1, 15, 29, 44, 61, 77}},
+	}
+	for _, test := range tests {
+		columns := DetailColumns(test.width, domain.SortSpec{
+			Field: domain.SortFieldDate, Direction: domain.SortDirectionDesc,
+		})
+		assert.Equal(t, test.wantStarts, columnStarts(columns))
+		assert.Equal(t, "Date ↓", columns[0].Label)
+		assert.Equal(t, AlignRight, columns[4].Align)
+	}
+}
+
+func TestProfileDetailColumnsUseAmazonLabelsAndBoundedMatchColumn(t *testing.T) {
+	t.Parallel()
+	columns := ProfileDetailColumns(150, domain.SortSpec{}, "amazon", false)
+	assert.Equal(t, "Product", columns[1].Label)
+	assert.Equal(t, "Order", columns[3].Label)
+	assert.Equal(t, []int{1, 15, 77, 100, 122, 138}, columnStarts(columns))
+
+	matched := ProfileDetailColumns(150, domain.SortSpec{}, "monarch", true)
+	labels := make([]string, len(matched))
+	for index, column := range matched {
+		labels[index] = column.Label
+	}
+	assert.Contains(t, labels, "Amazon")
+	assert.Equal(t, []int{1, 15, 32, 55, 79, 95, 137}, columnStarts(matched))
+}
+
+func TestColumnsNeverEscapeNarrowPositiveWidth(t *testing.T) {
+	t.Parallel()
+
+	for width := 1; width <= 79; width++ {
+		for _, columns := range [][]Column{
+			AggregateColumns(width, domain.DimensionCategory, domain.SortSpec{
+				Field: domain.SortFieldCategory, Direction: domain.SortDirectionAsc,
+			}),
+			DetailColumns(width, domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionAsc}),
+		} {
+			for _, column := range columns {
+				assert.GreaterOrEqual(t, column.Start, 0)
+				assert.GreaterOrEqual(t, column.Width, 0)
+				assert.LessOrEqual(t, column.Start+column.Width, width)
+			}
+		}
+	}
+}

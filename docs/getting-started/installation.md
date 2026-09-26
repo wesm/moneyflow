@@ -1,118 +1,110 @@
 # Installation
 
-moneyflow can be installed in multiple ways depending on your preference.
+Install Moneyflow as one binary, or build it from this checkout. This branch contains the Go replacement;
+do not assume the latest published release already includes it. The old PyPI package installs Python Moneyflow.
+See [moving to Go](transition.md) before replacing a Python installation.
 
-## Quick Install
+## Available releases
 
-=== "pip"
+The Go release pipeline builds standalone binaries for Linux, macOS, and Windows on AMD64 and ARM64.
+Prebuilt binaries include the web application and need no Python, Go, or Bun runtime.
 
-    ```bash
-    pip install moneyflow
-    ```
+When a Go preview is available on [GitHub Releases](https://github.com/wesm/moneyflow/releases), use its tagged installer
+below. Until then, [build from source](#build-from-source).
 
-    Then run:
-    ```bash
-    moneyflow
-    ```
+### Install a Tagged Preview
 
-=== "uv"
+Replace `vX.Y.Z-rc.N` with an actual Go preview tag from the release page. Download and inspect the installer from that
+same tag, then run it with `MONEYFLOW_VERSION` set. Preview releases are not selected by GitHub's `latest` release URL.
 
-    Run with `uvx`:
-
-    ```bash
-    uvx moneyflow
-    ```
-
-=== "pipx (Isolated)"
-
-    Install in isolated environment:
+=== "Linux / macOS"
 
     ```bash
-    pipx install moneyflow
+    MONEYFLOW_VERSION=vX.Y.Z-rc.N
+    curl -fsSL "https://github.com/wesm/moneyflow/releases/download/${MONEYFLOW_VERSION}/install.sh" -o install.sh
+    less install.sh
+    MONEYFLOW_VERSION="$MONEYFLOW_VERSION" sh install.sh
     ```
 
-    Then run:
+=== "Windows PowerShell"
+
+    ```powershell
+    $env:MONEYFLOW_VERSION = 'vX.Y.Z-rc.N'
+    Invoke-WebRequest "https://github.com/wesm/moneyflow/releases/download/$env:MONEYFLOW_VERSION/install.ps1" -OutFile install.ps1
+    Get-Content .\install.ps1
+    .\install.ps1
+    ```
+
+The default install directory is `~/.local/bin` on Linux/macOS and `%LOCALAPPDATA%\Programs\moneyflow\bin` on Windows.
+Set `MONEYFLOW_INSTALL_DIR` before running the installer to choose another directory. Add that directory to your `PATH`
+if needed. If Python moneyflow is also installed, check which executable your shell selects before running it.
+
+To update, close Moneyflow and rerun the installer for the desired release. Installation replaces the binary only;
+it does not remove profiles or resolve incompatible preview schemas. Keep a backup before opening data with a new version.
+
+### Install the Latest Stable Go Release
+
+Use these commands only after a stable Go release publishes the installer assets. Until then, use a tagged Go preview or
+build from source. Leave `MONEYFLOW_VERSION` unset to select the latest stable release.
+
+=== "Linux / macOS"
+
     ```bash
-    moneyflow
+    curl -fsSL https://github.com/wesm/moneyflow/releases/latest/download/install.sh -o install.sh
+    less install.sh
+    sh install.sh
     ```
 
-=== "Nix"
+=== "Windows PowerShell"
 
-    Run without installing:
-
-    ```bash
-    nix run github:wesm/moneyflow
+    ```powershell
+    Invoke-WebRequest https://github.com/wesm/moneyflow/releases/latest/download/install.ps1 -OutFile install.ps1
+    Get-Content .\install.ps1
+    .\install.ps1
     ```
 
-    Or install to your profile:
+### Manual Download
 
-    ```bash
-    nix profile install github:wesm/moneyflow
-    moneyflow
-    ```
+Each Go release includes `SHA256SUMS`, `install.sh`, `install.ps1`, and these six archives:
 
-    Or from a local clone:
+| Operating system | Architecture | Archive |
+| --- | --- | --- |
+| Linux | AMD64 | `moneyflow_<version>_linux_amd64.tar.gz` |
+| Linux | ARM64 | `moneyflow_<version>_linux_arm64.tar.gz` |
+| macOS | AMD64 | `moneyflow_<version>_darwin_amd64.tar.gz` |
+| macOS | ARM64 | `moneyflow_<version>_darwin_arm64.tar.gz` |
+| Windows | AMD64 | `moneyflow_<version>_windows_amd64.zip` |
+| Windows | ARM64 | `moneyflow_<version>_windows_arm64.zip` |
 
-    ```bash
-    git clone https://github.com/wesm/moneyflow.git
-    cd moneyflow
-    nix run .#
-    ```
+Here `<version>` is the release tag without its leading `v`. Download the archive for your system and `SHA256SUMS` from
+the same release, verify the archive's SHA-256 checksum, then extract `moneyflow` or `moneyflow.exe` into a directory on
+your `PATH`.
 
----
-
-## From Source
-
-For developers or contributors:
+### Run the Go Application
 
 ```bash
-# Clone the repository
-git clone https://github.com/wesm/moneyflow.git
+moneyflow version
+moneyflow tui --demo
+moneyflow web --demo
+moneyflow tui
+```
+
+Demo profiles are temporary and need no financial account. Persistent Go profiles live under `~/.moneyflow/v2` by default;
+set `MONEYFLOW_HOME` to use a different catalog directory.
+
+See [moving to Go](transition.md) for old Python data and incompatible Go preview profiles.
+
+### Build from source
+
+Install Go 1.26.3, Bun 1.3.14, and `make`, then build from the `go-port` branch:
+
+```bash
+git clone --branch go-port https://github.com/wesm/moneyflow.git
 cd moneyflow
-
-# Install dependencies with uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync
-
-# Run from source
-uv run moneyflow
+make web-install
+make build
+./bin/moneyflow tui --demo
 ```
 
----
-
-## Requirements
-
-- **Python 3.11+** (automatically handled by pip/uvx/pipx)
-- **Terminal**: Any modern terminal with Unicode support
-- **Account**: [Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024),
-  YNAB, or Amazon account (or use `--demo` mode)
-
----
-
-## Verify Installation
-
-```bash
-# Check version
-moneyflow --help
-
-# Try demo mode (no account needed)
-moneyflow --demo
-```
-
-If you see the demo data load successfully, you're all set!
-
----
-
-## Next Steps
-
-- [Quick Start Guide](quickstart.md) - Get up and running in 5 minutes
-- [Monarch Money Setup](../guide/monarch.md) - Detailed guide for Monarch Money users
-- [YNAB Setup](../guide/ynab.md) - Detailed guide for YNAB users
-- [Amazon Mode](../guide/amazon-mode.md) - Import and analyze Amazon purchase history
-- [Keyboard Shortcuts](../guide/keyboard-shortcuts.md) - Learn the keybindings
-
----
-
-## Troubleshooting
-
-Having issues? See the [Troubleshooting Guide](../reference/troubleshooting.md) for help.
+Windows builds produce `bin/moneyflow.exe`. The build generates and embeds the web assets before compiling the binary.
+See the [Go release guide](../development/releases.md) for the distribution workflow.

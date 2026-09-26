@@ -49,6 +49,8 @@ htmlcov/
 # macOS
 .DS_Store
 site/
+docs/.site-work/
+docs/.screenshots/
 
 # Generated documentation assets
 docs/assets/screenshots/*.svg
@@ -61,3 +63,24 @@ result-*
 # Agent Tools
 .codegraph/
 .opencode/
+.superpowers/
+
+# Go build and lint outputs
+/bin/
+/coverage.out
+/.cache/golangci-lint/
+/.cache/web-e2e/
+
+# Web build and test outputs
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/test-results/
+/web/playwright-report/
+/web/.vite/
+/web/tests/screenshots/
+!/web/src/lib/
+!/web/src/lib/**
+
+# Generated production frontend embedded by local builds
+/internal/web/dist/

@@ -1,0 +1,264 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/httpsecurity"
+	"github.com/wesm/moneyflow/internal/version"
+	webserver "github.com/wesm/moneyflow/internal/web"
+)
+
+// ListenerFactory opens one network listener without fixing a port in tests.
+type ListenerFactory func(context.Context, string, string) (net.Listener, error)
+
+// BrowserOpener opens one URL without invoking a shell.
+type BrowserOpener func(string) error
+
+// SignalContext adds process lifecycle signals to a command context.
+type SignalContext func(context.Context) (context.Context, context.CancelFunc)
+
+// WebRunner runs the browser transport with profile-neutral process dependencies.
+type WebRunner func(context.Context, WebDependencies, WebOptions, IOStreams) error
+
+// WebOptions contains the explicitly bounded web-command configuration.
+type WebOptions struct {
+	Listen      string
+	BasePath    string
+	ExternalURL string
+	Open        bool
+}
+
+func newWebCommand(streams IOStreams) *cobra.Command {
+	options := WebOptions{Listen: "127.0.0.1:8080", BasePath: "/", Open: true}
+	var demo bool
+	var fixturePath string
+	var profile string
+	command := &cobra.Command{
+		Use:   "web",
+		Short: "Serve the browser application",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			host, err := validateWebListen(options.Listen)
+			if err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			options.BasePath, err = api.NormalizeBasePath(options.BasePath)
+			if err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			if _, err = api.ResolveOrigin(options.Listen, options.BasePath, options.ExternalURL); err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			builder := streams.BuildWeb
+			if builder == nil {
+				builder = buildWebDependencies
+			}
+			dependencies, err := builder(command.Context(), ProfileOptions{
+				Demo: demo || fixturePath != "", FixturePath: fixturePath, Profile: profile,
+			}, streams)
+			if err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			if !isLoopbackHost(host) {
+				_, _ = fmt.Fprintln(
+					command.ErrOrStderr(),
+					"Warning: serving unauthenticated financial data on a non-loopback address.",
+				)
+			}
+			runner := streams.RunWeb
+			if runner == nil {
+				runner = runWeb
+			}
+			runErr := runner(command.Context(), dependencies, options, streams)
+			if err = errors.Join(runErr, dependencies.Close(context.Background())); err != nil {
+				return fmt.Errorf("start web: %w", err)
+			}
+			return nil
+		},
+	}
+	command.Flags().StringVar(&options.Listen, "listen", options.Listen, "explicit host and port")
+	command.Flags().StringVar(&options.BasePath, "base-path", options.BasePath, "URL mount path")
+	command.Flags().StringVar(&options.ExternalURL, "external-url", "", "canonical browser URL through a trusted proxy")
+	command.Flags().BoolVar(&options.Open, "open", options.Open, "open the application in a browser")
+	command.Flags().BoolVar(&demo, "demo", false, "serve a temporary profile seeded with synthetic data")
+	command.Flags().StringVar(&fixturePath, "fixture", "", "fixture document")
+	command.Flags().StringVar(&profile, "profile", "", "profile name or ID")
+	command.MarkFlagsMutuallyExclusive("profile", "demo")
+	command.MarkFlagsMutuallyExclusive("profile", "fixture")
+	if err := command.Flags().MarkHidden("fixture"); err != nil {
+		panic(err)
+	}
+	return command
+}
+
+func validateWebListen(address string) (string, error) {
+	return httpsecurity.ValidateListen(address, false)
+}
+
+func isLoopbackHost(host string) bool {
+	return httpsecurity.IsLoopbackHost(host)
+}
+
+func runWeb(
+	parent context.Context,
+	dependencies WebDependencies,
+	options WebOptions,
+	streams IOStreams,
+) error {
+	basePath, err := api.NormalizeBasePath(options.BasePath)
+	if err != nil {
+		return fmt.Errorf("normalize base path: %w", err)
+	}
+	options.BasePath = basePath
+	signalContext := streams.SignalContext
+	if signalContext == nil {
+		signalContext = func(parent context.Context) (context.Context, context.CancelFunc) {
+			return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+		}
+	}
+	ctx, stop := signalContext(parent)
+	defer stop()
+	stopIdleSweeper := startIdleProfileSweeper(ctx, dependencies, streams.Err)
+	defer stopIdleSweeper()
+
+	listen := streams.Listen
+	if listen == nil {
+		listenConfig := &net.ListenConfig{}
+		listen = listenConfig.Listen
+	}
+	listener, err := listen(ctx, "tcp", options.Listen)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", options.Listen, err)
+	}
+	origin, err := api.ResolveOrigin(listener.Addr().String(), options.BasePath, options.ExternalURL)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	security, err := api.NewMutationSecurity(origin, nil, nil)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	serverConfig := webserver.ServerConfig{
+		Resolver: dependencies.Registry, PreselectedID: dependencies.PreselectedProfileID,
+		BasePath: options.BasePath, Version: version.Version,
+		Origin: origin, Security: security, WarnNonCanonical: options.ExternalURL != "",
+	}
+	if dependencies.Catalog != nil {
+		serverConfig.Catalog = dependencies.Catalog
+		serverConfig.Evictor = dependencies.Evictor
+	}
+	if dependencies.Onboarding != nil {
+		serverConfig.Onboarding = dependencies.Onboarding
+	}
+	serverConfig.AmazonImports = dependencies.AmazonImports
+	serverConfig.SimpleFINOnboarding = dependencies.SimpleFINOnboarding
+	serverConfig.LoadAmazonTaxonomy = dependencies.LoadAmazonTaxonomy
+	application, err := webserver.NewServer(serverConfig)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
+	server := application.HTTPServer(listener.Addr().String(), streams.Err)
+	url := origin.Canonical.String()
+	if dependencies.PreselectedProfileID != "" {
+		url += "p/" + dependencies.PreselectedProfileID + "/"
+	}
+	if _, err := fmt.Fprintf(streams.Out, "Moneyflow web: %s\n", url); err != nil {
+		_ = listener.Close()
+		return fmt.Errorf("write web address: %w", err)
+	}
+	serveResult := make(chan error, 1)
+	go func() {
+		serveResult <- server.Serve(listener)
+	}()
+	if options.Open {
+		opener := streams.OpenBrowser
+		if opener == nil {
+			opener = openBrowser
+		}
+		if err := opener(url); err != nil {
+			_, _ = fmt.Fprintf(streams.Err, "Warning: could not open browser: %v\n", err)
+		}
+	}
+
+	select {
+	case err := <-serveResult:
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return fmt.Errorf("serve web: %w", err)
+	case <-ctx.Done():
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownContext); err != nil {
+			_ = server.Close()
+			return fmt.Errorf("shut down web: %w", err)
+		}
+		err := <-serveResult
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("serve web: %w", err)
+		}
+		return nil
+	}
+}
+
+func startIdleProfileSweeper(
+	parent context.Context,
+	dependencies WebDependencies,
+	stderr io.Writer,
+) func() {
+	if dependencies.CloseIdle == nil || dependencies.IdleSweepInterval <= 0 {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(dependencies.IdleSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := dependencies.CloseIdle(ctx); err != nil && ctx.Err() == nil {
+					_, _ = fmt.Fprintln(stderr, "Warning: idle profile cleanup failed.")
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func openBrowser(url string) error {
+	var name string
+	var arguments []string
+	switch runtime.GOOS {
+	case "darwin":
+		name, arguments = "open", []string{url}
+	case "windows":
+		name, arguments = "rundll32", []string{"url.dll,FileProtocolHandler", url}
+	default:
+		name, arguments = "xdg-open", []string{url}
+	}
+	// The executable is selected from fixed platform names and the validated URL is one argument.
+	return exec.Command(name, arguments...).Run() //nolint:gosec
+}

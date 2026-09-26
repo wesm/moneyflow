@@ -1,0 +1,21 @@
+version: "2"
+run:
+  timeout: 3m
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gosec
+  exclusions:
+    paths:
+      - ^web/node_modules/
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -1,0 +1,58 @@
+package tui
+
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/wesm/moneyflow/internal/app"
+)
+
+func TestHelpBindingsAreUniqueAndRouted(t *testing.T) {
+	t.Parallel()
+
+	bindings := defaultBindings()
+	seen := make(map[string]app.ActionID)
+	for _, binding := range bindings {
+		for _, keyName := range binding.keys {
+			if previous, exists := seen[keyName]; exists {
+				assert.Equal(t, previous, binding.action, keyName)
+			}
+			seen[keyName] = binding.action
+		}
+		assert.NotEmpty(t, binding.action)
+		assert.True(t, binding.implemented || binding.unavailable)
+	}
+	assert.Equal(t, app.ActionOpenSearch, seen["/"])
+	assert.Equal(t, app.ActionOpenFilters, seen["f"])
+	assert.Equal(t, app.ActionOpenHelp, seen["?"])
+}
+
+func TestHelpScrollClampsAndEnterCloses(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model.width, model.height = 80, 24
+	model = press(t, model, keyRune('?'))
+	for range 100 {
+		model = press(t, model, keyRune('j'))
+	}
+	assert.Equal(t, model.helpMaxScroll(), model.help.scroll)
+
+	model = pressMessage(t, model, tea.WindowSizeMsg{Width: 150, Height: 50})
+	assert.LessOrEqual(t, model.help.scroll, model.helpMaxScroll())
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, overlayNone, model.overlay)
+}
+
+func TestHelpShortcutTogglesKeyboardReference(t *testing.T) {
+	t.Parallel()
+
+	model := newTestModel(t, app.NewSession())
+	model = press(t, model, keyRune('?'))
+	assert.Equal(t, overlayHelp, model.overlay)
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "Keyboard Shortcuts")
+	model = press(t, model, keyRune('?'))
+	assert.Equal(t, overlayNone, model.overlay)
+}

@@ -1,0 +1,369 @@
+package tui
+
+import (
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
+)
+
+type amazonImportRequestedMsg struct{}
+
+// Update routes synchronous profile interactions through the application session.
+func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch message := message.(type) {
+	case clockTickMsg:
+		model.clockAt = message.at
+		return model, clockTickCommand()
+	case providerRefreshMsg:
+		return model, model.handleProviderRefresh(message)
+	case providerWriteMsg:
+		return model, model.handleProviderWrite(message)
+	case providerWriteReconcileMsg:
+		return model, model.handleProviderWriteReconcile(message)
+	case providerStatusMsg:
+		return model, model.handleProviderStatus(message)
+	case exportCompletedMsg:
+		return model, model.handleExportCompleted(message)
+	case providerScheduleTickMsg:
+		if message.timerGeneration != model.provider.timerGeneration {
+			return model, nil
+		}
+		if _, available := model.capability(app.ActionRefreshProvider); !available &&
+			model.providerWrite.status.Phase == "" {
+			return model, nil
+		}
+		return model, model.providerStatusCommand(message.at)
+	case providerProgressTickMsg:
+		if message.timerGeneration != model.provider.timerGeneration ||
+			(!model.provider.refreshing && !model.providerWrite.running) {
+			return model, nil
+		}
+		return model, model.providerProgressStatusCommand(message.at)
+	case tea.WindowSizeMsg:
+		model.width = max(message.Width, 0)
+		model.height = max(message.Height, 0)
+		model.ensureCursorVisible()
+		if model.overlay == overlayHelp {
+			model.help.scroll = min(model.help.scroll, model.helpMaxScroll())
+		}
+		if model.overlay == overlayTransactionInfo {
+			model.transactionInfo.scroll = min(model.transactionInfo.scroll, model.transactionInfoMaxScroll())
+		}
+		return model, nil
+	case tea.KeyPressMsg:
+		matched := matchAction(message, model.bindings)
+		if matched == app.ActionForceQuit {
+			return model, tea.Quit
+		}
+		if model.overlay == overlayExport && model.export.busy && message.Keystroke() == "esc" {
+			return model, model.routeExport(message)
+		}
+		if model.provider.refreshing && model.overlay == overlayNone && message.Keystroke() == "esc" {
+			if model.provider.cancel != nil {
+				model.provider.cancel()
+			}
+			model.status = "Cancellation requested; waiting for provider work to stop."
+			return model, nil
+		}
+		if model.provider.refreshing {
+			model.provider.interactionVersion++
+		}
+		if !model.refreshForInteraction() {
+			return model, nil
+		}
+		if model.overlay != overlayNone {
+			return model, model.routeOverlay(message)
+		}
+		if matched == app.ActionQuit {
+			return model, model.openQuit()
+		}
+		return model, model.routeKey(message)
+	}
+	return model, nil
+}
+
+func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
+	switch model.overlay {
+	case overlaySearch:
+		return model.routeSearch(message)
+	case overlayFilters:
+		return model.routeFilters(message)
+	case overlayHelp:
+		switch message.Keystroke() {
+		case "?", "esc", "enter":
+			model.overlay = overlayNone
+		case "up", "k":
+			model.help.scroll = max(0, model.help.scroll-1)
+		case "down", "j":
+			model.help.scroll = min(model.helpMaxScroll(), model.help.scroll+1)
+		}
+	case overlayTransactionInfo:
+		return model.routeTransactionInfo(message)
+	case overlayMerchantEditor:
+		return model.routeMerchantEditor(message)
+	case overlayCategoryEditor:
+		return model.routeCategoryEditor(message)
+	case overlayCategoryManager:
+		return model.routeCategoryManager(message)
+	case overlayGroupManager:
+		return model.routeGroupManager(message)
+	case overlayReview:
+		return model.routeReview(message)
+	case overlayProviderConfirmation:
+		return model.routeProviderConfirmation(message)
+	case overlayProviderWrite:
+		return model.routeProviderWrite(message)
+	case overlayDuplicates:
+		return model.routeDuplicates(message)
+	case overlayDeleteConfirmation:
+		return model.routeDeleteConfirmation(message)
+	case overlayExport:
+		return model.routeExport(message)
+	case overlayQuit:
+		return model.routeQuit(message)
+	}
+	return nil
+}
+
+func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
+	switch matchAction(message, model.bindings) {
+	case app.ActionCursorUp:
+		model.cursor--
+		model.clampCursor()
+	case app.ActionCursorDown:
+		model.cursor++
+		model.clampCursor()
+	case app.ActionCursorHome:
+		model.cursor, model.scroll = 0, 0
+	case actionCursorEnd:
+		model.cursor = model.rowCount() - 1
+		model.clampCursor()
+	case actionCursorPageUp:
+		model.cursor -= model.visibleRows()
+		model.scroll -= model.visibleRows()
+		model.clampCursor()
+	case actionCursorPageDown:
+		model.cursor += model.visibleRows()
+		model.scroll += model.visibleRows()
+		model.clampCursor()
+	case app.ActionCycleGrouping:
+		model.session.CycleGrouping()
+		model.resetAndRefresh()
+	case app.ActionShowDetail:
+		model.session.ShowAllDetail()
+		model.resetAndRefresh()
+	case app.ActionFindDuplicates:
+		return model.openDuplicates()
+	case app.ActionSwitchAccounts:
+		model.session.SwitchAccounts()
+		model.resetAndRefresh()
+	case app.ActionDrill:
+		model.drill()
+	case app.ActionBack:
+		model.back()
+	case app.ActionToggleTime:
+		if model.timeContext() {
+			model.session.ToggleTimeGranularity()
+			model.resetAndRefresh()
+		}
+	case app.ActionClearTime:
+		if model.session.ClearTimePeriod() {
+			model.resetAndRefresh()
+		}
+	case app.ActionPreviousPeriod:
+		if model.session.NavigatePeriod(-1) {
+			model.resetAndRefresh()
+		}
+	case app.ActionNextPeriod:
+		if model.session.NavigatePeriod(1) {
+			model.resetAndRefresh()
+		}
+	case app.ActionCycleSort:
+		model.session.CycleSort()
+		model.resetAndRefresh()
+	case app.ActionReverseSort:
+		model.session.ReverseSort()
+		model.resetAndRefresh()
+	case app.ActionToggleSelection:
+		model.toggleSelection()
+	case app.ActionToggleSelectAll:
+		model.session.ToggleSelectAll(model.result)
+		if err := model.rebuildSelectionValue(); err != nil {
+			model.status = safeInteractionMessage(err)
+			model.clearSessionSelection()
+		}
+		model.refresh()
+	case app.ActionOpenFilters:
+		return model.openFilters()
+	case app.ActionOpenSearch:
+		return model.openSearch()
+	case app.ActionOpenHelp:
+		model.help = helpState{}
+		model.overlay = overlayHelp
+	case app.ActionShowInfo:
+		return model.openTransactionInfo()
+	case app.ActionEditMerchant:
+		return model.openMerchantEditor()
+	case app.ActionEditCategory:
+		return model.openCategoryEditor()
+	case app.ActionManageCategories:
+		return model.openCategoryManager()
+	case app.ActionManageGroups:
+		return model.openGroupManager()
+	case app.ActionReviewChanges:
+		if model.providerWrite.status.Phase != "" {
+			model.overlay = overlayProviderWrite
+			model.status = ""
+			return nil
+		}
+		return model.openReview()
+	case app.ActionToggleHidden:
+		if capability, available := model.capability(app.ActionToggleHidden); available {
+			model.executeMutation(app.ActionToggleHidden, app.EditInput{})
+		} else {
+			model.status = capabilityMessage(capability)
+		}
+	case app.ActionDeleteTransaction:
+		return model.openDeleteConfirmation()
+	case app.ActionUndo:
+		if capability, available := model.capability(app.ActionUndo); available {
+			model.executeCursorMutation(app.ActionUndo)
+		} else {
+			model.status = capabilityMessage(capability)
+		}
+	case app.ActionRedo:
+		if capability, available := model.capability(app.ActionRedo); available {
+			model.executeCursorMutation(app.ActionRedo)
+		} else {
+			model.status = capabilityMessage(capability)
+		}
+	case app.ActionRefreshProvider:
+		if model.profileKind == "amazon" {
+			return func() tea.Msg { return amazonImportRequestedMsg{} }
+		}
+		return model.startProviderRefresh(true, "")
+	case app.ActionExport:
+		return model.openExport()
+	default:
+		if definition, ok := app.ActionByID(matchAction(message, model.bindings)); ok && !definition.Implemented {
+			model.status = "This action is not available for the current profile."
+		}
+	}
+	return nil
+}
+
+func (model Model) actionDescription(action app.ActionID) string {
+	if action == app.ActionRefreshProvider && model.profileKind == "amazon" {
+		return "Import Amazon order history"
+	}
+	definition, ok := app.ActionByID(action)
+	if !ok {
+		return ""
+	}
+	return definition.Description
+}
+
+func (model *Model) refreshForInteraction() bool {
+	identity := model.rowIdentity(model.cursor)
+	changed, err := model.service.Refresh(model.ctx)
+	if err != nil {
+		message := safeInteractionMessage(err)
+		if model.overlay == overlayReview {
+			model.review.err = message
+		} else {
+			model.status = message
+		}
+		return false
+	}
+	if !changed {
+		return true
+	}
+	result, err := model.service.QueryContext(model.ctx, model.session)
+	if err != nil {
+		model.status = "The profile could not be refreshed."
+		return false
+	}
+	model.result = result
+	model.syncProfileMetadata()
+	model.refreshAmazonPresentation()
+	if selectedSessionCount(model.session) > 0 {
+		if err := model.rebuildSelectionValue(); err != nil {
+			model.clearSessionSelection()
+		}
+	}
+	model.status = "The profile changed. Review the refreshed data and invoke the action again."
+	model.overlay = overlayNone
+	model.clampCursor()
+	if identity != "" {
+		for index := 0; index < model.rowCount(); index++ {
+			if model.rowIdentity(index) == identity {
+				model.cursor = index
+				model.ensureCursorVisible()
+				break
+			}
+		}
+	}
+	return false
+}
+
+func (model *Model) drill() {
+	if model.result.AggregateRows == nil || model.cursor >= len(model.result.AggregateRows) {
+		return
+	}
+	err := model.session.Drill(
+		model.result.AggregateRows[model.cursor],
+		app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll},
+	)
+	if err != nil {
+		model.err = err
+		return
+	}
+	model.resetAndRefresh()
+}
+
+func (model *Model) back() {
+	position, ok := model.session.Back()
+	if !ok {
+		return
+	}
+	model.cursor, model.scroll = position.Cursor, position.Scroll
+	model.refresh()
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.clearSessionSelection()
+		model.status = safeInteractionMessage(err)
+	}
+}
+
+func (model *Model) toggleSelection() {
+	if model.cursor >= model.rowCount() {
+		return
+	}
+	if model.result.DetailRows != nil {
+		model.session.ToggleTransactionSelection(model.result.DetailRows[model.cursor].Transaction.ID)
+	} else {
+		model.session.ToggleAggregateSelection(app.AggregateIdentity(model.result.AggregateRows[model.cursor]))
+	}
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.status = safeInteractionMessage(err)
+		model.clearSessionSelection()
+	}
+	model.refresh()
+}
+
+func (model *Model) resetAndRefresh() {
+	model.cursor, model.scroll = 0, 0
+	model.status = ""
+	model.refresh()
+	if err := model.rebuildSelectionValue(); err != nil {
+		model.clearSessionSelection()
+		model.status = safeInteractionMessage(err)
+	}
+}
+
+func (model Model) timeContext() bool {
+	if model.session.SubGrouping != nil {
+		return *model.session.SubGrouping == domain.DimensionTime
+	}
+	return model.session.Dimension == domain.DimensionTime
+}

@@ -1,155 +1,22 @@
-# moneyflow
+# Moneyflow
 
-[![PyPI version](https://img.shields.io/pypi/v/moneyflow?color=blue)](https://pypi.org/project/moneyflow/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/wesm/moneyflow?style=social)](https://github.com/wesm/moneyflow)
+Review personal finance transactions in a terminal, a browser, or an MCP client.
+Group spending, inspect purchases, edit merchants and categories, and review changes
+before committing them.
 
-## Terminal UI for personal finance power users
+These pages describe the Go application at this revision. Check
+[installation](getting-started/installation.md) for the difference between source builds,
+preview binaries, and the latest stable release.
 
-![moneyflow terminal UI](assets/screenshots/home-screen.svg)
+## What do you want to do?
 
-```bash
-# Install and run
-pip install moneyflow
-moneyflow
+- [Try the demo or connect an account](getting-started/quickstart.md).
+- [Move from Python without deleting your data](getting-started/transition.md).
+- [Import Amazon purchases and match bank charges](guide/amazon-mode.md).
+- [Import Chase bank CSV files](guide/bank-csv.md).
+- [Connect Monarch Money](guide/monarch.md), [YNAB](guide/ynab.md), or [experimental SimpleFIN](guide/simplefin.md).
+- [Navigate and search](guide/navigation.md), [edit transactions](guide/editing.md), or [export data](guide/export.md).
+- [Connect an assistant through MCP](guide/mcp.md).
+- [Build and contribute](development/developing.md).
 
-# Or run directly with uvx (no install needed)
-uvx moneyflow
-uvx moneyflow --demo  # Try with demo data
-```
-
-Track spending, bulk edit transactions, and navigate your financial
-data at lightning speed. Supports personal finance platforms like
-[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024), YNAB, or even
-analyzing your Amazon purchase history.
-
-<div class="quick-links" markdown>
-[Get Started](getting-started/installation.md){ .md-button .md-button--primary }
-[Try Demo](getting-started/quickstart.md){ .md-button }
-[View on GitHub](https://github.com/wesm/moneyflow){ .md-button }
-</div>
-
----
-
-## Who Is This For?
-
-moneyflow is perfect if you:
-
-- **Live in the terminal** - Prefer keyboard-driven workflows over clicking through web UIs
-- **Have lots of transactions to clean up** - Need to rename dozens of merchants or recategorize hundreds of
-  transactions
-- **Want to analyze spending patterns** - Quickly drill down by merchant, category, or time period
-- **Track Amazon purchases** - Want insights into your Amazon spending habits
-- **Value privacy** - Prefer local data processing over cloud-only platforms
-
----
-
-## Features
-
-<div class="feature-grid" markdown>
-
-<div class="feature-card" markdown>
-### Keyboard-Driven
-Navigate, filter, and edit without touching the mouse. Vim-inspired shortcuts make common operations instant.
-</div>
-
-<div class="feature-card" markdown>
-### Fast Local Operations
-Download transactions once. All filtering, searching, and aggregation happens locally using Polars—no API latency.
-</div>
-
-<div class="feature-card" markdown>
-### Rapid Data Refinement
-Select multiple transactions. Rename merchants or recategorize hundreds of transactions with a few keystrokes.
-</div>
-
-<div class="feature-card" markdown>
-### Smart Views & Drill-Down
-Aggregate by merchant, category, group, or account. Drill down and sub-group within any view—see your Amazon
-purchases by category, or your restaurant spending grouped by merchant or credit card.
-</div>
-
-<div class="feature-card" markdown>
-### Secure Credentials
-Local credential storage with AES-128 encryption. Your finance credentials stay on your machine.
-</div>
-
-<div class="feature-card" markdown>
-### Review Before Commit
-See exactly what changes you're making before saving. All edits are queued and reviewed together.
-</div>
-
-<div class="feature-card" markdown>
-### Export Anywhere
-Export your data to Parquet, CSV, or SQLite with export metadata. Full
-dataset or filtered transactions — press ++E++ to export.
-</div>
-
-<div class="feature-card" markdown>
-### Multi-Account Support
-Manage multiple accounts (Monarch, YNAB, SimpleFIN, Amazon) and switch between
-them from the account selector.
-</div>
-
-</div>
-
----
-
-## Platform Support
-
-**Currently supported:**
-
-- **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full-featured integration with real-time sync
-- **[YNAB (You Need A Budget)](https://www.ynab.com/)** - Full-featured integration with real-time sync
-- **[Amazon Purchase History](guide/amazon-mode.md)** - Import and analyze your Amazon order history from official
-  data exports
-- **[CSV Import](guide/csv-import.md)** - Import transaction histories from bank CSV exports with
-  pluggable institution mappings
-- **Demo Mode** - Synthetic data for testing features
-- **[SimpleFIN](guide/simplefin.md)** - Import read-only account and transaction
-  data from a SimpleFIN server; moneyflow edits are stored locally
-
-**Future:**
-
-- Lunch Money
-- Actual Budget
-
-The backend system is pluggable—adding new platforms is straightforward.
-See [Contributing](development/contributing.md) if you want to add support for your platform.
-
----
-
-## Installation
-
-```bash
-# Quick install
-pip install moneyflow
-
-# Or use uvx (no installation needed!)
-uvx moneyflow --demo
-```
-
-**Requirements:** Python 3.11+
-
-**Next steps:**
-
-1. [Full installation guide](getting-started/installation.md) - Detailed setup instructions
-2. [Quick start guide](getting-started/quickstart.md) - Get up and running in 2 minutes
-3. [Keyboard shortcuts](guide/keyboard-shortcuts.md) - Master the interface
-4. [Exporting transactions](guide/export.md) - Export to Parquet, CSV, or SQLite
-5. [SimpleFIN Guide](guide/simplefin.md) - Configure a SimpleFIN connection
-
----
-
-## Independent Open Source Project
-
-!!! info ""
-    moneyflow is an independent open-source project. It is not affiliated with, endorsed by, or officially connected
-    to Monarch Money, Inc., YNAB LLC, or any other finance platform.
-
----
-
-## License
-
-MIT License - see [LICENSE](https://github.com/wesm/moneyflow/blob/main/LICENSE) for details.
+For limitations, credential storage, and refresh behavior, use the guide for your provider.

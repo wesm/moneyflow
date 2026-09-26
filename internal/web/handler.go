@@ -1,0 +1,271 @@
+package web
+
+import (
+	"errors"
+	"fmt"
+	"html"
+	"io/fs"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/wesm/moneyflow/internal/api"
+	"github.com/wesm/moneyflow/internal/profilecatalog"
+)
+
+const (
+	basePathPlaceholder = "__MONEYFLOW_BASE_PATH__"
+	baseHrefPlaceholder = "__MONEYFLOW_BASE_HREF__"
+	// #nosec G101 -- this build marker is replaced by per-response token material.
+	mutationTokenPlaceholder = "__MONEYFLOW_MUTATION_TOKEN__"
+	canonicalURLPlaceholder  = "__MONEYFLOW_CANONICAL_URL__"
+	originWarningPlaceholder = "__MONEYFLOW_ORIGIN_WARNING__"
+	contentSecurityPolicy    = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
+		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+)
+
+type handler struct {
+	basePath         string
+	distribution     *distribution
+	origin           api.OriginConfig
+	security         *api.MutationSecurity
+	warnNonCanonical bool
+	preselectedID    string
+}
+
+// NewHandler constructs the static application handler from the generated production assets.
+func NewHandler(basePath string) (http.Handler, error) {
+	origin, err := api.ResolveOrigin("127.0.0.1:8080", basePath, "")
+	if err != nil {
+		return nil, fmt.Errorf("new web handler origin: %w", err)
+	}
+	security, err := api.NewMutationSecurity(origin, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("new web handler security: %w", err)
+	}
+	return newHandler(basePath, embeddedDistribution, origin, security, false, "")
+}
+
+func newHandler(
+	basePath string,
+	filesystem fs.FS,
+	origin api.OriginConfig,
+	security *api.MutationSecurity,
+	warnNonCanonical bool,
+	preselectedID string,
+) (http.Handler, error) {
+	normalized, err := api.NormalizeBasePath(basePath)
+	if err != nil {
+		return nil, fmt.Errorf("new web handler: %w", err)
+	}
+	distribution, err := validateDistribution(filesystem)
+	if err != nil {
+		return nil, fmt.Errorf("new web handler: %w", err)
+	}
+	if origin.Canonical == nil || origin.BasePath != normalized || security == nil {
+		return nil, errors.New("new web handler: bootstrap configuration is invalid")
+	}
+	if preselectedID != "" && !profilecatalog.ValidProfileID(preselectedID) {
+		return nil, errors.New("new web handler: preselected profile ID is invalid")
+	}
+	return &handler{
+		basePath: normalized, distribution: distribution, origin: origin,
+		security: security, warnNonCanonical: warnNonCanonical, preselectedID: preselectedID,
+	}, nil
+}
+
+func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if !strings.HasPrefix(request.URL.Path, handler.basePath) {
+		http.NotFound(response, request)
+		return
+	}
+	setSecurityHeaders(response.Header())
+	response.Header().Set("Cache-Control", "no-store")
+	if request.Method != http.MethodGet && request.Method != http.MethodHead {
+		response.Header().Set("Allow", "GET, HEAD")
+		writeStatus(response, request, http.StatusMethodNotAllowed)
+		return
+	}
+
+	escapedPath := strings.ToLower(request.URL.EscapedPath())
+	if strings.Contains(escapedPath, "%2f") || strings.Contains(escapedPath, "%5c") ||
+		strings.Contains(escapedPath, "%2e") {
+		writeStatus(response, request, http.StatusNotFound)
+		return
+	}
+	relative := strings.TrimPrefix(request.URL.Path, handler.basePath)
+	if relative == "" {
+		if handler.preselectedID != "" {
+			target := handler.basePath + "p/" + handler.preselectedID + "/"
+			location := (&url.URL{Path: target, RawQuery: request.URL.RawQuery}).RequestURI()
+			http.Redirect(response, request, location, http.StatusTemporaryRedirect)
+			return
+		}
+		handler.serveIndex(response, request, api.CatalogMutationScope)
+		return
+	}
+	if profileID, ok := applicationProfileID(relative); ok {
+		if !isNavigation(request, relative) {
+			writeStatus(response, request, http.StatusNotFound)
+			return
+		}
+		handler.serveIndex(response, request, profileID)
+		return
+	}
+	if !safeRequestPath(relative) {
+		writeStatus(response, request, http.StatusNotFound)
+		return
+	}
+	if _, ok := handler.distribution.assets[relative]; ok {
+		handler.serveAsset(response, request, relative)
+		return
+	}
+	writeStatus(response, request, http.StatusNotFound)
+}
+
+func (handler *handler) serveIndex(
+	response http.ResponseWriter,
+	request *http.Request,
+	mutationScope string,
+) {
+	issued, err := handler.security.Issue(mutationScope)
+	if err != nil {
+		writeStatus(response, request, http.StatusInternalServerError)
+		return
+	}
+	content := strings.Replace(
+		string(handler.distribution.index),
+		basePathPlaceholder,
+		html.EscapeString(handler.basePath),
+		1,
+	)
+	content = strings.Replace(content, baseHrefPlaceholder, html.EscapeString(handler.basePath), 1)
+	content = strings.Replace(content, mutationTokenPlaceholder, html.EscapeString(issued.Value), 1)
+	content = strings.Replace(
+		content, canonicalURLPlaceholder, html.EscapeString(handler.origin.Canonical.String()), 1,
+	)
+	warning := ""
+	if handler.warnNonCanonical && !strings.EqualFold(request.Host, handler.origin.Canonical.Host) {
+		canonical := html.EscapeString(handler.origin.Canonical.String())
+		warning = `<aside role="alert">This listener is read-only. Open the canonical Moneyflow URL: <a href="` + canonical + `">` + canonical + `</a></aside>`
+	}
+	content = strings.Replace(content, originWarningPlaceholder, warning, 1)
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodGet {
+		// The only runtime value is normalized and escaped above; the remaining bytes are validated,
+		// committed build output whose strict CSP disallows inline execution.
+		// #nosec G705 -- content cannot include unescaped request data.
+		_, _ = response.Write([]byte(content))
+	}
+}
+
+func applicationProfileID(relative string) (string, bool) {
+	if !strings.HasPrefix(relative, "p/") || !strings.HasSuffix(relative, "/") {
+		return "", false
+	}
+	profileID := strings.TrimSuffix(strings.TrimPrefix(relative, "p/"), "/")
+	if strings.Contains(profileID, "/") || !profilecatalog.ValidProfileID(profileID) {
+		return "", false
+	}
+	return profileID, true
+}
+
+func (handler *handler) serveAsset(response http.ResponseWriter, request *http.Request, name string) {
+	content, err := fs.ReadFile(handler.distribution.filesystem, name)
+	if err != nil {
+		writeStatus(response, request, http.StatusNotFound)
+		return
+	}
+	contentType, ok := safeContentType(name)
+	if !ok {
+		writeStatus(response, request, http.StatusNotFound)
+		return
+	}
+	response.Header().Set("Content-Type", contentType)
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	response.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodGet {
+		// Assets are selected exclusively from the validated Vite manifest and served with a fixed,
+		// extension-derived MIME type under a CSP that forbids inline execution.
+		// #nosec G705 -- content is committed build output, not request-derived markup.
+		_, _ = response.Write(content)
+	}
+}
+
+func setSecurityHeaders(header http.Header) {
+	header.Set("Content-Security-Policy", contentSecurityPolicy)
+	header.Set("X-Content-Type-Options", "nosniff")
+	header.Set("X-Frame-Options", "DENY")
+	header.Set("Referrer-Policy", "no-referrer")
+}
+
+func safeRequestPath(name string) bool {
+	if name == "" {
+		return true
+	}
+	if !isSafeDistributionName(name) || strings.HasSuffix(name, "/") {
+		return false
+	}
+	for _, segment := range strings.Split(name, "/") {
+		lower := strings.ToLower(segment)
+		if strings.HasPrefix(segment, ".") || lower == "credentials" || lower == "credential" ||
+			lower == "secrets" || lower == "secret" || lower == "passwd" {
+			return false
+		}
+	}
+	return true
+}
+
+func isNavigation(request *http.Request, name string) bool {
+	if request.Method != http.MethodGet || !acceptsHTML(request.Header.Get("Accept")) {
+		return false
+	}
+	first, _, _ := strings.Cut(name, "/")
+	if first == "assets" || first == "api" || name == "openapi.json" || name == "openapi.yaml" {
+		return false
+	}
+	for _, segment := range strings.Split(name, "/") {
+		if strings.Contains(segment, ".") {
+			return false
+		}
+	}
+	return true
+}
+
+func acceptsHTML(accept string) bool {
+	for _, value := range strings.Split(accept, ",") {
+		mediaType := strings.TrimSpace(strings.SplitN(value, ";", 2)[0])
+		if mediaType == "text/html" || mediaType == "application/xhtml+xml" {
+			return true
+		}
+	}
+	return false
+}
+
+func safeContentType(name string) (string, bool) {
+	for extension, contentType := range map[string]string{
+		".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
+		".json": "application/json; charset=utf-8", ".svg": "image/svg+xml",
+		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+		".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+		".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+		".ttf": "font/ttf",
+	} {
+		if strings.HasSuffix(name, extension) {
+			return contentType, true
+		}
+	}
+	return "", false
+}
+
+func writeStatus(response http.ResponseWriter, request *http.Request, status int) {
+	response.WriteHeader(status)
+	if request.Method == http.MethodGet {
+		_, _ = response.Write([]byte(http.StatusText(status) + "\n"))
+	}
+}
