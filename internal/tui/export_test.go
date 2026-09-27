@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +41,6 @@ func TestExportChooserDefaultsNavigatesCancelsAndSurvivesMinimumSize(t *testing.
 	assert.Contains(t, rendered.Frame.RenderANSI(), "temporary profile")
 
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
-	model.export.preview.FullCount = 999
 	assert.Equal(t, exporter.FormatCSV, model.export.format)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
@@ -84,6 +82,7 @@ func TestExportChooserExecutesAsynchronouslyAndReportsCompletedPath(t *testing.T
 	fixture := newExportModel(t, transactions, false)
 	model := press(t, fixture.model, keyRune('E'))
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	model.export.preview.FullCount = 999
 
 	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = updated.(Model)
@@ -98,8 +97,7 @@ func TestExportChooserExecutesAsynchronouslyAndReportsCompletedPath(t *testing.T
 	assert.Equal(t, overlayNone, model.overlay)
 	assert.Contains(t, model.status, fixture.paths.Root)
 	assert.Contains(t, model.status, ".csv")
-	assert.Contains(t, model.status, fmt.Sprintf("%d committed transactions", len(transactions)))
-	assert.NotContains(t, model.status, "999")
+	assert.True(t, strings.HasPrefix(model.status, "Exported 32 committed transactions to "), model.status)
 
 	entries, err := os.ReadDir(filepath.Join(fixture.paths.Root, "exports"))
 	require.NoError(t, err)

@@ -318,7 +318,7 @@ func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.Tr
 	}
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, provider, provider_id, account_id, merchant_id, category_id,
-			transaction_date, amount_minor, currency, scale, notes, hidden, pending, metadata_json
+			transaction_date, amount_minor, currency, scale, notes, hidden, pending, NULLIF(metadata_json, 'null')
 		FROM transactions ORDER BY id`)
 	if err != nil {
 		return nil, loadFailure(err)
@@ -326,13 +326,14 @@ func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.Tr
 	defer func() { _ = rows.Close() }()
 	result := slices.Grow([]domain.TransactionRecord(nil), count)
 	var value domain.TransactionRecord
-	var date, currency, metadata string
+	var date, currency string
+	var metadata sql.NullString
 	var scale, hidden, pending int
 	for rows.Next() {
 		value = domain.TransactionRecord{}
 		if err = rows.Scan(
-			&value.ID, &value.Provider, &value.ProviderID, &value.AccountID, &value.MerchantID,
-			&value.CategoryID, &date, &value.Amount.Minor, &currency, &scale, &value.Notes,
+			(*string)(&value.ID), &value.Provider, &value.ProviderID, (*string)(&value.AccountID), (*string)(&value.MerchantID),
+			(*string)(&value.CategoryID), &date, &value.Amount.Minor, &currency, &scale, &value.Notes,
 			&hidden, &pending, &metadata,
 		); err != nil {
 			return nil, loadFailure(err)
@@ -348,8 +349,8 @@ func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.Tr
 		value.Amount.Scale = uint8(scale)
 		value.Hidden = hidden != 0
 		value.Pending = pending != 0
-		if metadata != "null" {
-			if err = json.Unmarshal([]byte(metadata), &value.Metadata); err != nil {
+		if metadata.Valid {
+			if err = json.Unmarshal([]byte(metadata.String), &value.Metadata); err != nil {
 				return nil, store.NewError(store.CodeStoreCorrupt, err)
 			}
 			if value.Metadata == nil {
@@ -380,7 +381,7 @@ func loadExternalIdentities(
 	var value domain.ExternalIdentity
 	for rows.Next() {
 		if err = rows.Scan(
-			&value.EntityType, &value.EntityID, &value.Namespace, &value.ExternalID,
+			(*string)(&value.EntityType), (*string)(&value.EntityID), &value.Namespace, &value.ExternalID,
 		); err != nil {
 			return nil, loadFailure(err)
 		}
