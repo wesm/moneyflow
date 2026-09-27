@@ -112,6 +112,8 @@ jobs:
       - name: Test shipped binary and installers
         env:
           TMPDIR: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: |
           set -euo pipefail
           binary=moneyflow

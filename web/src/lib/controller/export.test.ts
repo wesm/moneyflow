@@ -51,7 +51,7 @@ describe('ExportController', () => {
         },
       }),
     )
-    const createObjectURL = vi.fn(() => 'blob:moneyflow-export')
+    const createObjectURL = vi.fn<(blob: Blob) => string>(() => 'blob:moneyflow-export')
     const revokeObjectURL = vi.fn()
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     const remove = vi.spyOn(HTMLAnchorElement.prototype, 'remove')
@@ -72,7 +72,10 @@ describe('ExportController', () => {
       } satisfies ExportBody,
       expect.any(AbortSignal),
     )
-    expect(createObjectURL).toHaveBeenCalledWith(expect.any(Blob))
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    const downloaded = createObjectURL.mock.calls[0]![0]
+    expect(downloaded.type).toBe('application/vnd.apache.parquet')
+    expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([80, 65, 82, 49]))
     expect(click).toHaveBeenCalledTimes(1)
     expect(remove).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:moneyflow-export')

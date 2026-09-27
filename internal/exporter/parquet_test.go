@@ -2,8 +2,6 @@ package exporter
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"path/filepath"
 	"testing"
@@ -59,9 +57,9 @@ func TestWriteParquetIsPhysicallyDeterministic(t *testing.T) {
 	var first, second bytes.Buffer
 	require.NoError(t, WriteParquet(&first, document))
 	require.NoError(t, WriteParquet(&second, document))
+	// Compression can differ across architectures; repeated writes on the same
+	// build must still be identical. The round-trip test checks the data itself.
 	assert.Equal(t, first.Bytes(), second.Bytes())
-	digest := sha256.Sum256(first.Bytes())
-	assert.Equal(t, "06dc4a59900139dc6c3ee3d36bbf0b280ba15ae1e492e0c81cef8e3b51363f7b", hex.EncodeToString(digest[:]))
 }
 
 func TestWriteFilePublishesParquet(t *testing.T) {

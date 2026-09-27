@@ -37,9 +37,13 @@ jobs:
         run: make web-embed-check
 
       - name: Check generated API client
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: bun run --cwd web generate:check
 
       - name: Check, test, audit, and build frontend
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: |
           make web-check
           make web-test
