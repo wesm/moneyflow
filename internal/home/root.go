@@ -103,9 +103,6 @@ func PreparePrivateRoot(root string) error {
 	if err != nil {
 		return err
 	}
-	if filepath.Clean(canonical) != filepath.Clean(root) {
-		return errors.New("prepare private root: path is redirected")
-	}
 	existing := filepath.Clean(root)
 	for {
 		if _, err = os.Lstat(existing); err == nil {
@@ -121,6 +118,9 @@ func PreparePrivateRoot(root string) error {
 		existing = parent
 	}
 	if err = validateTrustedRootAncestors(existing, filepath.Clean(root)); err != nil {
+		return err
+	}
+	if err = validateRootSpelling(root, canonical); err != nil {
 		return err
 	}
 	if err = os.MkdirAll(root, 0o700); err != nil {

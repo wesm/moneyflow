@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,7 +145,9 @@ func TestInspectProfileIsReadOnlyAndRehardensDatabase(t *testing.T) {
 	assert.Equal(t, directoryEntryNames(before), directoryEntryNames(after))
 	info, err := os.Stat(paths.Database)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 	database, err = sql.Open(driverName, inspectionDataSourceName(paths.Database, DefaultOptions))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, database.Close()) }()
@@ -241,7 +244,15 @@ func TestInspectProfileReconstructsMissingSharedMemorySidecar(t *testing.T) {
 	`)
 	require.NoError(t, err)
 	require.FileExists(t, paths.Database+"-wal")
-	require.NoError(t, os.Remove(paths.Database+"-shm"))
+	// Capture a quiescent crash image. Windows cannot unlink an open SHM file.
+	data, err := os.ReadFile(paths.Database)
+	require.NoError(t, err)
+	wal, err := os.ReadFile(paths.Database + "-wal")
+	require.NoError(t, err)
+	require.NoError(t, database.Close())
+	require.NoError(t, os.WriteFile(paths.Database, data, 0o600))       // #nosec G703 -- restore this test's own database image.
+	require.NoError(t, os.WriteFile(paths.Database+"-wal", wal, 0o600)) // #nosec G703 -- restore this test's own WAL image.
+	require.NoFileExists(t, paths.Database+"-shm")
 
 	inspection, err := InspectProfile(context.Background(), paths, DefaultOptions)
 	require.NoError(t, err)

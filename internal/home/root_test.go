@@ -113,3 +113,18 @@ func TestPrepareDatabaseRejectsPathOutsideSelectedRoot(t *testing.T) {
 	_, statErr := os.Stat(filepath.Join(base, "outside.db"))
 	assert.ErrorIs(t, statErr, os.ErrNotExist)
 }
+
+func TestPreparePrivateRootRejectsRedirectedAncestor(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "outer", "target")
+	require.NoError(t, os.MkdirAll(target, 0o700))
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("creating a symlink requires additional platform permission: %v", err)
+	}
+	require.Error(t, PreparePrivateRoot(filepath.Join(alias, "new")))
+	require.Error(t, PreparePrivateRoot(alias+string(os.PathSeparator)+".."+string(os.PathSeparator)+"new"))
+	require.NoDirExists(t, filepath.Join(target, "new"))
+	require.NoDirExists(t, filepath.Join(base, "outer", "new"))
+	require.NoDirExists(t, filepath.Join(base, "new"))
+}

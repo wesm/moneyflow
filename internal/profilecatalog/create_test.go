@@ -196,7 +196,7 @@ func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	entry := createTestManifestProfile(t, catalog, 0x24, "Canceled", "monarch")
 
 	removed, err := catalog.CancelNewProfile(context.Background(), entry.ID)
-	require.NoError(t, err)
+	require.NoError(t, err, "cancel cause: %v", errors.Unwrap(err))
 	assert.True(t, removed)
 	assert.NoDirExists(t, entry.Root)
 	assert.NoDirExists(t, filepath.Join(catalog.paths.Root, ".canceled-profiles", entry.ID))
@@ -211,7 +211,7 @@ func TestCancelNewProfileAllowsEmptyMonarchRuntimeDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	removed, err := catalog.CancelNewProfile(context.Background(), entry.ID)
-	require.NoError(t, err)
+	require.NoError(t, err, "cancel cause: %v", errors.Unwrap(err))
 	assert.True(t, removed)
 	assert.NoDirExists(t, entry.Root)
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,7 +38,9 @@ func TestVaultSealOpenFingerprintAndDelete(t *testing.T) {
 	assert.NotEmpty(t, fingerprint)
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 	require.NoError(t, vault.Delete())
 	exists, err = vault.Exists()
 	require.NoError(t, err)

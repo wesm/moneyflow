@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -295,7 +296,9 @@ func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing
 	root := filepath.Dir(first.Path)
 	info, err := os.Stat(root)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0), info.Mode().Perm()&0o077)
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0), info.Mode().Perm()&0o077)
+	}
 
 	require.NoError(t, first.Close())
 	require.NoError(t, first.Close())

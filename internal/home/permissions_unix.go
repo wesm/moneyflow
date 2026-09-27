@@ -14,6 +14,13 @@ import (
 func enforcePrivateDirectory(path string) error { return enforceMode(path, 0o700) }
 func enforcePrivateFile(path string) error      { return enforceMode(path, 0o600) }
 
+func validateRootSpelling(root, canonical string) error {
+	if filepath.Clean(canonical) != filepath.Clean(root) {
+		return errors.New("prepare private root: path is redirected")
+	}
+	return nil
+}
+
 func enforceMode(path string, mode os.FileMode) error {
 	if err := rejectExtendedACLPath(path); err != nil {
 		return err

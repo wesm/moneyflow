@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/iotest"
@@ -93,7 +94,9 @@ func TestCoordinatorStageUsesPrivateFilesAndCleansAfterCancel(t *testing.T) {
 	coordinator.mu.Unlock()
 	info, err := os.Stat(stagedPath)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 
 	canceled, err := coordinator.Cancel(context.Background(), CancelRequest{ProfileID: "profile-a", AttemptID: staged.AttemptID, ExpectedStateVersion: staged.StateVersion})
 	require.NoError(t, err)

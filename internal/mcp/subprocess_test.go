@@ -110,6 +110,12 @@ func testMCPStdioSubprocess(
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	require.NoError(t, command.Start())
+	t.Cleanup(func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	})
 
 	var protocol bytes.Buffer
 	transport := &mcpsdk.IOTransport{
@@ -296,6 +302,12 @@ func launchMCPHTTPSubprocess(
 	}
 	command.Stdout = child.stdout
 	require.NoError(t, command.Start())
+	t.Cleanup(func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+		}
+	})
 	go func() {
 		var captured strings.Builder
 		scanner := bufio.NewScanner(stderr)

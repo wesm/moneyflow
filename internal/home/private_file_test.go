@@ -16,11 +16,19 @@ func TestPrivateFileRoundTripAndAtomicReplacement(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "providers", "example", "session.json")
 	require.NoError(t, WritePrivateFile(path, []byte("first")))
-	firstInfo, err := os.Stat(path)
+	first, err := OpenPrivateFile(path)
 	require.NoError(t, err)
+	firstInfo, err := first.Stat()
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+	// Windows os.Stat defers loading the file identity until os.SameFile;
+	// capture it from the handle before the pathname is replaced.
 	require.NoError(t, WritePrivateFile(path, []byte("second")))
-	secondInfo, err := os.Stat(path)
+	second, err := OpenPrivateFile(path)
 	require.NoError(t, err)
+	secondInfo, err := second.Stat()
+	require.NoError(t, err)
+	require.NoError(t, second.Close())
 
 	contents, err := ReadPrivateFile(path, 64)
 	require.NoError(t, err)

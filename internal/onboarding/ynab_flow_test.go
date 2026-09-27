@@ -23,6 +23,7 @@ import (
 func TestYNABUnlockEnablesCommitAndPreservesUnfinishedBatch(t *testing.T) {
 	ctx := context.Background()
 	opened := newYNABBoundOpenedProfile(t, "plan-example")
+	t.Cleanup(func() { require.NoError(t, opened.Close()) })
 	unlockProfile := func() {
 		t.Helper()
 		vault := &fakeYNABVault{exists: true, credentials: ynab.StoredCredentials{

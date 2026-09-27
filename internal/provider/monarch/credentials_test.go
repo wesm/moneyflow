@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -32,7 +33,9 @@ func TestCredentialVaultRoundTripKeepsCredentialsEncrypted(t *testing.T) {
 	assert.True(t, exists)
 	info, err := os.Stat(vault.Path())
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 
 	loaded, err := vault.Load(accountPassword)
 	require.NoError(t, err)

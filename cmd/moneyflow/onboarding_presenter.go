@@ -95,15 +95,16 @@ func runCLIOnboarding(
 		return closeOpenedProfile(opened, err)
 	}
 	transferred := false
+	cleanupRequest := onboarding.StatusRequest{
+		ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
+	}
 	defer func() {
 		if transferred {
 			return
 		}
 		cancelContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if cleanupErr := cancelCLIOnboarding(cancelContext, coordinator, onboarding.StatusRequest{
-			ProfileID: snapshot.ProfileID, AttemptID: snapshot.AttemptID,
-		}); cleanupErr != nil {
+		if cleanupErr := cancelCLIOnboarding(cancelContext, coordinator, cleanupRequest); cleanupErr != nil {
 			runErr = errors.Join(runErr, cleanupErr)
 		}
 	}()

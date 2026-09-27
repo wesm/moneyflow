@@ -63,12 +63,14 @@ func CreatePrivateStage(stageDir string, prefix string) (*os.File, string, error
 	if err = file.Chmod(0o600); err != nil {
 		return nil, "", fmt.Errorf("create export stage: restrict: %w", err)
 	}
-	info, err := file.Stat()
+	// Use the private opener's permission-management rights; os.CreateTemp's
+	// writable handle does not include WRITE_DAC on Windows.
+	private, err := OpenPrivateFile(path)
 	if err != nil {
-		return nil, "", fmt.Errorf("create export stage: inspect: %w", err)
-	}
-	if _, err = secureOpenedPrivateFile(file, info); err != nil {
 		return nil, "", fmt.Errorf("create export stage: %w", err)
+	}
+	if err = private.Close(); err != nil {
+		return nil, "", fmt.Errorf("create export stage: close permission handle: %w", err)
 	}
 	failed = false
 	return file, path, nil

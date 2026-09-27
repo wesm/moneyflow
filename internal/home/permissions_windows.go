@@ -20,6 +20,20 @@ const trustedInstallerSIDText = "S-1-5-80-956008885-3418522649-1831038044-185329
 func enforcePrivateDirectory(path string) error { return restrictWindowsPath(path, true) }
 func enforcePrivateFile(path string) error      { return restrictWindowsPath(path, false) }
 
+func validateRootSpelling(root, canonical string) error {
+	// The ancestor walk has rejected reparse points. Normalize spelling only:
+	// EvalSymlinks expands Windows short names and corrects case. Resolving the
+	// cleaned path must still agree with the original path's traversal.
+	normalized, err := canonicalRoot(filepath.Clean(root))
+	if err != nil {
+		return err
+	}
+	if normalized != canonical {
+		return errors.New("prepare private root: path is redirected")
+	}
+	return nil
+}
+
 func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 	for current := filepath.Clean(existing); ; current = filepath.Dir(current) {
 		handle, err := openWindowsPath(current, true, windows.READ_CONTROL)

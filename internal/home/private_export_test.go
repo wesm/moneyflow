@@ -22,6 +22,8 @@ func TestEnsureExportDirectoriesAndPrivateStage(t *testing.T) {
 
 	stage, stagePath, err := CreatePrivateStage(stageDir, ManagedExportStagePrefix+"csv-")
 	require.NoError(t, err)
+	_, err = stage.WriteString("synthetic export")
+	require.NoError(t, err)
 	require.NoError(t, stage.Close())
 
 	if runtime.GOOS != "windows" {
@@ -37,6 +39,9 @@ func TestEnsureExportDirectoriesAndPrivateStage(t *testing.T) {
 	reopened, err := OpenPrivateFile(stagePath)
 	require.NoError(t, err)
 	require.NoError(t, reopened.Close())
+	contents, err := ReadPrivateFile(stagePath, 64)
+	require.NoError(t, err)
+	assert.Equal(t, "synthetic export", string(contents))
 }
 
 func TestCreatePrivateStageRejectsUnmanagedPrefix(t *testing.T) {

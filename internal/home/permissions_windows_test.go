@@ -32,6 +32,25 @@ func TestTrustedWindowsSIDsIncludeTrustedInstaller(t *testing.T) {
 	assert.True(t, windowsSIDIn(want, values))
 }
 
+func TestPreparePrivateRootAcceptsWindowsShortNames(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "long directory name")
+	require.NoError(t, EnsurePrivateDirectory(directory))
+	encoded, err := windows.UTF16PtrFromString(directory)
+	require.NoError(t, err)
+	buffer := make([]uint16, 32768)
+	size, err := windows.GetShortPathName(encoded, &buffer[0], uint32(len(buffer)))
+	require.NoError(t, err)
+	require.Less(t, size, uint32(len(buffer)))
+	short := windows.UTF16ToString(buffer[:size])
+	if short == directory {
+		t.Skip("the test filesystem does not provide short names")
+	}
+	root := filepath.Join(short, "profile")
+	require.NoError(t, PreparePrivateRoot(root))
+	require.NoError(t, PreparePrivateRoot(root))
+	require.DirExists(t, filepath.Join(directory, "profile"))
+}
+
 func TestPreparePrivateRootWindowsAncestorAccess(t *testing.T) {
 	for _, test := range []struct {
 		name          string
