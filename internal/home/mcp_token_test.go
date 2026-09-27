@@ -64,6 +64,11 @@ func TestMCPHTTPTokenConcurrentEnsureReturnsOneValue(t *testing.T) {
 	close(values)
 	close(errorsFound)
 	for err := range errorsFound {
+		if err != nil {
+			_, rootErr := os.Stat(root)
+			_, lockErr := os.Stat(filepath.Join(root, "mcp-http-token.lock"))
+			t.Logf("after concurrent creation: root stat = %v; lock stat = %v", rootErr, lockErr)
+		}
 		require.NoError(t, err)
 	}
 	var expected string

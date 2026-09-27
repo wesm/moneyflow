@@ -348,11 +348,13 @@ func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.Tr
 		value.Amount.Scale = uint8(scale)
 		value.Hidden = hidden != 0
 		value.Pending = pending != 0
-		if err = json.Unmarshal([]byte(metadata), &value.Metadata); err != nil {
-			return nil, store.NewError(store.CodeStoreCorrupt, err)
-		}
-		if metadata != "null" && value.Metadata == nil {
-			return nil, store.NewError(store.CodeStoreCorrupt, errors.New("stored metadata is not an object"))
+		if metadata != "null" {
+			if err = json.Unmarshal([]byte(metadata), &value.Metadata); err != nil {
+				return nil, store.NewError(store.CodeStoreCorrupt, err)
+			}
+			if value.Metadata == nil {
+				return nil, store.NewError(store.CodeStoreCorrupt, errors.New("stored metadata is not an object"))
+			}
 		}
 		result = append(result, value)
 	}

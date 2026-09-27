@@ -56,6 +56,12 @@ jobs:
           go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
           go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
 
+      - name: Repeat concurrent token creation on macOS
+        if: ${{ !cancelled() && matrix.os == 'macos-latest' && steps.tests.outcome != 'skipped' }}
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: go test ./internal/home -run '^TestMCPHTTPTokenConcurrentEnsureReturnsOneValue$' -count=100
+
       - name: Profile startup after a test failure
         if: ${{ failure() && steps.tests.outcome == 'failure' }}
         shell: bash
