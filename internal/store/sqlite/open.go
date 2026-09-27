@@ -112,6 +112,8 @@ func dataSourceName(databasePath string, options Options) string {
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(FULL)")
+	// Bound mapped reads to 256 MiB to avoid per-page system calls during startup.
+	query.Add("_pragma", "mmap_size(268435456)")
 	query.Add("_pragma", "busy_timeout("+strconv.FormatInt(options.MutationBusyTimeout.Milliseconds(), 10)+")")
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }

@@ -33,6 +33,7 @@ func TestOpenConfiguresEverySQLiteConnection(t *testing.T) {
 		assertPragmaInteger(t, connection, "foreign_keys", 1)
 		assertPragmaText(t, connection, "journal_mode", "wal")
 		assertPragmaInteger(t, connection, "synchronous", 2)
+		assertPragmaInteger(t, connection, "mmap_size", 256*1024*1024)
 		assertPragmaInteger(t, connection, "busy_timeout", 1379)
 	}
 	for _, connection := range connections {

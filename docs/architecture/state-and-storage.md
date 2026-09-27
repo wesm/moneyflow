@@ -112,6 +112,9 @@ Profile locks never recreate a missing root. If cleanup fails after retirement, 
 the leftover directory; it does not reopen it or automatically retry deletion.
 
 SQLite uses STRICT tables, integer money, WAL, bounded busy handling, and `synchronous=FULL`.
+Runtime connections use up to 256 MiB of memory-mapped reads to reduce file-read overhead.
+Integrity checks and durable writes are unchanged. A mapped-file I/O error can terminate the
+process instead of returning a normal read error; see [SQLite's mmap tradeoffs](https://sqlite.org/mmap.html).
 The current schema distinguishes omitted category changes from explicit clearing in durable write items
 and results. Provider transfer restrictions are separate committed facts keyed by local transaction
 or merchant ID. Triggers reject missing owners and clean deleted/retired owners; refresh replaces
