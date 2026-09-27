@@ -45,6 +45,7 @@ jobs:
         run: make build
 
       - name: Test
+        id: tests
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
@@ -54,6 +55,30 @@ jobs:
           go test ./internal/api -run '^TestProjectionPerformance100K$' -count=1
           go test ./internal/store/sqlite -run 'Test(FailureAtomicity|StoreFull|StoreBusy|StoreError|ColdProfilePerformance|BulkEditingPerformance|OpenInstallsOnlyCurrentSchema|OpenRejectsIncompatibleSchema)' -count=1
           go test ./internal/app -run '^TestBulkEditingPerformance' -count=1
+
+      - name: Profile startup after a test failure
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/cold-start"
+          go test -trimpath ./internal/store/sqlite -run '^$' \
+            -bench '^BenchmarkColdProfile100K$' -benchtime=10x -count=1 \
+            -o "$RUNNER_TEMP/cold-start/sqlite.test" \
+            -cpuprofile="$RUNNER_TEMP/cold-start/cpu.pprof" \
+            -memprofile="$RUNNER_TEMP/cold-start/heap.pprof"
+          go tool pprof -top -cum -nodecount=40 "$RUNNER_TEMP/cold-start/cpu.pprof"
+          go tool pprof -top -alloc_space -nodecount=20 "$RUNNER_TEMP/cold-start/heap.pprof"
+
+      - name: Upload startup profiles
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cold-start-${{ matrix.os }}
+          path: ${{ runner.temp }}/cold-start/*.pprof
+          retention-days: 7
+          if-no-files-found: warn
 
       - name: Test provider refresh slice
         env:
