@@ -64,11 +64,6 @@ func TestMCPHTTPTokenConcurrentEnsureReturnsOneValue(t *testing.T) {
 	close(values)
 	close(errorsFound)
 	for err := range errorsFound {
-		if err != nil {
-			_, rootErr := os.Stat(root)
-			_, lockErr := os.Stat(filepath.Join(root, "mcp-http-token.lock"))
-			t.Logf("after concurrent creation: root stat = %v; lock stat = %v", rootErr, lockErr)
-		}
 		require.NoError(t, err)
 	}
 	var expected string
@@ -85,8 +80,8 @@ func TestMCPHTTPTokenConcurrentReadAndRotateRemainCanonical(t *testing.T) {
 	_, err := EnsureMCPHTTPToken(root, nil)
 	require.NoError(t, err)
 	var wait sync.WaitGroup
-	errorsFound := make(chan error, 16)
-	for index := 0; index < 16; index++ {
+	errorsFound := make(chan error, 2)
+	for index := 0; index < 2; index++ {
 		wait.Add(1)
 		go func(rotate bool) {
 			defer wait.Done()

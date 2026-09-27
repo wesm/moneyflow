@@ -252,7 +252,6 @@ func (profile CommittedProfile) Validate() error {
 
 	type providerIdentityKey struct{ namespace, externalID string }
 	type localProviderIdentityKey struct {
-		kind      EntityKind
 		entityID  EntityID
 		namespace string
 	}
@@ -279,8 +278,9 @@ func (profile CommittedProfile) Validate() error {
 			return fmt.Errorf("validate profile: duplicate external identity %q", identity.ExternalID)
 		}
 		seenExternal[key] = struct{}{}
+		// Entity IDs are globally unique; the kind was checked above, including tombstones.
 		localKey := localProviderIdentityKey{
-			kind: identity.EntityType, entityID: identity.EntityID, namespace: identity.Namespace,
+			entityID: identity.EntityID, namespace: identity.Namespace,
 		}
 		if _, exists := seenLocalExternal[localKey]; exists {
 			return fmt.Errorf(

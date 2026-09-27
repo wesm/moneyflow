@@ -135,6 +135,17 @@ func TestCommittedProfileRejectsTwoProviderIDsForOneLocalEntity(t *testing.T) {
 	require.ErrorContains(t, profile.Validate(), "duplicate local external identity")
 }
 
+func TestCommittedProfileRejectsExternalIdentityWithWrongEntityType(t *testing.T) {
+	t.Parallel()
+
+	profile := validCommittedProfile(t)
+	profile.ExternalIdentities[0].EntityType = EntityKindMerchant
+	require.ErrorContains(t, profile.Validate(), "unknown merchant")
+
+	profile.Transactions = nil
+	require.ErrorContains(t, profile.Validate(), "unknown merchant")
+}
+
 func validCommittedProfile(t *testing.T) CommittedProfile {
 	t.Helper()
 
