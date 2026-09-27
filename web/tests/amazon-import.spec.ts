@@ -40,6 +40,7 @@ test('@smoke Amazon import preserves committed edits through reimport and reload
     await page.keyboard.press('m')
     const merchant = page.getByLabel('Merchant name')
     await merchant.fill('Edited purchase')
+    await expect(page.getByRole('button', { name: 'Save pending change' })).toBeEnabled()
     await merchant.press('Enter')
     await expect(page.getByText(/1 pending/)).toBeVisible()
     await page.keyboard.press('w')

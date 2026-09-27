@@ -50,7 +50,7 @@ func writeCSVContext(ctx context.Context, output io.Writer, document app.ExportD
 
 func csvRecord(row app.ExportRow) []string {
 	return []string{
-		row.TransactionID, row.Provider, row.ProviderTransactionID, row.Date.String(), row.Amount,
+		row.TransactionID, row.Provider, guardFreeText(row.ProviderTransactionID), row.Date.String(), row.Amount,
 		strconv.FormatInt(row.AmountMinor, 10), row.Currency, strconv.Itoa(int(row.Scale)), row.AccountID,
 		guardFreeText(row.Account), row.MerchantID, guardFreeText(row.Merchant), row.CategoryID,
 		guardFreeText(row.Category), row.GroupID, guardFreeText(row.Group), guardFreeText(row.Notes),

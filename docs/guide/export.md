@@ -12,8 +12,9 @@ Exports contain financial data and are not encrypted. They are not profile backu
 | SQLite | `transactions` table plus an `export_metadata` table |
 
 Every format includes `amount`, `amount_minor`, `currency`, and `scale`.
-Free-text CSV values that look like spreadsheet formulas are prefixed to prevent formula
-interpretation. Treat those prefixes as export formatting, not merchant-name changes.
+Free-text CSV values, including provider transaction IDs, are prefixed with an apostrophe when
+they look like spreadsheet formulas. Treat those prefixes as export formatting, not changes to
+the saved data. Money columns remain numeric decimal strings without added prefixes.
 
 ## Choose what to include
 

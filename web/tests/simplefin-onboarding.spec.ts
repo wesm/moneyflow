@@ -25,6 +25,7 @@ test('SimpleFIN imports through TLS and persists local merchant edits', async ({
     await expect(grid).toBeFocused()
     await page.keyboard.press('m')
     await page.getByLabel('Merchant name').fill('Local Merchant')
+    await expect(page.getByRole('button', { name: 'Save pending change' })).toBeEnabled()
     await page.getByLabel('Merchant name').press('Enter')
     await expect(grid).toBeFocused()
     await page.keyboard.press('w')

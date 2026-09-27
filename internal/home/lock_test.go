@@ -68,6 +68,9 @@ func TestRetireProfileRequiresExclusiveProfileLock(t *testing.T) {
 }
 
 func TestProfileLockRejectsMovedOrReplacedRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows pins the directory while os.Root is open")
+	}
 	parent := t.TempDir()
 	path := filepath.Join(parent, "profile")
 	require.NoError(t, PreparePrivateRoot(path))

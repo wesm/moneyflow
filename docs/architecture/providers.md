@@ -205,8 +205,9 @@ without suggesting an unavailable commit during a write batch.
 
 [Exporters][source-11] consume a detached document and write CSV, Parquet, or SQLite.
 They do not query profiles or providers. Capture revalidates revision without network refresh.
-Metadata records scope/revision/counts. CSV formula protection touches free text, not exact typed
-money or ID encodings. A negative amount must remain a numeric decimal string without an apostrophe.
+Metadata records scope/revision/counts. CSV formula protection covers free text, including provider
+transaction IDs. Generated local IDs stay unchanged. A negative amount must remain a numeric
+decimal string without an apostrophe.
 
 Preview needs no export lock. Execution uses the profile advisory export lock, private temporary
 files, atomic no-overwrite publication, and cleanup on failure. TUI reports the completed local
