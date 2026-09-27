@@ -267,13 +267,16 @@ func (catalog *Catalog) CancelNewProfile(ctx context.Context, id string) (bool, 
 	if _, err = os.Lstat(detached); !errors.Is(err, os.ErrNotExist) {
 		return false, newError(CodeProfileInvalid, errors.New("canceled profile quarantine is occupied"))
 	}
-	if err = home.MovePrivatePath(root, detached); err != nil {
+	if err = profileLock.RetireProfile(); err != nil {
 		return false, newError(CodeProfileInvalid, err)
 	}
 	if err = profileLock.Release(); err != nil {
 		return false, newError(CodeProfileInvalid, err)
 	}
 	released = true
+	if err = home.MovePrivatePath(root, detached); err != nil {
+		return false, newError(CodeProfileInvalid, err)
+	}
 	if err = removeOwnedDirectory(quarantine, id); err != nil {
 		return false, newError(CodeProfileInvalid, err)
 	}

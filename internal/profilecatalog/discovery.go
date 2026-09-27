@@ -174,6 +174,9 @@ func (catalog *Catalog) discoverProfile(
 	legacy bool,
 ) (Entry, bool, error) {
 	lock, err := home.TryLock(root, home.LockProfile, home.LockShared)
+	if errors.Is(err, home.ErrProfileRetired) {
+		return Entry{}, false, nil
+	}
 	if err != nil {
 		return Entry{}, false, catalogLockError(err)
 	}

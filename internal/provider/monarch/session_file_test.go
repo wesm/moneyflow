@@ -83,7 +83,8 @@ func TestSessionStoreRejectsRedirectedRootAndIntermediateDirectory(t *testing.T)
 	_, err = NewSessionStore(home.Paths{
 		Root: redirect, Database: filepath.Join(redirect, "moneyflow.db"),
 	})
-	assert.ErrorContains(t, err, "redirect")
+	assert.Error(t, err)
+	assert.NoDirExists(t, filepath.Join(target.Root, "providers"))
 
 	profile, err := home.ResolveRoot(filepath.Join(base, "profile"), nil, "")
 	require.NoError(t, err)

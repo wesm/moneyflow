@@ -30,6 +30,58 @@ func TestLifecycleLockAllowsReadersAndRejectsWriter(t *testing.T) {
 	assert.ErrorIs(t, err, ErrLockBusy)
 }
 
+func TestRetiredProfileRejectsNewLocks(t *testing.T) {
+	root := t.TempDir()
+	lock, err := TryLock(root, LockProfile, LockExclusive)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Release()) })
+	require.NoError(t, lock.RetireProfile())
+
+	_, err = TryLock(root, LockProfile, LockShared)
+	require.ErrorIs(t, err, ErrLockBusy)
+	require.NoError(t, lock.Release())
+	for _, acquire := range []func(string, LockName, LockMode) (*Lock, error){TryLock, TryLockExisting} {
+		for _, mode := range []LockMode{LockShared, LockExclusive} {
+			_, err = acquire(root, LockProfile, mode)
+			require.ErrorIs(t, err, ErrProfileRetired)
+		}
+	}
+	output, err := lockHelperCommand(t, root, "try").CombinedOutput()
+	require.NoError(t, err, string(output))
+	assert.True(t, strings.HasPrefix(string(output), "retired\n"), string(output))
+}
+
+func TestRetireProfileRequiresExclusiveProfileLock(t *testing.T) {
+	for _, testCase := range []struct {
+		name LockName
+		mode LockMode
+	}{{LockProfile, LockShared}, {LockCatalog, LockExclusive}} {
+		root := t.TempDir()
+		lock, err := TryLock(root, testCase.name, testCase.mode)
+		require.NoError(t, err)
+		require.Error(t, lock.RetireProfile())
+		require.NoError(t, lock.Release())
+		lock, err = TryLock(root, testCase.name, LockExclusive)
+		require.NoError(t, err)
+		require.NoError(t, lock.Release())
+	}
+}
+
+func TestProfileLockRejectsMovedOrReplacedRoot(t *testing.T) {
+	parent := t.TempDir()
+	path := filepath.Join(parent, "profile")
+	require.NoError(t, PreparePrivateRoot(path))
+	root, err := os.OpenRoot(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, root.Close()) })
+	require.NoError(t, validateLockedProfileRoot(root, path))
+
+	require.NoError(t, MovePrivatePath(path, filepath.Join(parent, "detached")))
+	require.Error(t, validateLockedProfileRoot(root, path))
+	require.NoError(t, PreparePrivateRoot(path))
+	require.Error(t, validateLockedProfileRoot(root, path))
+}
+
 func TestProviderConnectLockIsIndependentAndExclusive(t *testing.T) {
 	root := t.TempDir()
 	profile, err := TryLock(root, LockProfile, LockExclusive)
@@ -244,6 +296,10 @@ func TestLockHelperProcess(t *testing.T) {
 		_, _ = os.Stdout.WriteString("busy\n")
 		return
 	}
+	if errors.Is(err, ErrProfileRetired) {
+		_, _ = os.Stdout.WriteString("retired\n")
+		return
+	}
 	if err != nil {
 		_, _ = os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(2)
@@ -276,11 +332,13 @@ func lockHelperCommandForName(t *testing.T, root string, action string, name str
 	return command
 }
 
-func TestTryLockExistingNeverRecreatesMissingRoot(t *testing.T) {
+func TestProfileLocksNeverRecreateMissingRoot(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "removed-profile")
 
-	_, err := TryLockExisting(root, LockProfile, LockShared)
-	require.Error(t, err)
-	assert.NoDirExists(t, root)
+	for _, acquire := range []func(string, LockName, LockMode) (*Lock, error){TryLock, TryLockExisting} {
+		_, err := acquire(root, LockProfile, LockShared)
+		require.Error(t, err)
+		assert.NoDirExists(t, root)
+	}
 }

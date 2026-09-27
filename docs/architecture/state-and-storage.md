@@ -105,6 +105,12 @@ Import and export are independent operations under lifecycle protection; never a
 in reverse order while holding lifecycle. SQLite operation leases serve network workers, not file
 recovery. Their semantics are different from process-death-released advisory locks.
 
+Canceling a new, pristine profile writes a durable retirement byte to its lifecycle lock file
+before releasing the lock. New lock holders reject retired profiles. This lets Windows close the
+lock file before moving the directory for deletion, without allowing stale commands to reopen it.
+Profile locks never recreate a missing root. If cleanup fails after retirement, discovery hides
+the leftover directory; it does not reopen it or automatically retry deletion.
+
 SQLite uses STRICT tables, integer money, WAL, bounded busy handling, and `synchronous=FULL`.
 The current schema distinguishes omitted category changes from explicit clearing in durable write items
 and results. Provider transfer restrictions are separate committed facts keyed by local transaction

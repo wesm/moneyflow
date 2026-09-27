@@ -3,6 +3,7 @@ package home
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 )
@@ -37,18 +38,24 @@ const (
 
 var (
 	// ErrLockBusy reports nonblocking advisory-lock contention.
-	ErrLockBusy       = errors.New("home lock is held by another process")
+	ErrLockBusy = errors.New("home lock is held by another process")
+	// ErrProfileRetired reports a canceled profile awaiting filesystem cleanup.
+	ErrProfileRetired = errors.New("profile was canceled")
 	errLockWouldBlock = errors.New("file lock would block")
 )
 
 // Lock is a held advisory lock. Release is safe to call more than once.
 type Lock struct {
 	file       *os.File
+	root       string
+	name       LockName
+	mode       LockMode
 	release    sync.Once
 	releaseErr error
 }
 
 // TryLock opens one fixed private lock file and attempts a nonblocking lock.
+// Profile locks require an existing root so stale selections cannot recreate it.
 func TryLock(rootPath string, name LockName, mode LockMode) (*Lock, error) {
 	return tryLock(rootPath, name, mode, true)
 }
@@ -72,7 +79,7 @@ func tryLock(rootPath string, name LockName, mode LockMode, createRoot bool) (*L
 	if err != nil {
 		return nil, fmt.Errorf("acquire home lock: %w", err)
 	}
-	if createRoot {
+	if createRoot && name != LockProfile {
 		err = PreparePrivateRoot(rootPath)
 	} else {
 		err = prepareExistingPrivateRoot(rootPath)
@@ -127,8 +134,52 @@ func tryLock(rootPath string, name LockName, mode LockMode, createRoot bool) (*L
 		}
 		return nil, fmt.Errorf("acquire home lock: %w", err)
 	}
+	if name == LockProfile {
+		var marker [1]byte
+		n, readErr := file.ReadAt(marker[:], 0)
+		if n != 0 {
+			return nil, ErrProfileRetired
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return nil, fmt.Errorf("acquire home lock: read profile state: %w", readErr)
+		}
+		if err = validateLockedProfileRoot(root, rootPath); err != nil {
+			return nil, fmt.Errorf("acquire home lock: %w", err)
+		}
+	}
 	failed = false
-	return &Lock{file: file}, nil
+	return &Lock{file: file, root: rootPath, name: name, mode: mode}, nil
+}
+
+// RetireProfile permanently prevents new lifecycle locks before cancellation
+// releases this exclusive lock. Windows cannot move a directory containing an
+// open lock file, so the marker preserves exclusion across that handoff.
+func (lock *Lock) RetireProfile() error {
+	if lock == nil || lock.name != LockProfile || lock.mode != LockExclusive {
+		return errors.New("retire profile: exclusive profile lock is required")
+	}
+	if _, err := lock.file.WriteAt([]byte{1}, 0); err != nil {
+		return fmt.Errorf("retire profile: write state: %w", err)
+	}
+	if err := lock.file.Sync(); err != nil {
+		return fmt.Errorf("retire profile: sync state: %w", err)
+	}
+	return SyncPrivateDirectory(lock.root)
+}
+
+func validateLockedProfileRoot(root *os.Root, path string) error {
+	opened, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	current, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if current.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, current) {
+		return errors.New("profile root changed while acquiring lock")
+	}
+	return nil
 }
 
 func prepareExistingPrivateRoot(rootPath string) error {

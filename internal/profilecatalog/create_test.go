@@ -61,6 +61,26 @@ func TestDiscoverIncomplete(t *testing.T) {
 	require.DirExists(t, entry.Root)
 }
 
+func TestDiscoverSkipsRetiredProfile(t *testing.T) {
+	catalog := newTestCatalog(t, nil)
+	entry, err := catalog.Create(t.Context(), CreateRequest{DisplayName: "Canceled", ProviderKind: "local"})
+	require.NoError(t, err)
+	lock, err := home.TryLock(entry.Root, home.LockProfile, home.LockExclusive)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, lock.Release()) })
+	require.NoError(t, lock.RetireProfile())
+	require.NoError(t, lock.Release())
+
+	entries, err := catalog.List(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, entries)
+	_, err = catalog.Resolve(t.Context(), entry.ID)
+	require.Equal(t, CodeProfileNotFound, CodeOf(err))
+	require.DirExists(t, entry.Root)
+	_, err = home.TryLockExisting(entry.Root, home.LockProfile, home.LockShared)
+	require.ErrorIs(t, err, home.ErrProfileRetired)
+}
+
 func TestCreateInstallsCurrentPristineProfileUnderOpaqueID(t *testing.T) {
 	t.Parallel()
 	catalog := newTestCatalog(t, nil)
@@ -201,6 +221,9 @@ func TestCancelNewProfileRemovesOnlyPristineArtifactFreeProfile(t *testing.T) {
 	assert.NoDirExists(t, entry.Root)
 	assert.NoDirExists(t, filepath.Join(catalog.paths.Root, ".canceled-profiles", entry.ID))
 	assert.DirExists(t, catalog.paths.Root)
+	_, err = home.TryLock(entry.Root, home.LockProfile, home.LockShared)
+	require.Error(t, err)
+	assert.NoDirExists(t, entry.Root)
 }
 
 func TestCancelNewProfileAllowsEmptyMonarchRuntimeDirectories(t *testing.T) {
