@@ -161,17 +161,21 @@ describe('browser view controller', () => {
     const controller = controllerFor(client, false)
     await controller.hydrate()
     const calls = vi.mocked(client.view).mock.calls.length
+    const loaded = controller.projection
 
     await controller.moveCursor(1)
     expect(controller.cursorIndex).toBe(1)
     expect(client.view).toHaveBeenCalledTimes(calls)
+    expect(controller.projection).toBe(loaded)
 
     for (let index = 1; index < 200; index += 1) await controller.moveCursor(1)
     expect(controller.cursorIndex).toBe(200)
     expect(client.view).toHaveBeenCalledTimes(calls + 1)
+    expect(controller.projection).not.toBe(loaded)
 
     await controller.moveHome()
     expect(controller.cursorIndex).toBe(0)
+    expect(controller.projection).toBe(loaded)
   })
 
   it('aborts superseded requests and rejects stale responses', async () => {

@@ -38,6 +38,8 @@ func TestLoadSurvivesRestartAndReturnsDefensiveCopies(t *testing.T) {
 	firstStore, err := Open(ctx, paths, DefaultOptions)
 	require.NoError(t, err)
 	committed := fixtureProfile(t)
+	committed.Transactions[0].Metadata = map[string]string{"first": "one"}
+	committed.Transactions[1].Metadata = map[string]string{"second": "two"}
 	_, err = firstStore.CreateSeededProfile(ctx, committed)
 	require.NoError(t, err)
 	require.NoError(t, firstStore.Close())

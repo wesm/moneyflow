@@ -44,26 +44,10 @@ jobs:
       - name: Build web-enabled binary
         run: make build
 
-      - name: Inspect Windows temporary-directory permissions
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $directory = [System.IO.DirectoryInfo]$env:RUNNER_TEMP
-          while ($null -ne $directory) {
-            Write-Output $directory.FullName
-            $acl = Get-Acl -LiteralPath $directory.FullName
-            Write-Output $acl.Owner
-            $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) |
-              Format-Table IdentityReference, FileSystemRights, InheritanceFlags, PropagationFlags
-            $directory = $directory.Parent
-          }
-
       - name: Test
         shell: bash
         env:
           TMPDIR: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
         run: |
           MONEYFLOW_SKIP_PERF=1 go test -shuffle=on ./...
           go test ./internal/analytics -run '^TestQuery100KCompletesWithinInteractiveBudget$' -count=1
@@ -74,8 +58,6 @@ jobs:
       - name: Test provider refresh slice
         env:
           TMPDIR: ${{ runner.temp }}
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
         run: make test-provider
 
       - name: Vet

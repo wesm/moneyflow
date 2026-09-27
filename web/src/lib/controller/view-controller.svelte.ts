@@ -90,7 +90,7 @@ export function createViewController(options: ViewControllerOptions): ViewContro
   const recheckDebounceMillis = options.recheckDebounceMillis ?? 500
   const existing = ledger.record(browserHistory.state)
 
-  let projection = $state<ViewProjection | undefined>()
+  let projection = $state.raw<ViewProjection | undefined>()
   let loading = $state(false)
   let announcement = $state('')
   let cursorIdentity = $state<string | undefined>()

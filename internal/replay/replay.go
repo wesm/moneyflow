@@ -27,20 +27,22 @@ func Replay(snapshot domain.ProfileSnapshot) (EffectiveSnapshot, error) {
 	}
 	owned := snapshot.Clone()
 	effective := owned.Committed.Clone()
-	indexes := newReplayIndexes(effective)
-	for index := range owned.Cursor {
-		if err := applyOperationForReplay(&effective, owned.Journal[index], indexes); err != nil {
-			return EffectiveSnapshot{}, fmt.Errorf("replay operation[%d]: %w", index, err)
+	if owned.Cursor > 0 {
+		indexes := newReplayIndexes(effective)
+		for index := range owned.Cursor {
+			if err := applyOperationForReplay(&effective, owned.Journal[index], indexes); err != nil {
+				return EffectiveSnapshot{}, fmt.Errorf("replay operation[%d]: %w", index, err)
+			}
+		}
+		compactDeletedTransactions(&effective, indexes.deletedTransactions)
+		if err := effective.Validate(); err != nil {
+			return EffectiveSnapshot{}, fmt.Errorf("replay result: %w", err)
 		}
 	}
-	compactDeletedTransactions(&effective, indexes.deletedTransactions)
 	sortCommittedProfile(&effective)
-	if err := effective.Validate(); err != nil {
-		return EffectiveSnapshot{}, fmt.Errorf("replay result: %w", err)
-	}
 	return EffectiveSnapshot{
 		Revision: snapshot.Revision, Cursor: snapshot.Cursor,
-		Committed: owned.Committed.Clone(), Effective: effective,
+		Committed: owned.Committed, Effective: effective,
 		Journal: owned.Journal, KnownDrills: owned.KnownDrills,
 	}, nil
 }

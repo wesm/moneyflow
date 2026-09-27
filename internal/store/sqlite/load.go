@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/domain"
@@ -311,6 +312,10 @@ func loadCategories(ctx context.Context, queryer snapshotQueryer) ([]domain.Cate
 }
 
 func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.TransactionRecord, error) {
+	var count int
+	if err := queryer.QueryRowContext(ctx, "SELECT count(*) FROM transactions").Scan(&count); err != nil {
+		return nil, loadFailure(err)
+	}
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT id, provider, provider_id, account_id, merchant_id, category_id,
 			transaction_date, amount_minor, currency, scale, notes, hidden, pending, metadata_json
@@ -319,11 +324,12 @@ func loadTransactions(ctx context.Context, queryer snapshotQueryer) ([]domain.Tr
 		return nil, loadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
-	var result []domain.TransactionRecord
+	result := slices.Grow([]domain.TransactionRecord(nil), count)
+	var value domain.TransactionRecord
+	var date, currency, metadata string
+	var scale, hidden, pending int
 	for rows.Next() {
-		var value domain.TransactionRecord
-		var date, currency, metadata string
-		var scale, hidden, pending int
+		value = domain.TransactionRecord{}
 		if err = rows.Scan(
 			&value.ID, &value.Provider, &value.ProviderID, &value.AccountID, &value.MerchantID,
 			&value.CategoryID, &date, &value.Amount.Minor, &currency, &scale, &value.Notes,
@@ -357,6 +363,10 @@ func loadExternalIdentities(
 	ctx context.Context,
 	queryer snapshotQueryer,
 ) ([]domain.ExternalIdentity, error) {
+	var count int
+	if err := queryer.QueryRowContext(ctx, "SELECT count(*) FROM external_identities").Scan(&count); err != nil {
+		return nil, loadFailure(err)
+	}
 	rows, err := queryer.QueryContext(ctx, `
 		SELECT entity_type, entity_id, namespace, external_id
 		FROM external_identities ORDER BY namespace, external_id`)
@@ -364,9 +374,9 @@ func loadExternalIdentities(
 		return nil, loadFailure(err)
 	}
 	defer func() { _ = rows.Close() }()
-	var result []domain.ExternalIdentity
+	result := slices.Grow([]domain.ExternalIdentity(nil), count)
+	var value domain.ExternalIdentity
 	for rows.Next() {
-		var value domain.ExternalIdentity
 		if err = rows.Scan(
 			&value.EntityType, &value.EntityID, &value.Namespace, &value.ExternalID,
 		); err != nil {

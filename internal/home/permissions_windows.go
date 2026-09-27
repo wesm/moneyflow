@@ -27,7 +27,7 @@ func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 			return fmt.Errorf("prepare private root: open trusted ancestor: %w", err)
 		}
 		allowTightening := current == selectedRoot
-		err = validateWindowsHandle(current, handle, true, false, allowTightening)
+		err = validateWindowsHandle(current, handle, true, false, allowTightening, current != existing)
 		_ = windows.CloseHandle(handle)
 		if err != nil {
 			return fmt.Errorf("prepare private root: %w", err)
@@ -42,13 +42,13 @@ func validateTrustedRootAncestors(existing string, selectedRoot string) error {
 
 func secureOpenedPrivateFile(file *os.File, _ os.FileInfo) (os.FileInfo, error) {
 	handle := windows.Handle(file.Fd())
-	if err := validateWindowsHandle(file.Name(), handle, false, true, true); err != nil {
+	if err := validateWindowsHandle(file.Name(), handle, false, true, true, false); err != nil {
 		return nil, fmt.Errorf("read private file: %w", err)
 	}
 	if err := installCurrentUserDACL(handle, false); err != nil {
 		return nil, fmt.Errorf("read private file: restrict DACL: %w", err)
 	}
-	if err := validateWindowsHandle(file.Name(), handle, false, true, false); err != nil {
+	if err := validateWindowsHandle(file.Name(), handle, false, true, false, false); err != nil {
 		return nil, fmt.Errorf("read private file: verify DACL: %w", err)
 	}
 	info, err := file.Stat()
@@ -76,13 +76,13 @@ func restrictCurrentUserPath(path string, directory bool) error {
 		return fmt.Errorf("secure profile path: open without reparse traversal: %w", err)
 	}
 	defer func() { _ = windows.CloseHandle(handle) }()
-	if err = validateWindowsHandle(path, handle, directory, true, true); err != nil {
+	if err = validateWindowsHandle(path, handle, directory, true, true, false); err != nil {
 		return fmt.Errorf("secure profile path: %w", err)
 	}
 	if err = installCurrentUserDACL(handle, directory); err != nil {
 		return fmt.Errorf("secure profile path: apply owner-only DACL: %w", err)
 	}
-	if err = validateWindowsHandle(path, handle, directory, true, false); err != nil {
+	if err = validateWindowsHandle(path, handle, directory, true, false, false); err != nil {
 		return fmt.Errorf("secure profile path: verify owner-only DACL: %w", err)
 	}
 	return nil
@@ -118,6 +118,7 @@ func validateWindowsHandle(
 	directory bool,
 	requireCurrentOwner bool,
 	allowTightening bool,
+	existingChild bool,
 ) error {
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(handle, &info); err != nil {
@@ -151,7 +152,7 @@ func validateWindowsHandle(
 	if allowTightening && windowsSIDIn(owner, currentOwners) {
 		return nil
 	}
-	return validateWindowsDACL(path, handle, trusted, requireCurrentOwner)
+	return validateWindowsDACL(path, handle, trusted, requireCurrentOwner, existingChild)
 }
 
 func windowsHandleOwner(handle windows.Handle) (*windows.SID, error) {
@@ -172,6 +173,7 @@ func validateWindowsDACL(
 	handle windows.Handle,
 	trusted []*windows.SID,
 	strict bool,
+	existingChild bool,
 ) error {
 	descriptor, err := windows.GetSecurityInfo(
 		handle,
@@ -188,15 +190,23 @@ func validateWindowsDACL(
 	if dacl == nil {
 		return errors.New("path has an unrestricted DACL")
 	}
-	const dangerousAccess = windows.GENERIC_ALL | windows.GENERIC_WRITE |
+	dangerousAccess := windows.ACCESS_MASK(windows.GENERIC_ALL | windows.GENERIC_WRITE |
 		windows.DELETE | windows.WRITE_DAC | windows.WRITE_OWNER |
 		windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
 		windows.FILE_WRITE_EA | windows.FILE_WRITE_ATTRIBUTES |
-		0x00000040 // FILE_DELETE_CHILD
+		0x00000040) // FILE_DELETE_CHILD
+	if existingChild {
+		// Creating siblings cannot replace the existing path. The nearest
+		// directory used to create a missing suffix still forbids these rights.
+		dangerousAccess &^= windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA
+	}
 	for index := uint16(0); index < dacl.AceCount; index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err = windows.GetAce(dacl, uint32(index), &ace); err != nil {
 			return err
+		}
+		if existingChild && ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
+			continue // This entry does not grant access to this existing ancestor.
 		}
 		if ace.Header.AceType == windows.ACCESS_DENIED_ACE_TYPE {
 			continue

@@ -14,7 +14,7 @@ func validateMCPTokenFileSecurity(path string) error {
 		return err
 	}
 	defer func() { _ = windows.CloseHandle(handle) }()
-	if err = validateWindowsHandle(path, handle, false, true, false); err != nil {
+	if err = validateWindowsHandle(path, handle, false, true, false, false); err != nil {
 		return fmt.Errorf("MCP HTTP token DACL is not owner-only: %w", err)
 	}
 	return nil

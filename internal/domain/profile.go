@@ -123,7 +123,8 @@ func (profile CommittedProfile) Validate() error {
 	merchants := make(map[EntityID]Merchant, len(profile.Merchants))
 	groups := make(map[EntityID]CategoryGroup, len(profile.Groups))
 	categories := make(map[EntityID]Category, len(profile.Categories))
-	allIDs := make(map[EntityID]EntityKind)
+	entityCount := len(profile.Accounts) + len(profile.Merchants) + len(profile.Groups) + len(profile.Categories) + len(profile.Transactions)
+	allIDs := make(map[EntityID]EntityKind, entityCount)
 
 	for _, account := range profile.Accounts {
 		if err := validateEntityLabel("account", account.ID, account.Label, account.CollisionKey); err != nil {
