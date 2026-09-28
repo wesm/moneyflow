@@ -1,15 +1,29 @@
 # Develop Moneyflow
 
-Use Go 1.27.1, Bun 1.3.14, and Make. The application has no Python or CGO requirement.
-Python and uv are needed only for the [documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
-Use golangci-lint 2.14.0 for lint checks, matching CI's Go 1.27-compatible build.
+Install [mise](https://mise.jdx.dev/getting-started.html) and Make. From the repository root:
+
+```bash
+mise trust
+mise install
+mise exec -- make web-install build
+```
+
+`mise.toml` pins Go, Bun, Node, golangci-lint, prek, PowerShell, uv, and the Freeze capture tool.
+It sets `GOTOOLCHAIN=local`, so Go uses the mise-selected compiler rather than a toolchain
+inherited from your shell. Do not set a Go version in your shell configuration.
+Keep the Go pin aligned with `go.mod` and the Bun pin aligned with `web/package.json` and CI.
+
+Prefix commands below with `mise exec --`, or
+[activate mise in your shell](https://mise.jdx.dev/cli/activate.html) to use them directly.
+Git hooks run through mise as well. Make remains the build and test entry point.
+The application has no Python or CGO requirement. Python and uv are needed only for the
+[documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
 
 On Unix, set a private temporary directory for tests and demos before running the commands
 below. Moneyflow rejects profile paths beneath group- or world-writable ancestors,
 including the usual `/tmp`, even when the profile directory itself is private.
 
 ```bash
-export GOTOOLCHAIN=go1.27.1
 export TMPDIR="$(mktemp -d "$HOME/moneyflow-dev.XXXXXX")"
 ```
 
@@ -31,8 +45,7 @@ The binary is `bin/moneyflow` or `bin/moneyflow.exe` on Windows.
 ## Verify behavior
 
 Write a failing test before changing application behavior. Keep fixtures synthetic.
-If PowerShell is on `PATH`, it must run successfully: the installer tests exercise it.
-A version-manager shim without a selected version is not a working installation.
+The installer tests use the PowerShell version selected by mise.
 
 ```bash
 make verify-go

@@ -93,7 +93,7 @@ lint: web-embed
 
 install-hooks:
 	@if ! command -v prek >/dev/null 2>&1; then \
-		echo "prek not found. Install with: brew install prek" >&2; \
+		echo "prek not found. Run mise install, then mise exec -- make install-hooks" >&2; \
 		exit 1; \
 	fi
 	prek install -f

@@ -96,15 +96,16 @@ See [moving to Go](transition.md) for old Python data and incompatible Go previe
 
 ### Build from source
 
-Install Go 1.27.1, Bun 1.3.14, and `make`, then build from the `go-port` branch:
+Install [mise](https://mise.jdx.dev/getting-started.html) and `make`, then build from the `go-port` branch:
 
 ```bash
 git clone --branch go-port https://github.com/wesm/moneyflow.git
 cd moneyflow
-make web-install
-make build
-./bin/moneyflow tui --demo
+mise trust
+mise install
+mise exec -- make web-install build
 ```
 
 Windows builds produce `bin/moneyflow.exe`. The build generates and embeds the web assets before compiling the binary.
+Follow [development setup](../development/developing.md) before running tests or temporary demos on Unix.
 See the [Go release guide](../development/releases.md) for the distribution workflow.

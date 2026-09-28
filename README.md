@@ -9,17 +9,18 @@ for released binaries; the older PyPI package is the retired Python application.
 
 ## Try it
 
-Build with Go 1.27.1, Bun 1.3.14, and Make:
+Install [mise](https://mise.jdx.dev/getting-started.html) and Make, then use the pinned tools:
 
 ```bash
-make web-install
-make build
-./bin/moneyflow tui --demo
-./bin/moneyflow web --demo
+mise trust
+mise install
+mise exec -- make web-install build
 ```
 
-Demo data is synthetic and temporary. To keep your own data, run `moneyflow tui` or
-`moneyflow web` and choose **Add profile**.
+Follow [development setup](docs/development/developing.md) for the private temporary directory
+needed by Unix demos, then run `mise exec -- make tui-demo` or `mise exec -- make web-demo`.
+Demo data is synthetic and temporary. To keep your own data, run `./bin/moneyflow tui` or
+`./bin/moneyflow web` and choose **Add profile**.
 
 For binaries, installers, updates, and Windows instructions, see
 [installation](docs/getting-started/installation.md).

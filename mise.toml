@@ -1,0 +1,14 @@
+[tools]
+bun = "1.3.14"
+node = "26.10.0"
+golangci-lint = "2.14.0"
+prek = "0.5.3"
+powershell = "7.6.5"
+uv = "0.12.19"
+"github:charmbracelet/freeze" = { version = "0.2.2", os = ["linux", "macos"] }
+# Keep dedicated tools ahead of any binaries installed into Go's bin directory.
+go = "1.27.1"
+
+[env]
+# Use mise's Go binary, even if the calling shell pins another toolchain.
+GOTOOLCHAIN = "local"

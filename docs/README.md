@@ -37,15 +37,13 @@ an approved proposal is not evidence that a feature exists.
 
 ## How do I check a change?
 
-Use the Go and Bun versions and private temporary-directory setup in
+Use the mise tools and private temporary-directory setup in
 [development](development/developing.md). The website build captures synthetic TUI and web
-screens, so it also needs `tmux`, Freeze 0.2.2, and Playwright Chromium. Install Freeze into
-a task-local directory and use the capture tool's explicit binary setting:
+screens, so it also needs `tmux` and Playwright Chromium. Mise supplies Freeze.
+With mise activated (or each command prefixed by `mise exec --`), run:
 
 ```bash
 make web-install
-GOBIN="$TMPDIR/site-tools" go install github.com/charmbracelet/freeze@v0.2.2
-export FREEZE_BIN="$TMPDIR/site-tools/freeze"
 cd web && bunx playwright install --with-deps chromium && cd ..
 ```
 

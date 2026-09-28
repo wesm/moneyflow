@@ -34,8 +34,10 @@ The installer replaces only the binary; it does not open or migrate profiles.
 
 ## Local rehearsal
 
-Use Go 1.27.1, Bun 1.3.14, Bash, Git, `tar`, `zip`, `unzip`, and `sha256sum`. The packaging command
-is intended for Linux; CI runs it on Ubuntu. It cross-compiles all six targets without a C compiler.
+Follow [development setup](developing.md) for the pinned mise tools and private temporary directory.
+Also install Bash, Git, `tar`, `zip`, `unzip`, and `sha256sum`. The packaging command is intended
+for Linux; CI runs it on Ubuntu. It cross-compiles all six targets without a C compiler.
+Use an activated mise shell, or prefix each command below with `mise exec --`.
 
 ```bash
 make web-install

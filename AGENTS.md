@@ -186,8 +186,13 @@ Do not create a second assistant-specific instruction file or private project me
 ## Development
 
 Stay on the branch the user selected. The replacement is developed on `go-port`.
-Use Go 1.27.1, Bun 1.3.14, and the pinned tools in the repository. Build portable Linux,
-macOS, and Windows binaries without CGO. Put binaries in `bin/`, never the repository root.
+Use `mise trust` and `mise install` to select the tools pinned in `mise.toml`, including
+Go 1.27.1 and Bun 1.3.14. Run commands through `mise exec --` when shell activation is absent.
+Do not work around toolchain selection with shell-specific Go version exports.
+Keep `mise.toml`, `go.mod`, `web/package.json`, and CI tool versions aligned.
+Build portable Linux, macOS, and Windows binaries without CGO. Put binaries in `bin/`,
+never the repository root. Follow [development](docs/development/developing.md) for setup,
+including the private temporary directory required by Unix tests and demos.
 
 ```bash
 make web-install       # Install the locked frontend dependencies

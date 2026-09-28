@@ -6,13 +6,12 @@ routes, not routes served by the financial web application.
 
 ## Build and inspect
 
-From the repository root, with Go, Bun, uv, tmux and Freeze 0.2.2 installed:
+Follow [documentation setup](https://github.com/wesm/moneyflow/blob/main/docs/README.md#how-do-i-check-a-change)
+for mise tools, tmux, Playwright, and the private temporary directory. From the repository root,
+with mise activated (or each command prefixed by `mise exec --`):
 
 ```bash
 make web-install
-# Install the capture tool locally, without replacing a global binary.
-GOBIN="$PWD/bin" go install github.com/charmbracelet/freeze@v0.2.2
-export FREEZE_BIN="$PWD/bin/freeze"
 cd web && bunx playwright install chromium && cd ..
 make docs-test
 make docs-check
