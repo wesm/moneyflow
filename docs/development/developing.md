@@ -1,14 +1,15 @@
 # Develop Moneyflow
 
-Use Go 1.26.3, Bun 1.3.14, and Make. The application has no Python or CGO requirement.
+Use Go 1.27.1, Bun 1.3.14, and Make. The application has no Python or CGO requirement.
 Python and uv are needed only for the [documentation website](https://github.com/wesm/moneyflow/blob/main/docs/README.md).
+Use golangci-lint 2.14.0 for lint checks, matching CI's Go 1.27-compatible build.
 
 On Unix, set a private temporary directory for tests and demos before running the commands
 below. Moneyflow rejects profile paths beneath group- or world-writable ancestors,
 including the usual `/tmp`, even when the profile directory itself is private.
 
 ```bash
-export GOTOOLCHAIN=go1.26.3
+export GOTOOLCHAIN=go1.27.1
 export TMPDIR="$(mktemp -d "$HOME/moneyflow-dev.XXXXXX")"
 ```
 

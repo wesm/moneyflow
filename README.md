@@ -9,7 +9,7 @@ for released binaries; the older PyPI package is the retired Python application.
 
 ## Try it
 
-Build with Go 1.26.3, Bun 1.3.14, and Make:
+Build with Go 1.27.1, Bun 1.3.14, and Make:
 
 ```bash
 make web-install

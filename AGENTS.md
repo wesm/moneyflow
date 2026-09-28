@@ -186,7 +186,7 @@ Do not create a second assistant-specific instruction file or private project me
 ## Development
 
 Stay on the branch the user selected. The replacement is developed on `go-port`.
-Use Go 1.26.3, Bun 1.3.14, and the pinned tools in the repository. Build portable Linux,
+Use Go 1.27.1, Bun 1.3.14, and the pinned tools in the repository. Build portable Linux,
 macOS, and Windows binaries without CGO. Put binaries in `bin/`, never the repository root.
 
 ```bash

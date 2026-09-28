@@ -96,7 +96,7 @@ See [moving to Go](transition.md) for old Python data and incompatible Go previe
 
 ### Build from source
 
-Install Go 1.26.3, Bun 1.3.14, and `make`, then build from the `go-port` branch:
+Install Go 1.27.1, Bun 1.3.14, and `make`, then build from the `go-port` branch:
 
 ```bash
 git clone --branch go-port https://github.com/wesm/moneyflow.git
