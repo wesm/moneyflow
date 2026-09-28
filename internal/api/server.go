@@ -685,9 +685,13 @@ type bufferedResponse struct {
 	passthrough  bool
 	streaming    bool
 	suppressBody bool
+	overflow     bool
 }
 
-const maximumBufferedProblemBytes = 1 << 20
+const (
+	maximumBufferedProblemBytes  = 1 << 20
+	maximumBufferedResponseBytes = 8 << 20
+)
 
 func (response *bufferedResponse) Header() http.Header {
 	return response.header
@@ -715,9 +719,18 @@ func (response *bufferedResponse) Write(data []byte) (int, error) {
 		}
 		return response.target.Write(data)
 	}
-	remaining := maximumBufferedProblemBytes - response.body.Len()
+	limit := maximumBufferedProblemBytes
+	if response.status < 400 {
+		limit = maximumBufferedResponseBytes
+	}
+	remaining := limit - response.body.Len()
 	if remaining > 0 {
 		_, _ = response.body.Write(data[:min(len(data), remaining)])
+	}
+	if response.status < 400 && len(data) > remaining {
+		// Let the handler finish so the middleware can replace the whole response.
+		// Huma panics on write errors, which would bypass that replacement.
+		response.overflow = true
 	}
 	return len(data), nil
 }
@@ -738,6 +751,13 @@ func safeProblemResponses(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		if status < 400 {
+			if buffered.overflow {
+				writeProblem(response, newProblem(
+					http.StatusInternalServerError, "response_too_large",
+					"The response is too large to return.",
+				))
+				return
+			}
 			if !buffered.passthrough {
 				copyHeaders(response.Header(), buffered.header)
 				response.WriteHeader(status)

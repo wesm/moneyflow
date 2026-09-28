@@ -62,8 +62,13 @@ and no-store HTML are implemented in [API security][source-9] and
 [HTTP security][source-10]. Tokens do not enter analytical URLs or history.
 
 Token-expiry refresh and retry is separate from revision-conflict handling. The former can retry
-a rejected, unevaluated request once; the latter always requires explicit user action. Data export
-is an intentional large-download exception to bounded projection responses.
+a rejected, unevaluated request once; the latter always requires explicit user action.
+
+The API buffers ordinary successful responses up to 8 MiB before sending them. Larger responses
+return HTTP 500 with `response_too_large`, never a truncated success. A response failure does not
+undo an applied mutation; refresh the view before deciding whether to retry. Buffering lets panic
+recovery replace a partial response with a safe error. Error sanitization buffers at most 1 MiB.
+Data exports stream separately and are not subject to these response-buffer limits.
 
 ## MCP
 

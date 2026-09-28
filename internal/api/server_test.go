@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -72,6 +73,82 @@ func TestSafeProblemResponsesBuffersOrdinarySuccessUntilHandlerReturns(t *testin
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
 	assert.False(t, visibleInsideHandler)
 	assert.Equal(t, "complete", recorder.Body.String())
+}
+
+func TestServerReturnsCompleteLargeSelectionProjection(t *testing.T) {
+	transactions := make([]domain.Transaction, 2500)
+	ids := make([]domain.EntityID, len(transactions))
+	for index := range transactions {
+		transactions[index] = apiTransaction(t)
+		transactions[index].ID = fmt.Sprintf("transaction-%04d-%s", index, strings.Repeat("x", 260))
+		transactions[index].ProviderID = transactions[index].ID
+		ids[index] = domain.EntityID(transactions[index].ID)
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	selection, err := app.NewExplicitTransactionSelection(ids, 0)
+	require.NoError(t, err)
+	server, err := New(Config{Resolver: resolverForService(testProfileID, service)})
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/profiles/"+testProfileID+"/view", ViewBody{
+		Query: "mode=detail&v=1", Selection: string(selection), Window: Window{Limit: 400},
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	assert.Equal(t, string(selection), projection.Selection)
+	assert.Equal(t, 2500, projection.SelectionCount)
+	assert.Len(t, projection.DetailRows, 400)
+	assert.Greater(t, response.Body.Len(), 1<<20)
+}
+
+func TestSafeProblemResponsesRejectsOversizedSuccess(t *testing.T) {
+	for _, extra := range []string{"", "x"} {
+		t.Run(fmt.Sprintf("extra_bytes_%d", len(extra)), func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			payload := strings.Repeat("x", 8<<20)
+			handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "text/plain")
+				response.Header().Set("Content-Length", fmt.Sprint(len(payload)+len(extra)))
+				_, _ = io.WriteString(response, payload)
+				_, _ = io.WriteString(response, extra)
+			}))
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+			if extra == "" {
+				require.Equal(t, http.StatusOK, recorder.Code)
+				assert.True(t, payload == recorder.Body.String(), "response must contain the complete body")
+				return
+			}
+			require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			assert.Equal(t, "application/problem+json", recorder.Header().Get("Content-Type"))
+			assert.Empty(t, recorder.Header().Get("Content-Length"))
+			var problem Problem
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &problem))
+			assert.Equal(t, "response_too_large", problem.Code)
+		})
+	}
+}
+
+func TestServerRejectsOversizedProjection(t *testing.T) {
+	transactions := make([]domain.Transaction, 400)
+	for index := range transactions {
+		transactions[index] = apiTransaction(t)
+		transactions[index].ID = fmt.Sprintf("transaction-%04d", index)
+		transactions[index].ProviderID = transactions[index].ID
+		transactions[index].Account.Name = strings.Repeat("Account ", 3000)
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	server, err := New(Config{Resolver: resolverForService(testProfileID, service)})
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/profiles/"+testProfileID+"/view", ViewBody{
+		Query: "mode=detail&v=1", Window: Window{Limit: 400},
+	})
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "response_too_large", problem.Code)
+	assert.NotContains(t, response.Body.String(), "Account ")
 }
 
 func TestOrdinarySuccessCanStillRecoverPanicWithoutPartialResponse(t *testing.T) {
