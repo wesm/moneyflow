@@ -576,7 +576,9 @@ func (profile *memoryProfile) Fold(
 }
 
 func (profile *memoryProfile) ProviderState(context.Context) (store.ProviderState, error) {
-	return store.ProviderState{}, nil
+	profile.mu.Lock()
+	defer profile.mu.Unlock()
+	return store.ProviderState{Revision: profile.snapshot.Revision}, nil
 }
 
 func (profile *memoryProfile) AcquireProviderOperationLease(

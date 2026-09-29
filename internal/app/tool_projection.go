@@ -254,6 +254,20 @@ func (service *Service) AccountProjection(
 	if err != nil {
 		return AccountProjection{}, newAppError(AppInvalidOperation, state.revision, err)
 	}
+	// Operational status advances independently of the analytical revision. Read
+	// it on every status projection, even when the transaction cache is current.
+	if service.profile != nil {
+		providerState, stateErr := service.profile.ProviderState(ctx)
+		if stateErr != nil {
+			return AccountProjection{}, mapAppError(stateErr, state.revision)
+		}
+		if providerState.Revision != state.revision {
+			return AccountProjection{}, newAppError(AppRevisionConflict, providerState.Revision,
+				errors.New("profile changed while reading operational status"))
+		}
+		state.providerState = providerStatusFromState(providerState, state.profileKind)
+		state.writeState = providerWriteStatusFromState(providerState)
+	}
 	partitions := make(map[string]MoneyPartition)
 	var first, last domain.Date
 	for index, transaction := range state.transactions {
