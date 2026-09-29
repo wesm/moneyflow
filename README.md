@@ -1,271 +1,56 @@
-# moneyflow
+# Moneyflow
 
-[![PyPI version](https://img.shields.io/pypi/v/moneyflow?color=blue)](https://pypi.org/project/moneyflow/)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![GitHub stars](https://img.shields.io/github/stars/wesm/moneyflow?style=social)](https://github.com/wesm/moneyflow)
+Review and organize personal finance transactions from a keyboard-driven terminal,
+a browser, or an MCP client. Moneyflow runs as one Go binary with the web app embedded.
 
-**Track your moneyflow from the terminal.**
+This checkout contains the Go replacement. It is not a claim that a stable Go release
+has been published. Check [GitHub Releases](https://github.com/wesm/moneyflow/releases)
+for released binaries; the older PyPI package is the retired Python application.
 
-A keyboard-driven terminal UI for managing personal finance transactions. Built for users who prefer efficiency and
-direct control over their financial data.
+## Try it
 
-![moneyflow main screen](https://moneyflow.dev/assets/screenshots/home-screen.svg)
-
-**Supported Platforms:**
-
-- ✅ **[Monarch Money](https://monarchmoney.sjv.io/c/5108110/3777629/39024)** - Full integration with editing and sync
-- ✅ **YNAB** - Full integration with editing and sync
-- ✅ **Amazon Purchases** - Import and analyze purchase history
-- ✅ **CSV Import** - Import transactions from bank CSV exports
-- ✅ **SimpleFIN** - Import read-only account and transaction data; edits remain local
-- ✅ **Demo Mode** - Try it without an account
-
-**Documentation:** [moneyflow.dev](https://moneyflow.dev)
-
----
-
-## Installation
+Install [mise](https://mise.jdx.dev/getting-started.html) and Make, then use the pinned tools:
 
 ```bash
-# Install with pip
-pip install moneyflow
-
-# Or run without installing (recommended)
-uvx moneyflow
-
-# Or use pipx
-pipx install moneyflow
+mise trust
+mise install
+mise exec -- make web-install build
 ```
 
----
-
-## Quick Start
-
-```bash
-# Try demo mode first (no account needed)
-moneyflow --demo
-
-# Connect to Monarch Money or YNAB
-moneyflow
-
-# Analyze Amazon purchase history
-moneyflow amazon import ~/Downloads/"Your Orders"
-moneyflow amazon
-
-# Import bank CSV exports
-moneyflow import institution chase_credit ~/Downloads/
-moneyflow chase_credit
-
-# Fetch only recent data from API (Monarch/YNAB only - for faster loading)
-moneyflow --year 2025  # Fetch from 2025-01-01 onwards
-moneyflow --since 2024-06-01  # Fetch from specific date
-```
-
-**First-time Monarch Money setup:** You'll need your 2FA secret key. See the [Monarch Money setup guide](https://moneyflow.dev/guide/monarch).
-
-**First-time YNAB setup:** You'll need a Personal Access Token from your YNAB account settings. If you have multiple
-budgets, you'll be prompted to select one. See the [YNAB setup guide](https://moneyflow.dev/guide/ynab).
-
----
-
-## Key Features
-
-- **Keyboard-driven** - Navigate with `g` to cycle views, `Enter` to drill down, `Escape` to go back
-- **Multi-select bulk editing** - Select with `Space`, edit with `m`/`c`/`h`, commit with `w`
-- **Multiple aggregation dimensions** - Merchants, Categories, Groups, Accounts, Time (by year/month)
-- **Drill-down and sub-grouping** - Analyze spending from multiple angles, combine dimensions
-- **Type-to-search** - Filter transactions as you type with `/`
-- **Review before commit** - Preview all changes before syncing to backend
-- **Encrypted credentials** - AES-128 with PBKDF2 (100,000 iterations)
-
-Full keyboard shortcuts and tutorials: [moneyflow.dev](https://moneyflow.dev)
-
----
-
-## Common Workflows
-
-**Clean up merchant names:**
-
-1. Press `g` until Merchant view
-2. Press `m` on a merchant to rename all transactions
-3. Press `w` to review and commit
-
-**Recategorize transactions:**
-
-1. Press `d` for detail view
-2. Press `Space` to multi-select transactions
-3. Press `c` to change category
-4. Press `w` to review and commit
-
-**Analyze spending:**
-
-1. Press `g` to cycle views (Merchants → Categories → Groups → Accounts → Time)
-2. In Time view: Press `t` to cycle granularity (Year → Month → Day), `Enter` to drill into a period
-3. In any aggregate view: Press `Enter` to drill down
-4. Press `g` to cycle sub-groupings (including by Time)
-5. Press `a` to clear time drill-down, `Escape` to go back
-
-Learn more: [Navigation & Search Guide](https://moneyflow.dev/guide/navigation)
-
----
-
-## Amazon Mode
-
-Import and analyze your Amazon purchase history:
-
-1. Request "Your Orders" export from Amazon (Account Settings → Privacy)
-2. Download and unzip "Your Orders.zip"
-3. Import: `moneyflow amazon import ~/Downloads/"Your Orders"`
-4. Launch: `moneyflow amazon`
-
-See [Amazon Mode Guide](https://moneyflow.dev/guide/amazon-mode) for details.
-
----
-
-## CSV Import Mode
-
-Import transaction histories from bank CSV exports:
-
-1. Download CSV export from your bank or credit card website
-2. Import: `moneyflow import institution chase_credit ~/Downloads/`
-3. Launch: `moneyflow chase_credit`
-
-List supported institutions: `moneyflow import list`
-
-See [CSV Import Guide](https://moneyflow.dev/guide/csv-import) for details.
-
----
-
-## Troubleshooting
-
-### Login fails with "Incorrect password"
-
-- Enter your **encryption password** (for moneyflow), not your backend password
-- If forgotten: Click "Reset Credentials" or delete `~/.moneyflow/`
-
-### Monarch Money - 2FA not working
-
-- Copy the BASE32 secret (long string), not the QR code
-- Get fresh secret: Disable and re-enable 2FA in Monarch Money
-
-### YNAB - Connection fails
-
-- Verify your Personal Access Token is correct
-- Token may have expired - generate a new one from YNAB Developer Settings
-- Make sure you copied the entire token (no spaces before/after)
-- Token is only shown once - if lost, generate a new one
-
-### Terminal displays weird characters
-
-- Use a modern terminal with Unicode support (iTerm2, GNOME Terminal, Windows Terminal)
-
-### Complete reset
-
-```bash
-rm -rf ~/.moneyflow/
-pip install --upgrade --force-reinstall moneyflow
-moneyflow
-```
-
-More help: [Troubleshooting Guide](https://moneyflow.dev/reference/troubleshooting)
-
----
-
-## Themes
-
-moneyflow includes multiple color themes for different aesthetic preferences:
-
-- **default** - Original moneyflow dark theme
-- **berg** - Orange on black (inspired by Bloomberg Terminal) - nostalgic 1980s financial terminal aesthetic
-- **nord** - Nord (arctic blue tones) - popular among developers for eye-friendly cool colors
-- **gruvbox** - Gruvbox (retro warm colors) - vintage aesthetic beloved by vim users
-- **dracula** - Dracula (modern purple) - vibrant high-contrast dark theme
-- **solarized-dark** - Solarized Dark (precision colors) - scientifically designed for reduced eye strain
-- **monokai** - Monokai (Sublime Text classic) - the iconic editor theme
-
-### Configuring Themes
-
-Set your preferred theme in `~/.moneyflow/config.yaml`:
-
-```yaml
-version: 1
-
-settings:
-  theme: berg  # or nord, gruvbox, dracula, solarized-dark, monokai
-```
-
-Restart moneyflow for the theme to take effect.
-
----
-
-## Documentation
-
-**Full documentation available at [moneyflow.dev](https://moneyflow.dev)**
-
-- [Installation](https://moneyflow.dev/getting-started/installation)
-- [Quick Start Tutorial](https://moneyflow.dev/getting-started/quickstart)
-- [Navigation & Search](https://moneyflow.dev/guide/navigation)
-- [Editing Transactions](https://moneyflow.dev/guide/editing)
-- [Keyboard Shortcuts](https://moneyflow.dev/guide/keyboard-shortcuts)
-- [Monarch Money Setup](https://moneyflow.dev/guide/monarch)
-- [YNAB Setup](https://moneyflow.dev/guide/ynab)
-- [SimpleFIN Setup](https://moneyflow.dev/guide/simplefin)
-- [Amazon Mode](https://moneyflow.dev/guide/amazon-mode)
-- [CSV Import](https://moneyflow.dev/guide/csv-import)
-
----
-
-## Security
-
-- Credentials encrypted with AES-128 using PBKDF2 key derivation (100,000 iterations)
-- Encryption password never leaves your machine
-- Stored in `~/.moneyflow/credentials.enc` with 600 permissions
-- See [SECURITY.md](SECURITY.md) for full details
-
----
-
-## Contributing
-
-Contributions welcome! See [Contributing Guide](https://moneyflow.dev/development/contributing).
-
-**Development setup:**
-
-```bash
-git clone https://github.com/wesm/moneyflow.git
-cd moneyflow
-uv sync
-uv run pytest -v
-```
-
-**Code quality checks:**
-
-```bash
-uv run pytest -v                          # Tests
-uv run pyright moneyflow/                 # Type checking
-uv run ruff format moneyflow/ tests/      # Formatting
-uv run ruff check moneyflow/ tests/       # Linting
-```
-
-See [Developing moneyflow](https://moneyflow.dev/development/developing) for details.
-
----
-
-## Acknowledgments
-
-### Monarch Money Integration
-
-This project's Monarch Money backend uses code derived from the [monarchmoney](https://github.com/hammem/monarchmoney)
-Python client library by hammem, used under the MIT License.
-See [licenses/monarchmoney-LICENSE](licenses/monarchmoney-LICENSE) for details.
-
-Monarch Money® is a trademark of Monarch Money, Inc. This project is independent and not affiliated with, endorsed by,
-or officially connected to Monarch Money, Inc.
-
----
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-**Disclaimer:** Independent open-source project. Not affiliated with or endorsed by Monarch Money, Inc. or YNAB LLC.
+Follow [development setup](docs/development/developing.md) for the private temporary directory
+needed by Unix demos, then run `mise exec -- make tui-demo` or `mise exec -- make web-demo`.
+Demo data is synthetic and temporary. To keep your own data, run `./bin/moneyflow tui` or
+`./bin/moneyflow web` and choose **Add profile**.
+
+For binaries, installers, updates, and Windows instructions, see
+[installation](docs/getting-started/installation.md).
+If you used Python Moneyflow, read [moving to Go](docs/getting-started/transition.md)
+before connecting accounts. Local-only Python edits do not transfer automatically.
+
+## Connect your data
+
+| Source | What you can do |
+| --- | --- |
+| [Monarch Money](docs/guide/monarch.md) | Import transactions and review edits before writing them back |
+| [YNAB](docs/guide/ynab.md) | Connect one plan and write supported payee/category edits and deletions |
+| [Amazon](docs/guide/amazon-mode.md) | Import order-history CSV files, categorize purchases locally, and match bank charges to products |
+| [Bank CSV](docs/guide/bank-csv.md) | Import Chase credit-card exports, reconcile overlapping files, and preserve local edits |
+| [SimpleFIN](docs/guide/simplefin.md) | Import bank data and edit locally; experimental, with live-bank testing pending |
+
+Use the same profiles in the terminal, browser, and [MCP server](docs/guide/mcp.md).
+Edits and undo/redo history survive restart. Review changes before committing them.
+Money is stored exactly as signed integer minor units, never floating point.
+
+## Find your next step
+
+- [Quick start](docs/getting-started/quickstart.md): open a profile and review a transaction.
+- [Amazon guide](docs/guide/amazon-mode.md): import, reimport, and inspect matched products.
+- [Keyboard shortcuts](docs/guide/keyboard-shortcuts.md): navigate and edit without a mouse.
+- [Exports](docs/guide/export.md): save transactions for analysis.
+- [Configuration](docs/config/advanced.md): choose data paths and configure web access.
+- [Security](SECURITY.md): understand local storage and network boundaries.
+- [Development](docs/development/developing.md): build and verify changes.
+- [Documentation maintenance](docs/README.md): writing rules, ownership, and publishing.
+
+Moneyflow is MIT-licensed. The website is [moneyflow.dev](https://moneyflow.dev);
+it follows stable Go releases after cutover, not every change in this branch.

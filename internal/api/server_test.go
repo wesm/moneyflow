@@ -1,0 +1,447 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
+)
+
+func TestServerHealthAndBasePath(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/moneyflow")
+	response := requestServer(t, server, http.MethodGet, "/moneyflow/api/v1/health", nil)
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	assert.Empty(t, response.Header().Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, response.Header().Values("Set-Cookie"))
+	assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+	var body Health
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	assert.NotContains(t, response.Body.String(), "$schema")
+	assert.Equal(t, "/moneyflow/", body.BasePath)
+	assert.Equal(t, APISchemaVersion, body.APISchemaVersion)
+	assert.False(t, body.ReadOnly)
+	assert.Equal(t, "profile", body.DataStatus)
+	assert.Equal(t, "0", body.Revision)
+	assert.Zero(t, body.Pending.ActiveOperations)
+
+	outside := requestServer(t, server, http.MethodGet, "/api/v1/health", nil)
+	assert.Equal(t, http.StatusNotFound, outside.Code)
+}
+
+func TestSafeProblemResponsesStreamsSuccessImmediately(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	streamedInsideHandler := false
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/octet-stream")
+		response.WriteHeader(http.StatusOK)
+		_, err := response.Write(bytes.Repeat([]byte("x"), 2<<20))
+		require.NoError(t, err)
+		streamedInsideHandler = recorder.Body.Len() == 2<<20
+		unwrapper, ok := response.(interface{ Unwrap() http.ResponseWriter })
+		require.True(t, ok)
+		assert.Same(t, recorder, unwrapper.Unwrap())
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(
+		http.MethodPost, "/api/v1/profiles/profile-a/export", http.NoBody,
+	))
+	assert.True(t, streamedInsideHandler)
+	assert.Equal(t, 2<<20, recorder.Body.Len())
+}
+
+func TestSafeProblemResponsesBuffersOrdinarySuccessUntilHandlerReturns(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	visibleInsideHandler := false
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusOK)
+		_, err := response.Write([]byte("complete"))
+		require.NoError(t, err)
+		visibleInsideHandler = recorder.Body.Len() > 0
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+	assert.False(t, visibleInsideHandler)
+	assert.Equal(t, "complete", recorder.Body.String())
+}
+
+func TestServerReturnsCompleteLargeSelectionProjection(t *testing.T) {
+	transactions := make([]domain.Transaction, 2500)
+	ids := make([]domain.EntityID, len(transactions))
+	for index := range transactions {
+		transactions[index] = apiTransaction(t)
+		transactions[index].ID = fmt.Sprintf("transaction-%04d-%s", index, strings.Repeat("x", 260))
+		transactions[index].ProviderID = transactions[index].ID
+		ids[index] = domain.EntityID(transactions[index].ID)
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	selection, err := app.NewExplicitTransactionSelection(ids, 0)
+	require.NoError(t, err)
+	server, err := New(Config{Resolver: resolverForService(testProfileID, service)})
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/profiles/"+testProfileID+"/view", ViewBody{
+		Query: "mode=detail&v=1", Selection: string(selection), Window: Window{Limit: 400},
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	assert.Equal(t, string(selection), projection.Selection)
+	assert.Equal(t, 2500, projection.SelectionCount)
+	assert.Len(t, projection.DetailRows, 400)
+	assert.Greater(t, response.Body.Len(), 1<<20)
+}
+
+func TestSafeProblemResponsesRejectsOversizedSuccess(t *testing.T) {
+	for _, extra := range []string{"", "x"} {
+		t.Run(fmt.Sprintf("extra_bytes_%d", len(extra)), func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			payload := strings.Repeat("x", 8<<20)
+			handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "text/plain")
+				response.Header().Set("Content-Length", fmt.Sprint(len(payload)+len(extra)))
+				_, _ = io.WriteString(response, payload)
+				_, _ = io.WriteString(response, extra)
+			}))
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+			if extra == "" {
+				require.Equal(t, http.StatusOK, recorder.Code)
+				assert.True(t, payload == recorder.Body.String(), "response must contain the complete body")
+				return
+			}
+			require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			assert.Equal(t, "application/problem+json", recorder.Header().Get("Content-Type"))
+			assert.Empty(t, recorder.Header().Get("Content-Length"))
+			var problem Problem
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &problem))
+			assert.Equal(t, "response_too_large", problem.Code)
+		})
+	}
+}
+
+func TestServerRejectsOversizedProjection(t *testing.T) {
+	transactions := make([]domain.Transaction, 400)
+	for index := range transactions {
+		transactions[index] = apiTransaction(t)
+		transactions[index].ID = fmt.Sprintf("transaction-%04d", index)
+		transactions[index].ProviderID = transactions[index].ID
+		transactions[index].Account.Name = strings.Repeat("Account ", 3000)
+	}
+	service, err := app.NewService(transactions)
+	require.NoError(t, err)
+	server, err := New(Config{Resolver: resolverForService(testProfileID, service)})
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/profiles/"+testProfileID+"/view", ViewBody{
+		Query: "mode=detail&v=1", Window: Window{Limit: 400},
+	})
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "response_too_large", problem.Code)
+	assert.NotContains(t, response.Body.String(), "Account ")
+}
+
+func TestOrdinarySuccessCanStillRecoverPanicWithoutPartialResponse(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := recoverAPI(safeProblemResponses(http.HandlerFunc(
+		func(response http.ResponseWriter, _ *http.Request) {
+			response.WriteHeader(http.StatusOK)
+			_, _ = response.Write([]byte("private partial response"))
+			panic("private panic")
+		},
+	)))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "private")
+	assert.Contains(t, recorder.Body.String(), "internal_error")
+}
+
+func TestSafeProblemResponsesStillSanitizesMaliciousError(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	handler := safeProblemResponses(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusInternalServerError)
+		_, _ = response.Write(bytes.Repeat([]byte("private-merchant-name"), 100_000))
+	}))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/failure", http.NoBody))
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "private-merchant-name")
+	assert.Less(t, recorder.Body.Len(), 1024)
+}
+
+func TestServerProjectsAndTransitionsCanonicalViews(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	view := ViewBody{Query: "hidden=1&v=1", Window: Window{Limit: 200}}
+	response := requestJSON(t, server, "/api/v1/view", view)
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	assert.Equal(t, "v=1", projection.CanonicalQuery)
+	assert.Equal(t, "0", projection.Revision)
+	assert.Zero(t, projection.Pending.ActiveOperations)
+	assert.NotEmpty(t, projection.Selection)
+	assert.NotEmpty(t, projection.AggregateRows)
+
+	transition := TransitionBody{
+		Query: projection.CanonicalQuery, Selection: projection.Selection,
+		Action: app.ActionCycleGrouping, Window: Window{Limit: 200},
+	}
+	response = requestJSON(t, server, "/api/v1/view/transition", transition)
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	assert.Contains(t, projection.CanonicalQuery, "group=category")
+}
+
+func TestServerAppliesISODateFilters(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	response := requestJSON(t, server, "/api/v1/view/transition", TransitionBody{
+		Query: "v=1", Action: app.ActionApplyFilters,
+		Filters: &TransitionFilters{
+			DateRange:  &TransitionDateRange{Start: "2024-01-01", End: "2024-01-31"},
+			ShowHidden: true,
+		},
+		Window: Window{Limit: 200},
+	})
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	require.NotNil(t, projection.Filters.DateRange)
+	assert.Equal(t, "2024-01-01", projection.Filters.DateRange.From)
+	assert.Equal(t, "2024-01-31", projection.Filters.DateRange.To)
+}
+
+func TestServerResetsInvalidHydrationSelectionWithWarning(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	response := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query: "v=1", Selection: "invalid", Window: Window{Limit: 200},
+	})
+	assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection Projection
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	require.Len(t, projection.Warnings, 1)
+	assert.Equal(t, string(app.SelectionReset), projection.Warnings[0].Code)
+	assert.Equal(t, string(app.EmptySelection()), projection.Selection)
+}
+
+func TestServerRejectsMalformedBodiesWithSafeProblems(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "unknown field", body: `{"query":"v=1","window":{"offset":0,"limit":200},"private":"do-not-echo"}`, want: http.StatusUnprocessableEntity},
+		{name: "trailing value", body: `{"query":"v=1","window":{"offset":0,"limit":200}} {}`, want: http.StatusBadRequest},
+		{name: "invalid query", body: `{"query":"private=do-not-echo","window":{"offset":0,"limit":200}}`, want: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := requestServer(
+				t,
+				server,
+				http.MethodPost,
+				"/api/v1/view",
+				strings.NewReader(test.body),
+			)
+			assert.Equal(t, test.want, response.Code, response.Body.String())
+			assert.Contains(t, response.Header().Get("Content-Type"), "application/problem+json")
+			assert.NotContains(t, response.Body.String(), "do-not-echo")
+			var problem Problem
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.NotEmpty(t, problem.Code)
+			assert.NotEmpty(t, problem.Detail)
+		})
+	}
+}
+
+func TestServerEnforcesBodyLimitAndMethods(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	oversized := bytes.Repeat([]byte("x"), MaxViewBodyBytes+1)
+	response := requestServer(t, server, http.MethodPost, "/api/v1/view", bytes.NewReader(oversized))
+	assert.Equal(t, http.StatusRequestEntityTooLarge, response.Code, response.Body.String())
+	assert.NotContains(t, response.Body.String(), strings.Repeat("x", 32))
+
+	response = requestServer(t, server, http.MethodGet, "/api/v1/view", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, response.Code)
+	response = requestServer(t, server, http.MethodHead, "/api/v1/health", nil)
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Empty(t, response.Body.String())
+}
+
+func TestServerProtectsEveryPersistentEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := newPersistentAPITestServer(t)
+	for _, path := range []string{
+		"/api/v1/mutations", "/api/v1/undo", "/api/v1/redo", "/api/v1/commit",
+		"/api/v1/review", "/api/v1/review/targets",
+		"/api/v1/editor-catalog",
+		"/api/v1/provider/refresh", "/api/v1/provider/refresh/confirm",
+		"/api/v1/provider/write/pause", "/api/v1/provider/write/resume",
+		"/api/v1/provider/write/reconcile", "/api/v1/provider/write/reconcile/confirm",
+	} {
+		t.Run(path, func(t *testing.T) {
+			response := requestServer(t, server, http.MethodPost, path, strings.NewReader(`{}`))
+			assert.Equal(t, http.StatusForbidden, response.Code, response.Body.String())
+			var problem Problem
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			assert.Equal(t, string(CodeInvalidOrigin), problem.Code)
+		})
+	}
+}
+
+func TestServerEnforcesBodyLimitWithoutContentLength(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/")
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/view",
+		strings.NewReader(strings.Repeat("x", MaxViewBodyBytes+1)),
+	)
+	request.ContentLength = -1
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, response.Code, response.Body.String())
+	assert.NotContains(t, response.Body.String(), strings.Repeat("x", 32))
+	var problem Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+	assert.Equal(t, "request_too_large", problem.Code)
+	assert.Equal(t, "The request body is too large.", problem.Detail)
+}
+
+func TestRecoveryReturnsSafeProblem(t *testing.T) {
+	t.Parallel()
+
+	handler := noStore(recoverAPI(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("do-not-echo")
+	})))
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	assert.Equal(t, http.StatusInternalServerError, response.Code)
+	assert.NotContains(t, response.Body.String(), "do-not-echo")
+	assert.Contains(t, response.Body.String(), "internal_error")
+}
+
+func TestServerOpenAPIEndpointsAndMethods(t *testing.T) {
+	t.Parallel()
+
+	server := newTestServer(t, "/nested/")
+	for _, path := range []string{"/nested/openapi.json", "/nested/openapi.yaml"} {
+		response := requestServer(t, server, http.MethodGet, path, nil)
+		assert.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		assert.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+		assert.Contains(t, response.Header().Get("Content-Type"), "openapi")
+	}
+	response := requestServer(t, server, http.MethodGet, "/nested/docs", nil)
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	response = requestServer(t, server, http.MethodGet, "/nested/openapi-3.0.json", nil)
+	assert.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func newTestServer(t testing.TB, basePath string) *Server {
+	t.Helper()
+	service, err := app.NewService([]domain.Transaction{apiTransaction(t)})
+	require.NoError(t, err)
+	server, err := New(Config{
+		Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID,
+		BasePath: basePath, Version: "test",
+	})
+	require.NoError(t, err)
+	return server
+}
+
+func TestServerProjectsAggregateInOutNet(t *testing.T) {
+	t.Parallel()
+	one := apiTransaction(t)
+	two := one.Clone()
+	two.ID, two.ProviderID = "refund", "provider-refund"
+	two.Amount.Minor = 1234
+	service, err := app.NewService([]domain.Transaction{one, two})
+	require.NoError(t, err)
+	server, err := New(Config{Resolver: resolverForService(testProfileID, service), LegacyProfileID: testProfileID})
+	require.NoError(t, err)
+	response := requestJSON(t, server, "/api/v1/view", ViewBody{Query: "v=1", Window: Window{Limit: 200}})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var projection struct {
+		Rows []struct {
+			In  Money `json:"in"`
+			Out Money `json:"out"`
+			Net Money `json:"total"`
+		} `json:"aggregate_rows"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &projection))
+	require.Len(t, projection.Rows, 1)
+	assert.Equal(t, Money{Minor: "1234", Currency: "USD", Scale: 2, Decimal: "12.34", Display: "+12.34"}, projection.Rows[0].In)
+	assert.Equal(t, Money{Minor: "-1234", Currency: "USD", Scale: 2, Decimal: "-12.34", Display: "-12.34"}, projection.Rows[0].Out)
+	assert.Equal(t, "0", projection.Rows[0].Net.Minor)
+}
+
+func resolverForService(profileID string, service *app.Service) ProfileResolver {
+	return &testProfileResolver{services: map[string]*app.Service{profileID: service}}
+}
+
+func apiTransaction(t testing.TB) domain.Transaction {
+	t.Helper()
+	date, err := domain.ParseDate("2024-01-02")
+	require.NoError(t, err)
+	money, err := domain.ParseMoney("-12.34", "USD", 2)
+	require.NoError(t, err)
+	transaction, err := domain.NewTransaction(domain.Transaction{
+		ID: "txn-1", ProviderID: "provider-txn-1", Provider: "fixture",
+		Account: domain.EntityRef{ID: "account-card", Name: "Account Name"}, Date: date,
+		Merchant: domain.EntityRef{ID: "merchant-example", Name: "Example Merchant"},
+		Category: domain.CategoryRef{ID: "category-example", Name: "Example Category", GroupID: "group-example", Group: "Example Group"},
+		Amount:   money,
+	})
+	require.NoError(t, err)
+	return transaction
+}
+
+func requestJSON(t testing.TB, server *Server, path string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	data, err := json.Marshal(body)
+	require.NoError(t, err)
+	return requestServer(t, server, http.MethodPost, path, bytes.NewReader(data))
+}
+
+func requestServer(
+	t testing.TB,
+	server *Server,
+	method string,
+	path string,
+	body io.Reader,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	if body == nil {
+		body = http.NoBody
+	}
+	request := httptest.NewRequest(method, path, body)
+	if method == http.MethodPost {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	return response
+}

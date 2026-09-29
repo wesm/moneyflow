@@ -1,0 +1,230 @@
+package monarch
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/provider"
+)
+
+const maxSessionBytes int64 = 8 << 10
+
+const sessionFilename = "session.json"
+
+// SessionStore persists Monarch-owned session material outside SQLite.
+type SessionStore struct {
+	path string
+}
+
+// NewSessionStore resolves the fixed provider session path below one Go v2 profile root.
+func NewSessionStore(paths home.Paths) (*SessionStore, error) {
+	if paths.Root == "" || !filepath.IsAbs(paths.Root) {
+		return nil, errors.New("create monarch session store: profile root must be absolute")
+	}
+	providerDirectory, err := home.EnsurePrivateSubdirectory(paths.Root, "providers", providerKind)
+	if err != nil {
+		return nil, fmt.Errorf("create monarch session store: %w", err)
+	}
+	return &SessionStore{
+		path: filepath.Join(providerDirectory, sessionFilename),
+	}, nil
+}
+
+// SessionFilePresent checks the provider-owned session path without creating or
+// modifying profile directories. Catalog listing uses this local-only probe.
+func SessionFilePresent(profileRoot string) (bool, error) {
+	if profileRoot == "" || !filepath.IsAbs(profileRoot) {
+		return false, errors.New("inspect monarch session: profile root must be absolute")
+	}
+	components := []string{profileRoot, filepath.Join(profileRoot, "providers"),
+		filepath.Join(profileRoot, "providers", providerKind)}
+	for _, directory := range components {
+		info, err := os.Lstat(directory)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("inspect monarch session directory: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return false, errors.New("inspect monarch session: directory is redirected")
+		}
+	}
+	path := filepath.Join(components[len(components)-1], sessionFilename)
+	if _, err := home.PrivateFileFingerprint(path, maxSessionBytes); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("inspect monarch session: %w", err)
+	}
+	return true, nil
+}
+
+// Path returns the fixed session path for CLI diagnostics and hardened file operations.
+func (store *SessionStore) Path() string { return store.path }
+
+// Save validates and atomically installs one session.
+func (store *SessionStore) Save(session Session) error {
+	if err := session.Validate(); err != nil {
+		return err
+	}
+	serialized, err := json.Marshal(session)
+	if err != nil {
+		return errors.New("save monarch session: encode session")
+	}
+	serialized = append(serialized, '\n')
+	if int64(len(serialized)) > maxSessionBytes {
+		return errors.New("save monarch session: encoded session exceeds maximum size")
+	}
+	if err = home.WritePrivateFile(store.path, serialized); err != nil {
+		return fmt.Errorf("save monarch session: %w", err)
+	}
+	return nil
+}
+
+// Load returns one validated session and its opaque content fingerprint.
+func (store *SessionStore) Load() (Session, provider.SessionFingerprint, error) {
+	contents, fingerprint, err := home.ReadPrivateFileWithFingerprint(store.path, maxSessionBytes)
+	if err != nil {
+		return Session{}, "", err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	var session Session
+	if err = decoder.Decode(&session); err != nil {
+		return Session{}, "", errors.New("load monarch session: decode session")
+	}
+	if err = requireJSONEOF(decoder); err != nil {
+		return Session{}, "", err
+	}
+	if err = session.Validate(); err != nil {
+		return Session{}, "", err
+	}
+	return session, provider.SessionFingerprint(fingerprint), nil
+}
+
+// Changed reports whether session content differs from a prior fingerprint.
+func (store *SessionStore) Changed(previous provider.SessionFingerprint) (bool, error) {
+	fingerprint, err := home.PrivateFileFingerprint(store.path, maxSessionBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect monarch session replacement: %w", err)
+	}
+	return provider.SessionFingerprint(fingerprint) != previous, nil
+}
+
+// Delete removes only the provider session file and preserves profile data.
+func (store *SessionStore) Delete() error {
+	return home.RemovePrivateFile(store.path)
+}
+
+// Source caches one loaded session and can explicitly reload after atomic replacement.
+type Source struct {
+	options Options
+	store   *SessionStore
+
+	mu          sync.Mutex
+	client      *Client
+	fingerprint provider.SessionFingerprint
+}
+
+var _ provider.ReaderSource = (*Source)(nil)
+var _ provider.WriterSource = (*Source)(nil)
+
+// NewSource constructs a session-backed client source.
+func NewSource(options Options, store *SessionStore) (*Source, error) {
+	if store == nil {
+		return nil, errors.New("create monarch source: session store is nil")
+	}
+	validated, err := NewClient(options, "", "")
+	if err != nil {
+		return nil, err
+	}
+	return &Source{options: validated.options, store: store}, nil
+}
+
+// SetTransactionRange applies one non-persisted inclusive range before the first reader opens.
+func (source *Source) SetTransactionRange(startDate string, endDate string) error {
+	if err := validateTransactionRange(startDate, endDate); err != nil {
+		return err
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.client != nil {
+		return errors.New("set monarch transaction range after reader opened")
+	}
+	source.options.TransactionStartDate = startDate
+	source.options.TransactionEndDate = endDate
+	return nil
+}
+
+// OpenClient returns the cached client or reloads one atomically replaced session.
+func (source *Source) OpenClient(
+	forceReload bool,
+) (*Client, provider.SessionFingerprint, error) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.client != nil && !forceReload {
+		return source.client, source.fingerprint, nil
+	}
+	session, fingerprint, err := source.store.Load()
+	if err != nil {
+		return nil, "", provider.NewError(provider.CodeReconnectRequired)
+	}
+	expected := ImportConfig{
+		Currency: source.options.ImportCurrency,
+		Scale:    source.options.ImportScale,
+	}
+	if expected.Validate() == nil && session.Import != expected {
+		return nil, "", provider.NewError(provider.CodeReconnectRequired)
+	}
+	options := source.options
+	options.ImportCurrency = session.Import.Currency
+	options.ImportScale = session.Import.Scale
+	client, err := NewClient(options, session.Token, session.DeviceUUID)
+	if err != nil {
+		return nil, "", provider.NewError(provider.CodeReconnectRequired)
+	}
+	source.client = client
+	source.fingerprint = fingerprint
+	return source.client, source.fingerprint, nil
+}
+
+// Reader returns the cached provider reader or reloads an atomically replaced session.
+func (source *Source) Reader(
+	_ context.Context,
+	forceReload bool,
+) (provider.Reader, provider.SessionFingerprint, error) {
+	return source.OpenClient(forceReload)
+}
+
+// Writer returns the cached one-attempt writer or reloads an atomically replaced session.
+func (source *Source) Writer(
+	_ context.Context,
+	forceReload bool,
+) (provider.Writer, provider.SessionFingerprint, error) {
+	return source.OpenClient(forceReload)
+}
+
+// Changed delegates opaque replacement detection to the hardened session store.
+func (source *Source) Changed(previous provider.SessionFingerprint) (bool, error) {
+	return source.store.Changed(previous)
+}
+
+func requireJSONEOF(decoder *json.Decoder) error {
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("load monarch session: trailing JSON content")
+	}
+	return nil
+}

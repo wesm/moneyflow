@@ -1,0 +1,170 @@
+package main
+
+import (
+	"context"
+	cryptorand "crypto/rand"
+	"errors"
+	"time"
+
+	"github.com/wesm/moneyflow/internal/amazonimport"
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/home"
+	"github.com/wesm/moneyflow/internal/importer/amazon"
+	"github.com/wesm/moneyflow/internal/onboarding"
+	"github.com/wesm/moneyflow/internal/simplefinonboarding"
+	"github.com/wesm/moneyflow/internal/tui"
+)
+
+func buildTUIShellDependencies(
+	ctx context.Context,
+	streams IOStreams,
+	options ProfileOptions,
+) (tui.ShellDependencies, error) {
+	opener := streams.OpenProfile
+	if opener == nil {
+		opener = openProfile
+	}
+	if options.Demo || options.FixturePath != "" {
+		opened, err := opener(ctx, options)
+		if err != nil {
+			return tui.ShellDependencies{}, err
+		}
+		preselected := shellOpenedProfile(opened)
+		return tui.ShellDependencies{Preselected: &preselected}, nil
+	}
+
+	catalog, err := openProfileCatalog(options.ExplicitHome)
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
+	amazonMatcher, err := newCatalogAmazonMatcher(catalog)
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
+	instanceID, err := newProviderInstanceID("tui")
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
+	rawOpen := func(openContext context.Context, selector string) (OpenedProfile, error) {
+		return opener(openContext, ProfileOptions{
+			ExplicitHome: options.ExplicitHome, Profile: selector,
+		})
+	}
+	coordinator, err := onboarding.NewCoordinator(onboarding.Config{
+		Random: cryptorand.Reader, Now: time.Now, InstanceID: instanceID,
+		OpenProfile: func(openContext context.Context, profileID string) (onboarding.OpenedProfile, error) {
+			opened, openErr := rawOpen(openContext, profileID)
+			if openErr != nil {
+				return onboarding.OpenedProfile{}, openErr
+			}
+			return onboarding.OpenedProfile{
+				ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close,
+			}, nil
+		},
+		Runtime: func(paths home.Paths) (onboarding.Runtime, error) {
+			runtime, runtimeErr := defaultProviderOnboardingRuntime(paths, streams)
+			if runtimeErr != nil {
+				return onboarding.Runtime{}, runtimeErr
+			}
+			runtime.InstanceID = instanceID
+			return runtime, nil
+		},
+	})
+	if err != nil {
+		return tui.ShellDependencies{}, err
+	}
+
+	simplefinCoordinator, err := simplefinonboarding.NewCoordinator(simplefinonboarding.Config{
+		Random: cryptorand.Reader, Now: time.Now, InstanceID: instanceID + "-simplefin",
+		OpenProfile: func(openContext context.Context, profileID string) (simplefinonboarding.OpenedProfile, error) {
+			opened, openErr := rawOpen(openContext, profileID)
+			if openErr != nil {
+				return simplefinonboarding.OpenedProfile{}, openErr
+			}
+			return simplefinonboarding.OpenedProfile{ID: opened.ID, Paths: opened.Paths, Service: opened.Service, Close: opened.Close}, nil
+		},
+		Runtime: func(paths home.Paths) (simplefinonboarding.Runtime, error) {
+			factory := streams.OpenSimpleFIN
+			if factory == nil {
+				factory = defaultSimpleFINCommandFactory
+			}
+			runtime, runtimeErr := factory(paths)
+			runtime.InstanceID = instanceID + "-simplefin"
+			return runtime, runtimeErr
+		},
+	})
+	if err != nil {
+		_ = coordinator.Close(context.Background())
+
+		return tui.ShellDependencies{}, err
+	}
+	amazonCoordinator, err := amazonimport.New(amazonimport.Config{
+		InstanceID: instanceID + "-amazon", Now: time.Now, Random: cryptorand.Reader,
+		Limits: amazon.ProductionLimits, Discover: amazon.DiscoverDirectory, Parse: amazon.Parse,
+		ResolveTarget: func(targetContext context.Context, profileID string) (amazonimport.Target, error) {
+			entry, resolveErr := catalog.Resolve(targetContext, profileID)
+			if resolveErr != nil {
+				return amazonimport.Target{}, resolveErr
+			}
+			if entry.ProviderKind != "amazon" {
+				return amazonimport.Target{}, errors.New("selected profile is not an Amazon profile")
+			}
+			return openAmazonImportTarget(targetContext, catalog, entry)
+		},
+	})
+	if err != nil {
+		_ = simplefinCoordinator.Shutdown(context.Background())
+		return tui.ShellDependencies{}, err
+	}
+	dependencies := tui.ShellDependencies{
+		Catalog:    catalog,
+		Profiles:   amazonMatchingProfileLifecycle{ProfileCatalog: catalog, matcher: amazonMatcher},
+		Onboarding: coordinator, AmazonImports: amazonCoordinator,
+		SimpleFINOnboarding: simplefinCoordinator,
+		LoadAmazonTaxonomy: func(loadContext context.Context, selector string) (*app.TaxonomyClone, error) {
+			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
+		},
+		OpenProfile: func(openContext context.Context, selector string) (tui.ShellOpenedProfile, error) {
+			opened, openErr := rawOpen(openContext, selector)
+			if openErr != nil {
+				return tui.ShellOpenedProfile{}, openErr
+			}
+			if configureErr := configureOpenedProvider(
+				openContext, opened, streams, "tui",
+			); configureErr != nil {
+				return tui.ShellOpenedProfile{}, closeOpenedProfile(opened, configureErr)
+			}
+			opened.Service.ConfigureAmazonMatching(amazonMatcher)
+			return shellOpenedProfile(opened), nil
+		},
+		OpenDemo: func(openContext context.Context) (tui.ShellOpenedProfile, error) {
+			opened, openErr := opener(openContext, ProfileOptions{Demo: true})
+			if openErr != nil {
+				return tui.ShellOpenedProfile{}, openErr
+			}
+			return shellOpenedProfile(opened), nil
+		},
+	}
+	if options.Profile != "" {
+		opened, openErr := dependencies.OpenProfile(ctx, options.Profile)
+		if openErr != nil {
+			return tui.ShellDependencies{}, openErr
+		}
+		dependencies.Preselected = &opened
+	}
+	return dependencies, nil
+}
+
+func shellOpenedProfile(opened OpenedProfile) tui.ShellOpenedProfile {
+	return tui.ShellOpenedProfile{
+		ID: opened.ID, Paths: opened.Paths, Service: opened.Service, ProviderKind: opened.Kind,
+		Temporary: opened.Demo, Close: opened.Close,
+	}
+}
+
+func closePreselectedShellProfile(dependencies tui.ShellDependencies, runErr error) error {
+	if dependencies.Preselected == nil || dependencies.Preselected.Close == nil {
+		return runErr
+	}
+	return errors.Join(runErr, dependencies.Preselected.Close())
+}

@@ -1,6 +1,7 @@
 # AGENTS.md - moneyflow Development Guide
 
 <!-- MEMANTO-MANAGED-SECTION -->
+<!-- markdownlint-disable MD013 -->
 ## MEMANTO - Your Active Memory Companion
 
 **MEMANTO is not a passive store. It is an active companion agent that works alongside you.**
@@ -109,6 +110,7 @@ memanto memory sync --project-dir .
 `0.8-0.85` for observed patterns (3+ times); `0.6-0.75` for emerging patterns.
 
 > **Note**: The `memanto-memory` skill in `.agents/skills/memanto/` contains detailed reference guidelines.
+<!-- markdownlint-enable MD013 -->
 <!-- /MEMANTO-MANAGED-SECTION -->
 
 ## CRITICAL: Git Branch Management for AI Assistants
@@ -125,6 +127,7 @@ memanto memory sync --project-dir .
 - ❌ **NEVER switch branches when starting a new task** - the user has already set up the branch
 
 **If you need to work on a different branch**, ask the user first:
+
 - "Should I switch to branch X to work on this?"
 - "Should I create a new branch for this feature?"
 
@@ -134,7 +137,8 @@ memanto memory sync --project-dir .
 
 **⚠️ NEVER include user's personal data in code, comments, or documentation.**
 
-This is a personal finance application. Users may share screenshots or logs containing real financial data (account names, transaction details, merchant names, etc.) when debugging issues.
+This is a personal finance application. Users may share screenshots or logs containing real
+financial data (account names, transaction details, merchant names, etc.) when debugging issues.
 
 - ❌ **NEVER copy personal data** from screenshots/logs into code comments
 - ❌ **NEVER use real account names, card numbers, or transaction details** as examples
@@ -143,598 +147,141 @@ This is a personal finance application. Users may share screenshots or logs cont
 
 ## Project Overview
 
-moneyflow is a terminal-based UI for power users to manage personal finance transactions efficiently. Built with Python using Textual for the UI and Polars for data processing. Supports multiple backends including Monarch Money, with more platforms planned (YNAB, Lunch Money, etc.).
+Moneyflow is a Go application for reviewing personal finance transactions in a terminal,
+a browser, or an MCP client. The same application service owns accounting, analytics,
+pending edits, provider refresh, and write-back for all three interfaces.
 
-## Canonical Agent Instructions
+Go replaces the legacy Python application. Cutover must preserve user data through JSONL
+export/import into fresh profiles, not database migrations. See
+[the transition guide](docs/getting-started/transition.md) for current capabilities and
+the remaining cutover work.
 
-**AGENTS.md is the single point of truth for agent instructions.**
+## Canonical Instructions
 
-- ✅ Keep all durable AI-assistant guidance in `AGENTS.md`
-- ✅ `CLAUDE.md` must remain a symlink to `AGENTS.md`
-- ❌ Do not duplicate or fork these instructions into separate assistant-specific files
+Keep durable agent guidance in this file. `CLAUDE.md` must remain a symlink to `AGENTS.md`.
+Do not create a second assistant-specific instruction file or private project memory.
 
-## Development Setup
+## Documentation
 
-### Using uv (REQUIRED)
+- Write for the person trying to use or maintain Moneyflow. Lead with the outcome, name who
+  does what, use short sentences, and explain unfamiliar terms.
+- Organize around reader questions. Put purpose and current capabilities first. Separate
+  limitations and future work. Use only the sections the topic needs.
+- Give each bullet one main idea. Use numbered steps for sequences, paragraphs for rationale,
+  and tables or diagrams when they clarify a comparison or flow.
+- State rules directly. Preserve exact commands, field names, authorization checks, limits,
+  and failure behavior when simplifying the wording.
+- Give each fact an owning guide or reference and link to it elsewhere. Update that section
+  instead of appending a narrative of the latest change. Indexes should route readers, not
+  repeat implementation status.
+- Keep only living architecture and user or maintainer guides in the documentation tree.
+  Preserve lasting rationale and active exceptions in the owning guide. Describe unbuilt
+  work as limitations. Do not check in planning archives, execution logs, or parity corpora;
+  use Git history for implementation chronology.
+- Keep the website, its Markdown sources, README, and command help consistent. Distinguish
+  the latest release from newer `main` functionality and unreleased branch work.
+- Follow [docs/README.md](docs/README.md) for publishing layout and checks. Python and uv
+  are documentation-build tools only; they are not application or test dependencies.
 
-**IMPORTANT**: This project uses **uv** exclusively for all development workflows. Always use `uv run` for executing scripts. Never use pip, pipenv, poetry, or other package managers.
+## Development
 
-**CRITICAL FOR AI ASSISTANTS (Codex, Claude Code, etc.)**:
-- ❌ **NEVER run `pip install` or `uv pip install` to modify the user's environment**
-- ❌ **NEVER run `uv tool install` for project dependencies**
-- ✅ All dependencies MUST be declared in `pyproject.toml` and installed via `uv sync`
-- ✅ Use `uv run <command>` to run tools in the project's virtual environment
-- 💡 This ensures **reproducibility** - anyone can clone the repo and run `uv sync` to get the exact same environment
-
-```bash
-# Install uv if not already installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# FIRST TIME SETUP: Sync dependencies (includes dev dependencies for testing)
-uv sync
-
-# This creates a virtual environment and installs all dependencies
-# You MUST run this before running tests or the TUI for the first time
-
-# After sync, run the TUI
-uv run moneyflow
-
-# Run tests (ALWAYS before committing)
-uv run pytest
-
-# Run tests with coverage
-uv run pytest --cov --cov-report=html
-
-# View coverage report
-open htmlcov/index.html
-```
-
-**If you get `ModuleNotFoundError`**: Run `uv sync` first!
-
-### Test-Driven Development (CRITICAL)
-
-**This project handles financial data. We cannot afford slip-ups.**
-
-**MANDATORY WORKFLOW**:
-1. **Write tests first** for any new feature or bug fix
-2. **Run tests** - verify they fail as expected
-3. **Implement** the feature/fix
-4. **Run tests again** - verify all tests pass
-5. **Check coverage** - ensure new code is tested
-6. **Only commit when tests are green**
-
-**Before EVERY commit**:
-```bash
-# Run full test suite
-uv run pytest -v
-
-# Run type checker
-uv run pyright moneyflow/
-
-# Check coverage
-uv run pytest --cov --cov-report=term-missing
-
-# Check markdown formatting (if docs changed)
-markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
-.github/scripts/check-arrow-lists.sh
-```
-
-**All tests must pass, type checking must be clean, and markdown must be properly formatted before committing.** No exceptions.
-
-### Project Structure
-
-**IMPORTANT**: All Python source code must be in the `moneyflow/` package. No Python files should live at the top level.
-
-```
-moneyflow/
-├── moneyflow/                   # Main package (ALL code goes here)
-│   ├── backends/                # Backend implementations
-│   │   ├── base.py              # Backend protocol/base types
-│   │   ├── monarch.py           # Monarch backend adapter
-│   │   ├── monarch_client.py    # Vendored GraphQL client (keep separate for upstream diffs)
-│   │   ├── ynab.py              # YNAB backend adapter
-│   │   ├── ynab_client.py       # YNAB API client wrapper
-│   │   ├── amazon.py            # Amazon order data backend
-│   │   └── demo.py              # Demo backend
-│   ├── data/                    # Business/data layer
-│   │   ├── data_manager.py      # Data orchestration with Polars
-│   │   ├── state.py             # App state management
-│   │   ├── cache_manager.py     # Core cache persistence
-│   │   ├── cache_orchestrator.py # Cache flow orchestration
-│   │   ├── credentials.py       # Encrypted credential storage
-│   │   ├── duplicate_detector.py # Duplicate detection
-│   │   ├── commit_orchestrator.py # DataFrame update logic
-│   │   ├── time_navigator.py    # Time period calculations
-│   │   └── categories.py        # Category normalization/config
-│   ├── importers/               # File importers
-│   ├── mcp/                     # MCP server entrypoint and tools
-│   ├── tui/                     # Textual UI layer
-│   │   ├── app.py               # Main Textual application
-│   │   ├── app_controller.py    # UI orchestration
-│   │   ├── formatters.py        # UI formatting/presentation helpers
-│   │   ├── keybindings.py       # Keyboard shortcut definitions
-│   │   ├── screens/             # UI screens and modals
-│   │   ├── widgets/             # Custom UI widgets
-│   │   └── styles/              # Textual CSS
-│   ├── cli.py                   # CLI entrypoint
-│   └── version.py               # Version metadata helpers
-├── tests/                       # Test suite
-│   ├── conftest.py              # Pytest fixtures
-│   ├── mock_backend.py          # Mock finance backend
-│   ├── test_state.py            # State management tests
-│   ├── test_data_manager.py     # Data operations tests
-│   ├── test_formatters.py       # UI formatting/presentation tests
-│   ├── test_time_navigator.py   # Time navigation tests
-│   ├── test_commit_orchestrator.py # DataFrame update tests
-│   ├── screens/                 # Screen-level UI tests
-│   ├── integration/             # Integration/Textual smoke tests
-│   └── test_workflows.py        # Edit workflow tests
-├── pyproject.toml               # Project metadata and dependencies
-├── README.md                    # User documentation
-├── AGENTS.md                    # Canonical AI assistant development guide
-└── CLAUDE.md                    # Symlink to AGENTS.md for Claude Code
-```
-
-**File Organization Rules**:
-- ✅ All business logic in `moneyflow/` package
-- ✅ All tests in `tests/` directory
-- ✅ Entry point via `moneyflow` command (configured in pyproject.toml)
-- ❌ No `.py` files at top level
-- ❌ No duplicate files between top-level and package
-
-## Testing Strategy
-
-**IMPORTANT**: All business logic must be tested before running against real data.
-
-### Testing Architecture
-
-1. **Mock Backend**: `tests/mock_backend.py` provides a `MockMonarchMoney` class that simulates the API without making real network calls.
-
-2. **Test Fixtures**: `tests/conftest.py` provides reusable test data and fixtures.
-
-3. **Separation of Concerns**:
-   - `moneyflow/data/state.py`: Pure state management (no I/O) - easily testable
-   - `moneyflow/data/data_manager.py`: Takes backend instances via dependency injection - can use mocks
-   - `moneyflow/tui/`: Testable with Textual pilot tests
-
-### What We Test
-
-- ✅ State management: undo/redo, change tracking
-- ✅ Data operations: aggregation, filtering, search
-- ✅ Edit workflows: merchant rename, category change, hide toggle
-- ✅ Bulk operations: multi-select, bulk edit
-- ✅ Duplicate detection: finding and handling duplicates
-- ✅ **Presentation logic**: View formatting, flag computation (100% coverage)
-- ✅ **Time navigation**: Date calculations, leap years, boundaries (100% coverage)
-- ✅ **DataFrame updates**: Critical commit logic (100% coverage)
-- ✅ Edge cases: empty datasets, invalid data, API failures
-
-### Running Tests
-
-**ALWAYS use `uv run` for running tests:**
+Stay on the branch the user selected. The replacement is developed on `go-port`.
+Use `mise trust` and `mise install` to select the tools pinned in `mise.toml`, including
+Go 1.27.1 and Bun 1.3.14. Run commands through `mise exec --` when shell activation is absent.
+Do not work around toolchain selection with shell-specific Go version exports.
+Keep `mise.toml`, `go.mod`, `web/package.json`, and CI tool versions aligned.
+Build portable Linux, macOS, and Windows binaries without CGO. Put binaries in `bin/`,
+never the repository root. Follow [development](docs/development/developing.md) for setup,
+including the private temporary directory required by Unix tests and demos.
 
 ```bash
-# Run all tests (run before EVERY commit)
-uv run pytest -v
-
-# Run with coverage report
-uv run pytest --cov --cov-report=html --cov-report=term-missing
-
-# Run specific test file
-uv run pytest tests/test_state.py -v
-
-# Run tests matching a pattern
-uv run pytest -k "test_undo" -v
-
-# Run and stop on first failure
-uv run pytest -x
-
-# Run and show local variables on failure
-uv run pytest -l
+make web-install       # Install the locked frontend dependencies
+make build             # Build bin/moneyflow (bin/moneyflow.exe on Windows)
+make tui-demo          # Run with fresh temporary synthetic data
+make web-demo          # Serve fresh temporary synthetic data
 ```
 
-### Coverage Requirements
+| Directory | Owns |
+| --- | --- |
+| `cmd/moneyflow/` | CLI and process startup |
+| `internal/app/` | Shared application service and journal operations |
+| `internal/domain/`, `internal/analytics/` | Exact money, identities, and queries |
+| `internal/store/` | SQLite persistence and atomic changes |
+| `internal/provider/`, `internal/importer/` | Provider adapters and file parsing |
+| `internal/tui/`, `internal/api/`, `internal/mcp/` | Interface adapters |
+| `web/` | Browser application |
+| `testdata/` | Synthetic fixtures |
 
-**Business Logic Coverage Target: >90%**
+## Tests and Verification
 
-Core modules must maintain high coverage:
-- `moneyflow/data/state.py`: State management
-- `moneyflow/data/data_manager.py`: Data operations and backend integration
-- `moneyflow/data/duplicate_detector.py`: Duplicate detection
-- `moneyflow/data/cache_manager.py`: Core cache persistence
-- `moneyflow/data/cache_orchestrator.py`: Cache orchestration
-- `moneyflow/data/time_navigator.py`: Time period calculations
-- `moneyflow/data/commit_orchestrator.py`: DataFrame update logic
-- `moneyflow/tui/formatters.py`: UI formatting and presentation helpers
+Write a failing behavior test before changing application behavior. Verify the failure,
+implement the smallest fix, and run the focused test again. Test behavior the repository
+owns, not the absence of deleted code. Documentation and configuration changes are checked
+by their actual build tools, not source-text assertions.
 
-UI layer coverage is less critical but still valuable.
-
-View coverage report:
-```bash
-uv run pytest --cov --cov-report=html
-open htmlcov/index.html
-```
-
-### Test-Driven Development Workflow
-
-1. Write tests first for new features
-2. Run tests to verify they fail
-3. Implement the feature
-4. Run tests to verify they pass
-5. Refactor while keeping tests green
-
-## Code Quality Checks
-
-**CRITICAL**: All code quality checks MUST pass before committing. This ensures consistent code quality and prevents regressions.
-
-### Required Checks (run before EVERY commit)
+Run before every commit:
 
 ```bash
-# 1. Run full test suite
-uv run pytest -v
-
-# 2. Type checking (pyright)
-uv run pyright moneyflow/
-
-# 3. Code formatting (ruff format)
-uv run ruff format --check moneyflow/ tests/
-
-# 4. Linting (ruff check)
-uv run ruff check moneyflow/ tests/
-
-# 5. Markdown formatting (if docs changed)
-markdownlint --config .markdownlint.json README.md 'docs/**/*.md'
-.github/scripts/check-arrow-lists.sh
+make verify-go
+make test-race
+git diff --check
 ```
 
-**All checks must pass with zero errors** before creating a commit or release.
-
-**Note:** Markdown checks (5) only need to run if you've modified documentation files (README.md or docs/).
-
-### Auto-Fixing Issues
+Run `make verify-web` for browser, API, embedded-asset, or cross-interface changes.
+For Amazon changes or cutover verification, also run:
 
 ```bash
-# Auto-format code
-uv run ruff format moneyflow/ tests/
-
-# Auto-fix linting issues
-uv run ruff check --fix moneyflow/ tests/
+make test-amazon
+make test-amazon-e2e
 ```
 
-### Working with Documentation
-
-The project uses [Zensical](https://zensical.org) (modern theme) for documentation.
-Zensical is built by the Material for MkDocs team and reads the existing `mkdocs.yml`
-configuration natively.
-
-**Starting the docs server:**
-
-```bash
-# Serve docs locally with live reload (default: http://localhost:8000)
-uv run zensical serve
-```
-
-**Building the site (no server):**
-
-```bash
-uv run zensical build   # output written to site/
-```
-
-**Generating/regenerating screenshots:**
-
-```bash
-# Generate all screenshots
-uv run python scripts/generate_screenshots.py
-
-# Generate only specific screenshots (by filename filter)
-uv run python scripts/generate_screenshots.py --filter amazon-matching
-
-# IMPORTANT: After regenerating, restart the docs server for changes to appear
-```
-
-**Known Issues:**
-
-- **Stale screenshots/images**: If docs show old images after regenerating, delete the
-  `site/` directory and rebuild, then hard refresh the browser (`Cmd+Shift+R` /
-  `Ctrl+Shift+R`).
-
-- **HTML img tags need different paths**: When using `<img>` tags in markdown (for tables),
-  paths resolve relative to the page URL, not the source file. Use `../../assets/` for
-  pages in subdirectories like `guide/navigation.md`.
-
-### Configuration
-
-- `pyproject.toml` contains configuration for ruff and pyright
-- `moneyflow/backends/monarch_client.py` is excluded from ruff/pyright checks (external vendor code)
-- Line length: 100 characters
-- Target Python version: 3.11
-
-## Code Style
-
-- **Use type hints** for all function signatures
-- **No inline imports**: All imports must be at the top of the file, not inside functions/methods
-  - Inline imports are slower (import happens on every call)
-  - Harder to see dependencies at a glance
-  - Exception: Circular import issues (rare)
-- **Document complex logic** with comments explaining "why", not "what"
-- **Keep functions focused** - Single responsibility, easy to test
-- **Use meaningful variable names** - Prefer clarity over brevity
-
-## Making Changes to monarch_client.py
-
-The `moneyflow/backends/monarch_client.py` file is kept separate to make it easy
-to generate diffs for upstream contributions to `hammem/monarchmoney`:
-
-```bash
-# Generate a diff against the original
-diff moneyflow/backends/monarch_client.py /path/to/original/monarchmoney.py > my_changes.patch
-```
-
-## Security Notes
-
-- Credentials are encrypted with Fernet (AES-128)
-- Never commit `.mm/` directory (session data)
-- Never commit `~/.moneyflow/` directory (encrypted credentials)
-- Never commit test data with real credentials
-- See SECURITY.md for full security documentation
-
-## Security Threat Model
-
-This is the canonical threat model for moneyflow. Judge security work — and
-security review findings — against it, and say which assumption a finding
-violates. `.roborev.toml` mirrors a condensed copy for automated reviewers;
-update both together.
-
-moneyflow is a single-user personal-finance TUI. It stores data in local
-SQLite databases and YAML config under a per-user directory (default
-`~/.moneyflow`, overridable with `--config-dir`), and writes a log containing
-financial metadata to the same place.
-
-### Trusted (do not harden against these)
-
-- The OS kernel, filesystem, Python runtime, and installed dependencies
-- Administrators/root, and Windows service accounts (LocalSystem,
-  TrustedInstaller, `BUILTIN\Administrators`)
-- The user's own account and processes running as the user
-- OS-managed ancestors of the default config location (`/home`, `C:\Users`)
-  with their stock permissions
-
-### In scope (must defend)
-
-- **Confidentiality and integrity against other local users.** Databases,
-  config, credentials, and logs are created owner-only (0600 files / 0700
-  directories on POSIX; protected owner-only DACLs on Windows) and
-  re-validated when opened. On macOS, extended ACLs are checked too — they
-  grant access independently of mode bits and are inheritable, so a 0600
-  file can still be exposed.
-- **Path redirection.** Symlinks, junctions, and other reparse points under
-  the config directory are rejected before permission mutations and before
-  opening databases or reading config. Writes to sensitive files are atomic
-  and never follow symlinks.
-- **Non-replaceable path components.** POSIX: every ancestor owned by the
-  user or root and not group/other writable. Windows: no untrusted principal
-  holding delete, rename, re-ACL, or child-creation rights.
-- **Trusted-input validation.** Config is authoritative (category structure,
-  alias remapping), so it is read through a validated no-follow descriptor and
-  rejected if another account could write it.
-- **Financial-data correctness** — no silent loss, duplication, or
-  miscategorization of transactions — at any severity.
-
-### How path trust is established (the architectural decision)
-
-The config root and every one of its ancestors are validated **once per
-session**, at startup, by `file_utils.validate_trusted_root`: no symlinked or
-reparse-pointed component, every component owned by the user or root, none
-group/other writable, and no macOS extended ACL. Everything beneath a
-validated root is then trusted for the session.
-
-Individual files under that root are still opened without following
-redirection (`open_verified_no_follow`: `O_NOFOLLOW` / reparse-point
-rejection, plus owner, mode, and ACL checks on the descriptor), and the
-database additionally re-verifies its descriptor on every connection.
-
-Re-walking every ancestor on every open is explicitly **not** the design. It
-cannot close the race — the tree is mutable between any two syscalls — so it
-buys no security while multiplying syscalls and code paths. Findings of the
-form "call site X does not re-validate ancestors" are out of scope; the
-correct question is whether a new entry point reaches the filesystem
-*without* the root having been validated.
-
-### Accepted residual risk (do not file findings for these)
-
-- Python's `sqlite3` cannot open a database from a descriptor or do
-  dirfd-relative opens, so path-based connects cannot be made perfectly
-  race-free. The required mitigations are handle-anchored ownership
-  verification, no-delete-sharing handle pinning across connect on Windows,
-  and post-open device/inode verification. Multi-step sub-millisecond races
-  that defeat all of those simultaneously are accepted; do not request
-  guarantees the `sqlite3` API cannot express.
-- A user who explicitly points `--config-dir` at a location whose ancestors
-  are owned or writable by untrusted accounts. Startup validation refuses the
-  detectable cases and aborts; an attacker with that much control over the
-  user's paths can compromise the environment more directly.
-- Anything requiring an attacker to already have write access to the user's
-  home directory or to run code as the user.
-
-### Recorded design decisions (do not re-litigate)
-
-- **CSV dedup is content-keyed** (date/amount/merchant by default, plus the
-  `--account` label). Identical transactions split across separate export
-  files are indistinguishable from one transaction in two overlapping
-  exports, and are deduplicated; identical rows within one file are kept via
-  a sequence suffix. Overlapping exports are the common case. Mappings can
-  add an institution reference column to `dedup_fields` where the CSV has one.
-- **Reissued files are reconciled** against a per-file snapshot
-  (`import_file_transactions`): rows the new content no longer produces are
-  removed unless another file's snapshot still claims them. Reconciliation is
-  skipped when any row failed to parse, since an unparsable row is not a
-  removed one.
-
-## Common Tasks
-
-### Adding a New Feature
-
-1. Create tests in `tests/test_*.py`
-2. Implement in appropriate module
-3. Update keyboard shortcuts in `moneyflow/tui/keybindings.py`
-4. Update README.md with new functionality
-5. Run full test suite
-
-### Debugging
-
-```bash
-# Enable Textual dev tools
-uv run textual console
-
-# Then in another terminal
-uv run moneyflow
-
-# View logs in the console
-```
-
-### Updating Dependencies
-
-```bash
-# Add new dependency to pyproject.toml manually, then:
-uv sync
-
-# Or add directly
-uv add package-name
-
-# Update all dependencies
-uv lock --upgrade
-uv sync
-```
-
-## Git Workflow
-
-**CRITICAL**: Never commit without running all code quality checks first!
-
-**IMPORTANT**: When working with Codex, Claude Code, or other AI assistants:
-- ✅ AI can create commits locally
-- ✅ AI must commit completed changes after all required checks pass, unless the user explicitly says not to commit
-- ❌ AI must NEVER push to git without explicit user permission
-- ❌ AI must NEVER create new branches unless explicitly asked by the user
-- ❌ AI must NEVER amend commits unless explicitly asked by the user
-- 💡 User should review commits before pushing
-
-**Pull request descriptions**:
-- Do not include a "Test Plan", "Verification", or similar checklist/section in PR descriptions.
-- Keep PR descriptions focused on the change summary and useful context.
-- Report verification results in chat/status updates instead.
-
-```bash
-# MANDATORY: Run all code quality checks before committing
-uv run pytest -v                          # All tests must pass
-uv run pyright moneyflow/                 # Type checking must be clean
-uv run ruff format --check moneyflow/ tests/  # Code must be formatted
-uv run ruff check moneyflow/ tests/       # Linting must pass
-
-# Only if ALL checks pass, then commit
-git add -A
-git commit -m "Descriptive commit message"
-
-# WAIT for user approval before pushing
-# git push origin main
-
-# Use conventional commit format
-# feat: New feature
-# fix: Bug fix
-# test: Adding tests
-# refactor: Code refactoring
-# docs: Documentation updates
-```
-
-**Pre-commit Checklist** (ALL must pass):
-- [ ] All tests pass (`uv run pytest -v`)
-- [ ] Type checking passes (`uv run pyright moneyflow/`)
-- [ ] Code formatting passes (`uv run ruff format --check moneyflow/ tests/`)
-- [ ] Linting passes (`uv run ruff check moneyflow/ tests/`)
-- [ ] Markdown formatting passes (if docs changed):
-  - `markdownlint --config .markdownlint.json README.md 'docs/**/*.md'`
-  - `.github/scripts/check-arrow-lists.sh`
-- [ ] Coverage hasn't decreased
-- [ ] No debug print statements left in code
-- [ ] Updated tests for any changed behavior
-- [ ] Ran with real test data if changing API logic
-
-### Static Type Checking (NEW)
-
-**Pyright** is integrated for static type analysis. Use comprehensive type hints for all new code.
-
-```bash
-# Type-check specific module
-uv run pyright moneyflow/data/data_manager.py
-
-# Type-check all application code
-uv run pyright moneyflow/
-
-# Type checking is also run in CI on every push
-```
-
-**Type Hint Requirements**:
-- All function signatures must have full type hints
-- Use `TypedDict` for complex dictionaries
-- Use `Literal` types for string enums
-- Use `NamedTuple` for data transfer objects
-- Prefer `Callable[[Args], Return]` for function types
-
-## Performance Considerations
-
-- Bulk fetch transactions on startup (1000 per batch)
-- All aggregations done locally with Polars
-- Batch API updates to minimize round trips
-- Cache data in AppState to avoid re-fetching
-
-## Known Issues / TODOs
-
-- [ ] Add transaction deletion with confirmation
-- [ ] Implement time range picker UI
-- [ ] Add CSV export functionality
-- [ ] Improve duplicate detection algorithm
-- [ ] Add split transaction support
-- [ ] Implement transaction notes editing
-
-
-<!-- headroom:rtk-instructions -->
-# RTK (Rust Token Killer) - Token-Optimized Commands
-
-When running shell commands, **always prefix with `rtk`**. This reduces context
-usage by 60-90% with zero behavior change. If rtk has no filter for a command,
-it passes through unchanged — so it is always safe to use.
-
-## Key Commands
-```bash
-# Git (59-80% savings)
-rtk git status          rtk git diff            rtk git log
-
-# Files & Search (60-75% savings)
-rtk ls <path>           rtk read <file>         rtk grep <pattern>
-rtk find <pattern>      rtk diff <file>
-
-# Test (90-99% savings) — shows failures only
-rtk pytest tests/       rtk cargo test          rtk test <cmd>
-
-# Build & Lint (80-90% savings) — shows errors only
-rtk tsc                 rtk lint                rtk cargo build
-rtk prettier --check    rtk mypy                rtk ruff check
-
-# Analysis (70-90% savings)
-rtk err <cmd>           rtk log <file>          rtk json <file>
-rtk summary <cmd>       rtk deps                rtk env
-
-# GitHub (26-87% savings)
-rtk gh pr view <n>      rtk gh run list         rtk gh issue list
-
-# Infrastructure (85% savings)
-rtk docker ps           rtk kubectl get         rtk docker logs <c>
-
-# Package managers (70-90% savings)
-rtk pip list            rtk pnpm install        rtk npm run <script>
-```
-
-## Rules
-- In command chains, prefix each segment: `rtk git add . && rtk git commit -m "msg"`
-- For debugging, use raw command without rtk prefix
-- `rtk proxy <cmd>` runs command without filtering but tracks usage
-<!-- /headroom:rtk-instructions -->
+For documentation changes, run `make docs-check`; it lints Markdown and builds the website.
+Use `uv sync --project docs --frozen` and `uv run --project docs --frozen <command>` for docs tooling.
+Do not use pip, install project dependencies globally, or restore the retired Python app
+to satisfy a build command.
+
+All correctness, type, formatting, lint, and documentation checks must pass before commit.
+If host load makes a timing gate unreliable, use the supported `MONEYFLOW_SKIP_PERF=1`
+verification path and report the exact failing or skipped timing gate. Do not relax a limit
+to hide a failure. Live tests need explicit authorization; synthetic tests must pass first.
+
+Commit every verified agent-authored change before yielding. Live confirmation is follow-up
+evidence, not a reason to leave verified changes uncommitted. Never amend, push, create a
+branch, or merge without explicit user authorization. Preserve unrelated changes.
+
+Use conventional commit subjects. PR descriptions explain the change and useful context;
+do not include a Test Plan, Verification, or similar checklist. Report checks in chat instead.
+
+## Storage and Provider Rules
+
+All accounting and analytics use signed integer minor units. Never represent money with
+`float32` or `float64`. Parsing either produces an exact amount or rejects the input.
+
+Maintain one current schema in `internal/store/sqlite/schema/profile.sql`, not a sequence of
+historical schemas. Do not add database or journal-payload migrations, now or after release.
+Cutover uses JSONL export/import into a fresh database. Never rewrite an existing profile
+in place to fit a new schema; refuse incompatible databases and leave their data intact.
+Do not call the Go cutover complete until the JSONL transfer path is implemented and verified.
+Cutover exports require no active pending edits and no unfinished provider-write batch.
+Users must commit or discard pending edits and resolve provider writes first. Do not transfer
+undo/redo history, credentials, or provider work that could resume against a remote account.
+
+Interface adapters call `internal/app.Service`; they do not query SQLite, call providers,
+or duplicate accounting. Provider writes use the shared durable batch. Preserve the single
+worker guard. Amazon, bank CSV, and SimpleFIN edits commit locally and never write to those providers.
+CSV reimport must preserve committed overrides and explicit deletions. Its source identities
+and file-to-row links are saved profile data and must survive JSONL transfer.
+
+Amazon import, repeat import, local-edit preservation, product search, and bank-charge matching
+are required cutover behavior. Keep focused synthetic tests for these workflows. SimpleFIN
+remains experimental until maintainers review live-bank evidence; that evidence is not a
+Go-cutover gate, but automated correctness and data-preservation gates are still required.
+
+## Generated Artifacts
+
+`make web-generate` and `make web-embed` are deliberate writes. Generated screenshots and
+`internal/web/dist` stay ignored and uncommitted. Durable visual assets belong on a separately
+managed orphan-assets branch, if retained. Never use personal financial data in fixtures,
+screenshots, code, comments, or documentation.
+
+See [SECURITY.md](SECURITY.md) for credential storage and deployment boundaries.

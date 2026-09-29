@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "name": "initial_css_brotli",
+      "manifest_entry": "index.html",
+      "kind": "css",
+      "compression": "brotli",
+      "max_bytes": 20480
+    },
+    {
+      "name": "initial_css_gzip",
+      "manifest_entry": "index.html",
+      "kind": "css",
+      "compression": "gzip",
+      "max_bytes": 20480
+    },
+    {
+      "name": "initial_javascript_brotli",
+      "manifest_entry": "index.html",
+      "kind": "javascript",
+      "compression": "brotli",
+      "max_bytes": 194560
+    },
+    {
+      "name": "initial_javascript_gzip",
+      "manifest_entry": "index.html",
+      "kind": "javascript",
+      "compression": "gzip",
+      "max_bytes": 225280
+    }
+  ],
+  "interactions": [
+    {
+      "name": "chart_cursor",
+      "percentile": "p95",
+      "samples": 100,
+      "max_ms": 40
+    },
+    {
+      "name": "chart_drill",
+      "percentile": "p95",
+      "samples": 100,
+      "max_ms": 30
+    }
+  ]
+}

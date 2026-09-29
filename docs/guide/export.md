@@ -1,68 +1,39 @@
-# Exporting Transactions
+# Export transactions
 
-Export your loaded transactions for backup or external analysis. Exported files
-contain financial data and are not encrypted, so treat them like account
-statements before sharing or moving them to cloud storage.
+Press `E` in the terminal or browser to save committed transactions for analysis.
+Exports contain financial data and are not encrypted. They are not profile backups.
 
-## Opening the Export Modal
+## Choose a format
 
-| Key | Action |
-|-----|--------|
-| ++E++ | Open export format and scope selection |
+| Format | Money and metadata |
+| --- | --- |
+| Parquet | Typed rows; metadata embedded in the file |
+| CSV | Exact decimal text and integer minor units; metadata in `#` comment lines |
+| SQLite | `transactions` table plus an `export_metadata` table |
 
-## Choosing a Format
+Every format includes `amount`, `amount_minor`, `currency`, and `scale`.
+Free-text CSV values, including provider transaction IDs, are prefixed with an apostrophe when
+they look like spreadsheet formulas. Treat those prefixes as export formatting, not changes to
+the saved data. Money columns remain numeric decimal strings without added prefixes.
 
-| Format | Extension | Data fidelity | Metadata | Best for |
-|--------|-----------|---------------|----------|----------|
-| Parquet | `.parquet` | Type-preserving | Sidecar `.meta.json` file | Polars/Python analysis, compact binary |
-| CSV | `.csv` | Spreadsheet-safe text; formula-like strings are prefixed | `#`-prefixed comment header | Spreadsheets, universal interchange |
-| SQLite | `.db` | Query-friendly text columns | `metadata` table + `transactions` table | Database analysis, SQL queries |
+## Choose what to include
 
-Parquet is selected by default. Use arrow keys or click to switch formats.
+**Full** exports every committed transaction. **Filtered** applies the current search,
+date, visibility, and drill-down filters to committed data. Pending edits and inactive redo
+operations are excluded; their counts appear in metadata. An empty selected scope does not
+produce a file.
 
-## Choosing a Scope
+Export captures one revision so a concurrent edit cannot mix rows from different states.
+Metadata includes the source revision, time, scope, date range, provider kinds, and counts.
+Review metadata as well as transaction rows before sharing a file.
 
-- **Full dataset** — All loaded transactions.
-- **Filtered transactions** — The same transaction set returned by moneyflow's
-  active filters and navigation state. This includes search text, time
-  selection, hide-from-reports and transfer visibility, and active drill-down or
-  detail-view constraints.
+## Find the file
 
-If the selected scope contains no rows, the app shows "No data to export" and
-does not create an empty file. The underlying exporter API can still write
-schema-only files for tests and automation.
+The TUI writes beneath the selected profile's `exports/` directory. Existing files are
+not overwritten. The browser downloads a file through its normal download controls.
+Browser downloads inherit the browser and operating system's handling; they are not encrypted
+by Moneyflow.
 
-Exports use loaded transaction data. Pending edits that have not been committed
-to the backend are not included.
-
-## Output Location
-
-Files are written to `~/.moneyflow/exports/` with the naming pattern:
-
-```text
-<timestamp>-<scope>-export.<ext>
-```
-
-For example: `2026-06-19_143022_865809-full-export.parquet`
-
-All export files and directories are created with restrictive permissions (`0o600` for files, `0o700` for directories).
-
-## Tips
-
-!!! tip "CSV comment prefix"
-    When reading exported CSV files back, pass `comment_prefix="#"` to Polars'
-    `read_csv()` to skip the metadata header automatically:
-    ```python
-    pl.read_csv("export.csv", comment_prefix="#")
-    ```
-
-!!! tip "Metadata contents"
-    Export metadata includes the app version, timestamp, transaction count, date
-    range, backend type, and category group names. It does not include
-    credentials, tokens, or encrypted blobs. Category group names can come from
-    user configuration, so review metadata before sharing export files.
-
-!!! tip "Large exports"
-    Exports run in the background, but there is no cancellation UI yet. CSV and
-    SQLite exports materialize data during serialization, so very large exports
-    may take noticeable time.
+Export runs without changing committed transactions. Cancel from the export interface if
+needed. To preserve the full profile, including credentials and pending changes, follow
+[profile backups](../config/caching.md#back-up-a-profile) instead.

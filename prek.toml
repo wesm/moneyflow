@@ -1,4 +1,5 @@
-default_install_hook_types = ["pre-commit"]
+default_install_hook_types = ["pre-commit", "pre-push"]
+default_stages = ["pre-commit"]
 
 [[repos]]
 repo = "builtin"
@@ -19,39 +20,42 @@ hooks = [
 repo = "local"
 hooks = [
   {
-    id = "ruff-format",
-    name = "ruff format",
+    id = "gofmt",
+    name = "gofmt",
     language = "system",
-    entry = "uv run ruff format",
-    files = "\\.py$",
-    exclude = "monarch_client\\.py$",
+    entry = "mise exec -- gofmt -w",
+    files = "\\.go$",
     priority = 0,
   },
   {
-    id = "ruff-check",
-    name = "ruff check --fix",
+    id = "go-test-quick",
+    name = "go test (quick)",
     language = "system",
-    entry = "uv run ruff check --fix",
-    files = "\\.py$",
-    exclude = "monarch_client\\.py$",
-    priority = 10,
-  },
-  {
-    id = "pyright",
-    name = "pyright",
-    language = "system",
-    entry = "uv run pyright moneyflow/",
-    files = "\\.py$",
+    entry = "mise exec -- make test-go-quick",
+    files = "^(go\\.mod|go\\.sum|.*\\.go)$",
     pass_filenames = false,
     priority = 20,
   },
   {
-    id = "pytest",
-    name = "pytest (quick)",
+    id = "go-vet",
+    name = "go vet",
     language = "system",
-    entry = "uv run pytest -x -q",
-    files = "\\.py$",
+    entry = "mise exec -- make vet",
+    stages = ["pre-push"],
+    types_or = ["go", "go-mod", "go-sum"],
     pass_filenames = false,
+    priority = 20,
+  },
+  {
+    id = "golangci-lint",
+    name = "golangci-lint",
+    language = "system",
+    entry = "mise exec -- make lint",
+    stages = ["pre-push"],
+    types_or = ["go", "go-mod", "go-sum"],
+    pass_filenames = false,
+    # Both Go hooks generate ignored web assets. Run lint after vet so their
+    # destructive embed steps never race on the same output directories.
     priority = 30,
   },
 ]

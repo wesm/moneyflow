@@ -1,85 +1,49 @@
 # Security
 
-## Credential Storage
+Moneyflow stores financial data on your machine and can send reviewed changes to supported
+providers. Use a trusted account and device. File permissions and credential encryption do
+not protect against a compromised operating system or a process running as your user.
 
-moneyflow provides secure credential storage to avoid storing plaintext passwords or requiring environment variables.
+## Data at rest
 
-### How It Works
+Go profiles use SQLite without application-level database encryption. Protect the profile
+directory and backups; use full-disk encryption if appropriate. Transaction exports are
+also unencrypted.
 
-1. **Encryption**: Credentials are encrypted using Fernet (symmetric encryption with AES-128)
-2. **Key Derivation**: Your encryption password is converted to a key using PBKDF2-HMAC-SHA256 with 100,000 iterations
-3. **Salt**: A random 16-byte salt is generated per installation
-4. **File Permissions**: Credential files are set to 0600 (readable only by owner)
+Credential storage differs by provider. The owning guides describe exact paths and recovery:
 
-### What's Stored
+- [Monarch](docs/guide/monarch.md#where-are-credentials-stored): password-encrypted login vault
+  and a separate owner-private session file.
+- [YNAB](docs/guide/ynab.md#token-storage): owner-private token file, not password-encrypted.
+- [SimpleFIN](docs/guide/simplefin.md#storage-and-recovery): owner-private Access URL file,
+  not password-encrypted.
+- [Amazon](docs/guide/amazon-mode.md): local exported files; no Amazon login credentials.
 
-The `~/.moneyflow/credentials.enc` file contains:
-- Monarch Money email address
-- Monarch Money password
-- TOTP/OTP secret for 2FA
+Do not put tokens, authenticator secrets, Access URLs, or passwords in shell arguments,
+logs, screenshots, or issue reports. Profile backups can contain credentials.
 
-### Why This Approach?
+## Network access
 
-**Better than environment variables:**
-- Environment variables can leak into shell history
-- They can be accidentally committed to version control
-- They're visible to other processes on the system
+The web application has no built-in user authentication. Keep it on loopback or restrict
+access through a trusted network and an authenticated TLS proxy. Canonical-origin checks
+are not a replacement for authentication. See [web deployment](docs/config/advanced.md).
 
-**Better than plaintext config files:**
-- Credentials are encrypted at rest
-- Requires password to decrypt
-- Password is never written to disk
+MCP HTTP is a separate loopback-only, bearer-authenticated endpoint. The token grants
+access to the selected profile; `--allow-write` also registers mutation tools.
+See [MCP transport and token handling](docs/guide/mcp.md#streamable-http).
+Never publish query strings from either interface's access logs.
 
-**Better than system keychains:**
-- Portable across all platforms (Windows, macOS, Linux)
-- No OS-specific dependencies
-- Simple implementation
+## Backups and upgrades
 
-### Recommendations
+Stop every process using a profile before copying its complete directory. Keep database
+sidecar files with it. An export is not a complete profile backup.
 
-1. **Use a strong encryption password**
-   - At least 12 characters
-   - Mix of letters, numbers, symbols
-   - Don't reuse your Monarch password
+The preview schema is install-only: incompatible versions are refused rather than migrated.
+Do not bypass this by editing schema metadata or deleting a live database.
+Python data is not automatically imported or removed; see [moving to Go](docs/getting-started/transition.md).
 
-2. **Protect your config directory**
-   ```bash
-   chmod 700 ~/.moneyflow
-   chmod 600 ~/.moneyflow/*
-   ```
+## Report a vulnerability
 
-3. **Backup your TOTP secret**
-   - Store it securely (password manager, encrypted backup)
-   - If you lose it, you'll need to reset 2FA on Monarch Money
-
-4. **Delete credentials when done**
-   ```bash
-   rm ~/.moneyflow/credentials.enc
-   rm ~/.moneyflow/salt
-   ```
-
-### Security Audit
-
-The encryption implementation uses:
-- `cryptography` library (widely audited, industry standard)
-- Fernet (spec: https://github.com/fernet/spec)
-- PBKDF2 with 100,000 iterations (OWASP minimum recommendation)
-- SHA-256 hash function
-- Random salt per installation
-
-### Threat Model
-
-**Protected against:**
-- Casual file system access (files are encrypted)
-- Accidental commits to git (credentials not in plaintext)
-- Process inspection (credentials not in environment)
-
-**Not protected against:**
-- Attacker with your encryption password
-- Memory dumps while TUI is running
-- Keyloggers or screen capture
-- Root/admin access to your system
-
-### Reporting Security Issues
-
-If you discover a security vulnerability, please email the maintainers directly rather than opening a public issue.
+Contact the maintainer privately at the public project contact address,
+[info@wesmckinney.com](mailto:info@wesmckinney.com), rather than posting exploitable details in a public issue.
+Include the version, affected boundary, and a synthetic reproduction when possible.

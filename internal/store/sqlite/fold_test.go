@@ -1,0 +1,723 @@
+package sqlite
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
+	"github.com/wesm/moneyflow/internal/store"
+)
+
+func TestFoldMatchesEffectiveSnapshotAndClearsCompleteJournal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	revision, err := profile.Append(ctx, 1, draftFoldMerchantLabelOperation(1))
+	require.NoError(t, err)
+	revision, err = profile.Append(
+		ctx,
+		revision,
+		draftCategoryAssignOperation(revision, "category-21", "transaction-000003"),
+	)
+	require.NoError(t, err)
+	revision, err = profile.Append(
+		ctx,
+		revision,
+		draftHideOperation("operation_hide_active", revision, "transaction-000003"),
+	)
+	require.NoError(t, err)
+	revision, err = profile.Append(
+		ctx,
+		revision,
+		draftHideOperation("operation_redo", revision, "transaction-000007"),
+	)
+	require.NoError(t, err)
+	revision, err = profile.MoveCursor(ctx, revision, -1)
+	require.NoError(t, err)
+
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+
+	next, err := profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	assert.Equal(t, revision+1, next)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, effective.Effective, after.Committed)
+	assert.Empty(t, after.Journal)
+	assert.Zero(t, after.Cursor)
+	assert.Equal(t, next, after.Revision)
+	assert.Equal(t, plan.KnownDrills, after.KnownDrills)
+	assert.True(t, transactionRecord(t, after.Committed, "transaction-000003").Hidden)
+}
+
+func TestFoldPersistsMerchantAndTaxonomyMergesMovesAndCreation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	sourceGroup := categoryRecord(t, loaded.Committed, "category-16").GroupID
+	revision := uint64(1)
+	for _, operation := range []domain.Operation{
+		draftFoldMerchantMergeOperation(revision, "merchant-048", "merchant-091"),
+		draftGroupCreateOperation(revision+1, "group_new"),
+		draftCategoryMoveOperation(revision+2, "category-16", "group_new"),
+		draftCategoryLabelOperation(revision+3, "category-16"),
+		draftGroupMergeOperation(revision+4, sourceGroup, "group_new"),
+	} {
+		revision, err = profile.Append(ctx, revision, operation)
+		require.NoError(t, err)
+	}
+
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	_, err = profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, effective.Effective, after.Committed)
+	merchant := merchantRecord(t, after.Committed, "merchant-048")
+	assert.True(t, merchant.Retired)
+	group := groupRecord(t, after.Committed, sourceGroup)
+	assert.True(t, group.Retired)
+	assert.Equal(t, domain.EntityID("group_new"), categoryRecord(
+		t, after.Committed, "category-16",
+	).GroupID)
+}
+
+func TestFoldTransactionDeleteMatchesEffectiveAndRetainsExternalIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	operation := domain.Operation{
+		ID: "operation-transaction-delete", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt: time.Date(2026, time.August, 18, 14, 30, 0, 0, time.UTC),
+		Targets:   []domain.EntityID{target.ID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	}
+	revision, err := profile.Append(ctx, loaded.Revision, operation)
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, effective.Effective, after.Committed)
+	assert.Empty(t, after.Journal)
+	assert.NotContains(t, transactionRecordIDs(after.Committed.Transactions), target.ID)
+	assert.True(t, hasExternalIdentityForLocalID(after.Committed.ExternalIdentities, target.ID))
+}
+
+func transactionRecordIDs(values []domain.TransactionRecord) []domain.EntityID {
+	result := make([]domain.EntityID, len(values))
+	for index, value := range values {
+		result[index] = value.ID
+	}
+	return result
+}
+
+func hasExternalIdentityForLocalID(values []domain.ExternalIdentity, id domain.EntityID) bool {
+	for _, value := range values {
+		if value.EntityID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFoldPersistsCreatedThenRetiredTaxonomyAndKnownIdentity(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	groupID := categoryRecord(t, loaded.Committed, "category-16").GroupID
+	revision, err := profile.Append(
+		ctx,
+		1,
+		draftCategoryCreateOperation(1, groupID, "transaction-000003"),
+	)
+	require.NoError(t, err)
+	revision, err = profile.Append(
+		ctx,
+		revision,
+		draftCategoryMergeOperation(revision, "category_new", "category-21"),
+	)
+	require.NoError(t, err)
+
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	_, err = profile.Fold(ctx, revision, plan)
+	require.NoError(t, err)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	created := categoryRecord(t, after.Committed, "category_new")
+	assert.True(t, created.Retired)
+	require.NotNil(t, created.MergeDestination)
+	assert.Equal(t, domain.EntityID("category-21"), *created.MergeDestination)
+	assert.True(t, hasKnownDrill(after.KnownDrills, domain.DrillIdentity{
+		Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2, Key: "category_new",
+	}))
+}
+
+func TestFoldRejectsStaleRevisionAndChangedActivePrefixAtomically(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	revision, err := profile.Append(ctx, 1, draftFoldMerchantLabelOperation(1))
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, 1, plan)
+	assertRevisionConflict(t, err, 1, revision)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+
+	plan.ActiveOperationIDs[0] = "operation_other"
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+	after, err = profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestFoldRejectsEffectiveStateNotProducedByStoredJournal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	revision, err := profile.Append(ctx, 1, draftFoldMerchantLabelOperation(1))
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	plan.Effective.Transactions[0].Amount.Minor++
+
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeInvalidOperation)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestFoldAllowsReusingLabelsReleasedByEarlierRetirements(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(*testing.T, domain.ProfileSnapshot) []domain.Operation{
+		"merchant": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			transaction := snapshot.Committed.Transactions[0]
+			source := merchantRecord(t, snapshot.Committed, transaction.MerchantID)
+			destination := firstOtherActiveMerchant(t, snapshot.Committed, source.ID)
+			return []domain.Operation{
+				draftFoldMerchantMergeOperation(1, source.ID, destination.ID),
+				{
+					ID: "operation_reuse_merchant", Type: domain.OperationMerchantReassign,
+					PayloadVersion: 1, CreatedRevision: 2, CreatedAt: foldOperationTime(),
+					Targets: []domain.EntityID{transaction.ID},
+					Reassign: &domain.ReassignPayload{
+						DestinationID: "merchant_reused",
+						CreatedMerchant: &domain.Merchant{
+							ID: "merchant_reused", Label: source.Label, CollisionKey: source.CollisionKey,
+						},
+					},
+				},
+			}
+		},
+		"category": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			transaction := snapshot.Committed.Transactions[0]
+			source := categoryRecord(t, snapshot.Committed, transaction.CategoryID)
+			destination := firstOtherActiveCategory(t, snapshot.Committed, source.ID)
+			create := draftCategoryCreateOperation(2, destination.GroupID, transaction.ID)
+			create.ID = "operation_reuse_category"
+			create.Create.EntityID = "category_reused"
+			create.Create.Label = source.Label
+			create.Create.CollisionKey = source.CollisionKey
+			return []domain.Operation{
+				draftCategoryMergeOperation(1, source.ID, destination.ID), create,
+			}
+		},
+		"group": func(t *testing.T, snapshot domain.ProfileSnapshot) []domain.Operation {
+			source, destination := firstTwoActiveGroups(t, snapshot.Committed)
+			create := draftGroupCreateOperation(2, "group_reused")
+			create.ID = "operation_reuse_group"
+			create.Create.Label = source.Label
+			create.Create.CollisionKey = source.CollisionKey
+			return []domain.Operation{
+				draftGroupMergeOperation(1, source.ID, destination.ID), create,
+			}
+		},
+	}
+	for name, operations := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			profile := openSeededProfile(t, DefaultOptions)
+			snapshot, err := profile.Load(ctx)
+			require.NoError(t, err)
+			revision := uint64(1)
+			for _, operation := range operations(t, snapshot) {
+				operation.CreatedRevision = revision
+				revision, err = profile.Append(ctx, revision, operation)
+				require.NoError(t, err)
+			}
+			snapshot, err = profile.Load(ctx)
+			require.NoError(t, err)
+			effective, err := app.Replay(snapshot)
+			require.NoError(t, err)
+			plan, err := app.BuildFoldPlan(effective, revision)
+			require.NoError(t, err)
+			_, err = profile.Fold(ctx, revision, plan)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestFoldConstraintFailureRollsBackCommittedRowsJournalCursorAndRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	revision, err := profile.Append(ctx, 1, draftFoldMerchantLabelOperation(1))
+	require.NoError(t, err)
+	revision, err = profile.Append(
+		ctx,
+		revision,
+		draftCategoryAssignOperation(revision, "category-21", "transaction-000003"),
+	)
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		CREATE TRIGGER fail_fold_transaction_update
+		BEFORE UPDATE ON transactions
+		BEGIN
+			SELECT RAISE(ABORT, 'injected fold failure');
+		END`)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeStoreError)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestFoldDeleteFailureRollsBackTransactionJournalCursorAndRevision(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := openSeededProfile(t, DefaultOptions)
+	loaded, err := profile.Load(ctx)
+	require.NoError(t, err)
+	target := loaded.Committed.Transactions[0]
+	revision, err := profile.Append(ctx, loaded.Revision, domain.Operation{
+		ID: "operation-delete-failure", Type: domain.OperationTransactionDelete,
+		PayloadVersion: 1, CreatedRevision: loaded.Revision,
+		CreatedAt: time.Date(2026, time.August, 18, 14, 45, 0, 0, time.UTC),
+		Targets:   []domain.EntityID{target.ID}, TransactionDelete: &domain.TransactionDeletePayload{},
+	})
+	require.NoError(t, err)
+	before, err := profile.Load(ctx)
+	require.NoError(t, err)
+	effective, err := app.Replay(before)
+	require.NoError(t, err)
+	plan, err := app.BuildFoldPlan(effective, revision)
+	require.NoError(t, err)
+	_, err = profile.database.ExecContext(ctx, `
+		CREATE TRIGGER fail_fold_transaction_delete
+		BEFORE DELETE ON transactions
+		BEGIN
+			SELECT RAISE(ABORT, 'injected fold delete failure');
+		END`)
+	require.NoError(t, err)
+
+	_, err = profile.Fold(ctx, revision, plan)
+	assertStoreCode(t, err, store.CodeStoreError)
+	after, err := profile.Load(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
+
+func TestKnownDrillCommitBoundarySurvivesRestart(t *testing.T) {
+	t.Parallel()
+
+	t.Run("abandoned pending identity becomes invalid", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		paths := temporaryPaths(t)
+		opened, err := Open(ctx, paths, DefaultOptions)
+		require.NoError(t, err)
+		handle := opened.(*profile)
+		_, err = handle.CreateSeededProfile(ctx, fixtureProfile(t))
+		require.NoError(t, err)
+		revision, err := handle.Append(ctx, 1, draftGroupCreateOperation(1, "group_pending"))
+		require.NoError(t, err)
+		loaded, err := handle.Load(ctx)
+		require.NoError(t, err)
+		effective, err := app.Replay(loaded)
+		require.NoError(t, err)
+		identity := domain.DrillIdentity{
+			Dimension: domain.DimensionGroup, Currency: "USD", Scale: 2, Key: "group_pending",
+		}
+		assert.Equal(t, app.DrillEmpty, app.ClassifyKnownDrill(effective, identity))
+
+		revision, err = handle.MoveCursor(ctx, revision, -1)
+		require.NoError(t, err)
+		undone, err := handle.Load(ctx)
+		require.NoError(t, err)
+		undoneEffective, err := app.Replay(undone)
+		require.NoError(t, err)
+		assert.Equal(t, app.DrillInvalid, app.ClassifyKnownDrill(undoneEffective, identity))
+
+		revision, err = handle.MoveCursor(ctx, revision, 1)
+		require.NoError(t, err)
+		redone, err := handle.Load(ctx)
+		require.NoError(t, err)
+		redoneEffective, err := app.Replay(redone)
+		require.NoError(t, err)
+		assert.Equal(t, app.DrillEmpty, app.ClassifyKnownDrill(redoneEffective, identity))
+
+		revision, err = handle.MoveCursor(ctx, revision, -1)
+		require.NoError(t, err)
+		_, err = handle.Append(
+			ctx,
+			revision,
+			draftHideOperation("operation_truncate", revision, "transaction-000003"),
+		)
+		require.NoError(t, err)
+		require.NoError(t, handle.Close())
+
+		reopenedStore, err := Open(ctx, paths, DefaultOptions)
+		require.NoError(t, err)
+		reopened := reopenedStore.(*profile)
+		t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+		restarted, err := reopened.Load(ctx)
+		require.NoError(t, err)
+		replayed, err := app.Replay(restarted)
+		require.NoError(t, err)
+		assert.Equal(t, app.DrillInvalid, app.ClassifyKnownDrill(replayed, identity))
+	})
+
+	t.Run("committed then retired identity remains empty", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		paths := temporaryPaths(t)
+		opened, err := Open(ctx, paths, DefaultOptions)
+		require.NoError(t, err)
+		handle := opened.(*profile)
+		_, err = handle.CreateSeededProfile(ctx, fixtureProfile(t))
+		require.NoError(t, err)
+		loaded, err := handle.Load(ctx)
+		require.NoError(t, err)
+		destination := categoryRecord(t, loaded.Committed, "category-16").GroupID
+		revision, err := handle.Append(ctx, 1, draftGroupCreateOperation(1, "group_committed"))
+		require.NoError(t, err)
+		merge := draftGroupMergeOperation(revision, "group_committed", destination)
+		merge.ID = "operation_group_retire"
+		revision, err = handle.Append(ctx, revision, merge)
+		require.NoError(t, err)
+		loaded, err = handle.Load(ctx)
+		require.NoError(t, err)
+		effective, err := app.Replay(loaded)
+		require.NoError(t, err)
+		plan, err := app.BuildFoldPlan(effective, revision)
+		require.NoError(t, err)
+		_, err = handle.Fold(ctx, revision, plan)
+		require.NoError(t, err)
+		require.NoError(t, handle.Close())
+
+		reopenedStore, err := Open(ctx, paths, DefaultOptions)
+		require.NoError(t, err)
+		reopened := reopenedStore.(*profile)
+		t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+		restarted, err := reopened.Load(ctx)
+		require.NoError(t, err)
+		replayed, err := app.Replay(restarted)
+		require.NoError(t, err)
+		identity := domain.DrillIdentity{
+			Dimension: domain.DimensionGroup, Currency: "USD", Scale: 2, Key: "group_committed",
+		}
+		assert.Equal(t, app.DrillEmpty, app.ClassifyKnownDrill(replayed, identity))
+		assert.True(t, hasKnownDrill(restarted.KnownDrills, identity))
+	})
+}
+
+func draftCategoryAssignOperation(
+	createdRevision uint64,
+	destination domain.EntityID,
+	targets ...domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_category_assign", Type: domain.OperationCategoryAssign, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(), Targets: targets,
+		Reassign: &domain.ReassignPayload{DestinationID: destination},
+	}
+}
+
+func draftFoldMerchantMergeOperation(
+	createdRevision uint64,
+	source, destination domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_merchant_merge", Type: domain.OperationMerchantMerge, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{source},
+		Merge:   &domain.MergePayload{SourceID: source, DestinationID: destination},
+	}
+}
+
+func draftGroupCreateOperation(createdRevision uint64, id domain.EntityID) domain.Operation {
+	return domain.Operation{
+		ID: "operation_group_create", Type: domain.OperationGroupCreate, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{id},
+		Create: &domain.CreatePayload{
+			EntityType: string(domain.EntityKindGroup), EntityID: id,
+			Label: "New Group", CollisionKey: "new group",
+		},
+	}
+}
+
+func draftCategoryMoveOperation(
+	createdRevision uint64,
+	categoryID, groupID domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_category_move", Type: domain.OperationCategoryMove, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{categoryID},
+		Move: &domain.MovePayload{
+			EntityID: categoryID, DestinationID: groupID,
+		},
+	}
+}
+
+func draftCategoryLabelOperation(createdRevision uint64, id domain.EntityID) domain.Operation {
+	return domain.Operation{
+		ID: "operation_category_label", Type: domain.OperationCategoryLabel, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{id},
+		Label: &domain.LabelPayload{
+			EntityID: id, Label: "Groceries Renamed", CollisionKey: "groceries renamed",
+		},
+	}
+}
+
+func draftGroupMergeOperation(
+	createdRevision uint64,
+	source, destination domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_group_merge", Type: domain.OperationGroupMerge, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{source},
+		Merge:   &domain.MergePayload{SourceID: source, DestinationID: destination},
+	}
+}
+
+func draftFoldMerchantLabelOperation(createdRevision uint64) domain.Operation {
+	return domain.Operation{
+		ID: "operation_merchant_label", Type: domain.OperationMerchantLabel, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{"merchant-091"},
+		Label: &domain.LabelPayload{
+			EntityID: "merchant-091", Label: "Example Grocer Renamed",
+			CollisionKey: "example grocer renamed",
+		},
+	}
+}
+
+func draftCategoryCreateOperation(
+	createdRevision uint64,
+	groupID domain.EntityID,
+	targets ...domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_category_create", Type: domain.OperationCategoryCreate, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(), Targets: targets,
+		Create: &domain.CreatePayload{
+			EntityType: string(domain.EntityKindCategory), EntityID: "category_new",
+			Label: "New Category", CollisionKey: "new category", ParentID: groupID,
+		},
+	}
+}
+
+func draftCategoryMergeOperation(
+	createdRevision uint64,
+	source, destination domain.EntityID,
+) domain.Operation {
+	return domain.Operation{
+		ID: "operation_category_merge", Type: domain.OperationCategoryMerge, PayloadVersion: 1,
+		CreatedRevision: createdRevision, CreatedAt: foldOperationTime(),
+		Targets: []domain.EntityID{source},
+		Merge:   &domain.MergePayload{SourceID: source, DestinationID: destination},
+	}
+}
+
+func foldOperationTime() time.Time {
+	return time.Date(2026, time.August, 14, 15, 0, 0, 0, time.UTC)
+}
+
+func categoryRecord(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	id domain.EntityID,
+) domain.Category {
+	t.Helper()
+	for _, category := range profile.Categories {
+		if category.ID == id {
+			return category
+		}
+	}
+	t.Fatalf("category %q not found", id)
+	return domain.Category{}
+}
+
+func merchantRecord(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	id domain.EntityID,
+) domain.Merchant {
+	t.Helper()
+	for _, merchant := range profile.Merchants {
+		if merchant.ID == id {
+			return merchant
+		}
+	}
+	t.Fatalf("merchant %q not found", id)
+	return domain.Merchant{}
+}
+
+func firstOtherActiveMerchant(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	excluded domain.EntityID,
+) domain.Merchant {
+	t.Helper()
+	for _, merchant := range profile.Merchants {
+		if !merchant.Retired && merchant.ID != excluded {
+			return merchant
+		}
+	}
+	t.Fatal("second active merchant not found")
+	return domain.Merchant{}
+}
+
+func firstOtherActiveCategory(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	excluded domain.EntityID,
+) domain.Category {
+	t.Helper()
+	for _, category := range profile.Categories {
+		if !category.Retired && category.ID != excluded {
+			return category
+		}
+	}
+	t.Fatal("second active category not found")
+	return domain.Category{}
+}
+
+func firstTwoActiveGroups(
+	t *testing.T,
+	profile domain.CommittedProfile,
+) (domain.CategoryGroup, domain.CategoryGroup) {
+	t.Helper()
+	var groups []domain.CategoryGroup
+	for _, group := range profile.Groups {
+		if !group.Retired && !group.Protected {
+			groups = append(groups, group)
+		}
+	}
+	require.GreaterOrEqual(t, len(groups), 2)
+	return groups[0], groups[1]
+}
+
+func groupRecord(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	id domain.EntityID,
+) domain.CategoryGroup {
+	t.Helper()
+	for _, group := range profile.Groups {
+		if group.ID == id {
+			return group
+		}
+	}
+	t.Fatalf("group %q not found", id)
+	return domain.CategoryGroup{}
+}
+
+func transactionRecord(
+	t *testing.T,
+	profile domain.CommittedProfile,
+	id domain.EntityID,
+) domain.TransactionRecord {
+	t.Helper()
+	for _, transaction := range profile.Transactions {
+		if transaction.ID == id {
+			return transaction
+		}
+	}
+	t.Fatalf("transaction %q not found", id)
+	return domain.TransactionRecord{}
+}
+
+func hasKnownDrill(values []domain.DrillIdentity, want domain.DrillIdentity) bool {
+	wantKey, err := want.CanonicalKey()
+	if err != nil {
+		return false
+	}
+	for _, value := range values {
+		key, keyErr := value.CanonicalKey()
+		if keyErr == nil && key == wantKey {
+			return true
+		}
+	}
+	return false
+}

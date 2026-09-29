@@ -1,0 +1,132 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import { createMoneyflowShortcuts, handleMoneyflowKeydown, validateCapabilities } from './shortcuts'
+
+const capabilities = [
+  ['cursor.up', '↑/k'],
+  ['cursor.down', '↓/j'],
+  ['cursor.home', 'home'],
+  ['view.cycle-grouping', 'g'],
+  ['view.show-detail', 'd'],
+  ['view.find-duplicates', 'D'],
+  ['view.switch-accounts', 'A'],
+  ['view.drill', 'enter'],
+  ['view.back', 'esc'],
+  ['time.toggle-granularity', 't'],
+  ['time.clear-period', 'a'],
+  ['time.previous-period', '←'],
+  ['time.next-period', '→'],
+  ['sort.cycle', 's'],
+  ['sort.reverse', 'v'],
+  ['selection.toggle', 'space'],
+  ['selection.toggle-all', 'ctrl+a'],
+  ['overlay.filters', 'f'],
+  ['overlay.search', '/'],
+  ['overlay.help', '?'],
+  ['transaction.edit-merchant', 'm'],
+  ['transaction.edit-category', 'c'],
+  ['category.manage', 'C'],
+  ['category-group.manage', 'G'],
+  ['transaction.toggle-hidden', 'h'],
+  ['transaction.delete', 'x'],
+  ['changes.undo', 'u'],
+  ['changes.redo', 'U'],
+  ['changes.review', 'w'],
+  ['provider.refresh', 'r'],
+].map(([id, key_display]) => ({
+  id: id!,
+  key_display: key_display!,
+  description: id!,
+  category: '',
+  available: true,
+}))
+
+describe('Moneyflow browser shortcuts', () => {
+  it('matches the TUI read-only keys without lifecycle or End bindings', () => {
+    expect(() => validateCapabilities(capabilities)).not.toThrow()
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+
+    for (const key of [
+      'ArrowUp',
+      'k',
+      'ArrowDown',
+      'j',
+      'Home',
+      'g',
+      'd',
+      'Enter',
+      'Escape',
+      't',
+      'a',
+      'ArrowLeft',
+      'ArrowRight',
+      's',
+      'v',
+      ' ',
+      'f',
+      '/',
+      '?',
+      'm',
+      'c',
+      'h',
+      'x',
+      'u',
+      'w',
+      'r',
+    ]) {
+      expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(true)
+    }
+    expect(shortcuts.manager.handleKeydown(keyboard('A', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('D', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('C', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('G', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('U', { shiftKey: true }))).toBe(true)
+    expect(shortcuts.manager.handleKeydown(keyboard('a', { ctrlKey: true }))).toBe(true)
+    for (const key of ['End', 'q'])
+      expect(shortcuts.manager.handleKeydown(keyboard(key))).toBe(false)
+    expect(shortcuts.manager.handleKeydown(keyboard('c', { ctrlKey: true }))).toBe(false)
+    shortcuts.destroy()
+  })
+
+  it('rejects conflicting server action metadata', () => {
+    expect(() =>
+      validateCapabilities([
+        { id: 'cursor.up', key_display: 'j', description: 'wrong', category: '', available: true },
+      ]),
+    ).toThrow('conflicts')
+  })
+
+  it('suspends table letter keys while an overlay scope is active', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const pop = shortcuts.manager.pushScope('search')
+    expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(false)
+    pop()
+    expect(shortcuts.manager.handleKeydown(keyboard('j'))).toBe(true)
+  })
+
+  it('does not intercept native editing controls', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const event = keyboard('a', { ctrlKey: true })
+    Object.defineProperty(event, 'target', { value: document.createElement('input') })
+    expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    expect(handlers.apply).not.toHaveBeenCalled()
+  })
+
+  it('dispatches editing keys only when the server capability is available', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(
+      capabilities.filter((capability) => capability.id === 'transaction.toggle-hidden'),
+      handlers,
+    )
+    expect(shortcuts.manager.handleKeydown(keyboard('h'))).toBe(true)
+    expect(handlers.local).toHaveBeenCalledWith('edit.hide')
+    expect(shortcuts.manager.handleKeydown(keyboard('m'))).toBe(false)
+  })
+})
+
+function keyboard(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+  return new KeyboardEvent('keydown', { key, bubbles: true, ...init })
+}

@@ -1,0 +1,118 @@
+{
+  "version": "0.11.1",
+  "source_commit": "e656f3c9502e700865e9a0f03c3130cc0f5f212c",
+  "edits": [
+    "Archive banners",
+    "Pinned installation and invocation examples",
+    "Unavailable images omitted",
+    "Shared-root destructive reset commands removed",
+    "Historical source links pinned"
+  ],
+  "files": [
+    {
+      "path": "categories.md",
+      "source_path": "docs/categories.md",
+      "source_blob": "3b9a5ef6a0669a73c0f8ac70d4ef6b2d69b6cd56"
+    },
+    {
+      "path": "config/advanced.md",
+      "source_path": "docs/config/advanced.md",
+      "source_blob": "4d5131f093b12156ca7aab30d9e8273f13c338f6"
+    },
+    {
+      "path": "config/caching.md",
+      "source_path": "docs/config/caching.md",
+      "source_blob": "4fd9537d705f7431f18d9425e6c59978366221db"
+    },
+    {
+      "path": "config/themes.md",
+      "source_path": "docs/config/themes.md",
+      "source_blob": "d92f0c6cc3503b5d5c08aed5dabbe1c3e463eec4"
+    },
+    {
+      "path": "getting-started/installation.md",
+      "source_path": "docs/getting-started/installation.md",
+      "source_blob": "3c79318a8dfe478371a7e28dab1dd070b5797385"
+    },
+    {
+      "path": "getting-started/quickstart.md",
+      "source_path": "docs/getting-started/quickstart.md",
+      "source_blob": "fd3aa2e821e0c2da055c1089c2809a728357a0af"
+    },
+    {
+      "path": "guide/amazon-mode.md",
+      "source_path": "docs/guide/amazon-mode.md",
+      "source_blob": "3fb9ea0765f546aa9dd629d1e6c8615622e11035"
+    },
+    {
+      "path": "guide/editing.md",
+      "source_path": "docs/guide/editing.md",
+      "source_blob": "f55103573045fdac908642781b94cbed297c7577"
+    },
+    {
+      "path": "guide/export.md",
+      "source_path": "docs/guide/export.md",
+      "source_blob": "f49047ae9bd4e0cae38cdc6e87cebc90b183d947"
+    },
+    {
+      "path": "guide/filters.md",
+      "source_path": "docs/guide/filters.md",
+      "source_blob": "113a5353d7a814928f6d917541b75b7caa82e06e"
+    },
+    {
+      "path": "guide/keyboard-shortcuts.md",
+      "source_path": "docs/guide/keyboard-shortcuts.md",
+      "source_blob": "9dff5c34483ade94f3c0773d890999ae3b161464"
+    },
+    {
+      "path": "guide/monarch.md",
+      "source_path": "docs/guide/monarch.md",
+      "source_blob": "ea67223c69f53233f2c46d5a19bafab507fa9610"
+    },
+    {
+      "path": "guide/navigation.md",
+      "source_path": "docs/guide/navigation.md",
+      "source_blob": "76f356574b788cc3db76d26b47c619ec83432689"
+    },
+    {
+      "path": "guide/simplefin-cli.md",
+      "source_path": "docs/guide/simplefin-cli.md",
+      "source_blob": "0dfda3994b37c2242c394c9a8a984e6c6f03f2d2"
+    },
+    {
+      "path": "guide/simplefin.md",
+      "source_path": "docs/guide/simplefin.md",
+      "source_blob": "b28e0bd80f1ec33a4d177ab4d7aa21a3748af606"
+    },
+    {
+      "path": "guide/ynab.md",
+      "source_path": "docs/guide/ynab.md",
+      "source_blob": "c37405df065fce2285a04c00d34e50f66577c99e"
+    },
+    {
+      "path": "index.md",
+      "source_path": "docs/index.md",
+      "source_blob": "b2a4f93ef43329c7933c8096d460b79dc7e57716"
+    },
+    {
+      "path": "reference/changelog.md",
+      "source_path": "docs/reference/changelog.md",
+      "source_blob": "e4fab41a5fda833fee7ae183c62d798e24829f27"
+    },
+    {
+      "path": "reference/cli.md",
+      "source_path": "docs/reference/cli.md",
+      "source_blob": "4329a88458b2bed0815dd42c0d098576d1604848"
+    },
+    {
+      "path": "reference/faq.md",
+      "source_path": "docs/reference/faq.md",
+      "source_blob": "f85c2881a2ac4749cecdf46791f7c5d825419fde"
+    },
+    {
+      "path": "reference/troubleshooting.md",
+      "source_path": "docs/reference/troubleshooting.md",
+      "source_blob": "7c3a80163cb487cd28a2629fed1a3974d1d7cc81"
+    }
+  ]
+}

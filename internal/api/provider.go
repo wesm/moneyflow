@@ -1,0 +1,266 @@
+package api
+
+import (
+	"context"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+
+	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/provider"
+)
+
+// ProviderSchemaVersion identifies the read/import/refresh wire contract.
+const ProviderSchemaVersion = "1"
+
+// ProviderRefreshTimeout bounds one complete HTTP-triggered reconciliation.
+const ProviderRefreshTimeout = 30 * time.Minute
+
+// ProviderRefreshBody asks for one complete provider reconciliation while preserving view state.
+type ProviderRefreshBody struct {
+	Version   string `json:"version"`
+	Manual    bool   `json:"manual"`
+	Query     string `json:"query" maxLength:"65536"`
+	Selection string `json:"selection,omitempty" maxLength:"1468006"`
+	Window    Window `json:"window"`
+}
+
+// ProviderConfirmationBody explicitly accepts one process-local suspicious deletion candidate.
+type ProviderConfirmationBody struct {
+	ProviderRefreshBody
+	ConfirmationToken string `json:"confirmation_token" minLength:"1" maxLength:"4096"`
+}
+
+// ProviderRefreshSummary is the complete counts-only durable refresh summary.
+type ProviderRefreshSummary struct {
+	ImportedAccounts        int `json:"imported_accounts"`
+	ImportedMerchants       int `json:"imported_merchants"`
+	ImportedGroups          int `json:"imported_groups"`
+	ImportedCategories      int `json:"imported_categories"`
+	ImportedTransactions    int `json:"imported_transactions"`
+	RemovedTransactions     int `json:"removed_transactions"`
+	RemovedOperations       int `json:"removed_operations"`
+	RemovedTargets          int `json:"removed_targets"`
+	RetainedOperations      int `json:"retained_operations"`
+	RebasedHideTargets      int `json:"rebased_hide_targets"`
+	DiscardedRedoOperations int `json:"discarded_redo_operations"`
+}
+
+// ProviderProgress is a counts-only projection of a running provider read.
+type ProviderProgress struct {
+	Fetched int `json:"fetched"`
+	Total   int `json:"total"`
+}
+
+// ProviderStatusResponse contains no provider identities or financial labels.
+type ProviderStatusResponse struct {
+	ProviderKind      string                 `json:"provider_kind,omitempty"`
+	LastAttempt       string                 `json:"last_attempt,omitempty" format:"date-time"`
+	Version           string                 `json:"version"`
+	Revision          string                 `json:"revision" pattern:"^[0-9]+$"`
+	Generation        string                 `json:"generation" pattern:"^[0-9]+$"`
+	Code              provider.ErrorCode     `json:"code,omitempty"`
+	LastSuccess       string                 `json:"last_success,omitempty" format:"date-time"`
+	NextEligible      string                 `json:"next_eligible,omitempty" format:"date-time"`
+	OwnerRenderer     string                 `json:"owner_renderer,omitempty"`
+	OwnerInstanceID   string                 `json:"owner_instance_id,omitempty" maxLength:"128"`
+	ConfirmationToken string                 `json:"confirmation_token,omitempty" maxLength:"4096"`
+	Progress          ProviderProgress       `json:"progress"`
+	Summary           ProviderRefreshSummary `json:"summary"`
+	Capability        Capability             `json:"capability"`
+}
+
+// ProviderRefreshResponse returns one authoritative post-refresh browser projection.
+type ProviderRefreshResponse struct {
+	Version    string                 `json:"version"`
+	Revision   string                 `json:"revision" pattern:"^[0-9]+$"`
+	Generation string                 `json:"generation" pattern:"^[0-9]+$"`
+	Status     ProviderStatusResponse `json:"status"`
+	Projection Projection             `json:"projection"`
+	Selection  SelectionDisposition   `json:"selection"`
+}
+
+type providerRefreshInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProviderRefreshBody
+}
+type providerConfirmationInput struct {
+	ProfileID string `path:"profile_id"`
+	Body      ProviderConfirmationBody
+}
+type providerStatusInput struct {
+	ProfileID string `path:"profile_id"`
+}
+type providerStatusOutput struct{ Body ProviderStatusResponse }
+type providerRefreshOutput struct{ Body ProviderRefreshResponse }
+
+func (server *Server) registerProviderEndpoints(_ Config) {
+	statusPath := server.profilePath("provider/status")
+	refreshPath := server.profilePath("provider/refresh")
+	confirmationPath := server.profilePath("provider/refresh/confirm")
+
+	huma.Register(server.api, huma.Operation{
+		OperationID: "providerStatus", Method: http.MethodGet, Path: statusPath,
+		Summary: "Report counts-only provider refresh status", Errors: []int{500, 503},
+	}, func(ctx context.Context, _ *providerStatusInput) (*providerStatusOutput, error) {
+		service := profileService(ctx)
+		if _, err := service.Refresh(ctx); err != nil {
+			return nil, problemFromError(err)
+		}
+		capability := providerRefreshCapability(service)
+		if !capability.Available {
+			body := providerStatusToWire(service.Revision(), app.ProviderStatus{})
+			body.Capability = capability
+			return &providerStatusOutput{Body: body}, nil
+		}
+		status, err := service.ProviderStatus(ctx)
+		if err != nil {
+			return nil, problemFromError(err)
+		}
+		body := providerStatusToWire(service.Revision(), status)
+		body.Capability = capability
+		return &providerStatusOutput{Body: body}, nil
+	})
+
+	registerRefresh := func(
+		operationID string,
+		path string,
+		confirm bool,
+	) {
+		if confirm {
+			huma.Register(server.api, huma.Operation{
+				OperationID: operationID, Method: http.MethodPost, Path: path,
+				Summary: "Confirm one suspicious provider refresh candidate",
+				Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+			}, func(ctx context.Context, input *providerConfirmationInput) (*providerRefreshOutput, error) {
+				service := profileService(ctx)
+				ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+				defer cancel()
+				body := input.Body
+				request, err := providerRefreshRequest(body.ProviderRefreshBody)
+				if err != nil {
+					return nil, problemFromError(err)
+				}
+				request.Manual = body.Manual
+				request.ConfirmationToken = body.ConfirmationToken
+				result, err := service.ConfirmProviderRefresh(ctx, request)
+				if err != nil {
+					return nil, problemFromProviderError(
+						err, result, providerRefreshCapability(service),
+					)
+				}
+				return providerRefreshOutputFor(result, providerRefreshCapability(service))
+			})
+			return
+		}
+		huma.Register(server.api, huma.Operation{
+			OperationID: operationID, Method: http.MethodPost, Path: path,
+			Summary: "Refresh one complete provider snapshot",
+			Errors:  []int{400, 403, 409, 413, 422, 500, 503},
+		}, func(ctx context.Context, input *providerRefreshInput) (*providerRefreshOutput, error) {
+			service := profileService(ctx)
+			ctx, cancel := context.WithTimeout(ctx, ProviderRefreshTimeout)
+			defer cancel()
+			request, err := providerRefreshRequest(input.Body)
+			if err != nil {
+				return nil, problemFromError(err)
+			}
+			request.Manual = input.Body.Manual
+			result, err := service.RefreshProvider(ctx, request)
+			if err != nil {
+				return nil, problemFromProviderError(
+					err, result, providerRefreshCapability(service),
+				)
+			}
+			return providerRefreshOutputFor(result, providerRefreshCapability(service))
+		})
+	}
+	registerRefresh("refreshProvider", refreshPath, false)
+	registerRefresh("confirmProviderRefresh", confirmationPath, true)
+}
+
+func providerRefreshRequest(body ProviderRefreshBody) (app.ProviderRefreshRequest, error) {
+	if body.Version != ProviderSchemaVersion {
+		return app.ProviderRefreshRequest{}, invalidMutationRequest(errUnsupportedProviderVersion)
+	}
+	state, _, err := DecodeViewQuery(body.Query)
+	if err != nil {
+		return app.ProviderRefreshRequest{}, err
+	}
+	selection := app.SelectionValue(body.Selection)
+	if selection == "" {
+		selection = app.EmptySelection()
+	}
+	return app.ProviderRefreshRequest{
+		State: state, Selection: selection,
+		Window: app.WindowRequest{Offset: body.Window.Offset, Limit: body.Window.Limit},
+	}, nil
+}
+
+func providerRefreshOutputFor(
+	result app.ProviderRefreshResult,
+	capability Capability,
+) (*providerRefreshOutput, error) {
+	canonical, err := EncodeViewQuery(result.Projection.State)
+	if err != nil {
+		return nil, problemFromError(err)
+	}
+	status := providerStatusToWire(result.Revision, result.Status)
+	status.Capability = capability
+	return &providerRefreshOutput{Body: ProviderRefreshResponse{
+		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),
+		Generation: strconv.FormatUint(result.Generation, 10), Status: status,
+		Projection: projectionToWire(result.Projection, canonical, nil),
+		Selection: SelectionDisposition{
+			Kind: string(result.SelectionDisposition), Value: string(result.Selection),
+		},
+	}}, nil
+}
+
+func providerStatusToWire(revision uint64, status app.ProviderStatus) ProviderStatusResponse {
+	summary := status.Summary
+	wire := ProviderStatusResponse{
+		Version: ProviderSchemaVersion, Revision: strconv.FormatUint(revision, 10),
+		Generation: strconv.FormatUint(status.Generation, 10), Code: status.Code, ProviderKind: status.ProviderKind,
+		OwnerRenderer: status.OwnerRenderer, OwnerInstanceID: status.OwnerInstanceID,
+		ConfirmationToken: status.ConfirmationToken,
+		Progress:          ProviderProgress{Fetched: status.Fetched, Total: status.Total},
+		Summary: ProviderRefreshSummary{
+			ImportedAccounts: summary.ImportedAccounts, ImportedMerchants: summary.ImportedMerchants,
+			ImportedGroups: summary.ImportedGroups, ImportedCategories: summary.ImportedCategories,
+			ImportedTransactions: summary.ImportedTransactions,
+			RemovedTransactions:  summary.RemovedTransactions, RemovedOperations: summary.RemovedOperations,
+			RemovedTargets: summary.RemovedTargets, RetainedOperations: summary.RetainedOperations,
+			RebasedHideTargets:      summary.RebasedHideTargets,
+			DiscardedRedoOperations: summary.DiscardedRedoOperations,
+		},
+	}
+	if !status.LastAttempt.IsZero() {
+		wire.LastAttempt = status.LastAttempt.UTC().Format(time.RFC3339Nano)
+	}
+	if !status.LastSuccess.IsZero() {
+		wire.LastSuccess = status.LastSuccess.UTC().Format(time.RFC3339Nano)
+	}
+	if !status.NextEligible.IsZero() {
+		wire.NextEligible = status.NextEligible.UTC().Format(time.RFC3339Nano)
+	}
+	return wire
+}
+
+func providerRefreshCapability(service *app.Service) Capability {
+	definition, _ := app.ActionByID(app.ActionRefreshProvider)
+	wire := Capability{
+		ID: definition.ID, KeyDisplay: definition.KeyDisplay,
+		Description: definition.Description, Category: definition.Category,
+	}
+	for _, capability := range service.Capabilities() {
+		if capability.Action == app.ActionRefreshProvider {
+			wire.Available = capability.Available
+			wire.Reason = capability.Reason
+			return wire
+		}
+	}
+	return wire
+}

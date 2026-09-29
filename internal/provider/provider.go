@@ -1,0 +1,135 @@
+// Package provider defines renderer-neutral, read-only financial-provider capabilities.
+package provider
+
+import (
+	"context"
+	"time"
+
+	"github.com/wesm/moneyflow/internal/domain"
+)
+
+// ProfileIdentity is the stable remote profile identity used to lock a local binding.
+type ProfileIdentity struct {
+	Kind     string
+	RemoteID string
+}
+
+// Progress describes counts-only progress for one bounded snapshot attempt.
+type Progress struct {
+	Partition string
+	Fetched   int
+	Total     int
+	Attempt   int
+	Pass      int
+}
+
+// ProgressFunc observes counts-only snapshot progress.
+type ProgressFunc func(Progress)
+
+// Credentials are transient login input and must never be persisted.
+type Credentials struct {
+	Login       string
+	Password    string
+	OneTimeCode string
+}
+
+// Challenge describes one transient authentication challenge.
+type Challenge struct {
+	Kind   string
+	Prompt string
+}
+
+// ChallengeResponder supplies a transient challenge response.
+type ChallengeResponder func(context.Context, Challenge) (string, error)
+
+// Session is opaque provider-owned session material.
+type Session interface {
+	ProviderKind() string
+}
+
+// Connector creates and validates provider-owned sessions.
+type Connector interface {
+	Connect(context.Context, Credentials, ChallengeResponder) (Session, error)
+	Validate(context.Context, Session) (ProfileIdentity, error)
+}
+
+// FetchRequest supplies a fixed clock and durable freshness for a bounded observation.
+type FetchRequest struct {
+	LastSuccess time.Time
+	Now         time.Time
+}
+
+// SnapshotResult binds one complete read-only snapshot to the remote identity observed with it.
+type SnapshotResult struct {
+	Identity ProfileIdentity
+	Snapshot domain.ImportSnapshot
+}
+
+// Reader fetches one complete read-only snapshot and its stable remote identity.
+type Reader interface {
+	FetchSnapshot(context.Context, FetchRequest, ProgressFunc) (SnapshotResult, error)
+}
+
+// Optional preserves the difference between an omitted field and its zero value.
+type Optional[T any] struct {
+	Value   T
+	Present bool
+}
+
+// Some constructs one present optional field.
+func Some[T any](value T) Optional[T] {
+	return Optional[T]{Value: value, Present: true}
+}
+
+// TransactionUpdate is one absolute provider transaction mutation.
+type TransactionUpdate struct {
+	TransactionExternalID string
+	MerchantExternalID    Optional[string]
+	MerchantName          Optional[string]
+	CategoryExternalID    Optional[string]
+	ClearCategory         bool
+	Hidden                Optional[bool]
+}
+
+// TransactionUpdateResult is the provider-owned transaction state returned by one mutation.
+type TransactionUpdateResult struct {
+	TransactionExternalID string
+	MerchantExternalID    Optional[string]
+	MerchantLabel         Optional[string]
+	CategoryExternalID    Optional[string]
+	CategoryCleared       bool
+	Hidden                Optional[bool]
+}
+
+// TransactionDeleteResult is the normalized outcome of one absolute provider deletion.
+type TransactionDeleteResult struct {
+	TransactionExternalID string
+	AlreadyAbsent         bool
+}
+
+// Writer applies exactly one absolute transaction mutation per call.
+type Writer interface {
+	ProbeIdentity(context.Context) (ProfileIdentity, error)
+	UpdateTransaction(context.Context, TransactionUpdate) (TransactionUpdateResult, error)
+	DeleteTransaction(context.Context, string) (TransactionDeleteResult, error)
+}
+
+// SessionFingerprint is an opaque session-file generation fingerprint.
+type SessionFingerprint string
+
+// SourceState detects an atomically replaced provider credential or session file.
+type SourceState interface {
+	Changed(SessionFingerprint) (bool, error)
+}
+
+// ReaderSource opens provider readers and observes their persisted session generation.
+type ReaderSource interface {
+	SourceState
+	Reader(context.Context, bool) (Reader, SessionFingerprint, error)
+}
+
+// WriterSource opens provider writers and observes their persisted session generation.
+type WriterSource interface {
+	SourceState
+	Writer(context.Context, bool) (Writer, SessionFingerprint, error)
+}

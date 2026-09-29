@@ -1,129 +1,28 @@
-# CLI Reference
+# Command reference
 
-Complete reference for all command-line options.
+Run `moneyflow --help` to list commands and add `--help` at any level for accepted options.
+Command help belongs to the installed binary; it may differ from newer source documentation.
 
-## Global Commands
+| Command | Purpose and guide |
+| --- | --- |
+| `moneyflow tui` | [Terminal application](../getting-started/quickstart.md) |
+| `moneyflow web` | [Browser application and proxy settings](../config/advanced.md) |
+| `moneyflow mcp` | [Profile-scoped MCP server](../guide/mcp.md) |
+| `moneyflow profile export --profile NAME_OR_ID --output FILE` | [Export saved Go profile data](../getting-started/transition.md#transfer-a-go-profile-with-jsonl) |
+| `moneyflow profile import --input FILE --name NAME` | [Import into a new Go profile](../getting-started/transition.md#transfer-a-go-profile-with-jsonl) |
+| `moneyflow provider connect monarch` | [Connect Monarch](../guide/monarch.md) |
+| `moneyflow provider connect ynab` | [Connect YNAB](../guide/ynab.md) |
+| `moneyflow provider connect simplefin` | [Connect experimental SimpleFIN](../guide/simplefin-cli.md) |
+| `moneyflow provider disconnect monarch` | Remove the local Monarch session |
+| `moneyflow provider import amazon DIRECTORY` | [Import Amazon files](../guide/amazon-mode.md) |
+| `moneyflow provider import list` | [List bank CSV mappings](../guide/bank-csv.md) |
+| `moneyflow provider import institution MAPPING PATH --profile NAME_OR_ID` | [Import bank CSV files](../guide/bank-csv.md) |
+| `moneyflow version` | Print version, commit, and build time |
+| `moneyflow openapi --format json` | Print the HTTP API contract |
+| `moneyflow completion` | Generate shell completion instructions |
 
-| Command | Description |
-|---------|-------------|
-| `moneyflow` | Launch TUI with default backend (Monarch Money) |
-| `moneyflow --demo` | Launch with demo data |
-| `moneyflow --year <YYYY>` | Load from specific year onwards |
-| `moneyflow --since <YYYY-MM-DD>` | Load from specific date |
-| `moneyflow --mtd` | Load month-to-date only |
-| `moneyflow --no-cache` | Disable transaction caching |
-| `moneyflow --cache [PATH]` | Enable caching (optional path) |
-| `moneyflow --refresh` | Force API refresh, skip cache |
+Use `--profile NAME_OR_ID` to select an existing profile. Amazon and bank CSV import can
+create named profiles; connect commands do not create arbitrary named profiles. Add those in TUI or web.
 
-## Import Commands
-
-Import transactions from CSV exports.
-
-### `moneyflow import list`
-
-List all available institution mappings.
-
-```bash
-moneyflow import list
-```
-
-Output:
-
-```text
-Available institution mappings:
-
-  chase_credit         Chase Credit Card
-```
-
-### `moneyflow import institution`
-
-Import CSV files for a specific institution.
-
-```bash
-moneyflow import institution <institution> <path> [--account <label>] [--force]
-```
-
-**Arguments:**
-
-| Argument | Description |
-|----------|-------------|
-| `<institution>` | Institution identifier (e.g., `chase_credit`) |
-| `<path>` | CSV file, or directory containing CSV files |
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--account <label>` | Account/card label stored on each transaction. Required when importing multiple cards of the same institution — without it, transactions from different cards sharing a date, amount, and merchant are silently deduplicated. Import each card from its own file or card-specific directory. |
-| `--force` | Re-import already-imported files |
-| `--config-dir <path>` | Custom config directory (default: `~/.moneyflow`) |
-
-**Example:**
-
-```bash
-moneyflow import institution chase_credit ~/Downloads/
-moneyflow import institution chase_credit ~/Downloads/ --force
-
-# Two cards of the same institution: one import per card, each with its own label
-moneyflow import institution chase_credit ~/Downloads/Chase1234_Activity.csv --account personal_card
-moneyflow import institution chase_credit ~/Downloads/Chase5678_Activity.csv --account business_card
-```
-
-## Backend-Specific Commands
-
-### Amazon (`moneyflow amazon`)
-
-| Subcommand | Description |
-|------------|-------------|
-| `moneyflow amazon` | Launch Amazon mode TUI |
-| `moneyflow amazon import <path>` | Import Amazon orders from CSV |
-| `moneyflow amazon status` | Show database statistics |
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--db-path <path>` | Custom SQLite database path |
-| `--config-dir <path>` | Custom config directory |
-
-### CSV Institutions
-
-Each registered CSV institution is available as a top-level command:
-
-```bash
-moneyflow chase_credit
-```
-
-Launches the TUI for that institution's imported data.
-
-### SimpleFIN (`moneyflow simplefin`)
-
-| Subcommand | Description |
-|------------|-------------|
-| `moneyflow simplefin` | Launch SimpleFIN mode TUI |
-| `moneyflow simplefin login` | Set up or update SimpleFIN connection |
-| `moneyflow simplefin default` | Manage default SimpleFIN profile |
-| `moneyflow simplefin default --set <id>` | Set default profile |
-| `moneyflow simplefin refresh` | Refresh data from SimpleFIN API |
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--profile <id>` | Use specific SimpleFIN profile |
-| `--config-dir <path>` | Custom config directory |
-
-## Global Options
-
-Flags available on any command:
-
-| Option | Description |
-|--------|-------------|
-| `--help` | Show help for the current command |
-
-## See Also
-
-- [Amazon Mode](../guide/amazon-mode.md) — Amazon purchase analysis
-- [CSV Import](../guide/csv-import.md) — Generic CSV import engine
-- [SimpleFIN](../guide/simplefin.md) — SimpleFIN open banking
-- [SimpleFIN CLI Reference](../guide/simplefin-cli.md) — Detailed SimpleFIN CLI docs
+Never pass credentials in command arguments. Use masked prompts or the provider command's
+documented standard-input path. Old Python commands are not compatibility aliases.
