@@ -148,8 +148,9 @@ func persistentProfileOpenError(paths home.Paths, err error) error {
 	if errors.As(err, &storageFailure) && storageFailure.Code == store.CodeSchemaIncompatible {
 		return fmt.Errorf(
 			"open profile: profile directory %q uses an incompatible preview schema; "+
-				"Moneyflow does not migrate preview profiles. Stop every Moneyflow process, "+
-				"move the complete directory to a backup location, then rerun the command: %w",
+				"Moneyflow does not migrate preview profiles. Run moneyflow tui "+
+				"(with the same --home if set) and choose Add profile to start fresh. "+
+				"Your existing profile and files will be kept: %w",
 			paths.Root,
 			err,
 		)

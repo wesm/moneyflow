@@ -240,15 +240,16 @@ func (state *fakeShellState) Start(
 	return snapshot, nil
 }
 
-func TestShellOnboardingActivatesManifestlessLegacyAsMonarch(t *testing.T) {
+func TestShellOnboardingActivatesManifestlessMonarchProfile(t *testing.T) {
 	t.Parallel()
 	dependencies, state := fakeShellDependencies(t)
 	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
 	require.NoError(t, err)
 	legacy := profilecatalog.Entry{
-		Key:         profilecatalog.LegacyKey,
-		DisplayName: "Moneyflow",
-		Status:      profilecatalog.StatusSetupIncomplete,
+		Key:          profilecatalog.LegacyKey,
+		DisplayName:  "Moneyflow",
+		ProviderKind: "monarch",
+		Status:       profilecatalog.StatusSetupIncomplete,
 	}
 	shell.selected = &legacy
 	shell.screen = shellOnboarding

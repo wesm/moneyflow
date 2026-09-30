@@ -145,8 +145,10 @@
       if (profile.provider_kind === 'amazon') (onamazonsetup ?? onsetup)(profile.id ?? profile.key)
       else if (profile.provider_kind === 'simplefin')
         (onsimplefinsetup ?? onsetup)(profile.id ?? profile.key)
-      else if (profile.provider_kind === 'ynab') onsetup(profile.id ?? profile.key)
-      else onsetup(profile.id ?? profile.key)
+      else if (profile.provider_kind === 'ynab' || profile.provider_kind === 'monarch')
+        onsetup(profile.id ?? profile.key)
+      else if (profile.provider_kind === 'local') view = 'local'
+      else view = 'guidance'
       return
     }
     if (profile.status === 'local_only') {
@@ -175,6 +177,17 @@
     else if (provider === 'simplefin') (onsimplefinsetup ?? onsetup)(created.id)
     else if (provider === 'ynab') onsetup(created.id)
     else onsetup(created.id)
+  }
+
+  async function confirmRecovery(): Promise<void> {
+    const id = selected?.id
+    if (!id) return
+    await onrecover(id, true)
+    await tick()
+    const recovered = profiles.find((profile) => profile.id === id)
+    if (view === 'recovery' && selected?.id === id && recovered?.status === 'setup_incomplete') {
+      selectProfile(recovered)
+    }
   }
 
   async function focusActive(): Promise<void> {
@@ -220,19 +233,32 @@
         profile={selected}
         {recovery}
         busy={loading}
-        onconfirm={() => selected?.id && void onrecover(selected.id, true)}
+        onconfirm={() => void confirmRecovery()}
+        onfresh={() => (view = 'provider')}
         onback={back}
       />
     {:else if view === 'local' && selected}
       <section class="profile-panel" aria-labelledby="offline-title">
         <p class="moneyflow-eyebrow">{selected.display_name}</p>
         <h1 id="offline-title">Open this profile offline?</h1>
-        <p>Local financial data is available, but this profile is not connected to a provider.</p>
+        <p>This local profile is not connected to a provider.</p>
+        {#if selected.status === 'setup_incomplete'}
+          <p>
+            Start fresh to set up a separate profile. Your existing profile and files will be kept.
+          </p>
+        {/if}
         <div class="profile-actions">
           <Button onclick={back}>Back</Button>
-          <Button tone="info" surface="solid" onclick={() => selected?.id && onopen(selected.id)}>
+          <Button
+            tone="info"
+            surface="solid"
+            onclick={() => selected && onopen(selected.id ?? selected.key)}
+          >
             Open Offline
           </Button>
+          {#if selected.status === 'setup_incomplete'}
+            <Button onclick={() => (view = 'provider')}>Start fresh</Button>
+          {/if}
         </div>
       </section>
     {:else if view === 'ynab-ready' && selected}

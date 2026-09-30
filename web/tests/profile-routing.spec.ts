@@ -41,6 +41,30 @@ test('recovery evicts the cached service before recreating the profile', async (
   }
 })
 
+test('start fresh keeps the incompatible profile and opens a separate new profile', async ({
+  page,
+}) => {
+  const server = await startOnboardingE2EServer('/', { recoveryProfile: true })
+  try {
+    await page.goto(server.url)
+    await page.getByText('Recovery Profile').click()
+    await page.getByRole('button', { name: 'Start fresh' }).click()
+    await page.getByRole('button', { name: 'Local only, available' }).click()
+    await page.getByLabel('Profile name').fill('Fresh profile')
+    await page.getByRole('button', { name: 'Create profile' }).click()
+    await expect(page.getByRole('main', { name: 'Moneyflow workspace' })).toBeVisible()
+    await expect(page.getByText('No transactions', { exact: true })).toBeVisible()
+
+    await page.goto(server.url)
+    await expect(page.getByRole('button', { name: /Fresh profile/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Recovery Profile/ })).toContainText(
+      'Needs recovery',
+    )
+  } finally {
+    await server.stop()
+  }
+})
+
 test('session expiry enters reconnect without losing analytical URL or cursor state', async ({
   page,
 }) => {

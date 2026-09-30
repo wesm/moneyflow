@@ -334,15 +334,9 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		entry := message.entry
 		shell.selected = &entry
 		shell.createdID = entry.ID
-		if entry.ProviderKind == "amazon" {
-			shell.screen = shellAmazonImport
-			shell.amazon, _ = newAmazonImportState()
-			shell.status = "Continue setting up " + entry.DisplayName + "."
-			return shell, shell.amazon.focus()
-		}
-		shell.screen = shellOnboarding
 		shell.status = "Continue setting up " + entry.DisplayName + "."
-		return shell, shell.beginOnboarding(entry)
+		command := shell.beginOnboarding(entry)
+		return shell, command
 	case shellProfileCanceledMsg:
 		if !shell.acceptsShellRequest(message.guard) {
 			return shell, nil
@@ -391,11 +385,11 @@ func (shell Shell) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			shell.selected = &entry
 		}
 		shell.status = "Profile recreated. The previous database is in the backup at " + message.result.BackupPath
-		shell.screen = shellOnboarding
 		if shell.selected == nil {
 			return shell, nil
 		}
-		return shell, shell.beginOnboarding(*shell.selected)
+		command := shell.beginOnboarding(*shell.selected)
+		return shell, command
 	case shellOnboardingSnapshotMsg:
 		if message.start != nil && !shell.acceptsShellRequest(*message.start) {
 			return shell, nil
@@ -718,6 +712,8 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 		}
 	case selectorAdd:
 		shell.invalidateShellRequests()
+		shell.selected = nil
+		shell.createdID = ""
 		shell.providers = newProviderSelector()
 		shell.screen = shellProvider
 		return shell, nil
@@ -731,15 +727,9 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 	case selectorOnboarding:
 		entry := selection.entry
 		shell.selected = &entry
-		if entry.ProviderKind == "amazon" {
-			shell.screen = shellAmazonImport
-			shell.amazon, _ = newAmazonImportState()
-			shell.status = "Profile setup will continue here."
-			return shell, shell.amazon.focus()
-		}
-		shell.screen = shellOnboarding
 		shell.status = "Profile setup will continue here."
-		return shell, shell.beginOnboarding(entry)
+		command := shell.beginOnboarding(entry)
+		return shell, command
 	case selectorLocalOnly:
 		shell.invalidateShellRequests()
 		entry := selection.entry
@@ -778,8 +768,18 @@ func (shell Shell) routeProfileSelection(selection profileSelection) (tea.Model,
 
 func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 	providerKind := entry.ProviderKind
-	if providerKind == "" {
-		providerKind = "monarch"
+	switch providerKind {
+	case "amazon":
+		shell.screen = shellAmazonImport
+		shell.amazon, _ = newAmazonImportState()
+		return shell.amazon.focus()
+	case "monarch", "ynab", "simplefin":
+		shell.screen = shellOnboarding
+	default:
+		shell.invalidateShellRequests()
+		shell.screen = shellRecovery
+		shell.recovery = newProfileRecoveryState(entry)
+		return nil
 	}
 	shell.onboardingKind = providerKind
 	shell.haveSimpleFINSnapshot = false
@@ -799,10 +799,6 @@ func (shell *Shell) beginOnboarding(entry profilecatalog.Entry) tea.Cmd {
 	guard := shell.beginShellRequest(shellOnboarding, selector)
 	return func() tea.Msg {
 		if entry.ID == "" {
-			providerKind := entry.ProviderKind
-			if providerKind == "" {
-				providerKind = "monarch"
-			}
 			activated, err := shell.dependencies.Profiles.ActivateForProvider(shell.ctx, selector, providerKind)
 			if err != nil {
 				return shellOnboardingSnapshotMsg{start: &guard, err: err}
@@ -1026,7 +1022,8 @@ func (shell Shell) startFinanceReconnect() (tea.Model, tea.Cmd) {
 	shell.canceling = false
 	shell.cancelQueued = false
 	shell.status = "Reconnect " + providerName + " to continue refreshing this profile."
-	return shell, shell.beginOnboarding(entry)
+	command := shell.beginOnboarding(entry)
+	return shell, command
 }
 
 func (shell Shell) startFinanceAmazonImport() (tea.Model, tea.Cmd) {
@@ -1222,10 +1219,15 @@ func (shell Shell) routeRecoveryKey(message tea.KeyPressMsg) (tea.Model, tea.Cmd
 		shell.selected = nil
 		return shell, nil
 	}
+	if message.Keystroke() == "n" && !shell.recovery.busy &&
+		shell.recovery.entry.Status != profilecatalog.StatusLocalOnly {
+		return shell.routeProfileSelection(profileSelection{action: selectorAdd})
+	}
 	if message.Keystroke() != "enter" || shell.selected == nil {
 		return shell, nil
 	}
-	if shell.recovery.entry.Status == profilecatalog.StatusLocalOnly {
+	if shell.recovery.entry.Status == profilecatalog.StatusLocalOnly ||
+		(shell.recovery.entry.Status == profilecatalog.StatusSetupIncomplete && shell.recovery.entry.ProviderKind == "local") {
 		profileID := entrySelector(*shell.selected)
 		guard := shell.beginShellRequest(shellRecovery, profileID)
 		return shell, func() tea.Msg {

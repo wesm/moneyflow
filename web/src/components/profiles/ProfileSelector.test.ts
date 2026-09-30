@@ -37,15 +37,19 @@ describe('profile selector', () => {
     expect(props.onexit).toHaveBeenCalledTimes(1)
   })
 
-  it('requires an explicit offline choice for local-only profiles', async () => {
-    const props = syntheticCatalogProps()
-    render(ProfileSelector, { props })
+  it.each(['local_only', 'setup_incomplete'])(
+    'opens local profiles with status %s offline',
+    async (status) => {
+      const props = syntheticCatalogProps()
+      props.profiles[2]!.status = status
+      render(ProfileSelector, { props })
 
-    await fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
-    expect(screen.getByRole('heading', { name: 'Open this profile offline?' })).not.toBeNull()
-    await fireEvent.click(screen.getByRole('button', { name: 'Open Offline' }))
-    expect(props.onopen).toHaveBeenCalledWith('profile_bbbbbbbbbbbbbbbbbbbbbbbbbb')
-  })
+      await fireEvent.click(screen.getByRole('button', { name: /Beta/ }))
+      expect(screen.getByRole('heading', { name: 'Open this profile offline?' })).not.toBeNull()
+      await fireEvent.click(screen.getByRole('button', { name: 'Open Offline' }))
+      expect(props.onopen).toHaveBeenCalledWith('profile_bbbbbbbbbbbbbbbbbbbbbbbbbb')
+    },
+  )
 
   it('offers unlock or offline open for a locally ready YNAB profile', async () => {
     const props = syntheticCatalogProps()
@@ -106,6 +110,68 @@ describe('profile selector', () => {
     await fireEvent.click(screen.getByRole('button', { name: /YNAB Profile/ }))
 
     expect(props.onsetup).toHaveBeenCalledWith('profile_cccccccccccccccccccccccccc')
+  })
+
+  it.each([
+    ['needs_recovery', 'monarch'],
+    ['requires_newer_moneyflow', 'monarch'],
+    ['manifest_unsupported', ''],
+    ['setup_incomplete', 'local'],
+    ['setup_incomplete', ''],
+  ])('starts fresh from %s / %s without recreating the old profile', async (status, provider) => {
+    const props = syntheticCatalogProps()
+    props.profiles = [{ ...props.profiles[0]!, status, provider_kind: provider }]
+    props.oncreate.mockResolvedValue({ ...props.profiles[0], id: 'profile_new' })
+    render(ProfileSelector, { props })
+
+    await fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Start fresh' }))
+    await fireEvent.keyDown(window, { key: 'y' })
+    await fireEvent.input(screen.getByLabelText('Profile name'), { target: { value: 'Fresh' } })
+    await fireEvent.click(screen.getByRole('button', { name: 'Create profile' }))
+
+    expect(props.oncreate).toHaveBeenCalledWith('Fresh', 'ynab')
+    expect(props.onsetup).toHaveBeenCalledExactlyOnceWith('profile_new')
+    expect(props.onrecover).not.toHaveBeenCalledWith(props.profiles[0]!.id, true)
+  })
+
+  it('offers fresh setup after recreating a profile without a provider', async () => {
+    const props = syntheticCatalogProps()
+    props.profiles = [{ ...props.profiles[0]!, provider_kind: 'local', status: 'needs_recovery' }]
+    const rendered = render(ProfileSelector, {
+      props: {
+        ...props,
+        recovery: {
+          version: '1',
+          recreated: false,
+          plan: {
+            backup_path: '/synthetic/backup',
+            profile_key: props.profiles[0]!.key,
+            profile_id: props.profiles[0]!.id,
+            started_at: '2026-01-01T00:00:00Z',
+            in_progress: false,
+            original_code: 'schema_incompatible',
+          },
+        },
+      },
+    })
+    props.onrecover.mockImplementation(async (_id: string, confirmed: boolean) => {
+      if (confirmed) {
+        await rendered.rerender({
+          profiles: [{ ...props.profiles[0]!, status: 'setup_incomplete' }],
+        })
+      }
+    })
+
+    await fireEvent.click(screen.getByRole('button', { name: /Alpha/ }))
+    await fireEvent.click(screen.getByRole('button', { name: 'Recreate profile' }))
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Recreate profile' })).toBeNull(),
+    )
+    await fireEvent.click(screen.getByRole('button', { name: 'Start fresh' }))
+
+    expect(screen.getByRole('heading', { name: 'Choose a provider' })).not.toBeNull()
+    expect(props.onsetup).not.toHaveBeenCalled()
   })
 })
 

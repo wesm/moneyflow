@@ -42,32 +42,41 @@ func (state *profileRecoveryState) confirm() bool {
 }
 
 func (state profileRecoveryState) viewText() string {
+	var message string
 	switch state.entry.Status {
 	case profilecatalog.StatusLocalOnly:
 		return "This profile contains local data.\n\nEnter  Open Offline\nEsc    Back"
 	case profilecatalog.StatusRequiresNewer:
-		return "This profile requires a newer Moneyflow.\nNo data was changed.\n\nEsc  Back"
+		message = "This profile requires a newer Moneyflow to open."
 	case profilecatalog.StatusManifestUnsupported:
-		return "This profile metadata requires another Moneyflow version.\nNo data was changed.\n\nEsc  Back"
+		message = "This profile was created by an unsupported Moneyflow version."
+	case profilecatalog.StatusSetupIncomplete:
+		message = "This profile has no supported provider to finish setup."
+		if state.entry.ProviderKind == "local" {
+			message = "This local profile has no connected provider.\n\nEnter  Open Offline"
+		}
 	case profilecatalog.StatusNeedsRecovery:
 		if state.busy {
 			return "Recreating the profile…\nThe original database is being preserved."
 		}
 		if state.plan == nil {
 			if state.status != "" {
-				return state.status + "\n\nEsc  Back"
+				message = state.status
+			} else {
+				message = "Inspecting the recovery plan…"
 			}
-			return "Inspecting the recovery plan…\n\nEsc  Back"
+			break
 		}
 		instruction := "Enter  Review Recreate"
 		if state.confirmed {
 			instruction = "Press Enter again to Recreate"
 		}
-		return fmt.Sprintf(
-			"Moneyflow will Back up the current database, then install a fresh profile.\n\nBackup: %s\n\n%s\nEsc    Back",
+		message = fmt.Sprintf(
+			"Recreate backs up the current database, then replaces it.\n\nBackup: %s\n\n%s",
 			state.plan.BackupPath, instruction,
 		)
 	default:
-		return "This profile is unavailable.\n\nEsc  Back"
+		message = "This profile has no supported provider to finish setup."
 	}
+	return message + "\n\nStart fresh to set up a separate profile.\nYour existing profile and files will be kept.\n\nn    Start fresh\nEsc  Back"
 }
