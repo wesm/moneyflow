@@ -38,54 +38,107 @@ func TestRecoveryRequiresPlanAndExplicitConfirmation(t *testing.T) {
 	assert.True(t, state.confirm())
 }
 
-func TestShellRecoveryRecreatesThenContinuesToOnboarding(t *testing.T) {
+func TestShellRecoveryContinuesSetupForItsProvider(t *testing.T) {
 	t.Parallel()
-	dependencies, state := fakeShellDependencies(t)
-	recovery := profilecatalog.Entry{
-		Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-		DisplayName: "Needs Recovery", ProviderKind: "monarch",
-		Status: profilecatalog.StatusNeedsRecovery,
+	for providerKind, wantScreen := range map[string]shellScreen{
+		"monarch": shellOnboarding, "local": shellRecovery, "": shellRecovery, "amazon": shellAmazonImport,
+	} {
+		t.Run(providerKind, func(t *testing.T) {
+			t.Parallel()
+			dependencies, state := fakeShellDependencies(t)
+			recovery := profilecatalog.Entry{
+				Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				DisplayName: "Needs Recovery", ProviderKind: providerKind,
+				Status: profilecatalog.StatusNeedsRecovery,
+			}
+			state.entries = []profilecatalog.Entry{recovery}
+			dependencies.Catalog = fakeCatalogView{entries: state.entries}
+			shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+			require.NoError(t, err)
+
+			updated, command := shell.Update(keyMessage("enter"))
+			shell = updated.(Shell)
+			require.NotNil(t, command)
+			shell = updateShell(t, shell, command())
+			assert.Equal(t, shellRecovery, shell.screen)
+			assert.Contains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "backs up")
+
+			shell = updateShell(t, shell, keyMessage("enter"))
+			updated, command = shell.Update(keyMessage("enter"))
+			shell = updated.(Shell)
+			require.NotNil(t, command)
+			shell = updateShell(t, shell, command())
+			assert.Equal(t, wantScreen, shell.screen)
+			assert.Equal(t, 1, state.recreates)
+			assert.Contains(t, shell.status, "backup")
+		})
 	}
-	state.entries = []profilecatalog.Entry{recovery}
-	dependencies.Catalog = fakeCatalogView{entries: state.entries}
-	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
-	require.NoError(t, err)
-
-	updated, command := shell.Update(keyMessage("enter"))
-	shell = updated.(Shell)
-	require.NotNil(t, command)
-	shell = updateShell(t, shell, command())
-	assert.Equal(t, shellRecovery, shell.screen)
-	assert.Contains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "Back up")
-
-	shell = updateShell(t, shell, keyMessage("enter"))
-	updated, command = shell.Update(keyMessage("enter"))
-	shell = updated.(Shell)
-	require.NotNil(t, command)
-	shell = updateShell(t, shell, command())
-	assert.Equal(t, shellOnboarding, shell.screen)
-	assert.Equal(t, 1, state.recreates)
-	assert.Contains(t, shell.status, "backup")
 }
 
-func TestLocalOnlyProfileOpensOfflineWithoutRecovery(t *testing.T) {
+func TestShellStartsFreshWithoutRecreatingOldProfile(t *testing.T) {
 	t.Parallel()
-	dependencies, state := fakeShellDependencies(t)
-	state.entries = []profilecatalog.Entry{{
-		Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
-		DisplayName: "Local", ProviderKind: "local", Status: profilecatalog.StatusLocalOnly,
-	}}
-	dependencies.Catalog = fakeCatalogView{entries: state.entries}
-	shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
-	require.NoError(t, err)
-	shell = updateShell(t, shell, keyMessage("enter"))
-	assert.Equal(t, shellRecovery, shell.screen)
-	updated, command := shell.Update(keyMessage("enter"))
-	shell = updated.(Shell)
-	require.NotNil(t, command)
-	shell = updateShell(t, shell, command())
-	assert.Equal(t, shellFinance, shell.screen)
-	assert.Equal(t, 1, state.opens)
+	for _, entry := range []profilecatalog.Entry{
+		{Status: profilecatalog.StatusNeedsRecovery, ProviderKind: "monarch"},
+		{Status: profilecatalog.StatusRequiresNewer, ProviderKind: "monarch"},
+		{Status: profilecatalog.StatusManifestUnsupported},
+		{Status: profilecatalog.StatusSetupIncomplete, ProviderKind: "local"},
+		{Status: profilecatalog.StatusSetupIncomplete},
+	} {
+		t.Run(string(entry.Status)+"/"+entry.ProviderKind, func(t *testing.T) {
+			t.Parallel()
+			entry.Key = "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa"
+			entry.ID = entry.Key
+			entry.DisplayName = "Previous profile"
+			dependencies, state := fakeShellDependencies(t)
+			state.entries = []profilecatalog.Entry{entry}
+			dependencies.Catalog = fakeCatalogView{entries: state.entries}
+			shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+			require.NoError(t, err)
+
+			shell = updateShell(t, shell, keyMessage("enter"))
+			require.Equal(t, shellRecovery, shell.screen)
+			assert.Contains(t, strings.Join(shell.RenderScreen().Frame.PlainLines(), "\n"), "Start fresh")
+			shell = updateShell(t, shell, keyMessage("n"))
+			require.Equal(t, shellProvider, shell.screen)
+			shell = updateShell(t, shell, keyMessage("y"))
+			shell = updateShell(t, shell, keyMessage("P"))
+			updated, create := shell.Update(keyMessage("enter"))
+			require.NotNil(t, create)
+			updated, start := updated.(Shell).Update(create())
+			require.NotNil(t, start)
+			shell = updateShell(t, updated.(Shell), start())
+			assert.Equal(t, shellOnboarding, shell.screen)
+			assert.Equal(t, "ynab", state.lastStart.ProviderKind)
+			assert.NotEqual(t, entry.ID, state.lastStart.ProfileID)
+			assert.Equal(t, entry, state.entries[0])
+			assert.Zero(t, state.recreates)
+		})
+	}
+}
+
+func TestLocalProfileOpensOffline(t *testing.T) {
+	t.Parallel()
+	for _, status := range []profilecatalog.Status{profilecatalog.StatusLocalOnly, profilecatalog.StatusSetupIncomplete} {
+		t.Run(string(status), func(t *testing.T) {
+			t.Parallel()
+			dependencies, state := fakeShellDependencies(t)
+			state.entries = []profilecatalog.Entry{{
+				Key: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa", ID: "profile_aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				DisplayName: "Local", ProviderKind: "local", Status: status,
+			}}
+			dependencies.Catalog = fakeCatalogView{entries: state.entries}
+			shell, err := NewShell(context.Background(), dependencies, Options{ColorMode: ColorModeNone})
+			require.NoError(t, err)
+			shell = updateShell(t, shell, keyMessage("enter"))
+			assert.Equal(t, shellRecovery, shell.screen)
+			updated, command := shell.Update(keyMessage("enter"))
+			shell = updated.(Shell)
+			require.NotNil(t, command)
+			shell = updateShell(t, shell, command())
+			assert.Equal(t, shellFinance, shell.screen)
+			assert.Equal(t, 1, state.opens)
+		})
+	}
 }
 
 func TestLegacyLocalProfileOpensByCatalogKey(t *testing.T) {

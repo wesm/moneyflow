@@ -111,10 +111,10 @@ not aliases in Go.
 ## What about older Go previews?
 
 Moneyflow installs one current schema into an empty database. It does not migrate older
-databases. Incompatible profiles are refused.
-The profile selector can recreate an older profile after explicit confirmation and keeps
-the old database in a recovery directory. Recreating is not a migration of local edits.
-A newer schema cannot be recreated by an older binary.
+databases. Incompatible profiles are refused. The unreleased Go build offers **Start fresh**
+to set up a separate profile while keeping the existing files. See
+[incompatible profiles](../reference/troubleshooting.md#the-profile-schema-is-incompatible)
+for setup and recovery choices.
 
 Export before changing to an incompatible binary: a newer binary cannot export an older
 schema it does not understand. Keep a full profile backup and the source-compatible

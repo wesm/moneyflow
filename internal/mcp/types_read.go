@@ -231,16 +231,19 @@ type RefreshAttemptDocument struct {
 }
 
 type WriteStatusDocument struct {
-	NextEligible string `json:"next_eligible,omitempty"`
-	BatchID      string `json:"batch_id,omitempty"`
-	Phase        string `json:"phase,omitempty"`
-	Version      string `json:"version"`
-	Generation   string `json:"generation"`
-	Total        int    `json:"total"`
-	Completed    int    `json:"completed"`
-	Failed       int    `json:"failed"`
-	Remaining    int    `json:"remaining"`
-	Overrides    int    `json:"overrides"`
+	AttentionClass  string `json:"attention_class,omitempty"`
+	AttentionReason string `json:"attention_reason,omitempty"`
+	ResumeTarget    string `json:"resume_target,omitempty"`
+	NextEligible    string `json:"next_eligible,omitempty"`
+	BatchID         string `json:"batch_id,omitempty"`
+	Phase           string `json:"phase,omitempty"`
+	Version         string `json:"version"`
+	Generation      string `json:"generation"`
+	Total           int    `json:"total"`
+	Completed       int    `json:"completed"`
+	Failed          int    `json:"failed"`
+	Remaining       int    `json:"remaining"`
+	Overrides       int    `json:"overrides"`
 }
 
 type AccountDocument struct {
@@ -380,6 +383,8 @@ func refreshSummaryDocument(status app.ProviderStatus) RefreshSummaryDocument {
 
 func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 	return WriteStatusDocument{
+		AttentionClass: string(status.AttentionClass), AttentionReason: string(status.AttentionReason),
+		ResumeTarget: string(status.ResumeTarget),
 		NextEligible: formatOptionalTime(status.NextEligible),
 		BatchID:      status.BatchID,
 		Phase:        string(status.Phase), Version: strconv.FormatUint(status.Version, 10), Generation: strconv.FormatUint(status.Generation, 10),

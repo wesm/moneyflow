@@ -208,8 +208,8 @@ func TestOpenProfileExplainsHowToRecoverAnIncompatiblePreviewSchema(t *testing.T
 	assert.Equal(t, store.CodeSchemaIncompatible, storageFailure.Code)
 	assert.ErrorContains(t, err, "profile directory "+strconv.Quote(paths.Root))
 	assert.ErrorContains(t, err, "does not migrate preview profiles")
-	assert.ErrorContains(t, err, "move the complete directory to a backup location")
-	assert.ErrorContains(t, err, "rerun the command")
+	assert.ErrorContains(t, err, "Add profile to start fresh")
+	assert.ErrorContains(t, err, "moneyflow tui")
 }
 
 func TestOpenProfileRejectsPriorV3ProviderBindingShapeBeforeServiceLoad(t *testing.T) {
@@ -238,7 +238,7 @@ func TestOpenProfileRejectsPriorV3ProviderBindingShapeBeforeServiceLoad(t *testi
 	require.ErrorAs(t, err, &storageFailure)
 	assert.Equal(t, store.CodeSchemaIncompatible, storageFailure.Code)
 	assert.ErrorContains(t, err, "profile directory "+strconv.Quote(paths.Root))
-	assert.ErrorContains(t, err, "move the complete directory to a backup location")
+	assert.ErrorContains(t, err, "Add profile to start fresh")
 	assert.NotContains(t, err.Error(), "load service")
 }
 
@@ -274,7 +274,7 @@ func TestOpenProfileExplainsHowToRecoverAnUnsupportedJournalPayload(t *testing.T
 	assert.Equal(t, store.CodeSchemaIncompatible, storageFailure.Code)
 	assert.ErrorContains(t, err, "load service")
 	assert.ErrorContains(t, err, "profile directory "+strconv.Quote(paths.Root))
-	assert.ErrorContains(t, err, "move the complete directory to a backup location")
+	assert.ErrorContains(t, err, "Add profile to start fresh")
 }
 
 func TestOpenProfileDemoSeedsUniquePrivateTemporaryProfileAndCleansIt(t *testing.T) {

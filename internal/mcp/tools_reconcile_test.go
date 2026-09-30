@@ -8,8 +8,41 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+func TestMCPCommitStatusReportsRetryableAttentionWithoutRevisionChange(t *testing.T) {
+	service, source, closeProfile := providerTestService(t, 1, "monarch")
+	defer closeProfile()
+	source.deleteFailure = provider.NewWriteFailure(provider.WriteResponseIncomplete)
+	client, cleanup := connectWriteTestServer(t, service, true)
+	defer cleanup()
+	rows := callWriteTool(t, client, "get_transactions", nil).StructuredContent.(map[string]any)
+	id := rows["transactions"].([]any)[0].(map[string]any)["id"]
+	staged := callWriteTool(t, client, "delete_transactions", map[string]any{
+		"expected_revision": rows["revision"], "transaction_ids": []any{id},
+	})
+	require.False(t, staged.IsError)
+	revision := staged.StructuredContent.(map[string]any)["revision"]
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
+	require.False(t, committed.IsError)
+	preparedRevision := committed.StructuredContent.(map[string]any)["revision"]
+	var status map[string]any
+	require.Eventually(t, func() bool {
+		result := callWriteTool(t, client, "get_commit_status", nil)
+		require.False(t, result.IsError)
+		status = result.StructuredContent.(map[string]any)
+		return status["write"].(map[string]any)["phase"] == "attention_required"
+	}, 3*time.Second, 10*time.Millisecond)
+	assert.Equal(t, preparedRevision, status["revision"])
+	write := status["write"].(map[string]any)
+	assert.Equal(t, "retryable", write["attention_class"])
+	assert.Equal(t, "provider_write_response_incomplete", write["attention_reason"])
+	assert.Equal(t, "writing", write["resume_target"])
+	assert.Equal(t, float64(1), write["failed"])
+	assert.Equal(t, 1, source.fetchCalls(), "status polling must not refresh provider data")
+}
 
 func TestMCPReconcileRequiresNonzeroRevisionAndBatchVersion(t *testing.T) {
 	for _, tool := range []string{"stop_and_reconcile", "confirm_reconcile"} {
@@ -32,6 +65,18 @@ func TestMCPReconcileRequiresNonzeroRevisionAndBatchVersion(t *testing.T) {
 				status, err = service.ProviderWriteStatus(t.Context())
 				return err == nil && status.Phase == store.WritePhaseAttentionRequired
 			}, 3*time.Second, 10*time.Millisecond)
+			require.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+			require.Equal(t, store.WriteAttentionRejected, status.AttentionReason)
+			for _, statusTool := range []string{"get_commit_status", "get_account_info"} {
+				result := callWriteTool(t, client, statusTool, map[string]any{})
+				require.False(t, result.IsError)
+				write := result.StructuredContent.(map[string]any)["write"].(map[string]any)
+				assert.Equal(t, string(status.Phase), write["phase"])
+				assert.Equal(t, strconv.FormatUint(status.Version, 10), write["version"])
+				assert.Equal(t, "reconcile_only", write["attention_class"])
+				assert.Equal(t, "provider_write_rejected", write["attention_reason"])
+				assert.Equal(t, string(status.ResumeTarget), write["resume_target"])
+			}
 
 			// An empty remote snapshot requires confirmation, so both tools can be
 			// exercised against real application/store state rather than a fake token.

@@ -26,8 +26,17 @@ Keep original exports, but share only synthetic examples when reporting an issue
 
 ## The profile schema is incompatible
 
-Use the selector's recovery flow for an older preview, or a newer binary for a newer schema.
-Recovery preserves the old database but does not migrate local changes.
+In the unreleased Go build, open `moneyflow tui`, select the affected profile, and press
+`n` for **Start fresh**. In the browser, select the profile and click **Start fresh**.
+Choose a provider and a new profile name, then complete setup. Your previous profile,
+database, and credentials stay where they are. Local changes are not copied to the new profile.
+
+The same action is available if a profile is labeled **Local · Setup incomplete** and
+has no provider to finish setup.
+
+To open a profile written by a newer Moneyflow version, install that version or later.
+For older profiles, **Recreate** is an alternative: it backs up the old database and replaces
+it with an empty one in the same profile. Recreate is unavailable for newer schemas.
 Never remove individual SQLite sidecar files from a live profile.
 
 ## Keys do not reach the terminal application

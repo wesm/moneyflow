@@ -207,13 +207,14 @@ func providerTestService(t *testing.T, transactionCount int, kind string) (*app.
 }
 
 type refreshTestSource struct {
-	kind     string
-	updates  []provider.TransactionUpdate
-	mu       sync.Mutex
-	snapshot domain.ImportSnapshot
-	started  chan<- struct{}
-	release  <-chan struct{}
-	fetches  int
+	deleteFailure error
+	kind          string
+	updates       []provider.TransactionUpdate
+	mu            sync.Mutex
+	snapshot      domain.ImportSnapshot
+	started       chan<- struct{}
+	release       <-chan struct{}
+	fetches       int
 }
 
 func (source *refreshTestSource) Reader(context.Context, bool) (provider.Reader, provider.SessionFingerprint, error) {
@@ -235,7 +236,12 @@ func (source *refreshTestSource) UpdateTransaction(_ context.Context, update pro
 	return provider.TransactionUpdateResult{TransactionExternalID: update.TransactionExternalID, CategoryExternalID: update.CategoryExternalID, CategoryCleared: update.ClearCategory}, nil
 }
 
-func (*refreshTestSource) DeleteTransaction(context.Context, string) (provider.TransactionDeleteResult, error) {
+func (source *refreshTestSource) DeleteTransaction(context.Context, string) (provider.TransactionDeleteResult, error) {
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	if source.deleteFailure != nil {
+		return provider.TransactionDeleteResult{}, source.deleteFailure
+	}
 	return provider.TransactionDeleteResult{}, provider.NewWriteFailure(provider.WriteRejected)
 }
 

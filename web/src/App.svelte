@@ -218,14 +218,7 @@
   }
 
   async function recover(id: string, confirmed: boolean): Promise<void> {
-    if (!catalog) return
-    const provider = catalog.state.profiles.find((profile) => profile.id === id)?.provider_kind
-    const response = await catalog.recovery(id, confirmed)
-    if (confirmed && response?.recreated) {
-      if (provider === 'simplefin') await setupSimpleFIN(id)
-      else if (provider === 'ynab') await setup(id)
-      else await setup(id)
-    }
+    await catalog?.recovery(id, confirmed)
   }
 
   onMount(() => {
