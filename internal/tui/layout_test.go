@@ -28,6 +28,34 @@ func TestAggregateTableRendersInOutNetAtMinimumWidth(t *testing.T) {
 	}
 }
 
+func TestAggregateTableUsesSpaceForMerchantNames(t *testing.T) {
+	t.Parallel()
+	model := newTestModel(t, app.NewSession())
+	model.width, model.height = 120, 30
+	model.result.AggregateRows = []domain.AggregateRow{{
+		Dimension: domain.DimensionMerchant, Key: "example", Label: "Example Neighborhood Hardware", Count: 2,
+		In: domain.Money{Currency: "USD", Scale: 2}, Out: domain.Money{Currency: "USD", Scale: 2, Minor: -12345},
+		Total:       domain.Money{Currency: "USD", Scale: 2, Minor: -12345},
+		TopCategory: "Home Supplies", TopCategoryPercent: 100,
+	}}
+	columns := model.columns(116)
+	assert.Equal(t, 5, columns[1].Width, "Count needs only its heading and digits")
+	assert.Equal(t, AlignRight, columns[1].Align)
+	line := model.RenderScreen().Frame.PlainLine(4)
+	assert.Contains(t, line, "Example Neighborhood Hardware")
+	assert.Contains(t, line, "Home Supplies 100%")
+
+	model.width = 160
+	model.result.AggregateRows[0].Label = "Example Neighborhood Hardware and Garden Center"
+	assert.Contains(t, model.RenderScreen().Frame.PlainLine(4), "Example Neighborhood Hardware and Garden Center")
+
+	model.result.AggregateRows[0].Count = 12345678
+	model.session.Sort = domain.SortSpec{Field: domain.SortFieldCount, Direction: domain.SortDirectionDesc}
+	screen := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, screen, "Count ↓")
+	assert.Contains(t, screen, "12345678")
+}
+
 func TestLayoutSupportedSizesExposeStableRegions(t *testing.T) {
 	t.Parallel()
 

@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"strconv"
+
+	"charm.land/lipgloss/v2"
+
 	"github.com/wesm/moneyflow/internal/domain"
 )
 
@@ -24,35 +28,43 @@ type Column struct {
 }
 
 // AggregateColumns returns stable aggregate columns fitted to the available width.
-func AggregateColumns(width int, dimension domain.Dimension, sortSpec domain.SortSpec) []Column {
+func AggregateColumns(width int, dimension domain.Dimension, sortSpec domain.SortSpec, rows []domain.AggregateRow) []Column {
 	nameKey, nameLabel := dimensionColumn(dimension)
 	columns := []Column{
 		{Key: nameKey, Label: withArrow(nameLabel, sortFieldForDimension(dimension), sortSpec)},
-		{Key: "count", Label: withArrow("Count", domain.SortFieldCount, sortSpec)},
+		{Key: "count", Label: withArrow("Count", domain.SortFieldCount, sortSpec), Align: AlignRight},
 		{Key: "in", Label: "In ($)", Align: AlignRight},
 		{Key: "out", Label: "Out ($)", Align: AlignRight},
 		{Key: "total", Label: withArrow("Net ($)", domain.SortFieldAmount, sortSpec), Align: AlignRight},
 		{Key: "pct", Label: "%"},
 	}
-	nameWidth := 40
-	switch dimension {
-	case domain.DimensionMerchant:
-		nameWidth = 20
-	case domain.DimensionAccount:
-		nameWidth = 22
-	case domain.DimensionTime:
-		nameWidth = 15
+	countWidth := lipgloss.Width(columns[1].Label)
+	categoryWidth := lipgloss.Width("Top Category")
+	for _, row := range rows {
+		countWidth = max(countWidth, len(strconv.Itoa(row.Count)))
+		if row.TopCategory != "" {
+			categoryWidth = max(categoryWidth, lipgloss.Width(row.TopCategory)+1+len(strconv.Itoa(row.TopCategoryPercent))+1)
+		}
 	}
-	widths := []int{nameWidth, 7, 11, 11, 11, 6}
-	flexible := []int{0}
+	widths := []int{0, countWidth, 11, 11, 11, 6}
 	// Keep all three amounts readable at 80 columns. Top category is secondary.
 	if dimension == domain.DimensionMerchant && width >= 100 {
 		columns = append(columns, Column{Key: "top_category", Label: "Top Category"})
-		widths = append(widths, 35)
-		flexible = append(flexible, 6)
+		widths = append(widths, 0)
 	}
 	columns = append(columns, Column{Key: "flags"})
-	widths = fitColumnWidths(width, append(widths, 2), flexible)
+	widths = append(widths, 2)
+	remaining := width - 1 - 2*(len(columns)-1)
+	for _, columnWidth := range widths {
+		remaining -= columnWidth
+	}
+	remaining = max(0, remaining)
+	if dimension == domain.DimensionMerchant && width >= 100 {
+		// Give the merchant at least half the text space; don't pad short categories.
+		widths[6] = min(categoryWidth, remaining/2)
+		remaining -= widths[6]
+	}
+	widths[0] = remaining
 	return placeColumns(width, columns, widths)
 }
 
