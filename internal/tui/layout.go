@@ -81,7 +81,7 @@ func (model Model) RenderScreen() RenderedScreen {
 	frame.PutText(
 		footer.X,
 		footer.Y,
-		Truncate("g Group By  d Detail  s Sort  v ↕ Reverse  f Filters  ? Help  / Search  q Quit", footer.Width),
+		Truncate("g Group By  t Time  d Detail  s Sort  v ↕  f Filters  ? Help  / Search  q Quit", footer.Width),
 		model.palette.Muted,
 	)
 
@@ -138,8 +138,7 @@ func (model Model) actionHints() string {
 	if sortName != "" {
 		sortName = strings.ToUpper(sortName[:1]) + sortName[1:]
 	}
-	if model.session.Dimension == domain.DimensionTime && model.session.Mode == domain.ResultModeAggregate &&
-		model.session.SubGrouping == nil {
+	if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
 		toggle := "By Year"
 		switch model.session.TimeGranularity {
 		case domain.TimeGranularityYear:

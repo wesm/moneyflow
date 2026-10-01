@@ -14,8 +14,17 @@ Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible p
 `T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
 the top. `s` changes the sort field.
 
-Time grouping uses `t` to cycle year, month, and day. While drilled into a period, left and
-right move to adjacent periods; `a` clears the time selection.
+In this checkout's TUI, press `t` from any grouped view to jump directly to Time. Press it
+again to cycle year, month, and day. Existing search and date filters stay active. Within
+a merchant, category, group, or account drill-down, `t` shows time groups for that selection.
+It also works from that selection's transaction list. A view already narrowed to a time
+period keeps its current grouping.
+
+For example, from the initial merchant summary, press `t` twice to list months, select a
+month, and press Enter to see its transactions. Esc returns to the month list. While drilled
+into a period, left and right move to adjacent periods; `a` clears the time selection.
+
+In the browser, `t` cycles year, month, and day within Time grouping.
 
 ## Search
 

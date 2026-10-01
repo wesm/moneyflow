@@ -15,7 +15,7 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `A` | Group by account |
 | Enter / Esc | Drill into a row / return |
 | `s` / `v` | Change sort field / reverse order |
-| `t` | Cycle time grouping |
+| `t` | Jump to Time in the TUI; cycle year/month/day within Time |
 | Left / Right | Adjacent time period |
 | `a` | Clear the time period |
 | `/` / `f` | Search / filters |

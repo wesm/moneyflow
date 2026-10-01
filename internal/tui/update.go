@@ -163,8 +163,10 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 	case app.ActionBack:
 		model.back()
 	case app.ActionToggleTime:
-		if model.timeContext() {
+		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
 			model.session.ToggleTimeGranularity()
+			model.resetAndRefresh()
+		} else if model.session.JumpToTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
 			model.resetAndRefresh()
 		}
 	case app.ActionClearTime:

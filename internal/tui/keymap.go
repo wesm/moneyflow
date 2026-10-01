@@ -36,6 +36,9 @@ func defaultBindings() []binding {
 			definition.Keys = append(definition.Keys, "T")
 			definition.KeyDisplay, definition.Category = "Home/T", "Views"
 		}
+		if definition.ID == app.ActionToggleTime {
+			definition.Description = "Time view / cycle Year→Month→Day"
+		}
 		bindings = append(bindings, binding{
 			keys: append([]string(nil), definition.Keys...), keyDisplay: definition.KeyDisplay,
 			action: definition.ID, description: definition.Description, category: definition.Category,
