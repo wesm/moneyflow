@@ -557,7 +557,7 @@ func (model Model) columns(width int) []Column {
 	if model.session.SubGrouping != nil {
 		dimension = *model.session.SubGrouping
 	}
-	return AggregateColumns(width, dimension, model.session.Sort)
+	return AggregateColumns(width, dimension, model.session.Sort, model.result.AggregateRows)
 }
 
 func (model Model) tableRows() []TableRow {

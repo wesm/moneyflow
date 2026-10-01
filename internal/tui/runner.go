@@ -7,6 +7,7 @@ import (
 	"io"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/wesm/moneyflow/internal/app"
 )
@@ -35,6 +36,8 @@ func RunShell(
 	}
 	final, runErr := tea.NewProgram(
 		shell, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output),
+		// PaletteFor already resolved the color mode. Preserve its colors verbatim.
+		tea.WithColorProfile(colorprofile.TrueColor),
 	).Run()
 	closeErr := shell.Close()
 	if finalShell, ok := final.(Shell); ok {
@@ -52,7 +55,11 @@ func Run(ctx context.Context, service *app.Service, session app.Session, options
 	if err != nil {
 		return fmt.Errorf("run TUI: %w", err)
 	}
-	_, err = tea.NewProgram(model, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output)).Run()
+	_, err = tea.NewProgram(
+		model, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output),
+		// PaletteFor already resolved the color mode. Preserve its colors verbatim.
+		tea.WithColorProfile(colorprofile.TrueColor),
+	).Run()
 	if err != nil {
 		return fmt.Errorf("run TUI: %w", err)
 	}
