@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -113,7 +114,7 @@ func (model *Model) loadReviewPreview() bool {
 
 func (model *Model) loadReviewDetails(offset int) {
 	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
-	limit := min(app.MaxReviewTargetLimit, max(1, rect.Height-8))
+	limit := min(app.MaxReviewTargetLimit, max(1, rect.Height-11))
 	model.loadReviewWindow(offset, limit, reviewPhaseDetails)
 }
 
@@ -211,13 +212,17 @@ func (model *Model) installReviewPreview(summary app.ReviewProjection) {
 }
 
 func (model Model) renderReview(screen *RenderedScreen) {
+	model.palette.Text.Background = model.palette.Panel.Background
+	model.palette.Muted.Background = model.palette.Panel.Background
+	model.palette.Warning.Background = model.palette.Panel.Background
+	model.palette.Border.Background = model.palette.Panel.Background
 	rect := model.reviewRect()
 	drawOverlayBox(&screen.Frame, rect, model.palette, "Pending Changes")
 	x, width := rect.X+2, max(0, rect.Width-4)
 	overlay := []string{"Pending Changes"}
 	if model.review.phase == reviewPhaseDetails {
 		model.renderReviewDetails(screen, rect, x, width)
-		overlay = append(overlay, "Bounded operation detail")
+		overlay = append(overlay, "Affected transactions")
 	} else {
 		model.renderReviewSummary(screen, rect, x, width)
 		overlay = append(overlay, reviewSemanticSummary(model.review.projection)...)
@@ -232,12 +237,12 @@ func (model Model) renderReview(screen *RenderedScreen) {
 
 func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int, width int) {
 	projection := model.review.projection
-	summary := fmt.Sprintf("Active: %d | Redo: %d | Active affected transactions: %d",
-		projection.Pending.ActiveOperations, projection.Pending.InactiveOperations,
+	summary := fmt.Sprintf("Pending changes: %d · Transactions: %d",
+		projection.Pending.ActiveOperations,
 		projection.Pending.AffectedTransactions)
-	screen.Frame.PutText(x, rect.Y+2, Truncate(summary, width), model.palette.Text)
+	screen.Frame.PutText(x, rect.Y+1, Truncate(summary, width), model.palette.Text)
 	if warning := reviewRedoWarning(projection.Pending.InactiveOperations); warning != "" {
-		screen.Frame.PutText(x, rect.Y+3, Truncate(warning, width), model.palette.Warning)
+		screen.Frame.PutText(x, rect.Y+2, Truncate(warning, width), model.palette.Warning)
 	}
 
 	rows, selectedRow := reviewDashboardRows(projection, model.review.selected)
@@ -246,7 +251,7 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 	end := min(len(rows), start+operationRows)
 	for index := start; index < end; index++ {
 		row := rows[index]
-		y := rect.Y + 4 + index - start
+		y := rect.Y + 3 + index - start
 		if row.heading != "" {
 			screen.Frame.PutText(x, y, row.heading, model.palette.Heading)
 			continue
@@ -256,17 +261,35 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 		if row.operationIndex == model.review.selected {
 			prefix, style = "> ", model.palette.Selection
 		}
-		state := "[A] "
+		state := ""
 		if !operation.Active {
-			state = "[R] "
+			state = "[redo] "
 		}
-		screen.Frame.PutText(x, y, Truncate(prefix+state+reviewOperationLine(operation), width), style)
+		screen.Frame.PutText(x, y, padRight(Truncate(prefix+state+reviewOperationLine(operation), width), width), style)
 	}
 
-	previewY := rect.Y + 4 + end - start + 1
-	model.renderReviewPreview(screen, Rect{X: x, Y: previewY, Width: width, Height: previewRows + 1})
-	actions := "↑/↓=Choose | i=Details | Enter=Commit | Esc=Cancel"
+	changeY := rect.Y + 4 + end - start
+	model.renderReviewChange(screen, Rect{X: x, Y: changeY, Width: width, Height: 2})
+	model.renderReviewPreview(screen, Rect{X: x, Y: changeY + 3, Width: width, Height: previewRows + 2})
+	actions := "↑/↓=Choose | i=All rows | Enter=Commit all | Esc=Back"
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
+}
+
+func (model Model) renderReviewChange(screen *RenderedScreen, rect Rect) {
+	if model.review.selected >= len(model.review.projection.Operations) {
+		return
+	}
+	operation := model.review.projection.Operations[model.review.selected]
+	for index, value := range []string{operation.Before, operation.After} {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		label := "From: "
+		if index == 1 {
+			label = "To:   "
+		}
+		screen.Frame.PutText(rect.X, rect.Y+index, Truncate(label+value, rect.Width), model.palette.Text)
+	}
 }
 
 func (model Model) renderReviewPreview(screen *RenderedScreen, rect Rect) {
@@ -274,21 +297,35 @@ func (model Model) renderReviewPreview(screen *RenderedScreen, rect Rect) {
 		return
 	}
 	operation := model.review.projection.Operations[model.review.selected]
-	heading := fmt.Sprintf("Preview · %s · %d affected", friendlyReviewOperationLabel(operation.Type), operation.AffectedCount)
+	count := min(len(model.review.projection.Targets), max(0, rect.Height-2))
+	heading := "Affected transactions (before change)"
+	if count > 0 {
+		heading += fmt.Sprintf(" · %d–%d of %d", model.review.projection.Window.Offset+1,
+			model.review.projection.Window.Offset+count, operation.AffectedCount)
+	}
 	screen.Frame.PutText(rect.X, rect.Y, Truncate(heading, rect.Width), model.palette.Heading)
 	if len(model.review.projection.Targets) == 0 {
 		screen.Frame.PutText(rect.X, rect.Y+1, Truncate("No transaction rows are affected.", rect.Width), model.palette.Muted)
 		return
 	}
-	for index, target := range model.review.projection.Targets {
-		if index >= rect.Height-1 {
-			break
-		}
-		line := target.Date.String() + "  " + target.Merchant + "  " + target.Category
+	textWidth := max(0, rect.Width-23)
+	merchantWidth := textWidth * 3 / 5
+	columns := placeColumns(rect.Width, []Column{
+		{Key: "date", Label: "Date"}, {Key: "merchant", Label: "Merchant"},
+		{Key: "category", Label: "Category"}, {Key: "hidden", Label: "Hidden"},
+	}, []int{10, merchantWidth, textWidth - merchantWidth, 6})
+	for _, column := range columns {
+		writeColumn(&screen.Frame, rect, rect.Y+1, column, column.Label, model.palette.Heading)
+	}
+	for index, target := range model.review.projection.Targets[:count] {
+		hidden := "no"
 		if target.Hidden {
-			line += "  hidden"
+			hidden = "yes"
 		}
-		screen.Frame.PutText(rect.X, rect.Y+1+index, Truncate(line, rect.Width), model.palette.Muted)
+		values := []string{target.Date.String(), target.Merchant, target.Category, hidden}
+		for columnIndex, column := range columns {
+			writeColumn(&screen.Frame, rect, rect.Y+2+index, column, values[columnIndex], model.palette.Text)
+		}
 	}
 }
 
@@ -297,9 +334,9 @@ func reviewDashboardRows(projection app.ReviewProjection, selected int) ([]revie
 	selectedRow := 0
 	lastHeading := ""
 	for index, operation := range projection.Operations {
-		heading := "ACTIVE"
+		heading := "TO COMMIT"
 		if !operation.Active {
-			heading = "REDO"
+			heading = "REDO · not committed"
 		}
 		if heading != lastHeading {
 			rows = append(rows, reviewDashboardRow{heading: heading, operationIndex: -1})
@@ -314,8 +351,8 @@ func reviewDashboardRows(projection app.ReviewProjection, selected int) ([]revie
 }
 
 func reviewDashboardLayout(rect Rect) (int, int) {
-	available := max(4, rect.Height-8)
-	previewRows := min(6, max(1, available/3))
+	available := max(3, rect.Height-11)
+	previewRows := min(6, max(1, available/2))
 	return max(2, available-previewRows-1), previewRows
 }
 
@@ -337,22 +374,15 @@ func (model Model) renderReviewDetails(screen *RenderedScreen, rect Rect, x int,
 	projection := model.review.projection
 	if len(projection.Operations) > model.review.selected {
 		operation := projection.Operations[model.review.selected]
-		end := projection.Window.Offset + projection.Window.Count
-		heading := fmt.Sprintf("%s | %d affected | rows %d-%d", friendlyReviewOperationLabel(operation.Type),
-			operation.AffectedCount, projection.Window.Offset+1, end)
-		screen.Frame.PutText(x, rect.Y+2, Truncate(heading, width), model.palette.Heading)
-	}
-	for index, target := range projection.Targets {
-		if index >= max(0, rect.Height-8) {
-			break
+		heading := reviewOperationLine(operation)
+		if !operation.Active {
+			heading = "[redo] " + heading
 		}
-		line := target.Date.String() + "  " + target.Merchant + "  " + target.Category
-		if target.Hidden {
-			line += "  hidden"
-		}
-		screen.Frame.PutText(x, rect.Y+4+index, Truncate(line, width), model.palette.Text)
+		screen.Frame.PutText(x, rect.Y+1, Truncate(heading, width), model.palette.Heading)
 	}
-	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "←/→=Page | Enter=Commit | Esc/i=Dashboard", model.palette.Muted)
+	model.renderReviewChange(screen, Rect{X: x, Y: rect.Y + 3, Width: width, Height: 2})
+	model.renderReviewPreview(screen, Rect{X: x, Y: rect.Y + 6, Width: width, Height: rect.Height - 9})
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "←/→=Page | Enter=Commit all | Esc/i=Back", model.palette.Muted)
 }
 
 func reviewSemanticSummary(projection app.ReviewProjection) []string {

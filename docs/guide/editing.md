@@ -42,6 +42,11 @@ review and commit it; Moneyflow never deletes duplicate suggestions automaticall
 ## Review and commit
 
 Press `w` to inspect active operations, inactive redo history, and affected transactions.
+In the TUI, use Up/Down to select a change. Its From/To values appear below the list,
+and the transaction preview shows values **before that change**. Press `i` to inspect
+all affected rows, using Left/Right to page through them. Enter commits all active
+changes and discards redo history. Esc returns without committing.
+
 Commit applies the reviewed revision. If another process changed the profile, refresh the
 review instead of assuming the old preview is still current.
 

@@ -50,6 +50,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.overlay == overlayTransactionInfo {
 			model.transactionInfo.scroll = min(model.transactionInfo.scroll, model.transactionInfoMaxScroll())
 		}
+		if model.overlay == overlayReview {
+			if model.review.phase == reviewPhaseDetails {
+				model.loadReviewDetails(model.review.detailOffset)
+			} else {
+				model.loadReviewPreview()
+			}
+		}
 		return model, nil
 	case tea.KeyPressMsg:
 		matched := matchAction(message, model.bindings)
