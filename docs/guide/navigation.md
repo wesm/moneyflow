@@ -14,17 +14,28 @@ Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible p
 `T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
 the top. `s` changes the sort field.
 
-In this checkout's TUI, press `t` from any grouped view to jump directly to Time. Press it
-again to cycle year, month, and day. Existing search and date filters stay active. Within
-a merchant, category, group, or account drill-down, `t` shows time groups for that selection.
-It also works from that selection's transaction list. A view already narrowed to a time
-period keeps its current grouping.
+## Jump to a month
 
-For example, from the initial merchant summary, press `t` twice to list months, select a
-month, and press Enter to see its transactions. Esc returns to the month list. While drilled
-into a period, left and right move to adjacent periods; `a` clears the time selection.
+In this checkout's TUI, `t` opens a time chooser from a grouped view or transaction list:
 
-In the browser, `t` cycles year, month, and day within Time grouping.
+| Keys | Result |
+| --- | --- |
+| `t`, Enter | This calendar month |
+| `t`, Down, Enter | Last calendar month |
+| `t`, Down, Down, Enter | Enter another month as `YYYY-MM`, then press Enter |
+| `t`, Down, Down, Down, Enter | All time |
+
+The chooser uses your computer's calendar, even when the selected month has no transactions.
+Month selections include the whole month. They replace existing date limits and time
+drill-downs while preserving your grouping, search, and merchant, category, group, or account
+selection. Esc cancels the chooser. The selected month appears above the table.
+
+After choosing a month, left and right move to adjacent months; `a` returns to all time.
+Enter still opens a selected group and Esc returns to its summary.
+
+To browse grouped periods instead, use `Ctrl+t` to jump to Time grouping. Press it again to
+cycle year, month, and day. In the browser, `t` cycles those units within Time grouping.
+While drilled into a period, left and right move to adjacent periods.
 
 ## Search
 

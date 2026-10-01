@@ -127,6 +127,14 @@ func (model Model) displayBreadcrumb() string {
 	} else {
 		breadcrumb = model.session.Breadcrumb(model.result.DateRange)
 	}
+	if model.session.DateRange != nil {
+		breadcrumb = model.session.Breadcrumb(nil)
+		label := model.session.DateRange.Start.String() + " to " + model.session.DateRange.End.String()
+		if month, ok := calendarMonth(model.session.DateRange); ok {
+			label = month.Format("Jan 2006")
+		}
+		breadcrumb = label + " > " + breadcrumb
+	}
 	if model.session.Search != "" {
 		breadcrumb += " > Search: '" + model.session.Search + "'"
 	}
@@ -146,7 +154,7 @@ func (model Model) actionHints() string {
 		case domain.TimeGranularityMonth:
 			toggle = "By Day"
 		}
-		return "Enter=Drill | t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
+		return "Enter=Drill | Ctrl+t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
 	}
 	if model.session.Mode == domain.ResultModeDetail {
 		back := "Group"
@@ -164,6 +172,8 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderSearchOverlay(screen)
 	case overlayFilters:
 		model.renderFilterOverlay(screen)
+	case overlayTimeChooser:
+		model.renderTimeChooser(screen)
 	case overlayHelp:
 		model.renderHelpOverlay(screen)
 	case overlayTransactionInfo:

@@ -15,9 +15,10 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `A` | Group by account |
 | Enter / Esc | Drill into a row / return |
 | `s` / `v` | Change sort field / reverse order |
-| `t` | Jump to Time in the TUI; cycle year/month/day within Time |
-| Left / Right | Adjacent time period |
-| `a` | Clear the time period |
+| `t` | Open the time chooser in the TUI; cycle time grouping in the browser |
+| `Ctrl+t` | Jump to Time grouping in the TUI; cycle year/month/day within Time |
+| Left / Right | Adjacent selected month or time period |
+| `a` | Clear time limits in the TUI; clear the time period in the browser |
 | `/` / `f` | Search / filters |
 | `i` | Transaction information |
 | `D` | Find duplicate transactions |

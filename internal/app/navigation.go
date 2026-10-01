@@ -105,6 +105,40 @@ func (session *Session) JumpToTime(position ViewPosition) bool {
 	return true
 }
 
+// SetTimeRange replaces date constraints while retaining the current grouping,
+// search, and non-time drill-downs. Back retains the new range. A nil range
+// selects all time.
+func (session *Session) SetTimeRange(dateRange *domain.DateRange) error {
+	if err := session.SetFilters(Filters{
+		DateRange: dateRange, ShowHidden: session.ShowHidden, ShowTransfers: session.ShowTransfers,
+	}); err != nil {
+		return err
+	}
+	session.Drilldowns = removeTimeDrilldowns(session.Drilldowns, session.searchAnchor)
+	for index := range session.history {
+		snapshot := &session.history[index].snapshot
+		snapshot.dateRange = cloneDateRange(dateRange)
+		snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
+		clear(snapshot.selectedTransactionIDs)
+		clear(snapshot.selectedAggregateKeys)
+	}
+	session.clearSelections()
+	return nil
+}
+
+func removeTimeDrilldowns(drilldowns []domain.Drilldown, searchAnchor *navigationMarker) []domain.Drilldown {
+	for index := len(drilldowns) - 1; index >= 0; index-- {
+		if drilldowns[index].Dimension != domain.DimensionTime {
+			continue
+		}
+		if searchAnchor != nil && index < searchAnchor.drilldownSize {
+			searchAnchor.drilldownSize--
+		}
+		drilldowns = append(drilldowns[:index], drilldowns[index+1:]...)
+	}
+	return drilldowns
+}
+
 // Back applies search, subgroup, and navigation-history priority in that order.
 func (session *Session) Back() (ViewPosition, bool) {
 	if session.Search != "" && session.searchAnchor != nil && markersEqual(session.marker(), *session.searchAnchor) {

@@ -36,7 +36,7 @@ func TestTimeJumpFromEveryGroupingPreservesFilters(t *testing.T) {
 			model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
 			require.NotEmpty(t, model.session.SelectedAggregateKeys)
 
-			model = press(t, model, keyRune('t'))
+			model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 
 			require.NotEmpty(t, model.result.AggregateRows)
 			for _, row := range model.result.AggregateRows {
@@ -70,8 +70,8 @@ func TestTimeJumpFromSummaryToMonthAndBack(t *testing.T) {
 	model, err := NewModel(context.Background(), service, session, Options{ColorMode: ColorModeNone})
 	require.NoError(t, err)
 
-	model = press(t, model, keyRune('t'))
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	require.Len(t, model.result.AggregateRows, 2)
 	assert.Equal(t, "Sep 2024", model.result.AggregateRows[0].Label)
 	assert.Equal(t, "Oct 2024", model.result.AggregateRows[1].Label)
@@ -98,13 +98,13 @@ func TestTimeJumpWithinDrilldownPreservesScopeAndBack(t *testing.T) {
 			model = press(t, model, keyRune('g'))
 		}
 
-		model = press(t, model, keyRune('t'))
+		model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 
 		require.NotEmpty(t, model.result.AggregateRows)
 		assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
 		assert.Equal(t, before, model.result.Statistics)
 		assert.Equal(t, drilldowns, model.session.Drilldowns)
-		model = press(t, model, keyRune('t'))
+		model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 		assert.Equal(t, domain.TimeGranularityMonth, model.result.AggregateRows[0].Period.Granularity)
 		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
 		require.NotEmpty(t, model.result.DetailRows)
@@ -123,7 +123,7 @@ func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 	model = press(t, model, keyRune('g'))
 	before := model.session.QuerySpec()
 
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 
 	assert.Equal(t, before, model.session.QuerySpec())
 	require.NotEmpty(t, model.result.AggregateRows)
@@ -133,8 +133,8 @@ func TestTimeJumpWithinSelectedPeriodKeepsCurrentGrouping(t *testing.T) {
 func TestTimeJumpAfterClearingPeriodFromGroupedView(t *testing.T) {
 	t.Parallel()
 	model := newTestModel(t, app.NewSession())
-	model = press(t, model, keyRune('t'))
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, keyRune('g'))
 	model = press(t, model, keyRune('a'))
@@ -142,7 +142,7 @@ func TestTimeJumpAfterClearingPeriodFromGroupedView(t *testing.T) {
 	require.Equal(t, domain.DimensionMerchant, model.result.AggregateRows[0].Dimension)
 	before := model.result.Statistics
 
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 
 	require.NotEmpty(t, model.result.AggregateRows)
 	assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)

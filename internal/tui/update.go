@@ -89,6 +89,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeSearch(message)
 	case overlayFilters:
 		return model.routeFilters(message)
+	case overlayTimeChooser:
+		return model.routeTimeChooser(message)
 	case overlayHelp:
 		switch message.Keystroke() {
 		case "?", "esc", "enter":
@@ -162,6 +164,8 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.drill()
 	case app.ActionBack:
 		model.back()
+	case actionChooseTime:
+		model.openTimeChooser()
 	case app.ActionToggleTime:
 		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
 			model.session.ToggleTimeGranularity()
@@ -170,17 +174,11 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 			model.resetAndRefresh()
 		}
 	case app.ActionClearTime:
-		if model.session.ClearTimePeriod() {
-			model.resetAndRefresh()
-		}
+		model.applyTimeRange(nil)
 	case app.ActionPreviousPeriod:
-		if model.session.NavigatePeriod(-1) {
-			model.resetAndRefresh()
-		}
+		model.navigateTimePeriod(-1)
 	case app.ActionNextPeriod:
-		if model.session.NavigatePeriod(1) {
-			model.resetAndRefresh()
-		}
+		model.navigateTimePeriod(1)
 	case app.ActionCycleSort:
 		model.session.CycleSort()
 		model.resetAndRefresh()

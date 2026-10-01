@@ -49,6 +49,7 @@ const (
 	overlayDeleteConfirmation
 	overlayExport
 	overlayQuit
+	overlayTimeChooser
 )
 
 type searchState struct {
@@ -77,6 +78,7 @@ type Model struct {
 	overlay            overlayKind
 	search             searchState
 	filters            filterState
+	timeChooser        timeChooserState
 	help               helpState
 	transactionInfo    transactionInfoState
 	merchant           merchantEditorState
