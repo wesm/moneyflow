@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wesm/moneyflow/internal/app"
+	"github.com/wesm/moneyflow/internal/domain"
 )
 
 func TestMerchantEditorOwnsInputAndCancelRestoresPresentation(t *testing.T) {
@@ -90,6 +91,7 @@ func TestMerchantEditorRenamesAndStagesCollisionMergeWithOneEnter(t *testing.T) 
 	fixture := newPersistentModel(t, app.NewSession())
 	model := fixture.model
 	sourceID := model.result.AggregateRows[model.cursor].Key
+	originalLabel := model.result.AggregateRows[model.cursor].Label
 
 	model = press(t, model, keyRune('m'))
 	model = typeText(t, model, "Merchant Updated")
@@ -98,7 +100,11 @@ func TestMerchantEditorRenamesAndStagesCollisionMergeWithOneEnter(t *testing.T) 
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 	assert.Equal(t, uint64(2), model.service.Revision())
 	assert.Equal(t, sourceID, model.result.AggregateRows[model.cursor].Key)
-	assert.Equal(t, "Merchant Updated", model.result.AggregateRows[model.cursor].Label)
+	assert.Equal(t, originalLabel, model.result.AggregateRows[model.cursor].Label)
+	review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.ActiveOperations, 1)
+	assert.Equal(t, "Merchant Updated", review.ActiveOperations[0].After)
 
 	var destination app.EditorChoice
 	for _, choice := range mustEditorCatalog(t, model).Merchants {
@@ -149,11 +155,12 @@ func TestMerchantEditorTransactionScopeClearsBulkSelection(t *testing.T) {
 	assert.Equal(t, 2, model.pending.AffectedTransactions)
 }
 
-func TestMerchantEntityRenameKeepsDrillIdentityAndUpdatesBreadcrumb(t *testing.T) {
+func TestMerchantEntityRenameKeepsCommittedBreadcrumbUntilCommit(t *testing.T) {
 	t.Parallel()
 	fixture := newPersistentModel(t, app.NewSession())
 	model := fixture.model
 	sourceID := model.result.AggregateRows[model.cursor].Key
+	originalLabel := model.result.AggregateRows[model.cursor].Label
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Len(t, model.session.Drilldowns, 1)
 	assert.Equal(t, sourceID, model.session.Drilldowns[0].Key)
@@ -165,12 +172,95 @@ func TestMerchantEntityRenameKeepsDrillIdentityAndUpdatesBreadcrumb(t *testing.T
 	assert.Equal(t, overlayNone, model.overlay)
 	require.Len(t, model.session.Drilldowns, 1)
 	assert.Equal(t, sourceID, model.session.Drilldowns[0].Key)
-	assert.Equal(t, "Drilled Merchant", model.session.Drilldowns[0].Label)
+	assert.Equal(t, originalLabel, model.session.Drilldowns[0].Label)
+	assert.Contains(t, model.displayBreadcrumb(), originalLabel)
+	_, err := model.service.Commit(model.ctx, app.CommitRequest{ExpectedRevision: model.service.Revision(), ReviewedRevision: model.service.Revision()})
+	require.NoError(t, err)
+	model.refresh()
+	model.refreshDrillLabels()
 	assert.Contains(t, model.displayBreadcrumb(), "Drilled Merchant")
 	assert.NotZero(t, model.rowCount())
 }
 
-func TestMerchantEditorTreatsTypedSubstringAsNewLabel(t *testing.T) {
+func TestMerchantEditorEnterUsesHighlightedCompletion(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []app.EditScope{app.EditScopeEntity, app.EditScopeTransactions} {
+		for _, choice := range []struct {
+			name  string
+			index int
+		}{{name: "first", index: 0}, {name: "down", index: 1}} {
+			t.Run(string(scope)+"/"+choice.name, func(t *testing.T) {
+				fixture := newPersistentModel(t, app.NewSession())
+				model := fixture.model
+				choices := mustEditorCatalog(t, model).Merchants
+				require.Greater(t, len(choices), 2)
+				destination := choices[choice.index]
+				for index, row := range model.result.AggregateRows {
+					if row.Key != string(destination.ID) {
+						model.cursor = index
+						break
+					}
+				}
+				model = press(t, model, keyRune('m'))
+				if scope == app.EditScopeTransactions {
+					model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
+				}
+				model = typeText(t, model, "Mer")
+				if choice.index > 0 {
+					model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+				}
+				assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> "+destination.Label)
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+				require.Equal(t, overlayNone, model.overlay)
+				stored, err := fixture.profile.Load(fixture.ctx)
+				require.NoError(t, err)
+				require.Len(t, stored.Journal, 1)
+				if scope == app.EditScopeEntity {
+					require.Equal(t, domain.OperationMerchantMerge, stored.Journal[0].Type)
+					assert.Equal(t, destination.ID, stored.Journal[0].Merge.DestinationID)
+				} else {
+					require.Equal(t, domain.OperationMerchantReassign, stored.Journal[0].Type)
+					assert.Equal(t, destination.ID, stored.Journal[0].Reassign.DestinationID)
+				}
+			})
+		}
+	}
+}
+
+func TestMerchantEditorArrowSelectionOverridesExactTypedLabel(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	model := fixture.model
+	mutated, err := model.service.Mutate(model.ctx, app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: model.service.Revision(),
+		State: model.session.ViewState(), Selection: app.EmptySelection(),
+		Target: model.focusedMutationTarget(),
+		Input:  app.EditInput{Scope: app.EditScopeEntity, Label: "Merchant"},
+	})
+	require.NoError(t, err)
+	_, err = model.service.Commit(model.ctx, app.CommitRequest{
+		ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
+		State: model.session.ViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	model.refresh()
+	choices := mustEditorCatalog(t, model).Merchants
+	require.Equal(t, "Merchant", choices[0].Label)
+	destination := choices[1]
+
+	model = press(t, model, keyRune('m'))
+	model = typeText(t, model, "Merchant")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> "+destination.Label)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Equal(t, overlayNone, model.overlay)
+	review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.ActiveOperations, 1)
+	assert.Equal(t, destination.Label, review.ActiveOperations[0].After)
+}
+
+func TestMerchantEditorCreatesTypedSubstringOnlyWhenCreateSelected(t *testing.T) {
 	t.Parallel()
 	model := newPersistentModel(t, app.NewSession()).model
 	source := model.result.AggregateRows[model.cursor]
@@ -179,14 +269,21 @@ func TestMerchantEditorTreatsTypedSubstringAsNewLabel(t *testing.T) {
 
 	model = press(t, model, keyRune('m'))
 	model = typeText(t, model, wanted)
+	for range model.merchant.choices {
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> Create \""+wanted+"\"")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	assert.Equal(t, overlayNone, model.overlay)
-	assert.Equal(t, wanted, model.result.AggregateRows[model.cursor].Label)
+	review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.ActiveOperations, 1)
+	assert.Equal(t, wanted, review.ActiveOperations[0].After)
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 }
 
-func TestUndoRedoRefreshDrillBreadcrumbLabels(t *testing.T) {
+func TestUndoRedoKeepCommittedDrillBreadcrumbLabels(t *testing.T) {
 	t.Parallel()
 	model := newPersistentModel(t, app.NewSession()).model
 	original := model.result.AggregateRows[model.cursor].Label
@@ -194,13 +291,13 @@ func TestUndoRedoRefreshDrillBreadcrumbLabels(t *testing.T) {
 	model = press(t, model, keyRune('m'))
 	model = typeText(t, model, "Drilled Merchant")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.Contains(t, model.displayBreadcrumb(), "Drilled Merchant")
+	require.Contains(t, model.displayBreadcrumb(), original)
 
 	model = press(t, model, keyRune('u'))
 	assert.Contains(t, model.displayBreadcrumb(), original)
 	assert.NotContains(t, model.displayBreadcrumb(), "Drilled Merchant")
 	model = press(t, model, keyRune('U'))
-	assert.Contains(t, model.displayBreadcrumb(), "Drilled Merchant")
+	assert.Contains(t, model.displayBreadcrumb(), original)
 }
 
 func mustEditorCatalog(t testing.TB, model Model) app.EditorCatalog {

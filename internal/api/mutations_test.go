@@ -83,7 +83,7 @@ func TestMutationOutputUsesAuthoritativeResultState(t *testing.T) {
 	assert.Equal(t, expected, output.Body.CanonicalQuery)
 }
 
-func TestMutationEndpointAppendsAndReturnsEffectiveProjection(t *testing.T) {
+func TestMutationEndpointAppendsAndReturnsCommittedProjectionWithPendingMarker(t *testing.T) {
 	t.Parallel()
 
 	server := newPersistentAPITestServer(t)
@@ -108,7 +108,17 @@ func TestMutationEndpointAppendsAndReturnsEffectiveProjection(t *testing.T) {
 	assert.Equal(t, 1, result.Pending.ActiveOperations)
 	assert.Equal(t, "preserved", result.Selection.Kind)
 	require.NotEmpty(t, result.Projection.AggregateRows)
-	assert.Equal(t, "Renamed Merchant", result.Projection.AggregateRows[0].Label)
+	assert.Equal(t, initial.AggregateRows[0].Label, result.Projection.AggregateRows[0].Label)
+	assert.True(t, result.Projection.AggregateRows[0].Flags.Pending)
+
+	body.ExpectedRevision = result.Revision
+	previewResponse := requestProtectedJSON(t, server, "/api/v1/merchant-preview", body)
+	require.Equal(t, http.StatusOK, previewResponse.Code, previewResponse.Body.String())
+	var preview MerchantPreviewResponse
+	require.NoError(t, json.Unmarshal(previewResponse.Body.Bytes(), &preview))
+	assert.Equal(t, result.Revision, preview.Revision)
+	require.Len(t, preview.Transactions, 1)
+	assert.Equal(t, "Renamed Merchant", preview.Transactions[0].Merchant)
 }
 
 func TestMutationEndpointsUndoRedoAndRejectStaleReviewedCommit(t *testing.T) {
@@ -133,6 +143,8 @@ func TestMutationEndpointsUndoRedoAndRejectStaleReviewedCommit(t *testing.T) {
 	})
 	assert.Equal(t, "4", redone.Revision)
 	assert.Equal(t, 1, redone.Pending.ActiveOperations)
+	assert.Equal(t, "Example Merchant", redone.Projection.AggregateRows[0].Label)
+	assert.True(t, redone.Projection.AggregateRows[0].Flags.Pending)
 
 	stale := requestProtectedJSON(t, server, "/api/v1/commit", CommitBody{
 		Version: MutationSchemaVersion, ExpectedRevision: redone.Revision,
@@ -158,6 +170,7 @@ func TestMutationEndpointsUndoRedoAndRejectStaleReviewedCommit(t *testing.T) {
 	assert.Zero(t, committed.Pending.InactiveOperations)
 	require.NotEmpty(t, committed.Projection.AggregateRows)
 	assert.Equal(t, "Renamed Merchant", committed.Projection.AggregateRows[0].Label)
+	assert.False(t, committed.Projection.AggregateRows[0].Flags.Pending)
 }
 
 func TestUndoPreservesSubmittedSelectionInProjectionAndDisposition(t *testing.T) {
@@ -238,7 +251,15 @@ func TestProjectionRevisionRefreshesAfterAnotherProfileServiceMutation(t *testin
 	refreshed := projectPersistentView(t, server)
 	assert.Equal(t, "2", refreshed.Revision)
 	require.NotEmpty(t, refreshed.AggregateRows)
-	assert.Equal(t, "External Rename", refreshed.AggregateRows[0].Label)
+	assert.Equal(t, initial.AggregateRows[0].Label, refreshed.AggregateRows[0].Label)
+	assert.True(t, refreshed.AggregateRows[0].Flags.Pending)
+	_, err = secondService.Commit(ctx, app.CommitRequest{ExpectedRevision: 2, ReviewedRevision: 2})
+	require.NoError(t, err)
+	committedProjection := projectPersistentView(t, server)
+	assert.Equal(t, "3", committedProjection.Revision)
+	require.NotEmpty(t, committedProjection.AggregateRows)
+	assert.Equal(t, "External Rename", committedProjection.AggregateRows[0].Label)
+	assert.False(t, committedProjection.AggregateRows[0].Flags.Pending)
 }
 
 func TestMutationSecurityRejectsExpiredTokenBeforeProfileEvaluation(t *testing.T) {

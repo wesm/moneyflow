@@ -45,7 +45,7 @@ func registerReadTools(server *Server, dependencies Dependencies) {
 		func(ctx context.Context, input TransactionDetailsInput) (any, error) {
 			return transactionInfoDocument(ctx, dependencies.Service, input)
 		})
-	registerTool(server, "get_transaction_details", "Return effective details for one transaction.", true,
+	registerTool(server, "get_transaction_details", "Return committed details for one transaction.", true,
 		func(ctx context.Context, input TransactionDetailsInput) (any, error) {
 			return transactionInfoDocument(ctx, dependencies.Service, input)
 		})

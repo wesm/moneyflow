@@ -185,13 +185,13 @@ func newMixedHideModel(t *testing.T) persistentModelFixture {
 
 func hideStates(t *testing.T, model Model) map[string]bool {
 	t.Helper()
-	session := app.NewSession()
-	session.ShowAllDetail()
-	result, err := model.service.QueryContext(t.Context(), session)
+	result, err := model.service.TransactionWindow(t.Context(), app.TransactionWindowRequest{
+		Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 100,
+	})
 	require.NoError(t, err)
-	states := make(map[string]bool, len(result.DetailRows))
-	for _, row := range result.DetailRows {
-		states[row.Transaction.ID] = row.Flags.Hidden
+	states := make(map[string]bool, len(result.Rows))
+	for _, row := range result.Rows {
+		states[row.ID] = row.Hidden
 	}
 	return states
 }

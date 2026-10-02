@@ -29,7 +29,7 @@ func BuildMerchantOperation(
 	operation := newMutationOperation(request, metadata)
 	switch request.Input.Scope {
 	case EditScopeEntity:
-		err = buildMerchantEntityEdit(&operation, snapshot.Effective, request.Input, targets)
+		err = buildMerchantEntityEdit(&operation, snapshot, request.Input, targets)
 	case EditScopeTransactions:
 		err = buildMerchantReassignment(&operation, snapshot.Effective, request.Input, targets)
 	default:
@@ -46,18 +46,15 @@ func BuildMerchantOperation(
 
 func buildMerchantEntityEdit(
 	operation *domain.Operation,
-	profile domain.CommittedProfile,
+	snapshot EffectiveSnapshot,
 	input EditInput,
 	targets ResolvedTargets,
 ) error {
-	sourceID, err := singleSourceMerchant(profile, targets)
+	source, err := sourceMerchantForEntityEdit(snapshot, targets)
 	if err != nil {
 		return err
 	}
-	source, ok := merchantWithID(profile, sourceID)
-	if !ok || source.Retired {
-		return errors.New("source merchant is retired or missing")
-	}
+	sourceID := source.ID
 	label, err := domain.NormalizeDisplayLabel(input.Label)
 	if err != nil {
 		return err
@@ -70,7 +67,7 @@ func buildMerchantEntityEdit(
 		return errors.New("merchant label is unchanged")
 	}
 
-	collision, collided := activeMerchantWithCollisionKey(profile, key)
+	collision, collided := activeMerchantWithCollisionKey(snapshot.Effective, key)
 	if collided && collision.ID != sourceID {
 		if input.DestinationID == "" || input.DestinationID != collision.ID {
 			return errors.New("merchant collision requires the explicit merge destination")
@@ -91,6 +88,18 @@ func buildMerchantEntityEdit(
 		EntityID: sourceID, Label: label, CollisionKey: key,
 	}
 	return nil
+}
+
+func sourceMerchantForEntityEdit(snapshot EffectiveSnapshot, targets ResolvedTargets) (domain.Merchant, error) {
+	sourceID, err := singleSourceMerchant(snapshot.Committed, targets)
+	if err != nil {
+		return domain.Merchant{}, err
+	}
+	source, ok := merchantWithID(snapshot.Effective, sourceID)
+	if !ok || source.Retired {
+		return domain.Merchant{}, errors.New("source merchant is retired or missing")
+	}
+	return source, nil
 }
 
 func buildMerchantReassignment(

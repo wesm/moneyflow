@@ -43,13 +43,18 @@ func TestEditingIdentityBoundarySurvivesRestart(t *testing.T) {
 		Window: Window{Limit: 200},
 	})
 	assert.Equal(t, sourceQuery, renamed.CanonicalQuery)
-	assert.Contains(t, renamed.Projection.BreadcrumbText, "Stable Merchant")
+	assert.Equal(t, "2", renamed.Revision)
+	assert.Contains(t, renamed.Projection.BreadcrumbText, source.Label)
+	assert.True(t, renamed.Projection.DetailRows[0].Flags.Pending)
 	assert.NotZero(t, renamed.Projection.TotalRows)
 	committed := commitHTTP(t, server, renamed)
+	assert.Equal(t, "3", committed.Revision)
+	assert.Contains(t, committed.Projection.BreadcrumbText, "Stable Merchant")
 	require.NoError(t, profile.Close())
 
 	profile, server = openEditingServer(ctx, t, paths)
 	afterRestart := projectQuery(t, server, sourceQuery)
+	assert.Equal(t, committed.Revision, afterRestart.Revision)
 	assert.Contains(t, afterRestart.BreadcrumbText, "Stable Merchant")
 	assert.NotZero(t, afterRestart.TotalRows)
 
@@ -64,12 +69,18 @@ func TestEditingIdentityBoundarySurvivesRestart(t *testing.T) {
 		},
 		Window: Window{Limit: 200},
 	})
-	_ = commitHTTP(t, server, merged)
+	assert.Equal(t, "4", merged.Revision)
+	assert.Equal(t, afterRestart.TotalRows, merged.Projection.TotalRows)
+	assert.Contains(t, merged.Projection.BreadcrumbText, "Stable Merchant")
+	committed = commitHTTP(t, server, merged)
+	assert.Equal(t, "5", committed.Revision)
+	assert.Zero(t, committed.Projection.TotalRows)
 	require.NoError(t, profile.Close())
 
 	profile, server = openEditingServer(ctx, t, paths)
 	t.Cleanup(func() { _ = profile.Close() })
 	retired := projectQuery(t, server, sourceQuery)
+	assert.Equal(t, committed.Revision, retired.Revision)
 	assert.Zero(t, retired.TotalRows)
 	assert.Equal(t, sourceQuery, retired.CanonicalQuery)
 
@@ -98,13 +109,22 @@ func TestPendingOnlyIdentityIsInvalidAfterUndoTailTruncationAndRestart(t *testin
 		Window: Window{Limit: 200},
 	})
 	pendingQuery := identityQuery(t, domain.DimensionCategory, createdID)
-	assert.Zero(t, projectQuery(t, server, pendingQuery).TotalRows)
+	pendingDrill := requestJSON(t, server, "/api/v1/view", ViewBody{
+		Query: pendingQuery, Window: Window{Limit: 200},
+	})
+	assert.Equal(t, http.StatusConflict, pendingDrill.Code, pendingDrill.Body.String())
+	var problem Problem
+	require.NoError(t, json.Unmarshal(pendingDrill.Body.Bytes(), &problem))
+	assert.Equal(t, string(app.WebStaleViewTarget), problem.Code)
+	choice := findEditorChoiceByLabel(t, editorCatalog(t, server, created.Revision).Categories, "Pending Category")
+	assert.Equal(t, createdID, choice.ID)
 
 	undone := requestRevisionAction(t, server, "/api/v1/undo", RevisionBody{
 		Version: MutationSchemaVersion, ExpectedRevision: created.Revision,
 		Query: created.CanonicalQuery, Selection: created.Projection.Selection,
 		Window: Window{Limit: 200},
 	})
+	assert.NotContains(t, editorCatalog(t, server, undone.Revision).Categories, choice)
 	require.NotEmpty(t, undone.Projection.AggregateRows)
 	_ = mutateHTTP(t, server, MutationBody{
 		Version: MutationSchemaVersion, ExpectedRevision: undone.Revision,
@@ -207,30 +227,42 @@ func TestDeletionCrossRendererUndoRedoRestartAndCommit(t *testing.T) {
 		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: initial.DetailRows[0].Identity},
 		Window: Window{Limit: 200},
 	})
-	assert.Equal(t, initial.TotalRows-1, deleted.Projection.TotalRows)
+	assert.Equal(t, initial.TotalRows, deleted.Projection.TotalRows)
+	assert.Equal(t, initial.DetailRows[0].Identity, deleted.Projection.DetailRows[0].Identity)
+	assert.True(t, deleted.Projection.DetailRows[0].Flags.Pending)
 
 	_, err = second.Refresh(ctx)
 	require.NoError(t, err)
 	observed, err := second.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
 	assert.Equal(t, deleted.Projection.TotalRows, observed.TotalRows)
+	assert.True(t, observed.DetailRows[0].Row.Flags.Pending)
+	effective, err := second.TransactionWindow(ctx, app.TransactionWindowRequest{
+		ExpectedRevision: second.Revision(), Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 200,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, initial.TotalRows-1, effective.Total)
 
 	undone := requestRevisionAction(t, server, "/api/v1/undo", RevisionBody{
 		Version: MutationSchemaVersion, ExpectedRevision: deleted.Revision,
 		Query: query, Selection: deleted.Projection.Selection, Window: Window{Limit: 200},
 	})
 	assert.Equal(t, initial.TotalRows, undone.Projection.TotalRows)
+	assert.False(t, undone.Projection.DetailRows[0].Flags.Pending)
 	redone := requestRevisionAction(t, server, "/api/v1/redo", RevisionBody{
 		Version: MutationSchemaVersion, ExpectedRevision: undone.Revision,
 		Query: query, Selection: undone.Projection.Selection, Window: Window{Limit: 200},
 	})
-	assert.Equal(t, initial.TotalRows-1, redone.Projection.TotalRows)
+	assert.Equal(t, initial.TotalRows, redone.Projection.TotalRows)
+	assert.True(t, redone.Projection.DetailRows[0].Flags.Pending)
 	require.NoError(t, secondProfile.Close())
 	require.NoError(t, firstProfile.Close())
 
 	firstProfile, server = openEditingServer(ctx, t, paths)
 	restarted := projectQuery(t, server, query)
-	assert.Equal(t, initial.TotalRows-1, restarted.TotalRows)
+	assert.Equal(t, redone.Revision, restarted.Revision)
+	assert.Equal(t, initial.TotalRows, restarted.TotalRows)
+	assert.True(t, restarted.DetailRows[0].Flags.Pending)
 	committed := commitHTTP(t, server, redone)
 	assert.Equal(t, initial.TotalRows-1, committed.Projection.TotalRows)
 	require.NoError(t, firstProfile.Close())
@@ -238,6 +270,7 @@ func TestDeletionCrossRendererUndoRedoRestartAndCommit(t *testing.T) {
 	firstProfile, server = openEditingServer(ctx, t, paths)
 	t.Cleanup(func() { require.NoError(t, firstProfile.Close()) })
 	afterCommit := projectQuery(t, server, query)
+	assert.Equal(t, committed.Revision, afterCommit.Revision)
 	assert.Equal(t, initial.TotalRows-1, afterCommit.TotalRows)
 }
 

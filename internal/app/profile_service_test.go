@@ -80,6 +80,7 @@ func TestProfileServiceMutateUndoRedoReviewAndCommit(t *testing.T) {
 	assert.Equal(t, mutated.Pending, mutated.Projection.Pending)
 	require.Len(t, mutated.Projection.DetailRows, 2)
 	assert.True(t, mutated.Projection.DetailRows[0].Row.Flags.Pending)
+	assert.Equal(t, "category_a", detailTransactionByID(t, mutated.Projection.DetailRows, "transaction_a").Category.ID)
 
 	review, err := service.Review(ctx, 6, app.ReviewWindow{Limit: 20})
 	require.NoError(t, err)
@@ -113,6 +114,9 @@ func TestProfileServiceMutateUndoRedoReviewAndCommit(t *testing.T) {
 	assert.Equal(t, domain.EntityID("category_b"), transactionByID(
 		t, loaded.Committed, "transaction_a",
 	).CategoryID)
+	projection, err := service.ProjectView(detailViewState(), app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, "category_b", detailTransactionByID(t, projection.DetailRows, "transaction_a").Category.ID)
 }
 
 func TestUndoRedoReportChangedOperationAffectedCount(t *testing.T) {
@@ -164,18 +168,25 @@ func TestProfileServiceCategoryAppendCanSkipProjectionWithoutSkippingEffectiveSt
 	require.NoError(t, err)
 	expected, err := reference.Effective.MaterializeTransactions()
 	require.NoError(t, err)
+	effective, err := service.TransactionWindow(ctx, app.TransactionWindowRequest{
+		ExpectedRevision: result.Revision, Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 20,
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, expected, effective.Rows)
+	committed, err := loaded.Committed.MaterializeTransactions()
+	require.NoError(t, err)
 	projection, err := service.ProjectView(
 		detailViewState(), app.EmptySelection(), app.WindowRequest{Limit: 20},
 	)
 	require.NoError(t, err)
-	require.Len(t, projection.DetailRows, len(expected))
-	for _, transaction := range expected {
+	require.Len(t, projection.DetailRows, len(committed))
+	for _, transaction := range committed {
 		actual := detailTransactionByID(t, projection.DetailRows, transaction.ID)
 		assert.Equal(t, transaction, actual)
 	}
 }
 
-func TestUndoCreationReturnsSuccessfulParentProjection(t *testing.T) {
+func TestUndoCreationKeepsCommittedViewAndRemovesPendingCategoryChoice(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -192,21 +203,22 @@ func TestUndoCreationReturnsSuccessfulParentProjection(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	drilled := detailViewState()
-	drilled.Current.Drilldowns = []domain.Drilldown{{
-		Dimension: domain.DimensionCategory, Currency: "USD", Scale: 2,
-		Key: "category_new",
-	}}
-	_, err = service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
-	require.NoError(t, err, "the pending-only drill must be valid before undo")
+	assert.Equal(t, "category_a", detailTransactionByID(t, created.Projection.DetailRows, "transaction_a").Category.ID)
+	catalog, err := service.EditorCatalog()
+	require.NoError(t, err)
+	choice := app.EditorChoice{ID: "category_new", Label: "New Category", ParentID: "group_a"}
+	assert.Contains(t, catalog.Categories, choice)
 
 	undone, err := service.UndoInteraction(
-		ctx, created.Revision, drilled, app.EmptySelection(), app.WindowRequest{},
+		ctx, created.Revision, detailViewState(), app.EmptySelection(), app.WindowRequest{},
 	)
 	require.NoError(t, err, "durable undo must not be reported as failed")
 	assert.Equal(t, uint64(7), undone.Revision)
-	assert.Empty(t, undone.State.Current.Drilldowns)
-	assert.Contains(t, undone.Projection.Status, "returned")
+	assert.Equal(t, detailViewState(), undone.State)
+	assert.Equal(t, "category_a", detailTransactionByID(t, undone.Projection.DetailRows, "transaction_a").Category.ID)
+	catalog, err = service.EditorCatalog()
+	require.NoError(t, err)
+	assert.NotContains(t, catalog.Categories, choice)
 	loaded, err := profile.Load(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, loaded.Cursor)
@@ -272,6 +284,15 @@ func TestProfileServiceProjectsStableRenameRetiredEmptyAndNeverKnown(t *testing.
 			Input: app.EditInput{Scope: app.EditScopeEntity, Label: "Merchant A Renamed"},
 		})
 		require.NoError(t, err)
+		pending, err := service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
+		require.NoError(t, err)
+		assert.Equal(t, "Merchant A", pending.Breadcrumbs[0].Label)
+		require.Len(t, pending.DetailRows, 1)
+		assert.True(t, pending.DetailRows[0].Row.Flags.Pending)
+		_, err = service.Commit(ctx, app.CommitRequest{
+			ExpectedRevision: 6, ReviewedRevision: 6,
+		})
+		require.NoError(t, err)
 		renamed, err := service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
 		require.NoError(t, err)
 		assert.Equal(t, "Merchant A Renamed", renamed.Breadcrumbs[0].Label)
@@ -299,6 +320,15 @@ func TestProfileServiceProjectsStableRenameRetiredEmptyAndNeverKnown(t *testing.
 			Input: app.EditInput{
 				Scope: app.EditScopeEntity, Label: "Merchant B", DestinationID: "merchant_b",
 			},
+		})
+		require.NoError(t, err)
+		pending, err := service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
+		require.NoError(t, err)
+		require.Len(t, pending.DetailRows, 1)
+		assert.Equal(t, "merchant_a", pending.DetailRows[0].Row.Transaction.Merchant.ID)
+		assert.True(t, pending.DetailRows[0].Row.Flags.Pending)
+		_, err = service.Commit(ctx, app.CommitRequest{
+			ExpectedRevision: 6, ReviewedRevision: 6,
 		})
 		require.NoError(t, err)
 		empty, err := service.ProjectView(drilled, app.EmptySelection(), app.WindowRequest{})
@@ -344,7 +374,7 @@ func TestProfileServicePreservesProviderPendingSeparatelyFromLocalEdits(t *testi
 	assert.False(t, mutated.Projection.DetailRows[1].Row.Flags.Pending)
 }
 
-func TestProfileServiceMarksBothChangedAggregateMembershipsPending(t *testing.T) {
+func TestProfileServiceMarksCommittedAggregatePendingDuringReassignment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	profile := newMemoryProfile(t, 5)
@@ -372,11 +402,23 @@ func TestProfileServiceMarksBothChangedAggregateMembershipsPending(t *testing.T)
 	)
 	require.NoError(t, err)
 	pending := make(map[string]bool)
+	counts := make(map[string]int)
 	for _, row := range aggregates.AggregateRows {
 		pending[row.Row.Key] = row.Row.Flags.Pending
+		counts[row.Row.Key] = row.Row.Count
 	}
 	assert.True(t, pending["merchant_a"])
-	assert.True(t, pending["merchant_b"])
+	assert.False(t, pending["merchant_b"])
+	assert.Equal(t, map[string]int{"merchant_a": 2, "merchant_b": 1}, counts)
+	_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: 6, ReviewedRevision: 6})
+	require.NoError(t, err)
+	aggregates, err = service.ProjectView(app.DefaultViewState(), app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	for _, row := range aggregates.AggregateRows {
+		assert.False(t, row.Row.Flags.Pending)
+		counts[row.Row.Key] = row.Row.Count
+	}
+	assert.Equal(t, map[string]int{"merchant_a": 1, "merchant_b": 2}, counts)
 }
 
 func TestProfileServiceMarksOnlyDirectlyAffectedAggregatePending(t *testing.T) {
@@ -437,6 +479,13 @@ func TestProfileServiceAllowsContextualEmptyNestedDrill(t *testing.T) {
 		Target:    &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
 		Input:     app.EditInput{Scope: app.EditScopeTransactions, DestinationID: "merchant_b"},
 	})
+	require.NoError(t, err)
+	pending, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	require.NoError(t, err)
+	require.Len(t, pending.DetailRows, 1)
+	assert.True(t, pending.DetailRows[0].Row.Flags.Pending)
+	assert.Equal(t, "Merchant A", pending.Breadcrumbs[1].Label)
+	_, err = service.Commit(ctx, app.CommitRequest{ExpectedRevision: 6, ReviewedRevision: 6})
 	require.NoError(t, err)
 	empty, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)

@@ -82,7 +82,7 @@ func (service *Service) ProjectDuplicates(
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
-	resolvedSession, _, err := service.resolveViewSession(state.Current)
+	resolvedSession, _, err := service.ResolveViewSession(state.Current)
 	if err != nil {
 		return DuplicateProjection{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
@@ -197,14 +197,14 @@ func (service *Service) duplicateMatchingLabels(snapshot EffectiveSnapshot) map[
 		}
 		allocations[providerIdentityKey(allocation.Kind, allocation.Namespace, allocation.ExternalID)] = allocation
 	}
-	active := make(map[domain.EntityID]struct{}, len(snapshot.Effective.Merchants))
-	for _, merchant := range snapshot.Effective.Merchants {
+	active := make(map[domain.EntityID]struct{}, len(snapshot.Committed.Merchants))
+	for _, merchant := range snapshot.Committed.Merchants {
 		if !merchant.Retired {
 			active[merchant.ID] = struct{}{}
 		}
 	}
 	labels := make(map[domain.EntityID]string)
-	for _, identity := range snapshot.Effective.ExternalIdentities {
+	for _, identity := range snapshot.Committed.ExternalIdentities {
 		if identity.EntityType != domain.EntityKindMerchant {
 			continue
 		}

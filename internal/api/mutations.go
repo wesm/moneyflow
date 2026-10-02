@@ -70,7 +70,7 @@ type SelectionDisposition struct {
 	Value string `json:"value"`
 }
 
-// MutationResponse returns the effective view after one accepted profile mutation.
+// MutationResponse returns committed rows and pending markers after an accepted mutation.
 type MutationResponse struct {
 	Version        string                       `json:"version"`
 	Revision       string                       `json:"revision" pattern:"^[0-9]+$"`

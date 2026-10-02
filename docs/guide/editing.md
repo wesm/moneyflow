@@ -3,11 +3,18 @@
 Edits are staged locally first. Review their scope before committing.
 Pending edits, undo history, and redo history survive closing the application.
 
+**Unreleased:** Transaction tables, group totals, and filters keep showing committed data
+while edits are pending. A pending marker identifies affected rows. For Monarch and YNAB, the table
+updates after the provider-write batch completes successfully; local profiles update on commit.
+
 ## Choose the transactions
 
 In detail view, an edit targets the current transaction. In a grouped view, it can target the
 transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
 selection. The merchant editor shows the affected count and a bounded transaction preview.
+
+**Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
+matches existing merchants, select the `Create` option below the matches.
 
 Check the scope shown in the dialog. A whole-merchant rename can affect more transactions
 than the current date filter. Use the available scope control when you want a smaller target.

@@ -23,7 +23,7 @@ func TestHideUndoRedoPreserveAnalyticalStateAndUpdatePendingRows(t *testing.T) {
 	assert.Equal(t, originalState, model.session.ViewState())
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 	assert.Equal(t, 1, model.pending.AffectedTransactions)
-	assert.NotEqual(t, originalHidden, model.result.DetailRows[model.cursor].Flags.Hidden)
+	assert.Equal(t, originalHidden, model.result.DetailRows[model.cursor].Flags.Hidden)
 	assert.True(t, model.result.DetailRows[model.cursor].Flags.Pending)
 	assert.Contains(t, FormatFlags(model.result.DetailRows[model.cursor].Flags), "*")
 
@@ -34,7 +34,7 @@ func TestHideUndoRedoPreserveAnalyticalStateAndUpdatePendingRows(t *testing.T) {
 	model = press(t, model, keyRune('U'))
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 	assert.Zero(t, model.pending.InactiveOperations)
-	assert.NotEqual(t, originalHidden, model.result.DetailRows[model.cursor].Flags.Hidden)
+	assert.Equal(t, originalHidden, model.result.DetailRows[model.cursor].Flags.Hidden)
 	assert.Equal(t, originalState, model.session.ViewState())
 }
 

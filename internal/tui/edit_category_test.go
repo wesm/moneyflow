@@ -66,14 +66,21 @@ func TestCategoryEditorAssignsExistingCategory(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
 	assert.Equal(t, originalState, model.session.ViewState())
-	assert.Equal(t, string(destination.ID), model.result.DetailRows[model.cursor].Transaction.Category.ID)
+	assert.Equal(t, currentCategory, model.result.DetailRows[model.cursor].Transaction.Category.ID)
 	assert.True(t, model.result.DetailRows[model.cursor].Flags.Pending)
+	model = press(t, model, keyRune('w'))
+	require.Len(t, model.review.projection.ActiveOperations, 1)
+	assert.Equal(t, destination.Label, model.review.projection.ActiveOperations[0].After)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, string(destination.ID), model.result.DetailRows[model.cursor].Transaction.Category.ID)
+	assert.False(t, model.result.DetailRows[model.cursor].Flags.Pending)
 }
 
 func TestCategoryEditorCreatesOnTheFlyAfterGroupSelection(t *testing.T) {
 	t.Parallel()
 	fixture := newPersistentModel(t, app.NewSession())
 	model := press(t, fixture.model, keyRune('d'))
+	originalCategory := model.result.DetailRows[model.cursor].Transaction.Category.Name
 	model = press(t, model, keyRune('c'))
 	model = typeText(t, model, "New Category")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -84,8 +91,15 @@ func TestCategoryEditorCreatesOnTheFlyAfterGroupSelection(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
-	assert.Equal(t, "New Category", model.result.DetailRows[model.cursor].Transaction.Category.Name)
+	assert.Equal(t, originalCategory, model.result.DetailRows[model.cursor].Transaction.Category.Name)
+	assert.True(t, model.result.DetailRows[model.cursor].Flags.Pending)
 	assert.Equal(t, 1, model.pending.ActiveOperations)
+	model = press(t, model, keyRune('w'))
+	require.Len(t, model.review.projection.ActiveOperations, 1)
+	assert.Equal(t, "New Category", model.review.projection.ActiveOperations[0].After)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, "New Category", model.result.DetailRows[model.cursor].Transaction.Category.Name)
+	assert.False(t, model.result.DetailRows[model.cursor].Flags.Pending)
 }
 
 func TestCategoryEditorTreatsTypedSubstringAsNewCategory(t *testing.T) {

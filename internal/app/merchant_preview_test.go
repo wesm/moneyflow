@@ -66,3 +66,35 @@ func TestMerchantPreviewResolvesEntityAndTransactionScopesWithoutStaging(t *test
 	_, err = service.PreviewMerchantEdit(ctx, request)
 	assertAppCode(t, err, app.AppRevisionConflict)
 }
+
+func TestMerchantPreviewKeepsCommittedEntitySourceAfterPendingReassignment(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.advanceExternally(reassignOperation(1, domain.OperationMerchantReassign, "merchant_b", "transaction_a"))
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	request := focusedMerchantRequest("Renamed Merchant", app.EditScopeEntity)
+	request.ExpectedRevision = 6
+	preview, err := service.PreviewMerchantEdit(ctx, request)
+	require.NoError(t, err)
+	assert.Zero(t, preview.AffectedTransactions)
+	assert.Empty(t, preview.Transactions)
+	assert.Len(t, profile.snapshot.Journal, 1)
+}
+
+func TestMerchantPreviewRejectsEntitySourceRetiredByPendingMerge(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	profile := newMemoryProfile(t, 5)
+	profile.advanceExternally(mergeOperation(1, domain.OperationMerchantMerge, "merchant_a", "merchant_b"))
+	service, err := app.NewProfileService(ctx, profile)
+	require.NoError(t, err)
+	request := focusedMerchantRequest("Renamed Merchant", app.EditScopeEntity)
+	request.ExpectedRevision = 6
+	_, err = service.PreviewMerchantEdit(ctx, request)
+	assertAppCode(t, err, app.AppInvalidTarget)
+	assert.Len(t, profile.snapshot.Journal, 1)
+}
