@@ -100,12 +100,50 @@ func TestProviderReconnectParkHealsOnlyAfterSessionFingerprintChanges(t *testing
 	require.NoError(t, err)
 	assert.Empty(t, healed.Code)
 	assert.Equal(t, probeCalls, source.probeCalls())
+	healed, err = service.ProviderStatus(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, healed.Code, "later status polls must not revive the old session error")
+	assert.Equal(t, probeCalls, source.probeCalls())
 	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: false, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, probeCalls, source.probeCalls(), "reconnecting must not download Monarch history automatically")
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
 	assert.Greater(t, source.probeCalls(), probeCalls)
 	assert.GreaterOrEqual(t, source.reloadCalls(), 2)
+}
+
+func TestMonarchRefreshRequiresExplicitRequestEvenWithStaleCache(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	service, _ := newProviderRefreshService(t)
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, time.UTC)
+	source := &fakeProviderSource{
+		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+		snapshot: providerSnapshot(t, now, 2), fingerprint: "session-a",
+	}
+	configureProviderRefreshService(t, service, source, now, "instance-a")
+	request := app.ProviderRefreshRequest{State: app.DefaultViewState(), Selection: app.EmptySelection()}
+	_, err := service.RefreshProvider(ctx, request)
+	require.NoError(t, err)
+	assert.Zero(t, source.fetchCalls(), "opening an unrefreshed profile must not fetch history")
+	assert.Zero(t, source.probeCalls())
+
+	request.Manual = true
+	_, err = service.RefreshProvider(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, 1, source.fetchCalls())
+	configureProviderRefreshService(t, service, source, now.Add(48*time.Hour), "instance-a")
+	request.Manual = false
+	result, err := service.RefreshProvider(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, now, result.Status.LastSuccess)
+	assert.Equal(t, 1, source.fetchCalls(), "stale cached history must remain local until requested")
+	assert.Equal(t, 1, source.probeCalls())
 }
 
 func TestProviderSchedulerSixHourStalenessAndNextEligible(t *testing.T) {

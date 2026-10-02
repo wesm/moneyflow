@@ -83,7 +83,9 @@ func TestReviewDetailPageMatchesCappedOverlayRows(t *testing.T) {
 	session.ShowTransfers = true
 	model := press(t, newPersistentModel(t, session).model, keyRune('d'))
 	model = press(t, model, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
-	model = press(t, model, keyRune('h'))
+	require.True(t, model.executeMutation(app.ActionEditCategory, app.EditInput{
+		Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID,
+	}))
 	model.height = 50
 	model.width = 150
 	model = press(t, model, keyRune('w'))

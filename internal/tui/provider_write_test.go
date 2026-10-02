@@ -268,10 +268,10 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	}{
 		{name: "ownerless writing", status: app.ProviderWriteStatus{Phase: store.WritePhaseWriting, Version: 1}, wantStart: true},
 		{name: "completed reconciling", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeWriting, Version: 1, Total: 2, Completed: 2}, wantStart: true},
-		{name: "ownerless provider reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeReconciling, Version: 1}, wantStart: true},
+		{name: "ownerless provider reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeReconciling, Version: 1}},
 		{name: "eligible rate limit", status: app.ProviderWriteStatus{Phase: store.WritePhaseRateLimited, Version: 1, NextEligible: now}, wantStart: true},
 		{name: "healed reconnect", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeWriting, Version: 1, SessionChanged: true}, wantStart: true},
-		{name: "healed reconnect during reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1, SessionChanged: true}, wantStart: true},
+		{name: "healed reconnect during reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1, SessionChanged: true}},
 		{name: "confirmation waits", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconcileConfirmationRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1}},
 		{name: "paused", status: app.ProviderWriteStatus{Phase: store.WritePhasePaused, Version: 1}},
 		{name: "attention", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, Version: 1, AttentionClass: store.WriteAttentionRetryable}},
@@ -279,6 +279,7 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			model := newTestModel(t, app.NewSession())
+			model.profileKind = "monarch"
 			updated, command := model.Update(providerStatusMsg{
 				writeStatus: test.status, at: now,
 				timerGeneration: model.provider.timerGeneration,
@@ -286,6 +287,14 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 			model = updated.(Model)
 			assert.Equal(t, test.wantStart, model.providerWrite.running)
 			assert.NotNil(t, command)
+			if test.status.ResumeTarget == store.WriteResumeReconciling {
+				model.overlay = overlayProviderWrite
+				assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "s=", "recovery must remain discoverable")
+				updated, command = model.Update(keyRune('s'))
+				model = updated.(Model)
+				assert.True(t, model.providerWrite.reconciling, "full reload requires an explicit recovery action")
+				assert.NotNil(t, command)
+			}
 		})
 	}
 }

@@ -128,6 +128,7 @@ func (fakeProfile) RecordRefreshAttempt(context.Context, string, time.Time, time
 func (fakeProfile) RecordRefreshFailure(context.Context, store.RefreshFailure) error {
 	return nil
 }
+func (fakeProfile) ClearProviderReconnectFailure(context.Context) error { return nil }
 func (fakeProfile) ApplyProviderRefresh(
 	context.Context,
 	store.AtomicRefreshRequest,

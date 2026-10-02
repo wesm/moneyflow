@@ -695,6 +695,10 @@ func (profile *memoryProfile) RecordRefreshFailure(
 	return errors.New("not implemented")
 }
 
+func (*memoryProfile) ClearProviderReconnectFailure(context.Context) error {
+	return errors.New("not implemented")
+}
+
 func (profile *memoryProfile) ApplyProviderRefresh(
 	context.Context,
 	store.AtomicRefreshRequest,

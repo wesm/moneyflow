@@ -498,12 +498,6 @@ func (profile *profile) FinalizeProviderWrite(
 	if err = replaceLastWriteSummary(ctx, connection, plan.Summary); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
-	if _, err = connection.ExecContext(ctx, `
-		UPDATE provider_refresh_state
-		SET last_success_unix_ms = NULL, next_eligible_unix_ms = NULL, status_code = ''
-		WHERE singleton = 1`); err != nil {
-		return store.FinalizeProviderWriteCommit{}, mapDriverError(err, store.CodeStoreError)
-	}
 	if err = deleteOperationLease(ctx, connection, request.LeaseOwnerID, request.LeaseKind); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}

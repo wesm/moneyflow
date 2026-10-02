@@ -1495,7 +1495,12 @@ func TestProviderWriteCommitPreparesRunsAndFinalizesAbsoluteUpdate(t *testing.T)
 	providerState, err := profileHandle.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, providerState.Write)
-	assert.True(t, providerState.Refresh.LastSuccess.IsZero(), "write completion makes refresh due")
+	assert.Equal(t, now, providerState.Refresh.LastSuccess, "an acknowledged edit must preserve cache freshness")
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, reader.fetchCalls(), "saving an edit must not redownload history")
 }
 
 func TestProviderWriteDeleteRunsAndFinalizesAbsence(t *testing.T) {

@@ -147,11 +147,11 @@ describe('provider controller', () => {
     expect(controller.state.phase).toBe('failed')
   })
 
-  it('starts an automatic refresh only when a visible poll reports six-hour staleness', async () => {
+  it('starts an automatic YNAB refresh when a visible poll reports six-hour staleness', async () => {
     const current = testProjection({ capabilities: [capability(true)] })
     const now = Date.parse('2026-08-15T18:00:00Z')
     const transport = transportStub({
-      status: providerStatus({ last_success: '2026-08-15T12:00:00Z' }),
+      status: providerStatus({ provider_kind: 'ynab', last_success: '2026-08-15T12:00:00Z' }),
       mutationResponse: Response.json(refreshResponse(current, 'preserved')),
     })
     const controller = createProviderController({
@@ -166,6 +166,31 @@ describe('provider controller', () => {
     expect(transport.status).toHaveBeenCalledTimes(1)
     expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(false)
   })
+
+  it.each([undefined, '2026-08-01T12:00:00Z'])(
+    'keeps Monarch cached until an explicit refresh (last success: %s)',
+    async (last_success) => {
+      const current = testProjection({ capabilities: [capability(true)] })
+      const transport = transportStub({
+        status: providerStatus({
+          provider_kind: 'monarch',
+          ...(last_success === undefined ? {} : { last_success }),
+        }),
+        mutationResponse: Response.json(refreshResponse(current, 'preserved')),
+      })
+      const controller = createProviderController({
+        transport,
+        host: hostStub(current),
+        now: () => Date.parse('2026-08-15T18:00:00Z'),
+      })
+      controller.sync(current)
+      await controller.poll()
+      expect(transport.mutations.request).not.toHaveBeenCalled()
+      await controller.refresh()
+      expect(transport.mutations.request).toHaveBeenCalledOnce()
+      expect(JSON.parse(vi.mocked(transport.mutations.request).mock.calls[0]![1]).manual).toBe(true)
+    },
+  )
 
   it('reports another process progress without starting a competing refresh', async () => {
     const current = testProjection({ capabilities: [capability(true)] })

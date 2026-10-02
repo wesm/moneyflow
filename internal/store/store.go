@@ -39,6 +39,7 @@ type Profile interface {
 	ReleaseRefreshLease(context.Context, string) error
 	RecordRefreshAttempt(context.Context, string, time.Time, time.Time) error
 	RecordRefreshFailure(context.Context, RefreshFailure) error
+	ClearProviderReconnectFailure(context.Context) error
 	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
 	LoadAmazonState(context.Context) (AmazonImportState, error)
 	LoadAmazonMatchSource(context.Context) (AmazonMatchSourceState, error)

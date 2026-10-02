@@ -118,7 +118,7 @@ func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Provider write complete; provider refresh is due."
+	model.status = "Provider write complete."
 	return model.nextProviderScheduleTick()
 }
 
@@ -191,7 +191,8 @@ func providerWriteCanResume(status app.ProviderWriteStatus) bool {
 func providerWriteCanReconcile(status app.ProviderWriteStatus) bool {
 	return status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseReconnectRequired ||
 		status.Phase == store.WritePhaseAttentionRequired ||
-		status.Phase == store.WritePhaseReconcileConfirmationRequired
+		status.Phase == store.WritePhaseReconcileConfirmationRequired ||
+		(status.Phase == store.WritePhaseReconciling && status.ResumeTarget == store.WriteResumeReconciling)
 }
 
 func (model Model) renderProviderWrite(screen *RenderedScreen) {
@@ -302,6 +303,11 @@ func providerWriteActions(status app.ProviderWriteStatus, confirming bool) strin
 	switch status.Phase {
 	case store.WritePhaseWriting:
 		return "p=Pause | Esc=Close"
+	case store.WritePhaseReconciling:
+		if status.ResumeTarget == store.WriteResumeReconciling {
+			return "s=Reload provider data | Esc=Close"
+		}
+		return "Esc=Close"
 	case store.WritePhasePaused:
 		return "r=Resume | s=Stop and reconcile | Esc=Close"
 	case store.WritePhaseReconnectRequired:

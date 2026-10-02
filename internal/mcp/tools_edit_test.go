@@ -83,22 +83,27 @@ func TestMCPHideCancellationRemovesEveryPendingToggleEffect(t *testing.T) {
 	defer closeProfile()
 	client, cleanup := connectWriteTestServer(t, service, true)
 	defer cleanup()
-	for index, ids := range [][]string{{"transaction_000"}, {"transaction_000", "transaction_001"}} {
-		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": strconv.Itoa(index + 1), "transaction_ids": ids})
+	seed := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": "1", "transaction_ids": []string{"transaction_000"}})
+	require.False(t, seed.IsError)
+	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": "2", "reviewed_revision": "2"})
+	require.False(t, committed.IsError)
+	for _, ids := range [][]string{{"transaction_000"}, {"transaction_001"}, {"transaction_000", "transaction_001"}} {
+		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": strconv.FormatUint(service.Revision(), 10), "transaction_ids": ids})
 		require.False(t, result.IsError)
 	}
-	// transaction_000 has two active toggles: canceling both leaves it visible.
+	// transaction_000 was unhidden, then hidden by the mixed selection; cancelling both leaves it hidden.
+	revision := strconv.FormatUint(service.Revision(), 10)
 	for _, dry := range []bool{true, false} {
-		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": "3", "transaction_ids": []string{"transaction_000"}, "dry_run": dry})
+		result := callWriteTool(t, client, "toggle_transactions_hidden", map[string]any{"expected_revision": revision, "transaction_ids": []string{"transaction_000"}, "dry_run": dry})
 		require.False(t, result.IsError)
 		change := result.StructuredContent.(map[string]any)["changes"].([]any)[0].(map[string]any)
-		assert.Equal(t, false, change["before"].(map[string]any)["hidden"])
-		assert.Equal(t, false, change["after"].(map[string]any)["hidden"])
+		assert.Equal(t, true, change["before"].(map[string]any)["hidden"])
+		assert.Equal(t, true, change["after"].(map[string]any)["hidden"])
 	}
 	rows, err := service.TransactionWindow(t.Context(), app.TransactionWindowRequest{Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 3})
 	require.NoError(t, err)
 	for _, row := range rows.Rows {
-		assert.Equal(t, row.ID == "transaction_001", row.Hidden)
+		assert.Equal(t, row.ID != "transaction_002", row.Hidden)
 	}
 }
 

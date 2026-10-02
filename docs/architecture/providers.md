@@ -29,8 +29,10 @@ Ordinary and confirmed folds recheck the candidate's captured credential fingerp
 entering the store. A changed or removed credential file refuses the fold, releases the lease,
 and requires reconnect; a consumed confirmation cannot be reused.
 
-Monarch and YNAB use a six-hour cadence in long-lived TUI/web processes. SimpleFIN uses
-24 hours and parks failed automatic attempts until explicit action. MCP refresh is explicit.
+Monarch refresh is explicit: its reader fetches complete history, so neither staleness nor
+a replaced session starts a background download. YNAB uses a six-hour cadence in long-lived
+TUI/web processes. SimpleFIN uses 24 hours and parks failed automatic attempts until explicit
+action. MCP refresh is explicit.
 Amazon and bank CSV have no network refresh scheduler.
 Read-only MCP refresh of Monarch or YNAB can still rebase pending intent and discard the redo tail.
 Read-only excludes user-edit tools, not reconciliation with remote truth.
@@ -60,7 +62,8 @@ their attempt budget. Keep known non-applied failures distinct from a request th
 the provider. Recorded successes are never resent because finalization failed locally.
 
 Finalization atomically installs the reviewed effective state adjusted by accepted provider
-responses, retires the journal prefix, and schedules a full refresh. Ordinary mapped field overrides
+responses and retires the journal prefix. It preserves the refresh timestamp and retry floor;
+writing a transaction does not invalidate or freshen the rest of the cache. Ordinary mapped field overrides
 are counted; strict new-merchant identity conflicts require attention. Stable merchant rotations
 retain historical aliases and provider labels. An empty old alias does not create a phantom row;
 its return with transactions can require a fresh local identity.

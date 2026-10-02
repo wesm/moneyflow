@@ -61,7 +61,7 @@ func (coordinator *Coordinator) startImport(attemptID string) {
 }
 
 func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID string) {
-	runtime, config, opened, renderer, monthToDate, ok := coordinator.importInputs(attemptID)
+	runtime, config, opened, renderer, monthToDate, identity, ok := coordinator.importInputs(attemptID)
 	if !ok {
 		return
 	}
@@ -96,6 +96,19 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 		coordinator.importFailure(attemptID, err)
 		return
 	}
+	connection, err := opened.Service.ProviderConnection(ctx)
+	if err != nil {
+		coordinator.importFailure(attemptID, err)
+		return
+	}
+	if connection.Bound {
+		if err = opened.Service.ConfirmProviderReconnect(ctx, identity); err != nil {
+			coordinator.importFailure(attemptID, err)
+			return
+		}
+		coordinator.completeImport(attemptID, 0, startedAt)
+		return
+	}
 	result, err := opened.Service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
@@ -108,16 +121,16 @@ func (coordinator *Coordinator) importProfile(ctx context.Context, attemptID str
 
 func (coordinator *Coordinator) importInputs(
 	attemptID string,
-) (Runtime, monarch.ImportConfig, OpenedProfile, string, bool, bool) {
+) (Runtime, monarch.ImportConfig, OpenedProfile, string, bool, provider.ProfileIdentity, bool) {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	current, ok := coordinator.attempts[attemptID]
 	if !ok || current.state != StateImporting || current.flow.opened == nil ||
-		current.flow.selectedConfig == nil {
-		return Runtime{}, monarch.ImportConfig{}, OpenedProfile{}, "", false, false
+		current.flow.selectedConfig == nil || current.flow.identity == nil {
+		return Runtime{}, monarch.ImportConfig{}, OpenedProfile{}, "", false, provider.ProfileIdentity{}, false
 	}
 	return current.flow.runtime, *current.flow.selectedConfig, *current.flow.opened,
-		current.flow.renderer, current.flow.monthToDate, true
+		current.flow.renderer, current.flow.monthToDate, *current.flow.identity, true
 }
 
 func (coordinator *Coordinator) completeImport(

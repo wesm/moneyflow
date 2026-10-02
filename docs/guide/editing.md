@@ -24,6 +24,10 @@ than the current date filter. Use the available scope control when you want a sm
 | `C` / `G` | Manage categories / groups, when supported |
 | `w` | Review pending changes |
 
+When a group or selection contains both hidden and visible transactions, `h` stages hiding
+only the visible transactions. Transactions already hidden stay hidden. Use `u` to undo it.
+When all targeted transactions are hidden, `h` stages unhiding them.
+
 Deleting is undoable until commit. Editing capabilities depend on the provider; the interface
 explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
 [Amazon](amazon-mode.md), [bank CSV](bank-csv.md), or [SimpleFIN](simplefin.md) for exact limits.
@@ -54,7 +58,7 @@ Amazon, bank CSV, and SimpleFIN commits write only to local SQLite. Monarch and 
 provider-write batch. Successful remote results are saved individually so restart does not
 lose progress. A net-zero set of edits can be cleared without provider work.
 
-Committing Monarch or YNAB edits takes priority over the TUI's own background refresh.
+Committing Monarch or YNAB edits takes priority over a refresh running in the same TUI.
 Moneyflow stops that refresh, then commits the changes you reviewed. While waiting,
 Esc cancels the commit and keeps the edits pending. If the refresh changed the data
 before it stopped, Moneyflow asks you to review the changes again before committing.
@@ -70,7 +74,9 @@ batch offers Resume. A rejected change offers `s` to discard that batch's pendin
 and reload provider data. During the reload, Esc returns to transactions while work
 continues. Editing becomes available again after the reload finishes. A failed reload
 keeps the batch and displays its error in write status, where you can try recovery again.
+For Monarch, reopening the profile or reconnecting does not restart that reload;
+use `w`, then `s` when you want to retry it.
 
 If a provider removal confirmation appears, review it before continuing. A completed
-write may report that provider refresh is due; use `r` to read current data.
+write updates the local cache directly. It does not trigger another download.
 Neither a warning nor a timeout proves that the provider rejected the request.

@@ -115,7 +115,12 @@ export function createProviderWriteController(
       }
       if (status.phase === 'writing' || status.phase === 'reconciling') {
         if (can('resume')) await resume()
-        else if (status.phase === 'reconciling' && can('reconcile')) await reconcile()
+        else if (
+          status.phase === 'reconciling' &&
+          can('reconcile') &&
+          options.host.current()?.profile_kind !== 'monarch'
+        )
+          await reconcile()
         return
       }
       if (
@@ -128,7 +133,11 @@ export function createProviderWriteController(
       }
       if (status.phase === 'reconnect_required') {
         if (can('resume')) await resume()
-        else if (can('reconcile') && !(status.actions ?? []).includes('reconnect'))
+        else if (
+          can('reconcile') &&
+          !(status.actions ?? []).includes('reconnect') &&
+          options.host.current()?.profile_kind !== 'monarch'
+        )
           await reconcile()
       }
     } catch {
@@ -246,7 +255,7 @@ export function createProviderWriteController(
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: 'Provider write complete. Provider refresh is due.',
+      announcement: 'Provider write complete.',
     })
   }
 

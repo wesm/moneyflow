@@ -15,9 +15,14 @@ session files are only owner-private.
 
 ## When does data refresh?
 
-Press `r` in TUI or web. Amazon asks for files; network providers start a bounded refresh
-attempt. TUI and web also schedule eligible provider refreshes while running.
-MCP refresh is always explicit.
+Press `r` in TUI or web. Amazon asks for files; network providers start a refresh.
+Monarch refresh downloads complete history and only starts when requested. Opening a
+profile, browsing, reconnecting, and saving edits do not trigger a Monarch refresh.
+Successful edits update saved transactions without invalidating the rest of the cache.
+
+TUI and web schedule eligible YNAB and SimpleFIN refreshes while running.
+MCP refresh is always explicit. Recovering an interrupted write with **Stop and reconcile**
+also reloads provider data.
 
 See [Monarch](../guide/monarch.md#refresh-data),
 [YNAB](../guide/ynab.md), and

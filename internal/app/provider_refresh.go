@@ -267,7 +267,7 @@ func (service *Service) RefreshProvider(
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	status := providerStatusFromState(providerState, runtime.provider)
-	if !request.Manual && (runtime.provider == "simplefin" || !runtime.hasForceReload()) && !ProviderRefreshDue(status, now) {
+	if !request.Manual && (runtime.provider == "monarch" || runtime.provider == "simplefin" || !runtime.hasForceReload()) && !ProviderRefreshDue(status, now) {
 		return service.providerProjectionResult(
 			request, selectionBefore, SelectionPreserved, status, nil,
 		)

@@ -128,9 +128,8 @@ func (coordinator *Coordinator) inspectMonarch(
 	}
 	if coordinator.monthToDate(attemptID) && !connection.Pristine {
 		coordinator.setStableState(attemptID, StateLocalOnly, &Failure{
-			Code: string(CodeOnboardingLocalOnly),
-			Message: "month-to-date import requires a pristine profile; " +
-				"run without --mtd to refresh the complete profile.",
+			Code:    string(CodeOnboardingLocalOnly),
+			Message: "Month-to-date is only available for the first import.",
 		})
 		return
 	}
