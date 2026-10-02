@@ -167,7 +167,9 @@ func (model Model) Init() tea.Cmd {
 
 // View renders the owned cell frame into Bubble Tea's alternate screen.
 func (model Model) View() tea.View {
-	view := tea.NewView(model.RenderScreen().Frame.RenderANSI())
+	screen := model.RenderScreen()
+	view := tea.NewView(screen.Frame.RenderANSI())
+	view.Cursor = screen.Cursor
 	view.AltScreen = true
 	return view
 }

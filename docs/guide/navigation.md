@@ -14,7 +14,7 @@ Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible p
 `T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
 the top. `s` changes the sort field.
 
-## Jump to a month
+## Choose a year, month, or day
 
 In this checkout's TUI, `t` opens a time chooser from a grouped view or transaction list:
 
@@ -22,15 +22,31 @@ In this checkout's TUI, `t` opens a time chooser from a grouped view or transact
 | --- | --- |
 | `t`, Enter | This calendar month |
 | `t`, Down, Enter | Last calendar month |
-| `t`, Down, Down, Enter | Enter another month as `YYYY-MM`, then press Enter |
-| `t`, Down, Down, Down, Enter | All time |
+| `t`, Shift+Tab, Enter | This calendar year |
+| `t`, Shift+Tab, Down, Enter | Last calendar year |
+| `t`, Tab, Enter | Today |
+| `t`, type `2025-09`, Enter | September 2025 |
+| `t`, type `2025`, Enter | The whole of 2025 |
+| `t`, type `2025-09-15`, Enter | September 15, 2025 |
+| `t`, `a` | All time |
 
-The chooser uses your computer's calendar, even when the selected month has no transactions.
-Month selections include the whole month. They replace existing date limits and time
+The chooser opens at the current month using your computer's calendar. Tab cycles **Year,
+Month, Day**; Shift+Tab cycles backward. Down moves to the previous period; Up moves to the
+next. Changing resolution keeps the date you were browsing: September 2025 becomes 2025
+in Year, then September again in Month. When moving to a shorter month or a non-leap year,
+the day is limited to the last day of that month.
+
+Start typing to jump directly. The input format selects the resolution, and the preview
+shows the exact date range before you apply it. Invalid or incomplete dates stay in the
+chooser for correction. Esc cancels without changing your view.
+
+Selections include the whole calendar period, even if it has no transactions.
+They replace existing date limits and time
 drill-downs while preserving your grouping, search, and merchant, category, group, or account
-selection. Esc cancels the chooser. The selected month appears above the table.
+selection. The selected period appears above the table.
 
-After choosing a month, left and right move to adjacent months; `a` returns to all time.
+After choosing a period, left and right move to adjacent years, months, or days at that
+resolution; `a` returns to all time.
 Enter still opens a selected group and Esc returns to its summary.
 
 To browse grouped periods instead, use `Ctrl+t` to jump to Time grouping. Press it again to

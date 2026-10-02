@@ -48,7 +48,7 @@ func defaultBindings() []binding {
 		})
 	}
 	bindings = append(bindings,
-		binding{keys: []string{"t"}, keyDisplay: "t", action: actionChooseTime, description: "Choose this month, last month, another month, or all time", category: "Time", implemented: true},
+		binding{keys: []string{"t"}, keyDisplay: "t", action: actionChooseTime, description: "Choose a year, month, day, or all time", category: "Time", implemented: true},
 		binding{keys: []string{"pgup"}, keyDisplay: "PgUp", action: actionCursorPageUp, description: "Move up one page", category: "Views", implemented: true},
 		binding{keys: []string{"pgdown"}, keyDisplay: "PgDn", action: actionCursorPageDown, description: "Move down one page", category: "Views", implemented: true},
 		binding{keys: []string{"end", "B"}, keyDisplay: "End/B", action: actionCursorEnd, description: "Move to last row", category: "Views", implemented: true},
