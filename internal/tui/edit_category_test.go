@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -102,7 +103,48 @@ func TestCategoryEditorCreatesOnTheFlyAfterGroupSelection(t *testing.T) {
 	assert.False(t, model.result.DetailRows[model.cursor].Flags.Pending)
 }
 
-func TestCategoryEditorTreatsTypedSubstringAsNewCategory(t *testing.T) {
+func TestCategoryEditorEnterUsesHighlightedPartialMatch(t *testing.T) {
+	for _, selected := range []bool{false, true} {
+		name := "group"
+		if selected {
+			name = "selected transactions"
+		}
+		t.Run(name, func(t *testing.T) {
+			fixture := newPersistentModel(t, app.NewSession())
+			model := fixture.model
+			if selected {
+				model = press(t, model, keyRune('d'))
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+			}
+			model = press(t, model, keyRune('c'))
+			var destination app.EditorChoice
+			for _, choice := range model.category.choices {
+				if strings.HasPrefix(choice.Label, "Category ") {
+					destination = choice
+					break
+				}
+			}
+			require.NotEmpty(t, destination.ID)
+			model = typeText(t, model, "Category")
+			assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> "+destination.Label)
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+			require.Equal(t, overlayNone, model.overlay)
+			stored, err := fixture.profile.Load(fixture.ctx)
+			require.NoError(t, err)
+			require.Len(t, stored.Journal, 1)
+			assert.Equal(t, domain.OperationCategoryAssign, stored.Journal[0].Type)
+			require.NotNil(t, stored.Journal[0].Reassign)
+			assert.Equal(t, destination.ID, stored.Journal[0].Reassign.DestinationID)
+			if selected {
+				assert.Equal(t, 2, model.pending.AffectedTransactions)
+			}
+		})
+	}
+}
+
+func TestCategoryEditorCreatesTypedSubstringOnlyWhenCreateSelected(t *testing.T) {
 	t.Parallel()
 	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('d'))
 	model = press(t, model, keyRune('c'))
@@ -116,8 +158,18 @@ func TestCategoryEditorTreatsTypedSubstringAsNewCategory(t *testing.T) {
 	require.NotEmpty(t, choice.ID)
 	wanted := choice.Label[:len(choice.Label)-1]
 	model = typeText(t, model, wanted)
+	for range model.category.choices {
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> Create \""+wanted+"\"")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	assert.Equal(t, categoryPhaseGroup, model.category.phase)
 	assert.Equal(t, wanted, model.category.newLabel)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.Equal(t, overlayNone, model.overlay)
+	review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	require.NoError(t, err)
+	require.Len(t, review.ActiveOperations, 1)
+	assert.Equal(t, wanted, review.ActiveOperations[0].After)
 }
