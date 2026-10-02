@@ -56,10 +56,16 @@ lose progress. A net-zero set of edits can be cleared without provider work.
 
 ## Recover an interrupted provider write
 
-Open the write status and follow its available action. Pause waits for in-flight results.
-Resume is explicit; an ownerless batch does not restart itself. If an outcome cannot be retried
-safely, stop and reconcile against provider truth instead of resending the same change.
+In the TUI, `w` opens write status. Esc returns to transactions without discarding edits.
+An unfinished batch blocks further edits and refreshes; the footer keeps `w Write status`
+visible so you can return to its recovery actions.
 
-Stopping and reconciling can abandon the remaining frozen edit batch. Read the confirmation.
-A completed write may report that provider refresh is due; use `r` to read current data.
-Neither a warning nor a timeout is proof that the provider rejected the request.
+Use the action shown for the current state. Pause waits for in-flight results. A paused
+batch offers Resume. A rejected change offers `s` to discard that batch's pending edits
+and reload provider data. During the reload, Esc returns to transactions while work
+continues. Editing becomes available again after the reload finishes. A failed reload
+keeps the batch and displays its error in write status, where you can try recovery again.
+
+If a provider removal confirmation appears, review it before continuing. A completed
+write may report that provider refresh is due; use `r` to read current data.
+Neither a warning nor a timeout proves that the provider rejected the request.

@@ -14,6 +14,8 @@ import (
 type providerWriteTUIState struct {
 	status            app.ProviderWriteStatus
 	running           bool
+	reconciling       bool
+	err               string
 	confirmationToken string
 	startedAt         time.Time
 	startedCompleted  int
@@ -34,6 +36,7 @@ func (model *Model) startProviderWrite() tea.Cmd {
 		return nil
 	}
 	model.providerWrite.running = true
+	model.providerWrite.err = ""
 	model.providerWrite.startedAt = model.now()
 	model.providerWrite.startedCompleted = model.providerWrite.status.Completed
 	service := model.service
@@ -49,6 +52,7 @@ func (model *Model) providerWriteResumeCommand() tea.Cmd {
 		return nil
 	}
 	model.providerWrite.running = true
+	model.providerWrite.err = ""
 	model.providerWrite.startedAt = model.now()
 	model.providerWrite.startedCompleted = model.providerWrite.status.Completed
 	service, ctx := model.service, model.ctx
@@ -69,7 +73,14 @@ func (model *Model) providerWritePauseCommand() tea.Cmd {
 }
 
 func (model *Model) providerWriteReconcileCommand(token string) tea.Cmd {
+	if model.providerWrite.running {
+		return nil
+	}
 	model.providerWrite.running = true
+	model.providerWrite.reconciling = true
+	model.providerWrite.err = ""
+	model.providerWrite.confirmationToken = ""
+	model.status = "Reloading " + onboardingProviderName(model.service.ProfileKind()) + " data…"
 	service, ctx := model.service, model.ctx
 	request := app.ProviderWriteReconcileRequest{
 		ExpectedVersion:   model.providerWrite.status.Version,
@@ -113,7 +124,13 @@ func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 
 func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileMsg) tea.Cmd {
 	model.providerWrite.running = false
-	model.providerWrite.status = message.result.Status
+	model.providerWrite.reconciling = false
+	if message.err == nil || message.result.Status.Phase != "" {
+		model.providerWrite.status = message.result.Status
+	} else if status, err := model.service.ProviderWriteStatus(model.ctx); err == nil {
+		// Failed requests can omit status. Keep recovery tied to the durable batch.
+		model.providerWrite.status = status
+	}
 	if message.result.ConfirmationToken != "" {
 		model.providerWrite.confirmationToken = message.result.ConfirmationToken
 		model.overlay = overlayProviderWrite
@@ -121,14 +138,15 @@ func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileM
 		return nil
 	}
 	if message.err != nil {
-		model.status = safeInteractionMessage(message.err)
+		model.providerWrite.err = safeInteractionMessage(message.err)
+		model.status = model.providerWrite.err
 		return nil
 	}
 	identity := model.rowIdentity(model.cursor)
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Stopped the provider write and reconciled provider truth."
+	model.status = "Provider data reloaded. Pending batch cleared; editing is available."
 	return nil
 }
 
@@ -177,12 +195,19 @@ func providerWriteCanReconcile(status app.ProviderWriteStatus) bool {
 }
 
 func (model Model) renderProviderWrite(screen *RenderedScreen) {
+	model.palette.Text.Background = model.palette.Panel.Background
+	model.palette.Muted.Background = model.palette.Panel.Background
+	model.palette.Warning.Background = model.palette.Panel.Background
+	model.palette.Border.Background = model.palette.Panel.Background
 	rect := responsiveOverlayRect(model.width, model.height, 76, 20)
 	title := onboardingProviderName(model.service.ProfileKind()) + " Write"
 	drawOverlayBox(&screen.Frame, rect, model.palette, title)
 	x, width := rect.X+2, max(0, rect.Width-4)
 	status := model.providerWrite.status
 	phase := providerWritePhaseLabel(status.Phase)
+	if model.providerWrite.reconciling {
+		phase = "Reloading provider data"
+	}
 	screen.Frame.PutText(x, rect.Y+2, Truncate("Status: "+phase, width), model.palette.Heading)
 	progress := fmt.Sprintf("Progress: %d / %d complete | %d remaining", status.Completed, status.Total, status.Remaining)
 	screen.Frame.PutText(x, rect.Y+4, Truncate(progress, width), model.palette.Text)
@@ -197,13 +222,22 @@ func (model Model) renderProviderWrite(screen *RenderedScreen) {
 		screen.Frame.PutText(x, rect.Y+9, Truncate("Worker: "+status.OwnerRenderer, width), model.palette.Muted)
 	}
 	guidance := model.providerWriteGuidance(status)
+	if model.providerWrite.reconciling {
+		guidance = "Reloading " + onboardingProviderName(model.service.ProfileKind()) + " data…\nEditing will be available when the reload finishes.\nEsc returns to transactions while the reload continues."
+	}
 	for index, line := range strings.Split(guidance, "\n") {
 		screen.Frame.PutText(x, rect.Y+11+index, Truncate(line, width), model.palette.Warning)
 	}
+	if model.providerWrite.err != "" {
+		screen.Frame.PutText(x, rect.Y+15, Truncate(model.providerWrite.err, width), model.palette.Warning)
+	}
 	actions := providerWriteActions(status, model.providerWrite.confirmationToken != "")
+	if model.providerWrite.reconciling {
+		actions = "Reloading… | Esc=Back to transactions"
+	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "provider_write", Rect: rect})
-	screen.Overlay = []string{title, phase, progress, guidance, actions}
+	screen.Overlay = []string{title, phase, progress, guidance, model.providerWrite.err, actions}
 }
 
 func (model Model) providerWriteEstimate() string {

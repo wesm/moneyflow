@@ -29,7 +29,7 @@ func TestUpdateTransactionSendsOneAuthenticatedRequestWithPresentFields(t *testi
 		assert.Contains(t, envelope.Query, "updateTransaction")
 		input := envelope.Variables["input"].(map[string]any)
 		assert.Equal(t, map[string]any{
-			"id": "txn-example-1", "merchantName": "Example Merchant", "hideFromReports": false,
+			"id": "txn-example-1", "name": "Example Merchant", "hideFromReports": false,
 		}, input)
 		_, _ = writer.Write([]byte(`{"data":{"updateTransaction":{"transaction":{"id":"txn-example-1","merchant":{"id":"merchant-example-9","name":"  Example   Merchant  "},"category":{"id":"category-example-1"},"hideFromReports":false},"errors":[]}}}`))
 	}))
@@ -58,7 +58,7 @@ func TestUpdateTransactionIncludesEveryRequestedField(t *testing.T) {
 		require.NoError(t, json.NewDecoder(request.Body).Decode(&envelope))
 		input := envelope.Variables["input"].(map[string]any)
 		assert.Equal(t, map[string]any{
-			"id": "txn-example-1", "merchantName": "Example Merchant",
+			"id": "txn-example-1", "name": "Example Merchant",
 			"category": "category-example-1", "hideFromReports": true,
 		}, input)
 		_, _ = writer.Write([]byte(`{"data":{"updateTransaction":{"transaction":{"id":"txn-example-1","merchant":{"id":"merchant-example-9","name":"Example Merchant"},"category":{"id":"category-example-1"},"hideFromReports":true},"errors":[]}}}`))

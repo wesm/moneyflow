@@ -147,6 +147,116 @@ func TestProviderWriteStatusOpensWithWAndEscapeDoesNotPause(t *testing.T) {
 	assert.Equal(t, store.WritePhasePaused, model.providerWrite.status.Phase)
 }
 
+func TestRejectedProviderWriteCanCloseAndReload(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := press(t, fixture.model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Equal(t, 1, model.service.Pending().ActiveOperations)
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "w Write status")
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	status, err := model.service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, status.Phase)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+	assert.Equal(t, 2, model.result.FilteredCount)
+	model = press(t, model, keyRune('m'))
+	assert.Equal(t, overlayMerchantEditor, model.overlay, "editing resumes after recovery")
+}
+
+func TestProviderWriteReloadShowsActivityAndPreventsDuplicateRequests(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := fixture.model
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "Reloading Monarch data")
+	updated, duplicate := model.Update(keyRune('s'))
+	model = updated.(Model)
+	assert.Nil(t, duplicate, "a repeated key must not launch another reload")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Equal(t, overlayNone, model.overlay, "reload must not trap the user in the dialog")
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func TestProviderWriteReloadFailureIsVisibleAndCanRetry(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	fixture.source.setFetch(func(context.Context, provider.ProgressFunc) (domain.ImportSnapshot, error) {
+		return domain.ImportSnapshot{}, provider.NewError(provider.CodeUnavailable)
+	})
+	updated, command := fixture.model.Update(keyRune('s'))
+	model := updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "unavailable")
+	assert.Equal(t, 1, model.service.Pending().ActiveOperations)
+	assert.Contains(t, rendered, "s=")
+	fixture.source.setSnapshot(tuiProviderSnapshot(t, fixture.now.Add(time.Minute), 2))
+	updated, command = model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func TestProviderWriteStaleReloadKeepsRecoveryAvailable(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := fixture.model
+	model.providerWrite.status.Version-- // A newer batch status has not reached this renderer yet.
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "The requested operation is invalid.")
+	assert.Contains(t, rendered, "s=")
+	updated, command = model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func rejectedProviderWriteModel(t testing.TB) providerModelFixture {
+	t.Helper()
+	fixture := newProviderModel(t, 2)
+	fixture.source.writer = rejectedTUIProviderWriter{tuiProviderWriter{identity: fixture.source.identity}}
+	model := press(t, fixture.model, keyRune('h'))
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	fixture.model = updated.(Model)
+	require.Equal(t, store.WriteAttentionRejected, fixture.model.providerWrite.status.AttentionReason)
+	return fixture
+}
+
+type rejectedTUIProviderWriter struct{ tuiProviderWriter }
+
+func (rejectedTUIProviderWriter) UpdateTransaction(context.Context, provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+	return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
+}
+
 func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	t.Parallel()
 

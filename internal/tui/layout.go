@@ -78,10 +78,14 @@ func (model Model) RenderScreen() RenderedScreen {
 		frame.PutText(statusLine.X, statusLine.Y, Truncate(statusText, statusLine.Width), model.palette.Warning)
 	}
 	footer := Rect{X: 1, Y: model.height - 1, Width: contentWidth, Height: 1}
+	footerText := "g Group By  t Time  d Detail  s Sort  v ↕  f Filters  ? Help  / Search  q Quit"
+	if model.providerWrite.status.Phase != "" || model.providerWrite.running {
+		footerText = "w Write status  |  " + footerText
+	}
 	frame.PutText(
 		footer.X,
 		footer.Y,
-		Truncate("g Group By  t Time  d Detail  s Sort  v ↕  f Filters  ? Help  / Search  q Quit", footer.Width),
+		Truncate(footerText, footer.Width),
 		model.palette.Muted,
 	)
 
