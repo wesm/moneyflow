@@ -54,6 +54,11 @@ Amazon, bank CSV, and SimpleFIN commits write only to local SQLite. Monarch and 
 provider-write batch. Successful remote results are saved individually so restart does not
 lose progress. A net-zero set of edits can be cleared without provider work.
 
+Committing Monarch or YNAB edits takes priority over the TUI's own background refresh.
+Moneyflow stops that refresh, then commits the changes you reviewed. While waiting,
+Esc cancels the commit and keeps the edits pending. If the refresh changed the data
+before it stopped, Moneyflow asks you to review the changes again before committing.
+
 ## Recover an interrupted provider write
 
 In the TUI, `w` opens write status. Esc returns to transactions without discarding edits.

@@ -19,14 +19,15 @@ const (
 )
 
 type reviewState struct {
-	projection       app.ReviewProjection
-	reviewedRevision uint64
-	selected         int
-	detailOffset     int
-	detailLimit      int
-	phase            reviewPhase
-	original         editorSnapshot
-	err              string
+	projection         app.ReviewProjection
+	reviewedRevision   uint64
+	commitAfterRefresh uint64
+	selected           int
+	detailOffset       int
+	detailLimit        int
+	phase              reviewPhase
+	original           editorSnapshot
+	err                string
 }
 
 type reviewDashboardRow struct {
@@ -57,6 +58,13 @@ func (model *Model) openReview() tea.Cmd {
 
 func (model *Model) routeReview(message tea.KeyPressMsg) tea.Cmd {
 	key := message.Keystroke()
+	if model.review.commitAfterRefresh != 0 {
+		if key == "esc" {
+			model.review.commitAfterRefresh = 0
+			model.cancelEditor(model.review.original)
+		}
+		return nil
+	}
 	if model.review.phase == reviewPhaseDetails {
 		switch key {
 		case "esc", "i":
@@ -105,7 +113,13 @@ func (model *Model) tryCommitReview() tea.Cmd {
 		model.review.err = "There are no active operations to commit."
 		return nil
 	}
-	return model.commitReview()
+	if model.provider.refreshing && (model.profileKind == "monarch" || model.profileKind == "ynab") {
+		model.review.commitAfterRefresh = model.review.reviewedRevision
+		model.review.err = ""
+		model.provider.cancel()
+		return nil
+	}
+	return model.commitReview(model.review.reviewedRevision)
 }
 
 func (model *Model) loadReviewPreview() bool {
@@ -146,10 +160,10 @@ func (model Model) reviewHasNextDetailPage() bool {
 	return model.review.detailOffset+model.review.projection.Window.Count < operation.AffectedCount
 }
 
-func (model *Model) commitReview() tea.Cmd {
+func (model *Model) commitReview(reviewedRevision uint64) tea.Cmd {
 	activeCount := model.review.projection.Pending.ActiveOperations
 	result, err := model.service.Commit(model.ctx, app.CommitRequest{
-		ExpectedRevision: model.service.Revision(), ReviewedRevision: model.review.reviewedRevision,
+		ExpectedRevision: model.service.Revision(), ReviewedRevision: reviewedRevision,
 	})
 	if err != nil {
 		model.refreshReviewAfterFailure(err)
@@ -227,9 +241,13 @@ func (model Model) renderReview(screen *RenderedScreen) {
 		model.renderReviewSummary(screen, rect, x, width)
 		overlay = append(overlay, reviewSemanticSummary(model.review.projection)...)
 	}
-	if model.review.err != "" {
-		screen.Frame.PutText(x, rect.Y+rect.Height-3, Truncate(model.review.err, width), model.palette.Warning)
-		overlay = append(overlay, model.review.err)
+	message := model.review.err
+	if model.review.commitAfterRefresh != 0 {
+		message = "Stopping refresh to commit…"
+	}
+	if message != "" {
+		screen.Frame.PutText(x, rect.Y+rect.Height-3, Truncate(message, width), model.palette.Warning)
+		overlay = append(overlay, message)
 	}
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "review_overlay", Rect: rect})
 	screen.Overlay = overlay
@@ -272,6 +290,9 @@ func (model Model) renderReviewSummary(screen *RenderedScreen, rect Rect, x int,
 	model.renderReviewChange(screen, Rect{X: x, Y: changeY, Width: width, Height: 2})
 	model.renderReviewPreview(screen, Rect{X: x, Y: changeY + 3, Width: width, Height: previewRows + 2})
 	actions := "↑/↓=Choose | i=All rows | Enter=Commit all | Esc=Back"
+	if model.review.commitAfterRefresh != 0 {
+		actions = "Esc=Cancel commit"
+	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 }
 
@@ -382,7 +403,11 @@ func (model Model) renderReviewDetails(screen *RenderedScreen, rect Rect, x int,
 	}
 	model.renderReviewChange(screen, Rect{X: x, Y: rect.Y + 3, Width: width, Height: 2})
 	model.renderReviewPreview(screen, Rect{X: x, Y: rect.Y + 6, Width: width, Height: rect.Height - 9})
-	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, "←/→=Page | Enter=Commit all | Esc/i=Back", model.palette.Muted)
+	actions := "←/→=Page | Enter=Commit all | Esc/i=Back"
+	if model.review.commitAfterRefresh != 0 {
+		actions = "Esc=Cancel commit"
+	}
+	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 }
 
 func reviewSemanticSummary(projection app.ReviewProjection) []string {

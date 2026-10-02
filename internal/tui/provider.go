@@ -154,6 +154,20 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 	if message.result.Status.Generation != 0 || message.result.Status.Code != "" {
 		model.provider.status = message.result.Status
 	}
+	if reviewed := model.review.commitAfterRefresh; reviewed != 0 {
+		model.review.commitAfterRefresh = 0
+		if model.overlay == overlayReview {
+			if message.err == nil || errors.Is(message.err, context.Canceled) {
+				// The refresh has released its lease. Commit only the revision
+				// approved before cancellation, even if the review has reloaded.
+				if command := model.commitReview(reviewed); command != nil {
+					return command
+				}
+				return model.nextProviderScheduleTick()
+			}
+			model.review.err = safeInteractionMessage(message.err)
+		}
+	}
 	if message.err != nil {
 		if errors.Is(message.err, context.Canceled) || errors.Is(message.err, context.DeadlineExceeded) {
 			model.status = "Provider refresh canceled; no provider data changed."

@@ -107,19 +107,19 @@ func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 		if message.status.Phase != "" {
 			model.overlay = overlayProviderWrite
 		}
-		return nil
+		return model.nextProviderScheduleTick()
 	}
 	if message.status.Phase != "" {
 		model.status = model.providerWriteProgressLine(message.status)
 		model.overlay = overlayProviderWrite
-		return nil
+		return model.nextProviderScheduleTick()
 	}
 	identity := model.rowIdentity(model.cursor)
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
 	model.status = "Provider write complete; provider refresh is due."
-	return nil
+	return model.nextProviderScheduleTick()
 }
 
 func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileMsg) tea.Cmd {
