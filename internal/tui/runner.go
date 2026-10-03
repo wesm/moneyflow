@@ -36,6 +36,8 @@ func RunShell(
 	}
 	final, runErr := tea.NewProgram(
 		shell, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output),
+		// Keep the initial view and renderer sizes aligned when output is not a TTY.
+		tea.WithWindowSize(shell.width, shell.height),
 		// PaletteFor already resolved the color mode. Preserve its colors verbatim.
 		tea.WithColorProfile(colorprofile.TrueColor),
 	).Run()
@@ -57,6 +59,8 @@ func Run(ctx context.Context, service *app.Service, session app.Session, options
 	}
 	_, err = tea.NewProgram(
 		model, tea.WithContext(ctx), tea.WithInput(input), tea.WithOutput(output),
+		// Keep the initial view and renderer sizes aligned when output is not a TTY.
+		tea.WithWindowSize(model.width, model.height),
 		// PaletteFor already resolved the color mode. Preserve its colors verbatim.
 		tea.WithColorProfile(colorprofile.TrueColor),
 	).Run()
