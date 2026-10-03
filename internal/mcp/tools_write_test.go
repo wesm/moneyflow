@@ -46,10 +46,13 @@ func TestYNABCategoryClearCommitsThroughMCPWorker(t *testing.T) {
 	revision := staged.StructuredContent.(map[string]any)["revision"]
 	committed := callWriteTool(t, client, "commit_changes", map[string]any{"expected_revision": revision, "reviewed_revision": revision})
 	require.False(t, committed.IsError, "%v", committed.StructuredContent)
-	require.Eventually(t, func() bool {
-		status := callWriteTool(t, client, "get_commit_status", nil)
-		_, active := status.StructuredContent.(map[string]any)["write"].(map[string]any)["phase"]
-		return !active
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		status, err := client.CallTool(t.Context(), &mcpsdk.CallToolParams{Name: "get_commit_status"})
+		require.NoError(collect, err)
+		// Finalization can advance the revision while a status poll is reading it.
+		require.False(collect, status.IsError, "%v", status.StructuredContent)
+		write := status.StructuredContent.(map[string]any)["write"].(map[string]any)
+		assert.Empty(collect, write["phase"])
 	}, 3*time.Second, 10*time.Millisecond)
 	projection, err = service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
