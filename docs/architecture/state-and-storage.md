@@ -55,6 +55,14 @@ The invariant is: freshly loaded committed state equals the effective snapshot b
 including structural retirement effects. Provider write-back uses a response-adjusted version of
 that invariant described in [providers](providers.md).
 
+**Unreleased:** The profile's `audit.jsonl` retains edit evidence after the journal and
+provider batch are cleared. Store mutations serialize file appends using the SQLite write
+lock. A durable intent precedes provider dispatch or a local fold; separate records describe
+provider responses and completed database commits. The file and database are not one atomic
+transaction. A missing completion marker means unconfirmed completion, not permission to
+retry a remote request. See [the audit log guide](../config/caching.md#where-can-i-inspect-past-edits)
+for inspection and retention.
+
 ## Identity and bookmarks
 
 Transactions, merchants, accounts, categories, and groups have stable local IDs. External provider

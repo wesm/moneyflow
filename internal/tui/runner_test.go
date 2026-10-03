@@ -27,8 +27,7 @@ func TestRunnersPreserveResolvedTrueColor(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			options := Options{Theme: ThemeDefault, ColorMode: ColorModeTrueColor}
-			// Report a terminal size, then exit with Ctrl+C.
-			input := strings.NewReader("\x1b[8;24;80t\x03")
+			input := strings.NewReader("\x03")
 			var output bytes.Buffer
 			var err error
 			if shell {

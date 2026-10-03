@@ -54,6 +54,10 @@ func StoreErrorRetryClass(code store.ErrorCode) ProviderRetryClass {
 
 // ProviderRefreshDue applies the provider's cadence and durable retry floor.
 func ProviderRefreshDue(status ProviderStatus, now time.Time) bool {
+	// Monarch reads complete history. Only an explicit refresh may incur that cost.
+	if status.ProviderKind == "monarch" {
+		return false
+	}
 	if status.ProviderKind == "simplefin" {
 		return status.Code == "" && !status.LastAttempt.After(status.LastSuccess) &&
 			!status.NextEligible.After(now) && (status.LastSuccess.IsZero() || !status.LastSuccess.Add(24*time.Hour).After(now))
@@ -98,7 +102,6 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 			return status, nil
 		}
 	}
-	healed := false
 	if parked && runtime.provider != "simplefin" {
 		changed, changeErr := runtime.readSource.Changed(fingerprint)
 		if changeErr == nil && changed {
@@ -106,13 +109,12 @@ func (service *Service) ProviderStatus(ctx context.Context) (ProviderStatus, err
 			runtime.parkedReconnect = false
 			runtime.forceReload = true
 			runtime.mu.Unlock()
-			healed = true
 		}
 	}
 	status := providerStatusFromState(state, runtime.provider)
 	status.Fetched = progress.Fetched
 	status.Total = progress.Total
-	if healed {
+	if status.Code == provider.CodeReconnectRequired && runtime.hasForceReload() {
 		status.Code = ""
 	}
 	return status, nil

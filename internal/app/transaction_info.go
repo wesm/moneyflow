@@ -160,7 +160,7 @@ func (service *Service) transactionInfoTarget(
 	defer service.mu.RUnlock()
 	var transaction domain.Transaction
 	found := false
-	for _, candidate := range service.transactions {
+	for _, candidate := range service.browseTransactionsLocked() {
 		if candidate.ID == transactionID {
 			transaction, found = candidate.Clone(), true
 			break

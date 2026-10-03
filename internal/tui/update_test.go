@@ -137,7 +137,7 @@ func TestUpdateTimeAndUnavailableActions(t *testing.T) {
 	session.Dimension = domain.DimensionTime
 	session.Sort = domain.SortSpec{Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc}
 	model := newTestModel(t, session)
-	model = press(t, model, keyRune('t'))
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
 	assert.Equal(t, domain.TimeGranularityMonth, model.session.TimeGranularity)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	periodBefore := *model.session.Drilldowns[0].Period

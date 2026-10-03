@@ -113,6 +113,83 @@ func TestProviderWriteOverlayActionsAndEstimate(t *testing.T) {
 	assert.Contains(t, model.providerWriteGuidance(model.providerWrite.status), "Reconnect")
 }
 
+func TestProviderWriteCheckAndResumeOnlyForMonarchUnknownOutcome(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		kind   string
+		reason store.WriteAttentionReason
+		target store.WriteResumeTarget
+		resume bool
+	}{
+		{"Monarch unknown outcome", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, true},
+		{"YNAB unknown outcome", "ynab", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, false},
+		{"Monarch rejected edit", "monarch", store.WriteAttentionRejected, store.WriteResumeWriting, false},
+		{"Monarch reconciliation", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeReconciling, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, time.September, 7, 12, 0, 0, 0, time.UTC)
+			source := &tuiProviderSource{
+				identity: provider.ProfileIdentity{Kind: test.kind, RemoteID: "profile-example"},
+				snapshot: tuiProviderSnapshot(t, now, 1), fingerprint: "session-example",
+			}
+			model := newPristineProviderModel(t, source, now, test.kind)
+			model.overlay = overlayProviderWrite
+			model.providerWrite.status = app.ProviderWriteStatus{
+				Phase: store.WritePhaseAttentionRequired, Version: 7,
+				AttentionClass:  store.WriteAttentionReconcileOnly,
+				AttentionReason: test.reason, ResumeTarget: test.target,
+			}
+			frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+			updated, command := model.Update(keyRune('r'))
+			model = updated.(Model)
+			if test.resume {
+				assert.Contains(t, frame, "r=Check and resume")
+				assert.Contains(t, frame, "history is not reloaded")
+				require.NotNil(t, command)
+				assert.True(t, model.providerWrite.running)
+				assert.IsType(t, providerWriteMsg{}, command())
+			} else {
+				assert.NotContains(t, frame, "r=Check and resume")
+				assert.Contains(t, frame, "s=Stop and reconcile")
+				assert.Nil(t, command)
+				assert.False(t, model.providerWrite.running)
+			}
+		})
+	}
+}
+
+func TestProviderWriteShowsChangeAfterCommitAndReopening(t *testing.T) {
+	t.Parallel()
+	fixture := newProviderModel(t, 3)
+	model := fixture.model
+	_, err := model.service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: model.service.Revision(),
+		State: model.session.ViewState(), Selection: app.EmptySelection(),
+		Target: model.focusedMutationTarget(),
+		Input:  app.EditInput{Scope: app.EditScopeEntity, Label: "Renamed Example Merchant"},
+	})
+	require.NoError(t, err)
+	model.refreshPreserving("")
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+
+	for _, reopen := range []bool{false, true} {
+		if reopen {
+			model, err = NewModel(t.Context(), model.service, app.NewSession(), Options{})
+			require.NoError(t, err)
+			model = press(t, model, keyRune('w'))
+		}
+		frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+		assert.Contains(t, frame, "Rename merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "From: Example Merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "To:   Renamed Example Merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "3 transactions", "reopened=%v", reopen)
+	}
+}
+
 func TestProviderWriteOverlayExplainsRejectedEditAndRecovery(t *testing.T) {
 	t.Parallel()
 	model := newTestModel(t, app.NewSession())
@@ -147,6 +224,116 @@ func TestProviderWriteStatusOpensWithWAndEscapeDoesNotPause(t *testing.T) {
 	assert.Equal(t, store.WritePhasePaused, model.providerWrite.status.Phase)
 }
 
+func TestRejectedProviderWriteCanCloseAndReload(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := press(t, fixture.model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Equal(t, 1, model.service.Pending().ActiveOperations)
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "w Write status")
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	status, err := model.service.ProviderWriteStatus(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, status.Phase)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+	assert.Equal(t, 2, model.result.FilteredCount)
+	model = press(t, model, keyRune('m'))
+	assert.Equal(t, overlayMerchantEditor, model.overlay, "editing resumes after recovery")
+}
+
+func TestProviderWriteReloadShowsActivityAndPreventsDuplicateRequests(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := fixture.model
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "Reloading Monarch data")
+	updated, duplicate := model.Update(keyRune('s'))
+	model = updated.(Model)
+	assert.Nil(t, duplicate, "a repeated key must not launch another reload")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Equal(t, overlayNone, model.overlay, "reload must not trap the user in the dialog")
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func TestProviderWriteReloadFailureIsVisibleAndCanRetry(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	fixture.source.setFetch(func(context.Context, provider.ProgressFunc) (domain.ImportSnapshot, error) {
+		return domain.ImportSnapshot{}, provider.NewError(provider.CodeUnavailable)
+	})
+	updated, command := fixture.model.Update(keyRune('s'))
+	model := updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "unavailable")
+	assert.Equal(t, 1, model.service.Pending().ActiveOperations)
+	assert.Contains(t, rendered, "s=")
+	fixture.source.setSnapshot(tuiProviderSnapshot(t, fixture.now.Add(time.Minute), 2))
+	updated, command = model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func TestProviderWriteStaleReloadKeepsRecoveryAvailable(t *testing.T) {
+	t.Parallel()
+	fixture := rejectedProviderWriteModel(t)
+	model := fixture.model
+	model.providerWrite.status.Version-- // A newer batch status has not reached this renderer yet.
+	updated, command := model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	rendered := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+	assert.Contains(t, rendered, "The requested operation is invalid.")
+	assert.Contains(t, rendered, "s=")
+	updated, command = model.Update(keyRune('s'))
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	model = updated.(Model)
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.service.Pending().ActiveOperations)
+}
+
+func rejectedProviderWriteModel(t testing.TB) providerModelFixture {
+	t.Helper()
+	fixture := newProviderModel(t, 2)
+	fixture.source.writer = rejectedTUIProviderWriter{tuiProviderWriter{identity: fixture.source.identity}}
+	model := press(t, fixture.model, keyRune('h'))
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+	updated, _ = model.Update(command())
+	fixture.model = updated.(Model)
+	require.Equal(t, store.WriteAttentionRejected, fixture.model.providerWrite.status.AttentionReason)
+	return fixture
+}
+
+type rejectedTUIProviderWriter struct{ tuiProviderWriter }
+
+func (rejectedTUIProviderWriter) UpdateTransaction(context.Context, provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+	return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
+}
+
 func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	t.Parallel()
 
@@ -158,10 +345,10 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	}{
 		{name: "ownerless writing", status: app.ProviderWriteStatus{Phase: store.WritePhaseWriting, Version: 1}, wantStart: true},
 		{name: "completed reconciling", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeWriting, Version: 1, Total: 2, Completed: 2}, wantStart: true},
-		{name: "ownerless provider reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeReconciling, Version: 1}, wantStart: true},
+		{name: "ownerless provider reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconciling, ResumeTarget: store.WriteResumeReconciling, Version: 1}},
 		{name: "eligible rate limit", status: app.ProviderWriteStatus{Phase: store.WritePhaseRateLimited, Version: 1, NextEligible: now}, wantStart: true},
 		{name: "healed reconnect", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeWriting, Version: 1, SessionChanged: true}, wantStart: true},
-		{name: "healed reconnect during reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1, SessionChanged: true}, wantStart: true},
+		{name: "healed reconnect during reconciliation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconnectRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1, SessionChanged: true}},
 		{name: "confirmation waits", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconcileConfirmationRequired, ResumeTarget: store.WriteResumeReconciling, Version: 1}},
 		{name: "paused", status: app.ProviderWriteStatus{Phase: store.WritePhasePaused, Version: 1}},
 		{name: "attention", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, Version: 1, AttentionClass: store.WriteAttentionRetryable}},
@@ -169,6 +356,7 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			model := newTestModel(t, app.NewSession())
+			model.profileKind = "monarch"
 			updated, command := model.Update(providerStatusMsg{
 				writeStatus: test.status, at: now,
 				timerGeneration: model.provider.timerGeneration,
@@ -176,6 +364,14 @@ func TestProviderWriteStandingTickStartsOnlyAutomaticPhases(t *testing.T) {
 			model = updated.(Model)
 			assert.Equal(t, test.wantStart, model.providerWrite.running)
 			assert.NotNil(t, command)
+			if test.status.ResumeTarget == store.WriteResumeReconciling {
+				model.overlay = overlayProviderWrite
+				assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "s=", "recovery must remain discoverable")
+				updated, command = model.Update(keyRune('s'))
+				model = updated.(Model)
+				assert.True(t, model.providerWrite.reconciling, "full reload requires an explicit recovery action")
+				assert.NotNil(t, command)
+			}
 		})
 	}
 }

@@ -66,6 +66,15 @@ func NewService(transactions []domain.Transaction) (*Service, error) {
 	return &Service{transactions: owned}, nil
 }
 
+// browseTransactionsLocked keeps staged edits in previews until commit succeeds.
+// The caller must hold service.mu.
+func (service *Service) browseTransactionsLocked() []domain.Transaction {
+	if service.profile != nil {
+		return service.committedTransactions
+	}
+	return service.transactions
+}
+
 // Query evaluates the current session without exposing the service's owned data.
 func (service *Service) Query(session Session) (domain.QueryResult, error) {
 	return service.QueryContext(context.Background(), session)
@@ -74,8 +83,7 @@ func (service *Service) Query(session Session) (domain.QueryResult, error) {
 // QueryContext evaluates the current session and enriches search with matched Amazon products.
 func (service *Service) QueryContext(ctx context.Context, session Session) (domain.QueryResult, error) {
 	service.mu.RLock()
-	transactions := append([]domain.Transaction(nil), service.transactions...)
-	committed := append([]domain.Transaction(nil), service.committedTransactions...)
+	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
 	localPending := make(map[string]struct{}, len(service.localPending))
 	for id := range service.localPending {
 		localPending[id] = struct{}{}
@@ -86,7 +94,6 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 	service.mu.RUnlock()
 	spec := session.QuerySpec()
 	pendingSpec := spec
-	pendingCommitted := committed
 	result, err := analytics.Query(transactions, spec)
 	if err != nil {
 		return domain.QueryResult{}, fmt.Errorf("query service: %w", err)
@@ -103,10 +110,9 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 			return domain.QueryResult{}, fmt.Errorf("query Amazon product results: %w", err)
 		}
 		pendingSpec.Search = ""
-		pendingCommitted = transactionsWithIDs(committed, transactionIDs(transactions))
 	}
 	if persistent {
-		decorateLocalPending(&result, pendingCommitted, transactions, pendingSpec, localPending)
+		decorateLocalPending(&result, transactions, pendingSpec, localPending)
 	}
 	selectedTransactions := make(map[string]bool, len(session.SelectedTransactionIDs))
 	for id := range session.SelectedTransactionIDs {
@@ -125,27 +131,6 @@ func (service *Service) QueryContext(ctx context.Context, session Session) (doma
 		_, result.AggregateRows[index].Flags.Selected = session.SelectedAggregateKeys[identity]
 	}
 	return result.Clone(), nil
-}
-
-func transactionIDs(transactions []domain.Transaction) map[string]struct{} {
-	ids := make(map[string]struct{}, len(transactions))
-	for _, transaction := range transactions {
-		ids[transaction.ID] = struct{}{}
-	}
-	return ids
-}
-
-func transactionsWithIDs(
-	transactions []domain.Transaction,
-	ids map[string]struct{},
-) []domain.Transaction {
-	filtered := make([]domain.Transaction, 0, len(ids))
-	for _, transaction := range transactions {
-		if _, ok := ids[transaction.ID]; ok {
-			filtered = append(filtered, transaction)
-		}
-	}
-	return filtered
 }
 
 func amazonProductSearch(
@@ -216,8 +201,7 @@ func amazonProjectionProductMatches(projection AmazonMatchProjection, loweredQue
 
 func decorateLocalPending(
 	result *domain.QueryResult,
-	committed []domain.Transaction,
-	effective []domain.Transaction,
+	transactions []domain.Transaction,
 	spec domain.QuerySpec,
 	localPending map[string]struct{},
 ) {
@@ -228,8 +212,7 @@ func decorateLocalPending(
 		return
 	}
 	pendingAggregates := make(map[string]struct{})
-	collectPendingAggregates(pendingAggregates, committed, spec, localPending)
-	collectPendingAggregates(pendingAggregates, effective, spec, localPending)
+	collectPendingAggregates(pendingAggregates, transactions, spec, localPending)
 	for index := range result.AggregateRows {
 		identity := AggregateIdentity(result.AggregateRows[index])
 		_, result.AggregateRows[index].Flags.Pending = pendingAggregates[identity]

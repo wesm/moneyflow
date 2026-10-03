@@ -15,12 +15,18 @@ capabilities can disable actions. Terminal shortcuts do not override your termin
 | `A` | Group by account |
 | Enter / Esc | Drill into a row / return |
 | `s` / `v` | Change sort field / reverse order |
-| `t` | Cycle time grouping |
-| Left / Right | Adjacent time period |
-| `a` | Clear the time period |
+| `t` | Open the time chooser in the TUI; cycle time grouping in the browser |
+| `Ctrl+t` | Jump to Time grouping in the TUI; cycle year/month/day within Time |
+| Left / Right | Adjacent year, month, or day at the selected resolution |
+| `a` | Clear time limits in the TUI; clear the time period in the browser |
 | `/` / `f` | Search / filters |
 | `i` | Transaction information |
 | `D` | Find duplicate transactions |
+
+In the TUI time chooser, Tab / Shift+Tab change between Year, Month, and Day.
+Down / Up choose the previous / next period. Type `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`
+to jump directly, then Enter to apply. See [time navigation](navigation.md#choose-a-year-month-or-day)
+for quick paths to this month, last month, and other periods.
 
 ## Edit
 

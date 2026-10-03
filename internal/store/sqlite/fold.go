@@ -74,6 +74,9 @@ func (profile *profile) Fold(
 	if err = validateFoldShape(snapshot, plan); err != nil {
 		return 0, store.NewError(store.CodeInvalidOperation, err)
 	}
+	if err = profile.appendAudit(localAuditEvents(snapshot, plan, profile.now())); err != nil {
+		return 0, err
+	}
 	if err = applyFold(ctx, connection, snapshot.Committed, plan.Effective); err != nil {
 		return 0, err
 	}
@@ -94,6 +97,12 @@ func (profile *profile) Fold(
 		return 0, err
 	}
 	if err = finish(true); err != nil {
+		return 0, err
+	}
+	if err = profile.recordAudit(ctx, []writeAuditEvent{{
+		Event: "local_committed", Time: profile.now(), Revision: current,
+		ResultingRevision: next, OperationIDs: plan.ActiveOperationIDs,
+	}}); err != nil {
 		return 0, err
 	}
 	return next, nil

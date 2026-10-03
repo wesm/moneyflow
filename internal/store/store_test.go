@@ -85,6 +85,9 @@ func (fakeProfile) RecordProviderWriteResult(
 ) (store.WriteBatch, error) {
 	return store.WriteBatch{}, nil
 }
+func (fakeProfile) RecordProviderWriteOutcomes(context.Context, []store.ProviderWriteOutcomeAudit) error {
+	return nil
+}
 func (fakeProfile) ParkProviderWrite(
 	context.Context,
 	store.ParkProviderWriteRequest,
@@ -128,6 +131,7 @@ func (fakeProfile) RecordRefreshAttempt(context.Context, string, time.Time, time
 func (fakeProfile) RecordRefreshFailure(context.Context, store.RefreshFailure) error {
 	return nil
 }
+func (fakeProfile) ClearProviderReconnectFailure(context.Context) error { return nil }
 func (fakeProfile) ApplyProviderRefresh(
 	context.Context,
 	store.AtomicRefreshRequest,

@@ -389,7 +389,7 @@ func planProviderMerchantWrite(
 		}
 	}
 	if plan.expectation == store.WriteExpectationNew {
-		if err := validateNewProviderMerchantLabel(transaction.MerchantID, merchant, allocations, identities); err != nil {
+		if err := validateNewProviderMerchantLabel(transaction.MerchantID, merchant, allocations, identities, merchants); err != nil {
 			return err
 		}
 		if providerLineageLabelCollision(merchant.Label, transaction.MerchantID, lineage) {
@@ -416,6 +416,7 @@ func validateNewProviderMerchantLabel(
 	merchant domain.Merchant,
 	allocations map[string]store.LabelAllocation,
 	identities providerWriteIdentities,
+	merchants map[domain.EntityID]domain.Merchant,
 ) error {
 	key, err := domain.CollisionKey(merchant.Label)
 	if err != nil {
@@ -428,8 +429,13 @@ func validateNewProviderMerchantLabel(
 		providerKey, collisionErr := domain.CollisionKey(allocation.ProviderLabel)
 		if collisionErr == nil && providerKey == key {
 			owner := identities.local(domain.EntityKindMerchant, allocation.ExternalID)
-			if owner != localID {
-				return provider.NewError(provider.CodeWriteUnsupported)
+			// A retired or no-longer-mapped owner may be recreated by an exact
+			// reassignment. Response validation still rejects any active owner.
+			if owner != "" && owner != localID {
+				previous, exists := merchants[owner]
+				if !exists || !previous.Retired {
+					return provider.NewError(provider.CodeWriteUnsupported)
+				}
 			}
 		}
 	}

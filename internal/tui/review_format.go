@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
@@ -25,24 +24,7 @@ func reviewOperationLine(operation app.ReviewOperation) string {
 	if operation.AffectedCount == 0 {
 		affected = "affects 0 transactions"
 	}
-	parts := []string{
-		fmt.Sprintf("%d  %s", operation.Sequence, label),
-		affected,
-	}
-	before, after := strings.TrimSpace(operation.Before), strings.TrimSpace(operation.After)
-	if before != "" || after != "" {
-		if before == "" {
-			before = "—"
-		}
-		if after == "" {
-			after = "—"
-		}
-		parts = append(parts, before+" → "+after)
-	}
-	if operation.TaxonomyEffect != "" {
-		parts = append(parts, "taxonomy: "+operation.TaxonomyEffect)
-	}
-	return strings.Join(parts, " · ")
+	return fmt.Sprintf("%d  %s · %s", operation.Sequence, label, affected)
 }
 
 func reviewRedoWarning(count int) string {

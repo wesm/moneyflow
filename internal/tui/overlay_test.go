@@ -18,7 +18,7 @@ func TestOverlayResponsiveRegions(t *testing.T) {
 		width  int
 		height int
 		region string
-	}{{'/', 150, 30, "search_overlay"}, {'f', 80, 24, "filter_overlay"}, {'?', 150, 50, "help_overlay"}}
+	}{{'/', 150, 30, "search_overlay"}, {'f', 80, 24, "filter_overlay"}, {'?', 150, 50, "help_overlay"}, {'t', 80, 24, "time_chooser"}}
 	for _, test := range cases {
 		model := newTestModel(t, app.NewSession())
 		model.width, model.height = test.width, test.height

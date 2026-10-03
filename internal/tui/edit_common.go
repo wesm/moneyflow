@@ -190,20 +190,9 @@ func (model *Model) executeMutationAtRevision(action app.ActionID, input app.Edi
 }
 
 func (model *Model) refreshDrillLabels() {
-	catalog, err := model.service.EditorCatalog()
-	if err != nil {
-		return
-	}
-	labels := make(map[string]string)
-	for _, choices := range [][]app.EditorChoice{catalog.Merchants, catalog.Categories, catalog.Groups} {
-		for _, choice := range choices {
-			labels[string(choice.ID)] = choice.Label
-		}
-	}
-	for index := range model.session.Drilldowns {
-		if label, exists := labels[model.session.Drilldowns[index].Key]; exists {
-			model.session.Drilldowns[index].Label = label
-		}
+	resolved, _, err := model.service.ResolveViewSession(model.session.ViewState().Current)
+	if err == nil {
+		model.session.Drilldowns = resolved.Drilldowns
 	}
 }
 

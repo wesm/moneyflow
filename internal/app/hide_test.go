@@ -101,6 +101,22 @@ func TestHideRejectsStaleExpectedRevisionWithoutPlan(t *testing.T) {
 	assert.Equal(t, uint64(6), failure.CurrentRevision)
 }
 
+func TestHideMixedPendingStatesHideOnlyEffectivelyVisibleTransactions(t *testing.T) {
+	t.Parallel()
+	// Both transactions have pending toggles: a is now hidden and b is now visible.
+	effective := effectiveWithJournal(t, 6, 1, hideOperation(1, "transaction_a", "transaction_b"))
+	state := detailViewState()
+	selection := selectedValue(t, effective, state.Current, 6, "transaction_a", "transaction_b")
+	plan, err := app.BuildHideMutation(effective, hideRequest(6, nil, selection), operationMetadata("hide_mixed_pending"))
+	require.NoError(t, err)
+	assert.Equal(t, app.MutationAppend, plan.Mode)
+	assert.Equal(t, []domain.EntityID{"transaction_b"}, plan.Operation.Targets)
+	after, err := app.ApplyOperation(effective.Effective, storedDraft(plan.Operation, 2))
+	require.NoError(t, err)
+	assert.True(t, transactionByID(t, after, "transaction_a").Hidden)
+	assert.True(t, transactionByID(t, after, "transaction_b").Hidden)
+}
+
 func hideRequest(
 	revision uint64,
 	target *app.RowTarget,

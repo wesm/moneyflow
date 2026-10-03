@@ -149,7 +149,8 @@ func TestAmazonProductSearchPreservesPendingAggregateDecoration(t *testing.T) {
 	result, err := service.QueryContext(context.Background(), session)
 	require.NoError(t, err)
 	require.Len(t, result.AggregateRows, 1)
-	assert.Equal(t, "merchant-new", result.AggregateRows[0].Key)
+	assert.Equal(t, "merchant", result.AggregateRows[0].Key)
+	assert.Equal(t, "Amazon Original", result.AggregateRows[0].Label)
 	assert.True(t, result.AggregateRows[0].Flags.Pending)
 }
 

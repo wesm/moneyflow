@@ -49,6 +49,7 @@ const (
 	overlayDeleteConfirmation
 	overlayExport
 	overlayQuit
+	overlayTimeChooser
 )
 
 type searchState struct {
@@ -77,6 +78,7 @@ type Model struct {
 	overlay            overlayKind
 	search             searchState
 	filters            filterState
+	timeChooser        timeChooserState
 	help               helpState
 	transactionInfo    transactionInfoState
 	merchant           merchantEditorState
@@ -165,7 +167,9 @@ func (model Model) Init() tea.Cmd {
 
 // View renders the owned cell frame into Bubble Tea's alternate screen.
 func (model Model) View() tea.View {
-	view := tea.NewView(model.RenderScreen().Frame.RenderANSI())
+	screen := model.RenderScreen()
+	view := tea.NewView(screen.Frame.RenderANSI())
+	view.Cursor = screen.Cursor
 	view.AltScreen = true
 	return view
 }
@@ -223,7 +227,7 @@ func (model *Model) syncProfileMetadata() {
 		connection, err := model.service.ProviderConnection(model.ctx)
 		model.provider.bound = err == nil && connection.Bound
 		if status, statusErr := model.service.ProviderWriteStatus(model.ctx); statusErr == nil {
-			model.providerWrite.status = status
+			model.setProviderWriteStatus(status)
 		}
 		if _, available := model.capability(app.ActionRefreshProvider); available {
 			if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {

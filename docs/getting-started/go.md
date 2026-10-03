@@ -85,7 +85,7 @@ MCP targets the 2026-07-28 protocol. See the [MCP guide](../guide/mcp.md) for ed
 limits, and restart recovery. `preview_export` and `export_transactions` export the full committed
 profile, or an explicitly filtered committed subset, to a file on the server; HTTP clients do not
 receive a download. MCP also provides category/group management for local and Amazon profiles.
-MCP does not run the TUI/web six-hour refresh scheduler.
+MCP does not run the TUI/web refresh scheduler for YNAB and SimpleFIN.
 
 ## Keyboard workflows and provider limits
 

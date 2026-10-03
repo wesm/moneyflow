@@ -44,7 +44,15 @@ func TestTaxonomyPreviewMatchesStagedOperationsWithoutWriting(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, uint64(6), mutated.Revision)
 			for _, row := range preview.Rows {
-				assert.Equal(t, row.After, detailTransactionByID(t, mutated.Projection.DetailRows, string(row.TransactionID)))
+				assert.Equal(t, row.Before, detailTransactionByID(t, mutated.Projection.DetailRows, string(row.TransactionID)))
+			}
+			committed, err := service.Commit(t.Context(), app.CommitRequest{
+				ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
+				State: request.State, Selection: app.EmptySelection(),
+			})
+			require.NoError(t, err)
+			for _, row := range preview.Rows {
+				assert.Equal(t, row.After, detailTransactionByID(t, committed.Projection.DetailRows, string(row.TransactionID)))
 			}
 		})
 	}

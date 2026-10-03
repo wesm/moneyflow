@@ -14,9 +14,31 @@ import (
 type providerWriteTUIState struct {
 	status            app.ProviderWriteStatus
 	running           bool
+	reconciling       bool
+	err               string
 	confirmationToken string
 	startedAt         time.Time
 	startedCompleted  int
+	reviewBatchID     string
+	operations        []app.ReviewOperation
+}
+
+func (model *Model) setProviderWriteStatus(status app.ProviderWriteStatus) {
+	model.providerWrite.status = status
+	if status.BatchID == "" {
+		model.providerWrite.reviewBatchID = ""
+		model.providerWrite.operations = nil
+		return
+	}
+	if model.providerWrite.reviewBatchID == status.BatchID {
+		return
+	}
+	model.providerWrite.operations = nil
+	projection, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	if err == nil {
+		model.providerWrite.operations = projection.ActiveOperations
+		model.providerWrite.reviewBatchID = status.BatchID
+	}
 }
 
 type providerWriteMsg struct {
@@ -34,6 +56,7 @@ func (model *Model) startProviderWrite() tea.Cmd {
 		return nil
 	}
 	model.providerWrite.running = true
+	model.providerWrite.err = ""
 	model.providerWrite.startedAt = model.now()
 	model.providerWrite.startedCompleted = model.providerWrite.status.Completed
 	service := model.service
@@ -49,6 +72,7 @@ func (model *Model) providerWriteResumeCommand() tea.Cmd {
 		return nil
 	}
 	model.providerWrite.running = true
+	model.providerWrite.err = ""
 	model.providerWrite.startedAt = model.now()
 	model.providerWrite.startedCompleted = model.providerWrite.status.Completed
 	service, ctx := model.service, model.ctx
@@ -69,7 +93,14 @@ func (model *Model) providerWritePauseCommand() tea.Cmd {
 }
 
 func (model *Model) providerWriteReconcileCommand(token string) tea.Cmd {
+	if model.providerWrite.running {
+		return nil
+	}
 	model.providerWrite.running = true
+	model.providerWrite.reconciling = true
+	model.providerWrite.err = ""
+	model.providerWrite.confirmationToken = ""
+	model.status = "Reloading " + onboardingProviderName(model.service.ProfileKind()) + " data…"
 	service, ctx := model.service, model.ctx
 	request := app.ProviderWriteReconcileRequest{
 		ExpectedVersion:   model.providerWrite.status.Version,
@@ -90,30 +121,36 @@ func (model *Model) providerWriteReconcileCommand(token string) tea.Cmd {
 
 func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 	model.providerWrite.running = false
-	model.providerWrite.status = message.status
+	model.setProviderWriteStatus(message.status)
 	if message.err != nil {
 		model.status = safeInteractionMessage(message.err)
 		if message.status.Phase != "" {
 			model.overlay = overlayProviderWrite
 		}
-		return nil
+		return model.nextProviderScheduleTick()
 	}
 	if message.status.Phase != "" {
 		model.status = model.providerWriteProgressLine(message.status)
 		model.overlay = overlayProviderWrite
-		return nil
+		return model.nextProviderScheduleTick()
 	}
 	identity := model.rowIdentity(model.cursor)
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Provider write complete; provider refresh is due."
-	return nil
+	model.status = "Provider write complete."
+	return model.nextProviderScheduleTick()
 }
 
 func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileMsg) tea.Cmd {
 	model.providerWrite.running = false
-	model.providerWrite.status = message.result.Status
+	model.providerWrite.reconciling = false
+	if message.err == nil || message.result.Status.Phase != "" {
+		model.setProviderWriteStatus(message.result.Status)
+	} else if status, err := model.service.ProviderWriteStatus(model.ctx); err == nil {
+		// Failed requests can omit status. Keep recovery tied to the durable batch.
+		model.setProviderWriteStatus(status)
+	}
 	if message.result.ConfirmationToken != "" {
 		model.providerWrite.confirmationToken = message.result.ConfirmationToken
 		model.overlay = overlayProviderWrite
@@ -121,14 +158,15 @@ func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileM
 		return nil
 	}
 	if message.err != nil {
-		model.status = safeInteractionMessage(message.err)
+		model.providerWrite.err = safeInteractionMessage(message.err)
+		model.status = model.providerWrite.err
 		return nil
 	}
 	identity := model.rowIdentity(model.cursor)
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Stopped the provider write and reconciled provider truth."
+	model.status = "Provider data reloaded. Pending batch cleared; editing is available."
 	return nil
 }
 
@@ -141,7 +179,7 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 			return model.providerWritePauseCommand()
 		}
 	case "r":
-		if providerWriteCanResume(model.providerWrite.status) {
+		if model.providerWriteCanResume(model.providerWrite.status) {
 			return model.providerWriteResumeCommand()
 		}
 	case "s":
@@ -163,9 +201,17 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func providerWriteCanResume(status app.ProviderWriteStatus) bool {
+func (model Model) providerWriteCanCheckOutcome(status app.ProviderWriteStatus) bool {
+	return model.profileKind == "monarch" && status.ResumeTarget == store.WriteResumeWriting &&
+		status.Phase == store.WritePhaseAttentionRequired &&
+		status.AttentionClass == store.WriteAttentionReconcileOnly &&
+		status.AttentionReason == store.WriteAttentionOutcomeUnknown
+}
+
+func (model Model) providerWriteCanResume(status app.ProviderWriteStatus) bool {
 	return status.ResumeTarget != store.WriteResumeReconciling &&
 		(status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseRateLimited ||
+			model.providerWriteCanCheckOutcome(status) ||
 			(status.Phase == store.WritePhaseAttentionRequired &&
 				status.AttentionClass == store.WriteAttentionRetryable))
 }
@@ -173,37 +219,60 @@ func providerWriteCanResume(status app.ProviderWriteStatus) bool {
 func providerWriteCanReconcile(status app.ProviderWriteStatus) bool {
 	return status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseReconnectRequired ||
 		status.Phase == store.WritePhaseAttentionRequired ||
-		status.Phase == store.WritePhaseReconcileConfirmationRequired
+		status.Phase == store.WritePhaseReconcileConfirmationRequired ||
+		(status.Phase == store.WritePhaseReconciling && status.ResumeTarget == store.WriteResumeReconciling)
 }
 
 func (model Model) renderProviderWrite(screen *RenderedScreen) {
+	model.palette.Text.Background = model.palette.Panel.Background
+	model.palette.Muted.Background = model.palette.Panel.Background
+	model.palette.Warning.Background = model.palette.Panel.Background
+	model.palette.Border.Background = model.palette.Panel.Background
 	rect := responsiveOverlayRect(model.width, model.height, 76, 20)
 	title := onboardingProviderName(model.service.ProfileKind()) + " Write"
 	drawOverlayBox(&screen.Frame, rect, model.palette, title)
 	x, width := rect.X+2, max(0, rect.Width-4)
 	status := model.providerWrite.status
 	phase := providerWritePhaseLabel(status.Phase)
+	if model.providerWrite.reconciling {
+		phase = "Reloading provider data"
+	}
 	screen.Frame.PutText(x, rect.Y+2, Truncate("Status: "+phase, width), model.palette.Heading)
 	progress := fmt.Sprintf("Progress: %d / %d complete | %d remaining", status.Completed, status.Total, status.Remaining)
 	screen.Frame.PutText(x, rect.Y+4, Truncate(progress, width), model.palette.Text)
 	screen.Frame.PutText(x, rect.Y+5, Truncate(fmt.Sprintf("Provider overrides: %d", status.Overrides), width), model.palette.Text)
 	if status.Phase == store.WritePhaseRateLimited && !status.NextEligible.IsZero() {
 		wait := "Next attempt: " + status.NextEligible.Format(time.RFC3339)
-		screen.Frame.PutText(x, rect.Y+7, Truncate(wait, width), model.palette.Muted)
+		screen.Frame.PutText(x, rect.Y+6, Truncate(wait, width), model.palette.Muted)
 	} else if estimate := model.providerWriteEstimate(); estimate != "" {
-		screen.Frame.PutText(x, rect.Y+7, Truncate(estimate, width), model.palette.Muted)
+		screen.Frame.PutText(x, rect.Y+6, Truncate(estimate, width), model.palette.Muted)
 	}
-	if status.OwnerRenderer != "" {
-		screen.Frame.PutText(x, rect.Y+9, Truncate("Worker: "+status.OwnerRenderer, width), model.palette.Muted)
+	if len(model.providerWrite.operations) > 0 {
+		operation := model.providerWrite.operations[0]
+		screen.Frame.PutText(x, rect.Y+8, Truncate(reviewOperationLine(operation), width), model.palette.Heading)
+		screen.Frame.PutText(x, rect.Y+9, Truncate("From: "+operation.Before, width), model.palette.Text)
+		screen.Frame.PutText(x, rect.Y+10, Truncate("To:   "+operation.After, width), model.palette.Text)
+		if additional := len(model.providerWrite.operations) - 1; additional > 0 {
+			screen.Frame.PutText(x, rect.Y+11, Truncate(fmt.Sprintf("Plus %d more changes", additional), width), model.palette.Muted)
+		}
 	}
 	guidance := model.providerWriteGuidance(status)
-	for index, line := range strings.Split(guidance, "\n") {
-		screen.Frame.PutText(x, rect.Y+11+index, Truncate(line, width), model.palette.Warning)
+	if model.providerWrite.reconciling {
+		guidance = "Reloading " + onboardingProviderName(model.service.ProfileKind()) + " data…\nEditing will be available when the reload finishes.\nEsc returns to transactions while the reload continues."
 	}
-	actions := providerWriteActions(status, model.providerWrite.confirmationToken != "")
+	for index, line := range strings.Split(guidance, "\n") {
+		screen.Frame.PutText(x, rect.Y+13+index, Truncate(line, width), model.palette.Warning)
+	}
+	if model.providerWrite.err != "" {
+		screen.Frame.PutText(x, rect.Y+16, Truncate(model.providerWrite.err, width), model.palette.Warning)
+	}
+	actions := model.providerWriteActions(status, model.providerWrite.confirmationToken != "")
+	if model.providerWrite.reconciling {
+		actions = "Reloading… | Esc=Back to transactions"
+	}
 	putCentered(&screen.Frame, Rect{X: rect.X, Y: rect.Y + rect.Height - 2, Width: rect.Width, Height: 1}, actions, model.palette.Muted)
 	screen.Regions = append(screen.Regions, NamedRegion{Name: "provider_write", Rect: rect})
-	screen.Overlay = []string{title, phase, progress, guidance, actions}
+	screen.Overlay = []string{title, phase, progress, guidance, model.providerWrite.err, actions}
 }
 
 func (model Model) providerWriteEstimate() string {
@@ -238,6 +307,9 @@ func (model Model) providerWriteGuidance(status app.ProviderWriteStatus) string 
 	case store.WritePhaseRateLimited:
 		return name + " asked Moneyflow to wait before continuing."
 	case store.WritePhaseAttentionRequired:
+		if model.providerWriteCanCheckOutcome(status) {
+			return "Uncertain edits are checked before any retry.\nYour full transaction history is not reloaded."
+		}
 		if status.AttentionClass == store.WriteAttentionRetryable {
 			return "The write stopped after bounded retries; retry or reconcile provider truth."
 		}
@@ -261,13 +333,18 @@ func (model Model) providerWriteGuidance(status app.ProviderWriteStatus) string 
 	return ""
 }
 
-func providerWriteActions(status app.ProviderWriteStatus, confirming bool) string {
+func (model Model) providerWriteActions(status app.ProviderWriteStatus, confirming bool) string {
 	if confirming {
 		return "Enter=Confirm reconcile | Esc=Close"
 	}
 	switch status.Phase {
 	case store.WritePhaseWriting:
 		return "p=Pause | Esc=Close"
+	case store.WritePhaseReconciling:
+		if status.ResumeTarget == store.WriteResumeReconciling {
+			return "s=Reload provider data | Esc=Close"
+		}
+		return "Esc=Close"
 	case store.WritePhasePaused:
 		return "r=Resume | s=Stop and reconcile | Esc=Close"
 	case store.WritePhaseReconnectRequired:
@@ -275,6 +352,9 @@ func providerWriteActions(status app.ProviderWriteStatus, confirming bool) strin
 	case store.WritePhaseRateLimited:
 		return "r=Resume when eligible | Esc=Close"
 	case store.WritePhaseAttentionRequired:
+		if model.providerWriteCanCheckOutcome(status) {
+			return "r=Check and resume | s=Stop and reconcile | Esc=Close"
+		}
 		if status.AttentionClass == store.WriteAttentionRetryable {
 			return "r=Retry | s=Stop and reconcile | Esc=Close"
 		}

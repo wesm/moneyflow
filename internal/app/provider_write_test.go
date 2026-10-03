@@ -2,8 +2,12 @@ package app_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +41,9 @@ func TestYNABWriteRenameFinalizesAndReopens(t *testing.T) {
 	writer := &scriptedProviderWriter{
 		identity: reader.identity,
 		update: func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+			contents, readErr := os.ReadFile(filepath.Join(paths.Root, "audit.jsonl"))
+			assert.NoError(t, readErr)
+			assert.Contains(t, string(contents), `"event":"provider_attempt"`)
 			assert.Equal(t, provider.Some("New Payee"), update.MerchantName)
 			return provider.TransactionUpdateResult{
 				TransactionExternalID: update.TransactionExternalID,
@@ -93,6 +100,36 @@ func TestYNABWriteRenameFinalizesAndReopens(t *testing.T) {
 	require.Len(t, state.Lineage, 1)
 	assert.Equal(t, "ynab/merchant", state.Lineage[0].Namespace)
 	assert.Equal(t, "merchant-example", state.Lineage[0].ExternalID)
+	entries := readWriteAudit(t, filepath.Join(paths.Root, "audit.jsonl"))
+	require.Equal(t, "provider_finalized", entries[len(entries)-1]["event"])
+	var planned, acknowledged map[string]any
+	for _, entry := range entries {
+		switch entry["event"] {
+		case "provider_planned":
+			planned = entry
+		case "provider_acknowledged":
+			acknowledged = entry
+		}
+	}
+	require.NotNil(t, planned)
+	assert.Equal(t, []any{"operation_ynab_rename"}, planned["operation_ids"])
+	assert.Equal(t, "Example Merchant", planned["before"].(map[string]any)["merchant_name"])
+	assert.Equal(t, "New Payee", planned["requested"].(map[string]any)["merchant_name"])
+	require.NotNil(t, acknowledged)
+	assert.Equal(t, "payee-created", acknowledged["acknowledged"].(map[string]any)["merchant_external_id"])
+}
+
+func readWriteAudit(t *testing.T, path string) []map[string]any {
+	t.Helper()
+	contents, err := os.ReadFile(path) // #nosec G304 -- Audit log belongs to this test's temporary synthetic profile.
+	require.NoError(t, err)
+	var entries []map[string]any
+	for line := range strings.SplitSeq(strings.TrimSpace(string(contents)), "\n") {
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func TestYNABSplitCategoryEditIsRejectedBeforeJournalOrBatch(t *testing.T) {
@@ -991,7 +1028,13 @@ func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	service, profileHandle := newProviderRefreshService(t)
+	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+	require.NoError(t, err)
+	profileHandle, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
+	service, err := app.NewProfileService(ctx, profileHandle)
+	require.NoError(t, err)
 	now := time.Date(2026, time.August, 18, 20, 30, 0, 0, time.UTC)
 	reader := &fakeProviderSource{
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
@@ -1015,7 +1058,7 @@ func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 			return nil
 		},
 	}))
-	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
@@ -1046,6 +1089,16 @@ func TestProviderWriteWorkerParksAfterFiveUnavailableAttempts(t *testing.T) {
 	assert.Equal(t, store.WriteAttentionUnavailableExhausted, status.AttentionReason)
 	assert.Equal(t, 5, writer.callCount())
 	assert.Equal(t, 4, sleeps)
+	var failedAttempts []float64
+	for _, event := range readWriteAudit(t, filepath.Join(paths.Root, "audit.jsonl")) {
+		if event["event"] == "provider_response" {
+			assert.Equal(t, "failed", event["outcome"])
+			assert.Equal(t, string(provider.CodeUnavailable), event["error_code"])
+			failedAttempts = append(failedAttempts, event["attempt"].(float64))
+		}
+		assert.NotEqual(t, "provider_finalized", event["event"])
+	}
+	assert.Equal(t, []float64{1, 2, 3, 4, 5}, failedAttempts)
 
 	writer.mu.Lock()
 	writer.update = func(update provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
@@ -1179,7 +1232,13 @@ func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	service, profileHandle := newProviderRefreshService(t)
+	paths, err := home.ResolveRoot(t.TempDir(), nil, "")
+	require.NoError(t, err)
+	profileHandle, err := sqlite.Open(ctx, paths, sqlite.DefaultOptions)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profileHandle.Close()) })
+	service, err := app.NewProfileService(ctx, profileHandle)
+	require.NoError(t, err)
 	now := time.Date(2026, time.August, 18, 21, 0, 0, 0, time.UTC)
 	reader := &fakeProviderSource{
 		identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
@@ -1194,7 +1253,7 @@ func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	}
 	source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
 	configureProviderRefreshService(t, service, source, now, "instance-reconcile")
-	_, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
 		Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection(),
 	})
 	require.NoError(t, err)
@@ -1254,6 +1313,16 @@ func TestProviderWriteStopAndReconcileInstallsRemoteTruth(t *testing.T) {
 	providerState, err := profileHandle.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, providerState.Write)
+	entries := readWriteAudit(t, filepath.Join(paths.Root, "audit.jsonl"))
+	require.Equal(t, "provider_reconciled", entries[len(entries)-1]["event"])
+	var observedReconcile bool
+	for _, entry := range entries {
+		if entry["event"] == "provider_reconcile_intent" {
+			observedReconcile = true
+			assert.Equal(t, true, entry["reconciled"].(map[string]any)["deleted"])
+		}
+	}
+	assert.True(t, observedReconcile)
 }
 
 func TestProviderWriteRestartsOwnerlessReconciliation(t *testing.T) {
@@ -1495,7 +1564,12 @@ func TestProviderWriteCommitPreparesRunsAndFinalizesAbsoluteUpdate(t *testing.T)
 	providerState, err := profileHandle.ProviderState(ctx)
 	require.NoError(t, err)
 	assert.Nil(t, providerState.Write)
-	assert.True(t, providerState.Refresh.LastSuccess.IsZero(), "write completion makes refresh due")
+	assert.Equal(t, now, providerState.Refresh.LastSuccess, "an acknowledged edit must preserve cache freshness")
+	_, err = service.RefreshProvider(ctx, app.ProviderRefreshRequest{
+		State: app.DefaultViewState(), Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, reader.fetchCalls(), "saving an edit must not redownload history")
 }
 
 func TestProviderWriteDeleteRunsAndFinalizesAbsence(t *testing.T) {
@@ -1948,6 +2022,7 @@ func (source *writeProviderSource) Writer(
 }
 
 type scriptedProviderWriter struct {
+	readback      func(context.Context, string, domain.Date) (provider.TransactionUpdateResult, error)
 	mu            sync.Mutex
 	identity      provider.ProfileIdentity
 	calls         []provider.TransactionUpdate
@@ -1960,6 +2035,13 @@ type scriptedProviderWriter struct {
 	deleteCalls   []string
 	delete        func(string) (provider.TransactionDeleteResult, error)
 	deleteContext func(context.Context, string) (provider.TransactionDeleteResult, error)
+}
+
+func (writer *scriptedProviderWriter) ReadTransaction(ctx context.Context, id string, date domain.Date) (provider.TransactionUpdateResult, error) {
+	if writer.readback == nil {
+		return provider.TransactionUpdateResult{}, provider.NewError(provider.CodeWriteUnsupported)
+	}
+	return writer.readback(ctx, id, date)
 }
 
 func (writer *scriptedProviderWriter) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {

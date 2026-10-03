@@ -179,8 +179,22 @@ test('duplicate review remains keyboard driven and restores the finance grid', a
       'Delete 1 transaction?',
     )
     await page.keyboard.press('Enter')
-    await expect(review).toContainText('No duplicate transactions match the current view.')
+    await expect(review).toContainText('1 duplicate group')
+    await expect(review.getByRole('row')).toHaveCount(3)
+    await expect(review).toContainText('Staged deletion for 1 transaction.')
     await expect(page.getByText(/1 pending/)).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+
+    await page.keyboard.press('w')
+    const pendingReview = page.getByRole('dialog', { name: 'Review pending changes' })
+    await expect(pendingReview).toContainText('Delete transaction')
+    await pendingReview.getByRole('button', { name: 'Commit reviewed changes' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(pendingReview).toBeHidden()
+    await expect(page.getByText(/0 pending/)).toBeVisible()
+    await page.keyboard.press('Shift+D')
+    await expect(review).toContainText('No duplicate transactions match the current view.')
     await page.keyboard.press('Escape')
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   } finally {

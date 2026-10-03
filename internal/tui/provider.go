@@ -72,7 +72,7 @@ func (model *Model) startProviderRefresh(manual bool, confirmationToken string) 
 	model.provider.confirmationToken = confirmationToken
 	model.provider.timerGeneration++
 	timerGeneration := model.provider.timerGeneration
-	model.status = "Refreshing provider data… Esc cancels before the atomic fold."
+	model.status = "Refreshing provider data… Esc=Cancel"
 	return tea.Batch(
 		model.providerRefreshCommand(manual, confirmationToken),
 		providerProgressTickCommand(timerGeneration),
@@ -154,6 +154,20 @@ func (model *Model) handleProviderRefresh(message providerRefreshMsg) tea.Cmd {
 	if message.result.Status.Generation != 0 || message.result.Status.Code != "" {
 		model.provider.status = message.result.Status
 	}
+	if reviewed := model.review.commitAfterRefresh; reviewed != 0 {
+		model.review.commitAfterRefresh = 0
+		if model.overlay == overlayReview {
+			if message.err == nil || errors.Is(message.err, context.Canceled) {
+				// The refresh has released its lease. Commit only the revision
+				// approved before cancellation, even if the review has reloaded.
+				if command := model.commitReview(reviewed); command != nil {
+					return command
+				}
+				return model.nextProviderScheduleTick()
+			}
+			model.review.err = safeInteractionMessage(message.err)
+		}
+	}
 	if message.err != nil {
 		if errors.Is(message.err, context.Canceled) || errors.Is(message.err, context.DeadlineExceeded) {
 			model.status = "Provider refresh canceled; no provider data changed."
@@ -223,7 +237,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	previousCode := model.provider.status.Code
 	previousWritePhase := model.providerWrite.status.Phase
 	model.provider.status = message.status
-	model.providerWrite.status = message.writeStatus
+	model.setProviderWriteStatus(message.writeStatus)
 	if message.status.Code == provider.CodeReconnectRequired {
 		model.provider.reconnectRequested = true
 	}
@@ -241,7 +255,10 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 			return model.startProviderWrite()
 		case store.WritePhaseReconciling:
 			if message.writeStatus.ResumeTarget == store.WriteResumeReconciling {
-				return model.providerWriteReconcileCommand("")
+				if model.profileKind != "monarch" {
+					return model.providerWriteReconcileCommand("")
+				}
+				break
 			}
 			if message.writeStatus.Completed == message.writeStatus.Total {
 				return model.startProviderWrite()
@@ -253,7 +270,10 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		case store.WritePhaseReconnectRequired:
 			if message.writeStatus.SessionChanged {
 				if message.writeStatus.ResumeTarget == store.WriteResumeReconciling {
-					return model.providerWriteReconcileCommand("")
+					if model.profileKind != "monarch" {
+						return model.providerWriteReconcileCommand("")
+					}
+					break
 				}
 				return model.providerWriteResumeCommand()
 			}
@@ -264,12 +284,12 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		identity := model.rowIdentity(model.cursor)
 		model.refreshPreserving(identity)
 		model.refreshDrillLabels()
-		model.status = "Provider write complete; provider refresh is due."
+		model.status = "Provider write complete."
 	}
 	if message.status.Code != "" {
 		model.status = providerStatusMessage(message.status, model.profileKind)
 	} else if previousCode == provider.CodeReconnectRequired {
-		model.status = "Provider session replaced; normal refresh scheduling resumed."
+		model.status = "Provider reconnected."
 	}
 	if capability, available := model.capability(app.ActionRefreshProvider); available &&
 		app.ProviderRefreshDue(message.status, message.at) {
@@ -324,7 +344,7 @@ func providerProgressMessage(status app.ProviderStatus) string {
 	if status.Total > 0 {
 		return fmt.Sprintf("Refreshing provider data: %d of %d fetched.", status.Fetched, status.Total)
 	}
-	return "Refreshing provider data… Esc cancels before the atomic fold."
+	return "Refreshing provider data… Esc=Cancel"
 }
 
 func providerSuccessMessage(status app.ProviderStatus) string {

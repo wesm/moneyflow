@@ -58,7 +58,8 @@ func ResolveTargets(
 	if err := snapshot.Effective.Validate(); err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
-	transactions, err := snapshot.Effective.MaterializeTransactions()
+	// Table scopes follow committed rows even when pending edits change their fields.
+	transactions, err := snapshot.Committed.MaterializeTransactions()
 	if err != nil {
 		return ResolvedTargets{}, mutationError(MutationInvalidOperation, err)
 	}
@@ -73,12 +74,15 @@ func ResolveTargets(
 
 	if len(selection.IDs) > 0 {
 		resolved, resolveErr := resolveSelectionTargets(
-			snapshot.Effective,
+			snapshot.Committed,
 			transactions,
 			service,
 			request.State.Current,
 			selection,
 		)
+		if resolveErr == nil {
+			resolveErr = validateEffectiveTargets(snapshot.Effective, resolved)
+		}
 		if document.Revision == nil || *document.Revision != snapshot.Revision {
 			refreshed := EmptySelection()
 			if resolveErr == nil {
@@ -99,13 +103,33 @@ func ResolveTargets(
 		resolved.FromSelection = true
 		return resolved, nil
 	}
-	return resolveFocusedTarget(
-		snapshot.Effective,
+	resolved, err := resolveFocusedTarget(
+		snapshot.Committed,
 		transactions,
 		service,
 		request.State.Current,
 		request.Target,
 	)
+	if err != nil {
+		return ResolvedTargets{}, err
+	}
+	if err = validateEffectiveTargets(snapshot.Effective, resolved); err != nil {
+		return ResolvedTargets{}, err
+	}
+	return resolved, nil
+}
+
+func validateEffectiveTargets(profile domain.CommittedProfile, targets ResolvedTargets) error {
+	available := make(map[domain.EntityID]struct{}, len(profile.Transactions))
+	for _, transaction := range profile.Transactions {
+		available[transaction.ID] = struct{}{}
+	}
+	for _, id := range targets.TransactionIDs {
+		if _, ok := available[id]; !ok {
+			return mutationError(MutationInvalidTarget, errors.New("transaction target has a pending deletion"))
+		}
+	}
+	return nil
 }
 
 func resolveExplicitSelectionPayload(

@@ -78,10 +78,14 @@ func (model Model) RenderScreen() RenderedScreen {
 		frame.PutText(statusLine.X, statusLine.Y, Truncate(statusText, statusLine.Width), model.palette.Warning)
 	}
 	footer := Rect{X: 1, Y: model.height - 1, Width: contentWidth, Height: 1}
+	footerText := "g Group By  t Time  d Detail  s Sort  v ↕  f Filters  ? Help  / Search  q Quit"
+	if model.providerWrite.status.Phase != "" || model.providerWrite.running {
+		footerText = "w Write status  |  " + footerText
+	}
 	frame.PutText(
 		footer.X,
 		footer.Y,
-		Truncate("g Group By  d Detail  s Sort  v ↕ Reverse  f Filters  ? Help  / Search  q Quit", footer.Width),
+		Truncate(footerText, footer.Width),
 		model.palette.Muted,
 	)
 
@@ -127,6 +131,14 @@ func (model Model) displayBreadcrumb() string {
 	} else {
 		breadcrumb = model.session.Breadcrumb(model.result.DateRange)
 	}
+	if model.session.DateRange != nil {
+		breadcrumb = model.session.Breadcrumb(nil)
+		label := model.session.DateRange.Start.String() + " to " + model.session.DateRange.End.String()
+		if anchor, resolution, ok := calendarPeriod(model.session.DateRange); ok {
+			label = calendarPeriodLabel(anchor, resolution)
+		}
+		breadcrumb = label + " > " + breadcrumb
+	}
 	if model.session.Search != "" {
 		breadcrumb += " > Search: '" + model.session.Search + "'"
 	}
@@ -138,8 +150,7 @@ func (model Model) actionHints() string {
 	if sortName != "" {
 		sortName = strings.ToUpper(sortName[:1]) + sortName[1:]
 	}
-	if model.session.Dimension == domain.DimensionTime && model.session.Mode == domain.ResultModeAggregate &&
-		model.session.SubGrouping == nil {
+	if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
 		toggle := "By Year"
 		switch model.session.TimeGranularity {
 		case domain.TimeGranularityYear:
@@ -147,7 +158,7 @@ func (model Model) actionHints() string {
 		case domain.TimeGranularityMonth:
 			toggle = "By Day"
 		}
-		return "Enter=Drill | t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
+		return "Enter=Drill | Ctrl+t=" + toggle + " | s=Sort(" + sortName + ") | g=Group"
 	}
 	if model.session.Mode == domain.ResultModeDetail {
 		back := "Group"
@@ -165,6 +176,8 @@ func (model Model) renderOverlay(screen *RenderedScreen) {
 		model.renderSearchOverlay(screen)
 	case overlayFilters:
 		model.renderFilterOverlay(screen)
+	case overlayTimeChooser:
+		model.renderTimeChooser(screen)
 	case overlayHelp:
 		model.renderHelpOverlay(screen)
 	case overlayTransactionInfo:
