@@ -19,6 +19,26 @@ type providerWriteTUIState struct {
 	confirmationToken string
 	startedAt         time.Time
 	startedCompleted  int
+	reviewBatchID     string
+	operations        []app.ReviewOperation
+}
+
+func (model *Model) setProviderWriteStatus(status app.ProviderWriteStatus) {
+	model.providerWrite.status = status
+	if status.BatchID == "" {
+		model.providerWrite.reviewBatchID = ""
+		model.providerWrite.operations = nil
+		return
+	}
+	if model.providerWrite.reviewBatchID == status.BatchID {
+		return
+	}
+	model.providerWrite.operations = nil
+	projection, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+	if err == nil {
+		model.providerWrite.operations = projection.ActiveOperations
+		model.providerWrite.reviewBatchID = status.BatchID
+	}
 }
 
 type providerWriteMsg struct {
@@ -101,7 +121,7 @@ func (model *Model) providerWriteReconcileCommand(token string) tea.Cmd {
 
 func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 	model.providerWrite.running = false
-	model.providerWrite.status = message.status
+	model.setProviderWriteStatus(message.status)
 	if message.err != nil {
 		model.status = safeInteractionMessage(message.err)
 		if message.status.Phase != "" {
@@ -126,10 +146,10 @@ func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileM
 	model.providerWrite.running = false
 	model.providerWrite.reconciling = false
 	if message.err == nil || message.result.Status.Phase != "" {
-		model.providerWrite.status = message.result.Status
+		model.setProviderWriteStatus(message.result.Status)
 	} else if status, err := model.service.ProviderWriteStatus(model.ctx); err == nil {
 		// Failed requests can omit status. Keep recovery tied to the durable batch.
-		model.providerWrite.status = status
+		model.setProviderWriteStatus(status)
 	}
 	if message.result.ConfirmationToken != "" {
 		model.providerWrite.confirmationToken = message.result.ConfirmationToken
@@ -215,22 +235,28 @@ func (model Model) renderProviderWrite(screen *RenderedScreen) {
 	screen.Frame.PutText(x, rect.Y+5, Truncate(fmt.Sprintf("Provider overrides: %d", status.Overrides), width), model.palette.Text)
 	if status.Phase == store.WritePhaseRateLimited && !status.NextEligible.IsZero() {
 		wait := "Next attempt: " + status.NextEligible.Format(time.RFC3339)
-		screen.Frame.PutText(x, rect.Y+7, Truncate(wait, width), model.palette.Muted)
+		screen.Frame.PutText(x, rect.Y+6, Truncate(wait, width), model.palette.Muted)
 	} else if estimate := model.providerWriteEstimate(); estimate != "" {
-		screen.Frame.PutText(x, rect.Y+7, Truncate(estimate, width), model.palette.Muted)
+		screen.Frame.PutText(x, rect.Y+6, Truncate(estimate, width), model.palette.Muted)
 	}
-	if status.OwnerRenderer != "" {
-		screen.Frame.PutText(x, rect.Y+9, Truncate("Worker: "+status.OwnerRenderer, width), model.palette.Muted)
+	if len(model.providerWrite.operations) > 0 {
+		operation := model.providerWrite.operations[0]
+		screen.Frame.PutText(x, rect.Y+8, Truncate(reviewOperationLine(operation), width), model.palette.Heading)
+		screen.Frame.PutText(x, rect.Y+9, Truncate("From: "+operation.Before, width), model.palette.Text)
+		screen.Frame.PutText(x, rect.Y+10, Truncate("To:   "+operation.After, width), model.palette.Text)
+		if additional := len(model.providerWrite.operations) - 1; additional > 0 {
+			screen.Frame.PutText(x, rect.Y+11, Truncate(fmt.Sprintf("Plus %d more changes", additional), width), model.palette.Muted)
+		}
 	}
 	guidance := model.providerWriteGuidance(status)
 	if model.providerWrite.reconciling {
 		guidance = "Reloading " + onboardingProviderName(model.service.ProfileKind()) + " data…\nEditing will be available when the reload finishes.\nEsc returns to transactions while the reload continues."
 	}
 	for index, line := range strings.Split(guidance, "\n") {
-		screen.Frame.PutText(x, rect.Y+11+index, Truncate(line, width), model.palette.Warning)
+		screen.Frame.PutText(x, rect.Y+13+index, Truncate(line, width), model.palette.Warning)
 	}
 	if model.providerWrite.err != "" {
-		screen.Frame.PutText(x, rect.Y+15, Truncate(model.providerWrite.err, width), model.palette.Warning)
+		screen.Frame.PutText(x, rect.Y+16, Truncate(model.providerWrite.err, width), model.palette.Warning)
 	}
 	actions := providerWriteActions(status, model.providerWrite.confirmationToken != "")
 	if model.providerWrite.reconciling {

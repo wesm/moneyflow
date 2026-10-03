@@ -682,6 +682,10 @@ func (profile *memoryProfile) RecordProviderWriteResult(
 	return store.WriteBatch{}, errors.New("not implemented")
 }
 
+func (profile *memoryProfile) RecordProviderWriteOutcomes(context.Context, []store.ProviderWriteOutcomeAudit) error {
+	return errors.New("not implemented")
+}
+
 func (profile *memoryProfile) ParkProviderWrite(
 	context.Context,
 	store.ParkProviderWriteRequest,

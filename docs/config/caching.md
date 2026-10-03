@@ -13,6 +13,37 @@ The database is not application-encrypted. Use storage and backups appropriate f
 data. The [provider guides](../index.md) explain which credentials are encrypted and which
 session files are only owner-private.
 
+## Where can I inspect past edits?
+
+**Unreleased:** Each profile keeps `audit.jsonl` beside `moneyflow.db`. It records local
+commits and provider writes, including transaction IDs, dates, before values, requested
+changes, and provider responses. Each line is a JSON object. The file remains after pending
+changes and completed write batches are cleared.
+
+Records distinguish a planned change or attempted request from a provider acknowledgment
+and a completed local commit. An attempt without an acknowledgment has an unknown outcome;
+it is not evidence that the provider rejected the edit. Missing completion records can also
+mean the process stopped before it recorded local completion. Do not use either case as a
+reason to resend a write blindly.
+
+| Event | Meaning |
+| --- | --- |
+| `provider_planned` / `provider_attempt` | Before values and requested changes, saved before dispatch |
+| `provider_response` | Returned fields or an error classification; the response may still fail validation |
+| `provider_acknowledged` | A response accepted by Moneyflow |
+| `provider_finalized` | The completed batch was saved in the local database |
+| `provider_reconcile_intent` / `provider_reconciled` | Provider data used for recovery, followed by confirmation it was saved |
+| `local_commit_intent` / `local_committed` | Before/requested local edits, followed by confirmation they were saved |
+
+The log starts with edits made by versions that include this feature. It cannot reconstruct
+earlier edits. It contains financial labels and identifiers, is not encrypted, and uses
+owner-only file permissions. Keep it with your private backups; do not attach it to a public
+issue without removing personal data. Credentials and raw provider response bodies are not
+written to it.
+
+For example, inspect a profile's log with `jq . /path/to/profile/audit.jsonl`.
+Moneyflow stops before sending further writes if it cannot save their audit records.
+
 ## When does data refresh?
 
 Press `r` in TUI or web. Amazon asks for files; network providers start a refresh.

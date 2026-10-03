@@ -113,6 +113,37 @@ func TestProviderWriteOverlayActionsAndEstimate(t *testing.T) {
 	assert.Contains(t, model.providerWriteGuidance(model.providerWrite.status), "Reconnect")
 }
 
+func TestProviderWriteShowsChangeAfterCommitAndReopening(t *testing.T) {
+	t.Parallel()
+	fixture := newProviderModel(t, 3)
+	model := fixture.model
+	_, err := model.service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: model.service.Revision(),
+		State: model.session.ViewState(), Selection: app.EmptySelection(),
+		Target: model.focusedMutationTarget(),
+		Input:  app.EditInput{Scope: app.EditScopeEntity, Label: "Renamed Example Merchant"},
+	})
+	require.NoError(t, err)
+	model.refreshPreserving("")
+	model = press(t, model, keyRune('w'))
+	updated, command := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = updated.(Model)
+	require.NotNil(t, command)
+
+	for _, reopen := range []bool{false, true} {
+		if reopen {
+			model, err = NewModel(t.Context(), model.service, app.NewSession(), Options{})
+			require.NoError(t, err)
+			model = press(t, model, keyRune('w'))
+		}
+		frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+		assert.Contains(t, frame, "Rename merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "From: Example Merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "To:   Renamed Example Merchant", "reopened=%v", reopen)
+		assert.Contains(t, frame, "3 transactions", "reopened=%v", reopen)
+	}
+}
+
 func TestProviderWriteOverlayExplainsRejectedEditAndRecovery(t *testing.T) {
 	t.Parallel()
 	model := newTestModel(t, app.NewSession())

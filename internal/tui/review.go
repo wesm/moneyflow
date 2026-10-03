@@ -180,7 +180,7 @@ func (model *Model) commitReview(reviewedRevision uint64) tea.Cmd {
 		operationWord = "operation"
 	}
 	if result.ProviderWrite != nil {
-		model.providerWrite.status = *result.ProviderWrite
+		model.setProviderWriteStatus(*result.ProviderWrite)
 		model.overlay = overlayProviderWrite
 		model.status = fmt.Sprintf("Prepared %d %s for %s.", activeCount, operationWord, onboardingProviderName(model.service.ProfileKind()))
 		return model.startProviderWrite()

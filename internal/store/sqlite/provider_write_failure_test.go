@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -144,4 +145,9 @@ func TestProviderWriteFinalizationFailurePreservesBatchJournalAndCommittedState(
 	require.NoError(t, err)
 	assert.Equal(t, before, after)
 	assert.Equal(t, beforeWrite, afterWrite)
+	audit, err := os.ReadFile(profileAuditPath(t, profile))
+	require.NoError(t, err)
+	assert.Contains(t, string(audit), `"event":"provider_acknowledged"`)
+	assert.Contains(t, string(audit), `"event":"provider_finalize_intent"`)
+	assert.NotContains(t, string(audit), `"event":"provider_finalized"`)
 }

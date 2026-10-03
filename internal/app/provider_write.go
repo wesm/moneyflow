@@ -491,8 +491,12 @@ func (service *Service) runProviderWriteOwned(
 		slices.SortFunc(outcomes, func(left, right providerWriteOutcome) int {
 			return left.item.Position - right.item.Position
 		})
+		if auditErr := service.auditProviderWriteOutcomes(ctx, outcomes, runtime.now().UTC()); auditErr != nil {
+			return service.writeStatus(ctx, mapAppError(auditErr, service.Revision()))
+		}
 		var firstFailure *providerWriteOutcome
 		for _, outcome := range outcomes {
+			observedAt := runtime.now().UTC()
 			if outcome.err != nil {
 				firstFailure = preferredProviderWriteFailure(firstFailure, outcome)
 				continue
@@ -506,11 +510,14 @@ func (service *Service) runProviderWriteOwned(
 			}
 			batch = *currentState.Batch
 			normalized, normalizeErr := normalizeProviderWriteResult(
-				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, baseline, now,
+				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, baseline, observedAt,
 			)
 			if normalizeErr != nil {
 				failed := outcome
 				failed.err = normalizeErr
+				if auditErr := service.auditProviderWriteOutcomes(ctx, []providerWriteOutcome{failed}, observedAt); auditErr != nil {
+					return service.writeStatus(ctx, mapAppError(auditErr, service.Revision()))
+				}
 				firstFailure = preferredProviderWriteFailure(firstFailure, failed)
 				continue
 			}

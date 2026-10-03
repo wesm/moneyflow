@@ -237,7 +237,7 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 	previousCode := model.provider.status.Code
 	previousWritePhase := model.providerWrite.status.Phase
 	model.provider.status = message.status
-	model.providerWrite.status = message.writeStatus
+	model.setProviderWriteStatus(message.writeStatus)
 	if message.status.Code == provider.CodeReconnectRequired {
 		model.provider.reconnectRequested = true
 	}

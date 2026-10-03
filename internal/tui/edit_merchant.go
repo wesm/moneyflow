@@ -44,14 +44,10 @@ func (model *Model) openMerchantEditor() tea.Cmd {
 	input.Placeholder = "search or enter a new merchant"
 	input.SetWidth(max(20, min(70, model.width-12)))
 	entityScope := model.merchantEntityScopePossible()
-	scope := app.EditScopeTransactions
-	if entityScope && selectedSessionCount(model.session) == 0 {
-		scope = app.EditScopeEntity
-	}
 	model.merchant = merchantEditorState{
 		input: input, choices: catalog.Merchants,
 		filtered: append([]app.EditorChoice(nil), catalog.Merchants...),
-		scope:    scope, entityScope: entityScope, original: model.editorSnapshot(),
+		scope:    app.EditScopeTransactions, entityScope: entityScope, original: model.editorSnapshot(),
 	}
 	model.overlay = overlayMerchantEditor
 	model.status = ""

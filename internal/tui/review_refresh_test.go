@@ -50,6 +50,7 @@ func TestMerchantCommitTakesPriorityOverOwnRefresh(t *testing.T) {
 			<-started
 
 			model = press(t, model, keyRune('m'))
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 			model = typeText(t, model, "Renamed Merchant")
 			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 			require.Equal(t, 1, model.service.Pending().ActiveOperations)
@@ -104,6 +105,7 @@ func TestCommitAfterRefreshDoesNotAcceptChangedReview(t *testing.T) {
 	fixture := newProviderModel(t, 1)
 	fixture.source.writer = tuiProviderWriter{identity: fixture.source.identity}
 	model := press(t, fixture.model, keyRune('m'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = typeText(t, model, "Renamed Merchant")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, keyRune('r'))

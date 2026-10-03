@@ -29,6 +29,7 @@ type Profile interface {
 	PrepareProviderWrite(context.Context, PrepareProviderWriteRequest, PrepareProviderWritePlanner) (PrepareProviderWriteCommit, error)
 	ClaimProviderWriteItems(context.Context, ClaimProviderWriteRequest) ([]WriteItem, error)
 	RecordProviderWriteResult(context.Context, RecordProviderWriteResultRequest) (WriteBatch, error)
+	RecordProviderWriteOutcomes(context.Context, []ProviderWriteOutcomeAudit) error
 	ParkProviderWrite(context.Context, ParkProviderWriteRequest) (WriteBatch, error)
 	ResumeProviderWrite(context.Context, ResumeProviderWriteRequest) (WriteBatch, error)
 	FinalizeProviderWrite(context.Context, FinalizeProviderWriteRequest, FinalizeProviderWritePlanner) (FinalizeProviderWriteCommit, error)

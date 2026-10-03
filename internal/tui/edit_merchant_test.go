@@ -94,6 +94,7 @@ func TestMerchantEditorRenamesAndStagesCollisionMergeWithOneEnter(t *testing.T) 
 	originalLabel := model.result.AggregateRows[model.cursor].Label
 
 	model = press(t, model, keyRune('m'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = typeText(t, model, "Merchant Updated")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
@@ -115,6 +116,7 @@ func TestMerchantEditorRenamesAndStagesCollisionMergeWithOneEnter(t *testing.T) 
 	}
 	require.NotEmpty(t, destination.ID)
 	model = press(t, model, keyRune('m'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = typeText(t, model, destination.Label)
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayNone, model.overlay)
@@ -166,6 +168,7 @@ func TestMerchantEntityRenameKeepsCommittedBreadcrumbUntilCommit(t *testing.T) {
 	assert.Equal(t, sourceID, model.session.Drilldowns[0].Key)
 
 	model = press(t, model, keyRune('m'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	assert.Equal(t, app.EditScopeEntity, model.merchant.scope)
 	model = typeText(t, model, "Drilled Merchant")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -202,7 +205,7 @@ func TestMerchantEditorEnterUsesHighlightedCompletion(t *testing.T) {
 					}
 				}
 				model = press(t, model, keyRune('m'))
-				if scope == app.EditScopeTransactions {
+				if scope == app.EditScopeEntity {
 					model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 				}
 				model = typeText(t, model, "Mer")
@@ -289,6 +292,7 @@ func TestUndoRedoKeepCommittedDrillBreadcrumbLabels(t *testing.T) {
 	original := model.result.AggregateRows[model.cursor].Label
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	model = press(t, model, keyRune('m'))
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyTab})
 	model = typeText(t, model, "Drilled Merchant")
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.Contains(t, model.displayBreadcrumb(), original)

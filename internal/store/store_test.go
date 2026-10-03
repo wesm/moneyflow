@@ -85,6 +85,9 @@ func (fakeProfile) RecordProviderWriteResult(
 ) (store.WriteBatch, error) {
 	return store.WriteBatch{}, nil
 }
+func (fakeProfile) RecordProviderWriteOutcomes(context.Context, []store.ProviderWriteOutcomeAudit) error {
+	return nil
+}
 func (fakeProfile) ParkProviderWrite(
 	context.Context,
 	store.ParkProviderWriteRequest,

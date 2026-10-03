@@ -16,8 +16,11 @@ selection. The merchant editor shows the affected count and a bounded transactio
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.
 
-Check the scope shown in the dialog. A whole-merchant rename can affect more transactions
-than the current date filter. Use the available scope control when you want a smaller target.
+**Unreleased:** Merchant and category edits use the current filtered transactions by default.
+Editing a merchant group with a year or month selected leaves transactions outside that period
+unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
+In the merchant editor, Tab explicitly switches to **whole merchant** when available; that
+scope includes transactions outside the current filters. Check its affected count before saving.
 
 ## Apply an edit
 
@@ -76,6 +79,9 @@ In the TUI, `w` opens write status. Esc returns to transactions without discardi
 An unfinished batch blocks further edits and refreshes; the footer keeps `w Write status`
 visible so you can return to its recovery actions.
 
+**Unreleased:** Write status shows the first change's From/To values and transaction count,
+alongside overall progress. It also reports when the batch contains additional changes.
+
 Use the action shown for the current state. Pause waits for in-flight results. A paused
 batch offers Resume. A rejected change offers `s` to discard that batch's pending edits
 and reload provider data. During the reload, Esc returns to transactions while work
@@ -87,3 +93,6 @@ use `w`, then `s` when you want to retry it.
 If a provider removal confirmation appears, review it before continuing. A completed
 write updates the local cache directly. It does not trigger another download.
 Neither a warning nor a timeout proves that the provider rejected the request.
+
+See the [edit audit log](../config/caching.md#where-can-i-inspect-past-edits) for persistent
+before/requested values and provider outcomes.

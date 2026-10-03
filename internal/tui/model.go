@@ -227,7 +227,7 @@ func (model *Model) syncProfileMetadata() {
 		connection, err := model.service.ProviderConnection(model.ctx)
 		model.provider.bound = err == nil && connection.Bound
 		if status, statusErr := model.service.ProviderWriteStatus(model.ctx); statusErr == nil {
-			model.providerWrite.status = status
+			model.setProviderWriteStatus(status)
 		}
 		if _, available := model.capability(app.ActionRefreshProvider); available {
 			if status, statusErr := model.service.ProviderStatus(model.ctx); statusErr == nil {
