@@ -2022,6 +2022,7 @@ func (source *writeProviderSource) Writer(
 }
 
 type scriptedProviderWriter struct {
+	readback      func(context.Context, string, domain.Date) (provider.TransactionUpdateResult, error)
 	mu            sync.Mutex
 	identity      provider.ProfileIdentity
 	calls         []provider.TransactionUpdate
@@ -2034,6 +2035,13 @@ type scriptedProviderWriter struct {
 	deleteCalls   []string
 	delete        func(string) (provider.TransactionDeleteResult, error)
 	deleteContext func(context.Context, string) (provider.TransactionDeleteResult, error)
+}
+
+func (writer *scriptedProviderWriter) ReadTransaction(ctx context.Context, id string, date domain.Date) (provider.TransactionUpdateResult, error) {
+	if writer.readback == nil {
+		return provider.TransactionUpdateResult{}, provider.NewError(provider.CodeWriteUnsupported)
+	}
+	return writer.readback(ctx, id, date)
 }
 
 func (writer *scriptedProviderWriter) ProbeIdentity(context.Context) (provider.ProfileIdentity, error) {

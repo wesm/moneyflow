@@ -113,6 +113,52 @@ func TestProviderWriteOverlayActionsAndEstimate(t *testing.T) {
 	assert.Contains(t, model.providerWriteGuidance(model.providerWrite.status), "Reconnect")
 }
 
+func TestProviderWriteCheckAndResumeOnlyForMonarchUnknownOutcome(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		kind   string
+		reason store.WriteAttentionReason
+		target store.WriteResumeTarget
+		resume bool
+	}{
+		{"Monarch unknown outcome", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, true},
+		{"YNAB unknown outcome", "ynab", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, false},
+		{"Monarch rejected edit", "monarch", store.WriteAttentionRejected, store.WriteResumeWriting, false},
+		{"Monarch reconciliation", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeReconciling, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Date(2026, time.September, 7, 12, 0, 0, 0, time.UTC)
+			source := &tuiProviderSource{
+				identity: provider.ProfileIdentity{Kind: test.kind, RemoteID: "profile-example"},
+				snapshot: tuiProviderSnapshot(t, now, 1), fingerprint: "session-example",
+			}
+			model := newPristineProviderModel(t, source, now, test.kind)
+			model.overlay = overlayProviderWrite
+			model.providerWrite.status = app.ProviderWriteStatus{
+				Phase: store.WritePhaseAttentionRequired, Version: 7,
+				AttentionClass:  store.WriteAttentionReconcileOnly,
+				AttentionReason: test.reason, ResumeTarget: test.target,
+			}
+			frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+			updated, command := model.Update(keyRune('r'))
+			model = updated.(Model)
+			if test.resume {
+				assert.Contains(t, frame, "r=Check and resume")
+				assert.Contains(t, frame, "history is not reloaded")
+				require.NotNil(t, command)
+				assert.True(t, model.providerWrite.running)
+				assert.IsType(t, providerWriteMsg{}, command())
+			} else {
+				assert.NotContains(t, frame, "r=Check and resume")
+				assert.Contains(t, frame, "s=Stop and reconcile")
+				assert.Nil(t, command)
+				assert.False(t, model.providerWrite.running)
+			}
+		})
+	}
+}
+
 func TestProviderWriteShowsChangeAfterCommitAndReopening(t *testing.T) {
 	t.Parallel()
 	fixture := newProviderModel(t, 3)

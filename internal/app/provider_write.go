@@ -249,8 +249,9 @@ func (service *Service) prepareProviderWrite(
 }
 
 // ReserveProviderWriteExecution performs the authoritative resume transition and reserves the
-// single process-local worker without performing provider I/O. A nil execution means another
-// local worker already owns the reservation.
+// single process-local worker. Explicit resume can first read an uncertain transaction
+// to verify whether another attempt is needed. A nil execution means another local
+// worker already owns the reservation.
 func (service *Service) ReserveProviderWriteExecution(
 	ctx context.Context,
 	expectedVersion uint64,
@@ -284,12 +285,26 @@ func (service *Service) ReserveProviderWriteExecution(
 	if err != nil {
 		return ProviderWriteStatus{}, nil, mapAppError(err, service.Revision())
 	}
+	readbackVerified := false
+	if expectedVersion != 0 && batch.Phase == store.WritePhaseAttentionRequired &&
+		batch.AttentionClass == store.WriteAttentionReconcileOnly &&
+		batch.AttentionReason == store.WriteAttentionOutcomeUnknown &&
+		batch.ResumeTarget == store.WriteResumeWriting {
+		writeState, err = service.verifyUnknownProviderWrites(ctx, runtime, writeState, providerState)
+		if err != nil {
+			status, statusErr := service.writeStatus(ctx, err)
+			return status, nil, statusErr
+		}
+		batch = *writeState.Batch
+		providerState.Lease = nil
+		readbackVerified = true
+	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	leaseOwned := providerState.Lease != nil &&
 		providerState.Lease.OwnerID == runtime.instanceID &&
 		providerState.Lease.Kind == store.ProviderOperationWrite &&
 		providerState.Lease.ExpiresAt.After(now)
-	allowAttemptedRetry := providerWritePhaseAllowsAttemptedRetry(batch)
+	allowAttemptedRetry := readbackVerified || providerWritePhaseAllowsAttemptedRetry(batch)
 	activeOwned := leaseOwned && (batch.Phase == store.WritePhaseWriting ||
 		(batch.Phase == store.WritePhaseReconciling &&
 			batch.ResumeTarget == store.WriteResumeWriting))

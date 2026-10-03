@@ -114,6 +114,12 @@ type Writer interface {
 	DeleteTransaction(context.Context, string) (TransactionDeleteResult, error)
 }
 
+// TransactionReadback observes one exact transaction after an uncertain write.
+// Implementations must bound their reads and must not fetch a full snapshot.
+type TransactionReadback interface {
+	ReadTransaction(context.Context, string, domain.Date) (TransactionUpdateResult, error)
+}
+
 // SessionFingerprint is an opaque session-file generation fingerprint.
 type SessionFingerprint string
 

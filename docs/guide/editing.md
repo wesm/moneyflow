@@ -90,6 +90,13 @@ keeps the batch and displays its error in write status, where you can try recove
 For Monarch, reopening the profile or reconnecting does not restart that reload;
 use `w`, then `s` when you want to retry it.
 
+**Unreleased:** For an uncertain Monarch update, press `r` for **Check and resume**.
+Moneyflow checks the affected transaction on its recorded date. If the edit already
+matches the requested value, it records that result without sending the edit again.
+If the transaction still matches its previous value, Moneyflow can retry the edit.
+Other values or an inconclusive lookup leave the batch paused for attention.
+This check does not download your transaction history or resend completed edits.
+
 If a provider removal confirmation appears, review it before continuing. A completed
 write updates the local cache directly. It does not trigger another download.
 Neither a warning nor a timeout proves that the provider rejected the request.

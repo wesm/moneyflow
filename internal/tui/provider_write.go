@@ -179,7 +179,7 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 			return model.providerWritePauseCommand()
 		}
 	case "r":
-		if providerWriteCanResume(model.providerWrite.status) {
+		if model.providerWriteCanResume(model.providerWrite.status) {
 			return model.providerWriteResumeCommand()
 		}
 	case "s":
@@ -201,9 +201,17 @@ func (model *Model) routeProviderWrite(message tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-func providerWriteCanResume(status app.ProviderWriteStatus) bool {
+func (model Model) providerWriteCanCheckOutcome(status app.ProviderWriteStatus) bool {
+	return model.profileKind == "monarch" && status.ResumeTarget == store.WriteResumeWriting &&
+		status.Phase == store.WritePhaseAttentionRequired &&
+		status.AttentionClass == store.WriteAttentionReconcileOnly &&
+		status.AttentionReason == store.WriteAttentionOutcomeUnknown
+}
+
+func (model Model) providerWriteCanResume(status app.ProviderWriteStatus) bool {
 	return status.ResumeTarget != store.WriteResumeReconciling &&
 		(status.Phase == store.WritePhasePaused || status.Phase == store.WritePhaseRateLimited ||
+			model.providerWriteCanCheckOutcome(status) ||
 			(status.Phase == store.WritePhaseAttentionRequired &&
 				status.AttentionClass == store.WriteAttentionRetryable))
 }
@@ -258,7 +266,7 @@ func (model Model) renderProviderWrite(screen *RenderedScreen) {
 	if model.providerWrite.err != "" {
 		screen.Frame.PutText(x, rect.Y+16, Truncate(model.providerWrite.err, width), model.palette.Warning)
 	}
-	actions := providerWriteActions(status, model.providerWrite.confirmationToken != "")
+	actions := model.providerWriteActions(status, model.providerWrite.confirmationToken != "")
 	if model.providerWrite.reconciling {
 		actions = "Reloading… | Esc=Back to transactions"
 	}
@@ -299,6 +307,9 @@ func (model Model) providerWriteGuidance(status app.ProviderWriteStatus) string 
 	case store.WritePhaseRateLimited:
 		return name + " asked Moneyflow to wait before continuing."
 	case store.WritePhaseAttentionRequired:
+		if model.providerWriteCanCheckOutcome(status) {
+			return "Uncertain edits are checked before any retry.\nYour full transaction history is not reloaded."
+		}
 		if status.AttentionClass == store.WriteAttentionRetryable {
 			return "The write stopped after bounded retries; retry or reconcile provider truth."
 		}
@@ -322,7 +333,7 @@ func (model Model) providerWriteGuidance(status app.ProviderWriteStatus) string 
 	return ""
 }
 
-func providerWriteActions(status app.ProviderWriteStatus, confirming bool) string {
+func (model Model) providerWriteActions(status app.ProviderWriteStatus, confirming bool) string {
 	if confirming {
 		return "Enter=Confirm reconcile | Esc=Close"
 	}
@@ -341,6 +352,9 @@ func providerWriteActions(status app.ProviderWriteStatus, confirming bool) strin
 	case store.WritePhaseRateLimited:
 		return "r=Resume when eligible | Esc=Close"
 	case store.WritePhaseAttentionRequired:
+		if model.providerWriteCanCheckOutcome(status) {
+			return "r=Check and resume | s=Stop and reconcile | Esc=Close"
+		}
 		if status.AttentionClass == store.WriteAttentionRetryable {
 			return "r=Retry | s=Stop and reconcile | Esc=Close"
 		}

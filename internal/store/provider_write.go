@@ -324,6 +324,7 @@ type ClaimProviderWriteRequest struct {
 
 // RecordProviderWriteResultRequest persists one normalized provider response.
 type RecordProviderWriteResultRequest struct {
+	VerifiedByRead  bool
 	BatchID         string
 	ExpectedVersion uint64
 	LeaseOwnerID    string

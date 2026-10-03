@@ -6,12 +6,15 @@ import "time"
 // must come from the provider's allowlisted classifications, never error text.
 // Response contains decoded accounting fields only, never a raw provider body.
 type ProviderWriteOutcomeAudit struct {
-	BatchID    string
-	ItemID     string
-	Attempt    int
-	ObservedAt time.Time
-	Failed     bool
-	Code       string
-	Reason     string
-	Response   *WriteResult
+	// ReadbackDisposition is empty for mutation responses, or one of
+	// matches_requested, matches_before, unresolved for an explicit bounded read.
+	ReadbackDisposition string
+	BatchID             string
+	ItemID              string
+	Attempt             int
+	ObservedAt          time.Time
+	Failed              bool
+	Code                string
+	Reason              string
+	Response            *WriteResult
 }

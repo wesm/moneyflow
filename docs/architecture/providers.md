@@ -61,6 +61,12 @@ Unknown-outcome updates are not automatically resent after a crash. Deletes can 
 their attempt budget. Keep known non-applied failures distinct from a request that may have reached
 the provider. Recorded successes are never resent because finalization failed locally.
 
+An explicit Monarch resume can check uncertain updates through a bounded read of each transaction's
+recorded date. A result matching the requested fields is recorded without another write. A result
+matching their previous values permits a retry through the durable worker. Other results leave the
+batch parked. The check holds the write lease and records its observations in the audit log; it does
+not fetch a profile snapshot. Startup and status polling do not initiate these checks.
+
 Finalization atomically installs the reviewed effective state adjusted by accepted provider
 responses and retires the journal prefix. It preserves the refresh timestamp and retry floor;
 writing a transaction does not invalidate or freshen the rest of the cache. Ordinary mapped field overrides

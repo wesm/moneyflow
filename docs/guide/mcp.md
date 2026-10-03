@@ -180,6 +180,10 @@ status and explicitly resume eligible work; startup alone does not resume it. Us
 batch version for controls. `stop_and_reconcile` abandons the failed and unsent frozen intent
 and reloads provider truth; it does not undo remote writes that already succeeded.
 
+For an uncertain Monarch update, `resume_commit` first checks the affected transaction before
+continuing. It can confirm an already-applied edit or retry one that still matches its previous
+value, without fetching the full history. See [write recovery](editing.md#recover-an-interrupted-provider-write).
+
 ## Server-side export
 
 `preview_export` defaults to the full committed profile and reports its transaction count, revision,

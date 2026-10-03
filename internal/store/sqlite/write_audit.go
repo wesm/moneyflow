@@ -129,6 +129,17 @@ func (profile *profile) RecordProviderWriteOutcomes(ctx context.Context, observa
 		if observation.Failed {
 			event.Outcome = "failed"
 		}
+		switch observation.ReadbackDisposition {
+		case "":
+		case "matches_requested":
+			event.Event, event.Outcome = "provider_read_observed", "matches_requested"
+		case "matches_before":
+			event.Event, event.Outcome = "provider_read_retry_authorized", "matches_before"
+		case "unresolved":
+			event.Event, event.Outcome = "provider_read_unresolved", "unresolved"
+		default:
+			return store.NewError(store.CodeInvalidOperation, errors.New("audit readback disposition is invalid"))
+		}
 		events = append(events, event)
 	}
 	return profile.recordAudit(ctx, events)

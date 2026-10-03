@@ -278,8 +278,12 @@ func (profile *profile) RecordProviderWriteResult(
 			store.InvalidOperationProviderWriteRequest, errors.New("write result kind differs from item"),
 		)
 	}
+	auditEvent := "provider_acknowledged"
+	if request.VerifiedByRead {
+		auditEvent = "provider_read_confirmed"
+	}
 	if err = profile.appendAudit([]writeAuditEvent{{
-		Event: "provider_acknowledged", Time: request.Result.RecordedAt,
+		Event: auditEvent, Time: request.Result.RecordedAt,
 		BatchID: batch.ID, ItemID: request.ItemID, Attempt: attempt,
 		TransactionExternal: request.Result.TransactionExternalID, Acknowledged: auditResponse(&request.Result),
 	}}); err != nil {
@@ -308,6 +312,9 @@ func (profile *profile) RecordProviderWriteResult(
 	batch.OverrideCount += request.Result.OverrideCount
 	if batch.CompletedItems == batch.TotalItems {
 		batch.Phase = store.WritePhaseReconciling
+		batch.AttentionClass = ""
+		batch.AttentionReason = ""
+		batch.FailedItems = 0
 	}
 	batch.UpdatedAt = request.ObservedAt
 	if err = updateWriteBatchStatus(ctx, connection, batch); err != nil {

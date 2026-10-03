@@ -31,6 +31,9 @@ reason to resend a write blindly.
 | `provider_planned` / `provider_attempt` | Before values and requested changes, saved before dispatch |
 | `provider_response` | Returned fields or an error classification; the response may still fail validation |
 | `provider_acknowledged` | A response accepted by Moneyflow |
+| `provider_read_observed` / `provider_read_confirmed` | A targeted recovery read found the requested values, followed by acceptance |
+| `provider_read_retry_authorized` | A targeted recovery read found the previous values, permitting a retry |
+| `provider_read_unresolved` | A targeted recovery read did not resolve the uncertain update |
 | `provider_finalized` | The completed batch was saved in the local database |
 | `provider_reconcile_intent` / `provider_reconciled` | Provider data used for recovery, followed by confirmation it was saved |
 | `local_commit_intent` / `local_committed` | Before/requested local edits, followed by confirmation they were saved |
