@@ -176,14 +176,15 @@ func (profile *profile) ReconcileProviderWrite(
 	if err = finish(true); err != nil {
 		return store.RefreshCommit{}, err
 	}
+	commit := store.RefreshCommit{
+		Revision: nextRevision, Generation: nextGeneration, Summary: plan.Summary,
+		SemanticChange: true,
+	}
 	if err = profile.recordAudit(ctx, []writeAuditEvent{{
 		Event: "provider_reconciled", Time: request.ObservedAt,
 		BatchID: batch.ID, ResultingRevision: nextRevision,
 	}}); err != nil {
-		return store.RefreshCommit{}, err
+		return commit, store.NewAuditCompletionError(err)
 	}
-	return store.RefreshCommit{
-		Revision: nextRevision, Generation: nextGeneration, Summary: plan.Summary,
-		SemanticChange: true,
-	}, nil
+	return commit, nil
 }

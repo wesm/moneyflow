@@ -149,6 +149,7 @@ type WebProjection struct {
 	Statistics        []domain.CurrencyStats
 	Chart             ChartProjection
 	Status            string
+	AuditWarning      string
 }
 
 // AmazonProjectionSettings carries immutable import money settings without source facts.
@@ -220,6 +221,7 @@ func (service *Service) projectViewLocked(
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 	}
 	service.mu.RLock()
+	projection.AuditWarning = service.auditWarning
 	if service.amazonSettings != nil {
 		projection.AmazonSettings = &AmazonProjectionSettings{
 			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,

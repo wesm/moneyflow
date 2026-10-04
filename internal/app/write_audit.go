@@ -2,11 +2,38 @@ package app
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/wesm/moneyflow/internal/provider"
 	"github.com/wesm/moneyflow/internal/store"
 )
+
+// reloadAfterAuditedCommit distinguishes a saved edit from a failed completion
+// log entry. Keep the warning for later status polls of background writes.
+func (service *Service) reloadAfterAuditedCommit(ctx context.Context, revision uint64, commitErr error) error {
+	_, auditFailed := errors.AsType[*store.AuditCompletionError](commitErr)
+	if commitErr != nil && !auditFailed {
+		return commitErr
+	}
+	service.mu.Lock()
+	service.auditWarning = ""
+	if auditFailed {
+		service.auditWarning = "Changes saved, but the audit log could not record completion."
+	}
+	service.mu.Unlock()
+	// Once COMMIT succeeds, request cancellation must not leave the display at
+	// the old revision with edits that are no longer pending.
+	reloadContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return service.reloadExpected(reloadContext, revision)
+}
+
+func (service *Service) completionAuditWarning() string {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.auditWarning
+}
 
 func (service *Service) auditProviderWriteOutcomes(ctx context.Context, outcomes []providerWriteOutcome, now time.Time) error {
 	if len(outcomes) == 0 {

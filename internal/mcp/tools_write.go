@@ -78,6 +78,7 @@ func commitChangesDocument(
 	}
 	document := CommitDocument{
 		Header: NewHeader(StatusOK, result.Revision), Completed: result.ProviderWrite == nil,
+		AuditWarning: result.Projection.AuditWarning,
 	}
 	if result.ProviderWrite == nil {
 		return document, nil

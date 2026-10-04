@@ -1349,6 +1349,7 @@ export interface components {
     }
     ProviderWriteStatusResponse: {
       actions: string[] | null
+      audit_warning?: string
       batch_version?: string
       /** Format: int64 */
       completed: number

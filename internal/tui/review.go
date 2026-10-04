@@ -185,7 +185,7 @@ func (model *Model) commitReview(reviewedRevision uint64) tea.Cmd {
 		model.status = fmt.Sprintf("Prepared %d %s for %s.", activeCount, operationWord, onboardingProviderName(model.service.ProfileKind()))
 		return model.startProviderWrite()
 	}
-	model.status = "Changes saved in Moneyflow."
+	model.status = strings.TrimSpace("Changes saved in Moneyflow. " + result.Projection.AuditWarning)
 	return nil
 }
 

@@ -616,11 +616,8 @@ func (service *Service) Commit(
 		return MutationResult{}, newAppError(AppInvalidOperation, snapshot.Revision, err)
 	}
 	next, err := service.profile.Fold(ctx, request.ExpectedRevision, plan)
-	if err != nil {
+	if err = service.reloadAfterAuditedCommit(ctx, next, err); err != nil {
 		return MutationResult{}, service.refreshAfterFailure(ctx, err, snapshot.Revision)
-	}
-	if err = service.reloadExpected(ctx, next); err != nil {
-		return MutationResult{}, err
 	}
 	state := request.State
 	if err := state.Validate(); err != nil {

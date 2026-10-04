@@ -145,7 +145,7 @@ func (profile *profile) PrepareProviderWrite(
 			Event: "provider_noop_committed", Time: request.ObservedAt,
 			BatchID: request.ProposedBatchID, ResultingRevision: nextRevision,
 		}}); err != nil {
-			return store.PrepareProviderWriteCommit{}, err
+			return store.PrepareProviderWriteCommit{Revision: nextRevision}, store.NewAuditCompletionError(err)
 		}
 		return store.PrepareProviderWriteCommit{Revision: nextRevision}, nil
 	}
@@ -561,13 +561,14 @@ func (profile *profile) FinalizeProviderWrite(
 	if err = finish(true); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
+	commit := store.FinalizeProviderWriteCommit{Revision: nextRevision, Summary: plan.Summary}
 	if err = profile.recordAudit(ctx, []writeAuditEvent{{
 		Event: "provider_finalized", Time: request.ObservedAt,
 		BatchID: batch.ID, ResultingRevision: nextRevision,
 	}}); err != nil {
-		return store.FinalizeProviderWriteCommit{}, err
+		return commit, store.NewAuditCompletionError(err)
 	}
-	return store.FinalizeProviderWriteCommit{Revision: nextRevision, Summary: plan.Summary}, nil
+	return commit, nil
 }
 
 func validateFinalizeProviderWritePlan(

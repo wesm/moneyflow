@@ -78,6 +78,20 @@ func TestReviewProviderCommitStartsAsyncWriteAndPreservesFinanceState(t *testing
 	assert.Contains(t, model.status, "Provider write complete")
 }
 
+func TestProviderStatusCompletionRetainsAuditWarning(t *testing.T) {
+	t.Parallel()
+	model := newTestModel(t, app.NewSession())
+	model.providerWrite.status.Phase = store.WritePhaseWriting
+	warning := "Changes saved, but the audit log could not record completion."
+	message := providerStatusMsg{writeStatus: app.ProviderWriteStatus{AuditWarning: warning}}
+	for range 2 {
+		updated, _ := model.Update(message)
+		model = updated.(Model)
+		assert.Contains(t, model.status, "Provider write complete")
+		assert.Contains(t, model.status, warning)
+	}
+}
+
 func TestProviderWriteOverlayActionsAndEstimate(t *testing.T) {
 	t.Parallel()
 

@@ -39,6 +39,7 @@ type Service struct {
 	profileKind           string
 	amazonSettings        *store.AmazonSettings
 	amazonMatcher         *AmazonMatchingService
+	auditWarning          string
 }
 
 // ConfigureAmazonMatching installs the shared cross-profile matcher used by both renderers.

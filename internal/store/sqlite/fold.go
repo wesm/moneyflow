@@ -103,7 +103,7 @@ func (profile *profile) Fold(
 		Event: "local_committed", Time: profile.now(), Revision: current,
 		ResultingRevision: next, OperationIDs: plan.ActiveOperationIDs,
 	}}); err != nil {
-		return 0, err
+		return next, store.NewAuditCompletionError(err)
 	}
 	return next, nil
 }

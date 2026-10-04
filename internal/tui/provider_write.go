@@ -138,7 +138,7 @@ func (model *Model) handleProviderWrite(message providerWriteMsg) tea.Cmd {
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Provider write complete."
+	model.status = strings.TrimSpace("Provider write complete. " + message.status.AuditWarning)
 	return model.nextProviderScheduleTick()
 }
 
@@ -166,7 +166,7 @@ func (model *Model) handleProviderWriteReconcile(message providerWriteReconcileM
 	model.overlay = overlayNone
 	model.refreshPreserving(identity)
 	model.refreshDrillLabels()
-	model.status = "Provider data reloaded. Pending batch cleared; editing is available."
+	model.status = strings.TrimSpace("Provider data reloaded. Pending batch cleared. " + message.result.Status.AuditWarning)
 	return nil
 }
 

@@ -262,6 +262,9 @@ func projectionToWire(
 		Status: projection.Status, Warnings: append([]Warning(nil), warnings...),
 		AmazonMatchColumn: projection.AmazonMatchColumn,
 	}
+	if projection.AuditWarning != "" {
+		wire.Warnings = append(wire.Warnings, Warning{Code: "audit_completion_failed", Detail: projection.AuditWarning})
+	}
 	if projection.AmazonSettings != nil {
 		wire.AmazonSettings = &AmazonSettings{
 			Currency: string(projection.AmazonSettings.Currency), Scale: projection.AmazonSettings.Scale,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -290,6 +291,9 @@ func (model *Model) handleProviderStatus(message providerStatusMsg) tea.Cmd {
 		model.status = providerStatusMessage(message.status, model.profileKind)
 	} else if previousCode == provider.CodeReconnectRequired {
 		model.status = "Provider reconnected."
+	}
+	if warning := message.writeStatus.AuditWarning; warning != "" && !strings.Contains(model.status, warning) {
+		model.status = strings.TrimSpace(model.status + " " + warning)
 	}
 	if capability, available := model.capability(app.ActionRefreshProvider); available &&
 		app.ProviderRefreshDue(message.status, message.at) {

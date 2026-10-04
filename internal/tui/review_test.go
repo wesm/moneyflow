@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +14,49 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/store"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+func TestReviewCommitKeepsSuccessWhenCompletionAuditFails(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	require.NoError(t, fixture.profile.Close())
+	armed, calls := false, 0
+	options := sqlite.DefaultOptions
+	options.Now = func() time.Time {
+		if armed {
+			calls++
+			if calls == 2 {
+				path := filepath.Join(fixture.paths.Root, "audit.jsonl")
+				require.NoError(t, os.Rename(path, path+".saved"))
+				require.NoError(t, os.Mkdir(path, 0o700))
+			}
+		}
+		return time.Now()
+	}
+	profile, err := sqlite.Open(fixture.ctx, fixture.paths, options)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	service, err := app.NewProfileService(fixture.ctx, profile)
+	require.NoError(t, err)
+	model, err := NewModel(fixture.ctx, service, app.NewSession(), Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	model = press(t, model, keyRune('d'))
+	model = press(t, model, keyRune('m'))
+	model = typeText(t, model, "Saved Merchant")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('w'))
+	armed = true
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	require.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.pending.ActiveOperations)
+	assert.Equal(t, "Saved Merchant", model.result.DetailRows[model.cursor].Transaction.Merchant.Name)
+	assert.Contains(t, model.status, "Changes saved in Moneyflow.")
+	assert.Contains(t, model.status, "audit")
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "audit")
+}
 
 func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
 	t.Parallel()
