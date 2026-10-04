@@ -117,6 +117,83 @@ func TestProviderReconnectParkHealsOnlyAfterSessionFingerprintChanges(t *testing
 	assert.GreaterOrEqual(t, source.reloadCalls(), 2)
 }
 
+func TestProviderWriteClearsOnlyObsoleteReconnectFailure(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		refreshErr provider.ErrorCode
+		writeFails bool
+	}{
+		{name: "reconnected", refreshErr: provider.CodeReconnectRequired},
+		{name: "unrelated refresh failure", refreshErr: provider.CodeUnavailable},
+		{name: "write rejected", refreshErr: provider.CodeReconnectRequired, writeFails: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			service, handle := newProviderRefreshService(t)
+			now := providerWriteTime()
+			reader := &fakeProviderSource{
+				identity: provider.ProfileIdentity{Kind: "monarch", RemoteID: "subscription-example"},
+				snapshot: providerSnapshot(t, now, 1), fingerprint: "session-a",
+			}
+			writer := &scriptedProviderWriter{identity: reader.identity}
+			if test.writeFails {
+				writer.update = func(provider.TransactionUpdate) (provider.TransactionUpdateResult, error) {
+					return provider.TransactionUpdateResult{}, provider.NewWriteFailure(provider.WriteRejected)
+				}
+			}
+			source := &writeProviderSource{fakeProviderSource: reader, writer: writer}
+			configureProviderRefreshService(t, service, source, now, "reconnect-write-test")
+			request := app.ProviderRefreshRequest{Manual: true, State: app.DefaultViewState(), Selection: app.EmptySelection()}
+			_, err := service.RefreshProvider(ctx, request)
+			require.NoError(t, err)
+			configureProviderRefreshService(t, service, source, now.Add(8*time.Hour), "reconnect-write-test")
+			reader.setProbeError(provider.NewError(test.refreshErr))
+			_, err = service.RefreshProvider(ctx, request)
+			assertProviderAppCode(t, err, test.refreshErr)
+			before, err := handle.ProviderState(ctx)
+			require.NoError(t, err)
+			reader.setProbeError(nil)
+			reader.setFingerprint("session-b")
+			_, err = service.ProviderStatus(ctx)
+			require.NoError(t, err)
+
+			loaded, err := handle.Load(ctx)
+			require.NoError(t, err)
+			_, err = service.Mutate(ctx, app.MutationRequest{
+				Action: app.ActionToggleHidden, ExpectedRevision: loaded.Revision,
+				State: detailViewState(), Selection: app.EmptySelection(),
+				Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: string(loaded.Committed.Transactions[0].ID)},
+			})
+			require.NoError(t, err)
+			_, err = service.Commit(ctx, app.CommitRequest{
+				ExpectedRevision: service.Revision(), ReviewedRevision: service.Revision(),
+				State: app.DefaultViewState(), Selection: app.EmptySelection(),
+			})
+			require.NoError(t, err)
+			completed, err := service.RunProviderWrite(ctx)
+			if test.writeFails {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Empty(t, completed.Phase)
+			}
+			assert.Equal(t, 1, writer.callCount())
+			assert.Equal(t, 1, reader.fetchCalls(), "a write must not fetch transaction history")
+			after, err := handle.ProviderState(ctx)
+			require.NoError(t, err)
+			wantRefresh := before.Refresh
+			if test.refreshErr == provider.CodeReconnectRequired && !test.writeFails {
+				wantRefresh.StatusCode = ""
+			}
+			assert.Equal(t, wantRefresh, after.Refresh, "keep cache freshness and unrelated errors")
+			status, err := service.ProviderStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, provider.ErrorCode(wantRefresh.StatusCode), status.Code)
+		})
+	}
+}
+
 func TestMonarchRefreshRequiresExplicitRequestEvenWithStaleCache(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()

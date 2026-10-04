@@ -120,15 +120,22 @@ func parseCalendarPeriod(value string) (time.Time, domain.TimeGranularity, bool)
 }
 
 func (model *Model) applyTimeRange(dateRange *domain.DateRange) {
-	if err := model.session.SetTimeRange(dateRange); err != nil {
-		model.status = "The time range could not be applied."
-		return
+	changed := dateRange != nil || model.session.DateRange != nil || slices.ContainsFunc(model.session.Drilldowns, func(drill domain.Drilldown) bool {
+		return drill.Dimension == domain.DimensionTime
+	})
+	if changed {
+		if err := model.session.SetTimeRange(dateRange); err != nil {
+			model.status = "The time range could not be applied."
+			return
+		}
 	}
 	if model.timeChooser.input != nil {
 		model.timeChooser.input.Blur()
 	}
 	model.overlay = overlayNone
-	model.resetAndRefresh()
+	if changed {
+		model.resetAndRefresh()
+	}
 }
 
 func (model *Model) navigateTimePeriod(delta int) {

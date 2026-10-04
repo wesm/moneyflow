@@ -150,6 +150,45 @@ func TestTimeChooserMonthNavigationAndClear(t *testing.T) {
 	assert.Equal(t, 5, model.result.FilteredCount)
 }
 
+func TestClearAllTimePreservesPositionAndSelection(t *testing.T) {
+	t.Parallel()
+	for _, view := range []string{"summary", "detail", "chooser"} {
+		t.Run(view, func(t *testing.T) {
+			model := newTestModel(t, app.NewSession())
+			if view != "summary" {
+				// Show all transactions from a time drill, leaving the time constraint
+				// only in history. Clearing the current all-time view is still a no-op.
+				model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+				model = press(t, model, keyRune('g'))
+				model = press(t, model, keyRune('d'))
+			}
+			require.Empty(t, model.session.Drilldowns)
+			require.Nil(t, model.session.DateRange)
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnd})
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+			before := model.session.Clone()
+			cursor, scroll, selection := model.cursor, model.scroll, model.selection
+			require.Positive(t, cursor)
+			require.Positive(t, scroll)
+			require.Equal(t, 1, selectedSessionCount(before))
+			if view == "chooser" {
+				model = press(t, model, keyRune('t'))
+			}
+
+			model = press(t, model, keyRune('a'))
+
+			assert.Equal(t, overlayNone, model.overlay)
+			assert.Equal(t, cursor, model.cursor)
+			assert.Equal(t, scroll, model.scroll)
+			assert.Equal(t, selection, model.selection)
+			assert.Equal(t, before.ViewState(), model.session.ViewState())
+			assert.Equal(t, before.SelectedTransactionIDs, model.session.SelectedTransactionIDs)
+			assert.Equal(t, before.SelectedAggregateKeys, model.session.SelectedAggregateKeys)
+		})
+	}
+}
+
 func TestTimeChooserMonthPersistsWhenReturningToSummary(t *testing.T) {
 	t.Parallel()
 	model := timeChooserModel(t)

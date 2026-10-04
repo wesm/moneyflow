@@ -83,10 +83,7 @@ func (session *Session) CycleSubGrouping() {
 // JumpToTime groups the current scope by time without discarding filters.
 // A scope already drilled into a time period cannot group by time again.
 func (session *Session) JumpToTime(position ViewPosition) bool {
-	if len(session.Drilldowns) == 0 && session.SubGrouping == nil {
-		if session.Mode != domain.ResultModeAggregate {
-			return false
-		}
+	if session.Mode == domain.ResultModeAggregate && len(session.Drilldowns) == 0 && session.SubGrouping == nil {
 		session.Dimension = domain.DimensionTime
 		session.SubGrouping = nil
 	} else {

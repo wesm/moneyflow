@@ -95,6 +95,12 @@ func (model *Model) routeCategoryEditor(message tea.KeyPressMsg) tea.Cmd {
 			model.category.filtered = append(model.category.filtered, app.EditorChoice{Label: fmt.Sprintf("Create %q", label)})
 		}
 		model.category.selected = 0
+		for index, choice := range model.category.filtered {
+			if strings.EqualFold(choice.Label, label) {
+				model.category.selected = index
+				break
+			}
+		}
 		model.category.err = ""
 	}
 	return command

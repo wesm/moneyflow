@@ -148,3 +148,46 @@ func TestTimeJumpAfterClearingPeriodFromGroupedView(t *testing.T) {
 	assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
 	assert.Equal(t, before, model.result.Statistics)
 }
+
+func TestTimeJumpFromRootDetailRestoresList(t *testing.T) {
+	t.Parallel()
+	model := newTestModel(t, app.NewSession())
+	model.height = 12
+	model = press(t, model, keyRune('d'))
+	model.session.SetSearch("Merchant 0")
+	start, err := domain.ParseDate("2020-01-01")
+	require.NoError(t, err)
+	end, err := domain.ParseDate("2025-12-31")
+	require.NoError(t, err)
+	require.NoError(t, model.session.SetFilters(app.Filters{
+		DateRange: &domain.DateRange{Start: start, End: end}, ShowHidden: true, ShowTransfers: true,
+	}))
+	model.refresh()
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnd})
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	before := model.session.Clone()
+	identity := model.rowIdentity(model.cursor)
+	scroll := model.scroll
+	require.Positive(t, scroll)
+	count := model.result.FilteredCount
+	require.NotEmpty(t, before.SelectedTransactionIDs)
+	require.Empty(t, before.Drilldowns)
+
+	model = press(t, model, tea.KeyPressMsg{Code: 't', Mod: tea.ModCtrl})
+
+	require.NotEmpty(t, model.result.AggregateRows)
+	assert.Equal(t, domain.DimensionTime, model.result.AggregateRows[0].Dimension)
+	assert.Equal(t, count, model.result.FilteredCount)
+	assert.Equal(t, before.DateRange, model.session.DateRange)
+	assert.Equal(t, before.Search, model.session.Search)
+	assert.Equal(t, before.ShowHidden, model.session.ShowHidden)
+	assert.Equal(t, before.ShowTransfers, model.session.ShowTransfers)
+	assert.Empty(t, model.session.SelectedTransactionIDs)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	require.NotEmpty(t, model.result.DetailRows)
+	assert.Equal(t, before.QuerySpec(), model.session.QuerySpec())
+	assert.Equal(t, before.SelectedTransactionIDs, model.session.SelectedTransactionIDs)
+	assert.Equal(t, identity, model.rowIdentity(model.cursor))
+	assert.Equal(t, scroll, model.scroll)
+}

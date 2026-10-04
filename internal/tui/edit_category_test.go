@@ -173,3 +173,33 @@ func TestCategoryEditorCreatesTypedSubstringOnlyWhenCreateSelected(t *testing.T)
 	require.Len(t, review.ActiveOperations, 1)
 	assert.Equal(t, wanted, review.ActiveOperations[0].After)
 }
+
+func TestCategoryEditorExactMatchAndArrowSelection(t *testing.T) {
+	t.Parallel()
+	for _, chooseOther := range []bool{false, true} {
+		fixture := newPersistentModel(t, app.NewSession())
+		model := press(t, fixture.model, keyRune('C'))
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+		model = press(t, model, keyRune('n'))
+		model = typeText(t, model, "Cat")
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+		require.Equal(t, taxonomyPhaseBrowse, model.categoryManager.phase)
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEscape})
+		model = press(t, model, keyRune('c'))
+		model = typeText(t, model, "cat")
+		assert.Regexp(t, `> Cat\s*\n`, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"))
+		wanted := "Cat"
+		if chooseOther {
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyUp})
+			wanted = "Uncategorized"
+			assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> Uncategorized")
+		}
+		model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+		require.Equal(t, overlayNone, model.overlay)
+		review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+		require.NoError(t, err)
+		require.Len(t, review.ActiveOperations, 2)
+		assert.Equal(t, wanted, review.ActiveOperations[1].After)
+	}
+}

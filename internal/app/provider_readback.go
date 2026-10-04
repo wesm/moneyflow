@@ -24,13 +24,9 @@ func (service *Service) verifyUnknownProviderWrites(
 	if runtime.writeSource == nil {
 		return state, unknown
 	}
-	writer, _, err := runtime.writeSource.Writer(ctx, false)
+	writer, fingerprint, err := runtime.writeSource.Writer(ctx, runtime.takeForceReload())
 	if err != nil {
 		return state, err
-	}
-	reader, supported := writer.(provider.TransactionReadback)
-	if !supported {
-		return state, unknown
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	_, acquired, err := service.profile.AcquireProviderOperationLease(ctx, store.ProviderOperationLease{
@@ -61,10 +57,18 @@ func (service *Service) verifyUnknownProviderWrites(
 	defer cancel()
 	identity, err := writer.ProbeIdentity(readContext)
 	if err != nil {
-		return state, err
+		writer, fingerprint, identity, err = service.reloadProviderWriter(readContext, runtime, fingerprint, err)
+		if err != nil {
+			return state, err
+		}
 	}
 	if err = validateRefreshIdentity(runtime, providerState.Binding, identity); err != nil {
 		return state, err
+	}
+	runtime.setFingerprint(fingerprint, false)
+	reader, supported := writer.(provider.TransactionReadback)
+	if !supported {
+		return state, unknown
 	}
 	snapshot, err := service.profile.Load(readContext)
 	if err != nil {
@@ -85,6 +89,11 @@ func (service *Service) verifyUnknownProviderWrites(
 	batch := *state.Batch
 	for _, item := range state.Items {
 		if item.State != store.WriteItemPending || item.AttemptCount == 0 {
+			continue
+		}
+		// Deletes are idempotent, so the ordinary worker can retry them within
+		// their existing budget without transaction readback.
+		if item.Kind == store.WriteItemDelete && item.AttemptCount < providerWriteAttempts {
 			continue
 		}
 		if item.Kind != store.WriteItemUpdate {

@@ -550,6 +550,11 @@ func (profile *profile) FinalizeProviderWrite(
 	if err = replaceLastWriteSummary(ctx, connection, plan.Summary); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
+	// A completed authenticated write supersedes an earlier reconnect failure,
+	// but does not make the cached transaction history any fresher.
+	if _, err = connection.ExecContext(ctx, clearProviderReconnectFailureSQL); err != nil {
+		return store.FinalizeProviderWriteCommit{}, mapDriverError(err, store.CodeStoreError)
+	}
 	if err = deleteOperationLease(ctx, connection, request.LeaseOwnerID, request.LeaseKind); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
