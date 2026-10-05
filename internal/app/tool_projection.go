@@ -267,6 +267,7 @@ func (service *Service) AccountProjection(
 		}
 		state.providerState = providerStatusFromState(providerState, state.profileKind)
 		state.writeState = providerWriteStatusFromState(providerState)
+		state.writeState.AuditWarning = service.completionAuditWarning()
 	}
 	partitions := make(map[string]MoneyPartition)
 	var first, last domain.Date

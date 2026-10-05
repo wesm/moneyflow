@@ -134,6 +134,12 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 			model.merchant.filtered = append(model.merchant.filtered, app.EditorChoice{Label: fmt.Sprintf("Create %q", label)})
 		}
 		model.merchant.selected = 0
+		for index, choice := range model.merchant.filtered {
+			if strings.EqualFold(choice.Label, label) {
+				model.merchant.selected = index
+				break
+			}
+		}
 		model.merchant.err = ""
 	}
 	return command

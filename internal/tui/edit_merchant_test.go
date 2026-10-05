@@ -230,37 +230,52 @@ func TestMerchantEditorEnterUsesHighlightedCompletion(t *testing.T) {
 	}
 }
 
-func TestMerchantEditorArrowSelectionOverridesExactTypedLabel(t *testing.T) {
+func TestMerchantEditorExactMatchAndArrowSelection(t *testing.T) {
 	t.Parallel()
-	fixture := newPersistentModel(t, app.NewSession())
-	model := fixture.model
-	mutated, err := model.service.Mutate(model.ctx, app.MutationRequest{
-		Action: app.ActionEditMerchant, ExpectedRevision: model.service.Revision(),
-		State: model.session.ViewState(), Selection: app.EmptySelection(),
-		Target: model.focusedMutationTarget(),
-		Input:  app.EditInput{Scope: app.EditScopeEntity, Label: "Merchant"},
-	})
-	require.NoError(t, err)
-	_, err = model.service.Commit(model.ctx, app.CommitRequest{
-		ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
-		State: model.session.ViewState(), Selection: app.EmptySelection(),
-	})
-	require.NoError(t, err)
-	model.refresh()
-	choices := mustEditorCatalog(t, model).Merchants
-	require.Equal(t, "Merchant", choices[0].Label)
-	destination := choices[1]
-
-	model = press(t, model, keyRune('m'))
-	model = typeText(t, model, "Merchant")
-	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "> "+destination.Label)
-	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
-	require.Equal(t, overlayNone, model.overlay)
-	review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
-	require.NoError(t, err)
-	require.Len(t, review.ActiveOperations, 1)
-	assert.Equal(t, destination.Label, review.ActiveOperations[0].After)
+	for _, test := range []struct {
+		name, input, want string
+		up                bool
+	}{
+		{"exact", "Merchant", "Merchant", false},
+		{"case insensitive", "merchant", "Merchant", false},
+		{"arrow override", "Merchant", "A Merchant", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newPersistentModel(t, app.NewSession())
+			model := fixture.model
+			sourceID := model.result.AggregateRows[2].Key
+			for index, label := range []string{"A Merchant", "Merchant"} {
+				_, err := model.service.Mutate(model.ctx, app.MutationRequest{
+					Action: app.ActionEditMerchant, ExpectedRevision: model.service.Revision(),
+					State: model.session.ViewState(), Selection: app.EmptySelection(),
+					Target: &app.RowTarget{Kind: app.IdentityAggregate, Identity: app.AggregateIdentity(model.result.AggregateRows[index])},
+					Input:  app.EditInput{Scope: app.EditScopeEntity, Label: label},
+				})
+				require.NoError(t, err)
+			}
+			_, err := model.service.Commit(model.ctx, app.CommitRequest{
+				ExpectedRevision: model.service.Revision(), ReviewedRevision: model.service.Revision(),
+				State: model.session.ViewState(), Selection: app.EmptySelection(),
+			})
+			require.NoError(t, err)
+			model.refresh()
+			for model.result.AggregateRows[model.cursor].Key != sourceID {
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyDown})
+			}
+			model = press(t, model, keyRune('m'))
+			model = typeText(t, model, test.input)
+			if test.up {
+				model = press(t, model, tea.KeyPressMsg{Code: tea.KeyUp})
+			}
+			assert.Regexp(t, `> `+test.want+`\s*\n`, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"))
+			model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+			require.Equal(t, overlayNone, model.overlay)
+			review, err := model.service.Review(model.ctx, model.service.Revision(), app.ReviewWindow{})
+			require.NoError(t, err)
+			require.Len(t, review.ActiveOperations, 1)
+			assert.Equal(t, test.want, review.ActiveOperations[0].After)
+		})
+	}
 }
 
 func TestMerchantEditorCreatesTypedSubstringOnlyWhenCreateSelected(t *testing.T) {
