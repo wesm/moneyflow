@@ -121,7 +121,7 @@ try {
   await waitForText("Pending:");
   await command([...tmux, "send-keys", "-t", "demo", "w"]);
   await waitForText("Enter=Commit");
-  await waitForText("Active affected transactions: 2");
+  await waitForText("Pending changes: 1 · Transactions: 2");
   await capture("tui-review");
   await command([...tmux, "send-keys", "-t", "demo", "Escape"]);
   await waitForText("g Group By");

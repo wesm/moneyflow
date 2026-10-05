@@ -71,6 +71,28 @@ type Error struct {
 	cause            error
 }
 
+// AuditCompletionError reports a missing completion record after the database
+// mutation committed. The accompanying result contains the committed state.
+type AuditCompletionError struct {
+	cause error
+}
+
+// NewAuditCompletionError preserves a postcommit audit failure separately from
+// failures that prevented a database mutation.
+func NewAuditCompletionError(cause error) *AuditCompletionError {
+	return &AuditCompletionError{cause: cause}
+}
+
+// Error returns fixed text without exposing the audit path or diagnostic cause.
+func (failure *AuditCompletionError) Error() string {
+	return "changes saved; audit completion could not be recorded"
+}
+
+// Unwrap retains the diagnostic cause for internal inspection.
+func (failure *AuditCompletionError) Unwrap() error {
+	return failure.cause
+}
+
 // NewError creates a safe storage failure without reliable revision metadata.
 func NewError(code ErrorCode, cause error) *Error {
 	detail, ok := safeDetails[code]

@@ -18,7 +18,7 @@ import (
 	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
 
-func TestDuplicateOverlayStagesSelectedDeletionAndReprojects(t *testing.T) {
+func TestDuplicateOverlayKeepsStagedDeletionVisibleUntilCommit(t *testing.T) {
 	t.Parallel()
 
 	fixture := newDuplicateModel(t)
@@ -37,7 +37,8 @@ func TestDuplicateOverlayStagesSelectedDeletionAndReprojects(t *testing.T) {
 	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.Equal(t, overlayDuplicates, model.overlay)
 	assert.Equal(t, 0, model.duplicates.projection.SelectionCount)
-	assert.Zero(t, model.duplicates.projection.TotalTransactions)
+	assert.Equal(t, 2, model.duplicates.projection.TotalTransactions)
+	assert.True(t, model.duplicates.projection.Groups[0].Rows[0].Flags.Pending)
 	assert.Equal(t, 1, model.pending.ActiveOperations)
 	assert.Contains(t, model.status, "Press w")
 
@@ -47,6 +48,13 @@ func TestDuplicateOverlayStagesSelectedDeletionAndReprojects(t *testing.T) {
 	assert.Zero(t, model.pending.ActiveOperations)
 	model = press(t, model, keyRune('U'))
 	assert.Equal(t, 1, model.pending.ActiveOperations)
+	model = press(t, model, keyRune('w'))
+	require.Len(t, model.review.projection.ActiveOperations, 1)
+	assert.Equal(t, domain.OperationTransactionDelete, model.review.projection.ActiveOperations[0].Type)
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('D'))
+	assert.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.duplicates.projection.TotalTransactions)
 }
 
 func TestDuplicateOverlayRoutesNavigationInfoHideAndEscape(t *testing.T) {

@@ -109,7 +109,8 @@ func transactionUpdateInput(update provider.TransactionUpdate) (map[string]any, 
 		if _, err := domain.NormalizeDisplayLabel(update.MerchantName.Value); err != nil {
 			return nil, errors.New("transaction merchant name is invalid")
 		}
-		input["merchantName"] = update.MerchantName.Value
+		// Transaction updates use name; merchantName is the split-transaction field.
+		input["name"] = update.MerchantName.Value
 	}
 	if update.CategoryExternalID.Present {
 		if !validProviderText(update.CategoryExternalID.Value) {

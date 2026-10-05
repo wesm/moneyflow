@@ -261,6 +261,7 @@ export function createProviderController(options: ProviderControllerOptions): Pr
 }
 
 function isRefreshDue(status: ProviderStatus, now: number): boolean {
+  if (status.provider_kind === 'monarch') return false
   if (status.next_eligible && Date.parse(status.next_eligible) > now) return false
   if (
     status.provider_kind === 'simplefin' &&

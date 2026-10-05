@@ -50,7 +50,13 @@ func TestMutationPreviewMatchesRealCategoryMutationWithoutChangingProfile(t *tes
 	require.NoError(t, err)
 	assert.Equal(t, uint64(6), mutated.Revision)
 	row := detailTransactionByID(t, mutated.Projection.DetailRows, "transaction_a")
-	assert.Equal(t, preview.Rows[0].After, row)
+	assert.Equal(t, preview.Rows[0].Before, row)
+	committed, err := service.Commit(ctx, app.CommitRequest{
+		ExpectedRevision: mutated.Revision, ReviewedRevision: mutated.Revision,
+		State: state, Selection: app.EmptySelection(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, preview.Rows[0].After, detailTransactionByID(t, committed.Projection.DetailRows, "transaction_a"))
 }
 
 func TestMutationPreviewPerformsFullValidationWithoutMutation(t *testing.T) {

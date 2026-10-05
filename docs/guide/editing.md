@@ -3,14 +3,24 @@
 Edits are staged locally first. Review their scope before committing.
 Pending edits, undo history, and redo history survive closing the application.
 
+**Unreleased:** Transaction tables, group totals, and filters keep showing committed data
+while edits are pending. A pending marker identifies affected rows. For Monarch and YNAB, the table
+updates after the provider-write batch completes successfully; local profiles update on commit.
+
 ## Choose the transactions
 
 In detail view, an edit targets the current transaction. In a grouped view, it can target the
 transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
 selection. The merchant editor shows the affected count and a bounded transaction preview.
 
-Check the scope shown in the dialog. A whole-merchant rename can affect more transactions
-than the current date filter. Use the available scope control when you want a smaller target.
+**Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
+matches existing merchants, select the `Create` option below the matches.
+
+**Unreleased:** Merchant and category edits use the current filtered transactions by default.
+Editing a merchant group with a year or month selected leaves transactions outside that period
+unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
+In the merchant editor, Tab explicitly switches to **whole merchant** when available; that
+scope includes transactions outside the current filters. Check its affected count before saving.
 
 ## Apply an edit
 
@@ -23,6 +33,10 @@ than the current date filter. Use the available scope control when you want a sm
 | `u` / `U` | Undo / redo a pending operation |
 | `C` / `G` | Manage categories / groups, when supported |
 | `w` | Review pending changes |
+
+When a group or selection contains both hidden and visible transactions, `h` stages hiding
+only the visible transactions. Transactions already hidden stay hidden. Use `u` to undo it.
+When all targeted transactions are hidden, `h` stages unhiding them.
 
 Deleting is undoable until commit. Editing capabilities depend on the provider; the interface
 explains unavailable actions. See [Monarch](monarch.md), [YNAB](ynab.md),
@@ -42,6 +56,11 @@ review and commit it; Moneyflow never deletes duplicate suggestions automaticall
 ## Review and commit
 
 Press `w` to inspect active operations, inactive redo history, and affected transactions.
+In the TUI, use Up/Down to select a change. Its From/To values appear below the list,
+and the transaction preview shows values **before that change**. Press `i` to inspect
+all affected rows, using Left/Right to page through them. Enter commits all active
+changes and discards redo history. Esc returns without committing.
+
 Commit applies the reviewed revision. If another process changed the profile, refresh the
 review instead of assuming the old preview is still current.
 
@@ -49,12 +68,38 @@ Amazon, bank CSV, and SimpleFIN commits write only to local SQLite. Monarch and 
 provider-write batch. Successful remote results are saved individually so restart does not
 lose progress. A net-zero set of edits can be cleared without provider work.
 
+Committing Monarch or YNAB edits takes priority over a refresh running in the same TUI.
+Moneyflow stops that refresh, then commits the changes you reviewed. While waiting,
+Esc cancels the commit and keeps the edits pending. If the refresh changed the data
+before it stopped, Moneyflow asks you to review the changes again before committing.
+
 ## Recover an interrupted provider write
 
-Open the write status and follow its available action. Pause waits for in-flight results.
-Resume is explicit; an ownerless batch does not restart itself. If an outcome cannot be retried
-safely, stop and reconcile against provider truth instead of resending the same change.
+In the TUI, `w` opens write status. Esc returns to transactions without discarding edits.
+An unfinished batch blocks further edits and refreshes; the footer keeps `w Write status`
+visible so you can return to its recovery actions.
 
-Stopping and reconciling can abandon the remaining frozen edit batch. Read the confirmation.
-A completed write may report that provider refresh is due; use `r` to read current data.
-Neither a warning nor a timeout is proof that the provider rejected the request.
+**Unreleased:** Write status shows the first change's From/To values and transaction count,
+alongside overall progress. It also reports when the batch contains additional changes.
+
+Use the action shown for the current state. Pause waits for in-flight results. A paused
+batch offers Resume. A rejected change offers `s` to discard that batch's pending edits
+and reload provider data. During the reload, Esc returns to transactions while work
+continues. Editing becomes available again after the reload finishes. A failed reload
+keeps the batch and displays its error in write status, where you can try recovery again.
+For Monarch, reopening the profile or reconnecting does not restart that reload;
+use `w`, then `s` when you want to retry it.
+
+**Unreleased:** For an uncertain Monarch update, press `r` for **Check and resume**.
+Moneyflow checks the affected transaction on its recorded date. If the edit already
+matches the requested value, it records that result without sending the edit again.
+If the transaction still matches its previous value, Moneyflow can retry the edit.
+Other values or an inconclusive lookup leave the batch paused for attention.
+This check does not download your transaction history or resend completed edits.
+
+If a provider removal confirmation appears, review it before continuing. A completed
+write updates the local cache directly. It does not trigger another download.
+Neither a warning nor a timeout proves that the provider rejected the request.
+
+See the [edit audit log](../config/caching.md#where-can-i-inspect-past-edits) for persistent
+before/requested values and provider outcomes.

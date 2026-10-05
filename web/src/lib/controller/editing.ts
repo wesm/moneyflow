@@ -221,11 +221,16 @@ export function createEditingController(options: EditingControllerOptions): Edit
         selection,
       }
       options.host.accept(projection)
+      const auditWarning = projection.warnings?.find(
+        (warning) => warning.code === 'audit_completion_failed',
+      )?.detail
       setState({
         revision,
         phase: 'idle',
         pending: response.pending,
-        announcement: mutationAnnouncement(successMessage, response.selection.kind),
+        announcement: [mutationAnnouncement(successMessage, response.selection.kind), auditWarning]
+          .filter(Boolean)
+          .join(' '),
         ...(response.provider_write ? { providerWrite: response.provider_write } : {}),
       })
       if (response.provider_write) options.onProviderWrite?.(response.provider_write)

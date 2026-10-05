@@ -77,6 +77,7 @@ type MutationDocument struct {
 // CommitDocument distinguishes local completion from an accepted background provider write.
 type CommitDocument struct {
 	Header
+	AuditWarning     string              `json:"audit_warning,omitempty"`
 	Completed        bool                `json:"completed"`
 	BackgroundActive bool                `json:"background_active"`
 	Write            WriteStatusDocument `json:"write"`

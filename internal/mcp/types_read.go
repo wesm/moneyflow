@@ -231,6 +231,7 @@ type RefreshAttemptDocument struct {
 }
 
 type WriteStatusDocument struct {
+	AuditWarning    string `json:"audit_warning,omitempty"`
 	AttentionClass  string `json:"attention_class,omitempty"`
 	AttentionReason string `json:"attention_reason,omitempty"`
 	ResumeTarget    string `json:"resume_target,omitempty"`
@@ -383,6 +384,7 @@ func refreshSummaryDocument(status app.ProviderStatus) RefreshSummaryDocument {
 
 func writeStatusDocument(status app.ProviderWriteStatus) WriteStatusDocument {
 	return WriteStatusDocument{
+		AuditWarning:   status.AuditWarning,
 		AttentionClass: string(status.AttentionClass), AttentionReason: string(status.AttentionReason),
 		ResumeTarget: string(status.ResumeTarget),
 		NextEligible: formatOptionalTime(status.NextEligible),

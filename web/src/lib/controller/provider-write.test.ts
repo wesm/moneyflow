@@ -5,6 +5,42 @@ import { testProjection } from '../../test/projection'
 import { createProviderWriteController } from './provider-write'
 
 describe('provider write controller', () => {
+  it('keeps completion audit warnings after refreshing and polling again', async () => {
+    const warning = 'The audit log could not record completion.'
+    const transport = transportStub({ status: writeStatus({ audit_warning: warning }) })
+    const host = hostStub()
+    const controller = createProviderWriteController({ transport, host })
+    controller.install(writeStatus({ phase: 'writing', batch_version: '4' }))
+
+    await controller.poll()
+
+    expect(host.reload).toHaveBeenCalledOnce()
+    expect(controller.state.phase).toBe('complete')
+    expect(controller.state.announcement).toBe(`Provider write complete. ${warning}`)
+    await controller.poll()
+    expect(controller.state.announcement).toContain(warning)
+  })
+
+  it.each(['reconciling', 'reconnect_required'])(
+    'waits for explicit Monarch recovery after %s',
+    async (phase) => {
+      const transport = transportStub({
+        status: writeStatus({ phase, batch_version: '4', actions: ['reconcile'] }),
+      })
+      const controller = createProviderWriteController({
+        transport,
+        host: hostStub(testProjection({ profile_kind: 'monarch' })),
+      })
+      await controller.poll()
+      expect(transport.mutations.request).not.toHaveBeenCalled()
+      expect(controller.can('reconcile')).toBe(true)
+      await controller.reconcile()
+      expect(transport.mutations.request).toHaveBeenCalledOnce()
+      expect(vi.mocked(transport.mutations.request).mock.calls[0]![0]).toBe(
+        'api/v1/provider/write/reconcile',
+      )
+    },
+  )
   it('names YNAB in write and reconnect announcements', () => {
     const controller = createProviderWriteController({
       transport: transportStub(),

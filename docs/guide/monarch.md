@@ -42,9 +42,13 @@ database is not application-encrypted. See [storage](../config/caching.md).
 
 ## Refresh data
 
-Press `r` for a complete provider refresh. While the TUI or web app runs, automatic refresh
-is due every six hours. Cached browsing and pending edits remain available if authentication
-fails. Large or destructive provider changes may require explicit review before installation.
+Press `r` for a complete provider refresh. Moneyflow does not download Monarch history
+automatically when opening a profile, browsing, reconnecting, or saving edits. Successful
+edits update the local cache directly. Refresh currently reads complete history, even when
+the view is filtered to a recent month; recent-only refresh is not yet available in Go.
+
+Cached browsing and pending edits remain available if authentication fails. Large or
+destructive provider changes may require explicit review before installation.
 
 Refresh and local editing use the same profile state. An active provider-write batch must
 finish or be reconciled before another refresh can start.

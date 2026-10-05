@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +14,49 @@ import (
 	"github.com/wesm/moneyflow/internal/app"
 	"github.com/wesm/moneyflow/internal/domain"
 	"github.com/wesm/moneyflow/internal/store"
+	"github.com/wesm/moneyflow/internal/store/sqlite"
 )
+
+func TestReviewCommitKeepsSuccessWhenCompletionAuditFails(t *testing.T) {
+	t.Parallel()
+	fixture := newPersistentModel(t, app.NewSession())
+	require.NoError(t, fixture.profile.Close())
+	armed, calls := false, 0
+	options := sqlite.DefaultOptions
+	options.Now = func() time.Time {
+		if armed {
+			calls++
+			if calls == 2 {
+				path := filepath.Join(fixture.paths.Root, "audit.jsonl")
+				require.NoError(t, os.Rename(path, path+".saved"))
+				require.NoError(t, os.Mkdir(path, 0o700))
+			}
+		}
+		return time.Now()
+	}
+	profile, err := sqlite.Open(fixture.ctx, fixture.paths, options)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, profile.Close()) })
+	service, err := app.NewProfileService(fixture.ctx, profile)
+	require.NoError(t, err)
+	model, err := NewModel(fixture.ctx, service, app.NewSession(), Options{ColorMode: ColorModeNone})
+	require.NoError(t, err)
+	model = press(t, model, keyRune('d'))
+	model = press(t, model, keyRune('m'))
+	model = typeText(t, model, "Saved Merchant")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+	model = press(t, model, keyRune('w'))
+	armed = true
+
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyEnter})
+
+	require.Equal(t, overlayNone, model.overlay)
+	assert.Zero(t, model.pending.ActiveOperations)
+	assert.Equal(t, "Saved Merchant", model.result.DetailRows[model.cursor].Transaction.Merchant.Name)
+	assert.Contains(t, model.status, "Changes saved in Moneyflow.")
+	assert.Contains(t, model.status, "audit")
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "audit")
+}
 
 func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
 	t.Parallel()
@@ -29,7 +74,7 @@ func TestReviewSeparatesRedoLoadsBoundedDetailsAndCancelsExactly(t *testing.T) {
 	assert.Len(t, model.review.projection.InactiveOperations, 1)
 	assert.NotEmpty(t, model.review.projection.Targets)
 	assert.Contains(t, strings.Join(model.RenderScreen().Overlay, "\n"), "Inactive redo operations")
-	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "ACTIVE")
+	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "TO COMMIT")
 	assert.Contains(t, model.RenderScreen().Frame.RenderANSI(), "REDO")
 
 	model = press(t, model, keyRune('i'))
@@ -79,17 +124,67 @@ func TestReviewStaleConfirmationRefreshesWithoutReplayingCommit(t *testing.T) {
 
 func TestReviewDetailPageMatchesCappedOverlayRows(t *testing.T) {
 	t.Parallel()
-	model := press(t, newPersistentModel(t, app.NewSession()).model, keyRune('d'))
+	session := app.NewSession()
+	session.ShowTransfers = true
+	model := press(t, newPersistentModel(t, session).model, keyRune('d'))
 	model = press(t, model, tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
-	model = press(t, model, keyRune('h'))
+	require.True(t, model.executeMutation(app.ActionEditCategory, app.EditInput{
+		Scope: app.EditScopeTransactions, DestinationID: domain.UncategorizedCategoryID,
+	}))
 	model.height = 50
 	model.width = 150
 	model = press(t, model, keyRune('w'))
 	model = press(t, model, keyRune('i'))
 
-	rect := responsiveOverlayRect(model.width, model.height, 92, 36)
-	assert.Equal(t, rect.Height-8, model.review.detailLimit)
-	assert.Equal(t, rect.Height-8, len(model.review.projection.Targets))
+	assert.Equal(t, 25, model.review.detailLimit)
+	require.Len(t, model.review.projection.Targets, 25)
+	firstPage := model.RenderScreen().Frame.PlainLines()
+	assert.Contains(t, strings.Join(firstPage, "\n"), "1–25 of 32")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyRight})
+	assert.Equal(t, 25, model.review.projection.Window.Offset)
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "26–32 of 32")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "1–9 of 32")
+	model = press(t, model, tea.KeyPressMsg{Code: tea.KeyRight})
+	assert.Equal(t, 9, model.review.projection.Window.Offset)
+	assert.Contains(t, strings.Join(model.RenderScreen().Frame.PlainLines(), "\n"), "10–18 of 32")
+}
+
+func TestReviewShowsChangeValuesSeparatelyAtMinimumWidth(t *testing.T) {
+	t.Parallel()
+	model := newTestModel(t, app.NewSession())
+	model.width, model.height = 80, 24
+	model.overlay = overlayReview
+	first, err := domain.ParseDate("2024-02-01")
+	require.NoError(t, err)
+	second, err := domain.ParseDate("2024-02-02")
+	require.NoError(t, err)
+	model.review.projection = app.ReviewProjection{
+		Pending: app.PendingSummary{ActiveOperations: 1, AffectedTransactions: 2},
+		Operations: []app.ReviewOperation{{
+			Sequence: 1, Type: domain.OperationMerchantMerge, Active: true, AffectedCount: 2,
+			Before: "Example Equipment and Home Supply Company", After: "Example Equipment",
+			TaxonomyEffect: "merchant",
+		}},
+		Targets: []app.ReviewTarget{
+			{Date: first, Merchant: "Example Equipment and Home Supply Company", Category: "Home supplies"},
+			{Date: second, Merchant: "Example Equipment and Home Supply Company", Category: "Home supplies", Hidden: true},
+		},
+		Window: app.Window{Count: 2},
+	}
+	for _, phase := range []reviewPhase{reviewPhaseSummary, reviewPhaseDetails} {
+		model.review.phase = phase
+		frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
+		assert.Contains(t, frame, "From: Example Equipment and Home Supply Company")
+		assert.Contains(t, frame, "To:   Example Equipment")
+		assert.Contains(t, frame, "before change")
+		assert.Contains(t, frame, "1–2 of 2")
+		assert.Contains(t, frame, "Merchant")
+		assert.Contains(t, frame, "Category")
+		assert.Contains(t, frame, "Hidden")
+	}
 }
 
 func TestReviewSummaryScrollsToSelectedOperation(t *testing.T) {

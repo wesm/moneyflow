@@ -149,6 +149,7 @@ type WebProjection struct {
 	Statistics        []domain.CurrencyStats
 	Chart             ChartProjection
 	Status            string
+	AuditWarning      string
 }
 
 // AmazonProjectionSettings carries immutable import money settings without source facts.
@@ -180,7 +181,7 @@ func (service *Service) projectViewLocked(
 	if err != nil {
 		return WebProjection{}, err
 	}
-	resolvedSession, breadcrumbs, err := service.resolveViewSession(state.Current)
+	resolvedSession, breadcrumbs, err := service.ResolveViewSession(state.Current)
 	if err != nil {
 		return WebProjection{}, err
 	}
@@ -220,6 +221,7 @@ func (service *Service) projectViewLocked(
 		Statistics: append([]domain.CurrencyStats(nil), result.Statistics...),
 	}
 	service.mu.RLock()
+	projection.AuditWarning = service.auditWarning
 	if service.amazonSettings != nil {
 		projection.AmazonSettings = &AmazonProjectionSettings{
 			Currency: service.amazonSettings.Currency, Scale: service.amazonSettings.Scale,
@@ -370,7 +372,7 @@ func (service *Service) transitionViewLocked(
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
-	resolvedCurrent, _, err := service.resolveViewSession(state.Current)
+	resolvedCurrent, _, err := service.ResolveViewSession(state.Current)
 	if err != nil {
 		return rejectedTransition(state, selection, err)
 	}
@@ -536,7 +538,7 @@ func (service *Service) validateRowTarget(state AnalyticalState, target RowTarge
 	if target.Kind != identityKindForState(state) || target.Identity == "" {
 		return invalidWebRequest(errors.New("selection target kind is invalid"))
 	}
-	session, _, err := service.resolveViewSession(state)
+	session, _, err := service.ResolveViewSession(state)
 	if err != nil {
 		return err
 	}
@@ -646,7 +648,8 @@ func windowResult(request WindowRequest, total int) Window {
 	return Window{Offset: request.Offset, Limit: request.Limit, Count: count}
 }
 
-func (service *Service) resolveViewSession(
+// ResolveViewSession resolves saved drill identities to committed breadcrumb labels.
+func (service *Service) ResolveViewSession(
 	state AnalyticalState,
 ) (Session, []BreadcrumbSegment, error) {
 	session := sessionFromAnalyticalState(state)
@@ -695,7 +698,7 @@ func (service *Service) resolveDrillLabel(
 		Sort: domain.SortSpec{Field: domain.SortFieldAmount, Direction: domain.SortDirectionDesc},
 	}
 	service.mu.RLock()
-	transactions := append([]domain.Transaction(nil), service.transactions...)
+	transactions := append([]domain.Transaction(nil), service.browseTransactionsLocked()...)
 	service.mu.RUnlock()
 	result, err := analytics.Query(transactions, spec)
 	if err != nil {
@@ -729,6 +732,7 @@ func (service *Service) knownEmptyDrillLabel(target domain.Drilldown) (string, b
 	identity := domain.DrillIdentity{
 		Dimension: target.Dimension, Currency: target.Currency, Scale: target.Scale, Key: target.Key,
 	}
+	snapshot.Effective = snapshot.Committed
 	if ClassifyKnownDrill(snapshot, identity) == DrillInvalid {
 		return "", false
 	}

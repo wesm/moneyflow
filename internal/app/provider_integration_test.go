@@ -235,9 +235,16 @@ func TestProviderRefreshRebasesPendingDeleteAndRestoresStableTransactionIdentity
 	require.NoError(t, err)
 	state := app.DefaultViewState()
 	state.Current.Mode = domain.ResultModeDetail
-	effective, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
+	projection, err := service.ProjectView(state, app.EmptySelection(), app.WindowRequest{})
 	require.NoError(t, err)
-	assert.Zero(t, effective.TotalRows, "remote presence must not undo retained local deletion intent")
+	require.Len(t, projection.DetailRows, 1)
+	assert.Equal(t, string(originalID), projection.DetailRows[0].Row.Transaction.ID)
+	assert.True(t, projection.DetailRows[0].Row.Flags.Pending)
+	effective, err := service.TransactionWindow(ctx, app.TransactionWindowRequest{
+		ExpectedRevision: service.Revision(), Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 20,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, effective.Rows, "remote presence must not undo retained local deletion intent")
 
 	source.setSnapshot(providerSnapshot(t, now.Add(20*time.Second), 0))
 	blocked, err := service.RefreshProvider(ctx, app.ProviderRefreshRequest{

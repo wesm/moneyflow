@@ -2,6 +2,7 @@ package tui
 
 import (
 	"crypto/rand"
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -12,16 +13,15 @@ import (
 )
 
 type merchantEditorState struct {
-	input          textinput.Model
-	choices        []app.EditorChoice
-	filtered       []app.EditorChoice
-	selected       int
-	scope          app.EditScope
-	entityScope    bool
-	original       editorSnapshot
-	err            string
-	preview        *app.MerchantEditPreview
-	choiceExplicit bool
+	input       textinput.Model
+	choices     []app.EditorChoice
+	filtered    []app.EditorChoice
+	selected    int
+	scope       app.EditScope
+	entityScope bool
+	original    editorSnapshot
+	err         string
+	preview     *app.MerchantEditPreview
 }
 
 func (model *Model) openMerchantEditor() tea.Cmd {
@@ -44,14 +44,10 @@ func (model *Model) openMerchantEditor() tea.Cmd {
 	input.Placeholder = "search or enter a new merchant"
 	input.SetWidth(max(20, min(70, model.width-12)))
 	entityScope := model.merchantEntityScopePossible()
-	scope := app.EditScopeTransactions
-	if entityScope && selectedSessionCount(model.session) == 0 {
-		scope = app.EditScopeEntity
-	}
 	model.merchant = merchantEditorState{
 		input: input, choices: catalog.Merchants,
 		filtered: append([]app.EditorChoice(nil), catalog.Merchants...),
-		scope:    scope, entityScope: entityScope, original: model.editorSnapshot(),
+		scope:    app.EditScopeTransactions, entityScope: entityScope, original: model.editorSnapshot(),
 	}
 	model.overlay = overlayMerchantEditor
 	model.status = ""
@@ -109,11 +105,9 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "up":
 		model.merchant.selected = max(0, model.merchant.selected-1)
-		model.merchant.choiceExplicit = true
 		return nil
 	case "down":
 		model.merchant.selected = min(max(0, len(model.merchant.filtered)-1), model.merchant.selected+1)
-		model.merchant.choiceExplicit = true
 		return nil
 	case "tab":
 		if model.merchant.entityScope {
@@ -134,8 +128,18 @@ func (model *Model) routeMerchantEditor(message tea.KeyPressMsg) tea.Cmd {
 	model.merchant.input = updated
 	if changed {
 		model.merchant.filtered = filterEditorChoices(model.merchant.choices, updated.Value())
+		label := strings.TrimSpace(updated.Value())
+		if _, exact := exactEditorChoice(model.merchant.choices, label); label != "" && !exact {
+			// An empty identity marks the explicit option to use the typed name.
+			model.merchant.filtered = append(model.merchant.filtered, app.EditorChoice{Label: fmt.Sprintf("Create %q", label)})
+		}
 		model.merchant.selected = 0
-		model.merchant.choiceExplicit = false
+		for index, choice := range model.merchant.filtered {
+			if strings.EqualFold(choice.Label, label) {
+				model.merchant.selected = index
+				break
+			}
+		}
 		model.merchant.err = ""
 	}
 	return command
@@ -154,10 +158,14 @@ func (model *Model) submitMerchantEditor() {
 		return
 	}
 	label := strings.TrimSpace(model.merchant.input.Value())
-	destination, existing := exactEditorChoice(model.merchant.choices, label)
-	if !existing && model.merchant.choiceExplicit && len(model.merchant.filtered) > 0 {
+	var destination app.EditorChoice
+	existing := false
+	if len(model.merchant.filtered) > 0 {
 		destination = model.merchant.filtered[model.merchant.selected]
-		label, existing = destination.Label, true
+		existing = destination.ID != ""
+		if existing {
+			label = destination.Label
+		}
 	}
 	if label == "" {
 		model.merchant.err = "Enter or choose a merchant."

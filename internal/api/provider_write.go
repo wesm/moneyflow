@@ -24,6 +24,7 @@ type ProviderWriteStatusResponse struct {
 	BatchVersion    string   `json:"batch_version,omitempty" pattern:"^[0-9]+$"`
 	Phase           string   `json:"phase,omitempty"`
 	Reason          string   `json:"reason,omitempty"`
+	AuditWarning    string   `json:"audit_warning,omitempty"`
 	Total           int      `json:"total"`
 	Completed       int      `json:"completed"`
 	Failed          int      `json:"failed"`
@@ -262,7 +263,8 @@ func providerWriteStatusToWire(
 		Version: ProviderWriteSchemaVersion, Revision: strconv.FormatUint(revision, 10),
 		Generation: strconv.FormatUint(generation, 10), Phase: string(status.Phase),
 		Reason: string(status.AttentionReason), Total: status.Total, Completed: status.Completed,
-		Failed: status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
+		AuditWarning: status.AuditWarning,
+		Failed:       status.Failed, Remaining: status.Remaining, Overrides: status.Overrides,
 		OwnerRenderer: status.OwnerRenderer, OwnerInstanceID: status.OwnerInstanceID,
 		Actions: providerWriteActions(status),
 	}

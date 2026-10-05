@@ -27,6 +27,7 @@ func (service *Service) validateProviderMutation(
 	}
 	identities := providerWriteIdentityIndexes(state.Binding.Kind, snapshot.Committed.ExternalIdentities)
 	allocations := providerWriteAllocationIndex(state.Allocations)
+	merchants := merchantIndexByID(snapshot.Effective.Merchants)
 	switch operation.Type {
 	case domain.OperationCategoryAssign:
 		if state.Binding.Kind == "ynab" && operation.Reassign.DestinationID == domain.UncategorizedCategoryID {
@@ -43,7 +44,7 @@ func (service *Service) validateProviderMutation(
 		merchant.Label = operation.Label.Label
 		merchant.CollisionKey = operation.Label.CollisionKey
 		if !ok || validateNewProviderMerchantLabel(
-			merchant.ID, merchant, allocations, identities,
+			merchant.ID, merchant, allocations, identities, merchants,
 		) != nil || providerLineageLabelCollision(merchant.Label, merchant.ID, state.Lineage) {
 			return provider.NewError(provider.CodeWriteUnsupported)
 		}
@@ -56,14 +57,14 @@ func (service *Service) validateProviderMutation(
 		destination := operation.Reassign.DestinationID
 		if operation.Reassign.CreatedMerchant != nil {
 			merchant := *operation.Reassign.CreatedMerchant
-			if validateNewProviderMerchantLabel(merchant.ID, merchant, allocations, identities) != nil ||
+			if validateNewProviderMerchantLabel(merchant.ID, merchant, allocations, identities, merchants) != nil ||
 				providerLineageLabelCollision(merchant.Label, merchant.ID, state.Lineage) {
 				return provider.NewError(provider.CodeWriteUnsupported)
 			}
 		} else if identities.external(domain.EntityKindMerchant, destination) == "" {
 			merchant, ok := merchantWithID(snapshot.Effective, destination)
 			if !ok || validateNewProviderMerchantLabel(
-				merchant.ID, merchant, allocations, identities,
+				merchant.ID, merchant, allocations, identities, merchants,
 			) != nil || providerLineageLabelCollision(merchant.Label, merchant.ID, state.Lineage) {
 				return provider.NewError(provider.CodeWriteUnsupported)
 			}

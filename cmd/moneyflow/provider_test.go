@@ -205,7 +205,7 @@ func TestProviderConnectMonthToDateRefusesPopulatedProfile(t *testing.T) {
 		t, &fakeMonarchConnector{}, source, nil,
 		"provider", "connect", "monarch", "--mtd",
 	)
-	require.ErrorContains(t, err, "month-to-date import requires a pristine profile")
+	require.ErrorContains(t, err, "Month-to-date is only available for the first import.")
 	assert.Empty(t, source.startDate)
 }
 

@@ -115,7 +115,12 @@ export function createProviderWriteController(
       }
       if (status.phase === 'writing' || status.phase === 'reconciling') {
         if (can('resume')) await resume()
-        else if (status.phase === 'reconciling' && can('reconcile')) await reconcile()
+        else if (
+          status.phase === 'reconciling' &&
+          can('reconcile') &&
+          options.host.current()?.profile_kind !== 'monarch'
+        )
+          await reconcile()
         return
       }
       if (
@@ -128,7 +133,11 @@ export function createProviderWriteController(
       }
       if (status.phase === 'reconnect_required') {
         if (can('resume')) await resume()
-        else if (can('reconcile') && !(status.actions ?? []).includes('reconnect'))
+        else if (
+          can('reconcile') &&
+          !(status.actions ?? []).includes('reconnect') &&
+          options.host.current()?.profile_kind !== 'monarch'
+        )
           await reconcile()
       }
     } catch {
@@ -246,7 +255,9 @@ export function createProviderWriteController(
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: 'Provider write complete. Provider refresh is due.',
+      announcement: ['Provider write complete.', state.status?.audit_warning]
+        .filter(Boolean)
+        .join(' '),
     })
   }
 
@@ -266,7 +277,7 @@ export function createProviderWriteController(
 }
 
 function phaseFor(status: ProviderWriteStatus): ProviderWritePhase {
-  if (!status.phase) return 'idle'
+  if (!status.phase) return status.audit_warning ? 'complete' : 'idle'
   if (status.phase === 'paused') return 'paused'
   if (status.phase === 'attention_required') return 'attention'
   if (status.phase === 'reconcile_confirmation_required') return 'confirmation'
@@ -282,7 +293,10 @@ function phaseForProblem(code: string): ProviderWritePhase {
 }
 
 function announcementFor(status: ProviderWriteStatus, providerName: string): string {
-  if (!status.phase) return 'No provider write is active.'
+  if (!status.phase)
+    return status.audit_warning
+      ? `Provider write complete. ${status.audit_warning}`
+      : 'No provider write is active.'
   if (status.phase === 'paused')
     return 'Provider write paused. Already accepted writes remain applied.'
   if (status.phase === 'attention_required') return attentionMessage(status.reason, providerName)

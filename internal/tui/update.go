@@ -50,6 +50,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if model.overlay == overlayTransactionInfo {
 			model.transactionInfo.scroll = min(model.transactionInfo.scroll, model.transactionInfoMaxScroll())
 		}
+		if model.overlay == overlayReview {
+			if model.review.phase == reviewPhaseDetails {
+				model.loadReviewDetails(model.review.detailOffset)
+			} else {
+				model.loadReviewPreview()
+			}
+		}
 		return model, nil
 	case tea.KeyPressMsg:
 		matched := matchAction(message, model.bindings)
@@ -89,6 +96,8 @@ func (model *Model) routeOverlay(message tea.KeyPressMsg) tea.Cmd {
 		return model.routeSearch(message)
 	case overlayFilters:
 		return model.routeFilters(message)
+	case overlayTimeChooser:
+		return model.routeTimeChooser(message)
 	case overlayHelp:
 		switch message.Keystroke() {
 		case "?", "esc", "enter":
@@ -162,23 +171,21 @@ func (model *Model) routeKey(message tea.KeyPressMsg) tea.Cmd {
 		model.drill()
 	case app.ActionBack:
 		model.back()
+	case actionChooseTime:
+		model.openTimeChooser()
 	case app.ActionToggleTime:
-		if model.timeContext() {
+		if model.visibleMode() == domain.ResultModeAggregate && model.timeContext() {
 			model.session.ToggleTimeGranularity()
+			model.resetAndRefresh()
+		} else if model.session.JumpToTime(app.ViewPosition{Cursor: model.cursor, Scroll: model.scroll}) {
 			model.resetAndRefresh()
 		}
 	case app.ActionClearTime:
-		if model.session.ClearTimePeriod() {
-			model.resetAndRefresh()
-		}
+		model.applyTimeRange(nil)
 	case app.ActionPreviousPeriod:
-		if model.session.NavigatePeriod(-1) {
-			model.resetAndRefresh()
-		}
+		model.navigateTimePeriod(-1)
 	case app.ActionNextPeriod:
-		if model.session.NavigatePeriod(1) {
-			model.resetAndRefresh()
-		}
+		model.navigateTimePeriod(1)
 	case app.ActionCycleSort:
 		model.session.CycleSort()
 		model.resetAndRefresh()

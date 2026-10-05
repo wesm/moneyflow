@@ -255,6 +255,12 @@ func TestYNABHTTPRefreshPreservesJournalThroughFailureAndOfflineRestart(t *testi
 	assert.Equal(t, int64(-1234), info.Transaction.Amount.Minor)
 	assert.Equal(t, "Updated memo", info.Transaction.Notes)
 	assert.False(t, info.Transaction.Pending, "posting is a provider fact, separate from local edit markers")
-	assert.Equal(t, string(domain.UncategorizedCategoryID), info.Transaction.Category.ID, "staged category clear must survive refresh and process restart")
+	assert.Equal(t, string(loaded.Committed.Transactions[0].CategoryID), info.Transaction.Category.ID)
+	effective, err := offline.TransactionWindow(ctx, app.TransactionWindowRequest{
+		ExpectedRevision: offline.Revision(), Filter: app.TransactionFilter{IncludeHidden: true}, Limit: 20,
+	})
+	require.NoError(t, err)
+	require.Len(t, effective.Rows, 1)
+	assert.Equal(t, string(domain.UncategorizedCategoryID), effective.Rows[0].Category.ID, "staged category clear must survive refresh and process restart")
 	assert.Equal(t, 1, offline.Pending().ActiveOperations)
 }

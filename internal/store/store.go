@@ -29,6 +29,7 @@ type Profile interface {
 	PrepareProviderWrite(context.Context, PrepareProviderWriteRequest, PrepareProviderWritePlanner) (PrepareProviderWriteCommit, error)
 	ClaimProviderWriteItems(context.Context, ClaimProviderWriteRequest) ([]WriteItem, error)
 	RecordProviderWriteResult(context.Context, RecordProviderWriteResultRequest) (WriteBatch, error)
+	RecordProviderWriteOutcomes(context.Context, []ProviderWriteOutcomeAudit) error
 	ParkProviderWrite(context.Context, ParkProviderWriteRequest) (WriteBatch, error)
 	ResumeProviderWrite(context.Context, ResumeProviderWriteRequest) (WriteBatch, error)
 	FinalizeProviderWrite(context.Context, FinalizeProviderWriteRequest, FinalizeProviderWritePlanner) (FinalizeProviderWriteCommit, error)
@@ -39,6 +40,7 @@ type Profile interface {
 	ReleaseRefreshLease(context.Context, string) error
 	RecordRefreshAttempt(context.Context, string, time.Time, time.Time) error
 	RecordRefreshFailure(context.Context, RefreshFailure) error
+	ClearProviderReconnectFailure(context.Context) error
 	ApplyProviderRefresh(context.Context, AtomicRefreshRequest, RefreshPlanner) (RefreshCommit, error)
 	LoadAmazonState(context.Context) (AmazonImportState, error)
 	LoadAmazonMatchSource(context.Context) (AmazonMatchSourceState, error)

@@ -59,6 +59,36 @@ func TestMerchantEntityCollisionRequiresExplicitMergeDestination(t *testing.T) {
 	assert.Equal(t, domain.EntityID("merchant_b"), transactionByID(t, applied, "transaction_a").MerchantID)
 }
 
+func TestMerchantEntityEditKeepsCommittedSourceAfterPendingReassignment(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveWithJournal(t, 6, 1,
+		reassignOperation(1, domain.OperationMerchantReassign, "merchant_b", "transaction_a"),
+	)
+	request := focusedMerchantRequest("Renamed Merchant", app.EditScopeEntity)
+	request.ExpectedRevision = 6
+	plan, err := app.BuildMerchantOperation(effective, request, operationMetadata("merchant_original_source"))
+	require.NoError(t, err)
+	assert.Equal(t, []domain.EntityID{"merchant_a"}, plan.Operation.Targets)
+	assert.Equal(t, domain.EntityID("merchant_a"), plan.Operation.Label.EntityID)
+	applied, err := app.ApplyOperation(effective.Effective, storedDraft(plan.Operation, 2))
+	require.NoError(t, err)
+	assert.Equal(t, "Renamed Merchant", merchantByID(t, applied, "merchant_a").Label)
+	assert.Equal(t, "Merchant B", merchantByID(t, applied, "merchant_b").Label)
+}
+
+func TestMerchantEntityEditRejectsSourceRetiredByPendingMerge(t *testing.T) {
+	t.Parallel()
+
+	effective := effectiveWithJournal(t, 6, 1,
+		mergeOperation(1, domain.OperationMerchantMerge, "merchant_a", "merchant_b"),
+	)
+	request := focusedMerchantRequest("Renamed Merchant", app.EditScopeEntity)
+	request.ExpectedRevision = 6
+	_, err := app.BuildMerchantOperation(effective, request, operationMetadata("merchant_merged_source"))
+	assertMutationCode(t, err, app.MutationInvalidOperation)
+}
+
 func TestMerchantTransactionScopeReassignsOnlySelectedSubset(t *testing.T) {
 	t.Parallel()
 

@@ -149,7 +149,7 @@ func TestRefreshResultClearsExactSelectionAndRestoresCursor(t *testing.T) {
 	assert.Contains(t, model.status, "Selection cleared")
 }
 
-func TestProviderStandingTickStartsOnlyWhenSixHoursOld(t *testing.T) {
+func TestMonarchStandingTickKeepsStaleCacheUntilManualRefresh(t *testing.T) {
 	t.Parallel()
 
 	fixture := newProviderModel(t, 3)
@@ -173,8 +173,13 @@ func TestProviderStandingTickStartsOnlyWhenSixHoursOld(t *testing.T) {
 	require.NotNil(t, command)
 	updated, refreshCommand = model.Update(command())
 	model = updated.(Model)
-	assert.True(t, model.provider.refreshing)
+	assert.False(t, model.provider.refreshing)
 	assert.NotNil(t, refreshCommand)
+
+	updated, command = model.Update(keyRune('r'))
+	model = updated.(Model)
+	assert.True(t, model.provider.refreshing)
+	require.NotNil(t, command)
 }
 
 func TestProviderLateProgressStatusCannotStartSecondRefresh(t *testing.T) {
@@ -229,7 +234,7 @@ func TestProviderStatusHealsReconnectAndExplainsOtherConfirmationOwner(t *testin
 	updated, _ = model.Update(status)
 	model = updated.(Model)
 	assert.Empty(t, model.provider.status.Code)
-	assert.Contains(t, model.status, "scheduling resumed")
+	assert.Equal(t, "Provider reconnected.", model.status)
 
 	updated, _ = model.Update(providerStatusMsg{status: app.ProviderStatus{
 		Code: provider.CodeDeletionConfirmationRequired, OwnerRenderer: "web",

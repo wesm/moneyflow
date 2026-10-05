@@ -32,12 +32,12 @@ func (service *Service) PreviewMerchantEdit(ctx context.Context, request Mutatio
 	ids := targets.TransactionIDs
 	switch request.Input.Scope {
 	case EditScopeEntity:
-		sourceID, sourceErr := singleSourceMerchant(snapshot.Effective, targets)
+		source, sourceErr := sourceMerchantForEntityEdit(snapshot, targets)
 		if sourceErr != nil {
 			return MerchantEditPreview{}, newAppError(AppInvalidTarget, snapshot.Revision, sourceErr)
 		}
 		ids = affectedByOperation(snapshot.Effective, domain.Operation{
-			Type: domain.OperationMerchantLabel, Targets: []domain.EntityID{sourceID},
+			Type: domain.OperationMerchantLabel, Targets: []domain.EntityID{source.ID},
 		})
 	case EditScopeTransactions:
 	default:

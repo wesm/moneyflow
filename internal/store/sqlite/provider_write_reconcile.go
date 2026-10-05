@@ -111,6 +111,19 @@ func (profile *profile) ReconcileProviderWrite(
 			store.InvalidOperationRefreshPlan, err,
 		)
 	}
+	writeState, err := loadProviderWriteState(ctx, connection)
+	if err != nil {
+		return store.RefreshCommit{}, err
+	}
+	events := providerAuditEvents("provider_reconcile_intent", snapshot,
+		binding, batch, writeState.Items, writeState.Results, request.ObservedAt)
+	reconciled := newAuditProfileIndex(plan.Committed)
+	for index := range events {
+		events[index].Reconciled = reconciled.values(events[index].TransactionID)
+	}
+	if err = profile.appendAudit(events); err != nil {
+		return store.RefreshCommit{}, err
+	}
 	if err = applyProviderCommitted(
 		ctx, connection, snapshot.Committed, plan.Committed,
 		snapshot.KnownDrills, plan.KnownDrills,
@@ -163,8 +176,15 @@ func (profile *profile) ReconcileProviderWrite(
 	if err = finish(true); err != nil {
 		return store.RefreshCommit{}, err
 	}
-	return store.RefreshCommit{
+	commit := store.RefreshCommit{
 		Revision: nextRevision, Generation: nextGeneration, Summary: plan.Summary,
 		SemanticChange: true,
-	}, nil
+	}
+	if err = profile.recordAudit(ctx, []writeAuditEvent{{
+		Event: "provider_reconciled", Time: request.ObservedAt,
+		BatchID: batch.ID, ResultingRevision: nextRevision,
+	}}); err != nil {
+		return commit, store.NewAuditCompletionError(err)
+	}
+	return commit, nil
 }

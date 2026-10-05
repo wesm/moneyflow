@@ -168,6 +168,24 @@ describe('browser editing controller', () => {
     })
   })
 
+  it('reports a committed edit and its audit warning while accepting the new projection', async () => {
+    const response = mutationResponse('10', 'mfsel1.example' as SelectionValue)
+    const warning = 'The audit log could not record completion.'
+    response.projection.warnings = [{ code: 'audit_completion_failed', detail: warning }]
+    const transport = mutationTransport(response)
+    const host = editingHost(
+      testProjection({ revision: '9', canonical_query: response.canonical_query }),
+    )
+    const controller = createEditingController({ transport, host })
+
+    await expect(controller.commit(9n)).resolves.toBe(true)
+
+    expect(host.current()?.revision).toBe('10')
+    expect(controller.state.phase).toBe('idle')
+    expect(controller.state.announcement).toContain('Changes saved in Moneyflow.')
+    expect(controller.state.announcement).toContain(warning)
+  })
+
   it('loads bounded editor choices at the exact current revision', async () => {
     const transport = mutationTransport({
       version: '1',

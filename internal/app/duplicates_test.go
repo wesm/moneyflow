@@ -54,6 +54,26 @@ func TestProjectDuplicatesUsesCompleteFilteredResultAndProviderLabels(t *testing
 	assert.Equal(t, projection, again)
 }
 
+func TestPendingMerchantMergePreservesDuplicateGroups(t *testing.T) {
+	service, err := app.NewProfileService(t.Context(), duplicateMemoryProfile(t, true))
+	require.NoError(t, err)
+	_, err = service.Mutate(t.Context(), app.MutationRequest{
+		Action: app.ActionEditMerchant, ExpectedRevision: service.Revision(),
+		State: detailViewState(), Selection: app.EmptySelection(),
+		Target: &app.RowTarget{Kind: app.IdentityTransaction, Identity: "transaction_a"},
+		Input:  app.EditInput{Scope: app.EditScopeEntity, DestinationID: "merchant_b", Label: "Provider Merchant · b2"},
+	})
+	require.NoError(t, err)
+	projection, err := service.ProjectDuplicates(t.Context(), service.Revision(), detailViewState(), app.EmptySelection(), app.DuplicateWindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, projection.TotalGroups)
+	assert.Equal(t, 2, projection.TotalTransactions)
+	require.Len(t, projection.Groups, 1)
+	require.Len(t, projection.Groups[0].Rows, 2)
+	assert.Equal(t, "Provider Merchant", projection.Groups[0].Rows[0].MatchingLabel)
+	assert.True(t, projection.Groups[0].Rows[0].Flags.Pending)
+}
+
 func TestProjectDuplicatesBindsTransientSelectionToItsCheckedRevision(t *testing.T) {
 	t.Parallel()
 

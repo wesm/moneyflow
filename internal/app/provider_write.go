@@ -39,6 +39,7 @@ type ProviderWriteStatus struct {
 	OwnerInstanceID  string
 	PreparedRevision uint64
 	SessionChanged   bool
+	AuditWarning     string
 }
 
 // ProviderWriteReconcileRequest preserves renderer state while abandoning a failed batch.
@@ -121,6 +122,8 @@ type providerWriteConfirmation struct {
 
 // ProviderWriteStatus returns the durable write state without provider I/O.
 func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteStatus, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
 	if service.profile == nil {
 		return ProviderWriteStatus{}, newAppError(
 			AppInvalidOperation, service.Revision(), errors.New("provider write requires a profile"),
@@ -131,6 +134,7 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
 	}
 	status := providerWriteStatusFromState(state)
+	status.AuditWarning = service.completionAuditWarning()
 	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
 	}
@@ -223,6 +227,11 @@ func (service *Service) prepareProviderWrite(
 		},
 		ProposedBatchID: batchID, ProposedItemIDs: itemIDs, ObservedAt: now,
 	}, BuildProviderWritePlan)
+	if prepared.Batch.ID == "" {
+		err = service.reloadAfterAuditedCommit(ctx, prepared.Revision, err)
+	} else if err == nil {
+		err = service.reloadExpected(ctx, prepared.Revision)
+	}
 	if err != nil {
 		if reason, ok := store.InvalidOperationReasonOf(err); ok &&
 			reason == store.InvalidOperationProviderRefreshLease {
@@ -232,11 +241,10 @@ func (service *Service) prepareProviderWrite(
 		}
 		return ProviderWriteStatus{}, snapshot.Revision, service.refreshAfterFailure(ctx, err, snapshot.Revision)
 	}
-	if err = service.reloadExpected(ctx, prepared.Revision); err != nil {
-		return ProviderWriteStatus{}, snapshot.Revision, err
-	}
 	if prepared.Batch.ID == "" {
-		return ProviderWriteStatus{Generation: state.Refresh.Generation}, prepared.Revision, nil
+		return ProviderWriteStatus{
+			Generation: state.Refresh.Generation, AuditWarning: service.completionAuditWarning(),
+		}, prepared.Revision, nil
 	}
 	return providerWriteStatusFromState(store.ProviderState{
 		Refresh: state.Refresh,
@@ -249,8 +257,9 @@ func (service *Service) prepareProviderWrite(
 }
 
 // ReserveProviderWriteExecution performs the authoritative resume transition and reserves the
-// single process-local worker without performing provider I/O. A nil execution means another
-// local worker already owns the reservation.
+// single process-local worker. Explicit resume can first read an uncertain transaction
+// to verify whether another attempt is needed. A nil execution means another local
+// worker already owns the reservation.
 func (service *Service) ReserveProviderWriteExecution(
 	ctx context.Context,
 	expectedVersion uint64,
@@ -284,12 +293,26 @@ func (service *Service) ReserveProviderWriteExecution(
 	if err != nil {
 		return ProviderWriteStatus{}, nil, mapAppError(err, service.Revision())
 	}
+	readbackVerified := false
+	if expectedVersion != 0 && batch.Phase == store.WritePhaseAttentionRequired &&
+		batch.AttentionClass == store.WriteAttentionReconcileOnly &&
+		batch.AttentionReason == store.WriteAttentionOutcomeUnknown &&
+		batch.ResumeTarget == store.WriteResumeWriting {
+		writeState, err = service.verifyUnknownProviderWrites(ctx, runtime, writeState, providerState)
+		if err != nil {
+			status, statusErr := service.writeStatus(ctx, err)
+			return status, nil, statusErr
+		}
+		batch = *writeState.Batch
+		providerState.Lease = nil
+		readbackVerified = true
+	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	leaseOwned := providerState.Lease != nil &&
 		providerState.Lease.OwnerID == runtime.instanceID &&
 		providerState.Lease.Kind == store.ProviderOperationWrite &&
 		providerState.Lease.ExpiresAt.After(now)
-	allowAttemptedRetry := providerWritePhaseAllowsAttemptedRetry(batch)
+	allowAttemptedRetry := readbackVerified || providerWritePhaseAllowsAttemptedRetry(batch)
 	activeOwned := leaseOwned && (batch.Phase == store.WritePhaseWriting ||
 		(batch.Phase == store.WritePhaseReconciling &&
 			batch.ResumeTarget == store.WriteResumeWriting))
@@ -491,8 +514,12 @@ func (service *Service) runProviderWriteOwned(
 		slices.SortFunc(outcomes, func(left, right providerWriteOutcome) int {
 			return left.item.Position - right.item.Position
 		})
+		if auditErr := service.auditProviderWriteOutcomes(ctx, outcomes, runtime.now().UTC()); auditErr != nil {
+			return service.writeStatus(ctx, mapAppError(auditErr, service.Revision()))
+		}
 		var firstFailure *providerWriteOutcome
 		for _, outcome := range outcomes {
+			observedAt := runtime.now().UTC()
 			if outcome.err != nil {
 				firstFailure = preferredProviderWriteFailure(firstFailure, outcome)
 				continue
@@ -506,11 +533,14 @@ func (service *Service) runProviderWriteOwned(
 			}
 			batch = *currentState.Batch
 			normalized, normalizeErr := normalizeProviderWriteResult(
-				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, baseline, now,
+				outcome.item, outcome.updateResult, outcome.deleteResult, currentState, baseline, observedAt,
 			)
 			if normalizeErr != nil {
 				failed := outcome
 				failed.err = normalizeErr
+				if auditErr := service.auditProviderWriteOutcomes(ctx, []providerWriteOutcome{failed}, observedAt); auditErr != nil {
+					return service.writeStatus(ctx, mapAppError(auditErr, service.Revision()))
+				}
 				firstFailure = preferredProviderWriteFailure(firstFailure, failed)
 				continue
 			}
@@ -1158,6 +1188,9 @@ func (service *Service) finalizeProviderWrite(
 	runtime *providerRuntimeState,
 	batch store.WriteBatch,
 ) (ProviderWriteStatus, error) {
+	// Publish the cleared batch and its completion warning together to readers.
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
 	now := runtime.now().UTC().Truncate(time.Millisecond)
 	commit, err := service.profile.FinalizeProviderWrite(ctx, store.FinalizeProviderWriteRequest{
 		BatchID: batch.ID, ExpectedVersion: batch.Version,
@@ -1165,13 +1198,12 @@ func (service *Service) finalizeProviderWrite(
 		LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationWrite,
 		ObservedAt: now,
 	}, BuildProviderWriteFinalization)
-	if err != nil {
+	if err = service.reloadAfterAuditedCommit(ctx, commit.Revision, err); err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
-	if err = service.reloadExpected(ctx, commit.Revision); err != nil {
-		return ProviderWriteStatus{}, err
-	}
-	return ProviderWriteStatus{}, nil
+	return ProviderWriteStatus{
+		Generation: batch.RefreshGeneration, AuditWarning: service.completionAuditWarning(),
+	}, nil
 }
 
 // PauseProviderWrite prevents future claims while preserving all durable item facts.
@@ -1416,6 +1448,8 @@ func (service *Service) foldProviderWriteReconcile(
 	proposedSuffixes map[string]string,
 	request ProviderWriteReconcileRequest,
 ) (ProviderWriteResult, error) {
+	service.interactions.Lock()
+	defer service.interactions.Unlock()
 	commit, err := service.profile.ReconcileProviderWrite(ctx, store.ReconcileProviderWriteRequest{
 		BatchID: batch.ID, ExpectedVersion: batch.Version,
 		ExpectedRevision:   batch.PreparedRevision,
@@ -1427,11 +1461,8 @@ func (service *Service) foldProviderWriteReconcile(
 		plan, _, planErr := buildProviderRefreshPlan(inputs)
 		return plan, planErr
 	})
-	if err != nil {
+	if err = service.reloadAfterAuditedCommit(ctx, commit.Revision, err); err != nil {
 		return ProviderWriteResult{}, mapAppError(err, service.Revision())
-	}
-	if err = service.reloadExpected(ctx, commit.Revision); err != nil {
-		return ProviderWriteResult{}, err
 	}
 	state := request.State
 	if state.Validate() != nil {
@@ -1449,6 +1480,7 @@ func (service *Service) foldProviderWriteReconcile(
 	}
 	return ProviderWriteResult{
 		Revision: commit.Revision, Generation: commit.Generation,
+		Status:    ProviderWriteStatus{Generation: commit.Generation, AuditWarning: service.completionAuditWarning()},
 		Selection: mutation.Selection, SelectionDisposition: mutation.SelectionDisposition,
 		Projection: mutation.Projection,
 	}, nil

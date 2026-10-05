@@ -81,7 +81,7 @@ func registerTransactionEditTools(server *Server, dependencies Dependencies) {
 		name, description string
 		action            app.ActionID
 	}{
-		{"toggle_transactions_hidden", "Stage hide/unhide toggles for 1–100 exact transactions, or cancel their active pending toggles. Does not commit; do not blindly retry.", app.ActionToggleHidden},
+		{"toggle_transactions_hidden", "Stage visibility edits for 1–100 exact transactions: hide visible members of a mixed selection; toggle a uniform selection or cancel its pending visibility edits. Does not commit; do not blindly retry.", app.ActionToggleHidden},
 		{"delete_transactions", "Stage undoable deletion of 1–100 exact transactions. Remote deletion requires a separate reviewed commit.", app.ActionDeleteTransaction},
 	} {
 		registerTool(server, tool.name, tool.description, false,

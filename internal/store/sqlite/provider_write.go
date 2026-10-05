@@ -113,6 +113,13 @@ func (profile *profile) PrepareProviderWrite(
 		return store.PrepareProviderWriteCommit{}, err
 	}
 	if len(plan.Items) == 0 {
+		if err = profile.appendAudit([]writeAuditEvent{{
+			Event: "provider_noop_intent", Time: request.ObservedAt,
+			BatchID: request.ProposedBatchID, Revision: snapshot.Revision,
+			OperationIDs: plan.FrozenOperationIDs, Operations: snapshot.Journal[:snapshot.Cursor],
+		}}); err != nil {
+			return store.PrepareProviderWriteCommit{}, err
+		}
 		known, knownErr := profilereplay.KnownDrillsForFold(
 			snapshot.KnownDrills, snapshot.Committed, snapshot.Journal[:snapshot.Cursor],
 		)
@@ -134,6 +141,12 @@ func (profile *profile) PrepareProviderWrite(
 		if err = finish(true); err != nil {
 			return store.PrepareProviderWriteCommit{}, err
 		}
+		if err = profile.recordAudit(ctx, []writeAuditEvent{{
+			Event: "provider_noop_committed", Time: request.ObservedAt,
+			BatchID: request.ProposedBatchID, ResultingRevision: nextRevision,
+		}}); err != nil {
+			return store.PrepareProviderWriteCommit{Revision: nextRevision}, store.NewAuditCompletionError(err)
+		}
 		return store.PrepareProviderWriteCommit{Revision: nextRevision}, nil
 	}
 	batch := store.WriteBatch{
@@ -144,6 +157,14 @@ func (profile *profile) PrepareProviderWrite(
 		FrozenPrefixDigest:   plan.FrozenPrefixDigest,
 		FrozenOperationCount: len(plan.FrozenOperationIDs), TotalItems: len(plan.Items),
 		PreparedAt: request.ObservedAt, UpdatedAt: request.ObservedAt,
+	}
+	events := providerAuditEvents("provider_planned", snapshot, providerState.Binding,
+		batch, plan.Items, nil, request.ObservedAt)
+	for index := range events {
+		events[index].Renderer = request.Lease.Renderer
+	}
+	if err = profile.appendAudit(events); err != nil {
+		return store.PrepareProviderWriteCommit{}, err
 	}
 	if err = discardRedoTail(ctx, connection, snapshot.Cursor); err != nil {
 		return store.PrepareProviderWriteCommit{}, err
@@ -201,6 +222,18 @@ func (profile *profile) ClaimProviderWriteItems(
 		}
 		items[index].AttemptCount++
 	}
+	snapshot, err := loadClaimAuditSnapshot(ctx, connection, items)
+	if err != nil {
+		return nil, err
+	}
+	binding, err := loadProviderBinding(ctx, connection)
+	if err != nil {
+		return nil, err
+	}
+	if err = profile.appendAudit(providerAuditEvents("provider_attempt", snapshot, binding,
+		batch, items, nil, request.ObservedAt)); err != nil {
+		return nil, err
+	}
 	if err = finish(true); err != nil {
 		return nil, err
 	}
@@ -234,15 +267,27 @@ func (profile *profile) RecordProviderWriteResult(
 		)
 	}
 	var itemKind store.WriteItemKind
+	var attempt int
 	if err = connection.QueryRowContext(ctx, `
-		SELECT item_kind FROM provider_write_items
-		WHERE item_id = ? AND batch_id = ?`, request.ItemID, batch.ID).Scan(&itemKind); err != nil {
+		SELECT item_kind, attempt_count FROM provider_write_items
+		WHERE item_id = ? AND batch_id = ?`, request.ItemID, batch.ID).Scan(&itemKind, &attempt); err != nil {
 		return store.WriteBatch{}, mapDriverError(err, store.CodeStoreError)
 	}
 	if itemKind != request.Result.Kind {
 		return store.WriteBatch{}, store.NewInvalidOperationError(
 			store.InvalidOperationProviderWriteRequest, errors.New("write result kind differs from item"),
 		)
+	}
+	auditEvent := "provider_acknowledged"
+	if request.VerifiedByRead {
+		auditEvent = "provider_read_confirmed"
+	}
+	if err = profile.appendAudit([]writeAuditEvent{{
+		Event: auditEvent, Time: request.Result.RecordedAt,
+		BatchID: batch.ID, ItemID: request.ItemID, Attempt: attempt,
+		TransactionExternal: request.Result.TransactionExternalID, Acknowledged: auditResponse(&request.Result),
+	}}); err != nil {
+		return store.WriteBatch{}, err
 	}
 	result, err := connection.ExecContext(ctx, `
 		UPDATE provider_write_items SET item_state = 'succeeded'
@@ -267,6 +312,9 @@ func (profile *profile) RecordProviderWriteResult(
 	batch.OverrideCount += request.Result.OverrideCount
 	if batch.CompletedItems == batch.TotalItems {
 		batch.Phase = store.WritePhaseReconciling
+		batch.AttentionClass = ""
+		batch.AttentionReason = ""
+		batch.FailedItems = 0
 	}
 	batch.UpdatedAt = request.ObservedAt
 	if err = updateWriteBatchStatus(ctx, connection, batch); err != nil {
@@ -473,6 +521,10 @@ func (profile *profile) FinalizeProviderWrite(
 	}
 	plan.Summary.CompletedAt = request.ObservedAt
 	plan.Summary.CommittedRevision = nextRevision
+	if err = profile.appendAudit(providerAuditEvents("provider_finalize_intent", snapshot,
+		providerState.Binding, batch, writeState.Items, writeState.Results, request.ObservedAt)); err != nil {
+		return store.FinalizeProviderWriteCommit{}, err
+	}
 	if err = applyProviderCommitted(
 		ctx, connection, snapshot.Committed, plan.Effective,
 		snapshot.KnownDrills, plan.KnownDrills,
@@ -498,10 +550,9 @@ func (profile *profile) FinalizeProviderWrite(
 	if err = replaceLastWriteSummary(ctx, connection, plan.Summary); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
-	if _, err = connection.ExecContext(ctx, `
-		UPDATE provider_refresh_state
-		SET last_success_unix_ms = NULL, next_eligible_unix_ms = NULL, status_code = ''
-		WHERE singleton = 1`); err != nil {
+	// A completed authenticated write supersedes an earlier reconnect failure,
+	// but does not make the cached transaction history any fresher.
+	if _, err = connection.ExecContext(ctx, clearProviderReconnectFailureSQL); err != nil {
 		return store.FinalizeProviderWriteCommit{}, mapDriverError(err, store.CodeStoreError)
 	}
 	if err = deleteOperationLease(ctx, connection, request.LeaseOwnerID, request.LeaseKind); err != nil {
@@ -510,7 +561,14 @@ func (profile *profile) FinalizeProviderWrite(
 	if err = finish(true); err != nil {
 		return store.FinalizeProviderWriteCommit{}, err
 	}
-	return store.FinalizeProviderWriteCommit{Revision: nextRevision, Summary: plan.Summary}, nil
+	commit := store.FinalizeProviderWriteCommit{Revision: nextRevision, Summary: plan.Summary}
+	if err = profile.recordAudit(ctx, []writeAuditEvent{{
+		Event: "provider_finalized", Time: request.ObservedAt,
+		BatchID: batch.ID, ResultingRevision: nextRevision,
+	}}); err != nil {
+		return commit, store.NewAuditCompletionError(err)
+	}
+	return commit, nil
 }
 
 func validateFinalizeProviderWritePlan(
