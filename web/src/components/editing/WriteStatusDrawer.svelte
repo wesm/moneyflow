@@ -44,9 +44,14 @@
           <dd><time datetime={status.next_eligible}>{status.next_eligible}</time></dd>
         </div>{/if}
     </dl>
-    <p>
-      Pausing stops future provider calls. Changes already accepted by {providerName} cannot be cancelled.
-    </p>
+    {#if controller.can('pause')}
+      <p>
+        Pausing stops future provider calls. Changes already accepted by {providerName} cannot be cancelled.
+      </p>
+    {/if}
+    {#if controller.can('reconcile')}
+      <p>Stop and reconcile discards remaining edits and reloads provider data.</p>
+    {/if}
     <div class="editing-actions">
       <Button onclick={onclose}>Close</Button>
       {#if controller.can('pause')}<Button onclick={() => void controller.pause()}>Pause</Button
@@ -54,7 +59,10 @@
       {#if controller.can('resume')}<Button
           tone="info"
           surface="solid"
-          onclick={() => void controller.resume()}>Resume</Button
+          onclick={() => void controller.resume()}
+          >{status.reason === 'provider_write_outcome_unknown'
+            ? 'Check and resume'
+            : 'Resume'}</Button
         >{/if}
       {#if controller.can('reconcile')}<Button
           tone="danger"

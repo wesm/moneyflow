@@ -23,6 +23,21 @@ release-build: web-embed-check
 help:
 	@printf '%s\n' 'web-demo  Serve the synthetic web application at http://127.0.0.1:8080/'
 
+.PHONY: test-ui-scenarios fuzz-ui ui-probe ui-probe-web
+test-ui-scenarios: web-embed
+	go test ./internal/uitest/... ./internal/tools/uiprobe -count=1
+	cd web && bun run playwright test tests/scenario.spec.ts
+
+fuzz-ui:
+	go test ./internal/uitest/runtime -run '^$$' -fuzz '^FuzzFilteredEditing$$' -fuzztime 30s -parallel 2
+
+UI_PROBE_ARGS ?=
+ui-probe:
+	go run ./internal/tools/uiprobe $(UI_PROBE_ARGS)
+
+ui-probe-web: web-embed
+	cd web && bun scripts/ui-probe.ts $(UI_PROBE_ARGS)
+
 .PHONY: docs-build docs-check docs-test docs-serve docs-screenshots docs-browser-test
 docs-build:
 	bun docs/tools/site.ts build

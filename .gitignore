@@ -70,6 +70,7 @@ result-*
 /coverage.out
 /.cache/golangci-lint/
 /.cache/web-e2e/
+/.cache/ui-harness/
 
 # Web build and test outputs
 /web/node_modules/

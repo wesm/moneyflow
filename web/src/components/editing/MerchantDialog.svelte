@@ -25,7 +25,7 @@
   )
 
   onMount(() => {
-    scope = hasSelection ? 'transactions' : 'entity'
+    scope = 'transactions'
     void controller
       .catalog()
       .then((catalog) => (merchants = catalog.merchants ?? []))

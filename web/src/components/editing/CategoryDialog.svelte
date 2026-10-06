@@ -22,7 +22,7 @@
     ),
   )
   $effect(() => {
-    if (destination === '__new__') return
+    if (!catalog || destination === '__new__') return
     if (!categories.some((choice) => choice.id === destination)) {
       destination = categories[0]?.id ?? '__new__'
     }
@@ -69,6 +69,7 @@
     <SearchInput
       value={query}
       block
+      autofocus
       ariaLabel="Filter categories"
       oninput={(value) => (query = value)}
     />

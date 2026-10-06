@@ -3,9 +3,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import WriteStatusDrawer from './WriteStatusDrawer.svelte'
 import { testProviderWriteController } from '../../test/provider-write'
+import { createProviderWriteController } from '../../lib/controller/provider-write'
 
 describe('WriteStatusDrawer', () => {
   afterEach(cleanup)
+
+  it('replaces Pause with recovery controls when a write is rejected', async () => {
+    const initial = testProviderWriteController().state.status!
+    const controller = createProviderWriteController({
+      transport: { mutations: { request: vi.fn() }, status: vi.fn() },
+      host: { current: () => undefined, accept: vi.fn(), reload: vi.fn() },
+    })
+    controller.install(initial)
+    render(WriteStatusDrawer, { controller, providerName: 'Monarch', onclose: vi.fn() })
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeTruthy()
+    controller.install({ ...initial, phase: 'attention_required', actions: ['reconcile'] })
+    expect(await screen.findByRole('button', { name: 'Stop and reconcile' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull()
+  })
 
   it('shows counts-only progress and pauses without treating close as cancel', async () => {
     const controller = testProviderWriteController()

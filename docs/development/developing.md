@@ -57,6 +57,9 @@ make verify-web
 `verify-web` checks the generated API, types, formatting, lint,
 unit tests, dependency audit, assets, and browser journeys.
 
+Use the [UI harness](ui-testing.md) to probe synthetic editing workflows, fuzz
+service histories, and replay terminal or browser failures.
+
 Install the pinned Playwright browsers when needed:
 
 ```bash
