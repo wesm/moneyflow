@@ -109,9 +109,9 @@ issues manually in the affected terminal and tmux configuration.
 
 The browser probe provides a repeatable starting point for a usability pass. Inspect
 both themes, narrow layouts, keyboard focus, filtering, editing, review, recovery,
-and empty results. Remaining browser differences include the lack of the TUI time
+and empty results. Browser scenarios check currency-valued chart axes and completed
+write counts as well as exact committed amounts and provider calls.
+
+Remaining browser differences include the lack of the TUI time
 chooser and merchant autocomplete; the browser currently uses the date filter and
 a merchant-name field. These are product gaps, not behaviors the harness simulates.
-The current charts also expose normalized ratio ticks under currency headings,
-and the completed-write drawer loses its original progress counts. Both need a
-follow-up usability change; data assertions use exact committed amounts and calls.

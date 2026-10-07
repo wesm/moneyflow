@@ -32,6 +32,8 @@ function partition(): ChartPartition {
     key: 'USD:2',
     currency: 'USD',
     scale: 2,
+    formatTick: String,
+    domain: [-10000, 0],
     marks: [
       {
         identity: 'coffee',

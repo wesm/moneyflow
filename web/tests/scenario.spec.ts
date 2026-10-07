@@ -7,6 +7,40 @@ import { withScenarioServer, type ScenarioServer } from '../scripts/scenario-ser
 test.describe.configure({ retries: 0 })
 test.use({ timezoneId: 'UTC' })
 
+test('@smoke charts label monetary values in desktop and narrow layouts', async ({
+  page,
+}, info) => {
+  await withScenarioServer(info.outputPath('scenario'), async (server) => {
+    await page.goto(server.url)
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    const chart = page.getByRole('complementary', { name: 'Visualizations' })
+    await expect(chart.locator('svg text').filter({ hasText: '−82.00' })).toBeVisible()
+    await expect(chart.locator('svg text').filter({ hasText: '−41.00' })).toBeVisible()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(chart).not.toBeVisible()
+    await expect(page.getByRole('switch', { name: 'Charts' })).not.toBeChecked()
+    await page.getByRole('switch', { name: 'Charts' }).check()
+    const drawer = page.getByRole('dialog', { name: 'Moneyflow visualizations' })
+    await expect(drawer.locator('svg text').filter({ hasText: '−82.00' })).toBeVisible()
+    expect(
+      await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
+    ).toBe(true)
+    await page.keyboard.press('Escape')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(chart).toBeVisible()
+    await page.getByRole('grid', { name: 'Financial results' }).focus()
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    for (const grouping of ['category', 'group', 'account', 'time']) {
+      await page.keyboard.press('g')
+      await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
+        `Group: ${grouping}`,
+      )
+    }
+    await expect(chart.getByRole('region', { name: 'USD time chart', exact: true })).toBeVisible()
+    await expect(chart.locator('svg text').filter({ hasText: /^0\.00$/ })).toBeVisible()
+  })
+})
+
 test('@smoke scenario failures retain evidence and successful runs remove it', async ({
   browserName,
 }, info) => {
@@ -159,6 +193,9 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     expect(after.rows.older).toEqual(before.rows.older)
     expect(after.snapshot_calls).toBe(1)
     expect(after.audit).toContain('current-a')
+    const write = page.getByRole('dialog', { name: 'Monarch write status' })
+    await expect(write.getByRole('status')).toHaveText('Provider write complete.')
+    await expect(write.getByText('2 of 2 complete', { exact: true })).toBeVisible()
   })
 })
 

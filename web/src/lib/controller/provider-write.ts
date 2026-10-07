@@ -79,6 +79,18 @@ export function createProviderWriteController(
   }
 
   function install(status: ProviderWriteStatus): void {
+    // Polling an unchanged terminal result must not erase its announcement.
+    if (
+      !status.phase &&
+      !state.status?.phase &&
+      state.phase === 'complete' &&
+      status.revision === state.status?.revision &&
+      status.completed_at === state.status?.completed_at &&
+      status.audit_warning === state.status?.audit_warning
+    ) {
+      setState({ ...state, status })
+      return
+    }
     const retainConfirmation =
       confirmationToken !== '' &&
       state.status?.phase === 'reconcile_confirmation_required' &&
@@ -216,7 +228,7 @@ export function createProviderWriteController(
           selection: response.selection?.value ?? response.projection.selection,
         } as ViewProjection)
       }
-      if (!response.status.phase) await complete()
+      if (!response.status.phase) await complete(path.includes('/reconcile'))
       return true
     } catch (error) {
       if (error instanceof MoneyflowProblem) {
@@ -250,13 +262,20 @@ export function createProviderWriteController(
     }
   }
 
-  async function complete(): Promise<void> {
+  async function complete(reconciled = false): Promise<void> {
     const projection = await options.host.reload()
     if (projection) options.host.accept(projection)
     setState({
       ...(state.status ? { status: state.status } : {}),
       phase: 'complete',
-      announcement: ['Provider write complete.', state.status?.audit_warning]
+      announcement: [
+        state.status?.completed_at
+          ? 'Provider write complete.'
+          : reconciled
+            ? 'Provider write stopped. Remaining edits discarded.'
+            : 'Provider write ended.',
+        state.status?.audit_warning,
+      ]
         .filter(Boolean)
         .join(' '),
     })
@@ -278,7 +297,7 @@ export function createProviderWriteController(
 }
 
 function phaseFor(status: ProviderWriteStatus): ProviderWritePhase {
-  if (!status.phase) return status.audit_warning ? 'complete' : 'idle'
+  if (!status.phase) return status.completed_at || status.audit_warning ? 'complete' : 'idle'
   if (status.phase === 'paused') return 'paused'
   if (status.phase === 'attention_required') return 'attention'
   if (status.phase === 'reconcile_confirmation_required') return 'confirmation'
@@ -295,9 +314,12 @@ function phaseForProblem(code: string): ProviderWritePhase {
 
 function announcementFor(status: ProviderWriteStatus, providerName: string): string {
   if (!status.phase)
-    return status.audit_warning
-      ? `Provider write complete. ${status.audit_warning}`
-      : 'No provider write is active.'
+    return [
+      status.completed_at ? 'Provider write complete.' : 'No provider write is active.',
+      status.audit_warning,
+    ]
+      .filter(Boolean)
+      .join(' ')
   if (status.phase === 'paused')
     return 'Provider write paused. Already accepted writes remain applied.'
   if (status.phase === 'attention_required') {

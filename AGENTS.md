@@ -113,25 +113,15 @@ memanto memory sync --project-dir .
 <!-- markdownlint-enable MD013 -->
 <!-- /MEMANTO-MANAGED-SECTION -->
 
-## CRITICAL: Git Branch Management for AI Assistants
+## Git Branch Management
 
-**⚠️ NEVER change git branches, pull, or create new branches without explicit user permission.**
+Fetch remote refs and create or switch task branches as needed for authorized work without
+asking for separate branch approval. After a PR is merged, start new work from the latest
+`origin/main`. Honor explicit user instructions to stay on a particular branch.
 
-- ✅ **ALWAYS ask before** `git checkout <branch>`
-- ✅ **ALWAYS ask before** `git pull` or `git fetch` followed by merge/rebase
-- ✅ **ALWAYS ask before** creating new branches
-- ✅ **Stay on the branch the user checked out** unless they explicitly ask you to switch
-- ❌ **NEVER run `git checkout` on your own**
-- ❌ **NEVER run `git pull` on your own**
-- ❌ **NEVER create branches autonomously**
-- ❌ **NEVER switch branches when starting a new task** - the user has already set up the branch
-
-**If you need to work on a different branch**, ask the user first:
-
-- "Should I switch to branch X to work on this?"
-- "Should I create a new branch for this feature?"
-
-**When the user says a PR is merged**, do NOT automatically checkout main and pull. Wait for explicit instructions.
+Inspect the worktree before switching and preserve existing changes. Do not reset, discard,
+stash, overwrite, or rewrite existing work without explicit authorization. Use fast-forward
+updates where possible; ask before a merge or rebase would rewrite existing work.
 
 ## CRITICAL: Personal Data Protection
 
@@ -185,7 +175,7 @@ Do not create a second assistant-specific instruction file or private project me
 
 ## Development
 
-Stay on the branch the user selected. The replacement is developed on `go-port`.
+Use task branches as described in Git Branch Management above.
 Use `mise trust` and `mise install` to select the tools pinned in `mise.toml`, including
 Go 1.27.1 and Bun 1.3.14. Run commands through `mise exec --` when shell activation is absent.
 Do not work around toolchain selection with shell-specific Go version exports.
@@ -246,8 +236,8 @@ verification path and report the exact failing or skipped timing gate. Do not re
 to hide a failure. Live tests need explicit authorization; synthetic tests must pass first.
 
 Commit every verified agent-authored change before yielding. Live confirmation is follow-up
-evidence, not a reason to leave verified changes uncommitted. Never amend, push, create a
-branch, or merge without explicit user authorization. Preserve unrelated changes.
+evidence, not a reason to leave verified changes uncommitted. Never amend, push, or merge
+without explicit user authorization. Preserve unrelated changes.
 
 Use conventional commit subjects. PR descriptions explain the change and useful context;
 do not include a Test Plan, Verification, or similar checklist. Report checks in chat instead.

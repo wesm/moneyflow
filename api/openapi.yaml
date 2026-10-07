@@ -1711,6 +1711,9 @@ components:
         completed:
           format: int64
           type: integer
+        completed_at:
+          format: date-time
+          type: string
         failed:
           format: int64
           type: integer

@@ -5,9 +5,48 @@ import { testProjection } from '../../test/projection'
 import { createProviderWriteController } from './provider-write'
 
 describe('provider write controller', () => {
+  it('keeps recorded completion counts and its announcement across repeated polls', async () => {
+    const transport = transportStub({
+      status: writeStatus({
+        completed_at: '2026-10-15T12:00:00Z',
+        total: 2,
+        completed: 2,
+        overrides: 1,
+      }),
+    })
+    const host = hostStub()
+    const controller = createProviderWriteController({ transport, host })
+    controller.install(writeStatus({ phase: 'writing', total: 2, completed: 1, remaining: 1 }))
+    await controller.poll()
+    await controller.poll()
+    expect(controller.state.phase).toBe('complete')
+    expect(controller.state.announcement).toBe('Provider write complete.')
+    expect(controller.state.status).toMatchObject({
+      total: 2,
+      completed: 2,
+      remaining: 0,
+      overrides: 1,
+    })
+    expect(host.reload).toHaveBeenCalledOnce()
+  })
+
+  it('reports discarded edits after reconciliation instead of successful writes', async () => {
+    const controller = createProviderWriteController({
+      transport: transportStub(),
+      host: hostStub(),
+    })
+    controller.install(writeStatus({ phase: 'attention_required', total: 2, batch_version: '4' }))
+    await controller.reconcile()
+    await controller.poll()
+    expect(controller.state.phase).toBe('complete')
+    expect(controller.state.announcement).toBe('Provider write stopped. Remaining edits discarded.')
+  })
+
   it('keeps completion audit warnings after refreshing and polling again', async () => {
     const warning = 'The audit log could not record completion.'
-    const transport = transportStub({ status: writeStatus({ audit_warning: warning }) })
+    const transport = transportStub({
+      status: writeStatus({ audit_warning: warning, completed_at: '2026-10-15T12:00:00Z' }),
+    })
     const host = hostStub()
     const controller = createProviderWriteController({ transport, host })
     controller.install(writeStatus({ phase: 'writing', batch_version: '4' }))

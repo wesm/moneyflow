@@ -403,11 +403,6 @@ input {
   margin: 0 0 var(--space-4);
   font-size: var(--font-size-sm);
 }
-.chart-description {
-  margin: 0 0 var(--space-5);
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
-}
 .chart-partition + .chart-partition {
   margin-top: var(--space-7);
   padding-top: var(--space-6);

@@ -104,6 +104,31 @@ func TestProviderCommitReturnsPreparedBatchAndStartsWebWorker(t *testing.T) {
 		return current.Phase == "" && current.BatchVersion == ""
 	}, 3*time.Second, 10*time.Millisecond)
 	assert.Equal(t, 1, fixture.source.writeCount())
+	for range 2 {
+		response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/write-status", nil)
+		require.Equal(t, http.StatusOK, response.Code)
+		var status ProviderWriteStatusResponse
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
+		assert.Equal(t, 1, status.Total)
+		assert.Equal(t, 1, status.Completed)
+		assert.Zero(t, status.Remaining)
+		assert.Empty(t, status.Actions)
+		assert.NotEmpty(t, status.CompletedAt)
+	}
+	// A later edit must not inherit the previous batch's completion receipt.
+	view = projectPersistentViewForQuery(t, fixture.server, query)
+	mutatedResponse = requestProtectedJSON(t, fixture.server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: view.Revision,
+		Query: query, Selection: view.Selection, Action: app.ActionToggleHidden,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: view.DetailRows[0].Identity},
+		Input:  MutationInput{}, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, mutatedResponse.Code, mutatedResponse.Body.String())
+	response := requestServer(t, fixture.server, http.MethodGet, "/api/v1/provider/write-status", nil)
+	var next ProviderWriteStatusResponse
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &next))
+	assert.Empty(t, next.CompletedAt)
+	assert.Zero(t, next.Completed)
 }
 
 func TestProviderWriteStatusActionsArePhaseSpecific(t *testing.T) {
