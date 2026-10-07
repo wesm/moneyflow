@@ -177,12 +177,6 @@ try {
     await page.getByRole("combobox", { name: /^Category:/ }).click();
     await page.getByRole("option", { name: "Category 16", exact: true }).click();
     await page.getByRole("button", { name: "Save pending change" }).click();
-    // The web editor asks for explicit re-invocation after refreshing a bulk
-    // selection (the same interaction asserted by the editing browser tests).
-    await expect(
-      page.getByRole("dialog", { name: "Change category" }),
-    ).toContainText("Selection refreshed. Invoke the action again.");
-    await page.getByRole("button", { name: "Save pending change" }).click();
     await page
       .getByRole("dialog", { name: "Change category" })
       .waitFor({ state: "hidden", timeout: 5_000 })

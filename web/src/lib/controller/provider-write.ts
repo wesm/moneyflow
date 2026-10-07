@@ -96,6 +96,7 @@ export function createProviderWriteController(
   }
 
   function can(action: string): boolean {
+    subscribe()
     if (state.status?.phase === 'reconcile_confirmation_required') {
       if (action === 'confirm') return confirmationToken !== ''
       if (action === 'reconcile') return confirmationToken === ''
@@ -299,7 +300,14 @@ function announcementFor(status: ProviderWriteStatus, providerName: string): str
       : 'No provider write is active.'
   if (status.phase === 'paused')
     return 'Provider write paused. Already accepted writes remain applied.'
-  if (status.phase === 'attention_required') return attentionMessage(status.reason, providerName)
+  if (status.phase === 'attention_required') {
+    if (
+      status.reason === 'provider_write_outcome_unknown' &&
+      (status.actions ?? []).includes('resume')
+    )
+      return 'A provider request may have succeeded. Check and resume verifies affected transactions before continuing.'
+    return attentionMessage(status.reason, providerName)
+  }
   if (status.phase === 'reconnect_required')
     return `Reconnect ${providerName} to continue this write.`
   if (status.phase === 'rate_limited')

@@ -291,7 +291,7 @@ func providerWriteActions(status app.ProviderWriteStatus) []string {
 	case store.WritePhasePaused:
 		return []string{"resume", "reconcile"}
 	case store.WritePhaseAttentionRequired:
-		if status.AttentionClass == store.WriteAttentionRetryable {
+		if status.AttentionClass == store.WriteAttentionRetryable || status.CanCheckOutcome {
 			return []string{"resume", "reconcile"}
 		}
 		return []string{"reconcile"}

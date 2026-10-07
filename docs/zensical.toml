@@ -20,7 +20,7 @@ nav = [
   { "Interfaces" = [{ "TUI quick start" = "getting-started/go.md" }, { "Web" = "guide/web.md" }, { "MCP" = "guide/mcp.md" }] },
   { "Providers" = [{ "Monarch" = "guide/monarch.md" }, { "YNAB" = "guide/ynab.md" }, { "Amazon" = "guide/amazon-mode.md" }, { "Bank CSV" = "guide/bank-csv.md" }, { "SimpleFIN (experimental)" = "guide/simplefin.md" }] },
   { "Reference" = [{ "Commands and configuration" = "reference/cli.md" }, { "Troubleshooting" = "reference/troubleshooting.md" }] },
-  { "Development" = [{ "Build and test" = "development/developing.md" }, { "Contributing" = "development/contributing.md" }, { "Releases" = "development/releases.md" }] },
+  { "Development" = [{ "Build and test" = "development/developing.md" }, { "UI testing" = "development/ui-testing.md" }, { "Contributing" = "development/contributing.md" }, { "Releases" = "development/releases.md" }] },
   { "Architecture" = [
     { "Overview" = "architecture/index.md" },
     { "State and storage" = "architecture/state-and-storage.md" },

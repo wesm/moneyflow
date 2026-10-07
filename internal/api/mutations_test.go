@@ -337,13 +337,6 @@ func TestAllResultSelectionMutationReturnsOnlyOpaqueClearedSelection(t *testing.
 		Window: Window{Limit: 200},
 	}
 	response := requestProtectedJSON(t, server, "/api/v1/mutations", body)
-	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
-	var stale Problem
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &stale))
-	require.NotNil(t, stale.Selection)
-	assert.Equal(t, "refreshed", stale.Selection.Kind)
-	body.Selection = stale.Selection.Value
-	response = requestProtectedJSON(t, server, "/api/v1/mutations", body)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var result MutationResponse
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
@@ -351,6 +344,18 @@ func TestAllResultSelectionMutationReturnsOnlyOpaqueClearedSelection(t *testing.
 	assert.Equal(t, string(app.EmptySelection()), result.Selection.Value)
 	assert.NotContains(t, response.Body.String(), `"ids"`)
 	assert.Less(t, len(result.Selection.Value), 2048)
+
+	// A fresh selection can be used immediately, but an older selection must
+	// still be reviewed after the profile changes, even with a current revision.
+	body.ExpectedRevision = result.Revision
+	response = requestProtectedJSON(t, server, "/api/v1/mutations", body)
+	require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+	var stale Problem
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &stale))
+	assert.Equal(t, string(CodeSelectionStale), stale.Code)
+	require.NotNil(t, stale.Selection)
+	assert.Equal(t, "refreshed", stale.Selection.Kind)
+	assert.Equal(t, result.Revision, projectPersistentView(t, server).Revision)
 }
 
 func TestMutationFailureNeverEchoesTargetLabelsOrQueryText(t *testing.T) {

@@ -361,6 +361,10 @@ func (service *Service) transitionViewLocked(
 		if nextSelection == selection {
 			return rejectedTransition(state, selection, noChangeWeb(errors.New("selection did not change")))
 		}
+		nextSelection, err = BindSelectionRevision(nextSelection, service.Revision())
+		if err != nil {
+			return rejectedTransition(state, selection, err)
+		}
 		projection, err := service.projectViewLocked(state, nextSelection, window)
 		if err != nil {
 			return rejectedTransition(state, selection, err)

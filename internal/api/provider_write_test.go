@@ -118,6 +118,8 @@ func TestProviderWriteStatusActionsArePhaseSpecific(t *testing.T) {
 		{name: "paused", status: app.ProviderWriteStatus{Phase: store.WritePhasePaused}, want: []string{"resume", "reconcile"}},
 		{name: "retryable", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, AttentionClass: store.WriteAttentionRetryable}, want: []string{"resume", "reconcile"}},
 		{name: "reconcile only", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, AttentionClass: store.WriteAttentionReconcileOnly}, want: []string{"reconcile"}},
+		{name: "unknown without recovery", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, AttentionClass: store.WriteAttentionReconcileOnly, AttentionReason: store.WriteAttentionOutcomeUnknown, ResumeTarget: store.WriteResumeWriting}, want: []string{"reconcile"}},
+		{name: "unknown with recovery", status: app.ProviderWriteStatus{Phase: store.WritePhaseAttentionRequired, AttentionClass: store.WriteAttentionReconcileOnly, AttentionReason: store.WriteAttentionOutcomeUnknown, ResumeTarget: store.WriteResumeWriting, CanCheckOutcome: true}, want: []string{"resume", "reconcile"}},
 		{name: "confirmation", status: app.ProviderWriteStatus{Phase: store.WritePhaseReconcileConfirmationRequired}, want: []string{"confirm"}},
 	}
 	for _, test := range tests {

@@ -35,7 +35,7 @@ export interface OnboardingE2EServerOptions {
   recoveryProfile?: boolean
 }
 
-async function availablePort(): Promise<number> {
+export async function availablePort(): Promise<number> {
   return await new Promise((resolvePort, reject) => {
     const server = createServer()
     server.unref()
@@ -56,7 +56,7 @@ function normalizedBasePath(basePath: string): string {
   return `/${basePath.replace(/^\/+|\/+$/g, '')}/`
 }
 
-async function waitForApplication(
+export async function waitForApplication(
   child: ChildProcess,
   applicationURL: string,
   stderr: () => string,

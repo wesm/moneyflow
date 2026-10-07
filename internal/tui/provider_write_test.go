@@ -127,7 +127,7 @@ func TestProviderWriteOverlayActionsAndEstimate(t *testing.T) {
 	assert.Contains(t, model.providerWriteGuidance(model.providerWrite.status), "Reconnect")
 }
 
-func TestProviderWriteCheckAndResumeOnlyForMonarchUnknownOutcome(t *testing.T) {
+func TestProviderWriteCheckAndResumeUsesRecoveryCapability(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name   string
@@ -137,6 +137,7 @@ func TestProviderWriteCheckAndResumeOnlyForMonarchUnknownOutcome(t *testing.T) {
 		resume bool
 	}{
 		{"Monarch unknown outcome", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, true},
+		{"Monarch exhausted deletion", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, false},
 		{"YNAB unknown outcome", "ynab", store.WriteAttentionOutcomeUnknown, store.WriteResumeWriting, false},
 		{"Monarch rejected edit", "monarch", store.WriteAttentionRejected, store.WriteResumeWriting, false},
 		{"Monarch reconciliation", "monarch", store.WriteAttentionOutcomeUnknown, store.WriteResumeReconciling, false},
@@ -153,6 +154,7 @@ func TestProviderWriteCheckAndResumeOnlyForMonarchUnknownOutcome(t *testing.T) {
 				Phase: store.WritePhaseAttentionRequired, Version: 7,
 				AttentionClass:  store.WriteAttentionReconcileOnly,
 				AttentionReason: test.reason, ResumeTarget: test.target,
+				CanCheckOutcome: test.resume,
 			}
 			frame := strings.Join(model.RenderScreen().Frame.PlainLines(), "\n")
 			updated, command := model.Update(keyRune('r'))

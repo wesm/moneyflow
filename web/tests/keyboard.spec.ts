@@ -35,6 +35,8 @@ test('cycles every grouping, account direct view, detail, drill, subgroup, and b
   await page.keyboard.press('d')
   await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
   await page.keyboard.press('Escape')
+  // The grouping label is unchanged in detail mode; wait for the aggregate view.
+  await expect(page.getByRole('columnheader', { name: 'Count', exact: true })).toBeVisible()
   await expect(refinement(page)).toContainText('Group: account')
 
   await page.keyboard.press('g')

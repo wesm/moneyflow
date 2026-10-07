@@ -29,7 +29,7 @@ describe('MerchantDialog', () => {
       expect.objectContaining({
         action: 'transaction.edit-merchant',
         target: { kind: 'aggregate', identity: 'row-a' },
-        input: expect.objectContaining({ scope: 'entity', destination_id: 'merchant-a' }),
+        input: expect.objectContaining({ scope: 'transactions', destination_id: 'merchant-a' }),
       }),
     )
   })

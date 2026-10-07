@@ -83,7 +83,8 @@
       if (focusedRow()) openOverlay('category')
     } else if (action === 'manage.categories') openOverlay('categories')
     else if (action === 'manage.groups') openOverlay('groups')
-    else if (action === 'edit.review') openOverlay('review')
+    else if (action === 'edit.review')
+      openOverlay(controller.providerWrite.state.status?.phase ? 'write' : 'review')
     else if (action === 'view.duplicates') openOverlay('duplicates')
     else if (action === 'provider.refresh') {
       if (projection?.profile_kind === 'amazon') onamazonimport?.()
@@ -180,6 +181,8 @@
     })
   }
   function focusGrid(): void {
+    // A table request can finish after the user has opened a dialog.
+    if (overlay !== undefined || chartDrawer) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   async function confirmDirectDelete(): Promise<void> {

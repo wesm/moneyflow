@@ -59,3 +59,14 @@ jobs:
           make test-editing-e2e
           make test-provider-e2e
           make web-e2e
+
+      - name: Upload synthetic browser failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-ui-harness
+          path: |
+            web/test-results/
+            web/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore

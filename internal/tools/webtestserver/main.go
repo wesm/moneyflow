@@ -53,13 +53,14 @@ func main() {
 func run(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet("webtestserver", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var root, rootToken, listen, basePath string
+	var root, rootToken, listen, basePath, scenarioPath string
 	var recoveryProfile bool
 	flags.StringVar(&root, "home", "", "temporary profile catalog root")
 	flags.StringVar(&rootToken, "root-token", "", "per-run isolated root capability")
 	flags.StringVar(&listen, "listen", "127.0.0.1:0", "loopback listen address")
 	flags.StringVar(&basePath, "base-path", "/", "browser base path")
 	flags.BoolVar(&recoveryProfile, "recovery-profile", false, "install a corrupt recovery fixture")
+	flags.StringVar(&scenarioPath, "scenario", "", "synthetic UI scenario descriptor")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return errors.New("parse arguments")
 	}
@@ -68,6 +69,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	if !strings.HasPrefix(listen, "127.0.0.1:") && !strings.HasPrefix(listen, "[::1]:") {
 		return errors.New("listen address must be loopback")
+	}
+	if scenarioPath != "" {
+		return runScenario(ctx, root, scenarioPath, listen, basePath)
 	}
 
 	catalogPaths, err := home.ResolveCatalogRoot(root, nil, "")
