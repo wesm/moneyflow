@@ -14,21 +14,44 @@
   let label = $state('')
   let scope = $state('')
   let merchants = $state<Array<{ id: string; label: string }>>([])
+  let loaded = $state(false)
+  const uid = $props.id()
   let error = $state('')
   let submitting = $state(false)
   let preview = $state<MerchantPreview>()
   let previewError = $state('')
-  const collision = $derived(
-    merchants.find(
-      (merchant) => merchant.label.trim().toLocaleLowerCase() === label.trim().toLocaleLowerCase(),
-    ),
-  )
+  const choices = $derived.by(() => {
+    const query = label.trim().toLocaleLowerCase()
+    if (!query || !loaded) return []
+    const matches = merchants.filter((merchant) =>
+      merchant.label.toLocaleLowerCase().includes(query),
+    )
+    const exact = matches.find((merchant) => merchant.label.trim().toLocaleLowerCase() === query)
+    if (exact) return [exact, ...matches.filter((merchant) => merchant !== exact)]
+    return [...matches, { id: '', label: label.trim() }]
+  })
+  // A new search resets manual selection to its first result, including after Create.
+  let highlighted = $derived(choices.length ? 0 : -1)
+  const choice = $derived(choices[highlighted])
+  // Use TextInput's combobox contract for an inline list. Typeahead's popup would
+  // cover the affected-transaction preview and selects a custom name by default.
+  const suggestionAttributes = $derived({
+    role: 'combobox' as const,
+    ariaExpanded: choices.length > 0,
+    ariaAutocomplete: 'list' as const,
+    ...(choice
+      ? { ariaControls: `${uid}-choices`, ariaActivedescendant: `${uid}-choice-${highlighted}` }
+      : {}),
+  })
 
   onMount(() => {
     scope = 'transactions'
     void controller
       .catalog()
-      .then((catalog) => (merchants = catalog.merchants ?? []))
+      .then((catalog) => {
+        merchants = catalog.merchants ?? []
+        loaded = true
+      })
       .catch(() => (error = 'Merchant choices could not be loaded.'))
   })
 
@@ -50,25 +73,34 @@
     return () => request.abort()
   })
 
+  function keydown(event: KeyboardEvent): void {
+    if (event.isComposing || !choices.length) return
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    highlighted =
+      (highlighted + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % choices.length
+    document.getElementById(`${uid}-choice-${highlighted}`)?.scrollIntoView({ block: 'nearest' })
+  }
+
   async function submit(): Promise<void> {
-    if (!preview) return
+    if (!preview || !loaded || submitting) return
     if (BigInt(preview.revision) !== controller.state.revision) {
       error = 'The profile changed. Reopen this editor to review affected transactions.'
       return
     }
-    if (!label.trim()) {
+    if (!choice) {
       error = 'Enter a merchant name.'
       return
     }
     submitting = true
     const destination =
-      collision?.id ?? (scope === 'transactions' ? `merchant_${crypto.randomUUID()}` : '')
+      choice.id || (scope === 'transactions' ? `merchant_${crypto.randomUUID()}` : '')
     const accepted = await controller.submit({
       action: 'transaction.edit-merchant',
       target,
       input: {
         scope,
-        label: label.trim(),
+        label: choice.label,
         ...(destination ? { destination_id: destination } : {}),
       },
     })
@@ -86,8 +118,40 @@
       void submit()
     }}
   >
-    <label for="merchant-name">Merchant name</label>
-    <TextInput id="merchant-name" bind:value={label} block autofocus invalid={!!error} />
+    <label for="{uid}-name">Merchant name</label>
+    <TextInput
+      id="{uid}-name"
+      bind:value={label}
+      block
+      autofocus
+      autocomplete="off"
+      invalid={!!error}
+      {...suggestionAttributes}
+      onkeydown={keydown}
+    />
+    {#if choices.length}
+      <!-- kit-ui-check-ignore: inline list for the merchant field, not a separate popup picker -->
+      <div class="merchant-choices" role="listbox" id="{uid}-choices" aria-label="Merchants">
+        {#each choices as candidate, index (candidate.id)}
+          <!-- kit-ui-check-ignore: listbox options need option roles and active-descendant focus -->
+          <button
+            type="button"
+            role="option"
+            id="{uid}-choice-{index}"
+            aria-selected={index === highlighted}
+            tabindex="-1"
+            onclick={() => {
+              highlighted = index
+              document.getElementById(`${uid}-name`)?.focus()
+            }}
+          >
+            {candidate.id
+              ? candidate.label
+              : `${scope === 'entity' ? 'Rename to' : 'Create'} “${candidate.label}”`}
+          </button>
+        {/each}
+      </div>
+    {/if}
     <span class="editing-label">Scope</span>
     <SelectDropdown
       value={scope}
@@ -141,20 +205,45 @@
     {:else}
       <p>Loading affected transactions…</p>
     {/if}
-    {#if collision}<p role="status">This will merge or reassign into {collision.label}.</p>{/if}
+    {#if choice?.id && scope === 'entity'}<p role="status">Merge into {choice.label}.</p>{/if}
     {#if error}<p class="editing-error" role="alert">{error}</p>{/if}
     <div class="editing-actions">
       <Button type="button" onclick={onclose}>Cancel</Button><Button
         type="submit"
         tone="info"
         surface="solid"
-        disabled={submitting || !preview}>Save pending change</Button
+        disabled={submitting || !preview || !loaded || !choice}>Save pending change</Button
       >
     </div>
   </form>
 </Modal>
 
 <style>
+  .merchant-choices {
+    max-height: 10rem;
+    overflow-y: auto;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+  }
+  .merchant-choices button {
+    display: block;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+  .merchant-choices button:hover {
+    background: var(--bg-surface-hover);
+  }
+  .merchant-choices button[aria-selected='true'] {
+    background: color-mix(in srgb, var(--accent-blue) 12%, transparent);
+    box-shadow: inset 3px 0 var(--accent-blue);
+  }
   .merchant-preview {
     min-width: 0;
   }

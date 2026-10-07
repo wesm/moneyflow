@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import AxeBuilder from '@axe-core/playwright'
 
 import { withScenarioServer, type ScenarioServer } from '../scripts/scenario-server'
 
@@ -167,7 +168,10 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     await page.keyboard.press('m')
     const edit = page.getByRole('dialog', { name: 'Edit merchant', exact: true })
     await expect(edit.getByText('2 transactions affected', { exact: true })).toBeVisible()
-    await edit.getByLabel('Merchant name').fill('Destination Shop')
+    await edit.getByLabel('Merchant name').fill('Dest')
+    await expect(
+      edit.getByRole('option', { name: 'Destination Shop', exact: true }),
+    ).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
     await expect(edit).not.toBeVisible()
     expect((await server.observe()).targets).toEqual(['current-a', 'current-b'])
@@ -196,6 +200,64 @@ test('@smoke filtered merchant editing preserves committed data until the provid
     const write = page.getByRole('dialog', { name: 'Monarch write status' })
     await expect(write.getByRole('status')).toHaveText('Provider write complete.')
     await expect(write.getByText('2 of 2 complete', { exact: true })).toBeVisible()
+  })
+})
+
+test('@smoke merchant suggestions support keyboard selection and explicit creation at narrow width', async ({
+  page,
+}, info) => {
+  await withScenarioServer(info.outputPath('scenario'), async (server) => {
+    await september(page, server)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.emulateMedia({ colorScheme: 'dark' })
+    const before = await server.observe()
+    await page.keyboard.press('m')
+    const edit = page.getByRole('dialog', { name: 'Edit merchant' })
+    const input = edit.getByRole('combobox', { name: 'Merchant name', exact: true })
+    await expect(input).toBeFocused()
+    await input.fill('Shop')
+    await input.press('ArrowDown')
+    await expect(edit.getByRole('option', { name: 'Example Shop', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    // A changed query resets the selection; Up wraps to the explicit new-name option.
+    await input.fill('Dest')
+    const existing = edit.getByRole('option', { name: 'Destination Shop', exact: true })
+    await expect(existing).toHaveAttribute('aria-selected', 'true')
+    await input.press('ArrowUp')
+    const create = edit.getByRole('option', { name: 'Create “Dest”', exact: true })
+    await expect(create).toHaveAttribute('aria-selected', 'true')
+    await expect(input).toHaveAttribute(
+      'aria-activedescendant',
+      (await create.getAttribute('id')) ?? '',
+    )
+    // Audit the settled theme and enabled state, after their color/opacity transitions.
+    await page.evaluate(async () => {
+      await Promise.all(document.getAnimations().map((animation) => animation.finished))
+    })
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([])
+    expect(
+      await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth),
+    ).toBe(true)
+    await input.press('Enter')
+    await expect(edit).not.toBeVisible()
+    await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+    const staged = await server.observe()
+    expect(staged.targets).toEqual(['current-a', 'current-b'])
+    expect(staged.rows).toEqual(before.rows)
+    expect(staged.calls).toEqual(before.calls)
+    await page.keyboard.press('w')
+    await page.getByRole('button', { name: 'Commit reviewed changes' }).click()
+    await expect.poll(async () => (await server.observe()).pending).toBe(0)
+    const after = await server.observe()
+    expect(after.rows['current-a']?.merchant).toBe('Dest')
+    expect(after.rows['current-b']?.merchant).toBe('Dest')
+    for (const id of ['older', 'other-month', 'hidden', 'other-account', 'destination']) {
+      expect(after.rows[id]).toEqual(before.rows[id])
+    }
+    expect(after.snapshot_calls).toBe(1)
+    expect(after.calls.filter((call) => call.method === 'update')).toHaveLength(2)
   })
 })
 

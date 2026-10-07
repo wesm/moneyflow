@@ -110,8 +110,9 @@ issues manually in the affected terminal and tmux configuration.
 The browser probe provides a repeatable starting point for a usability pass. Inspect
 both themes, narrow layouts, keyboard focus, filtering, editing, review, recovery,
 and empty results. Browser scenarios check currency-valued chart axes and completed
-write counts as well as exact committed amounts and provider calls.
+write counts as well as exact committed amounts and provider calls. Merchant editing
+scenarios cover partial-match selection, explicit creation, keyboard navigation,
+and preserving filtered scope through provider completion.
 
-Remaining browser differences include the lack of the TUI time
-chooser and merchant autocomplete; the browser currently uses the date filter and
-a merchant-name field. These are product gaps, not behaviors the harness simulates.
+The browser still uses the date filter instead of the TUI time chooser. This is a
+product gap, not a behavior the harness simulates.
