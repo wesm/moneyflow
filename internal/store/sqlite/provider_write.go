@@ -166,7 +166,7 @@ func (profile *profile) PrepareProviderWrite(
 	if err = profile.appendAudit(events); err != nil {
 		return store.PrepareProviderWriteCommit{}, err
 	}
-	if err = discardRedoTail(ctx, connection, snapshot.Cursor); err != nil {
+	if err = truncateRedoTail(ctx, connection, snapshot.Cursor, len(snapshot.Journal)); err != nil {
 		return store.PrepareProviderWriteCommit{}, err
 	}
 	if err = insertWriteBatch(ctx, connection, batch, plan); err != nil {
@@ -676,14 +676,6 @@ func acquireLeaseInTransaction(
 			singleton, owner_id, renderer, operation_kind, expires_at_unix_ms
 		) VALUES (1, ?, ?, ?, ?)`, candidate.OwnerID, candidate.Renderer,
 		candidate.Kind, candidate.ExpiresAt.UnixMilli()); err != nil {
-		return mapDriverError(err, store.CodeStoreError)
-	}
-	return nil
-}
-
-func discardRedoTail(ctx context.Context, connection *sql.Conn, cursor int) error {
-	if _, err := connection.ExecContext(ctx,
-		"DELETE FROM journal_operations WHERE sequence > ?", cursor); err != nil {
 		return mapDriverError(err, store.CodeStoreError)
 	}
 	return nil

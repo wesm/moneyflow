@@ -48,6 +48,77 @@ func TestRecordedRequestBudgetFailure(t *testing.T) {
 	require.Equal(t, "snapshot-budget", failure.Kind)
 }
 
+func TestReplayCancelsPendingHide(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		actions  []scenario.Action
+		category string
+	}{
+		{
+			name: "consecutive hides cancel across reopen",
+			actions: []scenario.Action{
+				{Kind: "stage", Value: "hide"},
+				{Kind: "stage", Value: "hide"},
+				{Kind: "reopen"},
+			},
+			category: "Home",
+		},
+		{
+			name: "interleaved category remains undoable and committable",
+			actions: []scenario.Action{
+				{Kind: "stage", Value: "hide"},
+				{Kind: "stage", Value: "category"},
+				{Kind: "stage", Value: "hide"},
+				{Kind: "undo"},
+				{Kind: "redo"},
+				{Kind: "commit"},
+			},
+			category: "Health",
+		},
+		{
+			name: "commit preserves category and discards redo after cancellation",
+			actions: []scenario.Action{
+				{Kind: "stage", Value: "hide"},
+				{Kind: "stage", Value: "category"},
+				{Kind: "stage", Value: "hide"},
+				{Kind: "stage", Value: "merchant"},
+				{Kind: "undo"},
+				{Kind: "commit"},
+			},
+			category: "Health",
+		},
+		{
+			name: "cancellation discards redo history",
+			actions: []scenario.Action{
+				{Kind: "stage", Value: "hide"},
+				{Kind: "stage", Value: "category"},
+				{Kind: "undo"},
+				{Kind: "stage", Value: "hide"},
+				{Kind: "reopen"},
+			},
+			category: "Home",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := uitest.TestRoot(t)
+			require.NoError(t, scenario.Execute(t.Context(), root, test.actions))
+			run, err := scenario.Open(t.Context(), filepath.Join(root, "state"))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, run.Close()) })
+			observed, err := run.Observe(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, observed.Pending)
+			require.Zero(t, observed.Redo)
+			require.Empty(t, observed.Targets)
+			for _, id := range []string{"current-a", "current-b"} {
+				require.False(t, observed.Rows[id].Hidden)
+				require.Equal(t, test.category, observed.Rows[id].Category)
+				require.Equal(t, "Example Shop", observed.Rows[id].Merchant)
+			}
+		})
+	}
+}
+
 func TestReductionKeepsTheOriginalTargetAssertion(t *testing.T) {
 	actions := []scenario.Action{
 		{Kind: "stage", Value: "category"},

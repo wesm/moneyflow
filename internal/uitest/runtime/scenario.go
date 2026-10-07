@@ -110,8 +110,15 @@ func Execute(ctx context.Context, root string, actions []Action) (resultErr erro
 		case "stage":
 			stepErr = run.Stage(ctx, FilteredSession(), action.Value, "")
 			if stepErr == nil {
-				edits = append(edits[:cursor], action.Value)
-				cursor++
+				edits = edits[:cursor]
+				if hide := slices.Index(edits, "hide"); action.Value == "hide" && hide >= 0 {
+					// These actions target the same two fixture rows. A second
+					// hide cancels their active hide without adding an undo unit.
+					edits = slices.Delete(edits, hide, hide+1)
+				} else {
+					edits = append(edits, action.Value)
+				}
+				cursor = len(edits)
 			}
 		case "undo":
 			_, stepErr = run.Service.Undo(ctx, run.Service.Revision())
