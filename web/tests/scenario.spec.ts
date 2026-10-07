@@ -162,6 +162,44 @@ test('@smoke filtered merchant editing preserves committed data until the provid
   })
 })
 
+test('@smoke a delayed row selection keeps focus in the category editor', async ({
+  page,
+}, info) => {
+  await withScenarioServer(info.outputPath('scenario'), async (server) => {
+    let releaseSelection!: () => void
+    const selectionReleased = new Promise<void>((resolve) => (releaseSelection = resolve))
+    await page.route('**/view/transition', async (route) => {
+      if (route.request().postDataJSON().action !== 'selection.toggle') {
+        await route.continue()
+        return
+      }
+      const response = await route.fetch()
+      await selectionReleased
+      await route.fulfill({ response })
+    })
+    try {
+      await september(page, server)
+      await page.keyboard.press('c')
+      const edit = page.getByRole('dialog', { name: 'Change category' })
+      const filter = edit.getByRole('searchbox', { name: 'Filter categories' })
+      await filter.fill('Heal')
+      await expect(
+        edit.getByRole('combobox', { name: 'Category: Health', exact: true }),
+      ).toBeVisible()
+      await expect(filter).toBeFocused()
+      releaseSelection()
+      await expect(page.getByRole('row', { selected: true })).toHaveCount(1)
+      await expect(filter).toBeFocused()
+      await page.keyboard.press('Enter')
+      await expect(edit).not.toBeVisible()
+      expect((await server.observe()).targets).toEqual(['current-a', 'current-b'])
+    } finally {
+      releaseSelection()
+      await page.unrouteAll({ behavior: 'wait' })
+    }
+  })
+})
+
 test('@smoke applied but unanswered category edit survives a process restart', async ({
   page,
 }, info) => {

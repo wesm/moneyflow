@@ -181,6 +181,8 @@
     })
   }
   function focusGrid(): void {
+    // A table request can finish after the user has opened a dialog.
+    if (overlay !== undefined || chartDrawer) return
     grid?.querySelector<HTMLElement>('[role="grid"]')?.focus({ preventScroll: true })
   }
   async function confirmDirectDelete(): Promise<void> {
