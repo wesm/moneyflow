@@ -224,6 +224,10 @@ func TestYNABWorkerClearAndLeaderFollowThroughDurableResults(t *testing.T) {
 			if kind == "uncertain" {
 				require.Error(t, runErr)
 				assert.Equal(t, store.WriteAttentionReconcileOnly, status.AttentionClass)
+				assert.False(t, status.CanCheckOutcome)
+				current, statusErr := service.ProviderWriteStatus(ctx)
+				require.NoError(t, statusErr)
+				assert.False(t, current.CanCheckOutcome)
 				_, err = service.ResumeProviderWrite(ctx, status.Version)
 				require.Error(t, err)
 				assert.Equal(t, 1, writer.callCount())

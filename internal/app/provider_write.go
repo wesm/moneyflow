@@ -39,6 +39,7 @@ type ProviderWriteStatus struct {
 	OwnerInstanceID  string
 	PreparedRevision uint64
 	SessionChanged   bool
+	CanCheckOutcome  bool // Bounded readback can resolve or retry this batch.
 	AuditWarning     string
 }
 
@@ -129,15 +130,11 @@ func (service *Service) ProviderWriteStatus(ctx context.Context) (ProviderWriteS
 			AppInvalidOperation, service.Revision(), errors.New("provider write requires a profile"),
 		)
 	}
-	state, err := service.profile.ProviderState(ctx)
+	status, err := service.writeStatus(ctx, nil)
 	if err != nil {
-		return ProviderWriteStatus{}, mapAppError(err, service.Revision())
+		return ProviderWriteStatus{}, err
 	}
-	status := providerWriteStatusFromState(state)
 	status.AuditWarning = service.completionAuditWarning()
-	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
-		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
-	}
 	if status.Phase == store.WritePhaseReconnectRequired {
 		if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 			if runtime.writeSource != nil {
@@ -1112,7 +1109,7 @@ func (service *Service) parkProviderWriteFailure(
 		class = store.WriteAttentionRetryable
 	}
 	now := runtime.now().UTC().Truncate(time.Millisecond)
-	parked, err := service.profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
+	_, err := service.profile.ParkProviderWrite(ctx, store.ParkProviderWriteRequest{
 		BatchID: batch.ID, ExpectedVersion: batch.Version,
 		LeaseOwnerID: runtime.instanceID, LeaseKind: store.ProviderOperationWrite,
 		Phase: phase, AttentionClass: class, AttentionReason: reason,
@@ -1121,8 +1118,7 @@ func (service *Service) parkProviderWriteFailure(
 	if err != nil {
 		return service.writeStatus(ctx, mapAppError(err, service.Revision()))
 	}
-	status := providerWriteStatusFromState(store.ProviderState{Write: &parked})
-	return status, providerWriteAppError(failure, service.Revision())
+	return service.writeStatus(ctx, failure)
 }
 
 func providerErrorForWritePhase(phase store.WriteBatchPhase) error {
@@ -1153,6 +1149,10 @@ func (service *Service) writeStatus(
 	status := providerWriteStatusFromState(state)
 	if runtime, runtimeErr := service.requireProviderRuntime(); runtimeErr == nil {
 		clearExpiredProviderWriteOwner(&status, state, runtime.now().UTC().Truncate(time.Millisecond))
+		status.CanCheckOutcome, err = service.canCheckProviderWriteOutcome(ctx, runtime, status)
+		if err != nil {
+			return status, mapAppError(err, service.Revision())
+		}
 	}
 	if failure != nil {
 		return status, providerWriteAppError(failure, service.Revision())

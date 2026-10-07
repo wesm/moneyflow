@@ -11,6 +11,34 @@ import (
 	"github.com/wesm/moneyflow/internal/store"
 )
 
+// canCheckProviderWriteOutcome describes available recovery without opening a
+// session or reading provider data. Only Monarch currently supports transaction
+// readback; the execution path still checks the writer capability and binding.
+func (service *Service) canCheckProviderWriteOutcome(ctx context.Context, runtime *providerRuntimeState, status ProviderWriteStatus) (bool, error) {
+	if runtime.provider != "monarch" || runtime.writeSource == nil ||
+		status.Phase != store.WritePhaseAttentionRequired ||
+		status.AttentionClass != store.WriteAttentionReconcileOnly ||
+		status.AttentionReason != store.WriteAttentionOutcomeUnknown ||
+		status.ResumeTarget != store.WriteResumeWriting {
+		return false, nil
+	}
+	state, err := service.profile.ProviderWriteState(ctx)
+	if err != nil {
+		return false, err
+	}
+	if state.Batch == nil || state.Batch.ID != status.BatchID || state.Batch.Version != status.Version {
+		return false, nil
+	}
+	for _, item := range state.Items {
+		if item.State == store.WriteItemPending && item.Kind == store.WriteItemDelete && item.AttemptCount >= providerWriteAttempts {
+			return false, nil
+		}
+	}
+	// Exhausted updates can still be confirmed as applied by readback. Exhausted
+	// deletions cannot be verified this way and must not get another retry budget.
+	return true, nil
+}
+
 // verifyUnknownProviderWrites runs only inside an explicitly requested execution
 // reservation. A retry authorization belongs to that reservation, not the batch;
 // releasing it or restarting the process requires another explicit verification.
