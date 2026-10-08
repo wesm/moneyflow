@@ -48,6 +48,36 @@ func TestProfileRegistryCachesByIDAndClosesAfterIdle(t *testing.T) {
 	assert.Equal(t, 1, closes)
 }
 
+func TestProfileRegistryKeepsTemporaryProfileUntilShutdown(t *testing.T) {
+	t.Parallel()
+	clock := &registryClock{now: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)}
+	closes := 0
+	registry, err := NewProfileRegistry(ProfileRegistryConfig{
+		Now: clock.Now,
+		Open: func(context.Context, string) (RegistryProfile, error) {
+			service, serviceErr := app.NewService(nil)
+			return RegistryProfile{
+				ID: registryTestProfileID, Service: service, Temporary: true,
+				Paths: home.Paths{Root: t.TempDir()}, Close: func() error { closes++; return nil },
+			}, serviceErr
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, registry.Close(context.Background())) })
+	first, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	require.NoError(t, first.Release())
+	clock.Advance(time.Hour)
+	require.NoError(t, registry.CloseIdle(context.Background()))
+	assert.Zero(t, closes, "idle eviction would delete the demo's edits")
+	second, err := registry.Acquire(context.Background(), registryTestProfileID)
+	require.NoError(t, err)
+	assert.Same(t, first.Service(), second.Service())
+	require.NoError(t, second.Release())
+	require.NoError(t, registry.Close(context.Background()))
+	assert.Equal(t, 1, closes)
+}
+
 func TestProfileRegistryEvictWaitsForActiveLeaseAndBlocksNewAcquire(t *testing.T) {
 	t.Parallel()
 	var closes int

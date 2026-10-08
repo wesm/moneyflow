@@ -155,7 +155,8 @@ func runWeb(
 	}
 	serverConfig := webserver.ServerConfig{
 		Resolver: dependencies.Registry, PreselectedID: dependencies.PreselectedProfileID,
-		BasePath: options.BasePath, Version: version.Version,
+		DemoProfileID: dependencies.DemoProfileID,
+		BasePath:      options.BasePath, Version: version.Version,
 		Origin: origin, Security: security, WarnNonCanonical: options.ExternalURL != "",
 	}
 	if dependencies.Catalog != nil {
