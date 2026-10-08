@@ -20,6 +20,28 @@ test('@smoke initial grid owns keyboard focus and moves without a pointer', asyn
   await expect(await activeRow(page)).toHaveAttribute('id', await first.getAttribute('id'))
 })
 
+test('the active row stays fully visible while moving past the fold and back', async ({
+  page,
+  server,
+}) => {
+  await openMoneyflow(page, server)
+  await page.keyboard.press('d')
+  await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+  const steps = 60
+  for (let step = 1; step <= steps; step++) {
+    await page.keyboard.press('j')
+    const row = await activeRow(page)
+    await expect(row).toHaveAttribute('aria-rowindex', String(step + 2))
+    await expect(row).toBeInViewport({ ratio: 1 })
+  }
+  for (let step = steps - 1; step >= 0; step--) {
+    await page.keyboard.press('k')
+    const row = await activeRow(page)
+    await expect(row).toHaveAttribute('aria-rowindex', String(step + 2))
+    await expect(row).toBeInViewport({ ratio: 1 })
+  }
+})
+
 test('cycles every grouping, account direct view, detail, drill, subgroup, and back', async ({
   page,
   server,

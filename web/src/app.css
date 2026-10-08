@@ -202,6 +202,7 @@ input {
 }
 .finance-grid__header,
 .finance-grid [role='row'] {
+  box-sizing: border-box;
   min-width: 48rem;
   display: grid;
   grid-template-columns: 7rem 10rem minmax(10rem, 1fr) minmax(10rem, 1fr) 9rem;
