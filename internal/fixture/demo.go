@@ -249,7 +249,7 @@ func demoIncomePlans() []demoPlan {
 		{merchant: demoMerchant{"merchant-payroll", "Northwind Payroll"}, category: c["salary"],
 			account: demoChecking, cadence: demoSemiMonthly, minCents: 340000, maxCents: 340000,
 			income: true},
-		{merchant: demoMerchant{"merchant-interest", "High-Yield Savings"}, category: c["interest"],
+		{merchant: demoMerchant{"merchant-interest", "Savings Interest"}, category: c["interest"],
 			account: demoSavings, cadence: demoMonthly, day: 28, minCents: 1200, maxCents: 3800,
 			income: true},
 		{merchant: demoMerchant{"merchant-taxes", "Tax Refund"}, category: c["refunds"],
