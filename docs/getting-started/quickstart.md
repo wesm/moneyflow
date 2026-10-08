@@ -12,6 +12,11 @@ moneyflow tui --demo
 Press `g` to change grouping, Enter to inspect a group, and Esc to go back.
 Press `?` for help. Demo edits disappear when you exit.
 
+The demo is a synthetic household with about 2,000 transactions from January 2024 to
+October 2026: checking, a rewards card, and savings in USD, plus a EUR travel card. Recent
+grocery and coffee charges carry raw provider names such as `CORNER GROCERY #1182`, so you can
+try cleaning them up.
+
 To try the browser instead:
 
 ```bash

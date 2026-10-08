@@ -21,9 +21,9 @@ async function prepareState(page: Page, state: (typeof states)[number]): Promise
   }
   if (state === 'search') {
     await page.keyboard.press('/')
-    await page.getByRole('searchbox', { name: 'Search transactions' }).fill('091')
+    await page.getByRole('searchbox', { name: 'Search transactions' }).fill('noodle')
     await expect(page.getByRole('navigation', { name: 'Active refinements' })).toContainText(
-      'Search: 091',
+      'Search: noodle',
     )
     return
   }

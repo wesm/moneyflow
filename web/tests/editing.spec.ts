@@ -59,16 +59,19 @@ test('bulk merchant edit clears a selection resolved beyond browser presentation
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
+    let affected = 0
     await page.keyboard.press('j')
+    affected += Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
     await page.keyboard.press('Space')
     await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('j')
+    affected += Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
     await page.keyboard.press('Space')
     await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
     await page.keyboard.press('m')
     await expect(page.getByRole('combobox', { name: /Selected transactions/ })).toBeVisible()
     await expect(page.getByRole('dialog', { name: 'Edit merchant' })).toContainText(
-      '2 transactions affected',
+      `${affected} transactions affected`,
     )
     const name = page.getByLabel('Merchant name')
     await name.fill('Normalized Merchant')
@@ -76,7 +79,7 @@ test('bulk merchant edit clears a selection resolved beyond browser presentation
     await expect(page.getByRole('dialog', { name: 'Edit merchant' })).toBeHidden()
     await expect(page.getByText(/1 pending/)).toBeVisible()
     await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
-    await expect(page.getByText(/\b2 transactions\b/)).toBeVisible()
+    await expect(page.getByText(new RegExp(`\\b${affected} transactions\\b`))).toBeVisible()
     await expect(page.getByRole('row', { selected: true })).toHaveCount(0)
   } finally {
     await server.stop()

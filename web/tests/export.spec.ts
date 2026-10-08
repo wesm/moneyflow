@@ -62,7 +62,7 @@ test('Chromium exports all formats and applies the canonical filtered query', as
       const text = result.bytes.toString('utf8')
       expect(text).toContain('# scope: full')
       expect(text).toContain('amount,amount_minor,currency,scale')
-      expect(text).toContain(',-1468.62,-146862,USD,2,')
+      expect(text).toContain(',-2150.00,-215000,USD,2,')
     } else if (format === 'SQLite') {
       expect(result.bytes.subarray(0, 16).toString('utf8')).toBe('SQLite format 3\u0000')
     } else {
@@ -75,7 +75,7 @@ test('Chromium exports all formats and applies the canonical filtered query', as
 
   await page.keyboard.press('/')
   const search = page.getByRole('searchbox', { name: 'Search transactions' })
-  await search.fill('091')
+  await search.fill('noodle')
   await search.press('Enter')
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
   await page.keyboard.press('Shift+E')
@@ -90,9 +90,9 @@ test('Chromium exports all formats and applies the canonical filtered query', as
   const filteredText = filteredResult.bytes.toString('utf8')
   expect(filteredText).toContain('# scope: filtered')
   expect(filteredText).toContain('# canonical_query:')
-  expect(filteredText).toContain('q=091')
-  expect(filteredText).toContain('Merchant 091')
-  expect(filteredText).not.toContain('Merchant 048')
+  expect(filteredText).toContain('q=noodle')
+  expect(filteredText).toContain('Noodle House')
+  expect(filteredText).not.toContain('Corner Grocery')
 })
 
 test('pending warnings, empty bypass, and failures remain keyboard safe', async ({ page }) => {

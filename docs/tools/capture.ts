@@ -112,10 +112,10 @@ try {
     "c",
   ]);
   await waitForText("Change Category");
-  await command([...tmux, "send-keys", "-t", "demo", "-l", "Category 16"]);
+  await command([...tmux, "send-keys", "-t", "demo", "-l", "Books"]);
   // Wait for both the complete input and the selected result, not a partial
   // keystroke frame where the category merely appears among the choices.
-  await waitForText("Category 16", 2);
+  await waitForText("Books", 2);
   await capture("tui-category");
   await command([...tmux, "send-keys", "-t", "demo", "Enter"]);
   await waitForText("Pending:");
@@ -175,7 +175,7 @@ try {
     await page.keyboard.press("c");
     await page.getByRole("dialog", { name: "Change category" }).waitFor();
     await page.getByRole("combobox", { name: /^Category:/ }).click();
-    await page.getByRole("option", { name: "Category 16", exact: true }).click();
+    await page.getByRole("option", { name: "Books", exact: true }).click();
     await page.getByRole("button", { name: "Save pending change" }).click();
     await page
       .getByRole("dialog", { name: "Change category" })

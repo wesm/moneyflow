@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { openMoneyflow } from './fixtures'
+import { activeRow, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 test('review keeps redo separate, expands bounded targets, and commits its captured revision', async ({
@@ -9,6 +9,8 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
+    const affected = Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
+    const pageSize = 100
     await page.keyboard.press('h')
     await expect(page.getByText(/1 pending/)).toBeVisible()
     await page.keyboard.press('u')
@@ -29,8 +31,12 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
     await operation.focus()
     await expect(operation).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(review.locator('.review-paging')).toContainText('Showing 1–1 of 1')
-    await expect(review.getByRole('button', { name: 'Next' })).toBeDisabled()
+    await expect(review.locator('.review-paging')).toContainText(
+      `Showing 1–${Math.min(affected, pageSize)} of ${affected}`,
+    )
+    const next = review.getByRole('button', { name: 'Next' })
+    if (affected <= pageSize) await expect(next).toBeDisabled()
+    else await expect(next).toBeEnabled()
     await expect(operation).toHaveAttribute('aria-expanded', 'true')
 
     const commit = review.getByRole('button', { name: 'Commit reviewed changes' })
