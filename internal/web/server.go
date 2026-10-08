@@ -24,6 +24,7 @@ type ServerConfig struct {
 	AmazonImports       api.AmazonImportCoordinator
 	LoadAmazonTaxonomy  func(context.Context, string) (*app.TaxonomyClone, error)
 	PreselectedID       string
+	DemoProfileID       string
 	BasePath            string
 	Version             string
 	Origin              api.OriginConfig
@@ -73,7 +74,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 	}
 	staticHandler, err := newHandler(
 		basePath, embeddedDistribution, config.Origin, config.Security, config.WarnNonCanonical,
-		config.PreselectedID,
+		config.PreselectedID, config.DemoProfileID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("new web server application: %w", err)

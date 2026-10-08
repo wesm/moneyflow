@@ -13,14 +13,16 @@ In detail view, an edit targets the current transaction. In a grouped view, it c
 transactions represented by that row. Space selects rows; `Ctrl+A` toggles the current result
 selection. The merchant editor shows the affected count and a bounded transaction preview.
 
-**Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
-matches existing merchants, select the `Create` option below the matches.
+**Unreleased:** In the terminal and browser merchant editors, typing selects the first matching
+name. Enter stages the highlighted choice; the arrow keys choose another match. To use a new
+name that also matches existing merchants, select the `Create` option below the matches.
 
 **Unreleased:** Merchant and category edits use the current filtered transactions by default.
 Editing a merchant group with a year or month selected leaves transactions outside that period
 unchanged. Editing a single transaction inside a merchant drill affects only that transaction.
-In the merchant editor, Tab explicitly switches to **whole merchant** when available; that
-scope includes transactions outside the current filters. Check its affected count before saving.
+In the terminal merchant editor, Tab explicitly switches to **whole merchant** when available.
+In the browser, choose it from **Scope**. That scope includes transactions outside the current
+filters. Check its affected count before saving.
 
 ## Apply an edit
 

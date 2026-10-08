@@ -20,6 +20,7 @@ export interface E2EServerOptions {
   fixturePath?: string
   profileHome?: string
   seedProfile?: boolean
+  selector?: boolean
 }
 
 export interface OnboardingE2EServer {
@@ -60,6 +61,7 @@ export async function waitForApplication(
   child: ChildProcess,
   applicationURL: string,
   stderr: () => string,
+  requireProfile = true,
 ): Promise<string> {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
@@ -68,7 +70,10 @@ export async function waitForApplication(
     }
     try {
       const response = await fetch(applicationURL, { headers: { Accept: 'text/html' } })
-      if (response.ok && /\/p\/profile_[a-z2-7]{26}\/$/.test(new URL(response.url).pathname)) {
+      if (
+        response.ok &&
+        (!requireProfile || /\/p\/profile_[a-z2-7]{26}\/$/.test(new URL(response.url).pathname))
+      ) {
         return response.url
       }
     } catch {
@@ -106,6 +111,9 @@ export async function startE2EServer(
   requested: string | E2EServerOptions = '/',
 ): Promise<E2EServer> {
   const options = typeof requested === 'string' ? { basePath: requested } : requested
+  if (options.selector && !options.profileHome) {
+    throw new Error('The profile selector requires an isolated profile home.')
+  }
   const normalized = normalizedBasePath(options.basePath ?? '/')
   const repository = resolve(process.cwd(), '..')
   const binaryDirectory = await mkdtemp(join(tmpdir(), 'moneyflow-e2e-'))
@@ -157,7 +165,7 @@ export async function startE2EServer(
           : options.profileHome
             ? []
             : ['--demo']),
-        ...(options.profileHome ? ['--profile', 'Moneyflow'] : []),
+        ...(options.profileHome && !options.selector ? ['--profile', 'Moneyflow'] : []),
         '--open=false',
         '--listen',
         `127.0.0.1:${port}`,
@@ -176,13 +184,19 @@ export async function startE2EServer(
       child.stderr?.setEncoding('utf8')
       child.stderr?.on('data', (chunk: string) => (stderr += chunk))
       try {
-        const url = await waitForApplication(child, `${origin}${normalized}`, () => stderr)
-        const profileID = /\/p\/(profile_[a-z2-7]{26})\/$/.exec(new URL(url).pathname)?.[1]
-        if (!profileID) throw new Error('Moneyflow E2E server returned an invalid profile route.')
+        const url = await waitForApplication(
+          child,
+          `${origin}${normalized}`,
+          () => stderr,
+          !options.selector,
+        )
+        const profileID = /\/p\/(profile_[a-z2-7]{26})\/$/.exec(new URL(url).pathname)?.[1] ?? ''
+        if (!profileID && !options.selector)
+          throw new Error('Moneyflow E2E server returned an invalid profile route.')
         return {
           basePath: normalized,
           origin,
-          profileAPI: `${origin}${normalized}api/v1/profiles/${profileID}/`,
+          profileAPI: profileID ? `${origin}${normalized}api/v1/profiles/${profileID}/` : '',
           profileID,
           url,
           stop: async () => {

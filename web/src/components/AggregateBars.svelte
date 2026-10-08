@@ -19,14 +19,14 @@
   }
 </script>
 
-<p class="chart-description">Aggregate totals by current table order.</p>
 {#each partitions as partition (partition.key)}
   <section class="chart-partition" aria-label={`${partition.currency} chart`}>
-    <h3>{partition.currency} · {partition.scale} decimal places</h3>
+    <h3>Net · {partition.currency}</h3>
     <div class="layer-chart" aria-hidden="true">
       <Chart
         data={partition.marks}
         x="ratio"
+        xDomain={partition.domain}
         y="categoricalKey"
         valueAxis="x"
         width={320}
@@ -37,7 +37,7 @@
       >
         {#snippet children({ context })}
           <Layer type="svg">
-            <Axis placement="bottom" />
+            <Axis placement="bottom" format={partition.formatTick} />
             <Bars
               fill="currentColor"
               stroke="currentColor"

@@ -28,6 +28,7 @@ type WebDependencies struct {
 	AmazonImports        *amazonimport.Coordinator
 	LoadAmazonTaxonomy   func(context.Context, string) (*app.TaxonomyClone, error)
 	PreselectedProfileID string
+	DemoProfileID        string
 	CloseIdle            func(context.Context) error
 	IdleSweepInterval    time.Duration
 	close                func(context.Context) error
@@ -80,8 +81,22 @@ func buildWebDependencies(
 		preselectedID = entry.ID
 	}
 
+	demoProfileID, err := profilecatalog.NewProfileID(cryptorand.Reader)
+	if err != nil {
+		return WebDependencies{}, err
+	}
 	registry, err := webserver.NewProfileRegistry(webserver.ProfileRegistryConfig{
 		Open: func(openContext context.Context, profileID string) (webserver.RegistryProfile, error) {
+			if profileID == demoProfileID {
+				opened, openErr := opener(openContext, ProfileOptions{Demo: true, TemporaryParent: catalog.Paths().Root})
+				if openErr != nil {
+					return webserver.RegistryProfile{}, openErr
+				}
+				return webserver.RegistryProfile{
+					ID: demoProfileID, Paths: opened.Paths, Service: opened.Service,
+					Temporary: true, Close: opened.Close,
+				}, nil
+			}
 			opened, openErr := opener(openContext, ProfileOptions{
 				ExplicitHome: options.ExplicitHome, Profile: profileID,
 			})
@@ -176,6 +191,7 @@ func buildWebDependencies(
 			return loadAmazonTaxonomyClone(loadContext, catalog, selector)
 		},
 		PreselectedProfileID: preselectedID,
+		DemoProfileID:        demoProfileID,
 		CloseIdle:            registry.CloseIdle,
 		IdleSweepInterval:    time.Minute,
 		close: func(closeContext context.Context) error {

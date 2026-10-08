@@ -19,26 +19,30 @@
   }
 </script>
 
-<p class="chart-description">Chronological spending by period.</p>
 {#each partitions as partition (partition.key)}
   <section class="chart-partition" aria-label={`${partition.currency} time chart`}>
-    <h3>{partition.currency} · {partition.scale} decimal places</h3>
+    <h3>Net · {partition.currency}</h3>
     <div class="layer-chart" aria-hidden="true">
       <Chart
         data={partition.marks}
         x="chronologicalKey"
         y="ratio"
+        yDomain={partition.domain}
         valueAxis="y"
         width={320}
         height={220}
-        padding={{ top: 12, right: 12, bottom: 40, left: 42 }}
+        padding={{ top: 12, right: 12, bottom: 40, left: 64 }}
         motion="none"
         tooltipContext={{ mode: 'band' }}
       >
         {#snippet children({ context })}
           <Layer type="svg">
-            <Axis placement="left" />
-            <Axis placement="bottom" />
+            <Axis placement="left" format={partition.formatTick} />
+            <Axis
+              placement="bottom"
+              format={(key: string) =>
+                partition.marks.find((mark) => mark.chronologicalKey === key)?.label ?? key}
+            />
             <Bars
               fill="currentColor"
               stroke="currentColor"

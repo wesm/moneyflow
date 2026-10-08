@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -157,6 +159,51 @@ func TestBuildWebDependenciesGivesDemoAProcessLocalCanonicalRoute(t *testing.T) 
 	assert.Nil(t, dependencies.Catalog)
 	require.NoError(t, dependencies.Close(context.Background()))
 	assert.Equal(t, 1, closes)
+}
+
+func TestWebSelectorDemoIsLazyTemporaryAndSeparateFromSavedProfiles(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	root := t.TempDir()
+	var openedOptions []ProfileOptions
+	dependencies, err := buildWebDependencies(ctx, ProfileOptions{ExplicitHome: root}, IOStreams{
+		OpenProfile: func(ctx context.Context, options ProfileOptions) (OpenedProfile, error) {
+			openedOptions = append(openedOptions, options)
+			return openProfile(ctx, options)
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, dependencies.Close(ctx)) })
+	saved, err := dependencies.Catalog.Create(ctx, profilecatalog.CreateRequest{
+		DisplayName: "Saved profile", ProviderKind: "local",
+	})
+	require.NoError(t, err)
+	require.Empty(t, openedOptions)
+	require.NotEqual(t, saved.ID, dependencies.DemoProfileID)
+
+	demo, err := dependencies.Registry.Acquire(ctx, dependencies.DemoProfileID)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, demo.Release()) })
+	assert.Equal(t, []ProfileOptions{{Demo: true, TemporaryParent: root}}, openedOptions)
+	assert.True(t, demo.Temporary())
+	result, err := demo.Service().Query(app.NewSession())
+	require.NoError(t, err)
+	assert.NotEmpty(t, result.AggregateRows)
+	demoRoot := demo.ProfileRoot()
+	assert.Equal(t, root, filepath.Dir(demoRoot), "the selector demo must not depend on a private system TMPDIR")
+	entries, err := dependencies.Catalog.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, saved.ID, entries[0].ID)
+	require.NoError(t, demo.Release())
+
+	reopened, err := dependencies.Registry.Acquire(ctx, dependencies.DemoProfileID)
+	require.NoError(t, err)
+	assert.Same(t, demo.Service(), reopened.Service())
+	require.NoError(t, reopened.Release())
+	require.NoError(t, dependencies.Close(ctx))
+	_, err = os.Stat(demoRoot)
+	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestWebListenValidation(t *testing.T) {

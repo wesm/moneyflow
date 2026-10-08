@@ -6,6 +6,26 @@ import type { ViewProjection } from './api/client'
 type Mark = NonNullable<ViewProjection['chart']['marks']>[number]
 
 describe('chart projection adapter', () => {
+  it.each([
+    { minor: '-8200', scale: 2, tick: -5000, expected: '−41.00' },
+    { minor: '8200', scale: 2, tick: 10000, expected: '82.00' },
+    { minor: '-123', scale: 2, tick: -5000, expected: '−0.62' },
+    { minor: '-2000', scale: 0, tick: -5000, expected: '−1k' },
+    { minor: '-12345', scale: 3, tick: -10000, expected: '−12.345' },
+    { minor: '-123456789', scale: 2, tick: -10000, expected: '−1.23M' },
+    { minor: '-9223372036854775808', scale: 2, tick: -10000, expected: '−92233.72T' },
+    { minor: '0', scale: 2, tick: 0, expected: '0.00' },
+  ])(
+    'formats monetary axis ticks for $minor at scale $scale',
+    ({ minor, scale, tick, expected }) => {
+      const datum = mark('amount', 'Example', 'USD', scale, 'Exact server label', -10000)
+      datum.amount.minor = minor
+      const partition = partitionChartMarks([datum], new Map(), false)[0]!
+      expect(partition.formatTick(tick)).toBe(expected)
+      expect(partition.marks[0]?.display).toBe('Exact server label')
+    },
+  )
+
   it('preserves partitions, ordinary row order, exact labels, ratios, and identities', () => {
     const marks = [
       mark('usd-2', 'Second', 'USD', 2, '-$2.00', -5000),
@@ -53,6 +73,8 @@ describe('chart projection adapter', () => {
         key: 'USD:2',
         currency: 'USD',
         scale: 2,
+        formatTick: () => '',
+        domain: [-10000, 0],
         marks: [
           {
             identity: 'eur',

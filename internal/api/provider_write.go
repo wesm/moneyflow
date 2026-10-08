@@ -30,6 +30,7 @@ type ProviderWriteStatusResponse struct {
 	Failed          int      `json:"failed"`
 	Remaining       int      `json:"remaining"`
 	Overrides       int      `json:"overrides"`
+	CompletedAt     string   `json:"completed_at,omitempty" format:"date-time"`
 	NextEligible    string   `json:"next_eligible,omitempty" format:"date-time"`
 	OwnerRenderer   string   `json:"owner_renderer,omitempty"`
 	OwnerInstanceID string   `json:"owner_instance_id,omitempty" maxLength:"128"`
@@ -273,6 +274,9 @@ func providerWriteStatusToWire(
 	}
 	if !status.NextEligible.IsZero() {
 		wire.NextEligible = status.NextEligible.UTC().Format(time.RFC3339Nano)
+	}
+	if !status.CompletedAt.IsZero() {
+		wire.CompletedAt = status.CompletedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return wire
 }

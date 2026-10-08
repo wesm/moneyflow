@@ -45,8 +45,9 @@ export function browserCampaign(seed: number): BrowserAction[] {
     case 0:
       actions.push(
         { kind: 'key', value: 'm' },
-        { kind: 'fill', role: 'textbox', name: 'Merchant name', value: 'Destination Shop' },
-        { kind: 'click', role: 'button', name: 'Save pending change' },
+        { kind: 'fill', role: 'combobox', name: 'Merchant name', value: 'Dest' },
+        { kind: 'wait', role: 'option', name: 'Destination Shop' },
+        { kind: 'key', value: 'Enter' },
       )
       changed = { merchant: 'Destination Shop' }
       break

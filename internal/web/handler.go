@@ -33,6 +33,7 @@ type handler struct {
 	security         *api.MutationSecurity
 	warnNonCanonical bool
 	preselectedID    string
+	demoProfileID    string
 }
 
 // NewHandler constructs the static application handler from the generated production assets.
@@ -45,7 +46,7 @@ func NewHandler(basePath string) (http.Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new web handler security: %w", err)
 	}
-	return newHandler(basePath, embeddedDistribution, origin, security, false, "")
+	return newHandler(basePath, embeddedDistribution, origin, security, false, "", "")
 }
 
 func newHandler(
@@ -55,6 +56,7 @@ func newHandler(
 	security *api.MutationSecurity,
 	warnNonCanonical bool,
 	preselectedID string,
+	demoProfileID string,
 ) (http.Handler, error) {
 	normalized, err := api.NormalizeBasePath(basePath)
 	if err != nil {
@@ -70,9 +72,13 @@ func newHandler(
 	if preselectedID != "" && !profilecatalog.ValidProfileID(preselectedID) {
 		return nil, errors.New("new web handler: preselected profile ID is invalid")
 	}
+	if demoProfileID != "" && !profilecatalog.ValidProfileID(demoProfileID) {
+		return nil, errors.New("new web handler: demo profile ID is invalid")
+	}
 	return &handler{
 		basePath: normalized, distribution: distribution, origin: origin,
 		security: security, warnNonCanonical: warnNonCanonical, preselectedID: preselectedID,
+		demoProfileID: demoProfileID,
 	}, nil
 }
 
@@ -96,6 +102,10 @@ func (handler *handler) ServeHTTP(response http.ResponseWriter, request *http.Re
 		return
 	}
 	relative := strings.TrimPrefix(request.URL.Path, handler.basePath)
+	if relative == "demo/" && handler.demoProfileID != "" {
+		http.Redirect(response, request, handler.basePath+"p/"+handler.demoProfileID+"/", http.StatusTemporaryRedirect)
+		return
+	}
 	if relative == "" {
 		if handler.preselectedID != "" {
 			target := handler.basePath + "p/" + handler.preselectedID + "/"

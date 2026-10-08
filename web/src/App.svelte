@@ -310,7 +310,7 @@
     onamazonsetup={(id) => void setupAmazon(id)}
     onrecover={recover}
     oncreate={createProfile}
-    ondemo={() => catalog.announce('Start moneyflow web with --demo for a temporary profile.')}
+    ondemo={() => globalThis.location.assign(`${basePath}demo/`)}
     onexit={() => catalog.announce('The Moneyflow web server remains available in this tab.')}
   />
 {:else if controller?.projection}

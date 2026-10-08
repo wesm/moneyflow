@@ -21,6 +21,8 @@ export interface ChartPartition {
   readonly currency: string
   readonly scale: number
   readonly marks: readonly ChartMark[]
+  readonly domain: [number, number]
+  readonly formatTick: (ratio: number) => string
 }
 
 export function partitionChartMarks(
@@ -29,7 +31,10 @@ export function partitionChartMarks(
   chronological: boolean,
 ): readonly ChartPartition[] {
   const identities = new Set<string>()
-  const partitions = new Map<string, { currency: string; scale: number; marks: ChartMark[] }>()
+  const partitions = new Map<
+    string,
+    { currency: string; scale: number; marks: ChartMark[]; maximum: bigint }
+  >()
   for (const mark of marks) {
     if (identities.has(mark.identity)) throw new Error('duplicate chart identity')
     identities.add(mark.identity)
@@ -42,9 +47,17 @@ export function partitionChartMarks(
     const key = `${mark.amount.currency}:${mark.amount.scale}`
     let partition = partitions.get(key)
     if (!partition) {
-      partition = { currency: mark.amount.currency, scale: mark.amount.scale, marks: [] }
+      partition = {
+        currency: mark.amount.currency,
+        scale: mark.amount.scale,
+        marks: [],
+        maximum: 0n,
+      }
       partitions.set(key, partition)
     }
+    const minor = BigInt(mark.amount.minor)
+    const magnitude = minor < 0n ? -minor : minor
+    if (magnitude > partition.maximum) partition.maximum = magnitude
     partition.marks.push(
       Object.freeze({
         identity: mark.identity,
@@ -70,10 +83,42 @@ export function partitionChartMarks(
       currency: partition.currency,
       scale: partition.scale,
       marks: Object.freeze(ordered),
+      domain: [
+        Math.min(0, ...ordered.map((mark) => mark.ratio)),
+        Math.max(0, ...ordered.map((mark) => mark.ratio)),
+      ] as [number, number],
+      formatTick: (ratio: number) => formatPlotAmount(ratio, partition.maximum, partition.scale),
     })
   })
   validateChartPartitions(result)
   return Object.freeze(result)
+}
+
+// Coordinates are normalized integers; money stays exact even beyond Number's
+// safe integer range. Only axis labels abbreviate large values; marks and
+// tooltips retain the provider projection's full display amounts.
+function formatPlotAmount(ratio: number, maximum: bigint, scale: number): string {
+  const minor = (BigInt(Math.round(Math.abs(ratio))) * maximum + 5000n) / 10000n
+  const sign = ratio < 0 && minor !== 0n ? '−' : ''
+  const unit = 10n ** BigInt(scale)
+  for (const [factor, suffix] of [
+    [1000000000000n, 'T'],
+    [1000000000n, 'B'],
+    [1000000n, 'M'],
+    [1000n, 'k'],
+  ] as const) {
+    const divisor = unit * factor
+    if (minor >= divisor) {
+      const hundredths = (minor * 100n + divisor / 2n) / divisor
+      return sign + fixedDecimal(hundredths, 2).replace(/\.?0+$/, '') + suffix
+    }
+  }
+  return sign + fixedDecimal(minor, scale)
+}
+
+function fixedDecimal(minor: bigint, scale: number): string {
+  const digits = minor.toString().padStart(scale + 1, '0')
+  return scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`
 }
 
 export function validateChartPartitions(partitions: readonly ChartPartition[]): void {

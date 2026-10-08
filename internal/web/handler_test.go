@@ -117,7 +117,7 @@ func TestHandlerPreselectionRedirectsBaseAndIssuesProfileScopedHTMLToken(t *test
 	)
 	require.NoError(t, err)
 	handler, err := newHandler(
-		"/moneyflow/", testDistribution(), origin, security, false, profileID,
+		"/moneyflow/", testDistribution(), origin, security, false, profileID, "",
 	)
 	require.NoError(t, err)
 
@@ -170,7 +170,7 @@ func TestHandlerWarnsOnDirectListenerAndLinksCanonicalOrigin(t *testing.T) {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true, "")
+	handler, err := newHandler("/moneyflow", testDistribution(), origin, security, true, "", "")
 	require.NoError(t, err)
 
 	direct := request(t, handler, http.MethodGet, "/moneyflow/", "text/html")
@@ -201,7 +201,7 @@ func newTestHandler(t testing.TB, basePath string) http.Handler {
 		origin, bytes.NewReader(bytes.Repeat([]byte{0x42}, 32)), nil,
 	)
 	require.NoError(t, err)
-	handler, err := newHandler(basePath, testDistribution(), origin, security, false, "")
+	handler, err := newHandler(basePath, testDistribution(), origin, security, false, "", "")
 	require.NoError(t, err)
 	return handler
 }

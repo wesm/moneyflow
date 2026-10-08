@@ -1353,6 +1353,8 @@ export interface components {
       batch_version?: string
       /** Format: int64 */
       completed: number
+      /** Format: date-time */
+      completed_at?: string
       /** Format: int64 */
       failed: number
       generation: string

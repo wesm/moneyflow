@@ -1,7 +1,9 @@
 # Web interface
 
 Run `./bin/moneyflow web` to open the profile selector. Use `--demo` for a disposable synthetic
-profile, or `--profile "Example Profile"` to select one explicitly. The browser and TUI share
+profile, or `--profile "Example Profile"` to select one explicitly. You can also choose **Demo**
+from the profile selector. Its synthetic data and edits remain separate from saved profiles
+and are discarded when the server stops. The browser and TUI share
 profile data and server-authoritative transitions.
 
 Keyboard-driven refinement remains central: grouping, drill/back, search, selection, edits and

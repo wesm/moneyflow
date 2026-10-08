@@ -29,7 +29,7 @@ describe('VisualizationRail', () => {
       cursorIndex: 0,
       ...callbacks,
     })
-    expect(screen.getByText('Aggregate totals by current table order.')).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'USD chart' })).not.toBeNull()
     unmount()
     render(VisualizationRail, {
       projection: {
@@ -40,7 +40,7 @@ describe('VisualizationRail', () => {
       cursorIndex: 0,
       ...callbacks,
     })
-    expect(screen.getByText('Chronological spending by period.')).not.toBeNull()
+    expect(screen.getByRole('region', { name: 'USD time chart' })).not.toBeNull()
   })
 })
 

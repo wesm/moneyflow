@@ -12,6 +12,8 @@ describe('TimeBars', () => {
       key: 'USD:2',
       currency: 'USD',
       scale: 2,
+      formatTick: String,
+      domain: [-10000, 0],
       marks: [
         chartMark('jan', 0, 'Jan 2026', '-$1.00', '2026-01-00'),
         chartMark('feb', 1, 'Feb 2026', '-$2.00', '2026-02-00'),
@@ -23,7 +25,7 @@ describe('TimeBars', () => {
       oncursor: vi.fn(),
       ondrill: vi.fn(),
     })
-    expect(screen.getByText('Chronological spending by period.')).not.toBeNull()
+    expect(screen.getByRole('heading', { name: 'Net · USD' })).not.toBeNull()
     expect(
       screen.getAllByRole('button').map((button) => button.getAttribute('aria-label')),
     ).toEqual(['Jan 2026, -$1.00', 'Feb 2026, -$2.00'])
