@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { activeRow, openMoneyflow } from './fixtures'
+import { activeAggregateCount, activeRow, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 test('every editing workflow starts from its TUI key and restores the table', async ({ page }) => {
@@ -61,11 +61,11 @@ test('bulk merchant edit clears a selection resolved beyond browser presentation
     await openMoneyflow(page, server)
     let affected = 0
     await page.keyboard.press('j')
-    affected += Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
+    affected += await activeAggregateCount(page, 3)
     await page.keyboard.press('Space')
     await expect(await activeRow(page)).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('j')
-    affected += Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
+    affected += await activeAggregateCount(page, 4)
     await page.keyboard.press('Space')
     await expect(page.getByRole('row', { selected: true })).toHaveCount(2)
     await page.keyboard.press('m')

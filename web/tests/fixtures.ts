@@ -32,3 +32,12 @@ export async function activeRow(page: Page) {
   expect(activeID).toBeTruthy()
   return page.locator(`[id=${JSON.stringify(activeID)}]`)
 }
+
+export async function activeAggregateCount(page: Page, rowIndex: number): Promise<number> {
+  const row = await activeRow(page)
+  await expect(row).toHaveAttribute('aria-rowindex', String(rowIndex))
+  const text = await row.getByRole('gridcell').nth(1).innerText()
+  const count = Number(text.replace(/\D/g, ''))
+  expect(Number.isSafeInteger(count) && count > 0, `Count cell "${text}"`).toBe(true)
+  return count
+}

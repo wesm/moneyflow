@@ -92,7 +92,7 @@ test('Chromium exports all formats and applies the canonical filtered query', as
   expect(filteredText).toContain('# canonical_query:')
   expect(filteredText).toContain('q=noodle')
   expect(filteredText).toContain('Noodle House')
-  expect(filteredText).not.toContain('Corner Grocery')
+  expect(filteredText).not.toMatch(/corner grocery/i)
 })
 
 test('pending warnings, empty bypass, and failures remain keyboard safe', async ({ page }) => {

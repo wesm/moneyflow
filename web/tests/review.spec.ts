@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { activeRow, openMoneyflow } from './fixtures'
+import { activeAggregateCount, openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
 test('review keeps redo separate, expands bounded targets, and commits its captured revision', async ({
@@ -9,7 +9,7 @@ test('review keeps redo separate, expands bounded targets, and commits its captu
   const server = await startE2EServer()
   try {
     await openMoneyflow(page, server)
-    const affected = Number(await (await activeRow(page)).getByRole('gridcell').nth(1).innerText())
+    const affected = await activeAggregateCount(page, 2)
     const pageSize = 100
     await page.keyboard.press('h')
     await expect(page.getByText(/1 pending/)).toBeVisible()
