@@ -32,7 +32,7 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("open explicit profile")
 	}
 	defer func() { _ = profile.Close() }()
-	transactions := fixture.Generate(42, 32)
+	transactions := fixture.Demo()
 	committed, err := fixture.CommittedProfile(transactions)
 	if err != nil {
 		return errors.New("normalize synthetic fixture")

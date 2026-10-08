@@ -238,7 +238,7 @@ func openDemoProfile(ctx context.Context, fixturePath string) (OpenedProfile, er
 			cause, profile.Close(), removeOwnedTemporaryRoot(root, demoDirectoryPrefix),
 		)
 	}
-	transactions := fixture.Generate(42, 32)
+	transactions := fixture.Demo()
 	if fixturePath != "" {
 		transactions, err = fixture.Load(fixturePath)
 	}
