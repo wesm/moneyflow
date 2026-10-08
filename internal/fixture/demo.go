@@ -471,8 +471,8 @@ func (builder *demoBuilder) decorate() {
 	reimbursed := 0
 	for index := range builder.transactions {
 		transaction := &builder.transactions[index]
-		lateInMonth := transaction.Date.Day() >= 20
-		if transaction.Merchant.ID == "merchant-noodle" && lateInMonth && reimbursed < 6 {
+		recentLateInMonth := transaction.Date.Year() == 2026 && transaction.Date.Day() >= 20
+		if transaction.Merchant.ID == "merchant-noodle" && recentLateInMonth && reimbursed < 6 {
 			transaction.Hidden = true
 			transaction.Notes = "Reimbursed by work"
 			reimbursed++

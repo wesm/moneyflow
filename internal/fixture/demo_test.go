@@ -21,7 +21,7 @@ func TestDemoIsDeterministicAndConvertsToACommittedProfile(t *testing.T) {
 	committed, err := CommittedProfile(first)
 	require.NoError(t, err)
 	assert.Len(t, committed.Accounts, 4)
-	assert.GreaterOrEqual(t, len(committed.Merchants), 35)
+	assert.Len(t, committed.Merchants, 43)
 
 	ids := make(map[string]struct{}, len(first))
 	for _, transaction := range first {
@@ -63,6 +63,7 @@ func TestDemoCoversReviewAndCleanupWork(t *testing.T) {
 		categories[transaction.Category.Name] = transaction.Category.Group
 		if transaction.Hidden {
 			hidden++
+			assert.GreaterOrEqual(t, transaction.Date.Compare(mustDemoDate(2026, time.January, 1)), 0)
 		}
 		if transaction.Pending {
 			pending++
