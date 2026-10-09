@@ -63,12 +63,12 @@ func (service *Service) deriveTimeRows(
 	}
 	input := analytics.RangeInput{Scope: scope, Today: today, TimeGrouping: true}
 	input.First, input.Latest = currencyDates(currencies, *state.Currency)
-	ranges, err := analytics.ResolveRanges(input)
+	granularity, periods, err := analytics.TimeRowPeriods(input)
 	if err != nil {
 		return nil, fmt.Errorf("time rows: %w", err)
 	}
-	state.TimeGranularity = ranges.ContextGranularity
-	return ranges.Context, nil
+	state.TimeGranularity = granularity
+	return periods, nil
 }
 
 // deriveViewState derives the current view's granularity. Back history keeps its stored

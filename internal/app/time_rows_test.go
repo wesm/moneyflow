@@ -529,3 +529,22 @@ func TestSelectAllOfAPartialMonthFollowsTheClock(t *testing.T) {
 	assert.Equal(t, 25, projection.SelectionCount,
 		"a select-all selection covers the days the range lists now, so it grows with the clock")
 }
+
+func TestTimeRowsListEveryYearOfTheWidestRange(t *testing.T) {
+	t.Parallel()
+
+	service := workedExampleService(t, "2024-01-01")
+	state := timeGroupingState()
+	state.Current.DateRange = matrixRange(t, "0001-01-01", "9999-12-31")
+	projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Equal(t, domain.TimeGranularityYear, projection.State.Current.TimeGranularity)
+	assert.Equal(t, 9999, projection.TotalRows, "every year from 1 through 9999 is a row")
+
+	selection, err := service.ToggleSelection(
+		projection.State.Current, EmptySelection(), IdentityAggregate,
+		projection.AggregateRows[0].Identity,
+	)
+	require.NoError(t, err, "a row of the widest range resolves as a selection target")
+	assert.NotEqual(t, EmptySelection(), selection)
+}

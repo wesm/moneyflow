@@ -125,6 +125,20 @@ func ResolveRanges(input RangeInput) (Ranges, error) {
 	return ranges, nil
 }
 
+// TimeRowPeriods returns the granularity and periods of a Time grouping's rows. It resolves
+// only the chart context, so a range without trend, comparison, or heatmap ranges near
+// year 1 or 9999 still lists its rows.
+func TimeRowPeriods(input RangeInput) (domain.TimeGranularity, []PeriodRange, error) {
+	if _, err := copyScope(input.Scope); err != nil {
+		return "", nil, err
+	}
+	granularity, periods, err := timeRowPeriods(ClassifyScope(input.Scope), input)
+	if err != nil {
+		return "", nil, fmt.Errorf("time row periods: %w", err)
+	}
+	return granularity, periods, nil
+}
+
 func copyScope(scope *domain.DateRange) (*domain.DateRange, error) {
 	if scope == nil {
 		return nil, nil
