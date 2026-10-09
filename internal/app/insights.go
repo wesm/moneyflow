@@ -68,6 +68,15 @@ type InsightsResult struct {
 	Insights analytics.Insights
 }
 
+// RowIdentity returns the table row identity of an aggregate key in the view's grouping, so
+// series and composition entries link to the rows they describe.
+func (result InsightsResult) RowIdentity(key string) string {
+	return AggregateIdentity(domain.AggregateRow{
+		Dimension: insightsGrouping(result.State), Key: key,
+		Total: domain.Money{Currency: result.Insights.Currency, Scale: result.Insights.Scale},
+	})
+}
+
 // SetClock replaces the clock that defines today for insights. Harnesses pass a fixed clock;
 // the default is the system clock.
 func (service *Service) SetClock(now func() time.Time) {
@@ -194,12 +203,7 @@ func insightsKeys(state AnalyticalState, rows []string) ([]string, error) {
 	if len(rows) > MaxInsightsRows {
 		return nil, fmt.Errorf("at most %d insights rows", MaxInsightsRows)
 	}
-	grouping := state.Dimension
-	if state.SubGrouping != nil {
-		grouping = *state.SubGrouping
-	} else if state.Mode != domain.ResultModeAggregate {
-		grouping = ""
-	}
+	grouping := insightsGrouping(state)
 	keys := make([]string, 0, len(rows))
 	seen := make(map[string]struct{}, len(rows))
 	for index, row := range rows {
@@ -217,6 +221,17 @@ func insightsKeys(state AnalyticalState, rows []string) ([]string, error) {
 		keys = append(keys, key)
 	}
 	return keys, nil
+}
+
+// insightsGrouping is the dimension of the view's table rows; empty for a transaction view.
+func insightsGrouping(state AnalyticalState) domain.Dimension {
+	if state.SubGrouping != nil {
+		return *state.SubGrouping
+	}
+	if state.Mode != domain.ResultModeAggregate {
+		return ""
+	}
+	return state.Dimension
 }
 
 // parseAggregateIdentity reverses AggregateIdentity.

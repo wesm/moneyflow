@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -20,9 +19,9 @@ const InsightsSchemaVersion = "1"
 // query and its clock.
 type InsightsBody struct {
 	Query string `json:"query" maxLength:"65536"`
-	// Rows are aggregate row identities of the view's grouping, at most 200. Duplicates are
-	// ignored.
-	Rows    []string `json:"rows,omitempty" nullable:"false"`
+	// Rows are aggregate row identities of the view's grouping. More than 200 rows is an
+	// invalid request.
+	Rows    []string `json:"rows,omitempty" nullable:"false" maxLength:"4096" doc:"Aggregate row identities of the view's grouping, at most 200. Duplicates are ignored."`
 	Summary bool     `json:"summary,omitempty"`
 }
 
@@ -118,7 +117,10 @@ type InsightsInOut struct {
 // InsightsCompositionEntry is one ranked row, or the entry that folds the remaining rows.
 type InsightsCompositionEntry struct {
 	// Key is the aggregate key; absent for the others entry.
-	Key         string `json:"key,omitempty"`
+	Key string `json:"key,omitempty"`
+	// Identity is the table row identity of a ranked entry in summary.composition; absent
+	// for the others entry and in period_composition, whose keys are category groups.
+	Identity    string `json:"identity,omitempty"`
 	Label       string `json:"label"`
 	Net         string `json:"net"`
 	ShareTenths int    `json:"share_tenths"`
@@ -218,54 +220,35 @@ func projectInsights(
 	if err != nil {
 		return InsightsResponse{}, err
 	}
-	return insightsToWire(result, canonical, body.Rows)
+	return insightsToWire(result, canonical), nil
 }
 
-func insightsToWire(
-	result app.InsightsResult, canonical string, rows []string,
-) (InsightsResponse, error) {
+func insightsToWire(result app.InsightsResult, canonical string) InsightsResponse {
 	insights := result.Insights
-	series, err := insightsSeriesToWire(insights.Series, rows)
-	if err != nil {
-		return InsightsResponse{}, err
-	}
 	response := InsightsResponse{
 		Version: InsightsSchemaVersion, Revision: strconv.FormatUint(result.Revision, 10),
 		Query: canonical, Currency: string(insights.Currency), Scale: insights.Scale,
 		Today: insights.Today.String(), Ranges: insightsRangesToWire(insights.Ranges),
-		Series: series,
+		Series: insightsSeriesToWire(result),
 	}
 	if !insights.Latest.IsZero() {
 		latest := insights.Latest.String()
 		response.Latest = &latest
 	}
 	if insights.Summary != nil {
-		summary := insightsSummaryToWire(*insights.Summary)
+		summary := insightsSummaryToWire(*insights.Summary, result.RowIdentity)
 		response.Summary = &summary
 	}
-	return response, nil
+	return response
 }
 
-// insightsSeriesToWire pairs each series with its row identity. The service collapses
-// duplicate rows and keeps request order, so series follow the distinct identities.
-func insightsSeriesToWire(
-	series []analytics.InsightsSeries, rows []string,
-) ([]InsightsSeries, error) {
-	identities := make([]string, 0, len(rows))
-	seen := make(map[string]struct{}, len(rows))
-	for _, row := range rows {
-		if _, duplicate := seen[row]; !duplicate {
-			seen[row] = struct{}{}
-			identities = append(identities, row)
-		}
-	}
-	if len(identities) != len(series) {
-		return nil, errors.New("insights series do not match the requested rows")
-	}
+// insightsSeriesToWire labels each series with the row identity of its key.
+func insightsSeriesToWire(result app.InsightsResult) []InsightsSeries {
+	series := result.Insights.Series
 	wire := make([]InsightsSeries, len(series))
 	for index, entry := range series {
 		wire[index] = InsightsSeries{
-			Identity: identities[index],
+			Identity: result.RowIdentity(entry.Key),
 			Trend:    make([]string, len(entry.Trend)),
 			Context:  cellsToWire(entry.Context),
 			PriorNet: optionalMinor(entry.PriorNet),
@@ -275,7 +258,7 @@ func insightsSeriesToWire(
 			wire[index].Trend[point] = minorText(trend.Net)
 		}
 	}
-	return wire, nil
+	return wire
 }
 
 func insightsRangesToWire(ranges analytics.Ranges) InsightsRanges {
@@ -315,19 +298,23 @@ func periodToWire(period domain.Period) Period {
 	}
 }
 
-func insightsSummaryToWire(summary analytics.InsightsSummary) InsightsSummary {
+// insightsSummaryToWire converts the summary. rowIdentity links ranked composition entries to
+// table rows; period compositions rank category groups, which are not table rows.
+func insightsSummaryToWire(
+	summary analytics.InsightsSummary, rowIdentity func(string) string,
+) InsightsSummary {
 	wire := InsightsSummary{
 		KPIs:     insightsKPIsToWire(summary.KPIs),
 		Cashflow: cashflowToWire(summary.Cashflow),
 	}
 	if summary.Composition != nil {
-		composition := compositionToWire(*summary.Composition)
+		composition := compositionToWire(*summary.Composition, rowIdentity)
 		wire.Composition = &composition
 	}
 	if summary.PeriodComposition != nil {
 		wire.PeriodComposition = make([]InsightsComposition, len(summary.PeriodComposition))
 		for index, period := range summary.PeriodComposition {
-			wire.PeriodComposition[index] = compositionToWire(period.Composition)
+			wire.PeriodComposition[index] = compositionToWire(period.Composition, nil)
 		}
 	}
 	if summary.Calendar != nil {
@@ -379,19 +366,27 @@ func cashflowToWire(periods []analytics.InsightsPeriod) InsightsCashflow {
 	return wire
 }
 
-func compositionToWire(composition analytics.Composition) InsightsComposition {
+// compositionToWire converts a composition; a nil rowIdentity leaves entries unlinked.
+func compositionToWire(
+	composition analytics.Composition, rowIdentity func(string) string,
+) InsightsComposition {
 	return InsightsComposition{
-		Spending: compositionEntriesToWire(composition.Spending),
-		Income:   compositionEntriesToWire(composition.Income),
+		Spending: compositionEntriesToWire(composition.Spending, rowIdentity),
+		Income:   compositionEntriesToWire(composition.Income, rowIdentity),
 	}
 }
 
-func compositionEntriesToWire(entries []analytics.CompositionEntry) []InsightsCompositionEntry {
+func compositionEntriesToWire(
+	entries []analytics.CompositionEntry, rowIdentity func(string) string,
+) []InsightsCompositionEntry {
 	wire := make([]InsightsCompositionEntry, len(entries))
 	for index, entry := range entries {
 		wire[index] = InsightsCompositionEntry{
 			Key: entry.Key, Label: entry.Label, Net: minorText(entry.Net),
 			ShareTenths: entry.ShareTenths, Others: entry.Others,
+		}
+		if rowIdentity != nil && entry.Others == 0 {
+			wire[index].Identity = rowIdentity(entry.Key)
 		}
 	}
 	return wire

@@ -80,3 +80,53 @@ func tableTotals(statistics []domain.CurrencyStats) [4]int64 {
 	stats := statistics[0]
 	return [4]int64{int64(stats.Count), stats.In.Minor, stats.Out.Minor, stats.Net.Minor}
 }
+
+// TestInsightsRowIdentitiesMatchTheTable proves series and composition keys map back to the
+// table's row identities, including in a sub-grouping.
+func TestInsightsRowIdentitiesMatchTheTable(t *testing.T) {
+	t.Parallel()
+	service, err := NewService(fixture.Generate(20261008, 2000))
+	require.NoError(t, err)
+	service.SetClock(func() time.Time { return time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local) })
+	tests := map[string]func(t *testing.T, session *Session){
+		"merchant": func(*testing.T, *Session) {},
+		"sub-grouping": func(t *testing.T, session *Session) {
+			drillTopRow(t, service, session)
+			session.CycleSubGrouping()
+		},
+	}
+	for name, setup := range tests {
+		t.Run(name, func(t *testing.T) {
+			session := NewSession()
+			session.Currency = &domain.CurrencyScope{Currency: "USD", Scale: 2}
+			setup(t, &session)
+			state := session.ViewState()
+			projection, err := service.ProjectView(state, EmptySelection(), WindowRequest{})
+			require.NoError(t, err)
+			require.NotEmpty(t, projection.AggregateRows)
+			tableRows := make(map[string]struct{}, len(projection.AggregateRows))
+			requested := make([]string, 0, len(projection.AggregateRows))
+			for _, row := range projection.AggregateRows {
+				tableRows[row.Identity] = struct{}{}
+				requested = append(requested, row.Identity)
+			}
+
+			result, err := service.Insights(context.Background(), InsightsRequest{
+				State: state.Current, Rows: requested, Summary: true,
+			})
+
+			require.NoError(t, err)
+			require.Len(t, result.Insights.Series, len(requested))
+			for index, series := range result.Insights.Series {
+				assert.Equal(t, requested[index], result.RowIdentity(series.Key))
+			}
+			composition := result.Insights.Summary.Composition
+			require.NotNil(t, composition)
+			for _, entry := range append(composition.Spending, composition.Income...) {
+				if entry.Others == 0 {
+					assert.Contains(t, tableRows, result.RowIdentity(entry.Key))
+				}
+			}
+		})
+	}
+}

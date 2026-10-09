@@ -1060,6 +1060,7 @@ export interface components {
     }
     InsightsBody: {
       query: string
+      /** @description Aggregate row identities of the view's grouping, at most 200. Duplicates are ignored. */
       rows?: string[]
       summary?: boolean
     }
@@ -1084,6 +1085,7 @@ export interface components {
       spending: components['schemas']['InsightsCompositionEntry'][]
     }
     InsightsCompositionEntry: {
+      identity?: string
       key?: string
       label: string
       net: string

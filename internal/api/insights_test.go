@@ -166,6 +166,10 @@ func TestServerInsightsServeTheMetricsWorkedExample(t *testing.T) {
 	assert.Equal(t, "-36000", entry.Net)
 	assert.Equal(t, 62, entry.ShareTenths, "Share is 360.00 ÷ 5,844.18 = 6.2%")
 	assert.Equal(t, 0, entry.Others)
+	assert.Equal(t, megastore, entry.Identity, "a composition bar links to its table row")
+	for _, ranked := range summary.Composition.Spending {
+		assert.Equal(t, rowIdentity(t, server, query, ranked.Label), ranked.Identity)
+	}
 	assert.Equal(t, "Corner Grocery", summary.Composition.Spending[0].Label)
 	require.Len(t, summary.Composition.Income, 1)
 	assert.Equal(t, "Example Employer", summary.Composition.Income[0].Label)
@@ -261,6 +265,31 @@ func TestServerInsightsTimeGroupingHasPeriodCompositionAndNoSeries(t *testing.T)
 	assert.Len(t, summary.Cashflow.Net, 30)
 }
 
+func TestServerInsightsOthersEntryLinksToNoRow(t *testing.T) {
+	t.Parallel()
+	var transactions []domain.Transaction
+	for index := range 9 {
+		merchant := fmt.Sprintf("Example Merchant %d", index)
+		transactions = append(transactions, insightsTransaction(
+			t, fmt.Sprintf("t%d", index), "2026-09-10", -int64(1000*(index+1)), merchant, "Shopping",
+		))
+	}
+	server := insightsServer(t, transactions)
+
+	insights := requestInsights(t, server, InsightsBody{
+		Query: insightsQuery(t, domain.DimensionMerchant), Summary: true,
+	})
+
+	require.NotNil(t, insights.Summary)
+	spending := insights.Summary.Composition.Spending
+	require.Len(t, spending, 8)
+	others := spending[7]
+	assert.Equal(t, 2, others.Others)
+	assert.Empty(t, others.Key)
+	assert.Empty(t, others.Identity, "the others entry is not a table row")
+	assert.NotEmpty(t, spending[0].Identity)
+}
+
 func TestServerInsightsCollapseDuplicateRowsAndSkipTheSummary(t *testing.T) {
 	t.Parallel()
 	server := insightsServer(t, insightsMetricsExample(t))
@@ -285,6 +314,10 @@ func TestServerInsightsRejectInvalidRequests(t *testing.T) {
 	query := insightsQuery(t, domain.DimensionMerchant)
 	megastore := rowIdentity(t, server, query, "Online Megastore")
 	category := rowIdentity(t, server, insightsQuery(t, domain.DimensionCategory), "Shopping")
+	euro := app.AggregateIdentity(domain.AggregateRow{
+		Dimension: domain.DimensionMerchant, Key: "merchant-Online Megastore",
+		Total: domain.Money{Currency: "EUR", Scale: 2},
+	})
 	tooMany := make([]string, app.MaxInsightsRows+1)
 	for index := range tooMany {
 		tooMany[index] = megastore
@@ -318,6 +351,10 @@ func TestServerInsightsRejectInvalidRequests(t *testing.T) {
 			body: InsightsBody{Query: insightsQuery(t, domain.DimensionTime), Rows: []string{megastore}},
 			code: "invalid_web_request",
 		},
+		{
+			name: "row in another currency", body: InsightsBody{Query: query, Rows: []string{euro}},
+			code: "invalid_web_request",
+		},
 		{name: "bad query", body: InsightsBody{Query: "v=1&bogus=1"}, code: "invalid_view_state"},
 	}
 	for _, test := range tests {
@@ -334,27 +371,75 @@ func TestServerInsightsRejectInvalidRequests(t *testing.T) {
 
 func TestServerInsightsIgnorePendingEditsAndNeedNoMutationToken(t *testing.T) {
 	t.Parallel()
-	service := newPersistentAPITestService(t, insightsMetricsExample(t))
-	insightsClock(service)
-	server := newAPITestServerForService(t, service)
-	query := insightsQuery(t, domain.DimensionMerchant)
-	megastore := rowIdentity(t, server, query, "Online Megastore")
-	body := InsightsBody{Query: query, Rows: []string{megastore}, Summary: true}
-	path := fmt.Sprintf("/api/v1/profiles/%s/view/insights", testProfileID)
-	before := requestJSON(t, server, path, body)
-	require.Equal(t, http.StatusOK, before.Code, before.Body.String())
+	type pendingEdit struct {
+		grouping domain.Dimension
+		row      string
+		apply    func(testing.TB, *Server)
+	}
+	edits := map[string]pendingEdit{
+		"rename": {grouping: domain.DimensionMerchant, row: "Online Megastore",
+			apply: func(t testing.TB, server *Server) {
+				appendMerchantMutation(t, server, "Renamed Merchant")
+			}},
+		"hide": {grouping: domain.DimensionMerchant, row: "Online Megastore",
+			apply: func(t testing.TB, server *Server) {
+				mutateMegastorePurchase(t, server, app.ActionToggleHidden, MutationInput{})
+			}},
+		"recategorize": {grouping: domain.DimensionCategory, row: "Shopping",
+			apply: func(t testing.TB, server *Server) {
+				mutateMegastorePurchase(t, server, app.ActionEditCategory, MutationInput{
+					Scope: string(app.EditScopeTransactions), DestinationID: "category-Rent",
+				})
+			}},
+	}
+	for name, edit := range edits {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			service := newPersistentAPITestService(t, insightsMetricsExample(t))
+			insightsClock(service)
+			server := newAPITestServerForService(t, service)
+			query := insightsQuery(t, edit.grouping)
+			row := rowIdentity(t, server, query, edit.row)
+			body := InsightsBody{Query: query, Rows: []string{row}, Summary: true}
+			path := fmt.Sprintf("/api/v1/profiles/%s/view/insights", testProfileID)
+			before := requestJSON(t, server, path, body)
+			require.Equal(t, http.StatusOK, before.Code, before.Body.String())
 
-	appendMerchantMutation(t, server, "Renamed Merchant")
-	require.NotZero(t, projectPersistentView(t, server).Pending.ActiveOperations)
+			edit.apply(t, server)
+			require.NotZero(t, projectPersistentView(t, server).Pending.ActiveOperations)
 
-	after := requestJSON(t, server, path, body)
-	require.Equal(t, http.StatusOK, after.Code, after.Body.String())
-	var beforeBody, afterBody map[string]any
-	require.NoError(t, json.Unmarshal(before.Body.Bytes(), &beforeBody))
-	require.NoError(t, json.Unmarshal(after.Body.Bytes(), &afterBody))
-	assert.Equal(t, "1", beforeBody["revision"])
-	assert.Equal(t, "2", afterBody["revision"], "the pending edit advances the revision")
-	delete(beforeBody, "revision")
-	delete(afterBody, "revision")
-	assert.Equal(t, beforeBody, afterBody, "insights use committed values")
+			after := requestJSON(t, server, path, body)
+			require.Equal(t, http.StatusOK, after.Code, after.Body.String())
+			var beforeBody, afterBody map[string]any
+			require.NoError(t, json.Unmarshal(before.Body.Bytes(), &beforeBody))
+			require.NoError(t, json.Unmarshal(after.Body.Bytes(), &afterBody))
+			assert.Equal(t, "1", beforeBody["revision"])
+			assert.Equal(t, "2", afterBody["revision"], "the pending edit advances the revision")
+			delete(beforeBody, "revision")
+			delete(afterBody, "revision")
+			assert.Equal(t, beforeBody, afterBody, "insights use committed values")
+		})
+	}
+}
+
+// mutateMegastorePurchase stages one edit of a September Online Megastore purchase.
+func mutateMegastorePurchase(
+	t testing.TB, server *Server, action app.ActionID, input MutationInput,
+) {
+	t.Helper()
+	view := projectPersistentViewForQuery(t, server, "mode=detail&v=1")
+	var target DetailRow
+	for _, row := range view.DetailRows {
+		if row.Merchant == "Online Megastore" && row.Date == "2026-09-03" {
+			target = row
+		}
+	}
+	require.NotEmpty(t, target.Identity)
+	response := requestProtectedJSON(t, server, "/api/v1/mutations", MutationBody{
+		Version: MutationSchemaVersion, ExpectedRevision: view.Revision,
+		Query: view.CanonicalQuery, Selection: view.Selection, Action: action,
+		Target: &TransitionTarget{Kind: app.IdentityTransaction, Identity: target.Identity},
+		Input:  input, Window: Window{Limit: 200},
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 }

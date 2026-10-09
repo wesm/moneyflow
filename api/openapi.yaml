@@ -840,7 +840,9 @@ components:
           maxLength: 65536
           type: string
         rows:
+          description: Aggregate row identities of the view's grouping, at most 200. Duplicates are ignored.
           items:
+            maxLength: 4096
             type: string
           type: array
         summary:
@@ -922,6 +924,8 @@ components:
     InsightsCompositionEntry:
       additionalProperties: false
       properties:
+        identity:
+          type: string
         key:
           type: string
         label:
