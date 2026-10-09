@@ -296,12 +296,45 @@ func (session *Session) applyTimeRange(dateRange *domain.DateRange) {
 	session.dropTimeDrilldowns()
 }
 
+// dropTimeDrilldowns removes time drill-downs from the view and its back history. A view
+// left with a sub-grouping and no drill path shows that sub-grouping as its top-level
+// grouping, and the history entry that undid the sub-grouping goes with it.
 func (session *Session) dropTimeDrilldowns() {
-	session.Drilldowns = removeTimeDrilldowns(session.Drilldowns, session.searchAnchor)
-	for index := range session.history {
-		snapshot := &session.history[index].snapshot
-		snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
+	current := session.snapshot()
+	promoted := current.dropTimeDrilldowns()
+	session.restore(current)
+	kept := make([]historyEntry, 0, len(session.history))
+	for index := len(session.history) - 1; index >= 0; index-- {
+		entry := session.history[index]
+		if promoted && entry.kind == historySubGrouping {
+			promoted = false
+			continue
+		}
+		promoted = entry.snapshot.dropTimeDrilldowns()
+		kept = append(kept, entry)
 	}
+	slices.Reverse(kept)
+	session.history = kept
+}
+
+// dropTimeDrilldowns removes time drill-downs and reports whether that left a sub-grouping
+// without a drill path, which it promotes to the top-level grouping.
+func (snapshot *sessionSnapshot) dropTimeDrilldowns() bool {
+	drilled := len(snapshot.drilldowns) > 0
+	snapshot.drilldowns = removeTimeDrilldowns(snapshot.drilldowns, snapshot.searchAnchor)
+	if !drilled || len(snapshot.drilldowns) > 0 || snapshot.subGrouping == nil {
+		return false
+	}
+	snapshot.mode = domain.ResultModeAggregate
+	snapshot.dimension = *snapshot.subGrouping
+	snapshot.subGrouping = nil
+	snapshot.sort = sortForTopLevelTransition(snapshot.dimension, snapshot.sort)
+	if snapshot.searchAnchor != nil {
+		snapshot.searchAnchor = &navigationMarker{
+			mode: snapshot.mode, dimension: snapshot.dimension,
+		}
+	}
+	return true
 }
 
 func isTimeDrilldown(drilldown domain.Drilldown) bool {

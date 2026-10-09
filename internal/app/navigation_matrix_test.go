@@ -887,3 +887,158 @@ func TestGroupingForKeyFollowsTheRegistryKeysAndGroupingOrder(t *testing.T) {
 		assert.False(t, ok, key)
 	}
 }
+
+// subGroupedTimeDrill is the TUI's "T: Sep 2026 > (by Merchant)": the Time grouping over all
+// time, drilled into September 2026 and broken down by merchant, with a top-level search.
+func subGroupedTimeDrill(t *testing.T) Session {
+	t.Helper()
+	session := NewSession()
+	require.NoError(t, session.SetFilters(Filters{ShowHidden: false, ShowTransfers: true}))
+	require.NoError(t, session.SetGrouping(domain.DimensionTime))
+	session.SetSearch("example")
+	september := domain.Period{Granularity: domain.TimeGranularityMonth, Year: 2026, Month: 9}
+	drillMatrixRow(t, &session, matrixTimeRow(september))
+	require.NoError(t, session.SetSubGrouping(domain.DimensionMerchant))
+	require.NoError(t, session.SetSort(domain.SortFieldMerchant))
+	session.ToggleAggregateSelection("merchant-selected")
+	return session
+}
+
+func TestMatrixPeriodChangeInsideASubGroupedTimeDrillPromotesTheSubGrouping(t *testing.T) {
+	t.Parallel()
+	august := matrixRange(t, "2026-08-01", "2026-08-31")
+	changes := map[string]func(*Session) error{
+		"previous period": func(session *Session) error {
+			changed, err := session.ShiftPeriod(-1)
+			require.True(t, changed)
+			return err
+		},
+		"chooser": func(session *Session) error { return session.SetTimeRange(august) },
+		"clear": func(session *Session) error {
+			require.True(t, session.ClearPeriod())
+			return nil
+		},
+		"filters": func(session *Session) error {
+			return session.SetFilters(Filters{DateRange: august, ShowTransfers: true})
+		},
+	}
+	for name, change := range changes {
+		session := subGroupedTimeDrill(t)
+		want := columnsOf(session)
+
+		require.NoError(t, change(&session), name)
+
+		want.drilldowns = nil
+		want.subGrouping = nil
+		want.dateRange = cloneDateRange(session.DateRange)
+		want.sort = sortSpec(domain.SortFieldMerchant, domain.SortDirectionAsc)
+		want.selected = 0
+		assert.Equal(t, want, columnsOf(session), name)
+		assert.Equal(t, domain.ResultModeAggregate, session.Mode, name)
+		assert.Equal(t, domain.DimensionMerchant, session.Dimension, name)
+		returns := session.ViewState().Returns
+		require.Len(t, returns, 1, "%s: only the Time grouping is left to return to", name)
+		assert.Equal(t, domain.DimensionTime, returns[0].State.Dimension, name)
+		assert.Equal(t, domain.ResultModeAggregate, returns[0].State.Mode, name)
+		require.NoError(t, session.ViewState().Validate(), name)
+
+		cycled := session.Clone()
+		cycled.CycleGrouping()
+		assert.Equal(t, domain.ResultModeAggregate, cycled.Mode, name)
+		assert.Equal(t, domain.DimensionCategory, cycled.Dimension, "%s: g cycles the grouping", name)
+
+		_, ok := session.Back()
+		require.True(t, ok, name)
+		assert.Empty(t, session.Search, "%s: Esc clears the search at this level", name)
+		_, ok = session.Back()
+		require.True(t, ok, name)
+		assert.Equal(t, domain.DimensionTime, session.Dimension, name)
+		assert.Equal(t, want.dateRange, session.DateRange, name)
+		assert.Empty(t, session.Drilldowns, name)
+	}
+}
+
+func TestMatrixPeriodChangeInHistoryPromotesASubGroupedTimeDrill(t *testing.T) {
+	t.Parallel()
+	session := subGroupedTimeDrill(t)
+	drillMatrixRow(t, &session, matrixRow(domain.DimensionMerchant, "merchant-1"))
+
+	changed, err := session.ShiftPeriod(-1)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Len(t, session.Drilldowns, 1)
+	assert.Equal(t, "merchant-1", session.Drilldowns[0].Key)
+	_, ok := session.Back()
+	require.True(t, ok)
+	assert.Equal(t, domain.ResultModeAggregate, session.Mode, "Esc returns to the promoted grouping")
+	assert.Equal(t, domain.DimensionMerchant, session.Dimension)
+	assert.Nil(t, session.SubGrouping)
+	assert.Empty(t, session.Drilldowns)
+	_, ok = session.Back()
+	require.True(t, ok)
+	assert.Empty(t, session.Search, "Esc clears the top-level search before returning")
+	_, ok = session.Back()
+	require.True(t, ok)
+	assert.Equal(t, domain.DimensionTime, session.Dimension)
+	assert.Empty(t, session.ViewState().Returns)
+}
+
+func TestMatrixWebPeriodChangeInsideASubGroupedTimeDrillPromotesTheSubGrouping(t *testing.T) {
+	t.Parallel()
+	service := timeRowsService(t,
+		appTransaction(t, "october", "2026-10-07", "-2.00", "Example", "Category", "Group"),
+		appTransaction(t, "march", "2025-03-01", "-1.00", "Example", "Category", "Group"),
+	)
+	transition := func(state ViewState, request TransitionRequest) (ViewState, WebProjection) {
+		t.Helper()
+		next, _, projection, err := service.TransitionView(
+			state, EmptySelection(), request, WindowRequest{Limit: MaxWindowLimit},
+		)
+		require.NoError(t, err, request.Action)
+		return next, projection
+	}
+	drill := func(state ViewState, projection WebProjection, name string) ViewState {
+		t.Helper()
+		for _, row := range projection.AggregateRows {
+			if row.Row.Key == name || row.Row.Label == name {
+				next, _ := transition(state, TransitionRequest{
+					Action: ActionDrill, Target: &RowTarget{Kind: IdentityAggregate, Identity: row.Identity},
+				})
+				return next
+			}
+		}
+		require.Failf(t, "row not found", "%q", name)
+		return state
+	}
+	year, projection := setWebPeriod(t, service, timeGroupingState(),
+		matrixRange(t, "2026-01-01", "2026-12-31"))
+	october := drill(year, projection, "2026-10")
+	merchant := domain.DimensionMerchant
+	subGrouped, _ := transition(october, TransitionRequest{
+		Action: ActionSetSubGrouping, Dimension: &merchant,
+	})
+
+	previous, projection := transition(subGrouped, TransitionRequest{Action: ActionPreviousPeriod})
+
+	current := previous.Current
+	assert.Equal(t, domain.ResultModeAggregate, current.Mode)
+	assert.Equal(t, domain.DimensionMerchant, current.Dimension)
+	assert.Nil(t, current.SubGrouping)
+	assert.Empty(t, current.Drilldowns)
+	assert.Equal(t, matrixRange(t, "2025-01-01", "2025-12-31"), current.DateRange)
+	assert.Equal(t, &domain.CurrencyScope{Currency: "USD", Scale: 2}, current.Currency)
+	assert.Equal(t, amountDescending(), current.Sort)
+	require.Len(t, previous.Returns, 1)
+	assert.Equal(t, domain.DimensionTime, previous.Returns[0].State.Dimension)
+
+	cycled, _ := transition(previous, TransitionRequest{Action: ActionCycleGrouping})
+	assert.Equal(t, domain.DimensionCategory, cycled.Current.Dimension)
+	assert.Equal(t, domain.ResultModeAggregate, cycled.Current.Mode)
+	drilled := drill(previous, projection, "Example")
+	category := domain.DimensionCategory
+	broken, _ := transition(drilled, TransitionRequest{
+		Action: ActionSetSubGrouping, Dimension: &category,
+	})
+	assert.Equal(t, &category, broken.Current.SubGrouping)
+}
