@@ -258,13 +258,57 @@ test('x in a grouped view explains why it cannot delete', async ({ page, server 
   await page.keyboard.press('j')
   await expect(notice).toHaveText('', cleared)
 
+  // A box click and a header click send transitions without moving the cursor.
+  const reason = 'Open the group to delete its transactions.'
+  const grid = page.getByRole('grid', { name: 'Financial results' })
   await page.keyboard.press('x')
-  await expect(notice).toHaveText('Open the group to delete its transactions.')
+  await expect(notice).toHaveText(reason)
+  await cell(grid.locator('[role="row"][aria-rowindex="5"]'), 'select').click()
+  await expect(notice).toHaveText('', cleared)
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await header(page, 'Count').getByRole('button', { name: 'Count' }).click()
+  await expect(notice).toHaveText('', cleared)
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
+  await page
+    .getByRole('complementary', { name: 'Visualizations' })
+    .getByRole('button')
+    .nth(2)
+    .click()
+  await expect(notice).toHaveText('', cleared)
+
+  await page.keyboard.press('x')
+  await expect(notice).toHaveText(reason)
   const row = await activeRow(page)
   const merchant = await cell(row, 'name').innerText()
   await cell(row, 'count').dblclick()
   await expect(breadcrumb(page).getByRole('listitem')).toHaveText(['Merchants', `› ${merchant}`])
   await expect(notice).toHaveText('', cleared)
+})
+
+test('a chart drill waits for an earlier table transition', async ({ page, server }) => {
+  await openMoneyflow(page, server)
+  const events: string[] = []
+  await page.route('**/view/transition', async (route) => {
+    const action = route.request().postDataJSON().action
+    events.push(`${action} sent`)
+    if (action !== 'selection.toggle') return route.continue()
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const response = await route.fetch()
+    events.push(`${action} answered`)
+    await route.fulfill({ response })
+  })
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const mark = page
+    .getByRole('complementary', { name: 'Visualizations' })
+    .getByRole('button')
+    .nth(1)
+  const label = (await mark.getAttribute('aria-label'))!.split(',')[0]!
+  await cell(grid.locator('[role="row"][aria-rowindex="4"]'), 'select').click()
+  await mark.dblclick()
+  await expect(breadcrumb(page)).toContainText(label)
+  expect(events).toEqual(['selection.toggle sent', 'selection.toggle answered', 'view.drill sent'])
 })
 
 test('two quick box clicks keep both rows selected', async ({ page, server }) => {

@@ -5,6 +5,7 @@ import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
 import type { OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
+import { status } from './status.svelte'
 
 export interface FocusedRow {
   identity: string
@@ -33,6 +34,15 @@ export function focusedRow(
   const row = rows.find((candidate) => candidate.index === cursorIndex)
   if (!row) return undefined
   return { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
+}
+
+/**
+ * Moves the cursor from a pointer or a grid key. These never pass through the shortcut manager,
+ * so the move clears the status notice here, as every next action does.
+ */
+export function moveCursor(move: () => Promise<void>): void {
+  status.clear()
+  void move()
 }
 
 /** Opens the information drawer for a transaction once the server returns its details. */

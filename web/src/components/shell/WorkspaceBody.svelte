@@ -4,12 +4,12 @@
   import type { ViewProjection } from '../../lib/api/client'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
   import {
+    moveCursor,
     openEditor,
     openTransactionInformation,
     type LocalActionContext,
   } from '../../lib/shell/local-actions'
   import { emptyScope } from '../../lib/shell/period'
-  import { status } from '../../lib/shell/status.svelte'
 
   interface Props {
     projection: ViewProjection
@@ -21,12 +21,6 @@
   let { projection, actions, onapply }: Props = $props()
   const controller = $derived(actions.controller)
   const empty = $derived(emptyScope(projection))
-
-  /** Moves the cursor. The grid handles j, k, and Home itself, so it clears the notice here. */
-  function moveCursor(move: () => Promise<void>): void {
-    status.clear()
-    void move()
-  }
 </script>
 
 {#if empty}

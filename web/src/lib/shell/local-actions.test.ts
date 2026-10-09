@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { localActions, openEditor, type LocalActionContext } from './local-actions'
+import { localActions, moveCursor, openEditor, type LocalActionContext } from './local-actions'
 import { OverlayState } from './overlay-state.svelte'
+import { status } from './status.svelte'
 import type { ViewController } from '../controller/view-controller.svelte'
 import { testAggregateRow, testProjection } from '../../test/projection'
 
@@ -66,5 +67,18 @@ describe('editor actions', () => {
     localActions(context)['edit.merchant']()
     expect(overlays.current).toBeUndefined()
     expect(overlays.editTarget).toBeUndefined()
+  })
+})
+
+describe('moveCursor', () => {
+  it('clears the status notice before the cursor moves', () => {
+    status.notify('Open the group to delete its transactions.')
+    const move = vi.fn(() => {
+      expect(status.notice).toBe('')
+      return Promise.resolve()
+    })
+    moveCursor(move)
+    expect(move).toHaveBeenCalledTimes(1)
+    expect(status.notice).toBe('')
   })
 })

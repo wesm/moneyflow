@@ -26,6 +26,7 @@
     confirmDirectDelete,
     focusedRow,
     localActions,
+    moveCursor,
     openTransactionInformation,
     type LocalActionContext,
   } from '../lib/shell/local-actions'
@@ -85,15 +86,18 @@
     overlays.close('keep')
     void tick().then(work)
   }
-  /** Runs view transitions one at a time, so each starts from the result of the last. */
+  /**
+   * Runs view transitions one at a time, so each starts from the result of the last. Queuing
+   * one is the user's next action, so it clears the notice now, not when the transition runs.
+   */
   function queue(work: () => Promise<void>): void {
+    status.clear()
     transitionTail = transitionTail.then(work, work)
   }
   const queueApply = (action: string, dimension?: Dimension) =>
     queue(() => apply(action, dimension))
   const queueSend = (request: TransitionAction) => queue(() => send(request))
   async function send(request: TransitionAction): Promise<void> {
-    status.clear()
     await controller.apply(request)
     focusGrid()
   }
@@ -164,7 +168,7 @@
       loader={charts.rail}
       {projection}
       cursorIndex={controller.cursorIndex}
-      oncursor={(index) => void controller.moveCursorTo(index)}
+      oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
       ondrill={(identity) =>
         queueSend({ action: 'view.drill', target: { identity, kind: 'aggregate' } })}
     />
