@@ -9,6 +9,7 @@
   }
 
   let { row, oninformation }: Props = $props()
+  const stagedHidden = $derived(row.staged?.hidden)
   const match = $derived(row.amazon_match)
   const strong = $derived(match?.confidence === 'high' || match?.confidence === 'medium')
 </script>
@@ -17,7 +18,13 @@
   {#if row.flags.pending}
     <StatusDot status="stale" label="Pending edits" />
   {/if}
-  {#if row.flags.hidden}
+  {#if row.staged?.deleted}
+    <Chip size="xs" tone="warning" uppercase={false}>Delete</Chip>
+  {:else if stagedHidden === true}
+    <Chip size="xs" tone="warning" uppercase={false}>Hidden</Chip>
+  {:else if stagedHidden === false}
+    <Chip size="xs" tone="warning" uppercase={false}>Visible</Chip>
+  {:else if row.flags.hidden}
     <Chip size="xs" tone="muted" uppercase={false}>Hidden</Chip>
   {/if}
   {#if match}

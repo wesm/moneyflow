@@ -46,7 +46,7 @@ const cell = (row: HTMLElement, key: string) =>
 describe('FinanceGrid', () => {
   afterEach(cleanup)
 
-  it('renders transaction rows in the accessible grid with today’s pointer behavior', async () => {
+  it('renders transaction rows with today’s pointer behavior', async () => {
     const events = callbacks()
     render(FinanceGrid, {
       projection: testProjection({ view: detailView }),
@@ -284,6 +284,42 @@ describe('FinanceGrid', () => {
     await fireEvent.click(mark)
     expect(events.oninformation).toHaveBeenCalledWith('row-0')
     expect(events.ontoggle).not.toHaveBeenCalled()
+  })
+
+  it('shows staged merchant and category values inline and strikes a staged deletion', () => {
+    const template = testProjection().detail_rows![0]!
+    render(FinanceGrid, {
+      projection: testProjection({
+        view: detailView,
+        total_rows: 2,
+        window: { offset: 0, limit: 200, count: 2 },
+        detail_rows: [
+          {
+            ...template,
+            flags: { selected: false, hidden: false, pending: true },
+            staged: { deleted: false, merchant: 'Renamed Merchant', category: 'Other Category' },
+          },
+          {
+            ...template,
+            index: 1,
+            identity: 'row-1',
+            merchant: 'Deleted Merchant',
+            flags: { selected: false, hidden: false, pending: true },
+            staged: { deleted: true },
+          },
+        ],
+      }),
+      cursorIndex: 0,
+      compact: false,
+      ...callbacks(),
+    })
+    const renamed = screen.getByRole('row', { name: /Renamed Merchant/ })
+    expect(cell(renamed, 'merchant')?.querySelector('s')?.textContent).toBe('Example Merchant')
+    expect(cell(renamed, 'category')?.textContent).toContain('Other Category')
+    expect(renamed.classList.contains('mf-table__row--deleted')).toBe(false)
+    const deleted = screen.getByRole('row', { name: /Deleted Merchant/ })
+    expect(deleted.classList.contains('mf-table__row--deleted')).toBe(true)
+    expect(within(cell(deleted, 'flags')!).getByText('Delete')).not.toBeNull()
   })
 
   it('shows an empty state without rows', () => {

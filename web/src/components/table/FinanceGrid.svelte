@@ -128,6 +128,7 @@
             'mf-table__row--active': row.index === cursorIndex,
             'mf-table__row--selected': row.flags.selected,
             'mf-table__row--hidden': row.flags.hidden,
+            'mf-table__row--deleted': 'staged' in row && row.staged?.deleted === true,
           },
         ]}
         role="row"

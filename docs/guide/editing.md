@@ -8,6 +8,12 @@ while edits are pending. A pending marker identifies affected rows; in the brows
 dot. For Monarch and YNAB, the table updates after the provider-write batch completes
 successfully; local profiles update on commit.
 
+**Unreleased:** Browser transaction rows also show their staged values. A changed merchant or
+category appears as the old value struck through, an arrow, and the new value in gold. Gold
+**Hidden**, **Visible**, and **Delete** tags mark staged hides, unhides, and deletions, and a
+staged deletion strikes through the row. Grouped rows and totals stay committed until you
+commit.
+
 ## Choose the transactions
 
 In detail view, an edit targets the current transaction. In a grouped view, it can target the

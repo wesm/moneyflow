@@ -971,14 +971,15 @@ input {
   position: relative;
   display: block;
   height: 10px;
+  margin-block: 5px;
 }
-.mf-net-bar::before {
+.mf-net-bar::after {
   content: '';
   position: absolute;
   top: -4px;
   bottom: -4px;
   left: 50%;
-  border-left: 1px solid var(--border-default);
+  border-left: 1px solid var(--text-muted);
 }
 .mf-net-bar__fill {
   position: absolute;
@@ -990,6 +991,12 @@ input {
 }
 .mf-net-bar__fill--out {
   right: 50%;
+}
+.mf-staged {
+  color: var(--mf-pending);
+}
+.mf-table__row--deleted .mf-table__cell:not([data-column='flags']) {
+  text-decoration: line-through;
 }
 .mf-flags {
   display: flex;

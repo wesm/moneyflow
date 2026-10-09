@@ -50,4 +50,34 @@ describe('RowFlags', () => {
         .textContent?.trim(),
     ).toBe('~')
   })
+
+  it('shows a gold tag for each staged visibility change and for a staged deletion', () => {
+    const staged = (values: Partial<NonNullable<DetailRow['staged']>>) =>
+      row({ staged: { deleted: false, ...values } })
+    const tag = (name: string) => screen.getByText(name).closest('.kit-chip')
+    const cases: [DetailRow, string][] = [
+      [staged({ hidden: true }), 'Hidden'],
+      [
+        { ...staged({ hidden: false }), flags: { selected: false, hidden: true, pending: true } },
+        'Visible',
+      ],
+      [staged({ deleted: true }), 'Delete'],
+    ]
+    for (const [value, name] of cases) {
+      render(RowFlags, { row: value })
+      expect(tag(name)?.classList.contains('kit-chip--tone-warning')).toBe(true)
+      cleanup()
+    }
+  })
+
+  it('replaces the committed Hidden tag with the staged Visible tag', () => {
+    render(RowFlags, {
+      row: row({
+        flags: { selected: false, hidden: true, pending: true },
+        staged: { deleted: false, hidden: false },
+      }),
+    })
+    expect(screen.queryByText('Hidden')).toBeNull()
+    expect(screen.getByText('Visible')).not.toBeNull()
+  })
 })

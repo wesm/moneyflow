@@ -1,5 +1,6 @@
 <script lang="ts">
   import RowFlags from './RowFlags.svelte'
+  import StagedValue from './StagedValue.svelte'
   import type { components } from '../../lib/api/schema'
   import { cellClass, type Column } from '../../lib/table/columns'
 
@@ -18,9 +19,9 @@
     {#if column.key === 'date'}
       {row.date}
     {:else if column.key === 'merchant'}
-      {row.merchant}
+      <StagedValue committed={row.merchant} staged={row.staged?.merchant} />
     {:else if column.key === 'category'}
-      {row.category}
+      <StagedValue committed={row.category} staged={row.staged?.category} />
     {:else if column.key === 'account'}
       {row.account}
     {:else if column.key === 'amount'}

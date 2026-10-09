@@ -53,6 +53,50 @@ test('every editing workflow starts from its TUI key and restores the table', as
   }
 })
 
+test('a staged rename shows inline in gold while the grouped Net stays committed', async ({
+  page,
+}) => {
+  const server = await startE2EServer()
+  try {
+    await openMoneyflow(page, server)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const group = await activeRow(page)
+    const merchant = await cell(group, 'name').innerText()
+    const net = await cell(group, 'net').innerText()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('columnheader', { name: 'Date' })).toBeVisible()
+
+    await page.keyboard.press('m')
+    const name = page.getByLabel('Merchant name')
+    await expect(name).toBeFocused()
+    await name.fill('Renamed Example')
+    await expect(page.getByRole('button', { name: 'Save pending change' })).toBeEnabled()
+    await name.press('Enter')
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    const staged = cell(await activeRow(page), 'merchant').locator('.mf-staged')
+    await expect(staged).toHaveText(`${merchant} → Renamed Example`)
+    await expect(staged.locator('s')).toHaveText(merchant)
+    const colors = await staged.evaluate((element) => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--mf-pending)'
+      document.body.append(probe)
+      const pending = getComputedStyle(probe).color
+      probe.remove()
+      return { staged: getComputedStyle(element).color, pending }
+    })
+    expect(colors.staged).toBe(colors.pending)
+
+    await page.keyboard.press('Escape')
+    const committed = grid
+      .getByRole('row')
+      .filter({ has: page.getByText(merchant, { exact: true }) })
+    await expect(cell(committed, 'net')).toHaveText(net)
+    await expect(committed.getByLabel('Pending edits')).toHaveCount(1)
+  } finally {
+    await server.stop()
+  }
+})
+
 test('bulk merchant edit clears a selection resolved beyond browser presentation state', async ({
   page,
 }) => {
