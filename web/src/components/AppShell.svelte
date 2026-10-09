@@ -15,7 +15,6 @@
   import HelpDialog from './HelpDialog.svelte'
   import RefinementBar from './RefinementBar.svelte'
   import SearchOverlay from './SearchOverlay.svelte'
-  import VisualizationRail from './VisualizationRail.svelte'
   import CategoryDialog from './editing/CategoryDialog.svelte'
   import CategoryManager from './editing/CategoryManager.svelte'
   import GroupManager from './editing/GroupManager.svelte'
@@ -43,6 +42,7 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let charts = $state(true)
+  let Rail = $state.raw<typeof import('./VisualizationRail.svelte').default | undefined>()
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
   type Overlay =
@@ -208,6 +208,10 @@
     if (!compact.current && chartDrawer) setChartDrawer(false)
   })
   $effect(() => {
+    if (Rail || !(compact.current ? chartDrawer : charts)) return
+    void import('./VisualizationRail.svelte').then((module) => (Rail = module.default))
+  })
+  $effect(() => {
     if (!projection) return
     const current = createMoneyflowShortcuts(projection.capabilities ?? [], {
       local,
@@ -280,12 +284,12 @@
       </div>
       {#if charts && !compact.current}
         <aside aria-label="Visualizations">
-          <VisualizationRail
-            {projection}
-            cursorIndex={controller.cursorIndex}
-            oncursor={(index) => void controller.moveCursorTo(index)}
-            ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
-          />
+          {#if Rail}<Rail
+              {projection}
+              cursorIndex={controller.cursorIndex}
+              oncursor={(index) => void controller.moveCursorTo(index)}
+              ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+            />{/if}
         </aside>
       {/if}
     </main>
@@ -363,12 +367,12 @@
       width="min(560px, calc(100vw - 1px))"
       onclose={() => setChartDrawer(false)}
     >
-      <VisualizationRail
-        {projection}
-        cursorIndex={controller.cursorIndex}
-        oncursor={(index) => void controller.moveCursorTo(index)}
-        ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
-      />
+      {#if Rail}<Rail
+          {projection}
+          cursorIndex={controller.cursorIndex}
+          oncursor={(index) => void controller.moveCursorTo(index)}
+          ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+        />{/if}
     </DetailDrawer>
   {/if}
 {/if}

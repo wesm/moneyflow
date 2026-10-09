@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
@@ -19,6 +19,19 @@ describe('AppShell', () => {
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
     expect(controller.moveCursor).toHaveBeenCalledTimes(1)
     expect((screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('loads the chart rail into the Visualizations region', async () => {
+    render(AppShell, { controller: stubController() })
+
+    const region = screen.getByRole('complementary', { name: 'Visualizations' })
+    // The first dynamic import compiles the chart library, which is slow in a cold test run.
+    const heading = await within(region).findByRole(
+      'heading',
+      { name: 'Visualizations' },
+      { timeout: 10_000 },
+    )
+    expect(heading.tagName).toBe('H2')
   })
 
   it('keeps the table full width and opens charts in a labelled compact drawer', async () => {
@@ -42,7 +55,8 @@ describe('AppShell', () => {
       expect(screen.getByRole('grid', { name: 'Financial results' })).not.toBeNull()
       expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
       await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
-      expect(screen.getByRole('dialog', { name: 'Moneyflow visualizations' })).not.toBeNull()
+      const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
+      expect(await within(dialog).findByRole('heading', { name: 'Visualizations' })).not.toBeNull()
       await fireEvent.keyDown(window, { key: 'j' })
       expect(controller.moveCursor).not.toHaveBeenCalled()
     } finally {
