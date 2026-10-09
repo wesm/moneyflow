@@ -123,6 +123,9 @@ type WebAggregateRow struct {
 	Row      domain.AggregateRow
 	// SavingsRateTenths is a Time row's Net ÷ In in tenths of a percent; nil unless In > 0.
 	SavingsRateTenths *int
+	// NetRatio is a Time row's |Net| ÷ the largest |Net| of the whole result in basis points,
+	// signed like Net. Nil for other rows.
+	NetRatio *int
 }
 
 // ChartMark contains renderer-neutral exact chart geometry for one aggregate row.
@@ -301,6 +304,7 @@ func (service *Service) projectRows(
 		return err
 	}
 	projection.AggregateRows = aggregateWindow(result.AggregateRows, projection.Window)
+	decorateNetRatios(projection.AggregateRows, result.AggregateRows)
 	if err = decorateSavingsRates(projection.AggregateRows); err != nil {
 		return err
 	}

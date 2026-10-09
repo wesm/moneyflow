@@ -226,6 +226,7 @@ func TestWireRowsCarryStagedValuesAndSavingsRate(t *testing.T) {
 
 	hidden := true
 	rate := -125
+	ratio := -2500
 	projection := app.WebProjection{
 		State: app.DefaultViewState(), Selection: app.EmptySelection(),
 		DetailRows: []app.WebDetailRow{
@@ -238,7 +239,8 @@ func TestWireRowsCarryStagedValuesAndSavingsRate(t *testing.T) {
 			{Identity: "plain"},
 		},
 		AggregateRows: []app.WebAggregateRow{
-			{Identity: "time", SavingsRateTenths: &rate},
+			{Identity: "time", SavingsRateTenths: &rate, NetRatio: &ratio},
+			{Identity: "category", Row: domain.AggregateRow{Group: "Example Group"}},
 			{Identity: "other"},
 		},
 	}
@@ -257,6 +259,11 @@ func TestWireRowsCarryStagedValuesAndSavingsRate(t *testing.T) {
 	require.NotNil(t, wire.AggregateRows[0].SavingsRateTenths)
 	assert.Equal(t, -125, *wire.AggregateRows[0].SavingsRateTenths)
 	assert.Nil(t, wire.AggregateRows[1].SavingsRateTenths)
+	require.NotNil(t, wire.AggregateRows[0].NetRatio)
+	assert.Equal(t, -2500, *wire.AggregateRows[0].NetRatio)
+	assert.Nil(t, wire.AggregateRows[2].NetRatio)
+	assert.Equal(t, "Example Group", wire.AggregateRows[1].Group)
+	assert.Empty(t, wire.AggregateRows[0].Group)
 }
 
 func TestWireCapabilitiesCarryDynamicUnavailableReason(t *testing.T) {

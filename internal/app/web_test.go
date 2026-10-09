@@ -966,3 +966,87 @@ func TestTransitionViewBackToRejectsBadDepths(t *testing.T) {
 		})
 	}
 }
+
+func timeRatioState() ViewState {
+	state := DefaultViewState()
+	state.Current.Dimension = domain.DimensionTime
+	state.Current.TimeGranularity = domain.TimeGranularityMonth
+	state.Current.Sort = domain.SortSpec{
+		Field: domain.SortFieldTimePeriod, Direction: domain.SortDirectionAsc,
+	}
+	return state
+}
+
+func netRatiosByLabel(rows []WebAggregateRow) map[string]*int {
+	ratios := map[string]*int{}
+	for _, row := range rows {
+		ratios[row.Row.Label] = row.NetRatio
+	}
+	return ratios
+}
+
+func TestProjectViewScalesTimeNetRatioOverTheWholeResult(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService([]domain.Transaction{
+		appTransaction(t, "jan", "2024-01-10", "-10.00", "Example", "Category", "Group"),
+		appTransaction(t, "feb", "2024-02-10", "40.00", "Example", "Category", "Group"),
+		appTransaction(t, "mar", "2024-03-10", "-0.03", "Example", "Category", "Group"),
+		appTransaction(t, "apr", "2024-04-10", "0.03", "Example", "Category", "Group"),
+	})
+	require.NoError(t, err)
+
+	windowed, err := service.ProjectView(
+		timeRatioState(), EmptySelection(), WindowRequest{Offset: 2, Limit: 2},
+	)
+
+	require.NoError(t, err)
+	require.Len(t, windowed.AggregateRows, 2)
+	ratios := netRatiosByLabel(windowed.AggregateRows)
+	require.NotNil(t, ratios["Mar 2024"])
+	require.NotNil(t, ratios["Apr 2024"])
+	assert.Equal(t, -8, *ratios["Mar 2024"], "-0.03 of 40.00 is -7.5 basis points, half up")
+	assert.Equal(t, 8, *ratios["Apr 2024"])
+
+	whole, err := service.ProjectView(timeRatioState(), EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	wholeRatios := netRatiosByLabel(whole.AggregateRows)
+	require.NotNil(t, wholeRatios["Jan 2024"])
+	require.NotNil(t, wholeRatios["Feb 2024"])
+	assert.Equal(t, -2500, *wholeRatios["Jan 2024"])
+	assert.Equal(t, 10000, *wholeRatios["Feb 2024"])
+}
+
+func TestProjectViewTimeNetRatioIsZeroWhenEveryNetIsZero(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService([]domain.Transaction{
+		appTransaction(t, "in", "2024-01-10", "5.00", "Example", "Category", "Group"),
+		appTransaction(t, "out", "2024-01-11", "-5.00", "Example", "Category", "Group"),
+	})
+	require.NoError(t, err)
+
+	projection, err := service.ProjectView(timeRatioState(), EmptySelection(), WindowRequest{})
+
+	require.NoError(t, err)
+	require.Len(t, projection.AggregateRows, 1)
+	require.NotNil(t, projection.AggregateRows[0].NetRatio)
+	assert.Zero(t, *projection.AggregateRows[0].NetRatio)
+}
+
+func TestProjectViewOmitsNetRatioFromNonTimeRows(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewService([]domain.Transaction{
+		appTransaction(t, "jan", "2024-01-10", "-10.00", "Example", "Category", "Group"),
+	})
+	require.NoError(t, err)
+
+	projection, err := service.ProjectView(DefaultViewState(), EmptySelection(), WindowRequest{})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, projection.AggregateRows)
+	for _, row := range projection.AggregateRows {
+		assert.Nil(t, row.NetRatio)
+	}
+}

@@ -39,6 +39,17 @@ func (value *accumulator) finishedRow() domain.AggregateRow {
 	return row
 }
 
+// noteGroup records a category row's group label. Like the row label, it takes the smallest
+// non-empty value so the result does not depend on transaction order.
+func (value *accumulator) noteGroup(dimension domain.Dimension, group string) {
+	if dimension != domain.DimensionCategory || group == "" {
+		return
+	}
+	if value.row.Group == "" || group < value.row.Group {
+		value.row.Group = group
+	}
+}
+
 func (value *accumulator) addAmount(amount domain.Money) error {
 	var err error
 	switch {
@@ -107,6 +118,7 @@ func aggregate(
 			value.row.Label = label
 		}
 		value.countTransaction(transaction, includePending)
+		value.noteGroup(dimension, transaction.Category.Group)
 		if transaction.Hidden {
 			continue
 		}

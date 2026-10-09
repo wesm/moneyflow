@@ -130,12 +130,14 @@ type Period struct {
 	Day         int    `json:"day,omitempty"`
 }
 
-// AggregateRow contains one stable aggregate partition.
+// AggregateRow contains one stable aggregate partition. Group is a category row's group label;
+// other dimensions and ungrouped categories omit it.
 type AggregateRow struct {
 	Index              int     `json:"index"`
 	Identity           string  `json:"identity"`
 	Dimension          string  `json:"dimension"`
 	Label              string  `json:"label"`
+	Group              string  `json:"group,omitempty"`
 	Count              int     `json:"count"`
 	In                 Money   `json:"in"`
 	Out                Money   `json:"out"`
@@ -147,6 +149,9 @@ type AggregateRow struct {
 	Flags              Flags   `json:"flags"`
 	// SavingsRateTenths is a Time row's net over income in tenths of a percent.
 	SavingsRateTenths *int `json:"savings_rate_tenths,omitempty"`
+	// NetRatio is a Time row's |Net| over the largest |Net| of the whole result, in basis points
+	// and signed like Net. It does not depend on the returned window.
+	NetRatio *int `json:"net_ratio,omitempty" minimum:"-10000" maximum:"10000"`
 }
 
 // Statistics contains exact totals for one currency and scale partition.
@@ -458,11 +463,11 @@ func stagedToWire(staged app.StagedValues) *StagedValues {
 func aggregateRowToWire(row app.WebAggregateRow) AggregateRow {
 	wire := AggregateRow{
 		Index: row.Index, Identity: row.Identity, Dimension: string(row.Row.Dimension),
-		Label: row.Row.Label, Count: row.Row.Count, Total: moneyToWire(row.Row.Total),
-		In: moneyToWire(row.Row.In), Out: moneyToWire(row.Row.Out),
+		Label: row.Row.Label, Group: row.Row.Group, Count: row.Row.Count,
+		Total: moneyToWire(row.Row.Total), In: moneyToWire(row.Row.In), Out: moneyToWire(row.Row.Out),
 		TopCategory: row.Row.TopCategory, TopCategoryPercent: row.Row.TopCategoryPercent,
 		ShareTenths: row.Row.ShareTenths, Flags: flagsToWire(row.Row.Flags),
-		SavingsRateTenths: row.SavingsRateTenths,
+		SavingsRateTenths: row.SavingsRateTenths, NetRatio: row.NetRatio,
 	}
 	if row.Row.Period != nil {
 		period := periodToWire(*row.Row.Period)

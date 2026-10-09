@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 
 	"github.com/wesm/moneyflow/internal/analytics"
@@ -169,6 +170,48 @@ func mergeTimeRows(
 		return rows
 	}
 	return analytics.SortAggregateRows(merged, query.Sort)
+}
+
+// netRatioScale is the scale of a Time row's net ratio: 10000 is the largest |Net|.
+const netRatioScale = 10000
+
+// decorateNetRatios sets each windowed Time row's net ratio. The largest |Net| comes from the
+// whole result, so a row's bar keeps its size when the window moves. Amounts of different
+// currencies or scales are never compared; each partition has its own maximum.
+func decorateNetRatios(window []WebAggregateRow, all []domain.AggregateRow) {
+	maxima := make(map[moneyPartition]*big.Int)
+	for _, row := range all {
+		if row.Dimension != domain.DimensionTime {
+			return
+		}
+		partition := moneyPartition{currency: row.Total.Currency, scale: row.Total.Scale}
+		absolute := new(big.Int).Abs(big.NewInt(row.Total.Minor))
+		if current := maxima[partition]; current == nil || absolute.Cmp(current) > 0 {
+			maxima[partition] = absolute
+		}
+	}
+	for index := range window {
+		total := window[index].Row.Total
+		partition := moneyPartition{currency: total.Currency, scale: total.Scale}
+		ratio := netRatio(total.Minor, maxima[partition])
+		window[index].NetRatio = &ratio
+	}
+}
+
+// netRatio returns round_half_up(|net| * netRatioScale / maximum) with the sign of net.
+func netRatio(net int64, maximum *big.Int) int {
+	if net == 0 || maximum == nil || maximum.Sign() == 0 {
+		return 0
+	}
+	numerator := new(big.Int).Abs(big.NewInt(net))
+	numerator.Mul(numerator, big.NewInt(2*netRatioScale))
+	numerator.Add(numerator, maximum)
+	denominator := new(big.Int).Lsh(maximum, 1)
+	ratio := int(numerator.Quo(numerator, denominator).Int64())
+	if net < 0 {
+		return -ratio
+	}
+	return ratio
 }
 
 // decorateSavingsRates sets each Time row's savings rate.

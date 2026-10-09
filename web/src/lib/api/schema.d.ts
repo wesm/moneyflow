@@ -752,11 +752,14 @@ export interface components {
       count: number
       dimension: string
       flags: components['schemas']['Flags']
+      group?: string
       identity: string
       in: components['schemas']['Money']
       /** Format: int64 */
       index: number
       label: string
+      /** Format: int64 */
+      net_ratio?: number
       out: components['schemas']['Money']
       period?: components['schemas']['Period']
       /** Format: int64 */
