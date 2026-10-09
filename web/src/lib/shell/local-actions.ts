@@ -1,0 +1,102 @@
+import { tick } from 'svelte'
+
+import type { ViewProjection } from '../api/client'
+import type { ViewController } from '../controller/view-controller.svelte'
+import type { LocalAction } from '../shortcuts'
+import type { OverlayState } from './overlay-state.svelte'
+
+export interface FocusedRow {
+  identity: string
+  kind: 'transaction' | 'aggregate'
+}
+
+export interface LocalActionContext {
+  controller: ViewController
+  overlays: OverlayState
+  /** Settles once queued view transitions finish, so `i` reads the row the cursor moved to. */
+  afterTransitions(): Promise<void>
+  /** Opens Amazon order import, which the app shell owns. */
+  importAmazon(): void
+}
+
+/** Finds the row under the cursor in the loaded window. */
+export function focusedRow(
+  projection: ViewProjection | undefined,
+  cursorIndex: number,
+): FocusedRow | undefined {
+  const rows = [...(projection?.detail_rows ?? []), ...(projection?.aggregate_rows ?? [])]
+  const row = rows.find((candidate) => candidate.index === cursorIndex)
+  if (!row) return undefined
+  return { identity: row.identity, kind: projection?.detail_rows ? 'transaction' : 'aggregate' }
+}
+
+/** Opens the information drawer for a transaction once the server returns its details. */
+export async function openTransactionInformation(
+  context: LocalActionContext,
+  identity: string,
+): Promise<void> {
+  const information = await context.controller.transactionInformation?.(identity)
+  if (!information) return
+  context.overlays.information = information
+  context.overlays.open('information')
+}
+
+/** Maps each browser-only shortcut to its handler. */
+export function localActions(context: LocalActionContext): Record<LocalAction, () => void> {
+  const { controller, overlays } = context
+  const row = () => focusedRow(controller.projection, controller.cursorIndex)
+  const openWithRow = (overlay: 'merchant' | 'category') => () => {
+    if (row()) overlays.open(overlay)
+  }
+  return {
+    'cursor.up': () => void controller.moveCursor(-1),
+    'cursor.down': () => void controller.moveCursor(1),
+    'cursor.home': () => void controller.moveHome(),
+    'overlay.search': () => overlays.open('search'),
+    'overlay.filters': () => overlays.open('filters'),
+    'overlay.help': () => overlays.open('help'),
+    'edit.merchant': openWithRow('merchant'),
+    'edit.category': openWithRow('category'),
+    'manage.categories': () => overlays.open('categories'),
+    'manage.groups': () => overlays.open('groups'),
+    'edit.review': () =>
+      overlays.open(controller.providerWrite.state.status?.phase ? 'write' : 'review'),
+    'view.duplicates': () => overlays.open('duplicates'),
+    'provider.refresh': () => {
+      if (controller.projection?.profile_kind === 'amazon') context.importAmazon()
+      else void controller.provider.refresh()
+    },
+    'transactions.export': () => void beginExport(context),
+    'edit.undo': () => void controller.editing.undo(),
+    'edit.redo': () => void controller.editing.redo(),
+    'edit.hide': () => {
+      const target = row()
+      if (!target) return
+      void controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target })
+    },
+    'edit.delete': () => confirmDelete(context, row()),
+    'transaction.info': () =>
+      void context.afterTransitions().then(async () => {
+        await tick()
+        const target = row()
+        if (target?.kind === 'transaction')
+          await openTransactionInformation(context, target.identity)
+      }),
+  }
+}
+
+function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
+  if (row?.kind !== 'transaction') return
+  const selected = context.controller.projection?.selection_count
+  context.overlays.deleteTarget = { identity: row.identity, kind: 'transaction' }
+  context.overlays.deleteCount = selected ? selected : 1
+  context.overlays.open('delete')
+}
+
+async function beginExport(context: LocalActionContext): Promise<void> {
+  const projection = context.controller.projection
+  if (!projection) return
+  if (await context.controller.export.open(projection.canonical_query)) {
+    context.overlays.open('export')
+  }
+}

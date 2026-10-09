@@ -37,6 +37,15 @@ test('desktop and medium layouts preserve table primacy and chart linkage', asyn
 
   await page.setViewportSize({ width: 1024, height: 768 })
   await expect(grid).toBeVisible()
+  await expect(visualizations).toHaveCount(0)
+  const charts = page.getByRole('switch', { name: 'Charts' })
+  await expect(charts).not.toBeChecked()
+  const lastHeader = (await grid.getByRole('columnheader').last().boundingBox())!
+  const mediumGrid = (await grid.boundingBox())!
+  expect(lastHeader.x).toBeGreaterThanOrEqual(mediumGrid.x)
+  expect(lastHeader.x + lastHeader.width).toBeLessThanOrEqual(mediumGrid.x + mediumGrid.width + 1)
+
+  await charts.check()
   await expect(visualizations).toBeVisible()
   const mediumChart = await visualizations.boundingBox()
   expect(mediumChart!.x).toBeGreaterThan((await grid.boundingBox())!.x)

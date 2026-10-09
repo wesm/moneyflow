@@ -3,9 +3,16 @@ import { expect, test, type Page, type Route } from '@playwright/test'
 import { openMoneyflow } from './fixtures'
 import { startE2EServer } from '../scripts/e2e-server'
 
-test('an unbound profile explains why provider refresh is unavailable', async ({ page }) => {
+test('an unbound provider profile explains why refresh is unavailable', async ({ page }) => {
   const server = await startE2EServer('/moneyflow/')
   try {
+    const asMonarch = async (route: Route) => {
+      const response = await route.fetch()
+      const body = (await response.json()) as Record<string, unknown>
+      await route.fulfill({ response, json: { ...body, profile_kind: 'monarch' } })
+    }
+    await page.route('**/api/v1/profiles/*/view', asMonarch)
+    await page.route('**/api/v1/profiles/*/view/transition', asMonarch)
     await openMoneyflow(page, server)
 
     const refresh = page.getByRole('button', { name: 'Refresh provider data' })
@@ -113,6 +120,8 @@ async function installProviderRoutes(page: Page, requireConfirmation: boolean) {
     body.capabilities = capabilities.map((capability) =>
       capability.id === 'provider.refresh' ? refreshCapability() : capability,
     )
+    // The demo profile is local, which has no provider controls; present it as a provider profile.
+    body.profile_kind = 'monarch'
     projection = body
     await route.fulfill({ response, json: body })
   }

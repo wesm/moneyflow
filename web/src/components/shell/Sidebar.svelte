@@ -6,7 +6,14 @@
   import type { PendingSummary, ViewProjection } from '../../lib/api/client'
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
-  import { ariaKeyshortcuts, navItems, type NavItem, type NavRun } from '../../lib/shell/nav-items'
+  import { availableCapabilities } from '../../lib/shell/capabilities'
+  import {
+    ariaKeyshortcuts,
+    hasProviderStatus,
+    navItems,
+    type NavItem,
+    type NavRun,
+  } from '../../lib/shell/nav-items'
 
   interface Props {
     projection: ViewProjection
@@ -31,10 +38,7 @@
     csv: 'CSV',
   }
   const sections = $derived(navItems(projection))
-  const reviewAvailable = $derived(
-    projection.capabilities?.some(({ id, available }) => id === 'changes.review' && available) ??
-      false,
-  )
+  const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
 
   // kit CollapsibleSidebar renders the <aside> without a name; name it apart from Visualizations.
   function nameLandmark(node: HTMLElement): void {
@@ -53,8 +57,11 @@
           class="mf-nav-item"
           aria-current={item.active ? 'page' : undefined}
           aria-keyshortcuts={ariaKeyshortcuts(item.key)}
-          disabled={!item.available}
-          onclick={() => onrun(item.run)}
+          aria-disabled={item.available ? undefined : 'true'}
+          title={item.reason}
+          onclick={() => {
+            if (item.available) onrun(item.run)
+          }}
         >
           {#if Icon}<Icon size={14} aria-hidden="true" />{/if}
           <span class="mf-nav-item__label">{item.label}</span>
@@ -77,7 +84,7 @@
   <div class="mf-sidebar__footer">
     <PendingCard {pending} {reviewAvailable} {write} {onreview} {onwrite} />
     <div class="mf-sidebar__system">
-      {#if projection.profile_kind !== 'amazon'}
+      {#if hasProviderStatus(projection.profile_kind)}
         <ProviderStatus controller={provider} {onreconnect} />
       {/if}
       <ThemeToggle size="sm" class="mf-sidebar__theme" />

@@ -6,40 +6,40 @@
   import type { PendingSummary, ViewProjection } from '../../lib/api/client'
   import type { ProviderController } from '../../lib/controller/provider'
   import { navIcons } from '../../lib/shell/nav-icons'
-  import { navItems, type NavItem, type NavRun } from '../../lib/shell/nav-items'
-  import { pendingText } from '../../lib/shell/pending'
+  import { availableCapabilities } from '../../lib/shell/capabilities'
+  import {
+    ariaKeyshortcuts,
+    hasProviderStatus,
+    navItems,
+    type NavItem,
+    type NavRun,
+  } from '../../lib/shell/nav-items'
+  import type { WriteProgress } from '../../lib/shell/status'
 
   interface Props {
     projection: ViewProjection
     pending: PendingSummary
     provider: ProviderController
-    writing?: boolean
+    write?: WriteProgress | undefined
     onrun: (run: NavRun) => void
     onreview: () => void
     onreconnect?: (() => void) | undefined
   }
 
-  let {
-    projection,
-    pending,
-    provider,
-    writing = false,
-    onrun,
-    onreview,
-    onreconnect,
-  }: Props = $props()
+  let { projection, pending, provider, write, onrun, onreview, onreconnect }: Props = $props()
 
   const sections = $derived(navItems(projection))
-  const reviewAvailable = $derived(
-    projection.capabilities?.some(({ id, available }) => id === 'changes.review' && available) ??
-      false,
+  const reviewAvailable = $derived(availableCapabilities(projection).has('changes.review'))
+  const pendingTip = $derived(
+    write ? `Write ${write.completed}/${write.total} · w` : 'Review pending changes · w',
   )
 
-  // kit IconButton has no aria-current prop; mark the current entry on its button.
-  function current(active: boolean) {
-    return (item: HTMLElement) => {
-      const button = item.querySelector('button')
-      if (active) button?.setAttribute('aria-current', 'page')
+  // kit IconButton has no aria-current or aria-keyshortcuts prop; set them on its button.
+  function entryAttributes(item: NavItem) {
+    return (node: HTMLElement) => {
+      const button = node.querySelector('button')
+      button?.setAttribute('aria-keyshortcuts', ariaKeyshortcuts(item.key))
+      if (item.active) button?.setAttribute('aria-current', 'page')
       else button?.removeAttribute('aria-current')
     }
   }
@@ -49,13 +49,13 @@
   <ul class="mf-rail__list">
     {#each items as item (item.id)}
       {@const Icon = navIcons[item.id]}
-      <li {@attach current(item.active)}>
-        <Tooltip text="{item.label} · {item.key}">
+      <li {@attach entryAttributes(item)}>
+        <Tooltip text="{item.label} · {item.reason ?? item.key}">
           <IconButton
             ariaLabel={item.label}
             title=""
             class={item.active ? 'mf-rail__item mf-rail__item--active' : 'mf-rail__item'}
-            disabled={!item.available}
+            ariaDisabled={!item.available}
             onclick={() => onrun(item.run)}
           >
             {#if Icon}<Icon size={16} aria-hidden="true" />{/if}
@@ -74,12 +74,12 @@
   </nav>
   <ul class="mf-rail__list mf-rail__footer">
     <li class="mf-rail__pending">
-      <Tooltip text="{pendingText(pending)} · w">
+      <Tooltip text={pendingTip}>
         <IconButton
           ariaLabel="Review pending changes"
           title=""
           class="mf-rail__item"
-          disabled={!reviewAvailable && !writing}
+          disabled={!reviewAvailable && !write}
           onclick={onreview}
         >
           <PenLineIcon size={16} aria-hidden="true" />
@@ -89,7 +89,7 @@
         <span class="mf-rail__count" aria-hidden="true">{pending.active_operations}</span>
       {/if}
     </li>
-    {#if projection.profile_kind !== 'amazon'}
+    {#if hasProviderStatus(projection.profile_kind)}
       <li><ProviderStatus controller={provider} {onreconnect} rail /></li>
     {/if}
     <li><ThemeToggle size="md" /></li>

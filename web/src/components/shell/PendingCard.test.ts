@@ -46,6 +46,20 @@ describe('PendingCard', () => {
     expect(onwrite).toHaveBeenCalledTimes(1)
   })
 
+  it('offers no review when nothing is pending', () => {
+    const empty = { active_operations: 0, inactive_operations: 0, affected_transactions: 0 }
+    render(PendingCard, {
+      pending: empty,
+      reviewAvailable: true,
+      onreview: vi.fn(),
+      onwrite: vi.fn(),
+    })
+    expect(
+      screen.getByRole('status', { name: 'Pending profile changes' }).textContent?.trim(),
+    ).toBe('0 pending edits · 0 transactions')
+    expect(screen.queryByRole('button', { name: 'Review pending changes' })).toBeNull()
+  })
+
   it('hides the write button when no write runs', () => {
     render(PendingCard, { pending, reviewAvailable: true, onreview: vi.fn(), onwrite: vi.fn() })
     expect(screen.queryByRole('button', { name: /^Write/ })).toBeNull()

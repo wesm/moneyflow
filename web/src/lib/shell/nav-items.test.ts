@@ -1,29 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { navItems, type NavItem } from './nav-items'
+import { ariaKeyshortcuts, navItems, type NavItem } from './nav-items'
 import type { ViewProjection } from '../api/client'
+import { navCapabilityIDs, testCapabilities } from '../../test/capabilities'
 import { testProjection } from '../../test/projection'
 
-type Capability = NonNullable<ViewProjection['capabilities']>[number]
-
-const allCapabilities: Array<[string, string]> = [
-  ['view.set-grouping', '1-5'],
-  ['view.show-detail', 'd'],
-  ['view.find-duplicates', 'D'],
-  ['transactions.export', 'E'],
-  ['category.manage', 'C'],
-  ['category-group.manage', 'G'],
-  ['provider.refresh', 'r'],
-]
-
-function capabilities(unavailable: string[] = []): Capability[] {
-  return allCapabilities.map(([id, key_display]) => ({
-    id,
-    key_display,
-    description: id,
-    category: 'Views',
-    available: !unavailable.includes(id),
-  }))
+function capabilities(unavailable: string[] = []) {
+  return testCapabilities(navCapabilityIDs, unavailable)
 }
 
 function aggregate(overrides: Partial<ViewProjection> = {}): ViewProjection {
@@ -78,6 +61,7 @@ describe('navItems', () => {
       { kind: 'local', action: 'view.duplicates' },
       { kind: 'local', action: 'transactions.export' },
       { kind: 'local', action: 'manage.categories' },
+      { kind: 'local', action: 'manage.groups' },
     ])
   })
 
@@ -85,13 +69,8 @@ describe('navItems', () => {
     expect(summary(navItems(aggregate()).maintain)).toEqual([
       { id: 'duplicates', label: 'Duplicates', key: 'D', active: false, available: true },
       { id: 'export', label: 'Export', key: 'E', active: false, available: true },
-      {
-        id: 'taxonomy',
-        label: 'Categories and groups',
-        key: 'C/G',
-        active: false,
-        available: true,
-      },
+      { id: 'categories', label: 'Edit categories', key: 'C', active: false, available: true },
+      { id: 'groups', label: 'Edit groups', key: 'G', active: false, available: true },
     ])
     const amazon = navItems(aggregate({ profile_kind: 'amazon' })).maintain.at(-1)
     expect(amazon).toEqual({
@@ -100,6 +79,7 @@ describe('navItems', () => {
       key: 'r',
       active: false,
       available: true,
+      reason: undefined,
       run: { kind: 'local', action: 'provider.refresh' },
     })
   })
@@ -136,7 +116,7 @@ describe('navItems', () => {
 
   it('disables entries whose capability is unavailable or missing', () => {
     const projection = aggregate({
-      capabilities: capabilities(['view.set-grouping', 'category.manage']).filter(
+      capabilities: capabilities(['view.set-grouping', 'category-group.manage']).filter(
         ({ id }) => id !== 'transactions.export',
       ),
     })
@@ -150,7 +130,42 @@ describe('navItems', () => {
     ])
     expect(maintain.filter(({ available }) => !available).map(({ id }) => id)).toEqual([
       'export',
-      'taxonomy',
+      'groups',
     ])
+  })
+
+  it('explains why an entry is unavailable', () => {
+    const projection = aggregate({
+      capabilities: [
+        ...capabilities(['view.find-duplicates', 'transactions.export']).filter(
+          ({ id }) => id !== 'transactions.export',
+        ),
+        {
+          id: 'transactions.export',
+          description: 'Export',
+          category: 'Actions',
+          available: false,
+          reason: 'Nothing to export.',
+        },
+      ],
+    })
+    const reasons = Object.fromEntries(
+      navItems(projection).maintain.map(({ id, reason }) => [id, reason]),
+    )
+    expect(reasons).toEqual({
+      duplicates: 'Not available in this view',
+      export: 'Nothing to export.',
+      categories: undefined,
+      groups: undefined,
+    })
+  })
+})
+
+describe('ariaKeyshortcuts', () => {
+  it('names Shift for uppercase keys and leaves other keys as shown', () => {
+    expect(ariaKeyshortcuts('D')).toBe('Shift+D')
+    expect(ariaKeyshortcuts('G')).toBe('Shift+G')
+    expect(ariaKeyshortcuts('d')).toBe('d')
+    expect(ariaKeyshortcuts('1')).toBe('1')
   })
 })

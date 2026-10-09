@@ -3,18 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import Sidebar from './Sidebar.svelte'
 import type { ViewProjection } from '../../lib/api/client'
+import { navCapabilityIDs, testCapabilities } from '../../test/capabilities'
 import { testProjection } from '../../test/projection'
 import { stubProvider } from '../../test/provider'
-
-const capabilityIDs = [
-  'view.set-grouping',
-  'view.show-detail',
-  'view.find-duplicates',
-  'transactions.export',
-  'category.manage',
-  'changes.review',
-  'provider.refresh',
-]
 
 function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
   return testProjection({
@@ -26,12 +17,7 @@ function projection(overrides: Partial<ViewProjection> = {}): ViewProjection {
       sort_field: 'amount',
       sort_direction: 'desc',
     },
-    capabilities: capabilityIDs.map((id) => ({
-      id,
-      description: id,
-      category: 'Views',
-      available: id !== 'transactions.export',
-    })),
+    capabilities: testCapabilities(navCapabilityIDs, ['transactions.export']),
     ...overrides,
   })
 }
@@ -80,7 +66,8 @@ describe('Sidebar', () => {
     entries(within(nav).getByRole('list', { name: 'Maintain' }), [
       ['Duplicates', 'D', 'Shift+D'],
       ['Export', 'E', 'Shift+E'],
-      ['Categories and groups', 'C/G', 'Shift+C'],
+      ['Edit categories', 'C', 'Shift+C'],
+      ['Edit groups', 'G', 'Shift+G'],
     ])
   })
 
@@ -93,7 +80,7 @@ describe('Sidebar', () => {
     expect(current).toEqual([within(nav).getByRole('button', { name: 'Categories' })])
   })
 
-  it('runs the entry action on click and disables unavailable entries', async () => {
+  it('runs the entry action on click', async () => {
     const onrun = vi.fn()
     render(Sidebar, props({ onrun }))
     await fireEvent.click(screen.getByRole('button', { name: 'Groups' }))
@@ -102,8 +89,19 @@ describe('Sidebar', () => {
       action: 'view.set-grouping',
       dimension: 'group',
     })
+  })
+
+  it('keeps unavailable entries focusable, explains them, and ignores their clicks', async () => {
+    const onrun = vi.fn()
+    render(Sidebar, props({ onrun }))
     const exportButton = screen.getByRole('button', { name: 'Export' })
-    expect(exportButton.hasAttribute('disabled')).toBe(true)
+    expect(exportButton.getAttribute('aria-disabled')).toBe('true')
+    expect(exportButton.hasAttribute('disabled')).toBe(false)
+    expect(exportButton.getAttribute('title')).toBe('Not available in this view')
+    exportButton.focus()
+    expect(document.activeElement).toBe(exportButton)
+    await fireEvent.click(exportButton)
+    expect(onrun).not.toHaveBeenCalled()
   })
 
   it('pins the pending card, provider refresh, and theme toggle to the bottom', async () => {
@@ -115,6 +113,23 @@ describe('Sidebar', () => {
     expect(onreview).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'Refresh provider data' })).not.toBeNull()
     expect(screen.getByRole('button', { name: /Change theme/ })).not.toBeNull()
+  })
+
+  it('hides the review button and provider refresh when there is nothing to act on', () => {
+    for (const profile_kind of ['local', 'csv'] as const) {
+      render(
+        Sidebar,
+        props({
+          projection: projection({ profile_kind }),
+          pending: { active_operations: 0, inactive_operations: 0, affected_transactions: 0 },
+        }),
+      )
+      expect(screen.getByRole('status', { name: 'Pending profile changes' })).not.toBeNull()
+      expect(screen.queryByRole('button', { name: 'Review pending changes' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Refresh provider data' })).toBeNull()
+      expect(screen.getByRole('button', { name: /Change theme/ })).not.toBeNull()
+      cleanup()
+    }
   })
 
   it('offers Amazon import instead of provider refresh on Amazon profiles', async () => {

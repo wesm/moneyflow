@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import AppShell from './AppShell.svelte'
 import type { ViewController } from '../lib/controller/view-controller.svelte'
 import { testProjection } from '../test/projection'
@@ -31,10 +31,26 @@ describe('AppShell', () => {
     vi.mocked(controller.moveCursor).mockClear()
     await fireEvent.keyDown(screen.getByRole('grid', { name: 'Financial results' }), { key: 'j' })
     expect(controller.moveCursor).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts charts off at rail widths so the table keeps the full width', async () => {
+    render(AppShell, { controller: stubController() })
+    const charts = screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement
+    expect(charts.checked).toBe(false)
+    expect(screen.queryByRole('complementary', { name: 'Visualizations' })).toBeNull()
+    await fireEvent.click(charts)
+    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
+  })
+
+  it('starts charts on with the full sidebar', () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    render(AppShell, { controller: stubController() })
     expect((screen.getByRole('switch', { name: 'Charts' }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByRole('complementary', { name: 'Visualizations' })).not.toBeNull()
   })
 
   it('loads the chart rail into the Visualizations region', async () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     render(AppShell, { controller: stubController() })
 
     const region = screen.getByRole('complementary', { name: 'Visualizations' })
@@ -49,6 +65,7 @@ describe('AppShell', () => {
 
   it('shows a loading line until the chart rail arrives', async () => {
     vi.mocked(loadRail).mockImplementationOnce(() => new Promise(() => undefined))
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     render(AppShell, { controller: stubController() })
 
     const region = screen.getByRole('complementary', { name: 'Visualizations' })
@@ -58,6 +75,7 @@ describe('AppShell', () => {
 
   it('explains a failed chart load and retries when charts are shown again', async () => {
     vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
     render(AppShell, { controller: stubController() })
 
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
@@ -197,16 +215,38 @@ describe('AppShell', () => {
     }
   })
 
-  it('opens overlays from Maintain entries like their keys', async () => {
-    const restore = stubMedia((query) => query === SIDEBAR_FULL_QUERY)
-    try {
-      render(AppShell, { controller: stubController() })
-      const nav = screen.getByRole('navigation', { name: 'Workspace' })
-      await fireEvent.click(within(nav).getByRole('button', { name: 'Duplicates' }))
-      expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
-    } finally {
-      restore()
-    }
+  it('opens overlays from Maintain entries and returns focus to the entry on close', async () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    const frames = captureFrames()
+    render(AppShell, { controller: stubController() })
+    const nav = screen.getByRole('navigation', { name: 'Workspace' })
+    const duplicates = within(nav).getByRole('button', { name: 'Duplicates' })
+    duplicates.focus()
+    await fireEvent.click(duplicates)
+    const dialog = screen.getByRole('dialog', { name: 'Duplicate transactions' })
+    dialog.focus()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(screen.queryByRole('dialog', { name: 'Duplicate transactions' })).toBeNull()
+    expect(document.activeElement).toBe(duplicates)
+
+    await fireEvent.click(within(nav).getByRole('button', { name: 'Edit groups' }))
+    expect(screen.getByRole('dialog', { name: 'Manage category groups' })).not.toBeNull()
+  })
+
+  it('returns focus to the grid when the opener is gone', async () => {
+    onTestFinished(stubMedia((query) => query === SIDEBAR_FULL_QUERY))
+    const frames = captureFrames()
+    render(AppShell, { controller: stubController() })
+    const grid = screen.getByRole('grid', { name: 'Financial results' })
+    const duplicates = screen.getByRole('button', { name: 'Duplicates' })
+    duplicates.focus()
+    await fireEvent.click(duplicates)
+    screen.getByRole('dialog', { name: 'Duplicate transactions' }).focus()
+    duplicates.remove()
+    await fireEvent.keyDown(window, { key: 'Escape' })
+    await frames.flush()
+    expect(document.activeElement).toBe(grid)
   })
 
   it('shows the icon rail between 640 and 1279 px and moves pending text to the status line', () => {
@@ -418,6 +458,27 @@ describe('AppShell', () => {
     }
   })
 })
+
+/** Holds animation frames until `flush`, so a test can check focus after the restore frame. */
+function captureFrames(): { flush: () => Promise<void> } {
+  const callbacks: FrameRequestCallback[] = []
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+    callbacks.push(callback)
+    return callbacks.length
+  })
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+    callbacks[id - 1] = () => undefined
+  })
+  onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  return {
+    flush: async () => {
+      await vi.waitFor(() => expect(callbacks.length).toBeGreaterThan(0))
+      for (const callback of callbacks.splice(0)) callback(0)
+    },
+  }
+}
 
 function chartAnnouncement(): HTMLElement {
   const region = document.querySelector<HTMLElement>('[data-testid="chart-announcement"]')

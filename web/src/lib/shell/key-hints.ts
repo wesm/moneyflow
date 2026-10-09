@@ -1,4 +1,5 @@
 import type { ViewProjection } from '../api/client'
+import { availableCapabilities } from './capabilities'
 
 export interface KeyHint {
   key: string
@@ -44,9 +45,7 @@ const selectionHints: CandidateHint[] = [
 /** Chooses the status line's key hints for the current view, at most six. */
 export function keyHints(projection: ViewProjection, overlayOpen: boolean): KeyHint[] {
   if (overlayOpen) return [{ key: 'Esc', label: 'Close' }]
-  const available = new Set(
-    (projection.capabilities ?? []).filter((item) => item.available).map(({ id }) => id),
-  )
+  const available = availableCapabilities(projection)
   let candidates = groupedHints(projection)
   if (projection.selection_count > 0) candidates = selectionHints
   else if (projection.view.mode === 'detail') candidates = detailHints

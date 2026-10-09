@@ -1,20 +1,3 @@
-<script module lang="ts">
-  export type Overlay =
-    | 'search'
-    | 'filters'
-    | 'help'
-    | 'merchant'
-    | 'category'
-    | 'categories'
-    | 'groups'
-    | 'review'
-    | 'write'
-    | 'duplicates'
-    | 'delete'
-    | 'export'
-    | 'information'
-</script>
-
 <script lang="ts">
   import FiltersDialog from '../FiltersDialog.svelte'
   import HelpDialog from '../HelpDialog.svelte'
@@ -29,36 +12,24 @@
   import MerchantDialog from '../editing/MerchantDialog.svelte'
   import ReviewDrawer from '../editing/ReviewDrawer.svelte'
   import WriteStatusDrawer from '../editing/WriteStatusDrawer.svelte'
-  import type { TransactionInformationResponse, ViewProjection } from '../../lib/api/client'
+  import type { ViewProjection } from '../../lib/api/client'
   import type { ViewController } from '../../lib/controller/view-controller.svelte'
+  import type { OverlayState } from '../../lib/shell/overlay-state.svelte'
 
   interface Props {
     controller: ViewController
     projection: ViewProjection
-    overlay: Overlay | undefined
+    overlays: OverlayState
     row: { identity: string; kind: 'transaction' | 'aggregate' } | undefined
-    deleteCount: number
-    deleting: boolean
-    information: TransactionInformationResponse | undefined
-    onclose: () => void
-    onwrite: () => void
     onconfirmdelete: () => void
     onreconnect?: (() => void) | undefined
   }
 
-  let {
-    controller,
-    projection,
-    overlay,
-    row,
-    deleteCount,
-    deleting,
-    information,
-    onclose,
-    onwrite,
-    onconfirmdelete,
-    onreconnect,
-  }: Props = $props()
+  let { controller, projection, overlays, row, onconfirmdelete, onreconnect }: Props = $props()
+  const overlay = $derived(overlays.current)
+  const information = $derived(overlays.information)
+  const onclose = () => overlays.close()
+  const onwrite = () => overlays.open('write')
 </script>
 
 {#if overlay === 'search'}
@@ -91,9 +62,9 @@
   />
 {:else if overlay === 'duplicates'}
   <DuplicateReview controller={controller.duplicates} {onclose} />
-{:else if overlay === 'delete' && deleting}
+{:else if overlay === 'delete' && overlays.deleteTarget}
   <DeleteConfirmation
-    count={deleteCount}
+    count={overlays.deleteCount}
     submitting={controller.editing.state.phase === 'submitting'}
     onconfirm={onconfirmdelete}
     oncancel={onclose}

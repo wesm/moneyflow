@@ -1,6 +1,7 @@
 import CalendarDaysIcon from '@lucide/svelte/icons/calendar-days'
 import CopyIcon from '@lucide/svelte/icons/copy'
 import DownloadIcon from '@lucide/svelte/icons/download'
+import FolderTreeIcon from '@lucide/svelte/icons/folder-tree'
 import LandmarkIcon from '@lucide/svelte/icons/landmark'
 import LayersIcon from '@lucide/svelte/icons/layers'
 import ListIcon from '@lucide/svelte/icons/list'
@@ -19,6 +20,7 @@ export const navIcons: Record<string, typeof StoreIcon> = {
   detail: ListIcon,
   duplicates: CopyIcon,
   export: DownloadIcon,
-  taxonomy: TagsIcon,
+  categories: TagsIcon,
+  groups: FolderTreeIcon,
   amazon: PackageOpenIcon,
 }

@@ -2,8 +2,10 @@
   import { Button, KbdBadge, StatusBar, StatusDot } from '@kenn-io/kit-ui'
 
   import type { KeyHint } from '../../lib/shell/key-hints'
+  import type { Connection } from '../../lib/shell/status'
 
-  export type Connection = 'connected' | 'updating' | 'offline'
+  /** Requests shorter than this never flash "Updating…". */
+  const updatingDelayMs = 300
 
   interface Props {
     hints: KeyHint[]
@@ -17,6 +19,17 @@
   }
 
   let { hints, connection, revision, pending, compact = false, onretry }: Props = $props()
+  let slow = $state(false)
+  const shown = $derived(connection === 'updating' && !slow ? 'connected' : connection)
+
+  $effect(() => {
+    if (connection !== 'updating') return
+    const timer = setTimeout(() => (slow = true), updatingDelayMs)
+    return () => {
+      clearTimeout(timer)
+      slow = false
+    }
+  })
 </script>
 
 {#snippet pendingStatus()}
@@ -43,9 +56,9 @@
       <span class="mf-status-line__state">
         {#if pending && !compact}{@render pendingStatus()}{/if}
         <span class="mf-status-line__connection">
-          {#if connection === 'updating'}
+          {#if shown === 'updating'}
             <StatusDot status="working" label="" />Updating…
-          {:else if connection === 'offline'}
+          {:else if shown === 'offline'}
             <StatusDot status="unclean" label="" />Offline
             <Button size="sm" onclick={onretry}>Retry</Button>
           {:else}

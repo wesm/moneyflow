@@ -5,7 +5,7 @@ import { startE2EServer } from '../scripts/e2e-server'
 
 // kit CollapsibleSidebar renders its resize separator between the sidebar <aside> and the main
 // <section>, outside every landmark. Moneyflow cannot move it without patching kit-ui (upstream gap).
-const kitResizeHandle = '.kit-split-resize-handle'
+const kitResizeHandle = 'kit-split-resize-handle'
 
 async function expectNoAxeViolations(page: import('@playwright/test').Page): Promise<void> {
   const result = await new AxeBuilder({ page }).analyze()
@@ -14,7 +14,7 @@ async function expectNoAxeViolations(page: import('@playwright/test').Page): Pro
       violation.id === 'region'
         ? {
             ...violation,
-            nodes: violation.nodes.filter((node) => !node.html.includes(kitResizeHandle.slice(1))),
+            nodes: violation.nodes.filter((node) => !node.html.includes(kitResizeHandle)),
           }
         : violation,
     )

@@ -157,9 +157,12 @@ input {
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   padding: var(--space-4);
+}
+.app-shell__main--charts {
+  grid-template-columns: minmax(0, 3fr) minmax(15rem, 1fr);
 }
 .app-shell__table {
   min-width: 0;
@@ -227,8 +230,13 @@ input {
   padding: 0 var(--space-6);
   border-bottom: 1px solid var(--border-default);
 }
-.mf-sidebar__provider,
+.mf-sidebar__provider {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
 .mf-sidebar__label {
+  margin: 0;
+  padding: var(--space-6) var(--space-4) var(--space-3);
   color: var(--text-muted);
   font-size: var(--font-size-2xs);
   letter-spacing: var(--letter-spacing-label);
@@ -238,11 +246,7 @@ input {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2) var(--space-3) var(--space-5);
-}
-.mf-sidebar__label {
-  margin: 0;
-  padding: var(--space-6) var(--space-3) var(--space-3);
+  padding: var(--space-2) var(--space-4) var(--space-5);
 }
 .mf-sidebar__list {
   margin: 0;
@@ -265,7 +269,7 @@ input {
   text-align: left;
   cursor: pointer;
 }
-.mf-nav-item:hover:not(:disabled) {
+.mf-nav-item:hover:not([aria-disabled='true']) {
   background: var(--bg-surface-hover);
   color: var(--text-primary);
 }
@@ -279,7 +283,7 @@ input {
   color: var(--text-primary);
   font-weight: var(--font-weight-medium, 500);
 }
-.mf-nav-item:disabled {
+.mf-nav-item[aria-disabled='true'] {
   opacity: var(--opacity-disabled);
   cursor: default;
 }
@@ -306,17 +310,40 @@ input {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding: var(--space-5);
+  padding: var(--space-5) var(--space-4);
   border-top: 1px solid var(--border-muted);
 }
 .mf-pending-card__text {
   margin: 0;
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   line-height: 1.4;
 }
-.mf-pending-card__part {
-  white-space: nowrap;
+.mf-pending-card__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.mf-pending-card__text--waiting .mf-pending-card__title {
+  color: var(--text-primary);
+}
+.mf-pending-card__text--waiting .mf-pending-card__title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--mf-pending);
+}
+.mf-pending-card__detail {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.mf-pending-card__text--waiting .mf-pending-card__detail {
+  padding-left: calc(6px + var(--space-3));
 }
 .mf-pending-card__actions {
   display: flex;
@@ -402,6 +429,7 @@ input {
 }
 
 .mf-status-line {
+  --status-bar-height: 28px;
   flex: none;
 }
 .mf-status-line__hints,
@@ -410,12 +438,26 @@ input {
   display: flex;
   align-items: center;
   gap: var(--space-5);
+  font-size: var(--font-size-xs);
 }
 .mf-status-line__hint,
 .mf-status-line__connection {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
+}
+.mf-status-line__hint {
+  height: var(--status-bar-height);
+  color: var(--text-secondary);
+}
+/* State keeps its natural width; hints take the rest and drop whole hints that do not fit. */
+.mf-status-line .kit-status-bar .kit-status-bar__section--right {
+  flex: 0 1 auto;
+}
+.mf-status-line__hints {
+  height: var(--status-bar-height);
+  flex-wrap: wrap;
+  overflow: hidden;
 }
 .mf-status-line__pending {
   min-width: 0;

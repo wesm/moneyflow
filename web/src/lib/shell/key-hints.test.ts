@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import { keyHints } from './key-hints'
 import type { ViewProjection } from '../api/client'
+import { testCapabilities } from '../../test/capabilities'
 import { testProjection } from '../../test/projection'
-
-type Capability = NonNullable<ViewProjection['capabilities']>[number]
 
 const hintCapabilities = [
   'view.drill',
@@ -21,13 +20,8 @@ const hintCapabilities = [
   'view.back',
 ]
 
-function capabilities(unavailable: string[] = []): Capability[] {
-  return hintCapabilities.map((id) => ({
-    id,
-    description: id,
-    category: 'Views',
-    available: !unavailable.includes(id),
-  }))
+function capabilities(unavailable: string[] = []) {
+  return testCapabilities(hintCapabilities, unavailable)
 }
 
 function view(mode: 'aggregate' | 'detail', sub_grouping?: string): ViewProjection['view'] {

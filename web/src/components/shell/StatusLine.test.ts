@@ -30,10 +30,23 @@ describe('StatusLine', () => {
     expect(screen.getByText('profile revision 7')).not.toBeNull()
   })
 
-  it('reports updates in flight', () => {
-    render(StatusLine, props({ connection: 'updating' }))
-    expect(screen.getByText('Updating…')).not.toBeNull()
-    expect(screen.queryByText('Connected')).toBeNull()
+  it('reports an update only after it has run for 300 ms', async () => {
+    vi.useFakeTimers()
+    try {
+      const rendered = render(StatusLine, props({ connection: 'updating' }))
+      expect(screen.getByText('Connected')).not.toBeNull()
+      await vi.advanceTimersByTimeAsync(299)
+      expect(screen.queryByText('Updating…')).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(screen.getByText('Updating…')).not.toBeNull()
+      expect(screen.queryByText('Connected')).toBeNull()
+
+      await rendered.rerender(props({ connection: 'connected' }))
+      await rendered.rerender(props({ connection: 'updating' }))
+      expect(screen.getByText('Connected')).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('offers a retry when offline', async () => {
