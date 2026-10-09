@@ -84,3 +84,27 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   await expect(page.getByRole('heading', { name: 'Visualizations' })).toBeVisible()
   await expect(page).toHaveURL(analyticalURL)
 })
+
+test('the sidebar groups by its entries and the rail names them in tooltips', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const nav = page.getByRole('navigation', { name: 'Workspace' })
+  const categories = nav.getByRole('button', { name: 'Categories', exact: true })
+  await categories.click()
+  await expect(grid.getByRole('columnheader').first()).toHaveText('category')
+  await expect(categories).toHaveAttribute('aria-current', 'page')
+  await expect(grid).toBeFocused()
+
+  await nav.getByRole('button', { name: 'Groups', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(grid.getByRole('columnheader').first()).toHaveText('group')
+
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await expect(page.getByRole('separator', { name: 'Resize sidebar' })).toHaveCount(0)
+  await nav.getByRole('button', { name: 'Merchants' }).hover()
+  await expect(page.getByRole('tooltip')).toHaveText('Merchants · 1')
+})

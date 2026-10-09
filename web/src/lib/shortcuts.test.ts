@@ -139,6 +139,22 @@ describe('Moneyflow browser shortcuts', () => {
     expect(handlers.apply).not.toHaveBeenCalled()
   })
 
+  it('lets a focused button take Enter and Space but keeps letter keys global', () => {
+    const handlers = { local: vi.fn(), apply: vi.fn() }
+    const shortcuts = createMoneyflowShortcuts(capabilities, handlers)
+    const button = document.createElement('button')
+    for (const key of ['Enter', ' ']) {
+      const event = keyboard(key)
+      Object.defineProperty(event, 'target', { value: button })
+      expect(handleMoneyflowKeydown(shortcuts.manager, event)).toBe(false)
+    }
+    expect(handlers.apply).not.toHaveBeenCalled()
+    const letter = keyboard('g')
+    Object.defineProperty(letter, 'target', { value: button })
+    expect(handleMoneyflowKeydown(shortcuts.manager, letter)).toBe(true)
+    expect(handlers.apply).toHaveBeenCalledWith('view.cycle-grouping')
+  })
+
   it('dispatches editing keys only when the server capability is available', () => {
     const handlers = { local: vi.fn(), apply: vi.fn() }
     const shortcuts = createMoneyflowShortcuts(

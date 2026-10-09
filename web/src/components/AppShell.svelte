@@ -1,33 +1,17 @@
 <script lang="ts">
-  import {
-    Button,
-    DetailDrawer,
-    MEDIA,
-    StatusBar,
-    ThemeToggle,
-    Toggle,
-    TopBar,
-  } from '@kenn-io/kit-ui'
+  import { CollapsibleSidebar, DetailDrawer, MEDIA, Toggle } from '@kenn-io/kit-ui'
   import { MediaQuery } from 'svelte/reactivity'
-  import { loadRail, type RailComponent } from '../lib/shell/rail'
   import { onMount, tick, untrack } from 'svelte'
-  import FiltersDialog from './FiltersDialog.svelte'
   import FinanceTable from './FinanceTable.svelte'
-  import HelpDialog from './HelpDialog.svelte'
+  import ProviderConfirmation from './ProviderConfirmation.svelte'
   import RefinementBar from './RefinementBar.svelte'
-  import SearchOverlay from './SearchOverlay.svelte'
-  import CategoryDialog from './editing/CategoryDialog.svelte'
-  import CategoryManager from './editing/CategoryManager.svelte'
-  import GroupManager from './editing/GroupManager.svelte'
-  import MerchantDialog from './editing/MerchantDialog.svelte'
-  import PendingStatus from './editing/PendingStatus.svelte'
-  import DeleteConfirmation from './editing/DeleteConfirmation.svelte'
-  import DuplicateReview from './editing/DuplicateReview.svelte'
-  import ExportDialog from './editing/ExportDialog.svelte'
-  import ProviderStatus from './ProviderStatus.svelte'
-  import TransactionInformationDrawer from './TransactionInformationDrawer.svelte'
-  import ReviewDrawer from './editing/ReviewDrawer.svelte'
-  import WriteStatusDrawer from './editing/WriteStatusDrawer.svelte'
+  import ChartRail from './shell/ChartRail.svelte'
+  import CommandBar from './shell/CommandBar.svelte'
+  import ShellAnnouncements from './shell/ShellAnnouncements.svelte'
+  import ShellOverlays, { type Overlay } from './shell/ShellOverlays.svelte'
+  import Sidebar from './shell/Sidebar.svelte'
+  import SidebarRail from './shell/SidebarRail.svelte'
+  import StatusLine from './shell/StatusLine.svelte'
   import {
     createMoneyflowShortcuts,
     handleMoneyflowKeydown,
@@ -36,6 +20,11 @@
   } from '../lib/shortcuts'
   import type { ViewController } from '../lib/controller/view-controller.svelte'
   import type { TransactionInformationResponse } from '../lib/api/client'
+  import { keyHints } from '../lib/shell/key-hints'
+  import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+  import type { NavRun } from '../lib/shell/nav-items'
+  import { pendingText } from '../lib/shell/pending'
+  import { RailLoader } from '../lib/shell/rail-loader.svelte'
   interface Props {
     controller: ViewController
     onreconnect?: (() => void) | undefined
@@ -43,24 +32,9 @@
   }
   let { controller, onreconnect, onamazonimport }: Props = $props()
   let charts = $state(true)
-  let Rail = $state.raw<RailComponent | undefined>()
-  let railStatus = $state<'idle' | 'loading' | 'failed'>('idle')
+  const rail = new RailLoader()
   let chartDrawer = $state(false)
   let grid = $state<HTMLElement | undefined>()
-  type Overlay =
-    | 'search'
-    | 'filters'
-    | 'help'
-    | 'merchant'
-    | 'category'
-    | 'categories'
-    | 'groups'
-    | 'review'
-    | 'write'
-    | 'duplicates'
-    | 'delete'
-    | 'export'
-    | 'information'
   let overlay = $state<Overlay | undefined>()
   let popOverlayScope: (() => void) | undefined
   let popChartScope: (() => void) | undefined
@@ -72,6 +46,18 @@
   let transitionTail: Promise<void> = Promise.resolve()
   const projection = $derived(controller.projection)
   const compact = new MediaQuery(MEDIA.compact)
+  const fullSidebar = new MediaQuery(SIDEBAR_FULL_QUERY)
+  const writeStatus = $derived(controller.providerWrite.state.status)
+  const write = $derived(
+    writeStatus?.phase ? { completed: writeStatus.completed, total: writeStatus.total } : undefined,
+  )
+  const connection = $derived(
+    controller.problem?.code === 'network_error'
+      ? 'offline'
+      : controller.loading
+        ? 'updating'
+        : 'connected',
+  )
 
   function local(action: LocalAction): void {
     if (action === 'cursor.up') void controller.moveCursor(-1)
@@ -150,6 +136,11 @@
     await controller.apply({ action, ...(dimension === undefined ? {} : { dimension }) })
     focusGrid()
   }
+  function run(entry: NavRun): void {
+    if (entry.kind === 'local') local(entry.action)
+    else
+      queueApply(entry.action, entry.action === 'view.set-grouping' ? entry.dimension : undefined)
+  }
   function queueApply(action: string, dimension?: Dimension): void {
     const run = () => apply(action, dimension)
     transitionTail = transitionTail.then(run, run)
@@ -201,17 +192,6 @@
     if (compact.current) setChartDrawer(checked)
     else charts = checked
   }
-  function startRailLoad(): void {
-    if (Rail || railStatus === 'loading') return
-    railStatus = 'loading'
-    loadRail().then(
-      (component) => {
-        Rail = component
-        railStatus = 'idle'
-      },
-      () => (railStatus = 'failed'),
-    )
-  }
   function setChartDrawer(open: boolean): void {
     popChartScope?.()
     popChartScope = open ? shortcuts?.manager.pushScope('charts') : undefined
@@ -222,7 +202,7 @@
   })
   const chartsShown = $derived(compact.current ? chartDrawer : charts)
   $effect(() => {
-    if (chartsShown) untrack(startRailLoad)
+    if (chartsShown) untrack(() => rail.load())
   })
   $effect(() => {
     if (!projection) return
@@ -262,128 +242,107 @@
 
 {#if projection}
   {#snippet chartRail()}
-    {#if Rail}
-      <Rail
-        {projection}
-        cursorIndex={controller.cursorIndex}
-        oncursor={(index) => void controller.moveCursorTo(index)}
-        ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
-      />
-    {:else if railStatus === 'failed'}
-      <p class="overlay-status overlay-status--error" role="status">
-        Charts could not load. Reload the page.
-      </p>
-    {:else}
-      <p class="overlay-status" role="status">Loading charts…</p>
-    {/if}
+    <ChartRail
+      loader={rail}
+      {projection}
+      cursorIndex={controller.cursorIndex}
+      oncursor={(index) => void controller.moveCursorTo(index)}
+      ondrill={(identity) => void target('view.drill', identity, 'aggregate')}
+    />
   {/snippet}
   <div class="app-shell">
-    <TopBar ariaLabel="Moneyflow">
-      {#snippet left()}<span class="moneyflow-brand">Moneyflow</span>{/snippet}
-      {#snippet right()}{#if projection.profile_kind === 'amazon'}<Button
-            size="sm"
-            onclick={onamazonimport}>Import Amazon orders</Button
-          >{:else}<ProviderStatus
-            controller={controller.provider}
-            {onreconnect}
-          />{/if}{#if controller.providerWrite.state.status?.phase}<Button
-            size="sm"
-            onclick={() => openOverlay('write')}
-            >Write {controller.providerWrite.state.status.completed}/{controller.providerWrite.state
-              .status.total}</Button
-          >{/if}<Toggle
-          checked={compact.current ? chartDrawer : charts}
-          onchange={toggleCharts}
-          label="Charts"
-        /><ThemeToggle size="sm" />{/snippet}
-    </TopBar>
-    <RefinementBar {projection} onaction={(action) => void apply(action)} />
-    <main class="app-shell__main" aria-label="Moneyflow workspace">
-      <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
-      <div class="app-shell__table" bind:this={grid}>
-        <FinanceTable
-          {projection}
-          cursorIndex={controller.cursorIndex}
-          onmove={(delta) => void controller.moveCursor(delta)}
-          onhome={() => void controller.moveHome()}
-          onactivate={(identity, kind) => void target('view.drill', identity, kind)}
-          onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
-          oninformation={(identity) => void openTransactionInformation(identity)}
-        />
-      </div>
-      {#if charts && !compact.current}
-        <aside aria-label="Visualizations">
-          {@render chartRail()}
-        </aside>
-      {/if}
-    </main>
-    <p class="kit-sr-only" aria-live="polite">{controller.announcement}</p>
-    <p class="kit-sr-only" aria-live="polite">{controller.editing.state.announcement}</p>
-    <p class="kit-sr-only" aria-live="polite">{controller.provider.state.announcement}</p>
-    <p class="kit-sr-only" aria-live="polite">{controller.providerWrite.state.announcement}</p>
-    <p class="kit-sr-only" aria-live="polite">{controller.duplicates.state.announcement}</p>
-    <p class="kit-sr-only" aria-live="polite">{controller.export.state.announcement}</p>
-    <StatusBar
-      >{#snippet left()}<span
-          >{projection.total_rows} results · <PendingStatus
-            pending={controller.editing.state.pending}
-          /></span
-        >{/snippet}{#snippet right()}<span
-          >profile revision {controller.editing.state.revision.toString(10)}</span
-        >{/snippet}</StatusBar
+    <CollapsibleSidebar
+      hideSidebar={!fullSidebar.current}
+      sidebarWidth={176}
+      minSidebarWidth={176}
+      maxSidebarWidth={280}
+      mainOverflow="hidden"
     >
+      {#snippet sidebar()}
+        <Sidebar
+          {projection}
+          pending={controller.editing.state.pending}
+          {write}
+          provider={controller.provider}
+          onrun={run}
+          onreview={() => local('edit.review')}
+          onwrite={() => openOverlay('write')}
+          {onreconnect}
+        />
+      {/snippet}
+      <div class="app-shell__frame">
+        {#if !fullSidebar.current && !compact.current}
+          <SidebarRail
+            {projection}
+            pending={controller.editing.state.pending}
+            provider={controller.provider}
+            writing={write !== undefined}
+            onrun={run}
+            onreview={() => local('edit.review')}
+            {onreconnect}
+          />
+        {/if}
+        <div class="app-shell__column">
+          <CommandBar>
+            {#snippet leading()}
+              <RefinementBar {projection} onaction={(action) => void apply(action)} />
+            {/snippet}
+            {#snippet trailing()}
+              <Toggle
+                checked={compact.current ? chartDrawer : charts}
+                onchange={toggleCharts}
+                label="Charts"
+              />
+            {/snippet}
+          </CommandBar>
+          <main class="app-shell__main" aria-label="Moneyflow workspace">
+            <h1 class="kit-sr-only">Moneyflow transaction workspace</h1>
+            <div class="app-shell__table" bind:this={grid}>
+              <FinanceTable
+                {projection}
+                cursorIndex={controller.cursorIndex}
+                onmove={(delta) => void controller.moveCursor(delta)}
+                onhome={() => void controller.moveHome()}
+                onactivate={(identity, kind) => void target('view.drill', identity, kind)}
+                onselect={(identity, kind) => void target('selection.toggle', identity, kind)}
+                oninformation={(identity) => void openTransactionInformation(identity)}
+              />
+            </div>
+            {#if charts && !compact.current}
+              <aside aria-label="Visualizations">
+                {@render chartRail()}
+              </aside>
+            {/if}
+          </main>
+          <ShellAnnouncements {controller} chartMessage={rail.message} />
+          <StatusLine
+            hints={keyHints(projection, overlay !== undefined || chartDrawer)}
+            {connection}
+            revision={controller.editing.state.revision.toString(10)}
+            pending={fullSidebar.current
+              ? undefined
+              : pendingText(controller.editing.state.pending)}
+            compact={compact.current}
+            onretry={() => void controller.retry()}
+          />
+        </div>
+      </div>
+    </CollapsibleSidebar>
   </div>
-  {#if overlay === 'search'}
-    <SearchOverlay {controller} onclose={closeOverlay} />
-  {:else if overlay === 'filters'}
-    <FiltersDialog
-      {projection}
-      onapply={(action) => controller.apply(action)}
-      onclose={closeOverlay}
-    />
-  {:else if overlay === 'help'}
-    <HelpDialog capabilities={projection.capabilities ?? []} onclose={closeOverlay} />
-  {:else if overlay === 'merchant' && focusedRow()}
-    <MerchantDialog
-      controller={controller.editing}
-      target={focusedRow()!}
-      hasSelection={projection.selection_count > 0}
-      onclose={closeOverlay}
-    />
-  {:else if overlay === 'category' && focusedRow()}
-    <CategoryDialog controller={controller.editing} target={focusedRow()!} onclose={closeOverlay} />
-  {:else if overlay === 'categories'}
-    <CategoryManager controller={controller.editing} onclose={closeOverlay} />
-  {:else if overlay === 'groups'}
-    <GroupManager controller={controller.editing} onclose={closeOverlay} />
-  {:else if overlay === 'review'}
-    <ReviewDrawer
-      editing={controller.editing}
-      review={controller.review}
-      onclose={closeOverlay}
-      onwrite={() => openOverlay('write')}
-    />
-  {:else if overlay === 'write'}
-    <WriteStatusDrawer
-      controller={controller.providerWrite}
-      providerName={projection?.profile_kind === 'ynab' ? 'YNAB' : 'Monarch'}
-      onclose={closeOverlay}
-      {onreconnect}
-    />
-  {:else if overlay === 'duplicates'}
-    <DuplicateReview controller={controller.duplicates} onclose={closeOverlay} />
-  {:else if overlay === 'delete' && deleteTarget}
-    <DeleteConfirmation
-      count={deleteCount}
-      submitting={controller.editing.state.phase === 'submitting'}
-      onconfirm={() => void confirmDirectDelete()}
-      oncancel={closeOverlay}
-    />
-  {:else if overlay === 'export'}
-    <ExportDialog controller={controller.export} onclose={closeOverlay} />
-  {:else if overlay === 'information' && transactionInformation}
-    <TransactionInformationDrawer information={transactionInformation} onclose={closeOverlay} />
-  {/if}
+  <ShellOverlays
+    {controller}
+    {projection}
+    {overlay}
+    row={focusedRow()}
+    {deleteCount}
+    deleting={deleteTarget !== undefined}
+    information={transactionInformation}
+    onclose={closeOverlay}
+    onwrite={() => openOverlay('write')}
+    onconfirmdelete={() => void confirmDirectDelete()}
+    {onreconnect}
+  />
+  <ProviderConfirmation controller={controller.provider} />
   {#if compact.current && chartDrawer}
     <DetailDrawer
       title="Visualizations"

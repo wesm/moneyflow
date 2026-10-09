@@ -1,74 +1,92 @@
 <script lang="ts">
-  import { Button, DetailDrawer } from '@kenn-io/kit-ui'
+  import { Button, formatRefreshAge, IconButton, Tooltip } from '@kenn-io/kit-ui'
+  import PlugZapIcon from '@lucide/svelte/icons/plug-zap'
+  import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw'
 
   import type { ProviderController } from '../lib/controller/provider'
 
   interface Props {
     controller: ProviderController
     onreconnect?: (() => void) | undefined
+    /** Icon buttons with tooltips for the narrow icon rail. */
+    rail?: boolean
   }
 
-  let { controller, onreconnect }: Props = $props()
+  let { controller, onreconnect, rail = false }: Props = $props()
   const refreshing = $derived(controller.state.phase === 'refreshing')
   const available = $derived(controller.state.capability?.available === true)
   const progress = $derived(controller.state.status?.progress)
+  const reconnect = $derived(controller.state.phase === 'reconnect' && onreconnect !== undefined)
+  const showProgress = $derived(progress !== undefined && (refreshing || progress.total > 0))
+  let now = $state(Date.now())
+  const updated = $derived.by(() => {
+    const lastSuccess = controller.state.status?.last_success
+    if (!lastSuccess) return undefined
+    const at = Date.parse(lastSuccess)
+    return formatRefreshAge(at, Math.max(now, at))
+  })
+  const refreshTip = $derived(
+    [refreshing ? 'Refreshing…' : 'Refresh provider data · r', updated].filter(Boolean).join(' · '),
+  )
 
-  function confirmationKeydown(event: KeyboardEvent): void {
-    if (controller.state.phase !== 'confirmation') return
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      event.stopPropagation()
-      void controller.confirm()
-    } else if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      controller.dismissConfirmation()
-    }
-  }
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 60_000)
+    return () => clearInterval(timer)
+  })
 </script>
 
-<svelte:window onkeydown={confirmationKeydown} />
-
-<div class="provider-status">
-  {#if controller.state.phase === 'reconnect' && onreconnect}
-    <Button size="sm" tone="info" surface="solid" onclick={onreconnect}>Reconnect provider</Button>
+{#if rail}
+  {#if reconnect}
+    <Tooltip text="Reconnect provider">
+      <IconButton ariaLabel="Reconnect provider" title="" tone="info" onclick={onreconnect}>
+        <PlugZapIcon size={14} aria-hidden="true" />
+      </IconButton>
+    </Tooltip>
   {:else}
-    <Button
-      size="sm"
-      disabled={!available || refreshing}
-      title={controller.state.capability?.reason}
-      onclick={() => void controller.refresh()}
-      >{refreshing ? 'Refreshing…' : 'Refresh provider data'}</Button
-    >
+    <Tooltip text={available ? refreshTip : (controller.state.capability?.reason ?? refreshTip)}>
+      <IconButton
+        ariaLabel="Refresh provider data"
+        title=""
+        disabled={!available || refreshing}
+        onclick={() => void controller.refresh()}
+      >
+        <RefreshCwIcon size={14} aria-hidden="true" />
+      </IconButton>
+    </Tooltip>
   {/if}
-  {#if !available && controller.state.capability?.reason}
-    <span id="provider-refresh-reason" class="kit-sr-only">
-      {controller.state.capability.reason}
-    </span>
-  {/if}
-  {#if progress && (refreshing || progress.total > 0)}
-    <span role="status" aria-live="polite">
-      Refreshing provider data: {progress.fetched} of {progress.total}
-    </span>
-  {/if}
-</div>
-
-{#if controller.state.phase === 'confirmation' && controller.state.status}
-  <DetailDrawer
-    title="Confirm provider refresh"
-    ariaLabel="Confirm provider refresh"
-    onclose={controller.dismissConfirmation}
-  >
-    <p>
-      This refresh would remove
-      {controller.state.status.summary.removed_transactions} posted transactions.
-    </p>
-    <p>Review the count before accepting this provider snapshot.</p>
-    <div class="editing-actions">
-      <Button onclick={controller.dismissConfirmation}>Cancel</Button>
-      <Button tone="danger" surface="solid" onclick={() => void controller.confirm()}>
-        Confirm refresh
-      </Button>
-    </div>
-  </DetailDrawer>
+{:else}
+  <div class="provider-status">
+    {#if showProgress && progress}
+      <span class="provider-status__meta" role="status" aria-live="polite">
+        Refreshing provider data: {progress.fetched} of {progress.total}
+      </span>
+    {:else if updated}
+      <span class="provider-status__meta">{updated}</span>
+    {/if}
+    {#if reconnect}
+      <Button
+        size="sm"
+        tone="info"
+        surface="solid"
+        ariaLabel="Reconnect provider"
+        onclick={onreconnect}>Reconnect</Button
+      >
+    {:else}
+      <Button
+        size="sm"
+        disabled={!available || refreshing}
+        title={controller.state.capability?.reason}
+        ariaLabel={refreshing ? undefined : 'Refresh provider data'}
+        onclick={() => void controller.refresh()}
+        ><RefreshCwIcon size={12} aria-hidden="true" />{refreshing
+          ? 'Refreshing…'
+          : 'Refresh'}</Button
+      >
+    {/if}
+    {#if !available && controller.state.capability?.reason}
+      <span id="provider-refresh-reason" class="kit-sr-only">
+        {controller.state.capability.reason}
+      </span>
+    {/if}
+  </div>
 {/if}

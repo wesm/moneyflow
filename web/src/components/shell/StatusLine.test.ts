@@ -1,0 +1,62 @@
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+import StatusLine from './StatusLine.svelte'
+
+const hints = [
+  { key: '↵', label: 'Open' },
+  { key: '?', label: 'Help' },
+]
+
+function props(overrides: Record<string, unknown> = {}) {
+  return {
+    hints,
+    connection: 'connected' as const,
+    revision: '7',
+    onretry: vi.fn(),
+    ...overrides,
+  }
+}
+
+describe('StatusLine', () => {
+  afterEach(cleanup)
+
+  it('shows key hints, the connection, and the profile revision', () => {
+    render(StatusLine, props())
+    const footer = screen.getByText('profile revision 7').closest('footer')!
+    expect(footer.textContent).toContain('Open')
+    expect(footer.textContent).toContain('Help')
+    expect(screen.getByText('Connected')).not.toBeNull()
+    expect(screen.getByText('profile revision 7')).not.toBeNull()
+  })
+
+  it('reports updates in flight', () => {
+    render(StatusLine, props({ connection: 'updating' }))
+    expect(screen.getByText('Updating…')).not.toBeNull()
+    expect(screen.queryByText('Connected')).toBeNull()
+  })
+
+  it('offers a retry when offline', async () => {
+    const onretry = vi.fn()
+    render(StatusLine, props({ connection: 'offline', onretry }))
+    expect(screen.getByText('Offline')).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(onretry).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts pending text in place of the hints at phone width', () => {
+    render(StatusLine, props({ compact: true, pending: '1 pending edit · 1 transaction' }))
+    expect(screen.queryByText('Open')).toBeNull()
+    expect(screen.getByRole('status', { name: 'Pending profile changes' })).not.toBeNull()
+    expect(screen.getByText('profile revision 7')).not.toBeNull()
+  })
+
+  it('carries the pending text only when given', async () => {
+    const rendered = render(StatusLine, props())
+    expect(screen.queryByText(/pending/)).toBeNull()
+    await rendered.rerender(props({ pending: '2 pending edits · 5 transactions' }))
+    expect(screen.getByRole('status', { name: 'Pending profile changes' }).textContent).toBe(
+      '2 pending edits · 5 transactions',
+    )
+  })
+})

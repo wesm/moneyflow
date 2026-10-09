@@ -6,6 +6,8 @@ import { testProjection } from '../test/projection'
 import { testEditingController, testReviewController } from '../test/editing'
 import { testProviderWriteController } from '../test/provider-write'
 import { loadRail } from '../lib/shell/rail'
+import { SIDEBAR_FULL_QUERY } from '../lib/shell/layout'
+import { testProviderStatus } from '../test/provider'
 
 vi.mock('../lib/shell/rail', async (importOriginal) => {
   const original = await importOriginal<typeof import('../lib/shell/rail')>()
@@ -51,15 +53,20 @@ describe('AppShell', () => {
 
     const region = screen.getByRole('complementary', { name: 'Visualizations' })
     expect(within(region).getByText('Loading charts…')).not.toBeNull()
+    expect(chartAnnouncement().textContent).toBe('Loading charts…')
   })
 
   it('explains a failed chart load and retries when charts are shown again', async () => {
     vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
     render(AppShell, { controller: stubController() })
 
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const region = screen.getByRole('complementary', { name: 'Visualizations' })
-    expect((await within(region).findByText(failureText)).getAttribute('role')).toBe('status')
+    expect(await within(region).findByText(failureText)).not.toBeNull()
     expect(within(region).queryByText('Loading charts…')).toBeNull()
+    expect(chartAnnouncement().textContent).toBe(failureText)
+    expect(errors).toHaveBeenCalledWith('moneyflow: chart rail failed to load', expect.any(Error))
+    errors.mockRestore()
 
     const toggle = screen.getByRole('switch', { name: 'Charts' })
     await fireEvent.click(toggle)
@@ -91,10 +98,12 @@ describe('AppShell', () => {
     })
     try {
       vi.mocked(loadRail).mockRejectedValueOnce(new Error('chunk 404'))
+      vi.spyOn(console, 'error').mockImplementationOnce(() => undefined)
       render(AppShell, { controller: stubController() })
       await fireEvent.click(screen.getByRole('switch', { name: 'Charts' }))
       const dialog = screen.getByRole('dialog', { name: 'Moneyflow visualizations' })
-      expect((await within(dialog).findByText(failureText)).getAttribute('role')).toBe('status')
+      expect(await within(dialog).findByText(failureText)).not.toBeNull()
+      expect(chartAnnouncement().textContent).toBe(failureText)
     } finally {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
     }
@@ -156,6 +165,102 @@ describe('AppShell', () => {
       expect(controller.moveCursor).toHaveBeenCalledWith(1)
     } finally {
       Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+    }
+  })
+
+  it('frames the workspace with the full sidebar at 1280 px and wider', async () => {
+    const restore = stubMedia((query) => query === SIDEBAR_FULL_QUERY)
+    try {
+      const controller = stubController()
+      render(AppShell, { controller })
+      const sidebar = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
+      const nav = within(sidebar).getByRole('navigation', { name: 'Workspace' })
+      expect(within(screen.getByRole('banner')).queryByText('Moneyflow')).toBeNull()
+      expect(screen.getByRole('separator', { name: 'Resize sidebar' })).not.toBeNull()
+      expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+      expect(within(sidebar).getByText(/1 pending/)).not.toBeNull()
+
+      await fireEvent.click(within(nav).getByRole('button', { name: 'Categories' }))
+      await vi.waitFor(() =>
+        expect(controller.apply).toHaveBeenCalledWith({
+          action: 'view.set-grouping',
+          dimension: 'category',
+        }),
+      )
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole('grid', { name: 'Financial results' }),
+        ),
+      )
+    } finally {
+      restore()
+    }
+  })
+
+  it('opens overlays from Maintain entries like their keys', async () => {
+    const restore = stubMedia((query) => query === SIDEBAR_FULL_QUERY)
+    try {
+      render(AppShell, { controller: stubController() })
+      const nav = screen.getByRole('navigation', { name: 'Workspace' })
+      await fireEvent.click(within(nav).getByRole('button', { name: 'Duplicates' }))
+      expect(screen.getByRole('dialog', { name: 'Duplicate transactions' })).not.toBeNull()
+    } finally {
+      restore()
+    }
+  })
+
+  it('shows the icon rail between 640 and 1279 px and moves pending text to the status line', () => {
+    render(AppShell, { controller: stubController() })
+    expect(screen.queryByRole('separator', { name: 'Resize sidebar' })).toBeNull()
+    const rail = screen.getByRole('complementary', { name: 'Moneyflow sidebar' })
+    const nav = within(rail).getByRole('navigation', { name: 'Workspace' })
+    expect(within(nav).getByRole('button', { name: 'Merchants' })).not.toBeNull()
+    const pending = screen.getAllByText(/1 pending/)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.closest('footer')).not.toBeNull()
+  })
+
+  it('renders no sidebar or rail below 640 px', () => {
+    const restore = stubMedia((query) => query.includes('640px'))
+    try {
+      render(AppShell, { controller: stubController() })
+      expect(screen.queryByRole('navigation', { name: 'Workspace' })).toBeNull()
+      expect(screen.getAllByText(/1 pending/)).toHaveLength(1)
+    } finally {
+      restore()
+    }
+  })
+
+  it('reports the connection and profile revision in the status line', async () => {
+    const connected = stubController()
+    const rendered = render(AppShell, { controller: connected })
+    expect(screen.getByText('profile revision 1')).not.toBeNull()
+    expect(screen.getByText('Connected')).not.toBeNull()
+
+    const offline = { ...stubController(), problem: { kind: 'request', code: 'network_error' } }
+    await rendered.rerender({ controller: offline as ViewController })
+    expect(screen.getByText('Offline')).not.toBeNull()
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(offline.retry).toHaveBeenCalledTimes(1)
+  })
+
+  it('hints the keys of the current view', () => {
+    render(AppShell, { controller: stubController() })
+    const footer = screen.getByText('profile revision 1').closest('footer')!
+    expect(within(footer).getByText('Merchant')).not.toBeNull()
+    expect(within(footer).getByText('Help')).not.toBeNull()
+  })
+
+  it('shows the provider confirmation at every width', () => {
+    const restore = stubMedia((query) => query.includes('640px'))
+    try {
+      const controller = stubController()
+      controller.provider.state.phase = 'confirmation'
+      controller.provider.state.status = testProviderStatus({ confirmation_token: 'opaque' })
+      render(AppShell, { controller })
+      expect(screen.getByRole('dialog', { name: 'Confirm provider refresh' })).not.toBeNull()
+    } finally {
+      restore()
     }
   })
 
@@ -314,6 +419,30 @@ describe('AppShell', () => {
   })
 })
 
+function chartAnnouncement(): HTMLElement {
+  const region = document.querySelector<HTMLElement>('[data-testid="chart-announcement"]')
+  if (!region) throw new Error('chart announcement region is missing')
+  return region
+}
+
+function stubMedia(matches: (query: string) => boolean): () => void {
+  const original = window.matchMedia
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: (query: string) => ({
+      matches: matches(query),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }),
+  })
+  return () => Object.defineProperty(window, 'matchMedia', { configurable: true, value: original })
+}
+
 function stubController(projection = testProjection()): ViewController {
   return {
     projection: testProjection({
@@ -327,6 +456,7 @@ function stubController(projection = testProjection()): ViewController {
           available: true,
         },
         ...[
+          ['view.set-grouping', '1-5'],
           ['overlay.help', '?'],
           ['transaction.edit-merchant', 'm'],
           ['transaction.edit-category', 'c'],

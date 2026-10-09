@@ -179,5 +179,9 @@ export function handleMoneyflowKeydown(manager: ShortcutManager, event: Keyboard
   ) {
     return false
   }
+  // A focused button activates with Enter or Space; those keys must not also drill or select.
+  if (target instanceof HTMLButtonElement && (event.key === 'Enter' || event.key === ' ')) {
+    return false
+  }
   return manager.handleKeydown(event)
 }
