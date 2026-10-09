@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { MoneyflowProblem, type MoneyflowClient, type ViewProjection } from '../api/client'
+import {
+  MoneyflowProblem,
+  type MoneyflowClient,
+  type ViewBody,
+  type ViewProjection,
+} from '../api/client'
 import { createViewController } from './view-controller.svelte'
 import type { SelectionValue } from '../api/client'
 import type { MoneyflowHistoryState } from './history'
@@ -647,6 +652,107 @@ describe('browser view controller', () => {
     expect(controller.projection).toBe(loaded)
   })
 
+  describe('showing an anchored row', () => {
+    const anchored = (body: ViewBody) => {
+      if (body.anchor !== 'merchant:example') return projection('v=1', body.window.offset, 450)
+      return { ...projection('v=1', 400, 450), anchor_index: 420 }
+    }
+
+    it('loads the window holding the row and moves the cursor there without a history entry', async () => {
+      const client = clientWith({ view: vi.fn(async (body) => anchored(body)) })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      const pushes = vi.spyOn(history, 'pushState')
+      pushes.mockClear()
+
+      await controller.showAnchor('merchant:example')
+
+      expect(vi.mocked(client.view).mock.lastCall?.[0]).toEqual({
+        query: 'v=1',
+        selection: 'mfsel1.example',
+        window: { offset: 0, limit: 200 },
+        anchor: 'merchant:example',
+      })
+      expect(controller.projection?.window.offset).toBe(400)
+      expect(controller.cursorIndex).toBe(420)
+      expect(controller.cursorIdentity).toBe('row-420')
+      expect((history.state as MoneyflowHistoryState).cursorIndex).toBe(420)
+      expect(pushes).not.toHaveBeenCalled()
+    })
+
+    it('leaves the view and cursor alone when the row is missing', async () => {
+      const client = clientWith({
+        view: vi.fn(async (body) => ({
+          ...projection('v=1', body.window.offset, 450),
+          ...(body.anchor === undefined
+            ? {}
+            : { warnings: [{ code: 'anchor_missing', detail: 'The row is not in this view.' }] }),
+        })),
+      })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      await controller.moveCursorTo(3)
+      const loaded = controller.projection
+
+      await controller.showAnchor('merchant:gone')
+
+      expect(client.view).toHaveBeenLastCalledWith(
+        expect.objectContaining({ anchor: 'merchant:gone' }),
+        expect.any(AbortSignal),
+      )
+      expect(controller.projection).toBe(loaded)
+      expect(controller.cursorIndex).toBe(3)
+      expect(controller.announcement).toBe('')
+    })
+
+    it('waits for held transition work before asking for the row', async () => {
+      const client = clientWith({ view: vi.fn(async (body) => anchored(body)) })
+      const controller = controllerFor(client, false)
+      await controller.hydrate()
+      let release!: () => void
+      void controller.hold(new Promise<void>((resolve) => (release = resolve)))
+
+      const showing = controller.showAnchor('merchant:example')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(client.view).not.toHaveBeenLastCalledWith(
+        expect.objectContaining({ anchor: 'merchant:example' }),
+        expect.anything(),
+      )
+
+      release()
+      await showing
+      expect(controller.cursorIndex).toBe(420)
+    })
+  })
+
+  describe('rechecking for newer insights', () => {
+    it('refetches the view at once when insights report a newer revision', async () => {
+      const client = clientWith({
+        view: vi
+          .fn()
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '4'))
+          .mockResolvedValueOnce(projection('v=1', 0, 3, '5')),
+      })
+      const controller = createViewController({
+        basePath: '/moneyflow/',
+        client,
+        history,
+        location: window.location,
+        instance: 'test-instance',
+        prefetch: false,
+        recheckDebounceMillis: 60_000,
+      })
+      await controller.hydrate()
+
+      await controller.recheckNewer('4')
+      expect(client.view).toHaveBeenCalledTimes(1)
+
+      await controller.recheckNewer('5')
+      expect(client.view).toHaveBeenCalledTimes(2)
+      expect(controller.projection?.revision).toBe('5')
+    })
+  })
+
   describe('showing a scrolled-to row', () => {
     it('loads the aligned window outside the loaded one and moves the cursor into it', async () => {
       const client = clientWith({
@@ -1266,6 +1372,9 @@ function clientWith(overrides: Partial<MoneyflowClient> = {}): MoneyflowClient {
     })),
     view: vi.fn(async (body) => projection('v=1', body.window.offset, 3)),
     transition: vi.fn(async (body) => projection(body.query, body.window.offset, 3)),
+    insights: vi.fn(async () => {
+      throw new Error('insights not stubbed')
+    }),
     projectDuplicates: vi.fn(async () => {
       throw new Error('duplicate projection not stubbed')
     }),

@@ -85,6 +85,16 @@ export interface ViewController {
    * loaded window withdraws a window still loading.
    */
   showIndex(index: number): Promise<void>
+  /**
+   * Loads the window holding the aggregate row `identity` and moves the cursor to it, without a
+   * history entry, after earlier transitions finish. Does nothing when the row is not in the view.
+   */
+  showAnchor(identity: string): Promise<void>
+  /**
+   * Refetches the view at once when insights report `revision`, newer than the projection's, so
+   * the charts can show them. Does nothing for an equal or older revision.
+   */
+  recheckNewer(revision: string): Promise<void>
   apply(action: TransitionAction): Promise<boolean>
   /**
    * Makes later transitions wait for `work`, as they wait for an Esc return. `work` must not
@@ -252,6 +262,11 @@ export function createViewController(options: ViewControllerOptions): ViewContro
       recheckRequest = undefined
     })
     return await recheckRequest
+  }
+
+  async function recheckNewer(revision: string): Promise<void> {
+    if (!projection || BigInt(revision) <= BigInt(projection.revision)) return
+    await recheckInternal(undefined, true)
   }
 
   async function apply(action: TransitionAction): Promise<boolean> {
@@ -578,6 +593,25 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     }
   }
 
+  async function showAnchor(identity: string): Promise<void> {
+    await barrier
+    if (!projection) return
+    const body = {
+      ...viewBody(projection.canonical_query, projection.selection, alignedOffset(cursorIndex)),
+      anchor: identity,
+    }
+    await requestProjection(
+      () => options.client.view(body, activeRequest?.signal),
+      (next) => {
+        if (next.anchor_index === undefined) return
+        setProjectionWindow(next, next.anchor_index)
+        replaceOwnedHistory()
+        schedulePrefetch(next)
+      },
+      () => showAnchor(identity),
+    )
+  }
+
   function showWindow(next: ViewProjection, index: number): void {
     const { offset, count } = next.window
     const holdsCursor = cursorIndex >= offset && cursorIndex < offset + count
@@ -812,6 +846,8 @@ export function createViewController(options: ViewControllerOptions): ViewContro
     moveCursorTo,
     moveHome,
     showIndex,
+    showAnchor,
+    recheckNewer,
     apply,
     hold,
     beginSearch,

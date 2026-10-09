@@ -800,6 +800,8 @@ function stubController(projection = testProjection()): ViewController {
     moveCursorTo: vi.fn(),
     moveHome: vi.fn(),
     showIndex: vi.fn(),
+    showAnchor: vi.fn(),
+    recheckNewer: vi.fn(),
     apply: vi.fn(),
     beginSearch: vi.fn(),
     previewSearch: vi.fn(),

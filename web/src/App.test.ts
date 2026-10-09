@@ -169,6 +169,8 @@ function stubController(overrides: Partial<ViewController> = {}): ViewController
     moveCursorTo: vi.fn(async () => undefined),
     moveHome: vi.fn(async () => undefined),
     showIndex: vi.fn(async () => undefined),
+    showAnchor: vi.fn(async () => undefined),
+    recheckNewer: vi.fn(async () => undefined),
     apply: vi.fn(async () => true),
     beginSearch: vi.fn(),
     previewSearch: vi.fn(async () => 'applied' as const),
