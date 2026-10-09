@@ -15,6 +15,7 @@ const callbacks = () => ({
   oninformation: vi.fn(),
   onedit: vi.fn(),
   onsort: vi.fn(),
+  onactions: vi.fn(),
 })
 
 const detailView: ViewProjection['view'] = {
@@ -452,6 +453,104 @@ describe('FinanceGrid', () => {
     expect(screen.getByText('No transactions')).not.toBeNull()
   })
 
+  describe('compact rows at 640 px and narrower', () => {
+    const texts = (row: HTMLElement) =>
+      within(row)
+        .getAllByRole('gridcell')
+        .map((gridcell) => [gridcell.dataset['column'], gridcell.textContent?.trim()])
+
+    it('draws a grouped row on two lines with a 52 px height and a drill button', () => {
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...callbacks() })
+      const grid = screen.getByRole('grid', { name: 'Financial results' })
+      expect(grid.style.getPropertyValue('--mf-row-height')).toBe('52px')
+      const row = screen.getByRole('row', { name: /Example Merchant/ })
+      expect(texts(row)).toEqual([
+        ['select', ''],
+        ['name', 'Example Merchant'],
+        ['net', '-2.00'],
+        ['count', '2 txns'],
+        ['in', 'In +3.00'],
+        ['out', 'Out -5.00'],
+        ['actions', ''],
+      ])
+      const open = within(cell(row, 'actions')!).getByRole('button', {
+        name: 'Open Example Merchant',
+      })
+      expect(open.getAttribute('tabindex')).toBe('-1')
+    })
+
+    it('shows only the select-all control and the current sort field in the header', () => {
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...callbacks() })
+      const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+      expect(keys).toEqual(['select', 'net'])
+      expect(screen.getByRole('button', { name: 'Select all matching' })).not.toBeNull()
+      expect(screen.getByRole('columnheader', { name: 'Net' }).getAttribute('aria-sort')).toBe(
+        'descending',
+      )
+    })
+
+    it('toggles from the tap area and drills from the row body or its button', async () => {
+      const events = callbacks()
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: true, ...events })
+      const row = screen.getByRole('row', { name: /Example Merchant/ })
+      await fireEvent.click(cell(row, 'select')!)
+      expect(events.ontoggle).toHaveBeenCalledWith('agg-0', 'aggregate')
+      expect(events.onactivate).not.toHaveBeenCalled()
+      await fireEvent.click(cell(row, 'out')!)
+      expect(events.onactivate).toHaveBeenCalledWith('agg-0', 'aggregate')
+      await fireEvent.click(screen.getByRole('button', { name: 'Open Example Merchant' }))
+      expect(events.onactivate).toHaveBeenCalledTimes(2)
+      await fireEvent.doubleClick(cell(row, 'name')!)
+      expect(events.onactivate).toHaveBeenCalledTimes(2)
+      expect(events.ontoggle).toHaveBeenCalledTimes(1)
+    })
+
+    it('draws a transaction row on two lines and opens Info or the actions sheet', async () => {
+      const events = callbacks()
+      render(FinanceGrid, {
+        projection: testProjection({ view: detailView }),
+        cursorIndex: 0,
+        compact: true,
+        ...events,
+      })
+      const row = screen.getByRole('row', { name: /Example Merchant/ })
+      expect(texts(row)).toEqual([
+        ['select', ''],
+        ['merchant', 'Example Merchant'],
+        ['amount', '-$12.34'],
+        ['date', '2024-01-02'],
+        ['category', 'Example Category'],
+        ['account', 'Account Name'],
+        ['flags', ''],
+        ['actions', ''],
+      ])
+      await fireEvent.click(cell(row, 'category')!)
+      expect(events.oncursor).toHaveBeenLastCalledWith(0)
+      expect(events.oninformation).toHaveBeenCalledWith('row-0')
+      expect(events.onedit).not.toHaveBeenCalled()
+      const actions = screen.getByRole('button', { name: 'Actions for Example Merchant' })
+      expect(actions.getAttribute('aria-haspopup')).toBe('dialog')
+      await fireEvent.click(actions)
+      expect(events.onactions).toHaveBeenCalledWith(
+        expect.objectContaining({ identity: 'row-0' }),
+        actions,
+      )
+      expect(events.oninformation).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('drops Context below 760 px', () => {
+    const width = window.innerWidth
+    window.innerWidth = 700
+    try {
+      render(FinanceGrid, { projection: grouped(), cursorIndex: 0, compact: false, ...callbacks() })
+      const keys = screen.getAllByRole('columnheader').map((header) => header.dataset['column'])
+      expect(keys).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    } finally {
+      window.innerWidth = width
+    }
+  })
+
   describe('scrolling through every row of the result', () => {
     afterEach(() => vi.useRealTimers())
 
@@ -599,6 +698,23 @@ describe('FinanceGrid', () => {
       })
       await view.rerender({ viewport: 600 })
       expect(scroller.scrollTop).toBe(30)
+    })
+
+    it('keeps the cursor row on screen when rows change height at 640 px', async () => {
+      const scroller = { scrollTop: 0 } as HTMLElement
+      // Rows 0 to 19 show at 30 px, with the cursor on the last of them.
+      const view = render(FinanceGrid, {
+        projection: loaded(0),
+        cursorIndex: 19,
+        compact: false,
+        scroller,
+        scrollTop: 0,
+        viewport: 630,
+        ...callbacks(),
+      })
+      await view.rerender({ compact: true })
+      // At 52 px the cursor row's bottom is 20 rows plus the header down: 21 × 52 − 630.
+      expect(scroller.scrollTop).toBe(21 * 52 - 630)
     })
 
     it('leaves a scrolled-away cursor alone when the viewport shrinks', async () => {

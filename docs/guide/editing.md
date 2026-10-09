@@ -33,6 +33,11 @@ Delete is disabled in grouped views; open a group to delete its transactions. A 
 shows its reason when you point at it, for example while a provider write runs. On a phone, the
 bar spans the bottom of the screen with larger buttons.
 
+**Unreleased:** On a phone, a transaction row's ⋯ button opens a sheet with **Merchant**,
+**Category**, **Hide**, **Delete**, and **Info** for that transaction. They do what `m`, `c`,
+`h`, `x`, and `i` do on the cursor row. An item that cannot run shows its reason under it. Esc
+or closing an editor opened from the sheet returns focus to the ⋯ button.
+
 **Unreleased:** In the merchant editor, Enter uses the highlighted suggestion. To use a new name that also
 matches existing merchants, select the `Create` option below the matches.
 

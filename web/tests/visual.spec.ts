@@ -125,8 +125,17 @@ for (const viewport of viewports) {
           }
         } else {
           // The grid is as tall as its result; the workspace that scrolls it must fit.
-          await expect(page.getByRole('grid', { name: 'Financial results' })).toBeVisible()
+          const grid = page.getByRole('grid', { name: 'Financial results' })
+          await expect(grid).toBeVisible()
           await expectFullyWithinViewport(page.locator('.mf-workspace'), viewport)
+          if (viewport.name === 'narrow') {
+            // Phone rows wrap onto two lines instead of scrolling sideways.
+            const sideways = await grid.evaluate((element) => {
+              const workspace = element.closest<HTMLElement>('.mf-workspace')!
+              return workspace.scrollWidth - workspace.clientWidth
+            })
+            expect(sideways).toBe(0)
+          }
         }
       })
     }

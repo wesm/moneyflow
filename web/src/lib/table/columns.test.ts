@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { columnsFor } from './columns'
+import { columnsAtWidth, columnsFor } from './columns'
 import type { ViewProjection } from '../api/client'
 import { testProjection } from '../../test/projection'
 
@@ -173,5 +173,20 @@ describe('columnsFor', () => {
       breadcrumbs: [{ dimension: 'account', label: 'A1' }],
     })
     expect(widthOf(amazon, 'account')).toBe('7ch')
+  })
+})
+
+describe('columnsAtWidth', () => {
+  const merchants = () => columnsFor(grouped({ grouping: 'merchant' }))
+  const at = (width: number) => columnsAtWidth(merchants(), width).map((column) => column.key)
+
+  it('drops Context below 760 px and keeps every other column', () => {
+    expect(at(759)).toEqual(['select', 'name', 'count', 'in', 'out', 'net', 'share'])
+    expect(at(641)).toEqual(at(759))
+  })
+
+  it('keeps Context from 760 px', () => {
+    expect(at(760)).toEqual(keys(grouped({ grouping: 'merchant' })))
+    expect(at(1440)).toEqual(at(760))
   })
 })

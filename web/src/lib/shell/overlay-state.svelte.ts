@@ -18,6 +18,7 @@ export type Overlay =
   | 'period'
   | 'navigation'
   | 'view'
+  | 'actions'
 
 export interface OverlayHost {
   /** Pushes a shortcut scope and returns the function that pops it. */
@@ -51,12 +52,13 @@ export class OverlayState {
 
   /**
    * Opens `next` without tracking state, so an effect that opens it does not rerun on close or
-   * when the grid element changes.
+   * when the grid element changes. An `opener` inside the grid, such as a row's actions button,
+   * gets focus back instead of the grid.
    */
-  open(next: Overlay): void {
+  open(next: Overlay, opener?: HTMLElement): void {
     untrack(() => {
       this.#cancelRestore()
-      if (this.current === undefined) this.#opener = this.#openerOutsideGrid()
+      if (this.current === undefined) this.#opener = opener ?? this.#openerOutsideGrid()
       this.#popScope?.()
       this.#popScope = this.#host.pushScope(next)
       this.current = next

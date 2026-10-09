@@ -1,17 +1,26 @@
 <script lang="ts">
-  import { EmptyState, virtualSlice } from '@kenn-io/kit-ui'
-  import { untrack } from 'svelte'
+  import { EmptyState } from '@kenn-io/kit-ui'
+  import { innerWidth } from 'svelte/reactivity/window'
 
   import AggregateRow from './AggregateRow.svelte'
+  import CompactAggregateRow from './CompactAggregateRow.svelte'
+  import CompactDetailRow from './CompactDetailRow.svelte'
   import DetailRow from './DetailRow.svelte'
   import GridHeader from './GridHeader.svelte'
   import TimeRow from './TimeRow.svelte'
   import type { ViewProjection } from '../../lib/api/client'
+  import type { components } from '../../lib/api/schema'
   import { incomeDivider } from '../../lib/table/cells'
-  import { columnsFor, type SortField } from '../../lib/table/columns'
-  import { revealScrollTop, rowHeight, visibleRange } from '../../lib/table/layout'
-  import { doubleClickAction, pointerHit, type RowKind } from '../../lib/table/pointer'
-  import { coveredCursor, loadedRow, rowToShow } from '../../lib/table/virtual-rows'
+  import { columnsAtWidth, columnsFor, type SortField } from '../../lib/table/columns'
+  import { GridScroll } from '../../lib/table/grid-scroll.svelte'
+  import { rowHeight } from '../../lib/table/layout'
+  import {
+    compactTapAction,
+    doubleClickAction,
+    pointerHit,
+    type RowKind,
+  } from '../../lib/table/pointer'
+  import { loadedRow, type TableRow } from '../../lib/table/virtual-rows'
 
   interface Props {
     /** The loaded window of the result. */
@@ -39,6 +48,8 @@
     oninformation: (identity: string) => void
     onedit: (identity: string, field: 'merchant' | 'category') => void
     onsort: (field: SortField) => void
+    /** A compact transaction row's ⋯ button, which focus returns to after the sheet. */
+    onactions: (row: components['schemas']['DetailRow'], opener: HTMLElement) => void
     /** Scrolling showed rows outside the loaded window, from the first fully visible row. */
     onshow?: (index: number) => void
   }
@@ -60,90 +71,52 @@
     oninformation,
     onedit,
     onsort,
+    onactions,
     onshow,
   }: Props = $props()
   let grid = $state<HTMLDivElement>()
-  /** The row last passed to `onshow`. The cursor moving there follows the scroll, so stays. */
-  let shown: number | undefined
   const height = $derived(rowHeight(compact))
-  const columns = $derived(columnsFor(projection))
+  const columns = $derived(columnsAtWidth(columnsFor(projection), innerWidth.current ?? Infinity))
   const cellColumns = $derived(columns.filter((column) => column.key !== 'select'))
   const trackSizes = $derived(columns.map((column) => column.width).join(' '))
   const dimension = $derived(projection.view.sub_grouping ?? projection.view.grouping)
   const windows = $derived([projection, ...neighbors])
   const kind: RowKind = $derived(projection.detail_rows ? 'transaction' : 'aggregate')
   const dividers = $derived(projection.view.sort_field === 'amount' && kind === 'aggregate')
-  // The scroller's top below the grid's top: the rows' offset under the sticky header. offsetTop
-  // is read, not tracked, so content above the grid that resizes does not rerun this.
-  const listTop = $derived(scrollTop - (grid?.offsetTop ?? 0))
-  const slice = $derived(
-    virtualSlice({
-      scrollTop: listTop,
-      viewport,
-      count: projection.total_rows,
-      overscan: 5,
-      fixedHeight: height,
-      heightOf: () => height,
-    }),
-  )
-  const slots = $derived(
-    Array.from({ length: slice.end - slice.start }, (_, offset) => {
-      const index = slice.start + offset
-      return { index, row: loadedRow(windows, index) }
-    }),
-  )
-  const total = $derived(projection.total_rows)
-  const range = $derived(visibleRange(listTop, viewport - height, height, total))
   const activeID = $derived(loadedRow(windows, cursorIndex)?.identity)
-  // Effects that read this rerun only when the cursor moves, not on every prop update.
-  const cursor = $derived(cursorIndex)
-
-  // The grid keeps focus while the cursor moves, so the browser never scrolls the active row
-  // into view. Reveal it here, or aria-activedescendant would name a row that is not rendered.
-  $effect(() => {
-    const index = cursor
-    if (!grid) return
-    untrack(() => {
-      if (index !== shown) return reveal(index)
-      // A window that arrived after more scrolling moves the cursor on to the row now on top.
-      shown = undefined
-      if (index !== range.first) oncursor(range.first)
-    })
+  const scroll = new GridScroll({
+    get grid() {
+      return grid
+    },
+    get scroller() {
+      return scroller
+    },
+    get windows() {
+      return windows
+    },
+    get cursorIndex() {
+      return cursorIndex
+    },
+    get rowHeight() {
+      return height
+    },
+    get viewport() {
+      return viewport
+    },
+    get scrollTop() {
+      return scrollTop
+    },
+    set scrollTop(next) {
+      scrollTop = next
+    },
+    oncursor: (index) => oncursor(index),
+    get onshow() {
+      return onshow
+    },
   })
-
-  // A shrinking viewport (the selection bar opens) reveals the cursor row it covered. Only the
-  // viewport is tracked, so scrolling the cursor row away does not pull it back.
-  let lastViewport: number | undefined
-  $effect(() => {
-    const next = viewport
-    untrack(() => {
-      const before = visibleRange(listTop, (lastViewport ?? next) - height, height, total)
-      lastViewport = next
-      if (coveredCursor(before, range, cursor)) reveal(cursor)
-    })
-  })
-
-  // One request per frame, for the latest first row, once scrolling leaves the cursor's window.
-  $effect(() => {
-    const index = rowToShow(range, cursor, projection.window)
-    if (!onshow || index === undefined) return
-    const frame = requestAnimationFrame(() => {
-      shown = index
-      onshow(index)
-    })
-    return () => cancelAnimationFrame(frame)
-  })
-
-  function reveal(index: number): void {
-    const gridTop = grid?.offsetTop ?? 0
-    const next = revealScrollTop(index, { scrollTop, viewport, rowHeight: height, gridTop })
-    if (next === scrollTop) return
-    scrollTop = next
-    if (scroller) scroller.scrollTop = next
-  }
 
   function keydown(event: KeyboardEvent): void {
-    shown = undefined
+    scroll.keyed()
     if (event.key === 'ArrowUp' || event.key === 'k') onmove(-1)
     else if (event.key === 'ArrowDown' || event.key === 'j') onmove(1)
     else if (event.key === 'Home') onhome()
@@ -162,13 +135,24 @@
   function click(event: MouseEvent): void {
     const target = hit(event)
     if (!target) return
-    if (target.column === 'select') ontoggle(target.row.identity, kind)
+    if (compact) tap(target.row, compactTapAction(kind, target.column), event)
+    else if (target.column === 'select') ontoggle(target.row.identity, kind)
     else oncursor(target.row.index)
   }
 
+  /** A tap on a compact row: toggle, drill, or move the cursor there and open Info or actions. */
+  function tap(row: TableRow, action: ReturnType<typeof compactTapAction>, event: MouseEvent) {
+    if (action === 'toggle') return ontoggle(row.identity, kind)
+    if (action === 'drill') return onactivate(row.identity, kind)
+    oncursor(row.index)
+    const opener = event.target instanceof Element && event.target.closest('button')
+    if (action === 'information') oninformation(row.identity)
+    else if ('merchant' in row && opener) onactions(row, opener)
+  }
+
   function doubleClick(event: MouseEvent): void {
-    // A button's own click already acted; its double-click must not act again.
-    if (event.target instanceof Element && event.target.closest('button')) return
+    // A button's own click already acted; its double-click must not act again. Taps act once.
+    if (compact || (event.target instanceof Element && event.target.closest('button'))) return
     const target = hit(event)
     if (!target) return
     const identity = target.row.identity
@@ -186,9 +170,9 @@
   />
 {:else}
   <div
-    class="mf-table"
+    class={['mf-table', compact && 'mf-table--compact']}
     style:--mf-row-height={`${height}px`}
-    style:--mf-columns={trackSizes}
+    style:--mf-columns={compact ? undefined : trackSizes}
     role="grid"
     aria-label="Financial results"
     aria-rowcount={projection.total_rows + 1}
@@ -205,14 +189,15 @@
   >
     <GridHeader
       {columns}
+      {compact}
       view={projection.view}
       allSelected={projection.selection_count > 0 &&
         projection.selection_count === projection.total_rows}
       {onsort}
       {ontoggleall}
     />
-    <div class="mf-table__spacer" style:height={`${slice.topPad}px`} aria-hidden="true"></div>
-    {#each slots as { index, row } (index)}
+    <div class="mf-table__spacer" style:height={`${scroll.pads.top}px`} aria-hidden="true"></div>
+    {#each scroll.slots as { index, row } (index)}
       {#if row}
         {@const divider = dividers ? incomeDivider(windows, index) : null}
         <div
@@ -237,7 +222,13 @@
             <span class={['mf-check', row.flags.selected && 'mf-check--on']} aria-hidden="true"
             ></span>
           </div>
-          {#if 'merchant' in row}
+          {#if compact}
+            {#if 'merchant' in row}
+              <CompactDetailRow {row} {oninformation} />
+            {:else}
+              <CompactAggregateRow {row} {divider} />
+            {/if}
+          {:else if 'merchant' in row}
             <DetailRow {row} columns={cellColumns} {oninformation} {onedit} />
           {:else if row.dimension === 'time'}
             <TimeRow {row} columns={cellColumns} {divider} />
@@ -253,10 +244,6 @@
         ></div>
       {/if}
     {/each}
-    <div
-      class="mf-table__spacer"
-      style:height={`${Math.max(0, slice.totalHeight - slice.topPad - slots.length * height)}px`}
-      aria-hidden="true"
-    ></div>
+    <div class="mf-table__spacer" style:height={`${scroll.pads.bottom}px`} aria-hidden="true"></div>
   </div>
 {/if}

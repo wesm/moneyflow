@@ -140,7 +140,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`${colorScheme} phone drawer, View sheet, and search pass axe`, async ({ page, server }) => {
+  test(`${colorScheme} phone drawer, sheets, compact rows, and search pass axe`, async ({
+    page,
+    server,
+  }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     await page.addInitScript((mode) => localStorage.setItem('kit-ui-theme', mode), colorScheme)
     await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -162,6 +165,20 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
     await expect(sheet).toBeHidden()
+
+    // Compact transaction rows with a selected row, then the row actions sheet over them.
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    await cell(grid.locator('[role="row"][aria-rowindex="2"]'), 'select').click()
+    await expect(grid.getByRole('row', { selected: true })).toHaveCount(1)
+    await expect(grid.locator('.mf-compact').first()).toBeVisible()
+    await expectNoAxeViolations(page)
+    await grid
+      .getByRole('button', { name: /^Actions for / })
+      .first()
+      .click()
+    await expect(page.getByRole('button', { name: 'Info', exact: true })).toBeVisible()
+    await expectNoAxeViolations(page)
+    await page.keyboard.press('Escape')
 
     await page.getByRole('button', { name: 'Search', exact: true }).click()
     await expect(page.getByRole('searchbox', { name: 'Search transactions' })).toBeFocused()

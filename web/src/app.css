@@ -844,6 +844,8 @@ input {
   overflow: auto;
 }
 .mf-table {
+  /* As wide as its columns' minimums, so the focus ring and rows span a table that scrolls. */
+  min-width: min-content;
   margin-top: var(--space-2);
   outline: none;
   display: grid;
@@ -872,7 +874,8 @@ input {
 .mf-table__header {
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* Above the rows' sticky cells, which scroll up beneath it. */
+  z-index: 2;
   background: var(--bg-surface);
   border-bottom-color: var(--border-default);
   color: var(--text-secondary);
@@ -894,10 +897,13 @@ input {
   font-variant-numeric: tabular-nums;
 }
 .mf-table__row {
+  --mf-row-tint: transparent;
+  --mf-row-rule: linear-gradient(transparent, transparent);
   position: relative;
+  background-color: var(--mf-row-tint);
 }
 .mf-table__row:where(:hover):not(.mf-table__row--placeholder) {
-  background-color: var(--bg-surface-hover);
+  --mf-row-tint: var(--bg-surface-hover);
 }
 .mf-table__row--placeholder::after {
   content: '';
@@ -908,17 +914,63 @@ input {
   background: var(--bg-inset);
 }
 .mf-table__row--active {
-  background-color: var(--mf-cursor);
+  --mf-row-tint: var(--mf-cursor);
   box-shadow: inset 3px 0 var(--mf-focus);
 }
 .mf-table__row--selected {
-  background-color: var(--mf-selected);
+  --mf-row-tint: var(--mf-selected);
 }
-.mf-table__row--hidden > .mf-table__cell:not([data-column='flags'], [data-column='select']) {
+/* A table wider than the workspace scrolls sideways under ☐ and the name column, which stay
+   put. Opaque cells hide what scrolls beneath them and repeat the row's tint and rules. */
+.mf-table:not(.mf-table--compact)
+  > :is(.mf-table__header, .mf-table__row)
+  > :is(
+    [data-column='select'],
+    [data-column='name'],
+    [data-column='period'],
+    [data-column='merchant']
+  ) {
+  position: sticky;
+  left: 2rem;
+  z-index: 1;
+  /* Full row height, so nothing shows above or below the opaque cell. */
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  background:
+    var(--mf-row-rule) top / 100% 1px no-repeat,
+    linear-gradient(var(--mf-row-tint), var(--mf-row-tint)),
+    var(--bg-primary);
+}
+.mf-table:not(.mf-table--compact)
+  > :is(.mf-table__header, .mf-table__row)
+  > [data-column='select'] {
+  left: 0;
+}
+.mf-table:not(.mf-table--compact) > .mf-table__header > [data-column] {
+  background: var(--bg-surface);
+}
+.mf-table__row--active > [data-column='select'] {
+  box-shadow: inset 3px 0 var(--mf-focus);
+}
+/* A sticky cell stays opaque, so its content dims instead. */
+.mf-table__row--hidden
+  > .mf-table__cell:not(
+    [data-column='flags'],
+    [data-column='select'],
+    [data-column='name'],
+    [data-column='period'],
+    [data-column='merchant']
+  ),
+.mf-table__row--hidden
+  > :is([data-column='name'], [data-column='period'], [data-column='merchant'])
+  > * {
   opacity: var(--opacity-disabled);
 }
 .mf-table__row--divided {
-  background-image: linear-gradient(var(--text-muted), var(--text-muted));
+  --mf-row-rule: linear-gradient(var(--text-muted), var(--text-muted));
+  background-image: var(--mf-row-rule);
   background-size: 100% 1px;
   background-repeat: no-repeat;
 }
@@ -1069,6 +1121,114 @@ input {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+/* Phone rows at 640 px and narrower: a 44 px selection tap area, two lines, and a 44 px button.
+   The grid sets the class from kit MEDIA.compact, with the row height it virtualizes. */
+.mf-table--compact {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+.mf-table--compact .mf-table__row {
+  touch-action: manipulation;
+}
+.mf-table--compact [data-column='select'],
+.mf-compact__action {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.mf-table--compact .mf-table__select-all {
+  margin-left: 0;
+}
+.mf-table--compact .mf-table__select-all .kit-icon-button,
+.mf-table--compact .mf-table__sort {
+  min-width: 44px;
+  min-height: 44px;
+}
+.mf-compact {
+  min-width: 0;
+  padding-right: var(--space-3);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  gap: var(--space-1) var(--space-3);
+}
+.mf-compact > [role='gridcell'] {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.mf-compact__lead {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-medium);
+}
+.mf-compact__figure,
+.mf-compact__money {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.mf-compact__figure {
+  text-align: right;
+}
+.mf-compact__meta {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+.mf-compact__meta > [role='gridcell'] {
+  flex: none;
+}
+.mf-compact__meta > .mf-compact__text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mf-compact__label {
+  margin-right: var(--space-1);
+  font-family: var(--font-sans);
+}
+.mf-compact__button {
+  display: flex;
+}
+.mf-table__row--hidden > .mf-compact {
+  opacity: var(--opacity-disabled);
+}
+.mf-table__row--deleted .mf-compact [role='gridcell']:not([data-column='flags']) {
+  text-decoration: line-through;
+}
+/* The row actions sheet: one full-width 44 px button per item, with an unavailable item's
+   reason under it. */
+.mf-row-actions__summary {
+  margin: 0 0 var(--space-4);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+.mf-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mf-row-actions .kit-button.mf-row-actions__button {
+  width: 100%;
+  min-height: 44px;
+  justify-content: flex-start;
+}
+.mf-row-actions__reason {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 /* In the scroll flow after the table, so the last row scrolls clear of it. The negative bottom
    reaches past the workspace's focus-ring padding to its edge. */

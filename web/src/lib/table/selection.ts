@@ -3,16 +3,25 @@ import type { LocalAction } from '../shortcuts'
 import { availableCapabilities, unavailableReason } from '../shell/capabilities'
 import { moneyCell } from './cells'
 
-/** A selection bar button: an edit the keys also run, or Clear. */
-export interface SelectionButton {
-  action:
-    | Extract<LocalAction, 'edit.merchant' | 'edit.category' | 'edit.hide' | 'edit.delete'>
-    | 'clear'
+type EditAction = Extract<
+  LocalAction,
+  'edit.merchant' | 'edit.category' | 'edit.hide' | 'edit.delete'
+>
+
+/** A button that runs what a key runs: one of the edits, Info, or the selection bar's Clear. */
+interface ActionButton<Action> {
+  action: Action
   label: string
   key: string
   /** Why the button is disabled; absent while it can run. */
   reason?: string
 }
+
+/** A selection bar button: an edit the keys also run, or Clear. */
+export type SelectionButton = ActionButton<EditAction | 'clear'>
+
+/** A row actions sheet item: an edit or Info, for one row. */
+export type RowActionButton = ActionButton<EditAction | 'transaction.info'>
 
 const nouns: Record<string, [string, string]> = {
   merchant: ['merchant', 'merchants'],
@@ -64,14 +73,33 @@ const edits = [
   { action: 'edit.hide', label: 'Hide', key: 'h', capability: 'transaction.toggle-hidden' },
   { action: 'edit.delete', label: 'Delete', key: 'x', capability: 'transaction.delete' },
 ] as const
+const info = {
+  action: 'transaction.info',
+  label: 'Info',
+  key: 'i',
+  capability: 'transaction.show-info',
+} as const
 
-/** The bar's buttons. An edit the view cannot run carries the server's reason. */
-export function selectionButtons(projection: ViewProjection): SelectionButton[] {
+/** Buttons for `entries`. One the view cannot run carries the server's reason. */
+function actionButtons<Action extends string>(
+  projection: ViewProjection,
+  entries: readonly (ActionButton<Action> & { capability: string })[],
+): ActionButton<Action>[] {
   const available = availableCapabilities(projection)
-  const buttons: SelectionButton[] = edits.map(({ action, label, key, capability }) =>
+  return entries.map(({ action, label, key, capability }) =>
     available.has(capability)
       ? { action, label, key }
       : { action, label, key, reason: unavailableReason(projection, capability) },
   )
+}
+
+/** The bar's buttons: the edits, then Clear, which is always enabled. */
+export function selectionButtons(projection: ViewProjection): SelectionButton[] {
+  const buttons: SelectionButton[] = actionButtons(projection, edits)
   return [...buttons, { action: 'clear', label: 'Clear', key: 'Esc' }]
+}
+
+/** The row actions sheet's items: the edits, then Info. */
+export function rowActionButtons(projection: ViewProjection): RowActionButton[] {
+  return actionButtons<RowActionButton['action']>(projection, [...edits, info])
 }

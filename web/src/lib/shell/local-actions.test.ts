@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { localActions, moveCursor, openEditor, type LocalActionContext } from './local-actions'
+import {
+  confirmDelete,
+  hideRow,
+  localActions,
+  moveCursor,
+  openEditor,
+  runRowAction,
+  type LocalActionContext,
+} from './local-actions'
 import { OverlayState } from './overlay-state.svelte'
 import { status } from './status.svelte'
 import type { ViewController } from '../controller/view-controller.svelte'
@@ -28,7 +36,14 @@ function setup(cursorIndex: number): { context: LocalActionContext; overlays: Ov
     window: { offset: 0, limit: 200, count: 2 },
     aggregate_rows: [testAggregateRow(), testAggregateRow({ index: 1, identity: 'agg-1' })],
   })
-  const controller = { projection, cursorIndex } as unknown as ViewController
+  const submit = vi.fn(() => Promise.resolve(true))
+  const transactionInformation = vi.fn(() => Promise.resolve(undefined))
+  const controller = {
+    projection,
+    cursorIndex,
+    editing: { submit },
+    transactionInformation,
+  } as unknown as ViewController
   const context: LocalActionContext = {
     controller,
     overlays,
@@ -67,6 +82,78 @@ describe('editor actions', () => {
     localActions(context)['edit.merchant']()
     expect(overlays.current).toBeUndefined()
     expect(overlays.editTarget).toBeUndefined()
+  })
+})
+
+describe('row actions', () => {
+  afterEach(() => document.body.replaceChildren())
+  const row = { identity: 'row-7', kind: 'transaction' } as const
+
+  it('h hides the cursor row and the sheet hides a given row through the same handler', () => {
+    const { context } = setup(1)
+    localActions(context)['edit.hide']()
+    hideRow(context, row)
+    expect(context.controller.editing.submit).toHaveBeenNthCalledWith(1, {
+      action: 'transaction.toggle-hidden',
+      input: {},
+      target: { identity: 'agg-1', kind: 'aggregate' },
+    })
+    expect(context.controller.editing.submit).toHaveBeenNthCalledWith(2, {
+      action: 'transaction.toggle-hidden',
+      input: {},
+      target: row,
+    })
+  })
+
+  it('asks to confirm deleting a given transaction row, but never a grouped row', () => {
+    const { context, overlays } = setup(1)
+    confirmDelete(context, { identity: 'agg-1', kind: 'aggregate' })
+    expect(overlays.current).toBeUndefined()
+    confirmDelete(context, row)
+    expect(overlays.current).toBe('delete')
+    expect(overlays.deleteTarget).toEqual(row)
+    expect(overlays.deleteCount).toBe(1)
+  })
+})
+
+describe('runRowAction', () => {
+  afterEach(() => document.body.replaceChildren())
+  const row = { identity: 'row-7', kind: 'transaction' } as const
+
+  function fromSheet() {
+    const { context, overlays } = setup(1)
+    overlays.open('actions', document.createElement('button'))
+    return { context, overlays }
+  }
+
+  it('opens the editors and the delete confirmation for the sheet row', () => {
+    for (const [action, overlay] of [
+      ['edit.merchant', 'merchant'],
+      ['edit.category', 'category'],
+      ['edit.delete', 'delete'],
+    ] as const) {
+      const { context, overlays } = fromSheet()
+      runRowAction(context, action, row)
+      expect(overlays.current).toBe(overlay)
+      expect(overlays.editTarget ?? overlays.deleteTarget).toEqual(row)
+    }
+  })
+
+  it('stages hiding the sheet row and closes the sheet', () => {
+    const { context, overlays } = fromSheet()
+    runRowAction(context, 'edit.hide', row)
+    expect(context.controller.editing.submit).toHaveBeenCalledWith({
+      action: 'transaction.toggle-hidden',
+      input: {},
+      target: row,
+    })
+    expect(overlays.current).toBeUndefined()
+  })
+
+  it('asks for the sheet row’s Info', () => {
+    const { context } = fromSheet()
+    runRowAction(context, 'transaction.info', row)
+    expect(context.controller.transactionInformation).toHaveBeenCalledWith('row-7')
   })
 })
 

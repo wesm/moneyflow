@@ -1,14 +1,21 @@
 <script lang="ts">
+  import { MEDIA } from '@kenn-io/kit-ui'
+  import { untrack } from 'svelte'
+  import { MediaQuery } from 'svelte/reactivity'
+
   import FinanceGrid from '../table/FinanceGrid.svelte'
+  import RowActionsSheet from '../table/RowActionsSheet.svelte'
   import SelectionBar from '../table/SelectionBar.svelte'
   import EmptyScope from './EmptyScope.svelte'
   import type { ViewProjection } from '../../lib/api/client'
+  import type { components } from '../../lib/api/schema'
   import type { TransitionAction } from '../../lib/controller/view-controller.svelte'
   import {
     localActions,
     moveCursor,
     openEditor,
     openTransactionInformation,
+    runRowAction,
     type LocalActionContext,
   } from '../../lib/shell/local-actions'
   import { emptyScope } from '../../lib/shell/period'
@@ -35,6 +42,16 @@
   const local = $derived(localActions(actions))
   /** A Clear is queued; another click must not also go back a level. */
   let clearing = false
+  const compact = new MediaQuery(MEDIA.compact)
+  /** The row whose ⋯ button opened the actions sheet. */
+  let sheetRow = $state<components['schemas']['DetailRow']>()
+
+  // The ⋯ buttons exist only on phone rows, so growing past 640 px closes their sheet.
+  $effect(() => {
+    if (!compact.current && untrack(() => actions.overlays.current) === 'actions') {
+      actions.overlays.close()
+    }
+  })
 
   /** Runs a selection bar button as its key does, then leaves focus on the table. */
   function select(action: SelectionButton['action']): void {
@@ -72,7 +89,7 @@
       {scroller}
       bind:scrollTop
       viewport={viewport - covered}
-      compact={false}
+      compact={compact.current}
       onmove={(delta) => moveCursor(() => controller.moveCursor(delta))}
       onhome={() => moveCursor(() => controller.moveHome())}
       oncursor={(index) => moveCursor(() => controller.moveCursorTo(index))}
@@ -83,6 +100,10 @@
       oninformation={(identity) => void openTransactionInformation(actions, identity)}
       onedit={(identity, field) => openEditor(actions, field, { identity, kind: 'transaction' })}
       onsort={(field) => onapply({ action: 'sort.set', sort_field: field })}
+      onactions={(row, opener) => {
+        sheetRow = row
+        actions.overlays.open('actions', opener)
+      }}
       onshow={(index) => void controller.showIndex(index)}
     />
     {#if selecting}
@@ -90,3 +111,16 @@
     {/if}
   {/if}
 </div>
+{#if sheetRow}
+  {@const target = { identity: sheetRow.identity, kind: 'transaction' } as const}
+  <RowActionsSheet
+    open={actions.overlays.current === 'actions'}
+    row={sheetRow}
+    {projection}
+    onaction={(action) => {
+      status.clear()
+      runRowAction(actions, action, target)
+    }}
+    onclose={() => actions.overlays.close()}
+  />
+{/if}

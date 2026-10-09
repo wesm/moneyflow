@@ -26,6 +26,21 @@ In the browser, a click on a row moves the cursor and a click on its box selects
 double-click opens a group, edits a transaction's Merchant or Category, or opens the
 transaction's information from any other cell.
 
+On screens 640 px wide or narrower, each row takes two lines. A group shows its name and Net,
+then its count, In, and Out. A transaction shows its merchant and amount, then its date,
+category, and account. Touch works this way:
+
+- Tap the box at the start of a row to select it or clear it.
+- Tap a group, or its › button, to open it.
+- Tap a transaction to open its information. Its ⋯ button opens **Merchant**, **Category**,
+  **Hide**, **Delete**, and **Info** for that transaction.
+- The header keeps the select-all box and the current sort field. Tap the field to reverse the
+  order.
+
+The keys work the same at every width. On wider screens, a table wider than the window scrolls
+sideways while the boxes and the name column stay in place. Below 760 px, merchant and category
+tables leave out Top category and Group.
+
 The browser table scrolls through every row of the result. It loads rows 200 at a time, and
 rows still loading show as blank bars. When scrolling reaches rows outside the loaded 200, the
 cursor moves to the first row fully on screen.

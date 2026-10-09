@@ -24,6 +24,20 @@ export function doubleClickAction(
   return 'information'
 }
 
+/** What a tap on a compact phone row does. */
+export type CompactTapAction = 'toggle' | 'drill' | 'information' | 'actions'
+
+/**
+ * The spec's touch rules for compact rows at 640 px and narrower. The leading tap area toggles
+ * selection. A grouped row drills from its body or its › button. A transaction row opens Info
+ * from its body and the actions sheet from its ⋯ button.
+ */
+export function compactTapAction(kind: RowKind, column: string | undefined): CompactTapAction {
+  if (column === 'select') return 'toggle'
+  if (kind === 'aggregate') return 'drill'
+  return column === 'actions' ? 'actions' : 'information'
+}
+
 /** Finds the body row and cell under a pointer event target; header rows carry no index. */
 export function pointerHit(target: EventTarget | null): PointerHit | undefined {
   if (!(target instanceof Element)) return undefined

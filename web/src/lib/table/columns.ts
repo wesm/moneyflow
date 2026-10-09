@@ -2,7 +2,7 @@ import type { ViewProjection } from '../api/client'
 import { drillFrames, type DrillFrame } from '../shell/drills'
 
 /** Column keys. Every gridcell carries its key as `data-column`; `trend` and `vs_prior` arrive
- * with the insights client in PR 6. */
+ * with the insights client in PR 6. `actions` is the trailing › or ⋯ button of a compact row. */
 export type ColumnKey =
   | 'select'
   | 'name'
@@ -23,6 +23,7 @@ export type ColumnKey =
   | 'account'
   | 'amount'
   | 'flags'
+  | 'actions'
 
 export type SortField = ViewProjection['view']['sort_fields'][number]
 
@@ -34,7 +35,7 @@ export interface Column {
   /** A CSS grid track size. */
   width: string
   /** The column shows only at or above this viewport width. */
-  minWidth?: 641 | 760
+  minWidth?: 760
 }
 
 const METRIC_WIDTH = '6.5rem'
@@ -160,6 +161,11 @@ function transactionColumns(projection: ViewProjection): Column[] {
 /** The class list of a header or body cell in the column. */
 export function cellClass(column: Column): string {
   return column.align === 'end' ? 'mf-table__cell mf-table__cell--end' : 'mf-table__cell'
+}
+
+/** The columns that fit a viewport `width` px wide: a column with a `minWidth` drops out below it. */
+export function columnsAtWidth(columns: Column[], width: number): Column[] {
+  return columns.filter((column) => column.minWidth === undefined || width >= column.minWidth)
 }
 
 /** The columns of the projection's view. Only the server's sort fields stay sortable. */

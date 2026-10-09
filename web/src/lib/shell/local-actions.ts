@@ -3,6 +3,7 @@ import { tick } from 'svelte'
 import type { ViewProjection } from '../api/client'
 import type { ViewController } from '../controller/view-controller.svelte'
 import type { LocalAction } from '../shortcuts'
+import type { RowActionButton } from '../table/selection'
 import type { OverlayState } from './overlay-state.svelte'
 import { activeCurrency } from './period'
 import { status } from './status.svelte'
@@ -96,11 +97,7 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
     },
     'edit.undo': () => void controller.editing.undo(),
     'edit.redo': () => void controller.editing.redo(),
-    'edit.hide': () => {
-      const target = row()
-      if (!target) return
-      void controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target })
-    },
+    'edit.hide': () => hideRow(context, row()),
     'edit.delete': () => confirmDelete(context, row()),
     'transaction.info': () =>
       void context.afterTransitions().then(async () => {
@@ -110,6 +107,24 @@ export function localActions(context: LocalActionContext): Record<LocalAction, (
           await openTransactionInformation(context, target.identity)
       }),
   }
+}
+
+/**
+ * Runs a row actions sheet item on `target` through the handler its key uses. An editor or the
+ * delete confirmation replaces the sheet and returns focus to the sheet's opener when it closes.
+ */
+export function runRowAction(
+  context: LocalActionContext,
+  action: RowActionButton['action'],
+  target: FocusedRow,
+): void {
+  if (action === 'edit.merchant') return openEditor(context, 'merchant', target)
+  if (action === 'edit.category') return openEditor(context, 'category', target)
+  if (action === 'edit.delete') return confirmDelete(context, target)
+  if (action === 'transaction.info')
+    return void openTransactionInformation(context, target.identity)
+  hideRow(context, target)
+  context.overlays.close()
 }
 
 /** Deletes the transaction the delete confirmation names, closing it once the edit is staged. */
@@ -125,7 +140,14 @@ export async function confirmDirectDelete(context: LocalActionContext): Promise<
   if (accepted) overlays.close()
 }
 
-function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
+/** Stages hiding or showing `target`'s transactions, such as the cursor or a pointed row. */
+export function hideRow(context: LocalActionContext, target: FocusedRow | undefined): void {
+  if (!target) return
+  void context.controller.editing.submit({ action: 'transaction.toggle-hidden', input: {}, target })
+}
+
+/** Asks to confirm deleting the transaction `row`, or the selection when there is one. */
+export function confirmDelete(context: LocalActionContext, row: FocusedRow | undefined): void {
   if (row?.kind !== 'transaction') return
   const selected = context.controller.projection?.selection_count
   context.overlays.deleteTarget = { identity: row.identity, kind: 'transaction' }

@@ -78,7 +78,8 @@ test('@smoke a narrow empty search view keeps Clear search reachable', async ({ 
     const grid = page.getByRole('grid', { name: 'Financial results' })
     await expect(grid).toBeVisible()
     await expect(page.getByText('No transactions', { exact: true })).not.toBeVisible()
-    await grid.click()
+    // Leaving the search field commits the cleared search. A tap on a phone row would drill.
+    await grid.focus()
     await expect(page).not.toHaveURL(/[?&]q=/)
     await expect.poll(() => page.evaluate(() => history.length)).toBe(length + 1)
     await page.goBack()

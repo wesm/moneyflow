@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { selectionButtons, selectionText } from './selection'
+import { rowActionButtons, selectionButtons, selectionText } from './selection'
 import type { ViewProjection } from '../api/client'
 import type { components } from '../api/schema'
 import { testCapabilities } from '../../test/capabilities'
@@ -139,5 +139,35 @@ describe('selectionButtons', () => {
   it('disables an edit the view does not offer', () => {
     const buttons = selectionButtons(projection({ capabilities: [] }))
     expect(buttons.slice(0, 4).every((button) => button.reason !== undefined)).toBe(true)
+  })
+})
+
+describe('rowActionButtons', () => {
+  it('offers the edits and Info for one row, with the keys that run them on the cursor row', () => {
+    const ids = [...editIDs, 'transaction.show-info']
+    const buttons = rowActionButtons(projection({ capabilities: testCapabilities(ids) }))
+    expect(buttons).toEqual([
+      { action: 'edit.merchant', label: 'Merchant', key: 'm' },
+      { action: 'edit.category', label: 'Category', key: 'c' },
+      { action: 'edit.hide', label: 'Hide', key: 'h' },
+      { action: 'edit.delete', label: 'Delete', key: 'x' },
+      { action: 'transaction.info', label: 'Info', key: 'i' },
+    ])
+  })
+
+  it('gives an unavailable Delete the server reason and leaves the rest enabled', () => {
+    const reason = 'Deleting is not available here.'
+    const ids = [...editIDs, 'transaction.show-info']
+    const capabilities = testCapabilities(ids, ['transaction.delete']).map((capability) =>
+      capability.available ? capability : { ...capability, reason },
+    )
+    const buttons = rowActionButtons(projection({ capabilities }))
+    expect(buttons.map((button) => button.reason)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      reason,
+      undefined,
+    ])
   })
 })

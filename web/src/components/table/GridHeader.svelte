@@ -10,11 +10,18 @@
     view: ViewProjection['view']
     /** Every matching row is selected, so the header box shows checked. */
     allSelected: boolean
+    /** Phone rows: the header keeps only select-all and the current sort field. */
+    compact: boolean
     onsort: (field: SortField) => void
     ontoggleall: () => void
   }
 
-  let { columns, view, allSelected, onsort, ontoggleall }: Props = $props()
+  let { columns, view, allSelected, compact, onsort, ontoggleall }: Props = $props()
+  const shown = $derived(
+    compact
+      ? columns.filter((column) => column.key === 'select' || column.sortField === view.sort_field)
+      : columns,
+  )
   /** Columns whose content explains itself; their headers are named for assistive technology. */
   const unlabelled = new Set<ColumnKey>(['net_bar', 'flags'])
 
@@ -25,7 +32,7 @@
 </script>
 
 <div class="mf-table__header" role="row">
-  {#each columns as column (column.key)}
+  {#each shown as column (column.key)}
     {@const sort = sortState(column)}
     {@const field = column.sortField}
     <!-- kit-ui-check-ignore: virtual ARIA grid cannot contain table header cells -->

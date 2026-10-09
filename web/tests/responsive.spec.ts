@@ -1,6 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 
-import { activeRow, expect, openMoneyflow, test } from './fixtures'
+import { activeRow, cell, expect, openMoneyflow, test } from './fixtures'
 
 test('desktop and medium layouts preserve table primacy and chart linkage', async ({
   page,
@@ -86,17 +86,7 @@ test('narrow resize preserves analytical URL and moves charts into a drawer', as
   const rows = page.getByRole('grid', { name: 'Financial results' }).getByRole('row')
   expect(await rows.count()).toBeGreaterThan(1)
 
-  const grid = page.getByRole('grid', { name: 'Financial results' })
-  const net = grid.getByRole('columnheader', { name: 'Net', exact: true })
-  await net.scrollIntoViewIfNeeded()
-  const netBox = (await net.boundingBox())!
-  // The workspace scrolls the grid, so its box is the part of the table on screen.
-  const shownBox = (await page.locator('.mf-workspace').boundingBox())!
-  expect(netBox.x).toBeGreaterThanOrEqual(shownBox.x)
-  expect(netBox.x + netBox.width).toBeLessThanOrEqual(shownBox.x + shownBox.width + 1)
-  expect(await page.locator('body').evaluate((body) => body.scrollWidth <= body.clientWidth)).toBe(
-    true,
-  )
+  await expectCompactRows(page)
 
   const charts = page.getByRole('switch', { name: 'Charts' })
   await expect(charts).not.toBeChecked()
@@ -131,6 +121,33 @@ test('the sidebar groups by its entries and the rail names them in tooltips', as
 })
 
 const phone = { width: 390, height: 844 }
+
+/**
+ * Phone rows: two lines at least 52 px tall, a header with only select-all and the sort field,
+ * no sideways scrolling in the grid or any row, and 44 px tap areas and buttons.
+ */
+async function expectCompactRows(page: Page): Promise<void> {
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  await expect(grid.locator('.mf-table__header [role="columnheader"]')).toHaveCount(2)
+  await expect(grid.getByRole('button', { name: 'Select all matching' })).toBeVisible()
+  const layout = await grid.evaluate((element) => {
+    const rows = [...element.querySelectorAll<HTMLElement>('[role="row"][aria-rowindex]')]
+    const workspace = element.closest<HTMLElement>('.mf-workspace')!
+    const wide = [element, workspace, ...rows].filter((node) => node.scrollWidth > node.clientWidth)
+    const controls = [
+      ...rows.map((row) => row.querySelector<HTMLElement>('[data-column="select"]')!),
+      ...element.querySelectorAll<HTMLElement>('button'),
+    ]
+    const small = controls
+      .map((control) => control.getBoundingClientRect())
+      .filter((box) => box.width < 44 || box.height < 44)
+    const heights = rows.map((row) => row.getBoundingClientRect().height)
+    return { rows: rows.length, wide: wide.length, small: small.length, low: Math.min(...heights) }
+  })
+  expect(layout.rows).toBeGreaterThan(1)
+  expect(layout).toMatchObject({ wide: 0, small: 0 })
+  expect(layout.low).toBeGreaterThanOrEqual(52)
+}
 
 /**
  * The page cannot scroll sideways and every visible command bar control ends inside the
@@ -344,4 +361,116 @@ test('growing past the phone width closes the drawer and focuses the grid', asyn
 
   await expect(drawer).toBeHidden()
   await expect(page.getByRole('grid', { name: 'Financial results' })).toBeFocused()
+})
+
+test.describe('phone rows by touch', () => {
+  test.use({ hasTouch: true, viewport: phone })
+
+  test('the tap area selects, a row drills or opens Info, and ⋯ opens the row actions', async ({
+    page,
+    server,
+  }) => {
+    await openMoneyflow(page, server)
+    await expectCompactRows(page)
+    const grid = page.getByRole('grid', { name: 'Financial results' })
+    const grocery = grid.getByRole('row').filter({ hasText: 'Corner Grocery' })
+    await cell(grocery, 'select').tap()
+    await expect(grocery).toHaveAttribute('aria-selected', 'true')
+    await cell(grocery, 'select').tap()
+    await expect(grocery).toHaveAttribute('aria-selected', 'false')
+    await cell(grocery, 'net').tap()
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+      'Corner Grocery',
+    )
+    const first = grid.locator('[role="row"][aria-rowindex="2"]')
+    await expect(cell(first, 'merchant')).toHaveText('Corner Grocery')
+    await expectCompactRows(page)
+    await cell(first, 'category').tap()
+    const information = page.getByRole('dialog', { name: 'Transaction information' })
+    await expect(information).toContainText('Corner Grocery')
+    await page.keyboard.press('Escape')
+    await expect(information).toBeHidden()
+
+    const more = first.getByRole('button', { name: 'Actions for Corner Grocery' })
+    await more.tap()
+    const sheet = page.getByRole('dialog', { name: 'Corner Grocery' })
+    await expect(sheet.getByRole('button')).toHaveText([
+      '',
+      'Merchant',
+      'Category',
+      'Hide',
+      'Delete',
+      'Info',
+    ])
+    await expectTouchTargets(sheet)
+    await page.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+    await expect(more).toBeFocused()
+    // Esc closed only the sheet; it did not also go back a level.
+    await expect(cell(first, 'merchant')).toHaveText('Corner Grocery')
+
+    for (const [item, editor] of [
+      ['Merchant', 'Edit merchant'],
+      ['Category', 'Change category'],
+      ['Delete', 'Confirm deletion'],
+    ]) {
+      await more.tap()
+      await sheet.getByRole('button', { name: item }).tap()
+      const dialog = page.getByRole('dialog', { name: editor, exact: true })
+      await expect(dialog).toBeVisible()
+      await expect(sheet).toBeHidden()
+      await page.keyboard.press('Escape')
+      await expect(dialog).toBeHidden()
+      await expect(more).toBeFocused()
+    }
+
+    await more.tap()
+    await sheet.getByRole('button', { name: 'Hide' }).tap()
+    await expect(sheet).toBeHidden()
+    await expect(first).toContainText('Hidden')
+    await expect(page.getByText(/1 pending/)).toBeVisible()
+    await expect(more).toBeFocused()
+  })
+})
+
+test('641–899 px: Context drops below 760 px and the table scrolls under sticky ☐ and Name', async ({
+  page,
+  server,
+}) => {
+  await page.setViewportSize({ width: 700, height: 800 })
+  await openMoneyflow(page, server)
+  const grid = page.getByRole('grid', { name: 'Financial results' })
+  const workspace = page.locator('.mf-workspace')
+  const header = (key: string) => grid.locator(`.mf-table__header [data-column="${key}"]`)
+  await expect(header('context')).toHaveCount(0)
+  const shown = (await workspace.boundingBox())!
+  const net = (await header('net').boundingBox())!
+  expect(net.x + net.width).toBeLessThanOrEqual(shown.x + shown.width)
+
+  await page.setViewportSize({ width: 820, height: 800 })
+  await expect(header('context')).toHaveText('Top category')
+  const row = grid.locator('[role="row"][aria-rowindex="2"]')
+  const boxes = async () => ({
+    select: (await cell(row, 'select').boundingBox())!.x,
+    name: (await cell(row, 'name').boundingBox())!.x,
+    header: (await header('name').boundingBox())!.x,
+    context: (await cell(row, 'context').boundingBox())!.x,
+  })
+  const before = await boxes()
+  const overflow = await workspace.evaluate((node) => node.scrollWidth - node.clientWidth)
+  expect(overflow).toBeGreaterThan(0)
+  await workspace.evaluate((node) => (node.scrollLeft = node.scrollWidth))
+  await expect.poll(async () => (await boxes()).context).toBeLessThan(before.context - overflow + 1)
+  const after = await boxes()
+  expect(after).toMatchObject({ select: before.select, name: before.name, header: before.header })
+
+  // The header stays on top of the rows while the table scrolls down.
+  const scrollport = (await workspace.boundingBox())!
+  await workspace.evaluate((node) => (node.scrollTop = 600))
+  await expect.poll(async () => (await header('name').boundingBox())!.y).toBe(scrollport.y)
+  const covering = await header('name').evaluate((node) => {
+    const box = node.getBoundingClientRect()
+    return document.elementFromPoint(box.x + 4, box.y + box.height / 2)?.closest('[role]')?.role
+  })
+  expect(covering).toBe('columnheader')
 })
