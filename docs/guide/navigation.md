@@ -1,7 +1,8 @@
 # Navigate and search
 
 Use `g` to group by merchant, category, group, account, or time. Press Enter to inspect
-the selected group and Esc to return. `d` opens individual transactions; `A` opens accounts.
+the selected group and Esc to return. Inside a group, `g` breaks its transactions down by
+another of those dimensions. `d` opens individual transactions; `A` opens accounts.
 
 In this checkout, grouped tables in the TUI and browser show **In**, **Out**, and **Net**.
 In sums positive amounts; Out sums negative amounts; Net combines them. Amount sorting and
@@ -13,6 +14,19 @@ At narrow terminal widths, the table omits Top Category to keep these amounts re
 Use arrows or `j`/`k` to move. In the TUI, Page Up/Page Down move by a visible page;
 `T` and `B` jump to the top and bottom. Reversing sort with `v` returns the cursor to
 the top. `s` changes the sort field.
+
+## Go back with Esc
+
+Each Esc press undoes one step, in this order:
+
+1. Close an open dialog or popup.
+2. Clear the selection.
+3. Clear a search applied at this level.
+4. Remove the breakdown of the current group.
+5. Return to the previous view.
+
+At the top level with nothing to undo, Esc does nothing. Returning does not restore an
+earlier selection, and it keeps the current period and filters.
 
 ## Choose a year, month, or day
 
@@ -46,12 +60,17 @@ drill-downs while preserving your grouping, search, and merchant, category, grou
 selection. The selected period appears above the table.
 
 After choosing a period, left and right move to adjacent years, months, or days at that
-resolution; `a` returns to all time.
+resolution; `a` returns to all time and removes any period drill-down.
 Enter still opens a selected group and Esc returns to its summary.
 
-To browse grouped periods instead, use `Ctrl+t` to jump to Time grouping. Press it again to
-cycle year, month, and day. In the browser, `t` cycles those units within Time grouping.
-While drilled into a period, left and right move to adjacent periods.
+To browse grouped periods instead, use `Ctrl+t` in the TUI to jump to Time grouping. Press
+it again to cycle year, month, and day. The browser has no key for these units.
+
+When you have drilled into a period and no single year, month, or day is selected, left and
+right select the period next to that drill-down. Every period change, whether from these
+keys, `a`, the chooser, or a date filter, removes period drill-downs and keeps the others.
+If a period drill-down was the only one and you had broken it down, the breakdown becomes
+the top-level grouping. Left, right, and `a` work the same way in the TUI and the browser.
 
 ## Search
 
