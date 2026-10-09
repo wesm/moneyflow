@@ -1404,6 +1404,8 @@ export interface components {
       aggregate_rows?: components['schemas']['AggregateRow'][] | null
       amazon_match_column: boolean
       amazon_settings?: components['schemas']['AmazonSettings']
+      /** Format: int64 */
+      anchor_index?: number
       api_schema_version: string
       breadcrumb_text: string
       breadcrumbs: components['schemas']['Breadcrumb'][] | null
@@ -1767,6 +1769,7 @@ export interface components {
       kind: string
     }
     ViewBody: {
+      anchor?: string
       query: string
       selection?: string
       window: components['schemas']['Window']

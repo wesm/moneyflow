@@ -1050,3 +1050,81 @@ func TestProjectViewOmitsNetRatioFromNonTimeRows(t *testing.T) {
 		assert.Nil(t, row.NetRatio)
 	}
 }
+
+func TestProjectViewAnchorReturnsTheAlignedWindowHoldingTheRow(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 650)
+	state := DefaultViewState()
+	third, err := service.ProjectView(state, EmptySelection(), WindowRequest{Offset: 400})
+	require.NoError(t, err)
+	require.NotEmpty(t, third.AggregateRows)
+	anchored := third.AggregateRows[37]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, Window{Offset: 400, Limit: DefaultWindowLimit, Count: 200}, projection.Window)
+	require.NotNil(t, projection.AnchorIndex)
+	assert.Equal(t, anchored.Index, *projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+	assert.Equal(t, anchored.Identity, projection.AggregateRows[*projection.AnchorIndex-400].Identity)
+}
+
+func TestProjectViewAnchorKeepsTheLimitAlignmentOfTheRequest(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 650)
+	state := DefaultViewState()
+	all, err := service.ProjectView(state, EmptySelection(), WindowRequest{Offset: 400, Limit: 250})
+	require.NoError(t, err)
+	anchored := all.AggregateRows[10]
+
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Offset: 0, Limit: 250, Anchor: anchored.Identity},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 250, projection.Window.Limit)
+	assert.Equal(t, 0, projection.Window.Offset%250)
+	assert.LessOrEqual(t, projection.Window.Offset, *projection.AnchorIndex)
+	assert.Less(t, *projection.AnchorIndex, projection.Window.Offset+projection.Window.Limit)
+}
+
+func TestProjectViewWithoutAnchorReportsNoAnchor(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 250)
+	projection, err := service.ProjectView(DefaultViewState(), EmptySelection(), WindowRequest{})
+	require.NoError(t, err)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.False(t, projection.AnchorMissing)
+}
+
+func TestProjectViewMissingAnchorKeepsTheRequestedWindow(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 450)
+	projection, err := service.ProjectView(
+		DefaultViewState(), EmptySelection(),
+		WindowRequest{Offset: 200, Anchor: "merchant:3:Nowhere:2:USD"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.True(t, projection.AnchorMissing)
+}
+
+func TestProjectViewTransactionViewIgnoresTheAnchor(t *testing.T) {
+	t.Parallel()
+
+	service := selectionService(t, 450)
+	state := ViewState{Version: ViewStateSchemaVersion, Current: selectionDetailState()}
+	projection, err := service.ProjectView(
+		state, EmptySelection(), WindowRequest{Offset: 200, Anchor: "txn-300"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 200, projection.Window.Offset)
+	assert.Nil(t, projection.AnchorIndex)
+	assert.True(t, projection.AnchorMissing)
+}

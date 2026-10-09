@@ -57,9 +57,12 @@ func (webErr *WebError) Unwrap() error {
 }
 
 // WindowRequest asks for one bounded row range. A zero value uses the default limit.
+// A non-empty Anchor is an aggregate row identity; when the result holds that row, the
+// window moves to the limit-aligned range that contains it and Offset is ignored.
 type WindowRequest struct {
 	Offset int
 	Limit  int
+	Anchor string
 }
 
 // RowTarget identifies one row without trusting a browser index.
@@ -166,8 +169,12 @@ type WebProjection struct {
 	Statistics        []domain.CurrencyStats
 	Currencies        []domain.CurrencyCount
 	Chart             ChartProjection
-	Status            string
-	AuditWarning      string
+	// AnchorIndex is the global index of the requested anchor row; nil unless it was found.
+	AnchorIndex *int
+	// AnchorMissing reports a requested anchor that no aggregate row of the result matches.
+	AnchorMissing bool
+	Status        string
+	AuditWarning  string
 }
 
 // AmazonProjectionSettings carries immutable import money settings without source facts.
@@ -297,6 +304,7 @@ func (service *Service) projectRows(
 ) error {
 	var err error
 	projection.TotalRows = resultRowCount(result)
+	window = anchoredWindow(projection, result, window)
 	projection.Window = windowResult(window, projection.TotalRows)
 	projection.DetailRows = detailWindow(result.DetailRows, projection.Window)
 	service.decorateStagedValues(projection.DetailRows)
@@ -810,6 +818,25 @@ func normalizeWindow(window WindowRequest) (WindowRequest, error) {
 		return WindowRequest{}, invalidWebRequest(errors.New("window limit is out of range"))
 	}
 	return window, nil
+}
+
+// anchoredWindow moves the window to the aligned range holding the anchor row. It records
+// the row's index on the projection, or AnchorMissing when the result has no such aggregate row.
+func anchoredWindow(
+	projection *WebProjection, result domain.QueryResult, window WindowRequest,
+) WindowRequest {
+	if window.Anchor == "" {
+		return window
+	}
+	for index, row := range result.AggregateRows {
+		if AggregateIdentity(row) == window.Anchor {
+			projection.AnchorIndex = &index
+			window.Offset = index - index%window.Limit
+			return window
+		}
+	}
+	projection.AnchorMissing = true
+	return window
 }
 
 func windowResult(request WindowRequest, total int) Window {

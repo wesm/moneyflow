@@ -1781,6 +1781,10 @@ components:
           type: boolean
         amazon_settings:
           $ref: "#/components/schemas/AmazonSettings"
+        anchor_index:
+          format: int64
+          minimum: 0
+          type: integer
         api_schema_version:
           type: string
         breadcrumb_text:
@@ -2778,6 +2782,9 @@ components:
     ViewBody:
       additionalProperties: false
       properties:
+        anchor:
+          maxLength: 4096
+          type: string
         query:
           maxLength: 65536
           type: string

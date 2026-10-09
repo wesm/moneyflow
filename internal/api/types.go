@@ -38,6 +38,8 @@ type ViewBody struct {
 	Query     string `json:"query" maxLength:"65536"`
 	Selection string `json:"selection,omitempty" maxLength:"1468006"`
 	Window    Window `json:"window"`
+	// Anchor is an aggregate row identity. The server returns the window that holds the row.
+	Anchor string `json:"anchor,omitempty" maxLength:"4096"`
 }
 
 // TransitionTarget identifies a projected row by its server-issued stable identity.
@@ -223,6 +225,8 @@ type Capability struct {
 	Reason      string       `json:"reason,omitempty"`
 }
 
+const warningAnchorMissing = "anchor_missing"
+
 // Warning is a safe announced non-fatal condition.
 type Warning struct {
 	Code   string `json:"code"`
@@ -278,6 +282,8 @@ type Projection struct {
 	Chart                   Chart           `json:"chart"`
 	Status                  string          `json:"status,omitempty"`
 	Warnings                []Warning       `json:"warnings,omitempty"`
+	// AnchorIndex is the global index of the requested anchor row; absent unless it was found.
+	AnchorIndex *int `json:"anchor_index,omitempty" minimum:"0"`
 }
 
 // AmazonSettings carries immutable money parsing settings for repeat imports.
@@ -305,7 +311,13 @@ func projectionToWire(
 			Count: projection.Window.Count,
 		},
 		Status: projection.Status, Warnings: append([]Warning(nil), warnings...),
-		AmazonMatchColumn: projection.AmazonMatchColumn,
+		AmazonMatchColumn: projection.AmazonMatchColumn, AnchorIndex: projection.AnchorIndex,
+	}
+	if projection.AnchorMissing {
+		wire.Warnings = append(wire.Warnings, Warning{
+			Code:   warningAnchorMissing,
+			Detail: "The requested row is not in this view.",
+		})
 	}
 	if projection.AuditWarning != "" {
 		wire.Warnings = append(wire.Warnings, Warning{Code: "audit_completion_failed", Detail: projection.AuditWarning})
